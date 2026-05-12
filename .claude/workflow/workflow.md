@@ -122,9 +122,9 @@ cross-track impact.
 ## Startup Protocol (Auto-Resume)
 
 1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
-   (not the backlog — startup reads only the plan;
-   `implementation-backlog.md` is loaded later, when a track enters Phase A
-   or is skipped).
+   (startup reads only the plan; per-track step files at
+   `tracks/track-N.md` are loaded later, when a track enters Phase A
+   or its description is being amended).
 
 2. **Identify all tracks** and their status:
    - `[ ]` — not started
@@ -159,7 +159,7 @@ cross-track impact.
 
    | Progress section | Resume action |
    |---|---|
-   | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume — Description-move recovery (often a no-op), then re-run only missing reviews and decompose. |
+   | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume (often a no-op since the step file already has its description from Phase 1), then re-run only missing reviews and decompose. |
    | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
    | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
@@ -234,9 +234,9 @@ Phase boundaries are **mandatory** session boundaries. Each session handles
 exactly one phase:
 
 - **After State 0 (autonomous plan review)** — both consistency and
-  structural reviews have passed, the plan/backlog/design have been
-  fixed (mechanical fixes auto-applied; design decisions resolved by
-  the user), `## Plan Review` is marked `[x]` with the audit summary,
+  structural reviews have passed, the plan / step files / design have
+  been fixed (mechanical fixes auto-applied; design decisions resolved
+  by the user), `## Plan Review` is marked `[x]` with the audit summary,
   and the workflow-update commit has been pushed. Session ends. Next
   session starts Phase A of Track 1.
 
@@ -345,7 +345,7 @@ User interaction points:
 |---|---|---|
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
-| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + backlog Track N section (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Proceed; adjust (light edits to any remaining track's plan/backlog including reorder, applied directly); clarify (notes captured for inclusion in the upcoming track's step-file `## Description`, written at Phase A sub-step 2c); or ESCALATE (Panel 1 ESCALATE accepted, or deep amendment requested) → inline replanning. Skipped on State C resume. |
+| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the step file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Proceed; adjust (light edits to any remaining track's plan / step file including reorder, applied directly); clarify (notes written into the upcoming track's step-file `## Description` as a `### Clarifications` subsection on Proceed); or ESCALATE (Panel 1 ESCALATE accepted, or deep amendment requested) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
@@ -414,7 +414,7 @@ branch:
    § Step 4; push.
 2. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
-   (plan, backlog, design.md, design-mechanics.md, step files,
+   (plan, design.md, design-mechanics.md, step files,
    design-mutations log). Commit with a message such
    as `Remove workflow scaffolding`. Push.
 

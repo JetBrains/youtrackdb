@@ -115,7 +115,7 @@ only track-level or decision-level changes require escalation.
 Architecture notes document the structural context and design decisions for the plan.
 They live in the `## High-level plan > ### Architecture Notes` section of the plan file.
 
-### Boundary with `design.md` and `implementation-backlog.md`
+### Boundary with `design.md` and step files
 
 Architecture Notes carry the **strategic** shape of the design — what
 components are touched, what decisions were made, what must remain true,
@@ -123,9 +123,9 @@ where new code plugs in. Long-form material — worked examples, layered
 design diagrams, audit findings, edit-by-edit walk-throughs, crash
 scenarios, multi-paragraph rationale derivations — **does not belong
 here**. It belongs in `design.md` (long-form architectural and
-behavioral design) or `implementation-backlog.md` (per-track edit
-detail). Architecture Notes link to those longer documents rather than
-duplicating them.
+behavioral design) or `tracks/track-N.md` `## Description` (per-track
+edit detail). Architecture Notes link to those longer documents rather
+than duplicating them.
 
 The plan file is loaded at every `/execute-tracks` session startup, so
 bloat in Architecture Notes is paid by every Phase A/B/C session for
@@ -138,8 +138,8 @@ alongside its format rules.
 > multi-paragraph derivation, a code-change inventory, or a "here is
 > how all the pieces fit together" walk-through inside a decision
 > record, an invariant, or an integration-point bullet, **stop and
-> move it to `design.md`** (or, if it is per-track edit detail, to
-> `implementation-backlog.md`). Replace the original location with a
+> move it to `design.md`** (or, if it is per-track edit detail, to the
+> step file's `## Description`). Replace the original location with a
 > one-line link.
 
 ### Per-section budget at a glance
@@ -164,9 +164,9 @@ Each section below restates its own budget alongside its format rules.
 Where a plan would exceed a budget, the long-form material almost
 always belongs in `design.md` (worked examples, layered diagrams,
 complex-topic walk-throughs, multi-paragraph rationale) or
-`implementation-backlog.md` (per-track edit detail — files, classes,
-methods, edit ordering). The structural review (Phase 2) enforces the
-budgets as first-class findings — see
+`tracks/track-N.md` `## Description` (per-track edit detail — files,
+classes, methods, edit ordering). The structural review (Phase 2)
+enforces the budgets as first-class findings — see
 [`structural-review.md`](structural-review.md) § Bloat checks.
 
 ### Required sections
@@ -214,8 +214,8 @@ Every plan must include these two sections:
   to its long-form design*. Worked examples, audit findings, edit-by-
   edit guidance, layered designs, and crash-scenario walk-throughs
   **do not belong here** — they belong in `design.md` (long-form
-  design) or `implementation-backlog.md` (per-track edit detail). The
-  DR links to those rather than absorbing them.
+  design) or the step file's `## Description` (per-track edit detail).
+  The DR links to those rather than absorbing them.
 - **Superseded DRs are deleted, not retained.** When a decision is
   replaced (e.g., DN supersedes DM), remove DM from the plan entirely
   and document the supersession in DN's rationale ("This replaces an
@@ -249,8 +249,8 @@ result tables, edit-list bullets, crash-scenario walk-throughs. The
 fix is mechanical: **trim back to the four-bullet form** and move the
 long-form material to a new (or existing) `design.md` section, linked
 from `Full design`. If the displaced material is per-track edit detail
-(files to touch, methods to add), move it to the track section in
-`implementation-backlog.md` instead.
+(files to touch, methods to add), move it to that track's step file
+`## Description` instead.
 
 ### Optional sections (include when applicable)
 
@@ -319,7 +319,7 @@ scope creep during execution.
    *Per-section budget at a glance* table above and each section's own
    rules for the rationale). Exceeding a budget is the signal that
    long-form material has leaked into the plan and should move to
-   `design.md` or `implementation-backlog.md`.
+   `design.md` or the relevant track's step file `## Description`.
 9. **No plan/design duplication.** If a decision record, invariant, or
    integration-point bullet starts to repeat prose that already exists
    in `design.md`, replace the duplicated body with a one-line link to
@@ -337,17 +337,17 @@ Each **track** in the checklist is described across two files:
   line and, when applicable, the `**Depends on:**` line. This is the
   content every `/execute-tracks` session loads at startup, so keep it
   compact.
-- **`implementation-backlog.md` (detailed description):** a `## Track N:
-  <title>` section with bold-label blockquote subsections covering the
-  full detail. The intro paragraph lives in the plan entry only — the
-  backlog section carries only the `**What/How/Constraints/Interactions**`
-  subsections and any optional track-level diagram. Phase A assembles
-  the step file's `## Description` section from both sources (intro
-  from the plan; detail from the backlog). This content is read only
-  in Phase A of one track per session; there is no length cap — make
-  it as long as the execution agent needs.
+- **`tracks/track-N.md` (detailed description):** the step file's
+  `## Description` section, written by `create-plan` at Phase 1. It
+  carries the same intro paragraph (so the step file is self-sufficient
+  context for Phase B/C sub-agents that don't read the plan) followed by
+  the `**What/How/Constraints/Interactions**` subsections and any
+  optional track-level Mermaid diagram. This content is read on demand
+  — by Phase 2 reviews for pending tracks and by Phase A/B/C of the
+  active track — so there is no length cap; make it as long as the
+  execution agent needs.
 
-The detailed description in the backlog should cover:
+The detailed description in the step file should cover:
 - **What** the track achieves (concrete deliverables — files to touch,
   APIs to add, behaviors to change)
 - **How** (high-level approach — sequencing, invariants to preserve,
@@ -358,9 +358,10 @@ The detailed description in the backlog should cover:
   ordering, hand-off artifacts)
 
 The file format and template for both files are defined in
-`conventions.md` §1.2; the authoritative location of the detailed
-description over time (Phase 1 → Phase A → Phase B/C) is given by the
-description-lifecycle table in `conventions-execution.md` §2.1.
+`conventions.md` §1.2 and the step-file template in
+`conventions-execution.md` §2.1; the authoritative location of the
+detailed description over time (Phase 1 → Phase A → Phase B/C) is given
+by the description-lifecycle table in `conventions-execution.md` §2.1.
 
 **Track sizing rule:** If a track would need more than ~5-7 steps, split it
 into separate dependent tracks during planning. The execution agent
@@ -375,18 +376,14 @@ Optional Mermaid diagrams that belong with a track's **detailed
 description**, for when the track has 3+ internal components with
 non-trivial interactions and the flow isn't obvious from the prose alone.
 
-Location lifecycle:
-- **Phase 1 (planning):** the diagram is written inside the track's
-  section of `implementation-backlog.md` as a separate fenced `mermaid`
-  block immediately after the `**Interactions**:` blockquote (outside
-  the blockquote — see the template in `conventions.md` §1.2). It is
-  **never rendered in `implementation-plan.md`** — plan readers who
-  want visual reasoning about a specific track open the backlog (or,
-  after Phase A, the step file).
-- **Phase A (start of track execution):** the diagram moves with the
-  rest of the description into the step file's `## Description`
-  section. See the lifecycle row for track-level diagrams in
-  `conventions-execution.md` §2.1.
+Location: the diagram is written inside the step file's `## Description`
+as a separate fenced `mermaid` block immediately after the
+`**Interactions**:` blockquote (outside the blockquote — see the
+step-file template in `conventions-execution.md` §2.1). It is **never
+rendered in `implementation-plan.md`** — plan readers who want visual
+reasoning about a specific track open `tracks/track-N.md`. Phase 1
+writes the diagram alongside the rest of the description; Track
+Pre-Flight may amend it; inline replanning may rewrite it.
 
 Rules:
 - Scoped to the track — don't repeat the top-level Component Map. If a

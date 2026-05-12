@@ -697,11 +697,11 @@ implementation plan:
      indicator, and dependency notation (typically depends on the current
      track). Follow the same format as other tracks in the plan.
 
-2. **Save plan changes** — update `implementation-plan.md` (and
-   `implementation-backlog.md` if a new track's
+2. **Save plan changes** — update `implementation-plan.md` and, if a
+   new track was added or an existing track's
    `**What/How/Constraints/Interactions**` subsections need
-   somewhere to live) on disk. Note the finding IDs that motivated
-   each plan correction.
+   somewhere to live, the corresponding `tracks/track-<M>.md` step
+   file. Note the finding IDs that motivated each plan correction.
 
 3. **Commit and push the plan corrections** as a separate Workflow
    update commit (per `commit-conventions.md` § Commit type
@@ -710,13 +710,14 @@ implementation plan:
 
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/implementation-backlog.md
+           docs/adr/<dir-name>/_workflow/tracks/track-<M>.md \
+           ... (one path per modified or newly created step file)
    git commit -m "Apply plan corrections from <track> review"
    git push
    ```
 
-   Stage explicit paths only. Drop `implementation-backlog.md` from
-   the `git add` if no new track was added.
+   Stage explicit paths only. Drop step-file paths from the `git add`
+   if no step file was modified or created.
 
 If no findings were deferred, skip this section.
 
@@ -795,9 +796,10 @@ proceed directly to track completion **in the same session**.
    during Phase 1, so there are no
    `**What**: / **How**: / **Constraints**: / **Interactions**:`
    subsections present in the plan-file entry to drop — the detailed
-   description was removed from the backlog at Phase A start and
-   already lives in the step file's `## Description` section. Phase C
-   does not touch the backlog.
+   description has lived in the step file's `## Description` section
+   from Phase 1 onward. Phase C does not touch the step file's
+   description either; it only writes the track episode + collapse
+   into the plan-file entry.
 
    **Track episode fields:**
    - Strategic summary covering: what was built, key discoveries, plan

@@ -34,15 +34,15 @@ design document.
 | `implementation-plan.md` | Goals, constraints, the **decisions themselves** (alternatives / rationale / risks / where-implemented / link-to-design), the Component Map (topology + short intent bullets), short invariant statements, short integration-point bullets, the track checklist. **Strategic, scannable, loaded every session.** |
 | `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; references footer. **Loaded only when referenced; serves both human reviewers and execution agents.** |
 | `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in design.md's mechanism overview. **Created only when design.md exceeds the length trigger; cross-referenced from design.md's References footer.** |
-| `implementation-backlog.md` | Per-track concrete deliverables — files, classes, methods, edit lists, ordering constraints, track-level diagrams. **Per-track edit detail, loaded only in Phase A of one track per session.** |
+| `tracks/track-N.md` `## Description` | Per-track concrete deliverables — files, classes, methods, edit lists, ordering constraints, track-level diagrams. **Per-track edit detail; written by `create-plan` at Phase 1; loaded only in Phase A of one track per session (and by Phase 2 reviews of pending tracks).** |
 
 > **The rule, succinctly:** if you find yourself writing a worked
 > example, a multi-paragraph derivation, a code-change inventory, or
 > a "here is how all the pieces fit together" walk-through inside a
 > decision record, an invariant, or an integration-point bullet,
 > **stop and move it to `design.md`** (or, if it is per-track edit
-> detail, to `implementation-backlog.md`). Replace the original
-> location with a one-line link.
+> detail, to that track's `tracks/track-N.md` `## Description`).
+> Replace the original location with a one-line link.
 
 The reciprocal pointer is the `**Full design**: design.md §<section>`
 line in the Decision Record template (see `planning.md` § Decision
@@ -171,12 +171,12 @@ time.
 | `design-sync` (re-distill design.md from current mechanics) | both files | `both` | **Whole-doc** on `design.md`, plus mechanics-link sweep |
 | `content-edit` within an existing section | `design.md` | `design` | **Bounded** — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
 | `section-add` | `design.md` | `design` | **Bounded** — new section + Overview + (when present) Core Concepts + structure roadmap (for placement check) |
-| `section-remove` | `design.md` (+ plan/backlog ref cleanup) | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
-| `section-rename` | `design.md` + (when mechanics exists) the matching section in `design-mechanics.md` + plan/backlog ref propagation | `design \| both` | **Whole-doc** — every cross-reference to the renamed section must be updated, including the matching mechanics heading and every `**Full design**` ref in plan and backlog |
+| `section-remove` | `design.md` (+ plan / step-file ref cleanup) | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
+| `section-rename` | `design.md` + (when mechanics exists) the matching section in `design-mechanics.md` + plan / step-file ref propagation | `design \| both` | **Whole-doc** — every cross-reference to the renamed section must be updated, including the matching mechanics heading and every `**Full design**` ref in the plan and in every step file |
 | `section-move` | `design.md` | `design` | **Whole-doc** — verify the new placement makes sense in the reader journey |
 | `structural-rewrite` (multiple section adds/moves/renames) | `design.md` + (when mechanics exists and any rename or split propagates) the matching sections in `design-mechanics.md` | `design \| both` | **Whole-doc** |
 | `length-trigger-crossing` (file crosses the 2,000-line / 50,000-token trigger) | both files | `both` | **Whole-doc** — verify split into `design-mechanics.md` is correctly applied |
-| `phase4-creation` (Phase 4 production of `design-final.md` ± `design-mechanics-final.md`) | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | **Whole-doc** on `design-final.md`. Plan/backlog ref propagation is **N/A** — Phase 4 produces a *new* committed artifact whose section structure may differ from the original `design.md`; the plan/backlog `**Full design**` refs continue to point at the original (frozen) `design.md`, not at the final variant. The skill omits `--plan-path` / `--backlog-path` so the cross-file ref check is naturally skipped. |
+| `phase4-creation` (Phase 4 production of `design-final.md` ± `design-mechanics-final.md`) | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | **Whole-doc** on `design-final.md`. Plan / step-file ref propagation is **N/A** — Phase 4 produces a *new* committed artifact whose section structure may differ from the original `design.md`; the plan and step files' `**Full design**` refs continue to point at the original (frozen) `design.md`, not at the final variant. The skill omits `--plan-path` / `--tracks-dir` so the cross-file ref check is naturally skipped. |
 
 **Periodic whole-doc check.** Every Nth design-touching mutation
 (default N=5, counted from the review log) triggers a whole-doc
@@ -210,7 +210,7 @@ context to disambiguate.
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% Jaccard overlap on custom sub-headings → flag for consolidation. Pairs above the threshold are merged via union-find so a near-duplicate cluster (e.g. 5 sections sharing `### Inputs / ### Algorithm / ### Outputs` plus one with an extra `### Edge Cases`) flags as a single same-shape group. |
 | `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the References footer, but the script flags any unresolved reference regardless of how the line is prefixed. |
-| `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and `implementation-backlog.md` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
+| `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and in every step file under `tracks/` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
 
 ### Findings and severities
 
@@ -353,8 +353,8 @@ current state of `design-mechanics.md`:
   in `design.md`.
 - Sections **removed** in mechanics are removed from `design.md`.
 - Sections **renamed** in mechanics propagate the rename to
-  `design.md` and to every `**Full design**` ref in plan and
-  backlog.
+  `design.md` and to every `**Full design**` ref in the plan and
+  in every step file under `tracks/`.
 
 The sync's cold-read sub-agent gets an extended instruction:
 *"Verify that every TL;DR and mechanism overview in design.md
@@ -649,8 +649,8 @@ name the D-codes because they are the subject. Use sparingly.
 Renames and consolidations break references. When `design.md` or
 `design-mechanics.md` is restructured, every `**Full design**:
 design.md §"<section name>"` line in `implementation-plan.md`
-and `implementation-backlog.md` that references the old name
-**MUST be updated in the same commit** that renames the section.
+and in every `tracks/track-N.md` step file that references the old
+name **MUST be updated in the same commit** that renames the section.
 Same rule for any file that cross-links to the design document.
 
 The structural review's design-doc bloat checks include a "Full
@@ -792,8 +792,8 @@ that warrant dedicated sections:
     `design-mechanics.md`. Section names match between files.
 12. **D/S codes follow the discipline** — no parenthetical
     asides; allowed when subject; collected in References footer.
-13. **Section renames update all `**Full design**` refs in plan
-    and backlog same commit.**
+13. **Section renames update all `**Full design**` refs in the plan
+    and in every step file under `tracks/` in the same commit.**
 14. **Complex parts are mandatory** — if any part of the design involves concurrency,
     crash recovery, performance-critical paths, or non-obvious invariants, it MUST
     have a dedicated section. Omitting these is a structural review finding.

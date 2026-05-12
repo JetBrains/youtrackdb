@@ -30,8 +30,10 @@ warning, or pass.
 - `plan_path` (optional) — absolute path to
   `implementation-plan.md`. Read **only** to verify
   `**Full design**` link resolution, never for context.
-- `backlog_path` (optional) — same: read only for link
-  resolution.
+- `tracks_dir` (optional) — same: a directory of
+  `tracks/track-N.md` step files, each potentially carrying
+  `**Full design**` references inside its `## Description`.
+  Read **only** for link resolution, never for context.
 
 ### Mutation-kind specific instructions
 
@@ -61,8 +63,8 @@ warning, or pass.
   **Phase 4 is committed to git** and read by humans (PR
   reviewers, future re-readers, decision auditors), so the bar
   is higher than Phase 1: the artifact must stand on its own as
-  documentation — no reliance on working files (plan, backlog,
-  tracks), since those live under `_workflow/` and are removed
+  documentation — no reliance on working files (plan, step
+  files), since those live under `_workflow/` and are removed
   by the Phase 4 cleanup commit before merge.
 
   **In addition to the standard whole-doc cold-read AND the
@@ -190,9 +192,9 @@ absent audience framing is.
 - **Whole-doc scope**: read the entire `design.md`. Read
   `design-mechanics.md` only when verifying that a
   `Mechanics: design-mechanics.md §"…"` link resolves.
-- **Plan / backlog reads** are restricted to grepping for
+- **Plan / step-file reads** are restricted to grepping for
   `**Full design**` lines and verifying the targets exist.
-  Do not read plan or backlog content for context.
+  Do not read plan or step-file content for context.
 
 ## Comprehension questions
 
@@ -249,7 +251,7 @@ enough to answer, that itself is a finding.
   appears in Core Concepts; each entry has a `→ Part X §"…"`
   pointer; no concept entries name removed Parts.
 - (**Whole-doc scope only**) **`**Full design**` refs in plan
-  and backlog all resolve** to real `design.md` sections.
+  and step files all resolve** to real `design.md` sections.
 
 ## Output format
 

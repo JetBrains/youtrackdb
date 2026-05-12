@@ -11,7 +11,7 @@ Usage:
         --design-path docs/adr/<dir>/_workflow/design.md \
         [--design-mechanics-path docs/adr/<dir>/_workflow/design-mechanics.md] \
         [--plan-path docs/adr/<dir>/_workflow/implementation-plan.md] \
-        [--backlog-path docs/adr/<dir>/_workflow/implementation-backlog.md] \
+        [--tracks-dir docs/adr/<dir>/_workflow/tracks/] \
         [--changed-section "Section Title"] \
         [--target design|mechanics|both] \
         [--scope bounded|whole-doc]
@@ -1087,21 +1087,21 @@ def check_full_design_link_resolution(
     design_lines: List[str],
     plan_path: Optional[str],
     plan_lines: Optional[List[str]],
-    backlog_path: Optional[str],
-    backlog_lines: Optional[List[str]],
+    track_files: Optional[List[Tuple[str, List[str]]]],
     design_mechanics_path: Optional[str],
     design_mechanics_lines: Optional[List[str]],
 ) -> List[Dict]:
-    """Every `**Full design**: <design-basename> §"<name>"` in plan and
-    backlog must resolve to a heading in design.md (and any chained
-    `<mechanics-basename> §"<name>"` must resolve in mechanics).
+    """Every `**Full design**: <design-basename> §"<name>"` in the plan and
+    in any step file (`tracks/track-N.md`) must resolve to a heading in
+    design.md (and any chained `<mechanics-basename> §"<name>"` must
+    resolve in mechanics).
 
     Basenames are derived from `--design-path` / `--design-mechanics-path` so
     the check works whether the supplied paths point at the original `design.md`
     pair or at the Phase 4 `*-final.md` variants.
     """
     findings: List[Dict] = []
-    if plan_lines is None and backlog_lines is None:
+    if plan_lines is None and not track_files:
         return findings
 
     design_basename = os.path.basename(design_path)
@@ -1132,7 +1132,7 @@ def check_full_design_link_resolution(
                 target_table = mech_norm
                 target_label = mech_basename
             elif fname in {"design-mechanics.md", "design-mechanics-final.md"}:
-                # Plan/backlog refs to a mechanics file but no mechanics path supplied.
+                # Plan / step-file refs to a mechanics file but no mechanics path supplied.
                 out.append(make_finding(
                     "blocker",
                     "full-design-link-resolution",
@@ -1163,8 +1163,9 @@ def check_full_design_link_resolution(
 
     if plan_lines is not None and plan_path is not None:
         findings.extend(check_file(plan_path, plan_lines))
-    if backlog_lines is not None and backlog_path is not None:
-        findings.extend(check_file(backlog_path, backlog_lines))
+    if track_files:
+        for track_path, track_lines in track_files:
+            findings.extend(check_file(track_path, track_lines))
     return findings
 
 
@@ -1178,7 +1179,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--design-path", required=True, help="Absolute path to design.md")
     p.add_argument("--design-mechanics-path", help="Absolute path to design-mechanics.md (optional)")
     p.add_argument("--plan-path", help="Absolute path to implementation-plan.md (optional)")
-    p.add_argument("--backlog-path", help="Absolute path to implementation-backlog.md (optional)")
+    p.add_argument("--tracks-dir", help="Absolute path to the tracks/ directory containing tracks/track-N.md step files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
                    help=("Scope of the section-bounded checks (default: whole-doc). When "
@@ -1202,7 +1203,7 @@ def parse_args() -> argparse.Namespace:
                          "use for phase1-creation, design-sync, length-trigger-crossing, and "
                          "phase4-creation mutations that touch both files. (For phase4-creation, "
                          "the --design-path and --design-mechanics-path point at the *-final.md "
-                         "variants; omit --plan-path and --backlog-path so the cross-file ref "
+                         "variants; omit --plan-path and --tracks-dir so the cross-file ref "
                          "check is naturally skipped — Phase 4 produces a new artifact, not a "
                          "modification of the original design.md.)"))
     args = p.parse_args()
@@ -1278,19 +1279,24 @@ def main() -> int:
                 "Pass an existing path or omit the flag.",
             ))
 
-    backlog_lines: Optional[List[str]] = None
-    if args.backlog_path:
-        if os.path.exists(args.backlog_path):
-            backlog_lines = read_lines(args.backlog_path)
+    track_files: Optional[List[Tuple[str, List[str]]]] = None
+    if args.tracks_dir:
+        if os.path.isdir(args.tracks_dir):
+            track_paths = sorted(
+                os.path.join(args.tracks_dir, name)
+                for name in os.listdir(args.tracks_dir)
+                if name.endswith(".md")
+            )
+            track_files = [(p, read_lines(p)) for p in track_paths]
         else:
             findings.append(make_finding(
                 "blocker",
                 "companion-path-missing",
-                args.backlog_path,
-                (f"--backlog-path was supplied but the file does not exist at "
-                 f"{args.backlog_path}. `**Full design**` ref resolution against the "
-                 "backlog would be silently skipped, masking any broken refs."),
-                "Pass an existing path or omit the flag.",
+                args.tracks_dir,
+                (f"--tracks-dir was supplied but the directory does not exist at "
+                 f"{args.tracks_dir}. `**Full design**` ref resolution against the "
+                 "step files would be silently skipped, masking any broken refs."),
+                "Pass an existing directory or omit the flag.",
             ))
 
     # design.md shape checks fire only when the mutation actually touched
@@ -1333,7 +1339,7 @@ def main() -> int:
     findings.extend(check_full_design_link_resolution(
         args.design_path, design_lines,
         args.plan_path, plan_lines,
-        args.backlog_path, backlog_lines,
+        track_files,
         args.design_mechanics_path, design_mechanics_lines))
 
     # Reverse-direction ref check: per design-document-rules.md § Length-

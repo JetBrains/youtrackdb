@@ -43,39 +43,30 @@ A track can be skipped (`[~]`) in two situations:
 
    The plan entry holds only the intro paragraph; the
    `**What/How/Constraints/Interactions**` subsections and any
-   track-level diagram lived in `implementation-backlog.md` and are
-   removed in step 3 below.
+   track-level diagram live in the step file (`tracks/track-N.md`)
+   and are removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
-   step 5 below — this process step must not diverge from that rule.
+   step 4 below — this process step must not diverge from that rule.
 
    The skip record replaces both the track episode and step file
    reference. It must include enough context for the next session's
    Track Pre-Flight Panel 1 (strategy assessment) to assess
    downstream impact.
 
-3. **Remove Track N's section from `implementation-backlog.md`**.
-   Delete per the "Backlog section body extraction rule" in
-   `conventions-execution.md` §2.1 — that rule states the
-   header-boundary algorithm (and the line-count-deletion
-   prohibition) once as the single authoritative source. Preserve
-   the backlog's opening `# <Feature> — Track Details` header.
-   No-op if the section is already gone.
+3. **Delete the step file** (`tracks/track-N.md`) from disk if one
+   exists. The step file was created at Phase 1 with `## Description`
+   populated, so it is the only on-disk artifact carrying the
+   per-track detail; the delete drops both the description and any
+   reviews / decomposition / step episodes that may have accumulated
+   during Phase A or B.
 
-   When the last remaining `## Track M:` section is removed, leave
-   the backlog file on disk with only its header — same empty-backlog
-   final-state rule that Phase A follows. The whole `_workflow/`
-   directory is removed by the Phase 4 cleanup commit before merge.
-
-   **Backlog deletion is terminal.** Un-skipping a track via inline
-   replanning requires re-authoring the plan entry's description
-   from scratch; once a track has been skipped, the backlog is no
+   **Step-file deletion is terminal.** Un-skipping a track via inline
+   replanning requires re-authoring the step file's `## Description`
+   from scratch; once a track has been skipped, the step file is no
    longer a recovery source for it.
 
-4. **Delete the step file** (`tracks/track-N.md`) from disk if one
-   exists (e.g., Phase A created it before the skip was decided).
-
-5. **Track Pre-Flight (Panel 1 strategy assessment)** treats `[~]`
+4. **Track Pre-Flight (Panel 1 strategy assessment)** treats `[~]`
    tracks the same as `[x]` tracks. A skipped track's `**Skipped:**`
    line serves as its episode — the next session's Pre-Flight gate
    reads it as the just-skipped-track signal in Panel 1 to assess
@@ -93,9 +84,9 @@ A track can be skipped (`[~]`) in two situations:
    [`track-code-review.md`](track-code-review.md) § Track Completion
    step 4); skipped tracks bypass that pass entirely. The
    `**What/How/Constraints/Interactions**` subsections and any
-   track-level diagram lived in `implementation-backlog.md` and were
-   removed in step 3 above; they are not recoverable from the plan
-   entry once a track has been skipped.
+   track-level diagram lived in the step file's `## Description` and
+   were removed in step 3 above; they are not recoverable from the
+   plan entry once a track has been skipped.
 
 ---
 
@@ -105,9 +96,9 @@ If the skip is decided during Phase A (review sub-agent recommends it and
 user confirms):
 
 - Write the `[~]` marker and skip record to the plan file on disk
-- Remove Track N's section from `implementation-backlog.md` (no-op
-  if the section is already gone)
-- Delete any partially-created step file from disk
+- Delete `tracks/track-N.md` from disk (no-op if it has already been
+  removed; for tracks reaching this point the step file always exists
+  because Phase 1 created it)
 - The session continues: if Panel 1 of the Track Pre-Flight gate was
   already cleared in this session, proceed to the next `[ ]` track's
   Phase A. If the skip changed which track is "next", re-render
@@ -121,7 +112,6 @@ user confirms):
 If the user says "skip Track N" at session start:
 
 - Write the `[~]` marker and skip record on disk (user provides the reason)
-- Remove Track N's section from `implementation-backlog.md` (no-op
-  if the section is already gone)
-- Delete any step file for that track from disk
+- Delete `tracks/track-N.md` from disk (no-op if it has already been
+  removed)
 - Continue with normal startup protocol for the next track

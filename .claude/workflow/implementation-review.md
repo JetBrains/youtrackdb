@@ -16,10 +16,11 @@ vs. current-state ambiguity, ASPIRATIONAL/VIOLATED invariants). Two steps run in
 sequence:
 
 1. **Consistency Review** — reads the design document, implementation plan,
-   backlog, and actual codebase to find gaps and inconsistencies between
-   them. Each finding carries a `Classification: mechanical | design-decision`
-   tag emitted by the sub-agent. Mechanical fixes apply automatically; design
-   decisions are batched and escalated to the user once at the end of the step.
+   step files (one per pending track), and actual codebase to find gaps and
+   inconsistencies between them. Each finding carries a
+   `Classification: mechanical | design-decision` tag emitted by the
+   sub-agent. Mechanical fixes apply automatically; design decisions are
+   batched and escalated to the user once at the end of the step.
 2. **Structural Review** — validates plan-internal structure (dependency
    ordering, track sizing, scope indicators, architecture notes, bloat).
    All bloat findings are classified `mechanical` by construction; ordering
@@ -111,7 +112,7 @@ uncommitted changes:
 ```bash
 git status --porcelain \
   docs/adr/<dir-name>/_workflow/implementation-plan.md \
-  docs/adr/<dir-name>/_workflow/implementation-backlog.md \
+  docs/adr/<dir-name>/_workflow/tracks/ \
   docs/adr/<dir-name>/_workflow/design.md \
   docs/adr/<dir-name>/_workflow/design-mechanics.md \
   docs/adr/<dir-name>/_workflow/design-mutations.md
@@ -162,9 +163,9 @@ findings.
 
 Each pending track's detailed description
 (`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) lives in `implementation-backlog.md` rather than
-inline in the plan file; the consistency review reads the backlog
-alongside the plan.
+Mermaid diagram) lives in that track's step file (`tracks/track-N.md`,
+written by `create-plan` at Phase 1) rather than inline in the plan
+file; the consistency review reads the step files alongside the plan.
 
 ### Sub-agent prompt
 
@@ -184,10 +185,10 @@ field, not on severity.
 
 ```
 Iteration 1 (full review):
-  1. Spawn the consistency sub-agent with plan, backlog, design, codebase.
+  1. Spawn the consistency sub-agent with plan, step files, design, codebase.
   2. Receive findings, each tagged Classification: mechanical | design-decision.
   3. Apply ALL mechanical fixes immediately:
-     - Plan/backlog edits: native Edit.
+     - Plan / step-file edits: native Edit.
      - design.md edits: route through the edit-design skill (mutation
        discipline — see §Mutation discipline for design.md fixes below).
   4. If any design-decision findings remain: batch-present to the user
@@ -215,10 +216,10 @@ rework the plan/design before re-entering.
 
 Findings ride in the orchestrator's conversation context for the
 iteration loop; plan and design fixes are applied via Edit / edit-design
-to `implementation-plan.md`, `implementation-backlog.md`, and the
-design document. The review itself is not persisted to a separate file —
-once the gate passes, the conversation is the only in-flight record,
-and the durable trace is:
+to `implementation-plan.md`, the affected `tracks/track-N.md` files, and
+the design document. The review itself is not persisted to a separate
+file — once the gate passes, the conversation is the only in-flight
+record, and the durable trace is:
 
 - The resulting plan/design state.
 - The gate-PASS commit.
@@ -240,9 +241,10 @@ consistency, and plan-file bloat.
 
 Each pending track's detailed description (the subject of TRACK
 DESCRIPTIONS checks, plus several cross-file bullets in TRACK SIZING,
-SCOPE INDICATORS, and CONSISTENCY) lives in `implementation-backlog.md`
-rather than inline in the plan file; the structural review reads the
-backlog alongside the plan.
+SCOPE INDICATORS, and CONSISTENCY) lives in that track's step file
+(`tracks/track-N.md`, written by `create-plan` at Phase 1) rather than
+inline in the plan file; the structural review reads the step files
+alongside the plan.
 
 **Full details:** [`structural-review.md`](structural-review.md)
 
@@ -260,13 +262,13 @@ Same shape as the consistency review:
 
 ```
 Iteration 1 (full review):
-  1. Spawn the structural sub-agent with plan, backlog, design.
+  1. Spawn the structural sub-agent with plan, step files, design.
   2. Receive findings, each tagged Classification: mechanical | design-decision.
      Per-prompt rule: ALL bloat findings classify as mechanical; track-ordering
      and contradiction findings classify as design-decision (see §Mechanical
      vs. design-decision classifier below).
-  3. Apply mechanical fixes immediately (Edit for plan/backlog, edit-design
-     for design.md).
+  3. Apply mechanical fixes immediately (Edit for plan / step files,
+     edit-design for design.md).
   4. Batch-escalate any design-decision findings to the user once. Apply
      user-approved fixes.
   5. Spawn the gate verification sub-agent with the updated artifacts and
@@ -358,11 +360,11 @@ plan/design claim along the **intent axis**:
   classes, Architecture Notes referencing today's SPI). Discrepancies
   here become findings.
 - **Target-state claim** — the plan/design says something about code
-  a `[ ]` track will create (`**What**:` bullets in the backlog,
-  forward-looking Decision Records, design.md sections describing
-  the post-implementation state). The current code naturally won't
-  match — this is **not a finding** unless the target is unreachable
-  from the current code (in which case the finding is
+  a `[ ]` track will create (`**What**:` bullets in the track's step
+  file, forward-looking Decision Records, design.md sections
+  describing the post-implementation state). The current code
+  naturally won't match — this is **not a finding** unless the target
+  is unreachable from the current code (in which case the finding is
   `design-decision`).
 
 The same rule already applies to invariants via the
@@ -409,7 +411,7 @@ end. Pre-existing plans don't break.
 
 ### 2. The workflow-update commit
 
-After Phase 2 passes, the orchestrator stages the plan, backlog, and
+After Phase 2 passes, the orchestrator stages the plan, step files, and
 design files, and commits with the message:
 
 ```
@@ -437,7 +439,7 @@ for narrative breakage. If the cold-read rejects the mutation, the
 orchestrator escalates that specific fix to the user (effectively
 re-classifying it from `mechanical` to `design-decision`).
 
-Plan-file and backlog edits use `Edit` directly — no mutation
+Plan-file and step-file edits use `Edit` directly — no mutation
 discipline applies to those files.
 
 ---
@@ -478,15 +480,19 @@ broken that incremental revision cannot fix it.
 When both reviews pass:
 
 1. Update `## Plan Review` with the audit summary (see §Audit trail).
-2. Stage and commit the plan/backlog/design changes. The
-   `design*.md` glob picks up `design.md` plus
-   `design-mechanics.md` and `design-mutations.md` when
-   `edit-design` touched them during the review (`design.md`
-   always exists post-Phase-1, so the glob always matches at least
-   one path):
+2. Stage and commit the plan / step-file / design changes. Stage every
+   step file the review actually touched (use `git status --porcelain
+   docs/adr/<dir-name>/_workflow/tracks/` to find them; pass each
+   modified path explicitly rather than the whole `tracks/` directory
+   so unrelated files don't sneak in). The `design*.md` glob picks up
+   `design.md` plus `design-mechanics.md` and `design-mutations.md`
+   when `edit-design` touched them during the review (`design.md`
+   always exists post-Phase-1, so the glob always matches at least one
+   path):
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/implementation-backlog.md \
+           docs/adr/<dir-name>/_workflow/tracks/track-<N>.md \
+           ... (one path per modified step file) \
            docs/adr/<dir-name>/_workflow/design*.md
    git commit -m "Plan review autonomous fixes for <plan-name>
 

@@ -3,7 +3,11 @@ structural review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
-- Backlog file: {backlog_path}
+- Step files directory: {tracks_dir} — every `tracks/track-N.md` whose
+  matching plan-file entry is `[ ]` (pending). Read each pending
+  track's `## Description` for that track's
+  `**What/How/Constraints/Interactions**` detail and any track-level
+  Mermaid diagram.
 - Design document: {design_path}
 - Previous findings (context only, finalized in earlier iterations):
   {previous_findings}
@@ -24,7 +28,7 @@ fixes sometimes shift problems rather than solving them.
 Before verifying any finding whose fix touched a pending track's
 description, re-read that track's description (the
 `**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) from the backlog's `## Track N: <title>` section. For
+Mermaid diagram) from `tracks/track-N.md` `## Description`. For
 **completed** (`[x]`) and **skipped** (`[~]`) tracks, read from the
 plan-file entry (intro paragraph + track episode for completed; intro +
 `**Skipped:**` reason for skipped). Read Architecture Notes, Decision
@@ -36,9 +40,9 @@ certificate** that re-checks the specific plan location:
 ```markdown
 #### Verify S<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
-- **Fix applied**: <what changed in the plan, backlog, or design text>
+- **Fix applied**: <what changed in the plan, step file, or design text>
 - **Re-check**:
-  - Plan/backlog/design location: <section and line where the fix was applied>
+  - Plan / step file / design location: <section and line where the fix was applied>
   - Current state: <what the document now says>
   - Criteria met: <which structural criteria from the review checklist
     are now satisfied>

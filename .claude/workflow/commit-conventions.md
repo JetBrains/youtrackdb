@@ -5,7 +5,7 @@ Conventions). These conventions apply during Phase 3 execution and enable
 reliable session resume by making commit types identifiable in `git log`.
 
 During execution both **code changes** and **workflow-file changes**
-under `docs/adr/<dir-name>/_workflow/` (the plan, backlog, design,
+under `docs/adr/<dir-name>/_workflow/` (the plan, design,
 step files, design-mutations log) are committed. Workflow files are
 tracked under `_workflow/` for the branch lifetime and are removed in
 the Phase 4 cleanup commit before the PR is merged. See

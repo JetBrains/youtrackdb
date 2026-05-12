@@ -23,7 +23,7 @@ during Phase 3 execution.
 | **Sub-agent** | A spawned agent for self-contained tasks — review (technical/risk/adversarial, dimensional code review, test quality review) where fresh perspective matters, or implementation (Phase B per-step implementer) where context absorption matters. The orchestrator retains session-level state. |
 | **Orchestrator** | The session-level agent driving `/execute-tracks`. In Phase B owns sub-steps 4–7 of step implementation and all session-level decisions (cross-track impact, escalation, episode synthesis, context-level session-end gate). Distinct from the implementer. |
 | **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See [`implementer-rules.md`](implementer-rules.md). |
-| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan (and extended by inline replanning); shrinks monotonically as tracks enter Phase A or are skipped. Lives under `_workflow/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
+| **Step file** | `tracks/track-N.md` — the per-track working file. Created during Phase 1 alongside `implementation-plan.md` with `## Description` already populated (intro paragraph + `**What/How/Constraints/Interactions**` + any track-level Mermaid diagram); other sections (`## Progress`, `## Reviews completed`, `## Steps`, `## Base commit`) start as `[ ]` placeholders and are filled by Phase A → C. Lives under `_workflow/tracks/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
 
 ---
 
@@ -40,12 +40,8 @@ docs/adr/<dir-name>/
   _workflow/
     implementation-plan.md        <- strategic: goals, architecture, tracks,
                                      track-level episodic summaries (thin
-                                     checklist — description detail lives in
-                                     implementation-backlog.md)
-    implementation-backlog.md     <- pending-track details (what/how/
-                                     constraints/interactions + any
-                                     track-level diagrams); shrinks
-                                     monotonically
+                                     checklist — per-track detailed
+                                     description lives in tracks/track-N.md)
     design.md                     <- narrative: concept-first Overview
                                      (first content), Core Concepts vocabulary
                                      primer (when doc has Parts or ≥3 new
@@ -72,7 +68,12 @@ docs/adr/<dir-name>/
                                      `design-sync` step to find the last
                                      sync point.
     tracks/
-      track-1.md                  <- tactical: decomposed steps, step episodes
+      track-1.md                  <- per-track working file: ## Description
+                                     (intro paragraph + What/How/Constraints/
+                                     Interactions + any track-level Mermaid
+                                     diagram, written at Phase 1), Progress,
+                                     Reviews completed, Base commit, Steps,
+                                     step episodes
       track-2.md
       ...
 
@@ -115,10 +116,10 @@ durable artifacts survive the squash-merge into `develop`. See
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
+  > <intro paragraph — high-level context; detailed description in tracks/track-1.md>
   > **Scope:** ~N steps covering X, Y, Z
 - [ ] Track 2: <title>
-  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
+  > <intro paragraph — high-level context; detailed description in tracks/track-2.md>
   > **Scope:** ~N steps covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
 
@@ -158,58 +159,18 @@ per-section budgets and rationale, and
 [`structural-review.md`](structural-review.md) § Bloat checks for how
 the structural review enforces them.
 
-### Backlog file content (`implementation-backlog.md`)
+### Step file content (`tracks/track-N.md`)
 
-Companion file to `implementation-plan.md`. It holds the detailed
-`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagrams for **pending** tracks. Keeping this detail out of the
-plan keeps `implementation-plan.md` thin so `/execute-tracks` sessions
-read only strategic context at startup; the backlog is read only in
-Phase A of one track per session.
+Created during Phase 1 alongside `implementation-plan.md` — one file per
+planned track. The full file shape (every section, including
+`## Description`'s `**What/How/Constraints/Interactions**` subsections
+and any optional track-level Mermaid diagram) is defined in
+`conventions-execution.md` §2.1 *Step file content*. That doc is also
+where Phase A → C subsequent population is documented.
 
-````markdown
-# <Feature Name> — Track Details
-
-## Track 1: <title>
-
-> **What**:
-> - <bullet list of concrete deliverables>
->
-> **How**:
-> - <approach notes, ordering constraints, invariants to preserve>
->
-> **Constraints**:
-> - <in-scope/out-of-scope files, compatibility requirements>
->
-> **Interactions**:
-> - <how this track depends on or enables other tracks>
-
-```mermaid
-<optional track-level component diagram (≤10 nodes); see planning.md>
-```
-
-## Track 2: <title>
-
-> **What**: …
-> **How**: …
-> **Constraints**: …
-> **Interactions**: …
-
-…
-````
-
-**File shape requirements:**
-- `# <Feature Name> — Track Details` — required canonical header.
-- One `## Track N: <title>` section per pending track, with bold-label
-  blockquote subsections and an optional fenced `mermaid` block for any
-  track-level diagram.
-
-**Lifecycle (overview):** Sections are removed from the backlog as their
-tracks enter Phase A or are skipped, so the backlog shrinks monotonically
-during normal execution. Entries are added only during Phase 1 or inline
-replanning. Full per-phase detail (writers, readers, authoritative
-location) lives in the description-lifecycle table in
-`conventions-execution.md` §2.1.
+`/execute-tracks` startup loads only `implementation-plan.md` — step
+files are read on demand: by Phase 2 reviews (which read the step files
+for pending tracks) and by Phase A/B/C of the active track.
 
 ### Status markers
 
