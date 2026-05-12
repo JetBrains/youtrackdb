@@ -2466,20 +2466,44 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, Long> estimatedRootEntries,
       DatabaseSessionEmbedded session) {
+    double factor = targetSelectivityFactor(
+        targetAlias, edge, isOutbound,
+        aliasClasses, aliasFilters, estimatedRootEntries, session);
+    return baseCost * factor;
+  }
+
+  /**
+   * Pure-scalar variant of {@link #applyTargetSelectivity}: returns the
+   * selectivity multiplier without applying it to a cost. Returns {@code 1.0}
+   * (no narrowing) when target class cannot be resolved, schema is missing,
+   * {@code approximateCount} returns ≤ 0, no usable filter heuristic exists,
+   * and no per-alias estimate is registered.
+   *
+   * <p>Used by the plan-time row-estimate propagation walk that stamps
+   * {@code forecastN} on each {@link EdgeTraversal}.
+   */
+  static double targetSelectivityFactor(
+      String targetAlias,
+      PatternEdge edge,
+      boolean isOutbound,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
     var targetClass = resolveTargetClass(
         targetAlias, edge, isOutbound, aliasClasses, session);
     if (targetClass == null) {
-      return baseCost;
+      return 1.0;
     }
 
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null || !schema.existsClass(targetClass)) {
-      return baseCost;
+      return 1.0;
     }
 
     long classCount = schema.getClassInternal(targetClass).approximateCount(session);
     if (classCount <= 0) {
-      return baseCost;
+      return 1.0;
     }
 
     var filter = aliasFilters != null ? aliasFilters.get(targetAlias) : null;
@@ -2488,16 +2512,15 @@ public class MatchExecutionPlanner {
       double heuristic = estimateFilterSelectivity(
           filter, classCount, schemaClass, session);
       if (heuristic >= 0.0) {
-        return baseCost * heuristic;
+        return heuristic;
       }
     }
 
     var targetEstimate = estimatedRootEntries.get(targetAlias);
     if (targetEstimate == null) {
-      return baseCost;
+      return 1.0;
     }
-    double selectivity = (double) targetEstimate / classCount;
-    return baseCost * selectivity;
+    return (double) targetEstimate / classCount;
   }
 
   /**
