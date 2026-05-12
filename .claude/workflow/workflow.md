@@ -336,7 +336,11 @@ work when context consumption is at `warning` level or above.
   step before "End the session".
 - Run `git push` so the branch's draft PR reflects the final state
   of the session (every commit is pushed; this is the safety net
-  for unexpected session-end interruptions)
+  for unexpected session-end interruptions). If this push is
+  rejected, follow `commit-conventions.md` § Push failure handling
+  — a non-fast-forward rejection at session-end is the same
+  divergence case as during phase work and routes to
+  `branch-divergence-check.md` on first occurrence.
 - **Report unpushed commits.** Run
   `git rev-list --count @{u}..HEAD` to count commits not yet pushed
   to the tracked remote. If the count is non-zero, the session-end

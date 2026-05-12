@@ -18,26 +18,33 @@ resolution applies for the remainder of the session.
 
 ## Detection
 
-Run:
+Run, in order:
 
 ```bash
-git fetch origin
-git status -sb | grep -q 'diverged' && \
-    git rev-list --left-right --count HEAD...@{u}
+git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1 || exit
+git fetch || exit
+git rev-list --left-right --count HEAD...'@{u}'
 ```
 
-If `git status -sb` does not contain `diverged`, continue normally.
-Otherwise surface the ahead/behind counts from `git rev-list` to
-the user and ask which of three resolutions to apply. Do **not**
-pick a default — force-pushing or resetting without explicit
-consent violates the harness git-safety protocol (see user-global
-`~/.claude/CLAUDE.md`).
+The upstream check runs first so a branch with no upstream skips
+cleanly without attempting the fetch. `git fetch` (no argument)
+targets the upstream's remote, which is not always `origin`. The
+final command prints `<ahead>\t<behind>` (tab-separated). The
+branch has diverged iff **both** counts are non-zero — `git status
+-sb` does not emit the literal word `diverged`, so do not grep for
+it.
+
+If both counts are non-zero, surface them to the user and ask
+which of three resolutions to apply. Do **not** pick a default —
+force-pushing or resetting without explicit consent violates the
+harness git-safety protocol (see user-global `~/.claude/CLAUDE.md`).
 
 **Skip the check** when `git fetch` fails (offline, no remote
-configured) or the branch has no upstream (`@{u}` does not resolve).
-The first per-commit push will surface any later issue, and the
-session-end unpushed-commit report (see `workflow.md` § What to do
-before ending a session) still covers the silent-failure case.
+configured) or the branch has no upstream (`@{u}` does not resolve)
+— both `exit` paths above. The first per-commit push will surface
+any later issue, and the session-end unpushed-commit report (see
+`workflow.md` § What to do before ending a session) still covers
+the silent-failure case.
 
 ---
 
