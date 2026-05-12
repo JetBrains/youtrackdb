@@ -796,8 +796,25 @@ the 7 estimated. Phase B may merge adjacent script-engine issues (e.g.,
 Sk4's eight markers may collapse to 2–3 issues if they share a single
 production fix). Final issue count is reported at the close of Step 7.
 
-## 6. Manifest closure (filled at Step 7)
+## 6. Manifest closure
 
-_(Phase B Step 7 appends a closure marker `## Closed at Step 7 —
-verification passed` followed by the final YTDB-NNNN range once both
-verification greps return zero hits.)_
+**Closed at Step 7 — verification passed.**
+
+Final YTDB-NNNN range: **YTDB-723..YTDB-783** (61 issues across
+Steps 2–6: 5 security + 16 scheduler/script/hooks + 9 serializer +
+25 sql/legacy/pool/tool/config + 6 pin-maintenance).
+
+- Form A (anchored line-comment) verification grep: **0 hits**.
+- Form B (any non-`{@code //` occurrence) verification grep: **0 hits**.
+
+The 2 `{@code //` Javadoc meta-references at
+`core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SqlExecutorTest.java:67`
+(the file renamed from `SqlExecutorDeadCodeTest.java` in Step 6 per
+the P6 pin-maintenance entry) and
+`core/src/test/java/com/jetbrains/youtrackdb/internal/core/query/live/LiveQueryDeadCodeTest.java:62`
+are preserved — they describe the marker convention itself, not a
+pinned bug, and the `grep -v '{@code //'` carve-out filter correctly
+excludes them.
+
+Track 22c is complete pending the Phase C track-level code review
+and track-completion summary.
