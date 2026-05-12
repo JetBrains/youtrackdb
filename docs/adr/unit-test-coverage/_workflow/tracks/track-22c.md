@@ -356,7 +356,7 @@ clusters NOT deleted by 22b need YTDB issues).
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (7/7 complete)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations — Phase C iter-1 rewrote residual Track-22 marker variants Step 7's regex missed; 8 new YTDB issues YTDB-786..793 + 3 manifest-hedge anchor appends)
 
 ## Base commit
 `c9528a91e608c213a40972cd02065ebc115fec53`
