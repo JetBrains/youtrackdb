@@ -198,6 +198,63 @@ cross-track impact.
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
 
+5. **Run the Branch Divergence Check** (see §Branch Divergence Check
+   below). This must happen in turn 1, before any per-commit push
+   work. A diverged branch left undetected makes every `git push`
+   across the session reject silently and defeats the "push every
+   commit" safety net (see `commit-conventions.md` § Push every
+   commit).
+
+---
+
+## Branch Divergence Check
+
+Runs in turn 1 of every session, immediately after the auto-resume
+decision and before any phase work begins. A diverged branch left
+undetected makes every per-commit push fail non-fast-forward, and
+the workflow's "push every commit" safety net silently lapses — the
+draft PR drifts behind local, and a mid-session crash destroys work
+that was supposed to be backed up.
+
+**Check.** Run:
+
+```bash
+git fetch origin
+git status -sb | grep -q 'diverged' && \
+    git rev-list --left-right --count HEAD...@{u}
+```
+
+If `git status -sb` does not contain `diverged`, continue normally.
+Otherwise surface the ahead/behind counts from `git rev-list` to the
+user and ask which of three resolutions to apply. Do **not** pick a
+default — force-pushing or resetting without explicit consent
+violates the harness git-safety protocol (see user-global
+`~/.claude/CLAUDE.md`).
+
+**Resolution options.**
+
+- **Local-authoritative.** The local rewrite (rebase, squash, amend)
+  is intended and the remote is stale. Run
+  `git push --force-with-lease` once. Per-commit push operates
+  normally for the rest of the session.
+- **Remote-authoritative.** Discard the local rewrites. Run
+  `git reset --hard origin/<branch>` after explicit confirmation.
+  Local-only commits are unrecoverable; warn the user before
+  running.
+- **Defer.** Resolve manually after the session. Per-commit pushes
+  will continue to fail throughout the session but do not block
+  phase progress. The session-end summary reports the unpushed-commit
+  count (see §What to do before ending a session below).
+
+The user's choice applies for the remainder of the session; no
+re-check is required after the chosen action.
+
+**Skip the check** when `git fetch` fails (offline, no remote
+configured) or the branch has no upstream (`@{u}` does not resolve).
+The first per-commit push will surface any later issue, and the
+session-end unpushed-commit report still covers the silent-failure
+case.
+
 ---
 
 ## Track Pre-Flight (Strategy Assessment + Track Summary)
@@ -327,6 +384,16 @@ work when context consumption is at `warning` level or above.
 - Run `git push` so the branch's draft PR reflects the final state
   of the session (every commit is pushed; this is the safety net
   for unexpected session-end interruptions)
+- **Report unpushed commits.** Run
+  `git rev-list --count @{u}..HEAD` to count commits not yet pushed
+  to the tracked remote. If the count is non-zero, the session-end
+  summary MUST list both the count and the commits
+  (`git log --oneline @{u}..HEAD`) so the user can act before the
+  next session. A silent unpushed list defeats the "push every
+  commit" safety net (see `commit-conventions.md` § Push every
+  commit). If the branch has no upstream, substitute
+  `origin/<branch>` and warn the user that upstream tracking is not
+  configured.
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 

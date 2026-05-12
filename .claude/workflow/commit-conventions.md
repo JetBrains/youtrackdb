@@ -32,6 +32,30 @@ amend has rewritten history that was already pushed — never plain
 `--force`. CI does not run on draft PRs, so the push frequency
 carries no CI cost.
 
+### Push failure handling
+
+After every per-commit `git push`, inspect the exit code and stderr.
+Distinguish two failure shapes; do not silently treat them the same.
+
+- **Non-fast-forward rejection** (`! [rejected] ... (non-fast-forward)`).
+  The branch has diverged from `origin`. This is the case that
+  motivated the §Branch Divergence Check in `workflow.md`. On the
+  first occurrence in the session, route once to that check and
+  apply the user's chosen resolution; do not silently retry across
+  subsequent commits. The harness git-safety protocol forbids
+  unauthorised `--force-with-lease`, so the resolution must come
+  from the user.
+- **Any other push failure** (network, auth, pre-receive hook,
+  large-file rejection). Record the failure and continue with the
+  next phase action; do not block phase progress on a transient
+  push error. The session-end summary's unpushed-commit report
+  (see `workflow.md` § What to do before ending a session) makes
+  the residue visible.
+
+A silent `git push` failure that goes unreported defeats all three
+guarantees above — team visibility, disk-loss backup, and the
+safety-net intent.
+
 ---
 
 ## Commit type prefixes
