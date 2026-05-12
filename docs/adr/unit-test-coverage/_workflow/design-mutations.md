@@ -36,3 +36,54 @@ No sections moved, renamed, added, or removed.
 **Findings**: none.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 2 — 2026-05-12 — phase4-creation (design-final.md)
+
+**Diff summary**: Phase 4 production of `design-final.md` as the
+durable post-implementation design artifact. New file at
+`docs/adr/unit-test-coverage/design-final.md` (top-level, outside
+`_workflow/`). Content reflects what was actually built, not what
+was planned: aggregate end-state of 81.4% line / 71.1% branch
+across 173 packages (from 63.6% / 53.3% / 177 packages baseline),
+6,196 production lines deleted in lockstep with their pins,
+~35 `*DeadCodeTest.java` shape-pin files on disk, 115
+`@Category(SequentialTest)`-annotated test files, 69 YouTrack
+issues opened (`YTDB-723..793` with gaps), all `WHEN-FIXED: Track
+NN` placeholders rewritten to `YTDB-NNN`.
+
+Eleven `##` sections: Overview, Class Design, Workflow (with three
+sub-sections), Coverage Analyzer Script, Test Parallelism
+Constraints, Testing Serialization Round-Trips, Testing Storage &
+Cache Components, Testing Concurrency Primitives, Testing SQL
+Operators, Dead-Code Pinning Convention, WHEN-FIXED Marker
+Convention. Three Mermaid diagrams (one classDiagram, two
+flowcharts in the Workflow section's first two sub-sections, one
+sequenceDiagram in the third). No `design-mechanics-final.md`
+companion — the original `design.md` had no mechanics companion,
+and the final artifact stays single-file.
+
+**Mechanical checks** (target=design): PASS — 0 findings (after
+one iteration trimming `## Overview` from 56 → 40 lines).
+**Cold-read** (scope: whole-doc): PASS — 0 blockers, 0 should-fix,
+~3 suggestions. Suggestions: (1) Overview's section-enumeration
+prose order vs. doc `##` order is not 1:1 (navigability nit);
+(2) the achieved-vs-target deviation (0.6 pp below lower line
+bound, exceeded branch target) is named in Workflow but not in
+the Overview; (3) "falsifiable-regression convention" is used in
+Overview before being defined in the WHEN-FIXED Marker Convention
+section. All three are recorded but not retried per the
+suggestion-tier protocol.
+
+Phase 4 self-standing check: PASS on all three sub-checks —
+diagrams implementation-grounded, no leaked working-file
+identifiers (the one `Track 22` historical-context mention in the
+WHEN-FIXED Marker Convention section quotes the placeholder
+syntax that was rewritten, which is load-bearing documentation,
+not a live working-file identifier), and YouTrack issue range is
+in the allowed-identifiers list.
+
+**Findings**: three suggestion-tier cold-read items recorded
+above; not retried.
+
+**Iterations**: 2 of 3 (PASS — iter-1 produced an Overview-length
+should-fix that auto-trimmed in iter-2).
