@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/7 complete)
+- [ ] Step implementation (5/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -587,14 +587,72 @@ clusters NOT deleted by 22b need YTDB issues).
   > Se5→750, Se7→751, Se8→752. `RecordSerializationDebug`
   > sub-entry dropped (class absent).
 
-- [ ] Step 5: SQL / executor / legacy / database-pool / database-tool / config category — create issues, rewrite markers
+- [x] Step 5: SQL / executor / legacy / database-pool / database-tool / config category — create issues, rewrite markers
+  - [x] Context: info
   > **Risk:** low — default (test-source comment edits only).
   >
-  > **What:** Production-fix items: the seven Track-17 latent issues (excluding the `TokenSignImpl` one already in security); `MemoryAndLocalPaginatedEnginesInitializer.initialized` non-volatile race; `RecordAbstract.dirty` public-field encapsulation. Plus SPI-deferred dead-code clusters: exception types (`LiveQueryInterruptedException`, `ManualIndexesAreProhibited`, `RetryQueryException`); collection-selection-strategy SPI (`Balanced*`, `Default*`, `CollectionSelectionFactory`); database-pool surface (`DatabasePoolAbstract`, `DatabasePoolBase`); database-tool surface (`CheckIndexTool`, `DatabaseCompare`, `GraphRepair`, `DatabaseTool`); DBConfig (`MulticastConfguration`, `UDPUnicastConfiguration`, `Address`); SqlQuery legacy ResultSet (`ConcurrentLegacyResultSet`); symmetric-key / credential-interceptor SPI carve-out if any items remain after Step 2 routed the security-typed subset elsewhere.
+  > **What was done:** Created 25 YouTrack tracking issues
+  > YTDB-753..777 covering the SQL / executor / result-set / planner /
+  > legacy-result-set / fetch / pool / database-tool / collection-
+  > selection / DBConfig / symmetric-key SPI / Dictionary /
+  > RecordMultiValueHelper / SecurityManager / ImmutableUser buckets.
+  > Rewrote 64 WHEN-FIXED markers across 37 test files. Sq8
+  > (BasicLegacyResultSet) split into 3 issues (YTDB-760 iterator,
+  > 761 exception-message, 762 add/limit+equals). Sq11
+  > (SqlExecutorDeadCodeTest, 15 markers) **deferred to Step 6**
+  > as a pin-maintenance rename — Step 6 now has 6 entries (the
+  > conditional 6th confirmed). Sq12 (TraverseResult) PSI find-usages
+  > returned 0 production callers → routed to Step 5 as Type=Task
+  > (not Step 6). D3 (exception-type cluster) skipped — no
+  > rewrite-target markers. D6 (DBConfig) opened without marker
+  > rewrite (token form `WHEN-FIXED: delete the entire …` does not
+  > match the anchored verification regex). Single batched commit
+  > `cd9f52b51a`; pushed.
   >
-  > Commit message: `Track 22c Step 5: Create YTDB-NNNN..NNNN sql/legacy/pool/tool/config issues + rewrite markers`. Single batched commit.
+  > **What was discovered:** (1) Sq8 markers pin clearly distinct
+  > production fixes (iterator shape / exception message / add(T)
+  > + limit + equals contract) — split into 3 issues to keep
+  > granularity intact. (2) Three exception-type `*DeadCodeTest`
+  > files (LiveQueryInterruptedException, ManualIndexesAreProhibited,
+  > RetryQueryException) carry **zero** rewrite-target markers
+  > (only flowing-paragraph text mentions "deferred-cleanup track" —
+  > not anchored). D3 omitted entirely. (3) DBConfigDeadCodeTest
+  > has a `WHEN-FIXED:` marker but the token immediately following
+  > is `delete the entire …`, not the canonical `(Track 22|
+  > deferred-cleanup track)` anchor — opened YTDB-773 anyway as
+  > production-code-referenced, no marker rewrite needed. (4)
+  > PSI find-usages on TraverseResult: 0 production callers, 10
+  > test-only references (5 in SqlExecutorDeadCodeTest, 5 in
+  > TraverseResultLiveSessionTest). Genuinely dead → Task. (5)
+  > SqlExecutorDeadCodeTest still carries 15 anchored Track-22
+  > markers after Step 5 — these are handled by Step 6's
+  > pin-maintenance rename (the file becomes `SqlExecutorTest.java`
+  > and all markers are rewritten to the rename-issue's YTDB-NNNN).
   >
-  > **Files touched:** the test source files carrying this bucket's markers; manifest updated.
+  > **What changed from the plan:** Sq8 split (1 → 3 issues),
+  > Sq11 deferred to Step 6 (6th pin-maintenance entry confirmed),
+  > Sq12 routed to Step 5 as Task after PSI check (no callers),
+  > D3 skipped (no markers), D6 minted without marker rewrite.
+  > Final Step 5 count: 25 issues (1 over the "~21" estimate after
+  > Sq11 deferral and D3 skip cancel the +3 from Sq8 split and
+  > the +2 from manifest's hedges).
+  >
+  > **Key files:** 37 test source files (DatabasePool*, DatabaseTool*,
+  > Dictionary*, ImmutableUser, SecurityManager*, SymmetricKey*,
+  > Sql*, BasicLegacyResultSet*, SqlQuery*, FetchPlan*, RemoteFetch*,
+  > BalancedCollectionSelection*, BatchStep*, FetchFromIndexStep*,
+  > FilterStep*, LetExpressionStep*, SelectExecutionPlannerBranch*,
+  > SmallPlannerBranch*, TraverseResultLiveSession*, IndexCandidates*,
+  > EmbeddedSetResultImpl*, ExecutionStreamWrappers*,
+  > ExpireTimeoutResultSet*, LinkMapResultImpl*, LinkSetResultImpl*,
+  > SQLMethodRuntime*, TxFunctionalInterfaces*, RecordMultiValueHelper*);
+  > `wfx-22c-manifest.md`.
+  >
+  > **Critical context:** Minted YTDB-753..777 (25 issues). Sq8
+  > → YTDB-760/761/762. Sq11 → deferred to Step 6 (15 markers).
+  > Sq12 → YTDB-765 (Task; PSI 0 callers). D3 skipped. D6 → 773
+  > no marker rewrite. **Step 6 must handle SqlExecutorDeadCodeTest
+  > with its 15 anchored markers.**
 
 - [ ] Step 6: Pin-maintenance renames — create issues, rewrite markers, rename `*DeadCodeTest.java` files
   > **Risk:** low — default (test-class renames are mechanical; PSI find-usages already confirmed the production targets are ALIVE in `cluster-disposition.md`'s pin-maintenance section).
