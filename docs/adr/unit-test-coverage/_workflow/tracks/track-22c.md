@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/7 complete)
+- [ ] Step implementation (3/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -478,14 +478,61 @@ clusters NOT deleted by 22b need YTDB issues).
   > on all 5. **Cross-step:** subsequent Step 3–6 implementers
   > must omit `Subsystem` from `mcp__youtrack__create_issue` calls.
 
-- [ ] Step 3: Scheduler / cron / live-query / hooks category — create issues, rewrite markers
+- [x] Step 3: Scheduler / cron / live-query / hooks (+ script) — create issues, rewrite markers
+  - [x] Context: info
   > **Risk:** low — default (test-source comment edits only).
   >
-  > **What:** For each manifest entry in this category: create the YTDB issue (`Type=Bug` for production-fix items, `Type=Task` for hook-SPI dead-code clusters) and rewrite markers. Expected items: `LiveQueryHookV2.calculateProjections` always-empty bug; V1 `break` vs V2 `continue` `InterruptedException` handling; `ScheduledEvent` ctor swallows `ParseException`; `executeEventFunction` retry-loop bug; `SchedulerImpl.onEventDropped` NPE; `CronExpression` parse-leniency remaining items (those NOT handled in 22a); hooks SPI dead-code cluster (`EntityHookAbstract` + `RecordHookAbstract`).
+  > **What was done:** Created 16 YouTrack tracking issues
+  > YTDB-728..743 covering the scheduler / live-query / hooks-SPI
+  > bucket (Sc1–Sc7: 7 issues) and the script-engine bucket (Sk1–Sk9:
+  > 9 issues). Rewrote 39 WHEN-FIXED markers (Form A + Form B)
+  > across 15 test source files; every `Track 22` / `deferred-cleanup
+  > track` token swapped for its corresponding YTDB-NNNN in lockstep
+  > with issue creation. Updated `wfx-22c-manifest.md` to fill in
+  > every Sc1–Sc7, Sk1–Sk9 YTDB-ID slot. Single batched commit
+  > `8925a29543`; pushed.
   >
-  > Commit message: `Track 22c Step 3: Create YTDB-NNNN..NNNN scheduler/live-query/hooks issues + rewrite markers`. Single batched commit.
+  > **What was discovered:** (1) Sc5 (`ScheduledEvent` /
+  > `executeEventFunction` / `SchedulerImpl.onEventDropped`) has zero
+  > current rewrite-target markers in `core/src/test/` — opened
+  > YTDB-732 as production-code-referenced with a regression-test
+  > placeholder note; no marker rewrite needed. (2) Sc4 and Sc5 were
+  > NOT collapsed (manifest hint was conservative — they pin
+  > unrelated production surfaces: `LiveQueryQueueThread` subscribe
+  > vs scheduler retry/NPE). (3) Sk4 (`ScriptManagerTest`, 8 markers)
+  > kept as a single issue YTDB-738 rather than split — all 8 pins
+  > address overlapping hardening surfaces on the same `ScriptManager`
+  > class. (4) `LiveQueryDeadCodeTest`'s 18 line-comment markers
+  > split across 4 issues YTDB-728..731 by anchor-text routing
+  > (`delete LiveQueryHookV2` → 728; `delete LiveQueryHook` /
+  > listener orphans → 729; V1/V2 interrupt reconciliation → 730;
+  > subscribe duplicate-token at L141 → 731). (5)
+  > `DatabaseSessionEmbeddedAttributesTest:375` carries a
+  > `WHEN-FIXED: forwards-to deferred-cleanup track —` variant — the
+  > `forwards-to ` infix breaks the anchored regex of both Form A and
+  > Form B verification greps (verified — Step 7 will produce zero
+  > hits regardless). Left as informational prose. (6) Manifest line
+  > numbers matched current file content exactly for every Step 3
+  > marker — no drift.
   >
-  > **Files touched:** the test source files carrying scheduler/cron/live-query/hooks-bucket markers; manifest updated.
+  > **What changed from the plan:** None. The manifest's "Sk4 may
+  > split" and "Sc5 may collapse" hedges were both resolved against
+  > splitting/collapsing.
+  >
+  > **Key files:** 15 test source files modified (LiveQueryDeadCodeTest,
+  > Polyglot* / Script* / ScriptManager / ScriptFormatter /
+  > ScriptTransformerImpl / SqlScriptExecutor / DatabaseScriptManager
+  > / Traverse* / CommandTimeoutChecker / DatabaseSessionEmbeddedAttributes
+  > / MultiValueChangeTimeLine / EntityHookAbstractDeadCodeTest /
+  > RecordHookAbstractDeadCodeTest tests); `wfx-22c-manifest.md`.
+  >
+  > **Critical context:** Minted YTDB-728..743 (16 issues).
+  > Sc1→728, Sc2→729, Sc3→730, Sc4→731, Sc5→732 (no marker),
+  > Sc6→733, Sc7→734, Sk1→735, Sk2→736, Sk3→737, Sk4→738,
+  > Sk5→739, Sk6→740, Sk7→741, Sk8→742, Sk9→743. The
+  > `forwards-to deferred-cleanup track —` variant at
+  > `DatabaseSessionEmbeddedAttributesTest:375` is outside Step 7's
+  > verification regex.
 
 - [ ] Step 4: Serializer / binary / debug category — create issues, rewrite markers
   > **Risk:** low — default (test-source comment edits only).
