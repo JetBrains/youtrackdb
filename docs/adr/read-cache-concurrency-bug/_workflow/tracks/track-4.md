@@ -533,6 +533,122 @@ the stay-on-physical sites).
   > components on the BTree-insert hot path; probe collapse changes
   > allocation semantics).
   >
+  > **Status (in-flight — iteration-2 gate-check pending):** Step 2's
+  > implementation landed in commit `a4d49bf4bd` and the iteration-1
+  > review fixes (Option D for BC2 plus 7 other should-fix items)
+  > landed in `Review fix:` commit `48a83793cb`. The iteration-2
+  > gate-check was deferred because Phase B's context-window check hit
+  > **warning** (31%) before the gate-check could be spawned. The
+  > step is intentionally left `[ ]` in this file so the next session
+  > can resume via the Phase B Resume protocol (orphan `Review fix:`
+  > commit at HEAD past `base_commit`). Step 1's `[x]` is unchanged.
+  >
+  > **What was done so far:**
+  > - Migrated 10 production `addPage` call sites in `BTree`
+  >   (singlevalue v3) and `SharedLinkBagBTree` to the new
+  >   `loadOrAddPageForWrite(fileId, knownIndex)` SPI: 3 fresh-file
+  >   sites in `BTree.create`, 2 fresh-file sites in `SLBB.create`,
+  >   the single probe at `BTree.allocateNewPage` (free-list reuse
+  >   branch preserved), the probe at `SLBB.splitNonRootBucket`, and
+  >   the two-page probe at `SLBB.splitRootBucket` (using
+  >   `leftPageIndex + 1` for the second target to advance without
+  >   re-reading `getPagesSize()`).
+  > - Migrated `BTree.doAssertFreePages` away from `getFilledUpTo` to
+  >   `entryPoint.getPagesSize() + 1` via a `loadPageForRead`
+  >   on `ENTRY_POINT_INDEX` — test-only `-ea` path.
+  > - **Reshaped Step 1's API contract under Option D** (resolution
+  >   of BC Finding 2 from the iteration-1 review): the new
+  >   `loadOrAddPageForWrite` is now **allocator-only**. The
+  >   previously-defensive cache-install branch (`isNew=false`,
+  >   `pageIndex < committedFilledUpTo`) is deleted as dead code —
+  >   no production caller (Step 2 migrations OR Step 3-7 planned
+  >   migrations) ever targets a pageIndex below the committed
+  >   horizon. Calling the method with a non-new pageIndex now
+  >   throws `IllegalStateException` with a descriptive message. The
+  >   method becomes a clean atomic-op-aware page allocator;
+  >   commit-time materialization is unchanged.
+  > - **BC1 from Step 1 becomes vestigial**: the in-memory engine
+  >   referrer-balancing call lived only in the deleted cache-install
+  >   branch. The corresponding regression test was removed.
+  > - **Other applied fixes**: stale source-line refs in AOBT
+  >   comments replaced with method-name refs (CQ1); SLBB.create
+  >   literal `1` replaced with the existing `ROOT_INDEX` constant
+  >   (CQ2); SLBB.splitRootBucket comment corrected to name AOBT's
+  >   idempotency early-return as the failure mode (BC1 in the
+  >   iteration-1 review, distinct from Step 1's BC1); branch
+  >   invariant assert at the stub `CacheEntryImpl` construction
+  >   site (TY2); `freshBookedFileSkipsReadCacheUntilCommit` test
+  >   asserts `getBuffer() == null` not `getPointer() == null` (TB1)
+  >   and probes `pageChangesMap` registration via the SPI (TB2);
+  >   new `secondCallReturnsExistingOverlayOnFreshBookedFile` test
+  >   pins stub-branch idempotency (TB3); PF fast-path on
+  >   `committedFilledUpTo` (avoid `filesLock` read when
+  >   `maxNewPageIndex > -2`).
+  >
+  > **What was discovered:**
+  > - The Step 1 implementer made two unsafe assumptions that
+  >   surfaced when the first BTree caller migrated in Step 2: (a)
+  >   `readCache.loadOrAddForWrite` cannot be called for a fresh-booked
+  >   fileId because the file isn't registered with WOWCache until
+  >   commit time; (b) for non-fresh files, calling
+  >   `readCache.loadOrAddForWrite` and then re-accessing via
+  >   `loadPageForWrite` causes a usage-counter underflow because
+  >   `loadPageForWrite` returns the existing `CacheEntryChanges`
+  >   without re-loading the delegate. Both led to the initial Step 2
+  >   patch routing `isNew=true` through a null-Pointer stub shape.
+  >   The subsequent Option D collapse formalises this: the entire
+  >   cache-install branch was always dead code, and the stub-shape
+  >   path is the ONLY path the method now takes.
+  > - The iteration-1 review surfaced 30+ findings across 8
+  >   dimensions; 8 should-fix items applied (1 via Option D
+  >   resolution after a DESIGN_DECISION_NEEDED user escalation);
+  >   ~10 items deferred to Step 3-4 / Track 6 by natural-home rule.
+  >
+  > **What changed from the plan:**
+  > - Step 1's API contract is narrower than planned:
+  >   `loadOrAddPageForWrite` is now allocator-only (callers must
+  >   target a new pageIndex). The "or Add" semantics for existing
+  >   pages is removed. This narrowing strengthens the design — every
+  >   migrated site has a known-new target, so the contract matches
+  >   reality. Step 3-7 migrations are unaffected (none would target
+  >   existing pages); Step 5's replay-loop collapse must continue to
+  >   go through `readCache.loadOrAddForWrite` directly (the cache
+  >   primitive remains "load or add" — only the AO-layer wrapper is
+  >   narrowed).
+  >
+  > **Pending work (next session must run):**
+  > 1. **Iteration-2 gate-check** on the dimensions with prior
+  >    findings: bugs-concurrency, test-behavior, test-completeness,
+  >    test-crash-safety, code-quality, performance. Spawn per
+  >    `code-review-protocol.md` against fix commit `48a83793cb`
+  >    (the cumulative diff of the iteration-1 fix on top of
+  >    implementation commit `a4d49bf4bd`). The gate-check verifies
+  >    that the 8 applied fixes don't introduce regressions.
+  > 2. Cross-track impact check (sub-step 5 of the per-step loop).
+  > 3. Episode finalisation: convert this "Status (in-flight)" block
+  >    into the standard episode fields and mark the step `[x]`.
+  > 4. Update Progress section to `(2/7 complete)`.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTree.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTree.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/LoadOrAddPageForWriteTest.java`
+  >
+  > **Critical context for the next session:**
+  > Phase B base commit for Track 4 is `62fc621c83`. Step 1 ended at
+  > commit `1528730eb9` (episode commit). Step 2's implementer commit
+  > is `a4d49bf4bd`; the iteration-1 review-fix commit is
+  > `48a83793cb`. The next session's startup will see these two
+  > commits as "orphans" past `base_commit` — that's expected. Resume
+  > by reading this "Status (in-flight)" block, spawning the
+  > iteration-2 gate-check reviewers against `48a83793cb`, and then
+  > closing Step 2 cleanly. **Track 5 inherits a discovery hint** —
+  > the `writeCache.getFilledUpTo(fileId)` read at the AOBT level is
+  > now used only for the in-method `isNew` validation when
+  > `!fileIsNew && maxNewPageIndex == -2` (no in-TX growth yet);
+  > Track 5's helper-set must keep that read path callable.
+  >
   > **Scope:**
   > - BTree (singlevalue v3): migrate fresh-file sites at `create:195,
   >   :201, :208` and the single probe at `allocateNewPage:2163`
