@@ -32,8 +32,8 @@ public class TraverseTest extends DbTestBase {
    * safety net runs ahead of the database teardown.
    *
    * <p>WHEN-FIXED: YTDB-741 — hoist this idiom into {@code TestUtilsFixture} and switch this
-   * class to extend it directly (plan absorption list). Extends {@code DbTestBase}
-   * today to preserve existing test infrastructure.
+   * class to extend it directly if a future YTDB tracker issue absorbs the work. Extends
+   * {@code DbTestBase} today to preserve existing test infrastructure.
    */
   @After
   public void rollbackIfLeftOpen() {

@@ -870,10 +870,10 @@ across Phase B Steps 2–6 plus this Phase C iteration's 8 additional issues).
 
 ### TC3 missing-anchor sites — append YTDB-NNN to existing markers
 
-The three pin-maintenance hedge sites where the manifest left the in-source
-`WHEN-FIXED:` marker untouched because the marker did NOT carry the `Track 22`
-or `deferred-cleanup track` anchor token are now annotated with the matching
-manifest YTDB-NNN so the linkage is bidirectional:
+The five pin-maintenance hedge sites (three distinct YTDB-NNN) where the
+manifest left the in-source `WHEN-FIXED:` marker untouched because the marker
+did NOT carry the `Track 22` or `deferred-cleanup track` anchor token are now
+annotated with the matching manifest YTDB-NNN so the linkage is bidirectional:
 
 | File | Marker line | YTDB-NNN appended |
 |---|---|---|
@@ -885,7 +885,7 @@ manifest YTDB-NNN so the linkage is bidirectional:
 
 ### Forward-looking-mention rewrite policy
 
-Forward-looking forward-looking mentions of `Track 22` in test Javadoc class
+Forward-looking mentions of `Track 22` in test Javadoc class
 headers, assertion-message string literals, and inline prose were rewritten
 to either the matching manifest YTDB-NNN (when a specific issue maps cleanly
 to the surrounding pin) or to a generic "future tracker issue" phrasing

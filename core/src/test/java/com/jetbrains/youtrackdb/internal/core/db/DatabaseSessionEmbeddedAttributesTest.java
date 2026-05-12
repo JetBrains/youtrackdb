@@ -380,8 +380,8 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
       session.setCustom("some.real.name", null);
       fail("Expected NullPointerException pinning the latent dispatcher bug");
     } catch (NullPointerException expected) {
-      // Pinned. When the production guard is added, this test fails and the
-      // forwarded deferred-cleanup item is the single fix point.
+      // Pinned. When the production guard is added (YTDB-742), this test fails and the
+      // forwarded follow-up item is the single fix point.
     }
   }
 }
