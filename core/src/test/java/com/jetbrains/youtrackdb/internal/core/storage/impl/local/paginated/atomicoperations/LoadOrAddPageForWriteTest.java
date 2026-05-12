@@ -151,6 +151,18 @@ public class LoadOrAddPageForWriteTest {
    * the {@link CacheEntryChanges} overlay. The fallback installs the page in
    * MemoryFile so the commit-time {@code loadOrAddForWrite} finds it via
    * {@code MemoryFile.loadPage}.
+   *
+   * <p>Crucially, {@code WriteCache.loadOrAdd} bumps the pointer's readers-referrer
+   * count by 1 for the caller (per
+   * {@code DirectMemoryOnlyDiskCache.loadOrAdd}'s Javadoc), and our
+   * {@code CacheEntryImpl(insideCache=false)} wrapper is released through
+   * {@code DirectMemoryOnlyDiskCache.releaseFromRead} which only manipulates
+   * {@code usagesCount} and never touches readers-referrer. The fallback must
+   * therefore call {@code pointer.decrementReadersReferrer()} once before returning
+   * to balance the bump — otherwise every page allocated through this path leaks a
+   * readers-referrer reference and {@code MemoryFile.clear} (on deleteFile / drop)
+   * cannot return the underlying page frame to the pool. This test pins both the
+   * fallback firing once and the balancing decrement firing once.
    */
   @Test
   public void inMemoryEngineFallsBackToWriteCacheLoadOrAddOnNullReturn()
@@ -175,6 +187,48 @@ public class LoadOrAddPageForWriteTest {
     assertThat(entry.isNew).isTrue();
     // Fallback fired exactly once.
     verify(writeCache, times(1)).loadOrAdd(fileId, pageIndex, false);
+    // The readers-referrer bump from WriteCache.loadOrAdd must be balanced by a
+    // single decrement on the returned pointer; without this, every fallback
+    // allocation leaks a readers reference and MemoryFile.clear cannot return
+    // the underlying page frame to the pool.
+    verify(pointer, times(1)).decrementReadersReferrer();
+  }
+
+  /**
+   * BC1 regression: multiple fallback allocations in the same TX must each balance
+   * their readers-referrer bump. A net-zero invariant on N allocations is the
+   * arithmetic the page-frame pool depends on: {@code WriteCache.loadOrAdd} bumps
+   * once per call, the wrapper's {@code releaseFromRead} never touches readers,
+   * so the only path back to a balanced count is the explicit decrement inside
+   * {@code loadOrAddPageForWrite}'s in-memory fallback. Loop-style allocation
+   * (e.g., {@code FreeSpaceMap.updatePageFreeSpace}'s growth loop) is the most
+   * likely real-world amplifier of the original leak.
+   */
+  @Test
+  public void inMemoryFallbackBalancesReferrerOnEveryCall() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    int allocations = 8;
+
+    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    op.addFile("fresh.dat");
+
+    when(readCache.loadOrAddForWrite(
+        anyLong(), anyLong(), any(), anyBoolean(), any()))
+        .thenReturn(null);
+    var pointer = mock(CachePointer.class);
+    when(writeCache.loadOrAdd(eq(fileId), anyLong(), eq(false)))
+        .thenReturn(pointer);
+
+    for (int i = 0; i < allocations; i++) {
+      op.loadOrAddPageForWrite(fileId, i);
+    }
+
+    // Bump-and-decrement parity: N calls to writeCache.loadOrAdd produce exactly
+    // N decrements on the returned pointer. The shared mock pointer collapses
+    // the count to a single invocation total, which is the load-bearing
+    // arithmetic — the production fix is a single decrement per fallback hit.
+    verify(writeCache, times(allocations)).loadOrAdd(eq(fileId), anyLong(), eq(false));
+    verify(pointer, times(allocations)).decrementReadersReferrer();
   }
 
   // ---------------------------------------------------------------------------
@@ -226,7 +280,11 @@ public class LoadOrAddPageForWriteTest {
    * pageIndex)} inside the same TX must return the same {@link CacheEntryChanges}
    * overlay so WAL change accumulation in {@code changes} stays single-rooted —
    * if two overlays existed, half of the writes would go to one and half to the
-   * other, and only one would be applied at commit time.
+   * other, and only one would be applied at commit time. The second call must also
+   * not re-trigger the side effects of the first allocation: the delegate's
+   * exclusive lock must not be released a second time (which would underflow the
+   * lock counter), and the in-progress visibility horizon (filledUpTo) must not
+   * advance because no new pageIndex was allocated.
    */
   @Test
   public void secondCallReturnsExistingOverlay() throws IOException {
@@ -240,6 +298,7 @@ public class LoadOrAddPageForWriteTest {
         .thenReturn(delegate);
 
     var first = op.loadOrAddPageForWrite(fileId, pageIndex);
+    var filledUpToAfterFirst = op.filledUpTo(fileId);
     var second = op.loadOrAddPageForWrite(fileId, pageIndex);
 
     assertThat(second).isSameAs(first);
@@ -247,6 +306,86 @@ public class LoadOrAddPageForWriteTest {
     // pageChangesMap idempotency check.
     verify(readCache, times(1)).loadOrAddForWrite(
         eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any());
+    // The delegate's exclusive lock is released exactly once (during the first
+    // call's allocation); the second call's early-return must not re-release it.
+    verify(delegate, times(1)).releaseExclusiveLock();
+    // filledUpTo unchanged across the second call — no extra bookkeeping fired.
+    assertThat(op.filledUpTo(fileId)).isEqualTo(filledUpToAfterFirst);
+  }
+
+  /**
+   * Cross-API idempotency: a {@code loadPageForWrite} that registers a
+   * {@link CacheEntryChanges} in {@code pageChangesMap} must be observed by a
+   * subsequent {@code loadOrAddPageForWrite} for the same {@code (fileId,
+   * pageIndex)}. The new method's early-return short-circuits engine dispatch
+   * entirely so the underlying read-cache primitive
+   * ({@code readCache.loadOrAddForWrite}) is never consulted on the second call.
+   * This is the most likely real-world ordering once Step 2-3 component
+   * migrations land: a component first loads a known page for write, then later
+   * in the same TX needs to ensure a page exists (re-entering the same overlay).
+   */
+  @Test
+  public void loadPageForWriteThenLoadOrAddReturnsSameOverlay() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long pageIndex = 7;
+
+    // Pre-existing file with committed pages beyond pageIndex.
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(20L);
+    var delegate = mockCacheEntry(fileId, (int) pageIndex);
+    when(readCache.loadForRead(eq(fileId), eq(pageIndex), eq(writeCache), eq(true)))
+        .thenReturn(delegate);
+
+    var first = op.loadPageForWrite(fileId, pageIndex, 1, true);
+    var second = op.loadOrAddPageForWrite(fileId, pageIndex);
+
+    assertThat(second).isSameAs(first);
+    // The shared early-return inside loadOrAddPageForWrite short-circuits engine
+    // dispatch — the read-cache write-side primitive must never fire on the
+    // second call because the pageChangesMap already holds an overlay placed
+    // there by loadPageForWrite.
+    verify(readCache, never()).loadOrAddForWrite(
+        anyLong(), anyLong(), any(), anyBoolean(), any());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bookkeeping: extending an existing file beyond committedFilledUpTo must set
+  // the in-progress visibility horizon correctly and flag the page as new.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extending an existing (non-fresh) file: with {@code committedFilledUpTo=10}
+   * and a {@code pageIndex=10} allocation, the page must be flagged as new
+   * (extends beyond the committed horizon), {@code filledUpTo} must advance to
+   * {@code 11} (the new in-progress horizon), and {@code hasChangesForPage} must
+   * become {@code true} at the allocated index and {@code false} at the next
+   * index (the boundary). The disk-engine path is exercised here so this test
+   * sits next to the existing fresh-file bookkeeping coverage and pins the
+   * extend case the {@code addPage} replacement is most likely to fail on.
+   */
+  @Test
+  public void extendsExistingFileBumpsFilledUpToAndFlagsIsNew() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long pageIndex = 10; // == committedFilledUpTo, the one-page-extend target
+
+    // Existing file (NOT created in this TX) — no addFile call, so the
+    // FileChanges that loadOrAddPageForWrite lazily creates has isNew=false.
+    // committedFilledUpTo from the write cache is 10 → allocating pageIndex=10
+    // is the extend case.
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
+    var delegate = mockCacheEntry(fileId, (int) pageIndex);
+    when(readCache.loadOrAddForWrite(
+        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
+        .thenReturn(delegate);
+
+    var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, pageIndex);
+
+    // isNew=true because pageIndex (10) >= committedFilledUpTo (10).
+    assertThat(entry.isNew).isTrue();
+    // filledUpTo advanced to maxNewPageIndex + 1 = 11.
+    assertThat(op.filledUpTo(fileId)).isEqualTo(11L);
+    // The allocated index has changes; the next one (the boundary) does not.
+    assertThat(op.hasChangesForPage(fileId, pageIndex)).isTrue();
+    assertThat(op.hasChangesForPage(fileId, pageIndex + 1)).isFalse();
   }
 
   // ---------------------------------------------------------------------------
@@ -258,14 +397,19 @@ public class LoadOrAddPageForWriteTest {
    * A negative {@code pageIndex} is a caller bug; the method asserts on it. With
    * assertions disabled, the negative pageIndex would still surface via the
    * downstream {@code WriteCache.loadOrAdd}'s own validation, but the assertion
-   * fail-fasts the error closer to the caller for easier diagnosis.
+   * fail-fasts the error closer to the caller for easier diagnosis. The message
+   * must name the offending pageIndex so a regression that fires the assertion
+   * on an unrelated invariant (e.g. a downstream null-check) is distinguishable
+   * from this caller-bug guard.
    */
   @Test
   public void negativePageIndexFailsFast() {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
 
     assertThatThrownBy(() -> op.loadOrAddPageForWrite(fileId, -1L))
-        .isInstanceOf(AssertionError.class);
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("pageIndex out of range")
+        .hasMessageContaining("-1");
   }
 
   /**

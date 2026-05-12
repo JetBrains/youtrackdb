@@ -1866,9 +1866,37 @@ public class IndexHistogramManager extends StorageComponent {
    * {@code hllOnPage1} is set, also writes HLL registers to page 1.
    * Both pages are written within the same {@link AtomicOperation}, so
    * they are flushed atomically via WAL.
+   *
+   * <p>Acquires the IHM's per-component exclusive lock before touching any page so the
+   * two page-1 allocators on this component cannot race for the same {@code fileId}.
+   * The lock matches the one {@link #flushSnapshotToPage()} acquires (via the same
+   * {@code acquireExclusiveLockTillOperationComplete} call inside
+   * {@code executeInsideComponentOperation}); without the symmetric lock,
+   * {@code flushSnapshotToPage} (reachable from {@code applyDelta} on a commit-time
+   * batch flush, from {@code flushIfDirty} on checkpoint/shutdown/recovery, from
+   * {@code closeStatsFile}, and from {@code doRebalance}) could race with
+   * {@code writeSnapshotToPage} (reachable from {@code buildHistogram} via the BTree
+   * engines' {@code buildInitialHistogram} and from
+   * {@code createStatsFileWithCounters} at storage open), and Track 1's fail-fast
+   * {@code IllegalStateException} in {@code WOWCache.loadOrAdd} would surface a hard
+   * crash on the loser of the I4-violating concurrent allocation.
+   *
+   * <p>The lock is acquired directly via
+   * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete} rather
+   * than via {@code executeInsideComponentOperation} because the wrapper rewraps any
+   * thrown {@link IOException} as an unchecked {@code CommonStorageComponentException}.
+   * Callers such as {@link #flushIfDirty(AtomicOperation)} catch {@link IOException} to
+   * restore the dirty-mutation counter; keeping the checked exception transparent here
+   * preserves that catch site. Acquisition is idempotent (the AOM fast-path no-ops
+   * when the component is already in the operation's {@code lockedObjects} set), so
+   * callers that already sit inside the lock pay only a hash-set lookup. The lock is
+   * released by {@code AtomicOperationsManager.endAtomicOperation} when the outer
+   * atomic op commits or rolls back.
    */
   private void writeSnapshotToPage(AtomicOperation op,
       HistogramSnapshot snapshot) throws IOException {
+    storage.getAtomicOperationsManager()
+        .acquireExclusiveLockTillOperationComplete(op, this);
     var cacheEntry = loadPageForWrite(op, fileId, 0, true);
     try {
       var page = new HistogramStatsPage(cacheEntry);

@@ -440,6 +440,20 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       assert pointer != null
           : "WriteCache.loadOrAdd returned null for fileId=" + fileId
               + " pageIndex=" + pageIndex + " (totality contract violated)";
+      // DirectMemoryOnlyDiskCache.loadOrAdd bumps the pointer's readers-referrer
+      // count by 1 for the caller (per MemoryFile.loadOrAddPage's contract). Our
+      // CacheEntryImpl(insideCache=false) wrapper is released through
+      // ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease, which only
+      // manipulates usagesCount and never decrements readers-referrer (in contrast
+      // to LockFreeReadCache.releaseFromRead, whose !insideCache branch DOES). If we
+      // kept the bump, every page allocated through this fallback would leak a
+      // readers-referrer reference, and MemoryFile.clear (on deleteFile / truncate /
+      // storage drop) would observe referrer > 1, preventing the page frame from
+      // returning to the pool. Decrement immediately to balance: the page stays
+      // resident because MemoryFile.installEmptyPage already holds the in-cache
+      // referrer (count = 1 after this decrement), so subsequent commit-time
+      // loadOrAddForWrite still finds the page via MemoryFile.loadPage.
+      pointer.decrementReadersReferrer();
       delegate = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
     }
     changes.delegate = delegate;
@@ -448,6 +462,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     // actual pageIndex (no prediction), and bump maxNewPageIndex so the in-progress
     // visibility horizon consulted by loadPageForWrite / loadPageForRead /
     // hasChangesForPage at AOBT:233/:282/:428 stays consistent for fresh allocations.
+    // Mirror addPage's pre-insert invariant (AOBT:358): per-component lock contract
+    // promises a single in-TX allocator for each (fileId, pageIndex), so the slot must
+    // be empty at this point — the early-return for existing entries above already
+    // covers the idempotent-call shape.
+    assert changesContainer.pageChangesMap.get(pageIndex) == null
+        : "pageChangesMap already contains pageIndex=" + pageIndex
+            + " — concurrent loadOrAddPageForWrite for the same (fileId, pageIndex)"
+            + " inside a single AtomicOperation; per-component lock contract violated";
     changesContainer.pageChangesMap.put(pageIndex, changes);
     if (isNew && pageIndex > changesContainer.maxNewPageIndex) {
       changesContainer.maxNewPageIndex = pageIndex;
