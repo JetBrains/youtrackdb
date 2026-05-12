@@ -205,7 +205,7 @@ public class DatabaseScriptManagerTest extends TestUtilsFixture {
       // Reflect into pooledEngines to confirm the factory lazily materialized a pool for
       // foreignLang — observable evidence the code path executed.
       //
-      // WHEN-FIXED: Track 22 — if DatabaseScriptManager / ResourcePoolFactory expose a
+      // WHEN-FIXED: YTDB-739 — if DatabaseScriptManager / ResourcePoolFactory expose a
       // test-visible accessor for per-language pool existence, replace this reflection chain
       // so a rename of the private `pooledEngines` / `poolStore` fields does not silently
       // turn this into a no-op test.

@@ -274,7 +274,7 @@ public class PolyglotScriptBindingTest {
   /**
    * {@link PolyglotScriptBinding#entrySet()} currently returns {@code null} (the wrapper does
    * not implement entry iteration). Pin the observable shape — a future completion will flip
-   * this test and force a deliberate review. WHEN-FIXED: Track 22 — implement entrySet and
+   * this test and force a deliberate review. WHEN-FIXED: YTDB-735 — implement entrySet and
    * update this assertion to the returned set's size contract.
    */
   @Test
@@ -287,7 +287,7 @@ public class PolyglotScriptBindingTest {
 
   /**
    * {@link PolyglotScriptBinding#containsValue(Object)} unconditionally returns {@code false}.
-   * Pin the observable shape. WHEN-FIXED: Track 22 — implement containsValue and replace this
+   * Pin the observable shape. WHEN-FIXED: YTDB-735 — implement containsValue and replace this
    * with a positive assertion on {@code bindings.containsValue(someStoredValue)}.
    */
   @Test

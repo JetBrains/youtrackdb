@@ -350,7 +350,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
    * future correctness fix would clamp the addition before storing, in which case this
    * worker would NOT be interrupted and the pin would fail.
    */
-  // WHEN-FIXED: deferred-cleanup track — guard the deadline addition against overflow so a
+  // WHEN-FIXED: YTDB-733 — guard the deadline addition against overflow so a
   // Long.MAX_VALUE per-command timeout means "effectively never" rather than "fire now".
   @Test
   public void perCommandTimeoutOfLongMaxValueOverflowsAndInterruptsImmediately()

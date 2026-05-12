@@ -53,7 +53,7 @@ import org.mockito.Mockito;
  *       per established precedent in this branch.
  * </ul>
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@code EntityHookAbstract} together with
+ * <p>WHEN-FIXED: YTDB-734 — delete {@code EntityHookAbstract} together with
  * this test file; the remaining test subclasses must either be deleted or retargeted at
  * {@link RecordHookAbstract} or {@link RecordHook}.
  *

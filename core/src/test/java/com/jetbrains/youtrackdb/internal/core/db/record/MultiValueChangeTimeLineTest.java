@@ -83,7 +83,7 @@ public class MultiValueChangeTimeLineTest {
    * maintainer chooses to add a null guard, this test fails loudly and the deliberate change
    * is visible at the failure site.
    *
-   * <p>WHEN-FIXED: deferred-cleanup track — if a null guard is added to
+   * <p>WHEN-FIXED: YTDB-743 — if a null guard is added to
    * {@code addCollectionChangeEvent}, replace this test with one asserting the rejection.
    */
   @Test

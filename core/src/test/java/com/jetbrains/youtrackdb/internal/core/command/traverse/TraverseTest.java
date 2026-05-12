@@ -31,7 +31,7 @@ public class TraverseTest extends DbTestBase {
    * from Track 8. JUnit 4 runs subclass {@code @After} methods before superclass ones, so this
    * safety net runs ahead of the database teardown.
    *
-   * <p>WHEN-FIXED: Track 22 — hoist this idiom into {@code TestUtilsFixture} and switch this
+   * <p>WHEN-FIXED: YTDB-741 — hoist this idiom into {@code TestUtilsFixture} and switch this
    * class to extend it directly (plan §Track 22 absorption list). Extends {@code DbTestBase}
    * today to preserve existing test infrastructure.
    */
@@ -625,7 +625,7 @@ public class TraverseTest extends DbTestBase {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — the defensive branch in {@link Traverse#hasNext} at lines 91-93
+   * WHEN-FIXED: YTDB-741 — the defensive branch in {@link Traverse#hasNext} at lines 91-93
    * (throw when {@code next()} returns null while {@link TraverseContext#isEmpty()} is false) is
    * unreachable through normal traversal flow: {@link Traverse#next} loops while memory is
    * non-empty, so it only returns null when memory drains. This test forces the precondition by

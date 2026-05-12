@@ -43,7 +43,7 @@ import org.mockito.Mockito;
  * Pinning all 7 cases catches both a renamed callback and an accidental swap (e.g.
  * BEFORE_UPDATE arm calling {@code onBeforeRecordCreate}).
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete this class together with this test file
+ * <p>WHEN-FIXED: YTDB-734 — delete this class together with this test file
  * once the test subclasses (BrokenMapHook, HookTxTest$RecordHook) are retargeted directly
  * at {@link RecordHook}.
  *

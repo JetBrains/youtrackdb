@@ -300,7 +300,7 @@ public class ScriptFormatterTest extends TestUtilsFixture {
    * Ruby definition with a "\r"-prefixed multi-line body: Scanner splits each "\n"-separated
    * token and prepends "\t" to each. This is a faithful pin of the current (surprising)
    * behavior — consecutive source lines are joined by the tab only (no inter-line newline).
-   * WHEN-FIXED: Track 22 — RubyScriptFormatter likely should emit a trailing newline per line
+   * WHEN-FIXED: YTDB-736 — RubyScriptFormatter likely should emit a trailing newline per line
    * so each body line occupies its own line. Until then, this test locks the observed shape.
    */
   @Test
@@ -320,7 +320,7 @@ public class ScriptFormatterTest extends TestUtilsFixture {
    * is a visible change — this test will start to PASS where it currently asserts-throws,
    * forcing a conscious re-pin.
    *
-   * <p>WHEN-FIXED: Track 22 — replace unconditional skip("\r") with a conditional guard OR
+   * <p>WHEN-FIXED: YTDB-736 — replace unconditional skip("\r") with a conditional guard OR
    * delete the class if Ruby support is removed.
    */
   @Test
@@ -336,7 +336,7 @@ public class ScriptFormatterTest extends TestUtilsFixture {
 
   /**
    * Ruby definition with EMPTY code: scanner.skip("\r") throws at position 0 because there
-   * is no "\r" to consume. Pins the observed crash for empty input. WHEN-FIXED: Track 22.
+   * is no "\r" to consume. Pins the observed crash for empty input. WHEN-FIXED: YTDB-736.
    */
   @Test
   public void rubyGetFunctionDefinitionWithEmptyCodeThrows() {

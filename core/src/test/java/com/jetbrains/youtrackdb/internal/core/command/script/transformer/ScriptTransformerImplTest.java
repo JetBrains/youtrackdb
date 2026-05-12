@@ -323,7 +323,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    * number/string. Pins the observed crash shape so Track 22's hardening (probe via
    * {@code isHostObject() ?} before unwrap) is a visible change.
    *
-   * <p>WHEN-FIXED: Track 22 — guard with {@code isHostObject()} check before
+   * <p>WHEN-FIXED: YTDB-737 — guard with {@code isHostObject()} check before
    * {@code asHostObject()}, or switch to {@code toString()}/{@code as(Object.class)} for the
    * non-host path. Already cross-referenced in Step 4's {@code PolyglotScriptExecutorTest}
    * (TB2 pin): both tests observe the same latent bug from different call sites.
@@ -334,7 +334,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
     assertTrue(arrVal.hasArrayElements());
 
     assertThrows(
-        "pure JS array of primitives → asHostObject() CCE — WHEN-FIXED: Track 22",
+        "pure JS array of primitives → asHostObject() CCE — WHEN-FIXED: YTDB-737",
         ClassCastException.class,
         () -> transformer.toResultSet(session, arrVal));
   }
@@ -385,7 +385,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    * value for Result" error so Track 22's hardening (e.g., coerce Value via toString, or add
    * Value.class transformer) is a visible change.
    *
-   * <p>WHEN-FIXED: Track 22 — either register a transformer for {@code org.graalvm.polyglot.Value}
+   * <p>WHEN-FIXED: YTDB-737 — either register a transformer for {@code org.graalvm.polyglot.Value}
    * or coerce via {@code Value.toString()} before storing.
    */
   @Test

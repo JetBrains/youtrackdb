@@ -231,7 +231,7 @@ public class SqlScriptExecutorTest extends DbTestBase {
    * {@link NullPointerException}. We pin that specific shape so a refactor that quietly returns
    * {@code null} (or broadens to a different exception not rooted in function lookup) is caught.
    *
-   * <p>WHEN-FIXED: Track 22 — if {@code FunctionLibrary.getFunction} gains a null-guard and the
+   * <p>WHEN-FIXED: YTDB-740 — if {@code FunctionLibrary.getFunction} gains a null-guard and the
    * unknown-name path starts throwing {@link CommandScriptException} with a message naming the
    * missing function, flip this assertion to pin that instead; the NPE shape is observed state,
    * not a desired contract.

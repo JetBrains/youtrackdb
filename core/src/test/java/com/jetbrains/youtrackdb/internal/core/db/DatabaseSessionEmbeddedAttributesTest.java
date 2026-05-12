@@ -142,7 +142,7 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
   // GMT), then the retry uses the original mixed-case form which IS a
   // recognised Java TZ id and resolves to the live Europe/Paris zone.
   //
-  // WHEN-FIXED: deferred-cleanup track — the production comment that says
+  // WHEN-FIXED: YTDB-742 — the production comment that says
   // "until 2.1.13 YouTrackDB accepted timezones in lowercase as well" is
   // misleading. A fully-lowercase input ("europe/paris") yields GMT both on
   // the upper-case lookup and on the retry, because Java's getTimeZone is
@@ -295,7 +295,7 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
   // unobservable at this layer and is forwarded to the deferred-cleanup
   // track (which may either expose a getProperty accessor on Storage or
   // delete the entire setCustom dispatcher together with its call sites).
-  // WHEN-FIXED: deferred-cleanup track — once a public read-back exists,
+  // WHEN-FIXED: YTDB-742 — once a public read-back exists,
   //  tighten the no-throw assertions below into post-state pins.
   // ---------------------------------------------------------------------------
 

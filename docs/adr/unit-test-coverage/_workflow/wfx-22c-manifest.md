@@ -189,13 +189,14 @@ Security-Type override rule.
 - **Block locators:** single-line `//` comment + 5–7 surrounding test-method lines per the step file's "Single-line inline fragment" definition. Per-line ranges:
   - L702–L710; L740–L748; L765–L773; L785–L793; L805–L813; L463–L471; L481–L489.
 - **What to flip when fixed:** the dead-static-dispatch pins delete entirely once `LiveQueryHookV2.calculateProjections` is repaired (or the dead static methods are deleted).
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-728 (V2 surface — covers lines 505, 557, 706, 744, 769, 789, 809)
 
 > Step 3 implementer note: the 18 LiveQueryDeadCodeTest markers split
-> across **3 logical issues** — Sc1 (LiveQueryHookV2 V2 dispatch),
-> Sc2 (LiveQueryHook V1 dispatch), Sc3 (V1 vs V2 InterruptedException
-> reconciliation). PSI find-usages confirms the coupling before
-> opening.
+> across **4 logical issues** in practice — Sc1/YTDB-728 (LiveQueryHookV2 +
+> V2 thread surface), Sc2/YTDB-729 (LiveQueryHook V1 + V1 thread + listener
+> orphans), Sc3/YTDB-730 (V1 vs V2 InterruptedException reconciliation),
+> Sc4/YTDB-731 (subscribe duplicate-token handling). Routing by anchor
+> text in each line-comment.
 
 #### Sc2. `LiveQueryHook` (V1) dead static dispatch — delete + LiveQueryListener / LiveQueryListenerV2 SPI orphan cleanup
 
@@ -204,7 +205,7 @@ Security-Type override rule.
 - **Anchor quote (L84):** `    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread`
 - **Block locators:** L80–L92; L100–L112; L196–L208; L244–L256; L296–L308; L338–L350; L463–L471; L481–L489; L823–L831; L847–L855.
 - **What to flip:** the V1 dispatch + listener test pins delete entirely once the production targets are deleted.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-729
 
 #### Sc3. V1 `break` vs V2 `continue` `InterruptedException` handling reconciliation
 
@@ -213,7 +214,7 @@ Security-Type override rule.
 - **Anchor quote (L415):** `    // WHEN-FIXED: Track 22 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)`
 - **Block locators:** L411–L419; L430–L438; L635–L643; L667–L675.
 - **What to flip:** the test currently pins the asymmetric behaviour with separate assertions; flip to a unified expectation once reconciled.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-730
 
 #### Sc4. `LiveQueryDeadCodeTest:141` — `subscribe` duplicate-token handling
 
@@ -221,17 +222,18 @@ Security-Type override rule.
 - **Test file + lines:** `LiveQueryDeadCodeTest.java:141`.
 - **Anchor quote (L141):** `    // WHEN-FIXED: Track 22 — subscribe should either reject duplicate tokens or end-notify the`
 - **Block locators:** L137–L149.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-731
 
 #### Sc5. `ScheduledEvent` ctor swallows `ParseException` + `executeEventFunction` retry-loop bug + `SchedulerImpl.onEventDropped` NPE
 
 - **Type:** Bug; **Subsystem:** Scheduling.
 - **Test file + lines:** no current markers in `core/src/test/` after 22a's CronExpression fixes landed (the SchedulerImpl pins were absorbed/handled in 22a). Step 3 implementer **confirms via PSI / grep** before opening; if zero markers remain, the issue is opened as a "regression-test-pending" task with the production-code references.
 - **Anchor quote:** n/a.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-732 — no markers; production-code-referenced (confirmed at Step 3 re-grep: zero `WHEN-FIXED` markers in `core/src/test/` reference `ScheduledEvent` / `executeEventFunction` / `SchedulerImpl.onEventDropped` — the only `WHEN-FIXED` hit for scheduler classes is the CronExpression dead-code pin, which is unrelated). Sc4 and Sc5 NOT collapsed (different production surfaces).
 
-> Step 3 may collapse Sc5 into Sc4 if reviewers find the cluster too
-> fragmentary.
+> Step 3 did NOT collapse Sc5 into Sc4 — the two pin unrelated production
+> surfaces (Sc4 = `subscribe` duplicate-token in `LiveQueryQueueThread`;
+> Sc5 = scheduler retry/NPE in `ScheduledEvent` / `SchedulerImpl`).
 
 #### Sc6. `CommandTimeoutChecker.computeDeadline` overflow guard
 
@@ -240,7 +242,7 @@ Security-Type override rule.
 - **Anchor quote (L353):** `  // WHEN-FIXED: deferred-cleanup track — guard the deadline addition against overflow so a`
 - **Block locators:** L349–L361.
 - **What to flip:** the overflow-pinning assertion flips to a normalized-deadline expectation.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-733
 
 #### Sc7. Hooks-SPI dead-code cluster (`EntityHookAbstract`, `RecordHookAbstract`)
 
@@ -253,7 +255,7 @@ Security-Type override rule.
   - `EntityHookAbstractDeadCodeTest.java`: lines **40–70** (entire Javadoc).
   - `RecordHookAbstractDeadCodeTest.java`: lines **30–60**.
 - **What to flip:** delete both classes alongside the test files once SPI consumers are eliminated.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-734
 
 ---
 
@@ -638,7 +640,7 @@ script category. Each is a script-engine production-fix issue.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/script/PolyglotScriptExecutorTest.java:165,187,203,324`.
 - **Anchor quote (`PolyglotScriptExecutorTest.java:165`):** `   * shape. WHEN-FIXED: Track 22 — the transformer should fall through`
 - **Block locators:** L155–L175 (anchor); L180–L195; L195–L215; L315–L335; `PolyglotScriptBindingTest.java`: L270–L300.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-735
 
 #### Sk2. `ScriptFormatter` (Ruby) trailing-newline + `\r`-skip + empty-input crash
 
@@ -646,7 +648,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/script/formatter/ScriptFormatterTest.java:303,323,339`.
 - **Anchor quote (L303):** `   * WHEN-FIXED: Track 22 — RubyScriptFormatter likely should emit a trailing newline per line`
 - **Block locators:** L295–L345.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-736
 
 #### Sk3. `ScriptTransformerImpl` Polyglot Value handling + `asHostObject` CCE
 
@@ -654,7 +656,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/script/transformer/ScriptTransformerImplTest.java:326,337,388`.
 - **Anchor quote (L326):** `   * <p>WHEN-FIXED: Track 22 — guard with {@code isHostObject()} check before`
 - **Block locators:** L318–L345; L330–L342; L380–L395.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-737
 
 #### Sk4. `ScriptManager` close-all / `Integer.parseInt` guards / `()` empty-arg / concurrency
 
@@ -662,7 +664,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/script/ScriptManagerTest.java:323,571,589,643,670,767,771,807`.
 - **Anchor quote (L571):** `   * <p>WHEN-FIXED: Track 22 — add guard around Integer.parseInt in`
 - **Block locators:** L315–L330; L565–L580; L583–L595; L640–L650; L665–L675; L760–L775; L800–L820.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-738 — kept as a single issue (manifest's Sk4 split hedge declined; the 8 markers all pin overlapping hardening surfaces on the same `ScriptManager` class).
 
 #### Sk5. `DatabaseScriptManager` resource-pool expose
 
@@ -670,7 +672,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/script/DatabaseScriptManagerTest.java:208`.
 - **Anchor quote (L208):** `      // WHEN-FIXED: Track 22 — if DatabaseScriptManager / ResourcePoolFactory expose a`
 - **Block locators:** L200–L220.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-739
 
 #### Sk6. `SqlScriptExecutor` FunctionLibrary null-guard
 
@@ -678,7 +680,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/SqlScriptExecutorTest.java:234`.
 - **Anchor quote (L234):** `   * <p>WHEN-FIXED: Track 22 — if {@code FunctionLibrary.getFunction} gains a null-guard and the`
 - **Block locators:** L225–L245.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-740
 
 #### Sk7. `Traverse` / `TraverseContext` defensive-branch + LogManager-appender capture
 
@@ -688,7 +690,7 @@ script category. Each is a script-engine production-fix issue.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/traverse/TraverseContextTest.java:183`.
 - **Anchor quote (`TraverseTest.java:628`):** `   * WHEN-FIXED: Track 22 — the defensive branch in {@link Traverse#hasNext} at lines 91-93`
 - **Block locators:** L25–L50; L620–L640; L175–L195.
-- **YTDB-ID:** _(filled by Step 3)_
+- **YTDB-ID:** YTDB-741
 
 #### Sk8. `DatabaseSessionEmbeddedAttributes` public read-back exposure
 
@@ -696,7 +698,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbeddedAttributesTest.java:145,298`.
 - **Anchor quote (L145):** `  // WHEN-FIXED: deferred-cleanup track — the production comment that says`
 - **Block locators:** L140–L155; L290–L305.
-- **YTDB-ID:** _(filled by Step 3 or Step 5; manifest tentatively Step 3 as adjacent to session-database concerns)_
+- **YTDB-ID:** YTDB-742 (handled by Step 3 per manifest's tentative routing)
 
 #### Sk9. `MultiValueChangeTimeLine` null-guard
 
@@ -704,7 +706,7 @@ script category. Each is a script-engine production-fix issue.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/record/MultiValueChangeTimeLineTest.java:86`.
 - **Anchor quote (L86):** `   * <p>WHEN-FIXED: deferred-cleanup track — if a null guard is added to`
 - **Block locators:** L80–L100.
-- **YTDB-ID:** _(filled by Step 3 or Step 5; manifest tentatively Step 5)_
+- **YTDB-ID:** YTDB-743 (handled by Step 3 — folded with Sk8 batch since single defensive-NPE marker)
 
 ---
 

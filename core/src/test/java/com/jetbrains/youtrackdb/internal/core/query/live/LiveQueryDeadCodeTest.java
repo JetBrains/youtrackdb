@@ -81,7 +81,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_freshThreadHasNoSubscribersOrTokens() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryQueueThread
     var thread = new LiveQueryQueueThread();
     try {
       assertFalse("fresh thread must report no listeners", thread.hasListeners());
@@ -101,7 +101,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_subscribeStoresListener_unsubscribeTriggersOnLiveResultEnd() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryQueueThread
     var thread = new LiveQueryQueueThread();
     var endCalls = new AtomicInteger();
     LiveQueryListener listener =
@@ -138,7 +138,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_subscribeWithExistingTokenSilentlyOverwritesReplacedListener() {
-    // WHEN-FIXED: Track 22 — subscribe should either reject duplicate tokens or end-notify the
+    // WHEN-FIXED: YTDB-731 — subscribe should either reject duplicate tokens or end-notify the
     // replaced listener (ConcurrentHashMap.put silently drops the previous value today).
     var thread = new LiveQueryQueueThread();
     try {
@@ -197,7 +197,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_unsubscribeUnknownKeyIsNoOp() throws Exception {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryQueueThread
     var thread = new LiveQueryQueueThread();
     var endCalls = new AtomicInteger();
 
@@ -245,7 +245,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_cloneSharesQueueAndSubscribers() throws Exception {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryQueueThread
     var original = new LiveQueryQueueThread();
     LiveQueryQueueThread copy = null;
     var delivered = new CountDownLatch(1);
@@ -297,7 +297,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_runLoopDispatchesEnqueuedOperation() throws Exception {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryQueueThread
     var thread = new LiveQueryQueueThread();
     var received = new AtomicReference<RecordOperation>();
     var latch = new CountDownLatch(1);
@@ -339,7 +339,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_listenerExceptionDoesNotKillDispatcher() throws Exception {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryQueueThread
     var thread = new LiveQueryQueueThread();
     var throwCount = new AtomicInteger();
     var goodCount = new AtomicInteger();
@@ -412,7 +412,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_stopExecutionExitsRunLoop() throws Exception {
-    // WHEN-FIXED: Track 22 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
+    // WHEN-FIXED: YTDB-730 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
     var thread = new LiveQueryQueueThread();
     thread.start();
     assertTrue("thread must be alive after start", thread.isAlive());
@@ -431,7 +431,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_loneInterruptExitsRunLoopWithoutStopped() throws Exception {
-    // WHEN-FIXED: Track 22 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
+    // WHEN-FIXED: YTDB-730 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
     var thread = new LiveQueryQueueThread();
     thread.start();
     awaitThreadState(thread, Thread.State.WAITING, 2000);
@@ -464,7 +464,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_opsExposeFreshQueueThread() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryHook
     var ops = new LiveQueryHook.LiveQueryOps();
     try {
       var thread = ops.getQueueThread();
@@ -482,7 +482,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v1_opsCloseOnNeverStartedOpsIsIdempotent() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryHook
     var ops = new LiveQueryHook.LiveQueryOps();
     ops.close();
     // A second close must not blow up either.
@@ -502,7 +502,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_cloneSharesOpsReference() throws Exception {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThreadV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryQueueThreadV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
     var original = new LiveQueryQueueThreadV2(ops);
     var received = new CountDownLatch(1);
@@ -554,7 +554,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_runLoopBatchesAndDispatchesToSubscribers() throws Exception {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThreadV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryQueueThreadV2
 
     // The "single-batch collapse" pin below is only meaningful when the inner drain loop can
     // absorb both pre-enqueued ops in one call (batchSize >= 2). Guard explicitly so a future
@@ -636,7 +636,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_stopExecutionExitsRunLoop() throws Exception {
-    // WHEN-FIXED: Track 22 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
+    // WHEN-FIXED: YTDB-730 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
     var ops = new LiveQueryHookV2.LiveQueryOps();
     var thread = new LiveQueryQueueThreadV2(ops);
     thread.start();
@@ -668,7 +668,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_loneInterruptDoesNotExitRunLoopUntilStopped() throws Exception {
-    // WHEN-FIXED: Track 22 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
+    // WHEN-FIXED: YTDB-730 — reconcile V1/V2 interrupt handling (V1 breaks, V2 continues)
     var ops = new LiveQueryHookV2.LiveQueryOps();
     var thread = new LiveQueryQueueThreadV2(ops);
     thread.start();
@@ -703,7 +703,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_opsSubscribersLifecycle() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
     try {
       assertFalse("fresh ops must report no listeners", ops.hasListeners());
@@ -741,7 +741,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_opsUnsubscribeUnknownTokenIsNoOp() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
     try {
       var captured = new ArrayList<List<LiveQueryOp>>();
@@ -766,7 +766,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_opsEnqueueRoutesToSharedQueue() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
     try {
       var op = new LiveQueryOp(null, null, null, RecordOperation.UPDATED);
@@ -786,7 +786,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_opsCloseOnNeverStartedIsIdempotent() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
 
     ops.close();
@@ -806,7 +806,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void v2_liveQueryOpConstructorAllowsNullBeforeAndAfter() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    // WHEN-FIXED: YTDB-728 — delete core/query/live/LiveQueryHookV2
     var op = new LiveQueryOp(null, null, null, RecordOperation.CREATED);
     assertNull("null before must stay null", op.before);
     assertNull("null after must stay null", op.after);
@@ -824,7 +824,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void deadInterface_liveQueryListenerHasZeroProductionImpls() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryListener
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryListener
     LiveQueryListener anon =
         new LiveQueryListener() {
           @Override
@@ -848,7 +848,7 @@ public class LiveQueryDeadCodeTest {
    */
   @Test
   public void deadInterface_liveQueryListenerV2HasZeroProductionImpls() {
-    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryListenerV2
+    // WHEN-FIXED: YTDB-729 — delete core/query/live/LiveQueryListenerV2
     LiveQueryListenerV2 anon =
         new LiveQueryListenerV2() {
           @Override

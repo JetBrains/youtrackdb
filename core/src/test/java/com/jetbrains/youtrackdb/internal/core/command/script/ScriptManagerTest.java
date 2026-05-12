@@ -320,7 +320,7 @@ public class ScriptManagerTest extends DbTestBase {
     // constructing a Function whose language field we force to null AFTER creation, then
     // direct-mutate the map entry so the library iteration picks up a null-language function
     // without touching the persisted schema (which validates). This pin locks in the
-    // defensive branch's observable shape. WHEN-FIXED: Track 22 — if this defensive guard
+    // defensive branch's observable shape. WHEN-FIXED: YTDB-738 — if this defensive guard
     // is hardened (e.g., check null at function-create time), the test's surface will shift
     // and should be re-pinned rather than deleted.
     final var fname = "FnNullLang" + uniqueSuffix();
@@ -568,7 +568,7 @@ public class ScriptManagerTest extends DbTestBase {
    * current observable — a Track 22 hardening that wraps the parse failure into a
    * {@link CommandScriptException} would flip this test; rewrite at that time.
    *
-   * <p>WHEN-FIXED: Track 22 — add guard around Integer.parseInt in
+   * <p>WHEN-FIXED: YTDB-738 — add guard around Integer.parseInt in
    * {@code ScriptManager.throwErrorMessage} Rhino-fallback branch.
    */
   @Test
@@ -586,7 +586,7 @@ public class ScriptManagerTest extends DbTestBase {
    * {@code -1} and {@code substring(pos+len, -1)} throws
    * {@link StringIndexOutOfBoundsException}. Pin the current shape.
    *
-   * <p>WHEN-FIXED: Track 22 — same hardening as
+   * <p>WHEN-FIXED: YTDB-738 — same hardening as
    * {@link #throwErrorMessageRhinoFallbackNonNumericLineThrowsNumberFormatException}.
    */
   @Test
@@ -640,7 +640,7 @@ public class ScriptManagerTest extends DbTestBase {
    * via callers that resolve the library from {@code getLibrary(...)} (which CAN return null —
    * {@code DatabaseScriptManager.createNewResource:56}). The production code today passes null
    * directly into {@code new Scanner((String) null)} which NPEs. Pin the current observable
-   * shape so a future null-guard is a deliberate, visible change. WHEN-FIXED: Track 22 — add
+   * shape so a future null-guard is a deliberate, visible change. WHEN-FIXED: YTDB-738 — add
    * null-library handling.
    */
   @Test
@@ -667,7 +667,7 @@ public class ScriptManagerTest extends DbTestBase {
    * to detect anonymous functions but misses the common {@code "()"} no-space case. A
    * regression that fixed the guard (e.g., also rejecting {@code "()"}, {@code "(,"}, etc.)
    * would change the observable to {@code "Function unknown:"} and flip this pin.
-   * WHEN-FIXED: Track 22 — harden the anonymous-function guard to also reject {@code "()"}.
+   * WHEN-FIXED: YTDB-738 — harden the anonymous-function guard to also reject {@code "()"}.
    */
   @Test
   public void throwErrorMessageAnonymousFunctionHeaderLeaksParensAsFunctionName() {
@@ -764,11 +764,11 @@ public class ScriptManagerTest extends DbTestBase {
     // close(dbName) which removes — it does NOT clear the keyset (see ScriptManager.closeAll
     // at lines 577-580). Pin the current asymmetric behavior so a future refactor that aligns
     // closeAll with close(dbName) (clearing the map) is a deliberate, visible change.
-    // WHEN-FIXED: Track 22 — align closeAll with close(dbName) (clear dbManagers too).
+    // WHEN-FIXED: YTDB-738 — align closeAll with close(dbName) (clear dbManagers too).
     scriptManager.closeAll();
     assertFalse(
         "closeAll leaves dbManagers keyset UNCHANGED — only the pool-factory close() runs. "
-            + "WHEN-FIXED: Track 22 — flip to assertTrue(isEmpty()) once closeAll clears map.",
+            + "WHEN-FIXED: YTDB-738 — flip to assertTrue(isEmpty()) once closeAll clears map.",
         scriptManager.dbManagers.isEmpty());
 
     // Calling closeAll twice in a row must be idempotent (second iterate-and-close is a no-op
@@ -804,7 +804,7 @@ public class ScriptManagerTest extends DbTestBase {
    *
    * <p>Covers: ScriptManager.acquireDatabaseEngine lines 248-263, {@code putIfAbsent} happy
    * path; the loser's {@code dbManager.close()} branch is exercised non-deterministically
-   * (single interleaving). WHEN-FIXED: Track 22 — if {@code ScriptManager} exposes a
+   * (single interleaving). WHEN-FIXED: YTDB-738 — if {@code ScriptManager} exposes a
    * factory-override hook, strengthen this test into a close()-counting pin.
    */
   @Test

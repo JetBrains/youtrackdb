@@ -162,7 +162,7 @@ public class PolyglotScriptExecutorTest extends TestUtilsFixture {
    * so a pure JS array of primitives throws a {@link ClassCastException} from
    * {@code Value.asHostObject}. The executor's {@code catch (PolyglotException)} does NOT
    * catch ClassCastException, so the raw exception propagates to the caller. Pin the observed
-   * shape. WHEN-FIXED: Track 22 — the transformer should fall through
+   * shape. WHEN-FIXED: YTDB-735 — the transformer should fall through
    * {@code isNumber}/{@code isString} for non-host array elements; when that's fixed, this
    * test should flip to asserting the row count equals the array size (3 for {@code
    * [1, 2, 3]}).
@@ -184,7 +184,7 @@ public class PolyglotScriptExecutorTest extends TestUtilsFixture {
    * {@code null} is the polyglot's {@code isNull} branch: the transformer returns
    * {@code null} directly (see {@link
    * com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformerImpl#toResultSet}
-   * first branch). Pin the observed {@code null} ResultSet shape. WHEN-FIXED: Track 22 —
+   * first branch). Pin the observed {@code null} ResultSet shape. WHEN-FIXED: YTDB-735 —
    * the transformer should return an empty ResultSet instead of null to spare consumers a
    * null-check; when that's fixed, this test should assert non-null + hasNext=false.
    */
@@ -200,7 +200,7 @@ public class PolyglotScriptExecutorTest extends TestUtilsFixture {
    * TC3 iter-2 boundary pin: an EMPTY JavaScript source — {@code ""} — is a common user input
    * (empty editor, failed templating). Graal's {@code Context.eval} on an empty script returns
    * a "null" / "undefined" Value; the transformer's {@code toResultSet} null-short-circuit
-   * branch then returns {@code null}. Pin this current observable shape. WHEN-FIXED: Track 22 —
+   * branch then returns {@code null}. Pin this current observable shape. WHEN-FIXED: YTDB-735 —
    * when the transformer returns an empty ResultSet instead of null, flip this to assert
    * non-null + hasNext=false.
    */
@@ -321,7 +321,7 @@ public class PolyglotScriptExecutorTest extends TestUtilsFixture {
    * atomically. Two sequential {@code execute} calls on the same database must yield the same
    * {@link ResourcePool} instance (the map value is never recomputed). Pinning same-instance
    * equality is the observable proof that computeIfAbsent did not create a second pool.
-   * WHEN-FIXED: Track 22 — if resolveContext is refactored to synchronized/lock-based caching,
+   * WHEN-FIXED: YTDB-735 — if resolveContext is refactored to synchronized/lock-based caching,
    * this test remains valid as long as pool identity is preserved.
    */
   @Test
