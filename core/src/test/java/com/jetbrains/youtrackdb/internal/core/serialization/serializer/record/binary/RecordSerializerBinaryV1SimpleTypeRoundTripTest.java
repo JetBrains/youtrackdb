@@ -379,7 +379,7 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
 
   @Test
   public void stringEmbeddedNullByteRoundTrips() {
-    // "a b" → 3 UTF-8 bytes, varint(3) = 0x06.
+    // "a" + 0x00 + "b" → 3 UTF-8 bytes, varint(3) = 0x06.
     pinValueEncoding(PropertyTypeInternal.STRING, "a\u0000b", "06" + "61" + "00" + "62");
   }
 
