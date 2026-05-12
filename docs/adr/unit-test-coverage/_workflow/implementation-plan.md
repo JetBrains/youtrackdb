@@ -2008,7 +2008,7 @@ flowchart TD
   > marker inventory: 58 files / 149 markers / 68 needing rewrite —
   > Phase A re-validates the arithmetic before issue creation.
 
-- [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
+- [x] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
   > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the
   > 101 non-dead-code markers across 164 test files, one issue per
   > logical fix) plus the SPI-risky dead-code clusters deferred from
@@ -2017,15 +2017,71 @@ flowchart TD
   > clusters deleted by 22b are skipped (full deferred-cluster list
   > and per-issue commit policy in the backlog).
   >
-  > **Scope:** ~1–2 steps — one batched issue-creation + marker-rewrite
-  > step covering all surviving WHEN-FIXED markers, plus an optional
-  > verification step that greps for any unrewritten `Track 22` /
-  > `deferred-cleanup track` markers across `core/src/test/`. No
-  > coverage delta expected; this is tracker hygiene.
+  > **Track episode:**
+  > Opened 69 YTDB tracker issues (YTDB-723..793 with a 2-issue gap at
+  > 784–785) covering production-fix WHEN-FIXED pins and pin-maintenance
+  > renames, then rewrote ~80 inline `// WHEN-FIXED: Track 22 …` and
+  > `// WHEN-FIXED: deferred-cleanup track …` markers in `core/src/test/`
+  > to reference the new issue IDs. Phase B decomposed the work by
+  > category: security (Step 2, YTDB-723..727), scheduler/script/hooks
+  > (Step 3, YTDB-728..743), serializer/binary/debug (Step 4,
+  > YTDB-744..752), sql/legacy/pool/tool/config (Step 5, YTDB-753..777),
+  > pin-maintenance renames (Step 6, YTDB-778..783) — renaming 6
+  > `*DeadCodeTest.java` files whose production-deletion target survived
+  > 22b — and a Step 7 verification gate that re-ran the manifest regex
+  > and closed the manifest.
   >
-  > **Depends on:** Track 1, Track 22a, Track 22b (consumes 22b's
-  > final cluster-disposition list as the filter — only markers in
-  > clusters NOT deleted by 22b need YTDB issues).
+  > Phase C track-level review ran 2 iterations against a 4K-line
+  > cumulative diff with 4 dimensional reviewers. Iter-1 found that
+  > Step 7's verification regex was load-bearing but too narrow: it
+  > anchored on `WHEN-FIXED:\s+(Track 22|deferred-cleanup track)`,
+  > missing parenthesised (`WHEN-FIXED (Track 22):`), trailing
+  > (`WHEN-FIXED: … Track 22.`), Javadoc-prose continuation (`Forward
+  > the fix to Track 22.`), and assertion-message string-literal
+  > variants. The audit gap had let ~13 literal-pin markers + ~30
+  > prose mentions + 5 user-visible surefire-output strings survive
+  > Phase B's closure claim. Iter-1 opened 8 additional YTDB issues
+  > (YTDB-786..793) for the production bugs pinned by the missed
+  > markers — including an umbrella YTDB-793 grouping three distinct
+  > WOWCache pin-migration races and an umbrella YTDB-790 grouping
+  > seven SQLHelper.parseStringNumber sign/decimal/suffix-strip
+  > quirks — rewrote every residual, and append-anchored 3 TC3
+  > manifest-hedge sites (YTDB-748, YTDB-749, YTDB-782) where the
+  > issue existed in YouTrack but the in-source marker carried no
+  > bidirectional anchor. Iter-2 applied 6 prose-coherence fixes
+  > (manifest "Forward-looking forward-looking" stutter, manifest
+  > hedge-site count, redundant double-ID in TraverseContextTest,
+  > orphan parenthetical in TraverseTest, vestigial "deferred-cleanup
+  > plan item" / "forwarded deferred-cleanup item" lexemes in
+  > AccumulatingTimeoutStepTest and DatabaseSessionEmbeddedAttributesTest).
+  > 4 suggestion-tier prose-aesthetic findings (mechanical-substitution
+  > awkwardness like "a YTDB-738 hardening that wraps…", narrative
+  > "final-sweep cleanup" phrasing, Javadoc line-length 113 chars)
+  > deliberately deferred as non-load-bearing.
+  >
+  > Three discoveries. (1) The manifest's `WHEN-FIXED:` enumeration
+  > regex must enumerate every syntactic shape, not the canonical form
+  > alone — future tracker-rename or marker-consolidation work should
+  > adopt the 4-regex set (`\bTrack N\b`, `\b<plan-identifier> track\b`,
+  > `WHEN-FIXED \(Track`, and the line-comment Form-A anchored regex)
+  > as a default. (2) The bidirectional-linkage policy needs to cover
+  > the "issue exists but source marker pre-dates the issue's
+  > existence" case — the manifest's original "no marker rewrite (per
+  > the rename-only hedge)" rule left 3 valid pin sites unanchored;
+  > the anchor-append pattern is mechanical (one-line edit per site)
+  > and should run as a Step-7 sub-check, not a Phase-C salvage.
+  > (3) Mechanical bulk-substitution (`Track 22` → `YTDB-NNN`) produces
+  > a long tail of prose-aesthetic awkwardness that is non-load-bearing
+  > but visible; future tracker-rename work that does this should
+  > either accept the awkwardness or budget a cleanup pass.
+  >
+  > No production code was touched; all changes are in `core/src/test/`
+  > (comment rewrites + 6 class renames + 3 anchor appends) and the
+  > manifest. Coverage gate trivially passes (zero changed production
+  > lines on the iteration diffs). No cross-track impact for remaining
+  > work — Phase 4 inherits a clean tracker hygiene baseline.
+  >
+  > **Step file:** `tracks/track-22c.md` (7 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 2 (re-run after Track 22b Step 14 inline-replan)
