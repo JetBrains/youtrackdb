@@ -83,6 +83,21 @@ public class EdgeTraversal {
   @Nullable private SemiJoinDescriptor semiJoinDescriptor;
 
   /**
+   * Plan-time forecast of total neighbors this edge will process across all
+   * source vertices reaching it during a single query execution. Stamped by
+   * {@code MatchExecutionPlanner} from {@code sourceRows × estimateFanOut(…)}
+   * and reused at runtime in {@code resolveWithCache} to choose between
+   * {@link Mode#BUILD_EAGER} and {@link Mode#DEFERRED_WITH_NET}. Sentinel
+   * {@code -1} means the forecast is absent (planner could not produce a
+   * number — e.g. unbound source alias, non-positive {@code approximateCount}).
+   *
+   * <p>Bind-independent and copied by {@link #copy()} — the same schedule
+   * produces the same forecast regardless of bind values, so the plan cache
+   * can amortize the schedule walk.
+   */
+  private long forecastN = -1L;
+
+  /**
    * Load-to-scan cost ratio used in the build amortization formula.
    * Represents how many times more expensive a random record load is compared
    * to scanning one entry in a pre-built RidSet. The value 100 is a reasonable
@@ -120,6 +135,39 @@ public class EdgeTraversal {
    * resets to {@code NaN}).
    */
   private double indexLookupSelectivity = Double.NaN;
+
+  /**
+   * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
+   * descriptor. Resolved from {@link #forecastN} vs the runtime-computed
+   * {@code m} on the first {@code resolveWithCache} call, then memoized for
+   * the rest of the execution.
+   */
+  enum Mode {
+    /** Mode not yet decided. First {@code resolveWithCache} call computes it. */
+    UNDETERMINED,
+    /**
+     * Forecast says build pays off ({@code forecastN > m}). Materialize on
+     * the first vertex, no deferral phase. Worst-case loss when the forecast
+     * over-estimates is bounded by the one-time build cost.
+     */
+    BUILD_EAGER,
+    /**
+     * Forecast says build does not pay off (or no forecast). Cache null on
+     * first vertex but maintain the runtime accumulator with trigger
+     * {@code T = max(2·forecastN, m)} as a safety net for the case where the
+     * forecast under-estimated reality.
+     */
+    DEFERRED_WITH_NET
+  }
+
+  /**
+   * Memoized amortization mode (see {@link Mode}). Defaults to
+   * {@link Mode#UNDETERMINED}; resolved once per execution on the first
+   * {@code resolveWithCache} call that encounters an IndexLookup descriptor.
+   * Bind-dependent (depends on the runtime {@code estimatedSize} and
+   * {@code estimateSelectivity}), so reset by {@link #copy()}.
+   */
+  private Mode mode = Mode.UNDETERMINED;
 
   // =========================================================================
   // Pre-filter observability counters — not copied by copy().
@@ -269,6 +317,26 @@ public class EdgeTraversal {
 
   public void setSemiJoinDescriptor(@Nullable SemiJoinDescriptor semiJoinDescriptor) {
     this.semiJoinDescriptor = semiJoinDescriptor;
+  }
+
+  /**
+   * Sets the plan-time forecast of total neighbors this edge will process.
+   * Called by {@code MatchExecutionPlanner} after the schedule walk; pass
+   * {@code -1} to mark the forecast as absent. Negative values other than
+   * {@code -1} are normalized to {@code -1} (absent).
+   */
+  public void setForecastN(long forecastN) {
+    this.forecastN = forecastN < 0 ? -1L : forecastN;
+  }
+
+  /** Returns the plan-time forecast, or {@code -1} when absent. */
+  public long getForecastN() {
+    return forecastN;
+  }
+
+  /** Returns the memoized amortization mode (test/PROFILE visibility). */
+  Mode getMode() {
+    return mode;
   }
 
   public boolean isConsumed() {
@@ -758,7 +826,10 @@ public class EdgeTraversal {
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;
     copy.consumedPredecessor = consumedPredecessor;
-    // Cache, accumulatedLinkBagTotal, indexLookupSelectivity, metric
+    // forecastN is bind-independent (depends only on schema/schedule), so the
+    // plan cache reuses it across executions.
+    copy.forecastN = forecastN;
+    // Cache, accumulatedLinkBagTotal, indexLookupSelectivity, mode, metric
     // references, and pre-filter counters are intentionally not copied —
     // stale data from a previous execution must not leak into a new plan
     // instance. The constructor and field initializers reset them to their
