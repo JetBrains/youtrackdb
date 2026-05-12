@@ -720,45 +720,45 @@ script category. Each is a script-engine production-fix issue.
 - **Type:** Task; **Subsystem:** Storage (Exceptions).
 - **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/exception/InternalErrorExceptionDeadCodeTest.java` (not in rewrite-target inventory; pin file exists per cluster-disposition.md).
 - **Issue body:** rename rationale — `InternalErrorException` has 5 production refs in `AbstractStorage.java`.
-- **YTDB-ID:** _(filled by Step 6)_
+- **YTDB-ID:** YTDB-778 — rename-only (no markers). PSI confirmed at Step 6: 5 production refs in `AbstractStorage.java` (alive). File renamed; public class declaration renamed.
 
-#### P2. `EntityHelper` — rename `EntityHelperDeadCodeTest.java` → method-level shape pin (112 prod refs; entity helper is alive)
+#### P2. `EntityHelper` — rename `EntityHelperDeadCodeTest.java` → `EntityHelperUnusedMethodsTest.java` (112 prod refs; entity helper is alive)
 
 - **Type:** Task; **Subsystem:** Records.
 - **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/record/impl/EntityHelperDeadCodeTest.java:76` (rewrite-target marker present).
 - **Anchor quote (L76):** ` * <p>WHEN-FIXED: deferred-cleanup track — drop the twelve dead public methods listed above`
 - **Block locators:** L65–L85.
 - **Issue body:** pin must be entirely about the 12 dead-method subset, not the class. Rename plan: convert to method-level shape pin or rename file without dropping content.
-- **YTDB-ID:** _(filled by Step 6)_
+- **YTDB-ID:** YTDB-779 — file renamed to `EntityHelperUnusedMethodsTest.java` (focused name); 1 marker (L76) rewritten to YTDB-779; class declaration renamed; intra-file cross-reference to `EntityComparatorDeadCodeTest` (L94) updated to `EntityComparatorTest`.
 
-#### P3. `RecordVersionHelper` — rename (2 prod refs + 9 live test refs)
+#### P3. `RecordVersionHelper` — rename (2 prod refs + 25 live test refs)
 
 - **Type:** Task; **Subsystem:** Records.
 - **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/record/RecordVersionHelperDeadCodeTest.java:51`.
 - **Anchor quote (L51):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete {@link RecordVersionHelper} together with this`
 - **Block locators:** L42–L58.
-- **YTDB-ID:** _(filled by Step 6)_
+- **YTDB-ID:** YTDB-780 — file renamed to `RecordVersionHelperTest.java`; 1 marker (L51) rewritten to YTDB-780; class declaration renamed. PSI confirmed at Step 6: 2 production refs in `CollectionPage.java` + 25 live test refs.
 
-#### P4. `EntityComparator` — rename (1 prod ref + 2 live test refs)
+#### P4. `EntityComparator` — rename (1 prod ref + 17 live test refs)
 
 - **Type:** Task; **Subsystem:** Records.
 - **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/record/impl/EntityComparatorDeadCodeTest.java:61`.
 - **Anchor quote (L61):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete {@link EntityComparator} together with this`
 - **Block locators:** L50–L70.
-- **YTDB-ID:** _(filled by Step 6)_
+- **YTDB-ID:** YTDB-781 — file renamed to `EntityComparatorTest.java`; 1 marker (L61) rewritten to YTDB-781; class declaration renamed; intra-file cross-references to `EntityHelperDeadCodeTest` (L44, L190) updated to `EntityHelperUnusedMethodsTest`. PSI confirmed at Step 6: 1 production ref in `EntityHelper.java`.
 
 #### P5. `SBTreeValue` cross-version (v1 + v2 both alive) — rename
 
 - **Type:** Task; **Subsystem:** Storage (sbtree).
-- **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/.../SBTreeValueDeadCodeTest.java` (not in rewrite-target inventory; cluster-disposition.md says markers either absent or already rewritten).
-- **YTDB-ID:** _(filled by Step 6 if marker confirmed)_
+- **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/local/v1/SBTreeValueDeadCodeTest.java` (file found at v1 path; v2 has the separate `SBTreeValueAndEntryTest.java`).
+- **YTDB-ID:** YTDB-782 — file renamed to `SBTreeValueTest.java`; **no marker rewrite** (the existing L18 marker reads `WHEN-FIXED: delete this file...` — does NOT carry the `Track 22` or `deferred-cleanup track` anchor token, so it is not a Step 7 rewrite target and was left as-is per the manifest's "rename only" hedge). Class declaration renamed. PSI confirmed at Step 6: v1 `SBTreeValue` has 7 production refs (`SBTreeBucketV1`, `SBTreeNullBucketV1`); v2 `SBTreeValue` has 8 production refs. Both alive.
 
-#### P6. **Conditional** — `SqlExecutorDeadCodeTest` (live targets per cluster-disposition.md)
+#### P6. `SqlExecutorDeadCodeTest` — rename to `SqlExecutorTest.java` (no naming collision; live multi-class targets per cluster-disposition.md)
 
 - **Type:** Task; **Subsystem:** SQL (Executor).
-- **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SqlExecutorDeadCodeTest.java` (14 rewrite-target markers — covered by Sq11).
-- **Decision:** Phase B implementer at Step 5 determines whether `SqlExecutorDeadCodeTest` is a `dead-code-SPI` issue (Sq11) or a `pin-maintenance` rename (P6). The cluster-disposition.md sanity-check entry says **"Pin-maintenance candidate (rename to drop DeadCode) — added to the bucket above as a 6th entry once Phase B confirms with the implementer commit."** Step 5 confirms by re-running PSI find-usages on the pin's targets; if confirmed pin-maintenance, the 14 markers are rewritten in Step 6 and Sq11 is dropped from Step 5.
-- **YTDB-ID:** _(filled by Step 5 or Step 6 once classification settled)_
+- **Test file:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SqlExecutorDeadCodeTest.java` (15 anchored rewrite-target markers; 2 `{@code //` meta-references stay as-is).
+- **Decision:** confirmed pin-maintenance at Step 5 (the 6th pin-maintenance entry); Sq11 was dropped from Step 5 with marker rewrites deferred here.
+- **YTDB-ID:** YTDB-783 — file renamed to `SqlExecutorTest.java` (verified no `SqlExecutorTest.java` collision); **all 15 anchored markers rewritten to YTDB-783** including the multi-line marker spanning L311–L312 (`WHEN-FIXED:` on L311 with `Track 22` token continuation on L312, now `WHEN-FIXED:` / `YTDB-783`); class declaration renamed; 3 cross-references in `TraverseResultLiveSessionTest.java` (L25, L30, L34) updated from `SqlExecutorDeadCodeTest` to `SqlExecutorTest`. The 2 `{@code //` Javadoc meta-references at L61 and L67 stay as-is (they describe the marker convention, not the bug — verified to contain the `{@code //` token so they pass the Step 7 carve-out filter).
 
 ---
 

@@ -48,12 +48,12 @@ import org.junit.Test;
  * method, keep the rest) still leaves the pin set valid. Renames or signature drift on any
  * surviving method fail loudly; deletion shifts {@link #declaresExactlyTheExpectedDeclaredMethodNames()}.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link RecordVersionHelper} together with this
+ * <p>WHEN-FIXED: YTDB-780 — delete {@link RecordVersionHelper} together with this
  * test file. No external surface needs retargeting because there are no callers anywhere.
  *
  * <p>Standalone — no database session needed; pure {@link Class}-level reflection.
  */
-public class RecordVersionHelperDeadCodeTest {
+public class RecordVersionHelperTest {
 
   // The complete declared-method surface this dead helper offers, as a sorted set of names.
   // Pinning the set (rather than the count) catches both a method dropped silently and a

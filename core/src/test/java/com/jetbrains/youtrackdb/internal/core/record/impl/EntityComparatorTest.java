@@ -41,7 +41,7 @@ import org.junit.Test;
  * Shape pin for {@link EntityComparator}. PSI all-scope {@code ReferencesSearch} confirms the
  * class is <strong>chain-dead</strong>: its only production caller is
  * {@link EntityHelper#sort(java.util.List, java.util.List, CommandContext)}, which is itself
- * dead (zero production callers, pinned in {@link EntityHelperDeadCodeTest}). One additional
+ * dead (zero production callers, pinned in {@link EntityHelperUnusedMethodsTest}). One additional
  * reference exists in the {@code tests} Maven module under
  * {@code CRUDDocumentValidationTest}, which constructs an {@link EntityComparator} directly
  * for a sort-stability assertion — that test does not lift the class to "live" status, only
@@ -58,7 +58,7 @@ import org.junit.Test;
  * or mock the entire session graph (heavy and brittle). The reflective shape pin captures
  * the same deletion-detection signal at a fraction of the maintenance cost.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link EntityComparator} together with this
+ * <p>WHEN-FIXED: YTDB-781 — delete {@link EntityComparator} together with this
  * test file. Co-delete with {@link EntityHelper#sort} (the dead production call site).
  * Retargeting contingency: the single {@code tests}-module test reference
  * ({@code CRUDDocumentValidationTest}) either drops the comparator-stability assertion or
@@ -66,7 +66,7 @@ import org.junit.Test;
  *
  * <p>Standalone — no database session needed; pure {@link Class}-level reflection.
  */
-public class EntityComparatorDeadCodeTest {
+public class EntityComparatorTest {
 
   // The complete declared-method surface this chain-dead comparator offers, as a sorted set
   // of names. Pinning the set (rather than the count) catches both a method dropped silently
@@ -187,7 +187,7 @@ public class EntityComparatorDeadCodeTest {
       throws NoSuchMethodException {
     // Documentation-as-assertion: pin the deletion order:
     //
-    //   1. delete EntityHelper.sort (dead per PSI; pinned in EntityHelperDeadCodeTest);
+    //   1. delete EntityHelper.sort (dead per PSI; pinned in EntityHelperUnusedMethodsTest);
     //   2. delete this class (chain-dead once the sort method is removed);
     //   3. drop or rewrite tests/CRUDDocumentValidationTest's comparator-stability check
     //      (the only test-only reference, identified by mcp-steroid PSI all-scope audit).

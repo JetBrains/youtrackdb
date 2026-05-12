@@ -71,11 +71,11 @@ import org.junit.Test;
  * session field, accept {@code @Nullable DatabaseSessionEmbedded} via their parent, or don't
  * touch one at construction time.
  */
-public class SqlExecutorDeadCodeTest {
+public class SqlExecutorTest {
 
   // ---------------------------------------------------------------------------
   // InfoExecutionPlan — POJO with serialization-shape getters/setters and a
-  // toResult() that returns null. WHEN-FIXED: Track 22 — delete InfoExecutionPlan.
+  // toResult() that returns null. WHEN-FIXED: YTDB-783 — delete InfoExecutionPlan.
   // ---------------------------------------------------------------------------
 
   @Test
@@ -106,7 +106,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void infoExecutionPlanGetStepsReturnsTheAssignedListByReference() {
-    // WHEN-FIXED: Track 22 — InfoExecutionPlan.setSteps takes ownership of the caller's list
+    // WHEN-FIXED: YTDB-783 — InfoExecutionPlan.setSteps takes ownership of the caller's list
     // (no defensive copy). Pin reference identity so a future refactor that adds defensive
     // copying surfaces explicitly.
     var plan = new InfoExecutionPlan();
@@ -123,7 +123,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void infoExecutionPlanToResultIsHardcodedNull() {
-    // WHEN-FIXED: Track 22 — InfoExecutionPlan.toResult unconditionally returns null. Any
+    // WHEN-FIXED: YTDB-783 — InfoExecutionPlan.toResult unconditionally returns null. Any
     // production caller that piped this through ExecutionPlan.toResult() would NPE on the
     // next call. The hardcoded null is strong evidence this method is unused and the class
     // can go.
@@ -137,7 +137,7 @@ public class SqlExecutorDeadCodeTest {
 
   // ---------------------------------------------------------------------------
   // InfoExecutionStep — POJO with name/type/description/cost/javaType getters and
-  // toResult() that returns a fresh ResultInternal. WHEN-FIXED: Track 22 — delete.
+  // toResult() that returns a fresh ResultInternal. WHEN-FIXED: YTDB-783 — delete.
   // ---------------------------------------------------------------------------
 
   @Test
@@ -157,7 +157,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void infoExecutionStepSubStepsAreAnInitiallyEmptyMutableList() {
-    // WHEN-FIXED: Track 22 — getSubSteps returns the internal final list directly. Pin
+    // WHEN-FIXED: YTDB-783 — getSubSteps returns the internal final list directly. Pin
     // both the empty-by-default invariant AND the "reference is mutable, no defensive copy"
     // tell.
     var step = new InfoExecutionStep();
@@ -177,7 +177,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void infoExecutionStepToResultBuildsAFreshResultInternalEachCall() {
-    // WHEN-FIXED: Track 22 — toResult returns `new ResultInternal(session)` and never
+    // WHEN-FIXED: YTDB-783 — toResult returns `new ResultInternal(session)` and never
     // populates any of the fields the producer set on the InfoExecutionStep. Pin the
     // identity-vs-equality contract: each call returns a distinct empty ResultInternal,
     // confirming the method is structurally a stub.
@@ -196,12 +196,12 @@ public class SqlExecutorDeadCodeTest {
 
   // ---------------------------------------------------------------------------
   // TraverseResult — extends ResultInternal, special-cases the $depth property.
-  // WHEN-FIXED: Track 22 — delete TraverseResult.
+  // WHEN-FIXED: YTDB-783 — delete TraverseResult.
   // ---------------------------------------------------------------------------
 
   @Test
   public void traverseResultDepthIsReadAsNullUntilSet() {
-    // WHEN-FIXED: Track 22 — TraverseResult.depth defaults to null (boxed Integer field).
+    // WHEN-FIXED: YTDB-783 — TraverseResult.depth defaults to null (boxed Integer field).
     // Pin: getProperty("$depth") returns null on a fresh instance, even though the
     // production code path that uses TraverseResult would always set it before reading.
     var tr = new TraverseResult(null);
@@ -210,7 +210,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void traverseResultDepthSetterAcceptsNumberAndIsCaseInsensitive() {
-    // WHEN-FIXED: Track 22 — the $depth setter narrows Number → int via Number.intValue(),
+    // WHEN-FIXED: YTDB-783 — the $depth setter narrows Number → int via Number.intValue(),
     // and the property name match is case-insensitive (equalsIgnoreCase). Pin both
     // directions: mixed-case setter hits the same field as a lowercase getter AND vice
     // versa.
@@ -236,7 +236,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void traverseResultDepthSetterNarrowsNonIntegerNumbersViaIntValue() {
-    // WHEN-FIXED: Track 22 — pin Number.intValue() narrowing for non-Integer/Long inputs
+    // WHEN-FIXED: YTDB-783 — pin Number.intValue() narrowing for non-Integer/Long inputs
     // a future caller might pass (double from SQL arithmetic, BigDecimal from aggregation,
     // Long.MAX_VALUE that truncates to -1). This is a silent-data-loss surface a restored
     // caller would inherit unless Track 22 either deletes the class or validates the input.
@@ -266,7 +266,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void traverseResultDepthSetterIgnoresNonNumberValues() {
-    // WHEN-FIXED: Track 22 — the setter silently ignores non-Number values for $depth.
+    // WHEN-FIXED: YTDB-783 — the setter silently ignores non-Number values for $depth.
     // No exception, no warning. Pin so a future "throw on bad type" change is explicit.
     var tr = new TraverseResult(null);
     tr.setProperty("$depth", 4);
@@ -294,7 +294,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void traverseResultNonDepthPropertiesDelegateToResultInternal() {
-    // WHEN-FIXED: Track 22 — when the property name is not $depth (case-insensitive), the
+    // WHEN-FIXED: YTDB-783 — when the property name is not $depth (case-insensitive), the
     // TraverseResult get/set falls through to super (ResultInternal). Pin delegation: a
     // value set under a non-$depth name must round-trip via the ResultInternal storage,
     // not via the depth field.
@@ -309,7 +309,7 @@ public class SqlExecutorDeadCodeTest {
   // ---------------------------------------------------------------------------
   // BatchStep — public ctor BatchStep(SQLBatch, ctx, profilingEnabled) has no
   // production callers; the private ctor is reachable only via copy(). WHEN-FIXED:
-  // Track 22 — delete BatchStep entirely. Real BATCH semantics are exercised in
+  // YTDB-783 — delete BatchStep entirely. Real BATCH semantics are exercised in
   // SQL script tests, not via this dead step class.
   // ---------------------------------------------------------------------------
 
@@ -331,7 +331,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void batchStepPrettyPrintRespectsDepthAndIndent() {
-    // WHEN-FIXED: Track 22 — pin the prettyPrint indent rendering (uses
+    // WHEN-FIXED: YTDB-783 — pin the prettyPrint indent rendering (uses
     // ExecutionStepInternal.getIndent under the hood) so a whitespace regression in the
     // shared helper is caught here too. The indent is depth * indent spaces followed by the
     // base segment — exact-equals pins both the whitespace count and the segment content so
@@ -349,7 +349,7 @@ public class SqlExecutorDeadCodeTest {
 
   @Test
   public void batchStepCopyReturnsAFreshInstanceCarryingTheSameBatchSize() {
-    // WHEN-FIXED: Track 22 — copy() invokes the private ctor, copying batchSize verbatim.
+    // WHEN-FIXED: YTDB-783 — copy() invokes the private ctor, copying batchSize verbatim.
     // Pin (a) freshness (not the same instance) and (b) batchSize parity via prettyPrint.
     var ctx = new BasicCommandContext();
     var batch = new SQLBatch(-1);

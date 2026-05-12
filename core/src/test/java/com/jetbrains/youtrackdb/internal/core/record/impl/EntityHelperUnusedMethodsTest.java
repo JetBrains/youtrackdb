@@ -73,7 +73,7 @@ import org.junit.Test;
  *   <li>{@code isEntity(byte)} — chain-dead via {@link DatabaseCompare}.</li>
  * </ul>
  *
- * <p>WHEN-FIXED: deferred-cleanup track — drop the twelve dead public methods listed above
+ * <p>WHEN-FIXED: YTDB-779 — drop the twelve dead public methods listed above
  * (some are gated behind the {@code DatabaseCompare} / {@code EntityComparator} deletions
  * that the same track absorbs). Each pin is its own {@code @Test} method so a partial
  * landing — for example, deleting only {@code sort} while {@code DatabaseCompare} retargeting
@@ -85,13 +85,13 @@ import org.junit.Test;
  *
  * <p>Standalone — no database session needed; pure {@link Class}-level reflection.
  */
-public class EntityHelperDeadCodeTest {
+public class EntityHelperUnusedMethodsTest {
 
   // -------------------------------------------------------------------
   // Sub-task (a) — sort(List, List, CommandContext) is dead in production.
   // PSI ReferencesSearch (mcp-steroid all-scope) returned zero callers. The only caller was
   // the SQL ORDER BY path, which has since been re-routed; the EntityComparator chain
-  // reachable from this method is itself chain-dead (pinned in EntityComparatorDeadCodeTest).
+  // reachable from this method is itself chain-dead (pinned in EntityComparatorTest).
   // -------------------------------------------------------------------
   @Test
   public void sortIsPublicStaticVoidWithExpectedSignature() throws Exception {

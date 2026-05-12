@@ -20,7 +20,7 @@ import org.junit.Test;
  * legacy test files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
  * {@code SBTreeNullBucketV1Test}).
  */
-public class SBTreeValueDeadCodeTest {
+public class SBTreeValueTest {
 
   /** equals is reflexive. */
   @Test

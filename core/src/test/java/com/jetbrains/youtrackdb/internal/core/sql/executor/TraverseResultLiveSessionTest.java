@@ -22,16 +22,16 @@ import org.junit.Test;
 
 /**
  * Covers the {@code session != null} half of {@link TraverseResult}'s
- * {@code assertIfNotActive()} branch. The {@link SqlExecutorDeadCodeTest} already pins every
+ * {@code assertIfNotActive()} branch. The {@link SqlExecutorTest} already pins every
  * observable behavior with a {@code null} session; the remaining branch-coverage gap is the
  * short-circuited right-hand side of {@code session == null || session.assertIfNotActive()}.
  *
  * <p>Kept as a standalone companion file (rather than extending
- * {@link SqlExecutorDeadCodeTest}) because those dead-code pins run standalone and we want the
+ * {@link SqlExecutorTest}) because those dead-code pins run standalone and we want the
  * live-session exercise in a {@link com.jetbrains.youtrackdb.internal.DbTestBase}-backed suite.
  *
  * <p>WHEN-FIXED: YTDB-765 — delete {@link TraverseResult}. These tests will be deleted alongside
- * the class; the dead-code pins in {@link SqlExecutorDeadCodeTest} are the primary markers for
+ * the class; the dead-code pins in {@link SqlExecutorTest} are the primary markers for
  * the removal.
  */
 public class TraverseResultLiveSessionTest extends TestUtilsFixture {

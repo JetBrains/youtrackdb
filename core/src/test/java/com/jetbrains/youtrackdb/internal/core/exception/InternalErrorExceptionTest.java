@@ -34,7 +34,7 @@ import org.junit.Test;
  * commit that re-introduces an instantiation site MUST be tested with a falsifiable observable
  * (which is what this pin provides via the dbName + message round-trip).
  */
-public class InternalErrorExceptionDeadCodeTest {
+public class InternalErrorExceptionTest {
 
   /**
    * The {@code (DatabaseSessionEmbedded db, String string)} ctor delegates through {@link
