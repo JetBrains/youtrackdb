@@ -2149,4 +2149,4 @@ audit summary in place.
 - Acknowledged but deferred: S1 (plan-file length).
 
 ## Final Artifacts
-- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
+- [>] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
