@@ -43,6 +43,44 @@ public interface AtomicOperation {
 
   AtomicOperationMetadata<?> getMetadata(String key);
 
+  /**
+       * Allocates or loads the page at the given {@code pageIndex} for write access, returning
+       * a {@code CacheEntry} usable inside this atomic operation. The caller states the target
+       * pageIndex up front (typically computed from the component's logical page count, e.g.
+       * {@code entryPoint.pagesSize + 1}); the cache primitive
+       * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache#loadOrAdd}
+       * is total, so this method never returns {@code null} for an open, non-deleted file.
+       *
+       * <p>If the page is already part of this operation's local page-change overlay (because
+       * it was previously loaded for write or allocated earlier in the same TX), the existing
+       * {@link CacheEntryChanges} is returned so callers see a stable overlay across repeated
+       * accesses inside the same atomic operation.
+       *
+       * <p><b>Disk engine</b>: delegates to
+       * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache#loadOrAddForWrite}
+       * which routes through {@code LockFreeReadCache.data.compute -> WriteCache.loadOrAdd};
+       * the page is installed in the read cache before this method returns. The exclusive lock
+       * that {@code loadOrAddForWrite} acquires on the freshly-installed entry is released
+       * immediately, matching the lifecycle of {@link #loadPageForWrite} where the delegate is
+       * held only as a usages-incremented overlay reference until commit time.
+       *
+       * <p><b>In-memory engine</b>: the read-cache wrapper is non-total on this engine, so
+       * a {@code null} return from {@code loadOrAddForWrite} triggers a fallback to
+       * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache#loadOrAdd} (which
+       * is total on the in-memory engine) followed by a manual {@link CacheEntry} wrap. After
+       * the eager install, subsequent {@code loadOrAddForWrite} calls (including the one in
+       * {@code commitChanges}) find the page in {@code MemoryFile}, so the legacy
+       * {@code allocateNewPage} reconciliation fallback in commit is unreachable on both
+       * engines after this fix lands.
+       *
+       * @param fileId    the file ID; must be open and registered with this operation
+       * @param pageIndex zero-based page index to allocate or load; must be non-negative
+       * @return a {@link CacheEntry} (a {@code CacheEntryChanges} overlay) positioned at the
+       *     target page; never {@code null}
+       * @throws IOException if the underlying cache primitive fails
+       */
+  CacheEntry loadOrAddPageForWrite(long fileId, long pageIndex) throws IOException;
+
   CacheEntry addPage(long fileId) throws IOException;
 
   void releasePageFromRead(CacheEntry cacheEntry);

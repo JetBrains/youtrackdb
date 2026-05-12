@@ -373,6 +373,90 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
+  public CacheEntry loadOrAddPageForWrite(long fileId, final long pageIndex)
+      throws IOException {
+    checkIfActive();
+    assert pageIndex >= 0 : "pageIndex out of range: " + pageIndex;
+
+    fileId = checkFileIdCompatibility(fileId, storageId);
+
+    if (deletedFiles.contains(fileId)) {
+      throw new StorageException(writeCache.getStorageName(),
+          "File with id " + fileId + " is deleted.");
+    }
+
+    final var changesContainer =
+        fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
+
+    // Idempotency inside the same TX: if a prior loadPageForWrite or
+    // loadOrAddPageForWrite already wrapped this pageIndex, return the existing
+    // overlay so the WAL change buffer stays a single accumulator for the page.
+    var existing = changesContainer.pageChangesMap.get(pageIndex);
+    if (existing != null) {
+      return existing;
+    }
+
+    // Determine whether this pageIndex extends beyond the committed logical file size.
+    // The new flag must be set BEFORE the eager cache install so commitChanges can
+    // distinguish freshly-allocated pages from pre-existing pages whose only change
+    // is an in-TX write. We probe the write cache rather than this AO's
+    // internalFilledUpTo because we need the committed (cross-TX) horizon, not the
+    // in-progress visibility horizon — the latter would mis-classify legitimate new
+    // pages as load-of-existing whenever an earlier call in the same TX already
+    // bumped maxNewPageIndex.
+    final boolean fileIsNew = changesContainer.isNew;
+    final long committedFilledUpTo = fileIsNew ? 0 : writeCache.getFilledUpTo(fileId);
+    final boolean isNew = fileIsNew || pageIndex >= committedFilledUpTo;
+
+    final var changes = new CacheEntryChanges(false, this);
+    changes.isNew = isNew;
+
+    // Engine dispatch:
+    // - Disk engine (LockFreeReadCache): loadOrAddForWrite is total after Track 1
+    //   (data.compute -> WriteCache.loadOrAdd). The returned entry comes back
+    //   write-locked. We release the exclusive lock immediately so the delegate's
+    //   lifecycle matches loadPageForWrite (usages-incremented overlay reference,
+    //   no caller-visible write lock); the real write lock is re-acquired by
+    //   commitChanges at apply time. The dirty-pages-table entry that
+    //   loadOrAddForWrite installs (with null startLSN -> writeAheadLog.end())
+    //   is harmless and idempotent via putIfAbsent.
+    // - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddForWrite returns
+    //   null on miss (the read-cache wrapper is deliberately non-total there to
+    //   preserve "page does not exist" semantics for diagnostic callers). We
+    //   fall back to the WriteCache.loadOrAdd primitive which IS total on this
+    //   engine and installs the page in MemoryFile. After install, the commit-time
+    //   loadOrAddForWrite call (in commitChanges) will find the page via
+    //   MemoryFile.loadPage, so the legacy allocateNewPage reconciliation
+    //   fallback becomes structurally dead.
+    CacheEntry delegate =
+        readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
+    if (delegate != null) {
+      delegate.releaseExclusiveLock();
+    } else {
+      // In-memory engine fallback. Use the WriteCache primitive to install
+      // the page; wrap the returned CachePointer in a CacheEntryImpl with the
+      // same shape as a loadForRead-acquired entry (no exclusive lock held).
+      final var pointer = writeCache.loadOrAdd(fileId, pageIndex, false);
+      assert pointer != null
+          : "WriteCache.loadOrAdd returned null for fileId=" + fileId
+              + " pageIndex=" + pageIndex + " (totality contract violated)";
+      delegate = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
+    }
+    changes.delegate = delegate;
+
+    // Bookkeeping: place the overlay entry in the page-changes map keyed by the
+    // actual pageIndex (no prediction), and bump maxNewPageIndex so the in-progress
+    // visibility horizon consulted by loadPageForWrite / loadPageForRead /
+    // hasChangesForPage at AOBT:233/:282/:428 stays consistent for fresh allocations.
+    changesContainer.pageChangesMap.put(pageIndex, changes);
+    if (isNew && pageIndex > changesContainer.maxNewPageIndex) {
+      changesContainer.maxNewPageIndex = pageIndex;
+    }
+
+    return changes;
+  }
+
+  @Override
   public void releasePageFromRead(final CacheEntry cacheEntry) {
     checkIfActive();
 

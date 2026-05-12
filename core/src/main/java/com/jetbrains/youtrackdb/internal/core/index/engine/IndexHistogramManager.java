@@ -1894,6 +1894,25 @@ public class IndexHistogramManager extends StorageComponent {
    * Writes the current cached snapshot to the .ixs file. Creates its own
    * atomic operation (flush runs from commit and rebalance paths where
    * no caller-provided AtomicOperation is available).
+   *
+   * <p>The body runs inside {@code executeInsideComponentOperation} so the
+   * per-component exclusive lock is held while pages 0 and 1 are loaded /
+   * allocated. Without this lock, this method could race with
+   * {@code writeSnapshotToPage} (called from {@code buildHistogram} and
+   * {@code createStatsFileWithCounters}) for the same {@code fileId},
+   * causing two concurrent allocators to target page 1 simultaneously and
+   * trip the fail-fast {@code IllegalStateException} in
+   * {@code WOWCache.loadOrAdd} that Track 1 added to surface I4 violations.
+   * Audit: PSI call-hierarchy showed {@code flushSnapshotToPage} reachable
+   * from {@code applyDelta} (commit-time batch flush above threshold),
+   * {@code flushIfDirty} (checkpoint / shutdown / recovery via
+   * {@code AbstractStorage.flushDirtyHistograms}), {@code closeStatsFile}
+   * (index-level close), and {@code doRebalance} (rebalance task), while
+   * {@code writeSnapshotToPage} is reachable from
+   * {@code buildHistogram} (called by BTree engines' {@code buildInitialHistogram})
+   * and {@code createStatsFileWithCounters} (storage open / wire-up). None
+   * of those entry points serialise with each other naturally; the
+   * component-lock wrap closes the race.
    */
   private void flushSnapshotToPage() throws IOException {
     var snapshot = cache.get(engineId);
@@ -1904,27 +1923,28 @@ public class IndexHistogramManager extends StorageComponent {
     // Create a standalone atomic operation for the flush — we cannot
     // use executeInsideComponentOperation(null, ...) because that
     // passes null to AtomicOperationsManager which requires non-null.
-    storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
-      var cacheEntry = loadPageForWrite(op, fileId, 0, true);
-      try {
-        var page = new HistogramStatsPage(cacheEntry);
-        page.writeSnapshot(snapshot, serializerId,
-            keySerializer, serializerFactory);
-      } finally {
-        releasePageFromWrite(op, cacheEntry);
-      }
+    storage.getAtomicOperationsManager()
+        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, op2 -> {
+          var cacheEntry = loadPageForWrite(op2, fileId, 0, true);
+          try {
+            var page = new HistogramStatsPage(cacheEntry);
+            page.writeSnapshot(snapshot, serializerId,
+                keySerializer, serializerFactory);
+          } finally {
+            releasePageFromWrite(op2, cacheEntry);
+          }
 
-      // Write HLL to page 1 when spilled
-      if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-        var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
-        try {
-          HistogramStatsPage.writeHllToPage1(
-              page1Entry, snapshot.hllSketch());
-        } finally {
-          releasePageFromWrite(op, page1Entry);
-        }
-      }
-    });
+          // Write HLL to page 1 when spilled
+          if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
+            var page1Entry = loadOrAddPageForWrite(op2, fileId, 1);
+            try {
+              HistogramStatsPage.writeHllToPage1(
+                  page1Entry, snapshot.hllSketch());
+            } finally {
+              releasePageFromWrite(op2, page1Entry);
+            }
+          }
+        }));
   }
 
   // ---- Internal: key utilities ----
