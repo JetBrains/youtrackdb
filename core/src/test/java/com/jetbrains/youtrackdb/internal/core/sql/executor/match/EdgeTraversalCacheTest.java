@@ -2422,4 +2422,202 @@ public class EdgeTraversalCacheTest {
         /* loadToScan    */ 100.0);
     assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.DEFER);
   }
+
+  // =========================================================================
+  // Option C: forecastN threading + Mode memoization
+  // =========================================================================
+
+  /**
+   * Default state: forecastN starts absent (-1) and mode starts
+   * {@link EdgeTraversal.Mode#UNDETERMINED}. setForecastN normalises any
+   * negative input back to -1.
+   */
+  @Test
+  public void forecastN_defaultAbsent_modeUndetermined() {
+    var et = createEdgeTraversal();
+    assertThat(et.getForecastN()).isEqualTo(-1L);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.UNDETERMINED);
+
+    et.setForecastN(-42L);
+    assertThat(et.getForecastN()).isEqualTo(-1L);
+
+    et.setForecastN(0L);
+    assertThat(et.getForecastN()).isZero();
+
+    et.setForecastN(12345L);
+    assertThat(et.getForecastN()).isEqualTo(12345L);
+  }
+
+  /**
+   * BUILD_EAGER fires when forecastN > ceil(m). With estimatedSize=100K,
+   * selectivity=0.5, loadToScan=100 → m=2000. Setting forecastN=5000
+   * (> 2000) makes the first resolveWithCache call materialise immediately
+   * even when linkBagSize is small (no accumulator climb needed).
+   */
+  @Test
+  public void resolveWithCache_forecastAboveM_buildsEagerly() {
+    var et = createEdgeTraversal();
+    et.setForecastN(5000L);
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // linkBagSize = 100 — too small for the m=2000 trigger to fire under
+    // the legacy formula, but BUILD_EAGER ignores the accumulator.
+    var result = et.resolveWithCache(ctx, 100);
+
+    assertThat(result).isSameAs(ridSet);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.BUILD_EAGER);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * DEFERRED_WITH_NET fires when forecastN ≤ ceil(m). With m=2000 and
+   * forecastN=500, mode resolves to DEFERRED_WITH_NET. The safety-net
+   * trigger is {@code T = max(2·500, 2000) = 2000} (floor wins), so a
+   * vertex with linkBagSize=1500 < 2000 must DEFER.
+   */
+  @Test
+  public void resolveWithCache_forecastBelowM_deferredWithNetSmallLinkBag() {
+    var et = createEdgeTraversal();
+    et.setForecastN(500L);
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    var result = et.resolveWithCache(ctx, 1500);
+
+    assertThat(result).isNull();
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.DEFERRED_WITH_NET);
+    verify(desc, never()).resolve(any(), any());
+  }
+
+  /**
+   * DEFERRED_WITH_NET trigger crossing: with forecastN=1500 (≤ m=2000) and
+   * m=2000, the adaptive trigger {@code T = max(2·1500, 2000) = 3000}. A
+   * vertex with linkBagSize=3000 reaches the trigger and PROCEEDs.
+   */
+  @Test
+  public void resolveWithCache_deferredWithNet_adaptiveTriggerFires() {
+    var et = createEdgeTraversal();
+    et.setForecastN(1500L);
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    var result = et.resolveWithCache(ctx, 3000);
+
+    assertThat(result).isSameAs(ridSet);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.DEFERRED_WITH_NET);
+  }
+
+  /**
+   * Absent forecast (-1) collapses to f=0, so {@code T = max(0, m) = m}.
+   * That matches the legacy single-m trigger exactly — backward
+   * compatibility for edges whose plan-time walk could not produce a
+   * forecast.
+   */
+  @Test
+  public void resolveWithCache_absentForecast_triggerFloorEqualsM() {
+    var et = createEdgeTraversal();
+    // forecastN stays -1 (default).
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // m=2000; linkBagSize=2000 hits the floor → PROCEED.
+    var result = et.resolveWithCache(ctx, 2000);
+    assertThat(result).isSameAs(ridSet);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.DEFERRED_WITH_NET);
+  }
+
+  /**
+   * Mode is memoized on the first call and not recomputed on subsequent
+   * calls. Even if forecastN were mutated between calls (it shouldn't be
+   * at runtime, but the test forces the issue), the second call respects
+   * the first decision.
+   */
+  @Test
+  public void resolveWithCache_modeMemoizedAcrossCalls() {
+    var et = createEdgeTraversal();
+    et.setForecastN(5000L); // > m=2000 → BUILD_EAGER
+    var ridSet1 = singletonRidSet(10, 1);
+    var ridSet2 = singletonRidSet(10, 2);
+    // Different cache keys so the second call exercises mode logic again
+    // rather than hitting the RidSet cache.
+    var desc = mock(IndexLookup.class);
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.5);
+    when(indexDesc.estimateHits(any())).thenReturn(100_000L);
+    var index = mock(Index.class);
+    when(index.getName()).thenReturn("Post.date");
+    when(indexDesc.getIndex()).thenReturn(index);
+    when(desc.indexDescriptor()).thenReturn(indexDesc);
+    when(desc.cacheKey(any())).thenReturn("k1", "k2");
+    when(desc.estimatedSize(any(), any())).thenReturn(100_000);
+    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // First call sets mode = BUILD_EAGER, materialises.
+    et.resolveWithCache(ctx, 50);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.BUILD_EAGER);
+
+    // Forcibly stale-ify forecastN; mode must still be BUILD_EAGER on
+    // the second call (different cache key, exercises checkIndexLookupAmortization).
+    et.setForecastN(0L);
+    et.resolveWithCache(ctx, 50);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.BUILD_EAGER);
+    verify(desc, times(2)).resolve(any(), any());
+  }
+
+  /**
+   * copy() preserves forecastN (bind-independent, structural) but resets
+   * mode to UNDETERMINED (bind-dependent — recomputed on the next
+   * execution's first call).
+   */
+  @Test
+  public void copy_preservesForecastN_resetsMode() {
+    var et = createEdgeTraversal();
+    et.setForecastN(7777L);
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    et.resolveWithCache(new BasicCommandContext(), 50);
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.BUILD_EAGER);
+
+    var copy = et.copy();
+
+    assertThat(copy.getForecastN()).isEqualTo(7777L);
+    assertThat(copy.getMode()).isEqualTo(EdgeTraversal.Mode.UNDETERMINED);
+  }
+
+  /**
+   * High selectivity REJECTs before mode decision. forecastN value is
+   * irrelevant — the REJECT short-circuit fires first and caches null
+   * permanently. Mode stays UNDETERMINED because the decision was never
+   * reached.
+   */
+  @Test
+  public void resolveWithCache_highSelectivity_rejectsBeforeModeDecision() {
+    var et = createEdgeTraversal();
+    et.setForecastN(1_000_000L); // huge, would be BUILD_EAGER if reached
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity 0.98 > 0.95 threshold → REJECT
+    var desc = stubIndexLookup(0.98, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    var result = et.resolveWithCache(ctx, 50);
+
+    assertThat(result).isNull();
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.UNDETERMINED);
+    verify(desc, never()).resolve(any(), any());
+  }
 }
