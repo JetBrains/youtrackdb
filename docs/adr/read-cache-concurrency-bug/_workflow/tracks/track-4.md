@@ -1,6 +1,15 @@
-# Read-cache concurrency bug — Track Details
+# Track 4: Write-side API collapse + residual read-side migration
 
-## Track 4: Write-side API collapse + residual read-side migration
+## Description
+
+Delete the `addPage` API surface and migrate the 19 production call sites to
+`loadOrAddPageForWrite(fileId, knownIndex)` on top of Track 1's primitive.
+Collapse the `commitChanges` / `restoreAtomicUnit` /
+`restoreFromIncrementalBackup` reconciliation loops, drop the
+`internalFilledUpTo` prediction wrapper, delete the per-component
+reuse-or-extend probes, and absorb the surviving read-side work from the
+retired Track 3 (one BTree pure-sizing migration plus rationale comments at
+the stay-on-physical sites).
 
 > **What**:
 > - Add `loadOrAddPageForWrite(long fileId, long pageIndex) → CacheEntry`
@@ -209,162 +218,11 @@
 >   and the probe collapses land; the EP-less stay-on-physical sites
 >   are pinned by D4's gated-helper surface (Track 5).
 
----
+## Progress
+- [ ] Review + decomposition
+- [ ] Step implementation
+- [ ] Track-level code review
 
-## Track 5: Tighten `getFilledUpTo` access via gated helpers
+## Reviews completed
 
-> **What**:
-> - After Track 4 lands, downgrade `WriteCache.getFilledUpTo` from
->   `public` to package-private (or otherwise non-public).
-> - Surviving external consumer set (≥ 5, per D4 revision):
->   - `DiskStorage.backupPagesWithChanges` — storage-quiesced backup
->     iteration (method @ :1387, `getFilledUpTo` call @ :1404).
->   - `CollectionPositionMapV2.create:136` — bootstrap-time emptiness
->     check; EntryPoint lives on the page being checked.
->   - `PaginatedCollectionV2.initCollectionState:2256` — same
->     bootstrap pattern.
->   - `PaginatedCollectionV2.open:391` — FSM-rebuild recovery scan;
->     logical bookkeeping was lost.
->   - `IndexHistogramManager.readSnapshotFromPage:1833` — defensive
->     physical-presence probe for the optional HLL page 1. If Track 4
->     Phase A switched this to `WriteCache.loadIfPresent(fileId, 1)`,
->     skip this entry; otherwise route through the gated helper.
->   - `CollectionDirtyPageBitSet.{clear:141, nextSetBit:168}` —
->     EP-less pure-sizing reads under per-component lock.
-> - Phase A picks the helper shape — Phase 1 candidates:
->   - **One helper + intent enum**: `WriteCache.physicalSize(long
->     fileId, PhysicalReadIntent intent)` where the enum lists the
->     surviving intents (`BACKUP_QUIESCED`,
->     `BOOTSTRAP_EMPTINESS_CHECK`, `RECOVERY_REBUILD`,
->     `DEFENSIVE_PRESENCE`, `EP_LESS_PURE_SIZING`). Lowest API surface;
->     enum constant carries the audit-grep signature.
->   - **2-3 named helpers**: e.g.,
->     `forEachPageDuringQuiesce(fileId, visitor)`,
->     `physicalSizeUnderComponentLock(fileId)`,
->     `physicalSizeForBootstrap(fileId)`. More explicit names; smaller
->     enum-coupling.
->   Phase A picks one and adapts the consumer migrations accordingly.
-> - Add javadoc to `WriteCache` and `StorageComponent` documenting the
->   discovery contract: cross-TX readers route through the logical
->   surface when one exists; physical-size reads route through the
->   gated helper(s) above, each with a contract-stating javadoc on
->   the helper or enum constant.
->
-> **How**:
-> - Step 1 (Phase A decision): pick the helper shape (one-helper-with-
->   enum vs 2-3 named helpers). Confirm with the user if the decision
->   is non-obvious from the surviving consumer set.
-> - Step 2: introduce the helper(s) on `WriteCache` (or
->   `StorageComponent`, depending on which class exposes the
->   audit-grep target). Implementation re-routes to the existing
->   in-memory size read (`AsyncFile.size` / `AsyncFile.allocateSpace`
->   bookkeeping).
-> - Step 3: migrate each surviving consumer to the new helper(s).
->   Verify backup tests, FSM-rebuild recovery tests, and the
->   IndexHistogramManager defensive path still behave correctly.
-> - Step 4: change `WriteCache.getFilledUpTo` access to package-private.
->   Build + tests green.
-> - **Verification**: PSI find-usages on `WriteCache.getFilledUpTo`
->   should show no production callers outside the cache package after
->   this track. Test mocks that live in the same package context are
->   acceptable. PSI find-usages on each new helper should match the
->   D4-revision surviving consumer set exactly — extra or missing
->   callers are findings.
->
-> **Constraints**:
-> - **In-scope files**:
->   - `core/.../internal/core/storage/cache/WriteCache.java`
->   - `core/.../internal/core/storage/cache/local/WOWCache.java`
->   - `core/.../internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
->   - `core/.../internal/core/storage/disk/DiskStorage.java` (the
->     backup consumer; method @ :1387, call @ :1404)
->   - `core/.../storage/impl/local/paginated/base/StorageComponent.java`
->     (if the audit-grep helper surface lives there)
->   - The surviving consumer call sites (CollectionPositionMapV2,
->     PaginatedCollectionV2, IndexHistogramManager,
->     CollectionDirtyPageBitSet).
->   - Any cache test class still using the old public method.
-> - **Out of scope**: functional behavior changes; new WAL records;
->   widening the surviving-consumer set beyond what D4's revision
->   names.
->
-> **Interactions**:
-> - Depends on Track 4 (write-side API collapse done — replay loops
->   no longer call `getFilledUpTo` via `internalFilledUpTo`, and the
->   rationale-comment locations are pinned by Track 4's per-site
->   commits).
-> - Enables nothing downstream (this is the final cache-API hygiene
->   pass).
-> - Verifies invariant **I1** is enforceable at compile time —
->   external code cannot regress to a non-gated
->   `getFilledUpTo`-based discovery channel.
-
----
-
-## Track 6: Integration regression test
-
-> **What**:
-> - End-to-end concurrent-insert workload that reproduces the original
->   poison cascade on a fresh disk-mode storage with
->   `checksumMode=StoreAndThrow`.
-> - Test scaffolding:
->   1. Open a fresh `YouTrackDB` instance with `EngineLocalPaginated`
->      and `checksumMode=StoreAndThrow`.
->   2. Create a class with an indexed string property (canonical
->      trigger uses `CollectionPositionMapV2`-backed cluster, where
->      pageIndex 1 is the first bucket page).
->   3. Run N parallel transactions (≥ 16; threads = available
->      processors × 2 to maximize contention) inserting into the
->      class via `executeInTx` / `autoExecuteInTx`.
->   4. Assert no `IllegalStateException("Page X:Y was allocated in
->      other thread")`, no `StorageException("Page Y is broken in
->      file …")`, no "Internal error happened in storage" cascade.
->   5. Reopen the storage and assert all committed records are
->      readable.
-> - The test must **fail on develop** (against pre-fix code) and
->   **pass on the new code**. Commit message includes the verification
->   protocol.
->
-> **How**:
-> - Step ordering (provisional):
->   1. Write the test scaffolding. Verify the "fail on develop"
->      direction by running the test against the unmodified develop
->      branch (or by temporarily reverting Track 1 / Track 4 changes
->      in a scratch worktree).
->   2. Verify the "pass on new code" direction. Confirm reopen-and-read
->      semantics. Add to the integration suite (`ci-integration-tests`
->      profile).
-> - Workload tuning: the canonical trigger from the handoff is "concurrent
->   inserts on a freshly-built class backed by CollectionPositionMapV2,
->   where multiple TXs race for `pageIndex == 1`". The threshold for
->   reliable reproduction on develop is empirical; aim for ≥ 90%
->   reproduction rate across 10 consecutive runs on a clean checkout
->   before declaring the test load-bearing.
-> - The test extends an existing JUnit 4 base class in `core` (matching
->   the existing concurrency tests like
->   `FreezeAndDBRecordInsertAtomicityTest`); it runs under the standard
->   `./mvnw -pl core clean test` invocation and the
->   `ci-integration-tests` profile.
->
-> **Constraints**:
-> - **In-scope files**: a new test class under
->   `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/...`
->   (exact location confirmed in Phase A based on existing concurrency
->   tests' placement).
-> - **Out of scope**: SQL-level tests; cluster-level tests; tests
->   targeting other engines.
-> - The test must use `ConcurrentTestHelper` patterns (or equivalent)
->   for deterministic thread coordination.
-> - `checksumMode=StoreAndThrow` is mandatory — `Off` masks the
->   magic-check leg of the bug.
->
-> **Interactions**:
-> - Depends on Track 1 (the cache primitive must be in place).
-> - Depends on Track 4 (the discovery-surface change must be in
->   place — verifying just Track 1's cache-level fix doesn't prove the
->   end-to-end race is gone, because the race vector lives in the
->   discovery surface, not just the cache install. Track 4 absorbed
->   the read-side migration that was originally Track 3.).
-> - Independent of Track 5 (which is API hygiene only).
-> - Verifies invariants **I1** and **I4** end-to-end and confirms the
->   bug-as-reported (the symptom that motivated this work) is resolved.
+## Steps

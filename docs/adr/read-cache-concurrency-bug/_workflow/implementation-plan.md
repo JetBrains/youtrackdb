@@ -380,7 +380,7 @@ flowchart LR
   > the per-component reuse-or-extend probes, and absorb the surviving
   > read-side work from the retired Track 3 (one BTree pure-sizing
   > migration plus rationale comments at the stay-on-physical sites —
-  > see backlog for the per-site list).
+  > see `tracks/track-4.md` for the per-site list).
   > **Scope:** ~6-7 steps covering `AtomicOperationBinaryTracking`
   > cleanup, replay-loop collapse, per-component probe + `addPage`
   > migration in three batches, the BTree pure-sizing migration, and
@@ -389,7 +389,7 @@ flowchart LR
 
 - [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers
   > Make `WriteCache.getFilledUpTo` non-public and route the surviving
-  > external consumers (≥ 5 — see backlog for the per-site set)
+  > external consumers (≥ 5 — see `tracks/track-5.md` for the per-site set)
   > through narrowly-scoped helpers with rationale-bearing names.
   > Phase A picks the helper shape (one helper + intent enum vs 2-3
   > named helpers). Add javadoc to `WriteCache` and `StorageComponent`
