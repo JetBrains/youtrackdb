@@ -653,7 +653,13 @@ public class EdgeTraversal {
     REJECT,
     /** Build not yet amortized — return null without caching. */
     DEFER,
-    /** Threshold met or unknown selectivity — caller should materialize. */
+    /**
+     * Caller should materialize. Returned when the amortization threshold
+     * has been met, or when selectivity is unknown ({@code < 0}) — in the
+     * latter case PROCEED is optimistic, relying on downstream guards
+     * ({@code maxRidSetSize} cap, per-vertex ratio for EdgeRidLookup) to
+     * bound the worst case.
+     */
     PROCEED
   }
 
@@ -672,7 +678,7 @@ public class EdgeTraversal {
    *                                 {@code < 0} (unknown)
    * @param selectivity              cached class-level selectivity;
    *                                 {@code NaN} or {@code < 0} means
-   *                                 unknown (conservative PROCEED)
+   *                                 unknown — see PROCEED handling below
    * @param accumulatedLinkBagTotal  running sum of link bag sizes across
    *                                 vertices/back-refs observed so far
    *                                 (caller must include current call's
@@ -685,17 +691,26 @@ public class EdgeTraversal {
       double selectivity,
       long accumulatedLinkBagTotal,
       double loadToScanRatio) {
-    if (estimatedSize >= 0 && selectivity >= 0
+    // Unknown selectivity (negative sentinel) → PROCEED optimistically.
+    // Rationale: REJECT would cache null permanently for the whole query,
+    // too aggressive when stats may just be transiently missing; DEFER is
+    // meaningless because the amortization formula degenerates to 0
+    // without a valid selectivity. Other guards still bound the worst
+    // case (maxRidSetSize cap in resolveWithCache, per-vertex ratio for
+    // EdgeRidLookup in applyPreFilter), and IndexLookup.passesSelectivityCheck
+    // already returns true for unknown selectivity — keeping these in sync.
+    if (selectivity < 0) {
+      return AmortizationDecision.PROCEED;
+    }
+    if (estimatedSize >= 0
         && selectivity
             > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
       return AmortizationDecision.REJECT;
     }
-    if (selectivity >= 0) {
-      double minNeighbors = computeMinNeighborsForBuild(
-          estimatedSize, loadToScanRatio, selectivity);
-      if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
-        return AmortizationDecision.DEFER;
-      }
+    double minNeighbors = computeMinNeighborsForBuild(
+        estimatedSize, loadToScanRatio, selectivity);
+    if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
+      return AmortizationDecision.DEFER;
     }
     return AmortizationDecision.PROCEED;
   }
@@ -792,9 +807,14 @@ public class EdgeTraversal {
    * <p>Boundary handling:
    * <ul>
    *   <li>{@code estimatedSize <= 0} → {@code 0.0} (build immediately —
-   *       trivially small or unknown size)</li>
-   *   <li>{@code selectivity < 0} → {@code 0.0} (unknown selectivity —
-   *       build immediately to be conservative, per review finding T1)</li>
+   *       trivially small or unknown size; the materialised RidSet will
+   *       be empty or near-empty, so the threshold is moot)</li>
+   *   <li>{@code selectivity < 0} → {@code 0.0} (unknown selectivity:
+   *       build immediately. The formula degenerates without a valid
+   *       selectivity, and rejecting permanently would be too aggressive
+   *       — other guards still bound the worst case. Note that callers
+   *       that go through {@link #evaluateIndexLookupAmortization}
+   *       short-circuit on this case before reaching this method)</li>
    *   <li>{@code selectivity >= 1.0} → {@link Double#MAX_VALUE} (never
    *       build — no filtering benefit when all records match)</li>
    *   <li>Normal case → {@code estimatedSize / (loadToScanRatio *
