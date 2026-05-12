@@ -57,7 +57,8 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileId = addFile(atomicOperation, getFullName());
 
-    try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+    // Fresh file -- append the first bit-set page (statically known-new at pageIndex 0).
+    try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.init();
     }
@@ -191,10 +192,15 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    */
   private void ensureCapacity(long requiredPageIndex, AtomicOperation atomicOperation)
       throws IOException {
+    // Each iteration targets a distinct pageIndex starting at the current
+    // physical size; the cache's total loadOrAdd primitive handles each as
+    // either an orphan reuse (load branch) or a one-page extend, uniformly.
+    // The caller documents (see class-level Javadoc) that the component lock
+    // must be held when invoking this method, serialising concurrent growers.
     var filledUpTo = getFilledUpTo(atomicOperation, fileId);
 
     for (var i = filledUpTo; i <= requiredPageIndex; i++) {
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+      try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, i)) {
         final var page = new DirtyPageBitSetPage(cacheEntry);
         page.init();
       }

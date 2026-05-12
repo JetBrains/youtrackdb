@@ -1207,6 +1207,20 @@ public class CollectionPositionMapV2Test {
       return entry;
     });
 
+    // Allocator-only contract: production callers pass a target pageIndex that is
+    // either equal to pageCount (extend branch) or a known orphan past the logical
+    // size (cache-load branch). Either way the mock returns a CacheEntry for that
+    // index and grows the simulated file to cover it, mirroring WriteCache.loadOrAdd's
+    // total semantics.
+    when(op.loadOrAddPageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
+      int pIdx = ((Long) inv.getArgument(1)).intValue();
+      var entry = getOrCreatePage(pIdx);
+      if (pIdx >= pageCount) {
+        pageCount = pIdx + 1;
+      }
+      return entry;
+    });
+
     when(op.loadPageForWrite(eq(FILE_ID), anyLong(), anyInt(), anyBoolean()))
         .thenAnswer(inv -> {
           int pIdx = ((Long) inv.getArgument(1)).intValue();

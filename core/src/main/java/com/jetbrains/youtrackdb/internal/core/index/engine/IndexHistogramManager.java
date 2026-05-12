@@ -1798,7 +1798,11 @@ public class IndexHistogramManager extends StorageComponent {
    */
   private void createEmptyStatsPage(AtomicOperation op) throws IOException {
     fileId = addFile(op, getFullName());
-    var cacheEntry = addPage(op, fileId);
+    // Fresh file -- append the initial empty stats page (statically known-new at
+    // pageIndex 0). createStatsFile / createStatsFileWithCounters are invoked
+    // from AbstractStorage's index-creation path immediately after addFile, so
+    // the file has no other writers when this allocation runs.
+    var cacheEntry = loadOrAddPageForWrite(op, fileId, 0);
     try {
       var page = new HistogramStatsPage(cacheEntry);
       page.writeEmpty(serializerId);

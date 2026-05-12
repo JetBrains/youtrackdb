@@ -378,6 +378,19 @@ public class CollectionDirtyPageBitSetTest {
       return entry;
     });
 
+    // Allocator-only contract: ensureCapacity passes a sequence of distinct target
+    // pageIndices that the production code computes from filledUpTo; the mock returns
+    // a CacheEntry for each requested index and grows the simulated file to cover it,
+    // mirroring WriteCache.loadOrAdd's total semantics.
+    when(op.loadOrAddPageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
+      int pIdx = ((Long) inv.getArgument(1)).intValue();
+      var entry = getOrCreatePage(pIdx);
+      if (pIdx >= pageCount) {
+        pageCount = pIdx + 1;
+      }
+      return entry;
+    });
+
     when(op.loadPageForWrite(eq(FILE_ID), anyLong(), anyInt(), anyBoolean()))
         .thenAnswer(inv -> {
           int pIdx = ((Long) inv.getArgument(1)).intValue();

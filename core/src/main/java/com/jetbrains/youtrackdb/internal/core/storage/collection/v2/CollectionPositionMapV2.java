@@ -134,8 +134,8 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     fileId = addFile(atomicOperation, getFullName());
 
     if (getFilledUpTo(atomicOperation, fileId) == 0) {
-      // Fresh file -- append the entry-point page.
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+      // Fresh file -- append the entry-point page (statically known-new at pageIndex 0).
+      try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);
         mapEntryPoint.setFileSize(0);
       }
@@ -205,20 +205,13 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       final var lastPage = mapEntryPoint.getFileSize();
 
-      var filledUpTo = getFilledUpTo(atomicOperation, fileId);
-
-      assert lastPage <= filledUpTo - 1;
-
       if (lastPage == 0) {
-        // No bucket pages exist yet -- create the first one.
-        if (lastPage == filledUpTo - 1) {
-          // Physical file has no pages beyond the entry point -- append a new one.
-          cacheEntry = addPage(atomicOperation, fileId);
-          filledUpTo++;
-        } else {
-          // Reuse an existing-but-unclaimed page (recovery scenario).
-          cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
-        }
+        // No bucket pages exist yet -- create the first one. The cache's
+        // total loadOrAdd primitive uniformly absorbs an orphan page left
+        // over from a partial previous allocation (load branch) or extends
+        // the file by one page (extend branch); the legacy reuse-or-extend
+        // probe disappears.
+        cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);
         mapEntryPoint.setFileSize(lastPage + 1);
 
         clear = true;
@@ -235,15 +228,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
         if (bucket.isFull()) {
           // Current last bucket page is full -- allocate a new bucket page.
+          // Same uniform load-or-extend handling as the first-bucket branch
+          // above; orphan reuse and one-page extend collapse into one call.
           cacheEntry.close();
 
-          assert lastPage <= filledUpTo - 1;
-
-          if (lastPage == filledUpTo - 1) {
-            cacheEntry = addPage(atomicOperation, fileId);
-          } else {
-            cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
-          }
+          cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);
 
           mapEntryPoint.setFileSize(lastPage + 1);
 

@@ -109,7 +109,8 @@ public final class FreeSpaceMap extends StorageComponent {
   }
 
   private void init(final AtomicOperation atomicOperation) throws IOException {
-    try (final var firstLevelCacheEntry = addPage(atomicOperation, fileId)) {
+    // Fresh file -- append the first-level page (statically known-new at pageIndex 0).
+    try (final var firstLevelCacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
       final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
       page.init();
     }
@@ -223,10 +224,15 @@ public final class FreeSpaceMap extends StorageComponent {
     // +1 because page 0 of the FSM file is the first-level page.
     final var secondLevelPageIndex = 1 + pageIndex / FreeSpaceMapPage.CELLS_PER_PAGE;
 
-    // Ensure all required pages exist (the FSM file may need to grow).
+    // Ensure all required pages exist (the FSM file may need to grow). Each
+    // iteration targets a distinct pageIndex starting at the current physical
+    // size; the cache's total loadOrAdd primitive handles each as either an
+    // orphan reuse (load branch) or a one-page extend, uniformly. Per-component
+    // lock (held transitively via PaginatedCollectionV2's component operation)
+    // serialises concurrent growers on the same fileId.
     final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
-    for (var i = 0; i < secondLevelPageIndex - filledUpTo + 1; i++) {
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+    for (var i = filledUpTo; i <= secondLevelPageIndex; i++) {
+      try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, i)) {
         final var page = new FreeSpaceMapPage(cacheEntry);
         page.init();
       }

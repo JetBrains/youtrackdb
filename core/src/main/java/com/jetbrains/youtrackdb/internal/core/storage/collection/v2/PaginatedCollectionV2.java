@@ -2230,16 +2230,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
-      final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
 
-      if (fileSize == filledUpTo - 1) {
-        // Logical end matches physical end -- must physically append a new page.
-        cacheEntry = addPage(atomicOperation, fileId);
-      } else {
-        // Physical file has pages beyond the logical end -- reuse the next one.
-        assert fileSize < filledUpTo - 1;
-        cacheEntry = loadPageForWrite(atomicOperation, fileId, fileSize + 1, false);
-      }
+      // The cache's total loadOrAdd primitive uniformly handles the two cases
+      // the legacy reuse-or-extend probe split on: if the physical file already
+      // contains a page at fileSize + 1 (orphan from a partial previous
+      // allocation) the load branch fires; otherwise the extend branch advances
+      // the file by one. Per-component lock + logical fileSize bookkeeping keep
+      // concurrent allocators from racing for the same target pageIndex.
+      cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, fileSize + 1);
 
       collectionState.setFileSize(fileSize + 1);
     }
@@ -2254,7 +2252,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
     if (getFilledUpTo(atomicOperation, fileId) == 0) {
-      stateEntry = addPage(atomicOperation, fileId);
+      // Fresh file -- append the state page (statically known-new at pageIndex 0).
+      stateEntry = loadOrAddPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);
     } else {
       stateEntry = loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, false);
     }
