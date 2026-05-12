@@ -261,5 +261,39 @@ public interface WriteCache {
     return new IntOpenHashSet();
   }
 
+  /**
+   * Pauses the background <i>periodic</i> page-flush task and drains any
+   * in-flight page write started by it. After this returns: every async
+   * page write started by the previous periodic-flush invocation has been
+   * awaited, no scheduled periodic flush will fire until
+   * {@link #resumeBackgroundFlush()} is called, and direct calls to
+   * {@link #flush()} from any thread are still allowed (so the storage's
+   * freeze / checkpoint paths keep working).
+   *
+   * <p>Note: only the periodic flush task is gated. Foreground flush paths
+   * (explicit {@link #flush()}, {@link #flushTillSegment(long)},
+   * {@code checkCacheOverflow}) and on-demand tasks (file creation,
+   * page allocation) are <i>not</i> gated. Callers must therefore avoid
+   * triggering writes from other threads while paused, otherwise pages
+   * may still be written to disk during the pause window.
+   *
+   * <p>Intended for tests that need to read raw storage files without racing
+   * with the periodic flusher (torn-page hazard). Not part of any
+   * production-runtime contract. The default is a no-op for in-memory and
+   * mock implementations that have no background flusher.
+   */
+  default void pauseBackgroundFlush() {
+  }
+
+  /**
+   * Re-enables background flushing previously paused via
+   * {@link #pauseBackgroundFlush()}. Calling without a prior pause is a no-op,
+   * so it is safe to call unconditionally in a {@code finally} block on the
+   * same thread that called pause. The default is a no-op for in-memory and
+   * mock implementations.
+   */
+  default void resumeBackgroundFlush() {
+  }
+
   String getStorageName();
 }

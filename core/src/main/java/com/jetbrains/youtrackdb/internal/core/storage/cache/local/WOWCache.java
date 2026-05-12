@@ -455,6 +455,16 @@ public final class WOWCache extends AbstractWriteCache
   private volatile boolean stopFlush;
   private volatile Future<?> flushFuture;
 
+  /**
+   * When {@code true}, the periodic flush task exits early at its entry guard
+   * and does not re-arm itself in the finally block; foreground {@link #flush()}
+   * is unaffected so production checkpoint paths keep working. Toggled only by
+   * {@link #pauseBackgroundFlush()} / {@link #resumeBackgroundFlush()} —
+   * intended for tests that need to read raw storage files without racing the
+   * flusher (torn-page hazard).
+   */
+  private volatile boolean backgroundFlushPaused;
+
   private final ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch> triggeredTasks =
       new ConcurrentHashMap<>();
 
@@ -1390,6 +1400,71 @@ public final class WOWCache extends AbstractWriteCache
       throw BaseException.wrapException(
           new WriteCacheException(storageName, "File flush was abnormally terminated"), e,
           storageName);
+    }
+  }
+
+  @Override
+  public void pauseBackgroundFlush() {
+    // Setting the flag first ensures any periodic flush that fires after this
+    // point sees backgroundFlushPaused == true at the entry guard in
+    // executePeriodicFlush and exits without doing any I/O or re-arming.
+    backgroundFlushPaused = true;
+
+    // Submit a no-op task to the single-threaded commitExecutor and wait for
+    // it. Because the executor is single-threaded, by the time our barrier
+    // task returns, any periodic flush that was already running has fully
+    // returned, including waiting on every in-flight AsynchronousFileChannel
+    // write: partitionAndFlushChunks calls IOResult.await() on every queued
+    // write before returning, so no async page write is outstanding once
+    // executePeriodicFlush has returned. Periodic tasks that were merely
+    // scheduled (not yet running) will see the flag at the entry guard and
+    // exit without doing work, so no work is queued behind the barrier
+    // either.
+    final var barrier = commitExecutor().submit(() -> null);
+    try {
+      barrier.get();
+    } catch (final java.lang.InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw BaseException.wrapException(
+          new ThreadInterruptedException("Pausing background flush was interrupted"),
+          e, storageName);
+    } catch (final Exception e) {
+      throw BaseException.wrapException(
+          new WriteCacheException(storageName, "Pause barrier failed"), e, storageName);
+    }
+
+    // Cancel any periodic future that the just-finished invocation re-armed
+    // before its finally observed the flag write, OR that an even earlier
+    // periodic invocation scheduled and we never had a chance to gate. We
+    // can safely cancel(false) here: on a queued-but-not-started task it
+    // removes the task from the executor's delay queue; on the currently
+    // running task it only sets the cancelled bit (the task continues, but
+    // its entry guard and finally re-arm both see the flag and skip work).
+    // Without this, a fast action.run() could return before the queued task
+    // fired, leaving an orphan chain in the queue that resumeBackgroundFlush
+    // would then duplicate.
+    final var pending = flushFuture;
+    if (pending != null) {
+      pending.cancel(false);
+    }
+  }
+
+  @Override
+  public void resumeBackgroundFlush() {
+    if (!backgroundFlushPaused) {
+      return;
+    }
+    backgroundFlushPaused = false;
+
+    // The periodic task that ran during the pause window saw the flag in its
+    // finally block and skipped its re-schedule. Restart it explicitly so
+    // background flushing resumes. If pagesFlushInterval == 0 or the cache
+    // has been closed (stopFlush == true), stay idle — matching the
+    // constructor's gating at construction time.
+    if (pagesFlushInterval > 0 && !stopFlush) {
+      flushFuture =
+          commitExecutor().schedule(
+              new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
     }
   }
 
@@ -4324,7 +4399,11 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   public void executePeriodicFlush(PeriodicFlushTask task) {
-    if (stopFlush) {
+    // backgroundFlushPaused is the test-only gate that lets WalTestUtils
+    // freeze background page flushes while a raw-file copy runs; the entry
+    // check here is what makes the barrier-submit in pauseBackgroundFlush
+    // safe (no work happens after pause returns until resume is called).
+    if (stopFlush || backgroundFlushPaused) {
       return;
     }
 
@@ -4356,9 +4435,10 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        // Check stopFlush between flush phases so the flush aborts quickly
-        // when the cache is being shut down.
-        if (stopFlush) {
+        // Check stopFlush / backgroundFlushPaused between flush phases so
+        // the flush aborts quickly when the cache is being shut down or a
+        // test has paused background flushing.
+        if (stopFlush || backgroundFlushPaused) {
           return;
         }
 
@@ -4388,7 +4468,9 @@ public final class WOWCache extends AbstractWriteCache
         flushError = t;
       }
     } finally {
-      if (flushInterval > 0 && !stopFlush) {
+      if (flushInterval > 0 && !stopFlush && !backgroundFlushPaused) {
+        // Skip the re-arm while paused; resumeBackgroundFlush() restarts
+        // the periodic task explicitly when the pause is lifted.
         flushFuture = commitExecutor().schedule(task, flushInterval, TimeUnit.MILLISECONDS);
       }
     }
