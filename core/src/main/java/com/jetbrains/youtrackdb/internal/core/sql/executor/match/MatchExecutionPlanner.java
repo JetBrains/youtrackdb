@@ -1803,6 +1803,9 @@ public class MatchExecutionPlanner {
         }
       }
 
+      stampEdgeForecasts(sortedEdges, estimatedRootEntries,
+          context.getDatabaseSession());
+
       attachCollectionIdFilters(sortedEdges, context);
 
       // Hash join optimization: detect secondary branches that can be evaluated as
@@ -2521,6 +2524,86 @@ public class MatchExecutionPlanner {
       return 1.0;
     }
     return (double) targetEstimate / classCount;
+  }
+
+  /**
+   * Walks the topologically-sorted schedule once and stamps a
+   * {@code forecastN} on each {@link EdgeTraversal} — the plan-time estimate
+   * of total neighbors that edge will process during a single query
+   * execution. Used at runtime by
+   * {@code EdgeTraversal.resolveWithCache} to choose between
+   * {@code BUILD_EAGER} and {@code DEFERRED_WITH_NET} amortization modes.
+   *
+   * <p>Maintains a propagating {@code aliasRowEstimate} map seeded from
+   * {@code estimatedRootEntries}. For each edge:
+   * <ol>
+   *   <li>Source/target alias are picked from {@code edge.out} respecting the
+   *       scheduled traversal direction ({@link EdgeTraversal#out}).</li>
+   *   <li>If the source alias has no row estimate, {@code forecastN} is
+   *       marked absent ({@code -1}) and the target alias is not updated —
+   *       downstream edges inherit the gap.</li>
+   *   <li>Otherwise {@code forecastN = sourceRows × estimateMethodFanOut(…)},
+   *       stamped on the edge, and the target alias gets
+   *       {@code forecastN × targetSelectivityFactor(…)} for downstream hops.</li>
+   * </ol>
+   *
+   * <p>Non-positive or non-finite intermediate values short-circuit to an
+   * absent forecast.
+   */
+  private void stampEdgeForecasts(
+      List<EdgeTraversal> schedule,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
+    Map<String, Long> aliasRowEstimate = new HashMap<>(estimatedRootEntries);
+
+    for (var et : schedule) {
+      String sourceAlias = et.out ? et.edge.out.alias : et.edge.in.alias;
+      String targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+      if (sourceAlias == null || targetAlias == null) {
+        et.setForecastN(-1L);
+        continue;
+      }
+
+      Long sourceRows = aliasRowEstimate.get(sourceAlias);
+      if (sourceRows == null || sourceRows <= 0) {
+        et.setForecastN(-1L);
+        continue;
+      }
+
+      var method = et.edge.item.getMethod();
+      String sourceClass = aliasClasses.get(sourceAlias);
+      double fanOut = estimateMethodFanOut(method, sourceClass, session);
+      if (!(fanOut > 0) || !Double.isFinite(fanOut)) {
+        et.setForecastN(-1L);
+        continue;
+      }
+
+      double forecastDouble = sourceRows * fanOut;
+      if (!Double.isFinite(forecastDouble) || forecastDouble <= 0) {
+        et.setForecastN(-1L);
+        continue;
+      }
+      long forecastNLong = (long) Math.min(
+          (double) Long.MAX_VALUE, Math.ceil(forecastDouble));
+      et.setForecastN(forecastNLong);
+
+      // Propagate to the target alias for downstream edges. Skip propagation
+      // when the existing entry is already at least as constraining as our
+      // forecast — fresh estimates from estimateRootEntries should not be
+      // overwritten by a looser-derived value.
+      double targetSel = targetSelectivityFactor(
+          targetAlias, et.edge, et.out,
+          aliasClasses, aliasFilters, aliasRowEstimate, session);
+      double targetDouble = forecastDouble * targetSel;
+      if (Double.isFinite(targetDouble) && targetDouble > 0) {
+        long targetRows = (long) Math.min(
+            (double) Long.MAX_VALUE, Math.ceil(targetDouble));
+        Long existing = aliasRowEstimate.get(targetAlias);
+        if (existing == null || targetRows < existing) {
+          aliasRowEstimate.put(targetAlias, targetRows);
+        }
+      }
+    }
   }
 
   /**
