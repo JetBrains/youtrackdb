@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/7 complete)
+- [x] Step implementation (7/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -711,11 +711,37 @@ clusters NOT deleted by 22b need YTDB issues).
   > → SqlExecutorTest (YTDB-783, 15 markers rewritten). **Cumulative
   > Track 22c minted-issue range: YTDB-723..783 (61 issues total).**
 
-- [ ] Step 7: Mandatory verification grep + manifest closure
-  > **Risk:** low — default (verification step; no source edits unless a defect is uncovered).
+- [x] Step 7: Mandatory verification grep + manifest closure
+  - [x] Context: info
+  > **Risk:** low — default (verification step; no source edits required).
   >
-  > **What:** Run the two verification greps (Form A anchored line-comment + Form B any-form with `{@code //` carve-out) across `core/src/test/`. Both MUST produce **zero hits**. If non-zero: fix the missed file(s) in this same step (re-run `mcp__youtrack__create_issue` only if a logical fix was missed in the manifest classification; otherwise just rewrite the marker). Mark the manifest file with `## Closed at Step 7 — verification passed` and the final YTDB-NNNN range. This is the only automated gate on the track and cannot be skipped.
+  > **What was done:** Re-ran both verification greps over
+  > `core/src/test/`: Form A (anchored line-comment regex) returned
+  > **0 hits**; Form B (any non-`{@code //` occurrence, with the
+  > carve-out filter applied) returned **0 hits**. Closed the
+  > manifest's §6 with the final closure marker, the cumulative
+  > YTDB-723..783 range (61 issues across Steps 2–6), and the
+  > authoritative carve-out anchors. Single commit `311929f884`;
+  > pushed.
   >
-  > Commit message: `Track 22c Step 7: Verify WHEN-FIXED rewrite + close manifest`. Single commit (manifest closure + any defect fixes if surfaced).
+  > **What was discovered:** The 2 preserved `{@code //` Javadoc
+  > meta-references that the carve-out filter excludes are at
+  > `SqlExecutorTest.java:67` (file renamed from
+  > `SqlExecutorDeadCodeTest.java` in Step 6) and
+  > `LiveQueryDeadCodeTest.java:62`. The manifest's §4 placeholders
+  > were never updated with exact line numbers during Step 1;
+  > §6 now carries the authoritative values. `SqlExecutorTest.java:61`
+  > contains a `{@code //` token but does NOT contain `Track 22`,
+  > so it doesn't match the verification regex and is not a
+  > carve-out anchor.
   >
-  > **Files touched:** any test source files where the verification grep surfaced misses; `_workflow/wfx-22c-manifest.md` (closure line added).
+  > **What changed from the plan:** None.
+  >
+  > **Key files:** `wfx-22c-manifest.md` (closure markers only).
+  >
+  > **Critical context:** **Both verification gates produce 0 hits
+  > across `core/src/test/`.** Track 22c is complete pending Phase C
+  > track-level code review and track-completion summary. Cumulative
+  > minted-issue range: YTDB-723..783 (61 YouTrack tracking issues —
+  > 5 security + 16 scheduler/script/hooks + 9 serializer + 25
+  > sql/legacy/pool/tool/config + 6 pin-maintenance).
