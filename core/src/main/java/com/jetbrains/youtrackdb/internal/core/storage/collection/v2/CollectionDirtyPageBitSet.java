@@ -192,11 +192,15 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    */
   private void ensureCapacity(long requiredPageIndex, AtomicOperation atomicOperation)
       throws IOException {
-    // Each iteration targets a distinct pageIndex starting at the current
-    // physical size; the cache's total loadOrAdd primitive handles each as
-    // either an orphan reuse (load branch) or a one-page extend, uniformly.
+    // Each loop iteration targets a strictly-new pageIndex (i >= filledUpTo),
+    // so loadOrAddPageForWrite's allocator-only contract is trivially satisfied --
+    // the dirty-page bit set has no entry-point page tracking a logical extent
+    // separate from the physical one, so physical orphans past filledUpTo are
+    // impossible by definition (the filledUpTo read IS the physical extent).
     // The caller documents (see class-level Javadoc) that the component lock
     // must be held when invoking this method, serialising concurrent growers.
+    // The same growth-loop pattern appears in FreeSpaceMap.updatePageFreeSpace;
+    // keep both sites in sync.
     var filledUpTo = getFilledUpTo(atomicOperation, fileId);
 
     for (var i = filledUpTo; i <= requiredPageIndex; i++) {

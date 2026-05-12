@@ -225,11 +225,15 @@ public final class FreeSpaceMap extends StorageComponent {
     final var secondLevelPageIndex = 1 + pageIndex / FreeSpaceMapPage.CELLS_PER_PAGE;
 
     // Ensure all required pages exist (the FSM file may need to grow). Each
-    // iteration targets a distinct pageIndex starting at the current physical
-    // size; the cache's total loadOrAdd primitive handles each as either an
-    // orphan reuse (load branch) or a one-page extend, uniformly. Per-component
+    // loop iteration targets a strictly-new pageIndex (i >= filledUpTo), so
+    // loadOrAddPageForWrite's allocator-only contract is trivially satisfied --
+    // the FSM has no entry-point page tracking a logical extent separate from
+    // the physical one, so physical orphans past filledUpTo are impossible
+    // by definition (the filledUpTo read IS the physical extent). Per-component
     // lock (held transitively via PaginatedCollectionV2's component operation)
     // serialises concurrent growers on the same fileId.
+    // The same growth-loop pattern appears in CollectionDirtyPageBitSet.ensureCapacity;
+    // keep both sites in sync.
     final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
     for (var i = filledUpTo; i <= secondLevelPageIndex; i++) {
       try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, i)) {

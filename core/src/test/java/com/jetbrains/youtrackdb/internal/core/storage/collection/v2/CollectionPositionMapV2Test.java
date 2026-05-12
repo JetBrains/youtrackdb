@@ -1207,11 +1207,19 @@ public class CollectionPositionMapV2Test {
       return entry;
     });
 
-    // Allocator-only contract: production callers pass a target pageIndex that is
-    // either equal to pageCount (extend branch) or a known orphan past the logical
-    // size (cache-load branch). Either way the mock returns a CacheEntry for that
-    // index and grows the simulated file to cover it, mirroring WriteCache.loadOrAdd's
-    // total semantics.
+    // Production callers pass a statically-known fresh pageIndex: 0 from
+    // CollectionPositionMapV2.create on a brand-new file, and lastPage + 1 from
+    // allocate(), where lastPage tracks the monotonic logical fileSize under the
+    // per-component lock. The mock returns a CacheEntry for whatever index is
+    // requested and grows the simulated file to cover it; it mirrors the
+    // AtomicOperationBinaryTracking.loadOrAddPageForWrite allocator-only contract
+    // but broadens it to tolerate any pageIndex because the unit tests do not
+    // model the AOBT allocation-floor check. The existing orphan-reuse tests
+    // (allocationReusesExistingPageAfterBucketOverflow,
+    // firstAllocationReusesExistingPageWhenFilledUpToIsAhead) exercise a
+    // scenario the production AO layer now rejects, but the underlying cache-layer
+    // WriteCache.loadOrAdd still supports; Step 4 / Step 5 will decide whether
+    // to retain those tests after BC4 (partial-replay-orphan recovery) is resolved.
     when(op.loadOrAddPageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
       int pIdx = ((Long) inv.getArgument(1)).intValue();
       var entry = getOrCreatePage(pIdx);

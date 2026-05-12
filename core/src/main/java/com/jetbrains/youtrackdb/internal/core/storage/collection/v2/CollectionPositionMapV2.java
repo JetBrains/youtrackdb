@@ -206,11 +206,15 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final var lastPage = mapEntryPoint.getFileSize();
 
       if (lastPage == 0) {
-        // No bucket pages exist yet -- create the first one. The cache's
-        // total loadOrAdd primitive uniformly absorbs an orphan page left
-        // over from a partial previous allocation (load branch) or extends
-        // the file by one page (extend branch); the legacy reuse-or-extend
-        // probe disappears.
+        // No bucket pages exist yet -- create the first one. The per-component
+        // lock + entry-point page write lock + monotonic mapEntryPoint.fileSize
+        // bookkeeping guarantee lastPage + 1 sits at or above the in-progress
+        // allocation floor on entry, so the AO-layer allocator-only contract
+        // is satisfied; any below-floor target would throw IllegalStateException
+        // and surface a partial-replay orphan (logical fileSize lags behind
+        // physical extent after a crash) as a hard error rather than silent
+        // reuse. That partial-replay-orphan recovery scenario is the BC4
+        // hazard deferred to Step 5.
         cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);
         mapEntryPoint.setFileSize(lastPage + 1);
 
@@ -228,8 +232,12 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
         if (bucket.isFull()) {
           // Current last bucket page is full -- allocate a new bucket page.
-          // Same uniform load-or-extend handling as the first-bucket branch
-          // above; orphan reuse and one-page extend collapse into one call.
+          // Same invariant as the first-bucket branch above: per-component
+          // lock + entry-point page write lock + monotonic mapEntryPoint.fileSize
+          // keep lastPage + 1 at or above the in-progress allocation floor,
+          // so the AO-layer allocator-only contract holds; a below-floor
+          // partial-replay orphan would surface as IllegalStateException
+          // (BC4 hazard deferred to Step 5).
           cacheEntry.close();
 
           cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);

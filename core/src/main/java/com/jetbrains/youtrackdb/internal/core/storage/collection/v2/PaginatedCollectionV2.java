@@ -2214,12 +2214,18 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * stored on the state page (page 0).
    *
    * <p>The collection tracks its own "logical" file size in
-   * {@link PaginatedCollectionStateV2#getFileSize()}, which may be less than the physical file
-   * size reported by the cache ({@code filledUpTo}). If the logical size equals the physical
-   * size minus 1 (accounting for page 0 being the state page), a truly new page is appended to
-   * the file. Otherwise, the next page after the current logical end is reused (it already
-   * exists on disk but was not yet claimed by this collection). This can happen after a crash
-   * where pages were physically allocated but the state counter was not yet updated.
+   * {@link PaginatedCollectionStateV2#getFileSize()}. The per-component lock plus the state-page
+   * write lock plus the monotonic logical fileSize bookkeeping below guarantee {@code fileSize + 1}
+   * is at or above the in-progress allocation floor when {@link AtomicOperation#loadOrAddPageForWrite}
+   * is called, so its allocator-only contract is satisfied (it registers a fresh overlay for a
+   * strictly-new pageIndex).
+   *
+   * <p>If a previous transaction crashed after physically extending the file but before bumping
+   * the logical file-size counter, the physical file may carry an orphan past the logical end.
+   * The allocator-only contract would throw {@link IllegalStateException} for such a target
+   * rather than silently reuse it. This partial-replay-orphan recovery is the BC4 hazard
+   * deferred to Step 5 -- a future maintainer who hits the IllegalStateException can follow
+   * that thread.
    *
    * @param atomicOperation the current atomic operation context
    * @return a {@link CacheEntry} for the newly allocated page (caller must close it)
@@ -2231,12 +2237,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
 
-      // The cache's total loadOrAdd primitive uniformly handles the two cases
-      // the legacy reuse-or-extend probe split on: if the physical file already
-      // contains a page at fileSize + 1 (orphan from a partial previous
-      // allocation) the load branch fires; otherwise the extend branch advances
-      // the file by one. Per-component lock + logical fileSize bookkeeping keep
-      // concurrent allocators from racing for the same target pageIndex.
+      // Per-component lock + state-page write lock + monotonic logical fileSize
+      // bookkeeping keep fileSize + 1 at or above the in-progress allocation
+      // floor, satisfying loadOrAddPageForWrite's allocator-only contract: the
+      // call registers a fresh overlay and throws IllegalStateException if the
+      // target is below the floor (BC4 partial-replay-orphan hazard deferred
+      // to Step 5).
       cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, fileSize + 1);
 
       collectionState.setFileSize(fileSize + 1);
@@ -2252,7 +2258,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
     if (getFilledUpTo(atomicOperation, fileId) == 0) {
-      // Fresh file -- append the state page (statically known-new at pageIndex 0).
+      // Fresh file -- append the state page (statically known-new at STATE_ENTRY_INDEX).
       stateEntry = loadOrAddPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);
     } else {
       stateEntry = loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, false);
