@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/7 complete)
+- [ ] Step implementation (6/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -654,14 +654,62 @@ clusters NOT deleted by 22b need YTDB issues).
   > no marker rewrite. **Step 6 must handle SqlExecutorDeadCodeTest
   > with its 15 anchored markers.**
 
-- [ ] Step 6: Pin-maintenance renames — create issues, rewrite markers, rename `*DeadCodeTest.java` files
-  > **Risk:** low — default (test-class renames are mechanical; PSI find-usages already confirmed the production targets are ALIVE in `cluster-disposition.md`'s pin-maintenance section).
+- [x] Step 6: Pin-maintenance renames — create issues, rewrite markers, rename `*DeadCodeTest.java` files
+  - [x] Context: info
+  > **Risk:** low — default (test-class renames are mechanical; PSI find-usages confirmed all 6 production targets are alive).
   >
-  > **What:** Create one YTDB issue per pin-maintenance entry — `InternalErrorException`, `EntityHelper`, `RecordVersionHelper`, `EntityComparator`, `SBTreeValue` cross-version (+ conditional `SqlExecutorDeadCodeTest` if Phase B Step 1 manifest confirms). Each issue describes the rename / suffix-drop and references the live production target. Then perform the pin file renames (`*DeadCodeTest.java` → `*Test.java` or equivalent per the cluster-disposition column) and rewrite any markers carried by those files to the new YTDB-NNNN IDs.
+  > **What was done:** Created 6 YouTrack tracking issues
+  > YTDB-778..783 — one per pin-maintenance entry, including the
+  > conditional 6th (Sq11 SqlExecutorDeadCodeTest carryover from
+  > Step 5). Renamed 6 stale `*DeadCodeTest.java` files via
+  > `git mv` and renamed the public class declarations to match.
+  > Rewrote 21 anchored Track-22 / deferred-cleanup markers (Form
+  > A + Form B) to point at the new YTDB-NNNN IDs (1 each in
+  > EntityHelperUnusedMethodsTest, RecordVersionHelperTest,
+  > EntityComparatorTest, plus 15 anchored markers in SqlExecutorTest
+  > including a multi-line L311–L312 hunk). Updated 3 cross-references
+  > in `TraverseResultLiveSessionTest` from `SqlExecutorDeadCodeTest`
+  > to `SqlExecutorTest`, plus 3 intra-file cross-references between
+  > `EntityHelperUnusedMethodsTest` and `EntityComparatorTest`. PSI
+  > find-usages confirmed production-target aliveness for all 6
+  > (5/112/2/1/7/8 prod refs respectively). Pre-verified both Step 7
+  > greps clean on the renamed files. Single batched commit
+  > `30d2035869`; pushed.
   >
-  > Commit message: `Track 22c Step 6: Create YTDB-NNNN..NNNN pin-maintenance issues + rename pin files`. Single batched commit.
+  > **What was discovered:** (1) P2 EntityHelper rename used the
+  > focused name `EntityHelperUnusedMethodsTest.java` (option (a)
+  > from the manifest) reflecting the marker's actual scope (12 dead
+  > public methods, not the class). (2) P5 SBTreeValueDeadCodeTest
+  > exists at the v1 path only; v2 has a different `SBTreeValueAndEntryTest`.
+  > The v1 file's single `WHEN-FIXED:` line at L18 does NOT carry the
+  > `Track 22` / `deferred-cleanup track` anchor token — rename only,
+  > no marker rewrite needed. (3) P6 SqlExecutorDeadCodeTest carried
+  > a multi-line marker (`WHEN-FIXED:` token on L311, `Track 22 —
+  > delete BatchStep entirely` on L312) — handled with one multi-line
+  > `steroid_apply_patch` hunk. (4) No filename collisions for any
+  > of the 6 target rename names. (5) The 2 `{@code //` Javadoc
+  > meta-references at `SqlExecutorTest:61/67` are preserved (they
+  > describe the marker convention, not the bug — Step 7's
+  > `grep -v '{@code //'` carve-out excludes them).
   >
-  > **Files touched:** the 5 (+1) pin-maintenance test files (renamed via `git mv` and content updates); manifest updated.
+  > **What changed from the plan:** None. The conditional 6th
+  > pin-maintenance entry (Sq11) was confirmed in Step 5 and routed
+  > here. Within-manifest hedges (P2 focused name, P5 rename-only)
+  > were resolved per the recommended options.
+  >
+  > **Key files:** 6 renamed test sources (P1–P6) + 1 cross-reference
+  > update (`TraverseResultLiveSessionTest.java`) + `wfx-22c-manifest.md`.
+  >
+  > **Critical context:** Minted YTDB-778..783 (6 issues, all
+  > `Type=Task`). Rename map: P1 InternalErrorExceptionDeadCodeTest
+  > → InternalErrorExceptionTest (YTDB-778, no marker — pre-existing
+  > rename target); P2 EntityHelperDeadCodeTest →
+  > EntityHelperUnusedMethodsTest (YTDB-779); P3 RecordVersionHelperDeadCodeTest
+  > → RecordVersionHelperTest (YTDB-780); P4 EntityComparatorDeadCodeTest
+  > → EntityComparatorTest (YTDB-781); P5 SBTreeValueDeadCodeTest →
+  > SBTreeValueTest (YTDB-782, no marker); P6 SqlExecutorDeadCodeTest
+  > → SqlExecutorTest (YTDB-783, 15 markers rewritten). **Cumulative
+  > Track 22c minted-issue range: YTDB-723..783 (61 issues total).**
 
 - [ ] Step 7: Mandatory verification grep + manifest closure
   > **Risk:** low — default (verification step; no source edits unless a defect is uncovered).
