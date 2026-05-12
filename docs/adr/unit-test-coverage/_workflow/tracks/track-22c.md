@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/7 complete)
+- [ ] Step implementation (4/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -534,14 +534,58 @@ clusters NOT deleted by 22b need YTDB issues).
   > `DatabaseSessionEmbeddedAttributesTest:375` is outside Step 7's
   > verification regex.
 
-- [ ] Step 4: Serializer / binary / debug category — create issues, rewrite markers
+- [x] Step 4: Serializer / binary / debug category — create issues, rewrite markers
+  - [x] Context: info
   > **Risk:** low — default (test-source comment edits only).
   >
-  > **What:** Production-fix items: `BinaryComparatorV0` DATE × STRING NFE crash; `BytesContainer` zero-capacity infinite-loop hang; `BytesContainer.deserializeValue` length-prefix validation gap; `HelperClasses.readLinkCollection` NULL_RECORD_ID dead branch; `RecordSerializationDebug*` `faildToRead` typo; `CompactedLinkSerializer` / `LinkSerializer` `(short)` cluster-id truncation. Plus SPI-deferred dead-code clusters in this area: serializer abstract bases (`RecordSerializerCSVAbstract`, `RecordSerializerStringAbstract`); spatial-index slot (`MockSerializer` + `BinarySerializerFactory` id `-10`); sbtree-local-v1 pair (`SBTreeBucketV1`, `SBTreeNullBucketV1`); listener / marker SPI (`RecordListener`, `RecordStringable`); compression SPI (`Compression`).
+  > **What was done:** Created 9 YouTrack tracking issues
+  > YTDB-744..752 covering the serializer / binary / debug bucket:
+  > 4 production-fix Bugs (744 BinaryComparatorV0 DATE×STRING
+  > + day-flooring; 745 BytesContainer zero-capacity hang; 746
+  > HelperClasses.readLinkCollection NULL_RECORD_ID dead branch;
+  > 747 CompactedLinkSerializer/LinkSerializer `(short)`
+  > cluster-id truncation) and 5 dead-code-SPI Tasks (748
+  > RecordSerializerCsvAbstract/StringAbstract bases; 749
+  > SBTreeBucketV1/NullBucketV1/Value; 750 MockSerializer
+  > EMBEDDED slot; 751 RecordListener + RecordStringable SPI;
+  > 752 Compression SPI). Rewrote 7 Form A+B WHEN-FIXED markers
+  > across 5 test files (3 in BinaryComparatorV0DateSourceTest +
+  > 1 each in Mock/RecordListener/RecordStringable/Compression
+  > DeadCodeTest files). Updated `wfx-22c-manifest.md` with the
+  > minted IDs. Single batched commit `918602aa78`; pushed.
   >
-  > Commit message: `Track 22c Step 4: Create YTDB-NNNN..NNNN serializer/binary/debug issues + rewrite markers`. Single batched commit.
+  > **What was discovered:** (1) BinaryComparatorV0DateSourceTest
+  > carries 3 Track-tagged markers (L193/L197/L427) — the manifest's
+  > L436/L459 hedge was incorrect (those lines have bare
+  > `WHEN-FIXED:` text without the `Track 22` / `deferred-cleanup
+  > track` token, so they are not rewrite targets). (2) Se3 split
+  > into 2 issues (YTDB-746 + YTDB-747) because the production
+  > surfaces are unrelated. (3) The `RecordSerializationDebug`
+  > `faildToRead` typo sub-entry was **dropped** — grep across
+  > `core/src/` for the class name and the typo returned zero hits;
+  > the class is absent from the tree (likely deleted by an earlier
+  > track). (4) Se2/Se3 production-fix issues opened as
+  > production-code-referenced (no current test pins). (5) Se4/Se6
+  > production classes still exist; dead-code Tasks opened with no
+  > marker rewrite needed (their `*DeadCodeTest` files carry bare
+  > `WHEN-FIXED:` text without the `Track 22` / `deferred-cleanup
+  > track` token).
   >
-  > **Files touched:** the test source files carrying serializer/binary/debug-bucket markers; manifest updated.
+  > **What changed from the plan:** Se3 split into 2 issues
+  > (manifest estimate was 1); `RecordSerializationDebug` typo
+  > entry dropped (class absent). Step 4 net issue count: 9, vs
+  > the manifest §5 estimate of "3+5=8". Within the §2 estimate
+  > widening note. No impact on downstream steps.
+  >
+  > **Key files:** `BinaryComparatorV0DateSourceTest.java`,
+  > `MockSerializerDeadCodeTest.java`, `RecordListenerDeadCodeTest.java`,
+  > `RecordStringableDeadCodeTest.java`, `CompressionInterfaceDeadCodeTest.java`,
+  > `wfx-22c-manifest.md`.
+  >
+  > **Critical context:** Minted YTDB-744..752 (9 issues).
+  > Se1→744, Se2→745, Se3a→746, Se3b→747, Se4→748, Se6→749,
+  > Se5→750, Se7→751, Se8→752. `RecordSerializationDebug`
+  > sub-entry dropped (class absent).
 
 - [ ] Step 5: SQL / executor / legacy / database-pool / database-tool / config category — create issues, rewrite markers
   > **Risk:** low — default (test-source comment edits only).
