@@ -82,19 +82,20 @@ Before spawning the first implementer:
    the orphans for this track.
 
    ```bash
-   if ! git merge-base --is-ancestor "$BASE_SHA" HEAD; then
+   ACTUAL_BASE="$BASE_SHA"
+   if ! git merge-base --is-ancestor "$ACTUAL_BASE" HEAD; then
        # Stale — typically a post-Phase-B rebase.
        RECORDING=$(git log -F \
            --grep="Record Phase B base commit for <track>" \
-           --format=%H HEAD | head -1)
+           --format=%H HEAD | head -n 1)
        if [ -z "$RECORDING" ]; then
            # No recording commit on HEAD's path — surface to user;
            # do not invent a base.
            exit 1
        fi
        ACTUAL_BASE=$(git log -1 --format=%P "$RECORDING")
-       # Use $ACTUAL_BASE as {base_commit} for the rest of Phase B.
    fi
+   # Use $ACTUAL_BASE as {base_commit} for the rest of Phase B.
    ```
 
    Scope `git log` to `HEAD` (not `--all`) and match the track title
