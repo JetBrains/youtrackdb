@@ -1569,3 +1569,8 @@ the stay-on-physical sites).
 ## Base commit
 
 `62fc621c83`
+
+Note: recorded base `62fc621c83` was stale (likely from a rebase since
+Phase B started); using actual on-branch parent `6f610c811f` (parent of
+the `Record Phase B base commit for Track 4` commit `ba21dade2d`) for
+Step 7 resume.
