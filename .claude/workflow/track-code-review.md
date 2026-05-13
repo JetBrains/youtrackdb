@@ -193,10 +193,13 @@ of the changes.
    All sub-agents review `git diff {base_commit}..HEAD`.
 7. **Pre-stage the cumulative diff and changed-files list.** Always
    write both to per-track temp files so the canonical context block
-   references paths instead of inlining content — this matches the
-   agents' `## Input` contract (every dimensional review agent's spec
-   says "a path to a temp file containing the full diff", read via the
-   `Read` tool). Run:
+   references paths instead of inlining content. Staging the diff
+   matches the agents' `## Input` contract (every spec says "a path
+   to a temp file containing the full diff", read via the `Read`
+   tool); staging the changed-files list is an orchestrator-context
+   optimisation across the multi-agent fan-out (see § Sub-agents →
+   § "Pre-staged diff and changed-files list" for the multi-spawn
+   rationale). Run:
 
    ```bash
    git diff {base_commit}..HEAD \
@@ -304,11 +307,13 @@ list" below for staging mechanics and regeneration rules.
 
 The cumulative track diff and the changed-files list are pre-staged
 at Phase C Startup step 7, and the canonical context block always
-references the staged paths instead of inlining content. This matches
-the `## Input` contract every dimensional review agent declares
-("a path to a temp file containing the full diff", read via the
-`Read` tool), and matches how the `/code-review` skill dispatches
-the same agents from the standalone entry point.
+references the staged paths instead of inlining content. Staging the
+diff matches the `## Input` contract every dimensional review agent
+declares ("a path to a temp file containing the full diff", read via
+the `Read` tool) and matches how the `/code-review` skill dispatches
+the same agents from the standalone entry point. Staging the
+changed-files list is an orchestrator-context optimisation — see
+"Why" below.
 
 **Why.** A track-level review fan-out is up to six dimensional
 reviewers × three iterations = eighteen sub-agent spawns, all
@@ -986,6 +991,18 @@ proceed directly to track completion **in the same session**.
    §Resume-side commit-pattern reference — entry 5, "Other Workflow
    update commits"). It does **not** contribute to any `[x]` step's
    expected commit set.
+
+   After the push, **remove the staged temp files for this track**
+   so they don't linger as later tracks run:
+
+   ```bash
+   rm -f /tmp/claude-code-track-{N}-diff-$PPID.patch \
+         /tmp/claude-code-track-{N}-files-$PPID.txt
+   ```
+
+   If the user re-opens this track later (e.g., post-PR fixes), the
+   regeneration rule from § Sub-agents → § "Pre-staged diff and
+   changed-files list" stages fresh copies before the next fan-out.
 
 6. **Run self-improvement reflection.** Load
    `.claude/workflow/self-improvement-reflection.md` on-demand and

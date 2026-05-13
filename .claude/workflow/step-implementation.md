@@ -365,10 +365,12 @@ finding ID prefixes, and gate format.
 
       Before composing prompts, **pre-stage the step diff and the
       changed-files list** so the canonical context block references
-      paths instead of inlining content — this matches the agents'
-      `## Input` contract (each dimensional review agent's spec says
-      "a path to a temp file containing the full diff", read via the
-      `Read` tool):
+      paths instead of inlining content. Staging the diff matches the
+      agents' `## Input` contract (each spec says "a path to a temp
+      file containing the full diff", read via the `Read` tool);
+      staging the changed-files list is an orchestrator-context
+      optimisation that keeps the file list out of the tool-call
+      history across the multi-agent fan-out:
 
       ```bash
       git diff {commit}~1..{commit} \
@@ -514,6 +516,17 @@ finding ID prefixes, and gate format.
       iterations** reached.
    e. If max iterations reached, note remaining findings in the
       `EPISODE_DRAFT` so they appear in the step episode.
+   f. **Remove the staged temp files** for this step so they don't
+      accumulate as the orchestrator advances to later steps:
+
+      ```bash
+      rm -f /tmp/claude-code-step-{N}-{M}-diff-$PPID.patch \
+            /tmp/claude-code-step-{N}-{M}-files-$PPID.txt
+      ```
+
+      Skip this on a non-`SUCCESS` exit from the dim-review loop —
+      the post-commit handler rolls back and the files are already
+      orphaned by the next step's regeneration.
 
 **Sub-step 5 — Cross-track impact check.** Quick self-assessment
 against the plan, fed by `result.CROSS_TRACK_HINTS`. See §Cross-Track
