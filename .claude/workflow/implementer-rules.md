@@ -211,8 +211,8 @@ also defines the test-additive shortcut that skips the
 coverage-profile build when the step adds no production-source
 changes.
 
-**Sub-step 3 — Stage explicit paths and commit** in one commit. No
-`git add -A`. No `--amend`. Apply the project's commit-message
+**Sub-step 3 — Stage explicit paths, commit, and push** in one commit.
+No `git add -A`. No `--amend`. Apply the project's commit-message
 convention from `CLAUDE.md` (imperative summary under 50 chars, blank
 line, detailed why). The Ephemeral identifier rule
 ([`conventions-execution.md`](conventions-execution.md) §2.3) covers
@@ -234,6 +234,20 @@ episode commit, since Phase B is fully done before Phase C runs);
 see [`commit-conventions.md`](commit-conventions.md) and
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Resume-side commit-pattern reference.
+
+**After the commit lands, run `git push` immediately** per
+[`commit-conventions.md`](commit-conventions.md) § Push every commit.
+The implementer is responsible for the push; the orchestrator does
+not push on the implementer's behalf. Inspect the `git push` exit
+code: a successful push is a precondition for emitting
+`RESULT: SUCCESS` (see §Return contract `COMMIT` field rule below).
+On push failure (`non-fast-forward` from concurrent activity, network
+blip, auth, pre-receive hook), do **not** emit `SUCCESS` — surface
+the situation via `RESULT: FAILED` with
+`FAILURE.recommended_action: retry` and `FAILURE.why_it_failed`
+naming the push failure shape, so the Phase B / Phase C orchestrator
+can reconcile (e.g., run the branch-divergence gate before
+respawning).
 
 **Return.** Emit the structured result block (see §Return contract
 below). The orchestrator parses the block; everything else in the
@@ -766,6 +780,15 @@ FAILURE:                          # only if RESULT == FAILED
   `mode=INITIAL`/`WITH_GUIDANCE` it is the step's primary commit; at
   `level=step` with `mode=FIX_REVIEW_FINDINGS` and at `level=track`
   it is the SHA of the `Review fix:` commit applied on top.
+  **`RESULT: SUCCESS` implies the commit at `COMMIT` has been pushed
+  to `origin`.** Sub-step 3 above mandates `git push` immediately
+  after the commit lands. If the push failed (e.g.,
+  `non-fast-forward` from concurrent activity, network blip, auth,
+  pre-receive hook), do not emit `SUCCESS` — emit `RESULT: FAILED`
+  with `FAILURE.recommended_action: retry` and a
+  `FAILURE.why_it_failed` that names the push failure shape, so the
+  orchestrator can reconcile (e.g., run the branch-divergence gate
+  before respawning).
 - `FILES_TOUCHED` lists every path in the diff with a `(new)` or
   `(modified)` annotation. On `FAILED`, list paths the implementer
   attempted to modify even though they are now reverted.

@@ -578,13 +578,35 @@ iteration does not invalidate them).
 
 ### `on_iteration_success(result)`
 
-The implementer's `Review fix:` commit is on disk and pushed;
-`result.COMMIT` is its SHA. `result.FIX_NOTES` carries the
-implementer's per-iteration notes (which findings were addressed,
-which were skipped, what was discovered). Stash `FIX_NOTES` and
-`CROSS_TRACK_HINTS` for inclusion in the eventual track episode (see
-§Track Completion below). Proceed to the Progress update + gate-check
-fan-out per the review loop above.
+The implementer's `Review fix:` commit is on disk and — per
+[`implementer-rules.md`](implementer-rules.md) §Return contract —
+pushed to `origin`; `result.COMMIT` is its SHA. `result.FIX_NOTES`
+carries the implementer's per-iteration notes (which findings were
+addressed, which were skipped, what was discovered).
+
+**Defensive push check.** Before stashing notes and proceeding,
+verify the `Review fix:` commit is actually on `origin`:
+
+```bash
+git log @{u}..HEAD --format=%H
+```
+
+Expected output: empty. If the output names any commit, the
+implementer emitted `SUCCESS` without pushing, which is a contract
+violation. Recover by pushing the orphan(s) immediately:
+
+```bash
+git push
+```
+
+If the push fails (e.g., `non-fast-forward`), route through
+[`branch-divergence-check.md`](branch-divergence-check.md) per
+`commit-conventions.md` § Push failure handling — do not silently
+continue with an unpushed `Review fix:` commit.
+
+Stash `FIX_NOTES` and `CROSS_TRACK_HINTS` for inclusion in the
+eventual track episode (see §Track Completion below). Proceed to the
+Progress update + gate-check fan-out per the review loop above.
 
 ### `escalate_to_user_then_respawn(result)`
 
