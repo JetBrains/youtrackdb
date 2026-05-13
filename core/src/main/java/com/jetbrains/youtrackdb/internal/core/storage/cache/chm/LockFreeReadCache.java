@@ -156,10 +156,14 @@ public final class LockFreeReadCache implements ReadCache {
         doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ true);
 
     // Defensive guard: doLoad delegates to the total WriteCache#loadOrAdd primitive,
-    // so the returned CacheEntry should never be null on this engine. The null check
-    // is retained as a belt-and-braces measure against future divergence in doLoad's
-    // miss-handling branches; if the contract ever weakens, callers still see a clean
-    // null instead of an NPE on the lock acquisition below.
+    // so the returned CacheEntry should never be null after the loadOrAdd collapse.
+    // The null check is retained as a belt-and-braces measure against future
+    // divergence in doLoad's miss-handling branches; if the contract ever weakens,
+    // callers still see a clean null instead of an NPE on the lock acquisition below.
+    assert cacheEntry != null
+        : "doLoad returned null on forWrite path"
+            + " fileId=" + fileId + " pageIndex=" + pageIndex
+            + "; WriteCache.loadOrAdd totality contract violated";
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
       writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);

@@ -750,11 +750,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     // entry registers an empty FileChanges placeholder and falls through to the
     // committed-file branch; a new or page-overlay-bearing entry returns the
     // logical extent (maxNewPageIndex + 1); a truncate-flagged entry returns 0;
-    // otherwise the physical extent from the write cache is the answer.
+    // otherwise the physical extent from the write cache is the answer. The
+    // placeholder is registered as a side effect so subsequent in-TX queries hit
+    // the existing-entry arm without re-allocating.
     var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
-      changesContainer = new FileChanges();
-      fileChanges.put(fileId, changesContainer);
+      fileChanges.put(fileId, new FileChanges());
     } else if (changesContainer.isNew || changesContainer.maxNewPageIndex > -2) {
       return changesContainer.maxNewPageIndex + 1;
     } else if (changesContainer.truncate) {

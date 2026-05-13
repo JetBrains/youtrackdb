@@ -331,19 +331,24 @@ public class LockFreeReadCacheFileOpsTest {
     @Override
     public CachePointer loadIfPresent(
         final long fileId, final long pageIndex, final boolean verifyChecksums) {
-      // Mirror load() semantics: NULL_PAGE_INDEX surfaces null; all other indices return
-      // a fresh CachePointer. The TrackingWriteCache fixture does not need a separate
-      // present-vs-absent state for file-lifecycle assertions.
+      // Fixture-only collapse: production WriteCache.loadIfPresent returns null on a
+      // miss while load() reads through (see WriteCache.loadIfPresent Javadoc for the
+      // contract divergence). The TrackingWriteCache fixture has no on-disk state
+      // distinction, so this stub mirrors load() semantics; future tests that need to
+      // exercise the present-vs-absent split must add their own tracker rather than
+      // rely on this stub.
       return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 
     @Override
     public CachePointer loadOrAdd(
         final long fileId, final long pageIndex, final boolean verifyChecksums) {
-      // Total read-or-allocate primitive: this fixture has no on-disk state distinction,
-      // so loadOrAdd reuses load() and always returns a fresh CachePointer for non-sentinel
-      // page indices. The file-lifecycle tests in this class do not exercise the
-      // miss-vs-hit asymmetry that loadOrAdd targets in production.
+      // Fixture-only collapse: production WriteCache.loadOrAdd is total (allocates on
+      // miss) while load() reads through; the two diverge at the miss boundary (see
+      // WriteCache.loadIfPresent Javadoc for the sibling contract). This fixture has
+      // no on-disk state distinction, so the stub delegates to load() and always
+      // returns a fresh CachePointer for non-sentinel page indices. Future tests that
+      // need to exercise the miss-vs-hit asymmetry must add their own tracker.
       return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 

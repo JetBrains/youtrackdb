@@ -6,6 +6,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -323,7 +324,12 @@ public class DirectMemoryOnlyDiskCacheTest {
    * Verifies that the total {@code loadOrAdd()} primitive installs a fresh page in
    * {@link MemoryFile} and returns a non-null {@link CachePointer} that the caller can
    * release via {@code decrementReadersReferrer()}. This is the in-memory engine's
-   * allocator path on the new write-side API.
+   * allocator path on the new write-side API. The test pins three observable contract
+   * facets: (a) the install advances the per-file filled-up-to horizon to 1 page, (b)
+   * the returned pointer's {@code (fileId, pageIndex)} coordinates match the requested
+   * target, and (c) the publication-time readers-referrer bump is exactly-once — a
+   * second decrement after the balancing one fails fast, proving the bump is not
+   * silently doubled.
    */
   @Test
   public void testLoadOrAddInstallsAndReleases() {
@@ -331,8 +337,29 @@ public class DirectMemoryOnlyDiskCacheTest {
     var pointer = cache.loadOrAdd(fileId, 0, false);
 
     assertNotNull("loadOrAdd must return a non-null pointer", pointer);
-    // loadOrAdd bumps readers-referrer exactly once before publication; balance it.
+    // (a) Install observable: the per-file horizon advanced by exactly one page.
+    assertEquals(
+        "loadOrAdd must install the page (filledUpTo bumps to 1)",
+        1L,
+        cache.getFilledUpTo(fileId));
+    // (b) Pointer coordinates match the request. The pointer carries the internal
+    // file id (extracted via externalFileId) and the requested page index.
+    assertEquals(
+        "pointer must carry the requested fileId",
+        fileId,
+        cache.externalFileId((int) pointer.getFileId()));
+    assertEquals(
+        "pointer must carry the requested pageIndex", 0, pointer.getPageIndex());
+    // (c) Exactly-once referrer bump: balance it, then a second decrement must fail.
+    // Core tests run with assertions enabled (the module argLine adds -ea), so the
+    // over-decrement trips CachePointer.decrementReadersReferrer's "assert readers >= 0"
+    // before the IllegalStateException retry path; AssertionError is the expected
+    // exception under -ea. The assertion still proves the bump is not silently doubled.
     pointer.decrementReadersReferrer();
+    assertThrows(
+        "second decrement must fail — the publication-time bump is exactly-once",
+        AssertionError.class,
+        pointer::decrementReadersReferrer);
   }
 
   /**
@@ -357,23 +384,38 @@ public class DirectMemoryOnlyDiskCacheTest {
    * Verifies that {@code loadOrAddForWrite()} returns {@code null} when the page has not been
    * installed (the in-memory engine's deliberate read-cache divergence: read-cache wrappers
    * keep null-on-miss semantics while the {@code loadOrAdd} write-cache primitive is total),
-   * and returns the page entry with the exclusive lock after the page is installed.
+   * and returns the page entry with the exclusive lock after the page is installed. The test
+   * exercises the lock contract under {@code -ea}: it explicitly calls
+   * {@code releaseExclusiveLock()} before {@code releaseFromWrite}, which trips
+   * {@code CacheEntryImpl.releaseExclusiveLock}'s {@code assert stamp != 0} if
+   * {@code loadOrAddForWrite} ever stops acquiring the exclusive lock — a one-line
+   * smoke gate that costs nothing under {@code -ea} but pins the distinguishing
+   * contract that separates {@code loadOrAddForWrite} from {@code loadForRead}.
    */
   @Test
   public void testLoadOrAddForWriteMissAndHit() {
     var fileId = cache.addFile("rw.cf");
 
-    // Miss — page 0 not yet installed. loadOrAddForWrite is null-on-miss on this engine.
+    // Miss — page 0 not yet installed. loadOrAddForWrite is null-on-miss on this engine
+    // (the documented divergence from the total WriteCache.loadOrAdd primitive below).
     assertNull(cache.loadOrAddForWrite(fileId, 0, cache, false, null));
 
-    // Install the page via the total write-side primitive.
+    // Install the page via the total write-side primitive — proves the divergence
+    // explicitly: the same fileId + pageIndex returns non-null here.
     var allocated = cache.loadOrAdd(fileId, 0, false);
+    assertNotNull("loadOrAdd is total and must return a non-null pointer", allocated);
     allocated.decrementReadersReferrer();
 
     // Hit — page 0 now exists and loadOrAddForWrite must return it with the exclusive lock.
     var loaded = cache.loadOrAddForWrite(fileId, 0, cache, false, null);
     assertNotNull("loadOrAddForWrite must find the installed page", loaded);
-    cache.releaseFromWrite(loaded, cache, false);
+    // Exercise the exclusive-lock contract under -ea: an explicit releaseExclusiveLock()
+    // here trips CacheEntryImpl's "assert stamp != 0" if loadOrAddForWrite ever stops
+    // acquiring the lock. After the explicit release, balance the cache bookkeeping via
+    // releaseFromRead (releaseFromWrite would attempt a second releaseExclusiveLock and
+    // trip the same assert on the now-zero stamp).
+    loaded.releaseExclusiveLock();
+    cache.releaseFromRead(loaded);
   }
 
   /**

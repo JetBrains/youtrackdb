@@ -42,10 +42,9 @@ import org.junit.Test;
  * and the dual-engine delegate shape.
  *
  * <p>The method is the write-side allocator: callers state the target {@code pageIndex}
- * up front (typically derived from {@code entryPoint.pagesSize + 1}) instead of letting
- * the cache pick the index. On the
- * disk engine it is strictly allocator-only: targeting a {@code pageIndex} below the
- * committed file size raises {@link IllegalStateException}; use
+ * up front (typically derived from {@code entryPoint.pagesSize + 1}) instead of letting the
+ * cache pick the index. On the disk engine it is strictly allocator-only: targeting a
+ * {@code pageIndex} below the committed file size raises {@link IllegalStateException}; use
  * {@link AtomicOperation#loadPageForWrite} to mutate an existing page. The in-memory
  * engine bypasses that check to support rollback-orphan re-use.
  *
@@ -876,6 +875,52 @@ public class LoadOrAddPageForWriteTest {
     } finally {
       realCache.delete();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // filledUpTo: direct coverage of the three-arm body inlined into the public
+  // override. The deleted-file arm raises, the truncated-file arm returns 0,
+  // and the committed-file fall-through is exercised indirectly by the
+  // allocator tests above (op.filledUpTo == maxNewPageIndex + 1 on the isNew /
+  // overlay path).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The first arm of {@code filledUpTo}: a file marked for deletion in this TX must
+   * raise {@link StorageException} naming the offending fileId. Pins that the
+   * deleted-files guard fires before the placeholder-registration branch runs, so
+   * callers cannot silently observe the committed extent of a doomed file mid-TX.
+   */
+  @Test
+  public void filledUpToOnDeletedFileRaisesStorageException() {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.fileNameById(fileId)).thenReturn("doomed.dat");
+
+    op.deleteFile(fileId);
+
+    assertThatThrownBy(() -> op.filledUpTo(fileId))
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining(Long.toString(fileId))
+        .hasMessageContaining("deleted");
+  }
+
+  /**
+   * The truncate arm of {@code filledUpTo}: after {@code truncateFile} runs on a
+   * pre-existing (non-fresh) file, {@code filledUpTo} must return 0 regardless of
+   * the committed {@code writeCache.getFilledUpTo} value. Pins that the truncate
+   * flag wins over the physical write-cache extent — without this, a truncated file
+   * would still appear to span its pre-truncate page count for the rest of the TX.
+   */
+  @Test
+  public void filledUpToOnTruncatedFileReturnsZero() {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    // Pre-existing file with five committed pages on disk; truncateFile must override
+    // this with the in-TX truncate flag.
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(5L);
+
+    op.truncateFile(fileId);
+
+    assertThat(op.filledUpTo(fileId)).isEqualTo(0L);
   }
 
   // ---------------------------------------------------------------------------
