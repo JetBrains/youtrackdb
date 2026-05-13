@@ -5389,23 +5389,14 @@ public abstract class AbstractStorage
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-          var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
-          // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
-          // On the disk engine `loadOrAddForWrite` is now total (delegates to
-          // `WriteCache.loadOrAdd`); the in-memory engine still returns null on miss but
-          // is reached only via `MemoryWriteAheadLog`, which is a no-op so this WAL replay
-          // branch never fires there. The block is kept as a defensive belt during the
-          // migration window and will be removed alongside the addPage/allocateNewPage
-          // cleanup.
-          if (cacheEntry == null) {
-            do {
-              if (cacheEntry != null) {
-                readCache.releaseFromWrite(cacheEntry, writeCache, true);
-              }
-
-              cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
-            } while (cacheEntry.getPageIndex() != pageIndex);
-          }
+          // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
+          // gap-fills any intermediate pages between currentSize and recordedPageIdx); WAL
+          // replay never reaches the in-memory engine (MemoryWriteAheadLog is a no-op), so
+          // the disk-engine totality is sufficient here. The prior null-branch
+          // reconciliation (do/while readCache.allocateNewPage) was a defensive belt during
+          // the migration to total loadOrAdd.
+          final var cacheEntry =
+              readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
 
           try {
             final var durablePage = new DurablePage(cacheEntry);
@@ -5467,23 +5458,14 @@ public abstract class AbstractStorage
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-          var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
-          // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
-          // On the disk engine `loadOrAddForWrite` is now total (delegates to
-          // `WriteCache.loadOrAdd`); the in-memory engine still returns null on miss but
-          // is reached only via `MemoryWriteAheadLog`, which is a no-op so this WAL replay
-          // branch never fires there. The block is kept as a defensive belt during the
-          // migration window and will be removed alongside the addPage/allocateNewPage
-          // cleanup.
-          if (cacheEntry == null) {
-            do {
-              if (cacheEntry != null) {
-                readCache.releaseFromWrite(cacheEntry, writeCache, true);
-              }
-
-              cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
-            } while (cacheEntry.getPageIndex() != pageIndex);
-          }
+          // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
+          // gap-fills any intermediate pages between currentSize and recordedPageIdx); WAL
+          // replay never reaches the in-memory engine (MemoryWriteAheadLog is a no-op), so
+          // the disk-engine totality is sufficient here. The prior null-branch
+          // reconciliation (do/while readCache.allocateNewPage) was a defensive belt during
+          // the migration to total loadOrAdd.
+          final var cacheEntry =
+              readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
 
           try {
             final var durablePage = new DurablePage(cacheEntry);

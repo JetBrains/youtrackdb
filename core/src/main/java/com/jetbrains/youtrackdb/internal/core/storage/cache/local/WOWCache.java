@@ -1583,6 +1583,16 @@ public final class WOWCache extends AbstractWriteCache
       // Defensive totality fallback (dead code today; see method Javadoc): if
       // loadFileContent ever returns null on this path, return a magic-stamped empty
       // buffer without bumping AsyncFile.size so the totality contract holds.
+      //
+      // The assert surfaces a dispatch-prelude invariant regression in -ea test runs at
+      // zero production cost: pageIndex < currentSize and loadFileContent share the same
+      // AsyncFile.getFileSize read, so the loadFileContent-returns-null branch cannot fire
+      // under the current implementation. If a future change (sparse-region misses, DWL
+      // recovery flows, etc.) makes the fallback live, remove the assert.
+      assert false
+          : "loadFileContent returned null on load branch — dispatch prelude invariant"
+              + " violated; pageIndex < currentSize should always find a page on disk"
+              + " (intId=" + intId + " pageIndex=" + pageIndex + ")";
       return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
     } finally {
       pageLock.unlock();

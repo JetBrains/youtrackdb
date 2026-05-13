@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -238,6 +239,66 @@ public class RestoreAtomicUnitPageOperationTest {
 
     // Then redo should proceed
     verify(pageOp).redo(any(DurablePage.class));
+    assertTrue(atLeastOnePageUpdate.getValue());
+  }
+
+  /**
+   * Replay of a PageOperation referencing a page index beyond the file's current size
+   * (gap-fill scenario): {@code readCache.loadOrAddForWrite} is total on the disk engine
+   * (it delegates to {@code WriteCache.loadOrAdd} which gap-fills any intermediate pages
+   * between {@code currentSize} and the recorded {@code pageIndex} and returns a usable
+   * entry for the requested index). After collapsing the prior do/while reconciliation
+   * loop, restoreAtomicUnit must call {@code loadOrAddForWrite} exactly once per
+   * PageOperation (no reconciliation re-allocation) and apply redo against the returned
+   * entry. The test pins this single-call contract for a high-pageIndex operation that
+   * would have previously triggered the deleted reconciliation loop if loadOrAddForWrite
+   * had ever returned null.
+   */
+  @Test
+  public void testPageOperationGapFillReplaySingleLoadCall() throws Exception {
+    var pageLsn = new LogSequenceNumber(0, 0);
+    var walLsn = new LogSequenceNumber(1, 100);
+    var initialLsn = new LogSequenceNumber(0, 0);
+
+    // High pageIndex simulating a WAL record for a page that is above the file's
+    // current physical size — the gap-fill case the deleted reconciliation loop
+    // existed to recover from.
+    final int gapPageIndex = 5;
+    var pageOp = spy(new TestPageOperation(
+        gapPageIndex, DURABLE_EXTERNAL_ID, 1, initialLsn, 42));
+    pageOp.setLsn(walLsn);
+
+    var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, gapPageIndex, pageLsn);
+    when(readCache.loadOrAddForWrite(
+        eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any()))
+        .thenReturn(cacheEntry);
+
+    var atomicUnit = new ArrayList<WALRecord>();
+    atomicUnit.add(new AtomicUnitStartRecord(false, 1));
+    atomicUnit.add(pageOp);
+    atomicUnit.add(new AtomicUnitEndRecord(1, false, null));
+
+    var atLeastOnePageUpdate = new ModifiableBoolean();
+    storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+
+    // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
+    // loop, no allocateNewPage retries.
+    verify(readCache, times(1)).loadOrAddForWrite(
+        eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any());
+    verify(readCache, never()).allocateNewPage(anyLong(), any(), any());
+
+    // Redo must be applied against the entry returned by loadOrAddForWrite.
+    verify(pageOp).redo(any(DurablePage.class));
+
+    // Page LSN updated to the WAL record's LSN.
+    var buffer = cacheEntry.getCachePointer().getBuffer();
+    var newLsn = DurablePage.getLogSequenceNumberFromPage(buffer);
+    assertEquals(
+        "Page LSN at gap-fill index should be updated to WAL record LSN", walLsn, newLsn);
+
+    // Cache entry must be released exactly once.
+    verify(readCache, times(1)).releaseFromWrite(eq(cacheEntry), eq(writeCache), eq(true));
+
     assertTrue(atLeastOnePageUpdate.getValue());
   }
 

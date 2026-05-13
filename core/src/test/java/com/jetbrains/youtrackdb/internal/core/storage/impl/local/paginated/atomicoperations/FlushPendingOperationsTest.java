@@ -255,10 +255,10 @@ public class FlushPendingOperationsTest {
     when(mockCacheEntry.getCachePointer()).thenReturn(mockPointer);
     when(mockCacheEntry.getPageIndex()).thenReturn(0);
     when(mockCacheEntry.getFileId()).thenReturn(fileId);
-    // AOBT.commitChanges now applies new-page entries via readCache.loadOrAddForWrite
-    // (Track 1 made the disk-engine primitive total); the legacy allocateNewPage path
-    // survives only as a deprecated null-branch fallback for the in-memory engine
-    // (deleted in Step 7).
+    // AOBT.commitChanges applies new-page entries via readCache.loadOrAddForWrite, which
+    // is total on both engines (disk: WriteCache.loadOrAdd gap-fills; in-memory: AOBT
+    // eagerly installs the page during the TX). The mock returns a non-null entry to
+    // satisfy that totality contract.
     when(readCache.loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(mockCacheEntry);
 

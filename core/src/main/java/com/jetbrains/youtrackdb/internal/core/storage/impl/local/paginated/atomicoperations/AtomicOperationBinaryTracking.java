@@ -1141,29 +1141,23 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             final var pageIndex = filePageChangesEntry.getLongKey();
             final var filePageChanges = filePageChangesEntry.getValue();
 
-            var cacheEntry =
+            final var cacheEntry =
                 readCache.loadOrAddForWrite(
                     fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
-            // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
-            // On the disk engine `loadOrAddForWrite` is now total (delegates to
-            // `WriteCache.loadOrAdd`); the in-memory engine still returns null on miss but
-            // is reached only via `MemoryWriteAheadLog`, which is a no-op so this commit
-            // branch never fires there. The block is kept as a defensive belt during the
-            // migration window and will be removed alongside the addPage/allocateNewPage
-            // cleanup.
-            if (cacheEntry == null) {
-              if (!filePageChanges.isNew) {
-                throw new StorageException(writeCache.getStorageName(),
-                    "Page with index " + pageIndex + " is not found in file with id " + fileId);
-              }
-              do {
-                if (cacheEntry != null) {
-                  readCache.releaseFromWrite(cacheEntry, writeCache, true);
-                }
-
-                cacheEntry = readCache.allocateNewPage(fileId, writeCache, fileStartLSN);
-              } while (cacheEntry.getPageIndex() != pageIndex);
-            }
+            // loadOrAddForWrite is total on both engines at this point:
+            //   - Disk engine (LockFreeReadCache + WOWCache): WriteCache.loadOrAdd gap-fills
+            //     intermediate pages and returns a usable entry for the requested pageIndex.
+            //   - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddPageForWrite eagerly
+            //     installs the page in MemoryFile during the TX, so the commit-time
+            //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
+            // The prior null-branch reconciliation (do/while readCache.allocateNewPage) was
+            // a defensive belt during the migration to total loadOrAdd; an explicit assert
+            // here surfaces any regression in either engine's totality under -ea without
+            // production cost.
+            assert cacheEntry != null
+                : "readCache.loadOrAddForWrite returned null for fileId=" + fileId
+                    + " pageIndex=" + pageIndex
+                    + "; totality contract violated (in-memory eager-install missing?)";
 
             try {
               final var durablePage = new DurablePage(cacheEntry);

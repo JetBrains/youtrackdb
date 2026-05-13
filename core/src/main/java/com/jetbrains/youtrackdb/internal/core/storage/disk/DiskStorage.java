@@ -1815,22 +1815,14 @@ public class DiskStorage extends AbstractStorage {
               Cipher.DECRYPT_MODE, aesKey, expectedFileId, pageIndex, data, encryptionIv);
         }
 
-        var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
-
-        // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
-        // loadOrAddForWrite is now total (it returns a usable entry for the requested
-        // pageIndex on every call), so the do/while reconciliation loop below is
-        // unreachable. The block is kept here as a defensive belt during the migration
-        // window and removed alongside the addPage/allocateNewPage write-side API.
-        if (cacheEntry == null) {
-          do {
-            if (cacheEntry != null) {
-              readCache.releaseFromWrite(cacheEntry, writeCache, true);
-            }
-
-            cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
-          } while (cacheEntry.getPageIndex() != pageIndex);
-        }
+        // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
+        // gap-fills intermediate pages between currentSize and the recorded pageIndex);
+        // incremental-backup restore only runs on the disk engine, so the disk-engine
+        // totality is sufficient here. The prior null-branch reconciliation (do/while
+        // readCache.allocateNewPage) was a defensive belt during the migration to total
+        // loadOrAdd.
+        final var cacheEntry =
+            readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
 
         try {
           final var buffer = cacheEntry.getCachePointer().getBuffer();

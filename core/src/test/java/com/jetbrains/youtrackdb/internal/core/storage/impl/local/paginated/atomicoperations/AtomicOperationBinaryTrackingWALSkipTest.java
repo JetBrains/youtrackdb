@@ -825,13 +825,13 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * Mocks {@code readCache.loadOrAddForWrite()} (the primitive AOBT.commitChanges now uses
-   * to apply new-page entries to the cache) to return a CacheEntry with a real direct
+   * Mocks {@code readCache.loadOrAddForWrite()} (the primitive AOBT.commitChanges uses to
+   * apply new-page entries to the cache) to return a CacheEntry with a real direct
    * ByteBuffer at the expected page index. Uses {@code eq(fileId)} to avoid overwriting
-   * stubs when called for multiple files. The legacy {@code allocateNewPage} fallback in
-   * commitChanges fires only on the in-memory engine's null return; on the disk engine
-   * it is dead code (Track 1 made {@code loadOrAddForWrite} total) and will be deleted in
-   * Step 7 alongside the SPI removal.
+   * stubs when called for multiple files. {@code loadOrAddForWrite} is total on both
+   * engines (disk: {@code WriteCache.loadOrAdd} gap-fills; in-memory: AOBT eagerly
+   * installs the page during the TX), so commitChanges expects a non-null return on every
+   * call.
    */
   private void mockLoadOrAddForWrite(long fileId, int pageIndex)
       throws IOException {
