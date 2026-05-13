@@ -140,14 +140,21 @@ of the changes.
    threshold.** Run:
 
    ```bash
+   # diff_lines counts unified-diff output lines (headers, hunk
+   # markers, context, and +/-), not the changed-line count from
+   # --shortstat. The threshold below uses this same count.
    diff_lines=$(git diff {base_commit}..HEAD | wc -l)
    file_count=$(git diff {base_commit}..HEAD --name-only | wc -l)
-   echo "cumulative diff: $diff_lines lines, $file_count files"
+   if [ "$diff_lines" -gt 3000 ] || [ "$file_count" -gt 25 ]; then
+     echo "pre-stage: $diff_lines lines, $file_count files"
+   else
+     echo "inline: $diff_lines lines, $file_count files"
+   fi
    ```
 
-   If `diff_lines > 3000` OR `file_count > 25`, pre-stage the diff
-   and the changed-files list to `/tmp` so the canonical context
-   block below references paths instead of inlining content:
+   On `pre-stage`, run the two staging commands below so the
+   canonical context block references paths instead of inlining
+   content:
 
    ```bash
    git diff {base_commit}..HEAD \
@@ -273,7 +280,8 @@ carries the file path, not the bytes.
 
 **Threshold (~3K lines / ~25 files) is a heuristic, not a contract
 gate.** At ~3K lines × 18 spawns the redundant content is ~54K lines
-— borderline. Above that, scaling is linear. Below ~3K lines the
+— borderline. Past the 3K threshold the redundant footprint grows
+linearly with diff size (4K → ~72K, 5K → ~90K). Below ~3K lines the
 bookkeeping cost of an extra `/tmp` file outweighs the inlining cost.
 Test-heavy tracks (many small test classes, mostly additions) hit
 the threshold on file count before line count; treat either limit as
@@ -282,8 +290,11 @@ fine.
 
 **Path convention.** Use `/tmp/claude-code-track-{N}-diff-$PPID.patch`
 and `/tmp/claude-code-track-{N}-files-$PPID.txt`, where `$PPID` is the
-orchestrator's PID through its bash shell (the same convention used
-by the plan-slim snapshot — see [`plan-slim-rendering.md`](plan-slim-rendering.md)).
+orchestrator's PID through its bash shell (the same `$PPID` suffix
+convention used by the plan-slim snapshot — see
+[`plan-slim-rendering.md`](plan-slim-rendering.md); the `{N}` segment
+additionally scopes the file to the current track so resume
+diagnostics that list multiple tracks' tmp files stay unambiguous).
 The unique-suffix requirement from project-level `CLAUDE.md`
 § Concurrent Agent File Isolation applies: never use bare names like
 `/tmp/track-diff.patch`.
