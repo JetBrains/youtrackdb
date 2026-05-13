@@ -493,12 +493,13 @@ Skip the rollback entirely. Instead:
    `git push` from the orchestrator to publish the existing
    `Review fix:` commit.
 3. If the orchestrator's push succeeds, treat the iteration as
-   successful — `result.COMMIT` is now on `origin`. Proceed with the
-   rest of `on_iteration_success`
-   ([`track-code-review.md`](track-code-review.md)) as if the
-   implementer had completed the push itself: stash `FIX_NOTES`,
-   continue with the gate-check fan-out. Do not run the rollback
-   steps below.
+   successful — `result.COMMIT` is now on `origin`. Resume the
+   dimensional review loop in
+   [`step-implementation.md`](step-implementation.md) §Sub-step 4 as
+   if the implementer had returned `SUCCESS`: the new `Review fix:`
+   commit becomes the diff target for the next gate-check iteration
+   (re-run only the dimension(s) with open findings, max 3 iterations
+   total per the protocol). Do not run the rollback steps below.
 4. If the orchestrator's push still fails after the gate, escalate
    to the user with the `Review fix:` SHA and the `git push` stderr —
    the situation is no longer mechanically recoverable.
