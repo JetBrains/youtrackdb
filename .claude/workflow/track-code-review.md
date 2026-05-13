@@ -136,6 +136,31 @@ of the changes.
    applied during the review loop (before the next spawn batch).
 5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
+6. **Measure the cumulative diff and pre-stage if it exceeds the
+   threshold.** Run:
+
+   ```bash
+   diff_lines=$(git diff {base_commit}..HEAD | wc -l)
+   file_count=$(git diff {base_commit}..HEAD --name-only | wc -l)
+   echo "cumulative diff: $diff_lines lines, $file_count files"
+   ```
+
+   If `diff_lines > 3000` OR `file_count > 25`, pre-stage the diff
+   and the changed-files list to `/tmp` so the canonical context
+   block below references paths instead of inlining content:
+
+   ```bash
+   git diff {base_commit}..HEAD \
+       > /tmp/claude-code-track-{N}-diff-$PPID.patch
+   git diff {base_commit}..HEAD --name-only \
+       > /tmp/claude-code-track-{N}-files-$PPID.txt
+   ```
+
+   Below the threshold, leave both inline as the template's default
+   and skip this step. See § Sub-agents → § "Pre-stage above
+   threshold" below for the rationale, regeneration rule (the
+   staged files become stale after every `Review fix:` commit), and
+   the path-substitution form of the context block.
 
 ---
 
@@ -193,8 +218,12 @@ tests + the workflow's own gating could not easily catch issues, so
 this review carries more of the load there).
 
 ## Changed Files
-{output of git diff {base_commit}..HEAD --name-only — passed inline,
-small}
+{Below the size threshold (~3K diff lines / ~25 files): paste output
+of `git diff {base_commit}..HEAD --name-only` inline. Above the
+threshold: reference the pre-staged file written at Phase C Startup
+step 6 —
+  pre_staged_files_path: /tmp/claude-code-track-{N}-files-{PPID}.txt
+The sub-agent reads it via Bash / Read.}
 
 ## Skip These Files (generated code)
 - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/*
@@ -216,15 +245,68 @@ back to grep and note the reference-accuracy caveat in any finding
 that depends on a symbol search.
 
 ## Diff
-{output of git diff {base_commit}..HEAD — passed inline since it is the
-review target}
+{Below the size threshold (~3K lines / ~25 files): paste output of
+`git diff {base_commit}..HEAD` inline (the diff is the review target
+and at small sizes the orchestrator tool-call cost is negligible).
+Above the threshold: reference the pre-staged file written at
+Phase C Startup step 6 —
+  pre_staged_diff_path: /tmp/claude-code-track-{N}-diff-{PPID}.patch
+The sub-agent reads it via Bash / Read. See § "Pre-stage above
+threshold" below for staging mechanics and regeneration rules.}
 ```
+
+### Pre-stage above threshold
+
+For cumulative track diffs exceeding ~3K lines or ~25 files, the diff
+and the changed-files list are pre-staged at Phase C Startup step 6
+and the canonical context block references the staged paths instead
+of inlining content.
+
+**Why.** A track-level review fan-out is up to six dimensional
+reviewers × three iterations = eighteen sub-agent spawns, all
+targeting the same cumulative diff. Inlining a 12K-line diff into
+every spawn accumulates ~230K lines of redundant diff content in the
+orchestrator's tool-call history, which the prompt cache reads on
+every subsequent tool call. Pre-staging puts the diff in the
+sub-agent's context only — the orchestrator's tool-call history
+carries the file path, not the bytes.
+
+**Threshold (~3K lines / ~25 files) is a heuristic, not a contract
+gate.** At ~3K lines × 18 spawns the redundant content is ~54K lines
+— borderline. Above that, scaling is linear. Below ~3K lines the
+bookkeeping cost of an extra `/tmp` file outweighs the inlining cost.
+Test-heavy tracks (many small test classes, mostly additions) hit
+the threshold on file count before line count; treat either limit as
+a trigger. For borderline cases (e.g. 2.8K lines), staging is still
+fine.
+
+**Path convention.** Use `/tmp/claude-code-track-{N}-diff-$PPID.patch`
+and `/tmp/claude-code-track-{N}-files-$PPID.txt`, where `$PPID` is the
+orchestrator's PID through its bash shell (the same convention used
+by the plan-slim snapshot — see [`plan-slim-rendering.md`](plan-slim-rendering.md)).
+The unique-suffix requirement from project-level `CLAUDE.md`
+§ Concurrent Agent File Isolation applies: never use bare names like
+`/tmp/track-diff.patch`.
+
+**Regenerate before every gate-check fan-out.** Each iteration's
+`Review fix:` commit grows the cumulative diff, so the staged files
+go stale after every successful implementer return. Re-run the two
+staging commands from Phase C Startup step 6 before composing the
+next iteration's gate-check sub-agent prompts. Within a single
+iteration, the six dimensional reviewers can share the same staged
+paths (they all review the same HEAD). If a `RESULT_MISSING` or
+`FAILED` iteration leaves HEAD unchanged, the staged files are still
+current — skip the regeneration.
 
 **Why paths, not inline contents.** Inlining the plan and track file
 into every track-level sub-agent spawn embeds copies in the main
 agent's tool-call history — up to ~10 agents × 3 iterations per track.
 Paths keep the main agent lean; sub-agents Read the files themselves.
-The diff stays inline because it is the review target.
+The diff and changed-files list follow the same routing **above the
+threshold** described in this subsection; small track diffs stay
+inline because the inlining cost is negligible at that size, but
+above the threshold the diff joins the plan and step-file in the
+path-only camp.
 
 The main agent substitutes `{PPID}`, `{dir-name}`, `{N}`, and
 `{base_commit}` when composing each prompt.
@@ -350,7 +432,13 @@ orchestrator never edits source files itself in Phase C.
      If findings span all dimensions, re-run all originally selected agents.
      The gate-check sub-agents review the new HEAD (after the
      `Review fix:` commit), which they reach via the same
-     `git diff {base_commit}..HEAD` instruction.
+     `git diff {base_commit}..HEAD` instruction. **If the cumulative
+     diff was pre-staged at Phase C Startup step 6, regenerate both
+     `/tmp/claude-code-track-{N}-diff-$PPID.patch` and
+     `…-files-$PPID.txt` before composing the gate-check prompts** —
+     the new `Review fix:` commit grew the cumulative diff and the
+     staged copies are stale (see § Sub-agents → § "Pre-stage above
+     threshold").
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
