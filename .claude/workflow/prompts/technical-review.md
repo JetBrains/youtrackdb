@@ -127,9 +127,14 @@ NAMED REFERENCES IN STEP FILE
   before flagging — references to existing code and references to
   code this track creates look identical at the name level.
 - If mcp-steroid is unreachable, fall back to
-  `find . -name '<ClassName>.java'` and downgrade severity only when
-  the find result is unambiguous; record the fallback in the
-  Premise's `Search performed` field.
+  `find . -name '<ClassName>.java'`. If the result is unambiguous
+  (single match whose package matches the reconstructed FQN), the
+  Premise's `Verdict` is CONFIRMED — record the fallback tool in
+  `Search performed` and add a reference-accuracy caveat to `Detail`.
+  If the result is ambiguous (zero matches, multiple matches across
+  different packages, or a package mismatch), the Premise's `Verdict`
+  is NOT FOUND and the finding stays a `blocker` under the
+  planned-class rule above.
 
 DESIGN FEASIBILITY
 - Does the described approach work given the current code structure?
