@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.common.concur.collection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.vmlens.api.AllInterleavingsBuilder;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -119,6 +121,252 @@ public class CASObjectArrayMTTest {
   }
 
   /**
+   * Verifies that when two threads race {@code add(value, TARGET_INDEX)}, exactly
+   * one returns {@code true} (the winner whose CAS succeeded) and the other returns
+   * {@code false} (the loser whose size check failed after retry).
+   *
+   * <p>This validates the return-value contract: {@code true} means "I wrote the
+   * value at the requested index", {@code false} means "I did not write".
+   */
+  @Test
+  public void addWithIndexReturnsTrueOnlyForWinningThread() throws Exception {
+    final int TARGET_INDEX = 2;
+    final Integer FILLER = -1;
+    final int VALUE_A = 100;
+    final int VALUE_B = 200;
+
+    try (var allInterleavings = new AllInterleavingsBuilder()
+        .withMaximumIterations(MAX_ITERATIONS)
+        .build("addWithIndexReturnsTrueOnlyForWinningThread")) {
+      while (allInterleavings.hasNext()) {
+        var array = new CASObjectArray<Integer>();
+
+        // Pre-fill so that size == TARGET_INDEX.
+        for (int i = 0; i < TARGET_INDEX; i++) {
+          array.add(FILLER);
+        }
+
+        // Count how many threads got true.
+        var trueCount = new AtomicInteger(0);
+
+        var writer1 = new Thread(() -> {
+          if (array.add(VALUE_A, TARGET_INDEX)) {
+            trueCount.incrementAndGet();
+          }
+        });
+
+        var writer2 = new Thread(() -> {
+          if (array.add(VALUE_B, TARGET_INDEX)) {
+            trueCount.incrementAndGet();
+          }
+        });
+
+        writer1.start();
+        writer2.start();
+        writer1.join();
+        writer2.join();
+
+        // Exactly one thread must have returned true.
+        assertEquals(1, trueCount.get(),
+            "Exactly one add(T, int) should return true when two threads race");
+      }
+    }
+  }
+
+  /**
+   * Verifies that {@code add(value, index)} returns {@code false} without side
+   * effects when the current size does not match the requested index — even
+   * when another thread is concurrently advancing the size past that index.
+   *
+   * <p>Thread 1 calls {@code add(value, 0)} repeatedly while Thread 2 advances
+   * the array via unindexed {@code add()}. Since size is never 0 again after the
+   * first unindexed add, every indexed call must return {@code false} and the
+   * value at index 0 must remain the original filler — never the indexed writer's
+   * value.
+   */
+  @Test
+  public void addWithStaleIndexAlwaysReturnsFalse() throws Exception {
+    final Integer FILLER = -1;
+    final int STALE_INDEX = 0;
+    final int INDEXED_VALUE = 777;
+
+    try (var allInterleavings = new AllInterleavingsBuilder()
+        .withMaximumIterations(MAX_ITERATIONS)
+        .build("addWithStaleIndexAlwaysReturnsFalse")) {
+      while (allInterleavings.hasNext()) {
+        var array = new CASObjectArray<Integer>();
+
+        // Seed index 0 so that size > STALE_INDEX from the start.
+        array.add(FILLER);
+
+        var indexedResult = new boolean[] {false};
+
+        var indexedWriter = new Thread(() -> {
+          // Attempt to write at a slot that's already past.
+          indexedResult[0] = array.add(INDEXED_VALUE, STALE_INDEX);
+        });
+
+        // Concurrently advance the array further.
+        var advancer = new Thread(() -> {
+          array.add(42);
+        });
+
+        indexedWriter.start();
+        advancer.start();
+        indexedWriter.join();
+        advancer.join();
+
+        // The indexed add must have returned false — index 0 is behind size.
+        assertFalse(indexedResult[0],
+            "add(T, staleIndex) should return false when size has advanced past the index");
+
+        // Index 0 must still hold the original filler, not the indexed writer's value.
+        assertEquals(FILLER, array.get(STALE_INDEX),
+            "Index 0 should still hold filler — add(T, staleIndex) must not overwrite it");
+      }
+    }
+  }
+
+  /**
+   * Verifies that two threads racing {@code add(value, TARGET_INDEX)} when
+   * {@code size == TARGET_INDEX} result in exactly one write at the target index
+   * and no writes anywhere else.
+   *
+   * <p>The race: both threads read {@code size == TARGET_INDEX}, pass the guard,
+   * and attempt CAS on the same container slot. One CAS succeeds and increments
+   * size; the other CAS fails, loops, re-reads size (now TARGET_INDEX + 1),
+   * finds {@code size != TARGET_INDEX}, and returns false. The invariant under
+   * test: the losing thread must NOT write its value to TARGET_INDEX + 1 or any
+   * other slot — it must exit without side effects.
+   */
+  @Test
+  public void addWithIndexShouldOnlyWriteToTargetIndex() throws Exception {
+    final int TARGET_INDEX = 2;
+    final Integer FILLER = -1;
+    final int VALUE_A = 100;
+    final int VALUE_B = 200;
+
+    try (var allInterleavings = new AllInterleavingsBuilder()
+        .withMaximumIterations(MAX_ITERATIONS)
+        .build("addWithIndexShouldOnlyWriteToTargetIndex")) {
+      while (allInterleavings.hasNext()) {
+        var array = new CASObjectArray<Integer>();
+
+        // Pre-fill so that size == TARGET_INDEX, placing both writers
+        // on the fast path where size matches their target.
+        for (int i = 0; i < TARGET_INDEX; i++) {
+          array.add(FILLER);
+        }
+
+        var writer1 = new Thread(() -> {
+          array.add(VALUE_A, TARGET_INDEX);
+        });
+
+        var writer2 = new Thread(() -> {
+          array.add(VALUE_B, TARGET_INDEX);
+        });
+
+        writer1.start();
+        writer2.start();
+        writer1.join();
+        writer2.join();
+
+        // Exactly one add should have succeeded — size must grow by exactly 1.
+        assertEquals(TARGET_INDEX + 1, array.size(),
+            "Only one add(T, int) should succeed when two threads target the same index");
+
+        // The value at TARGET_INDEX must be one of the two writer values.
+        var targetValue = array.get(TARGET_INDEX);
+        assertTrue(
+            targetValue.equals(VALUE_A) || targetValue.equals(VALUE_B),
+            "Target index should hold VALUE_A or VALUE_B, got: " + targetValue);
+
+        // Filler slots must be untouched — no writer corrupted a pre-existing slot.
+        for (int i = 0; i < TARGET_INDEX; i++) {
+          assertEquals(FILLER, array.get(i),
+              "Index " + i + " should still hold filler value, but was: " + array.get(i));
+        }
+      }
+    }
+  }
+
+  /**
+   * Verifies that {@code add(value, TARGET_INDEX)} racing against an unindexed
+   * {@code add(value)} does not corrupt adjacent slots.
+   *
+   * <p>When {@code size == TARGET_INDEX}, both the indexed and unindexed adds
+   * target the same slot. One CAS wins. If the indexed add loses, it must exit
+   * without writing — it must not follow the unindexed add's value by writing
+   * to TARGET_INDEX + 1. Conversely, if the indexed add wins, the unindexed
+   * add should write to TARGET_INDEX + 1 (its normal behavior), and the indexed
+   * add's value must remain exclusively at TARGET_INDEX.
+   */
+  @Test
+  public void addWithIndexShouldNotCorruptAdjacentSlotWhenRacingUnindexedAdd() throws Exception {
+    final int TARGET_INDEX = 2;
+    final Integer FILLER = -1;
+    final int INDEXED_VALUE = 42;
+    final int UNINDEXED_VALUE = 99;
+
+    try (var allInterleavings = new AllInterleavingsBuilder()
+        .withMaximumIterations(MAX_ITERATIONS)
+        .build("addWithIndexShouldNotCorruptAdjacentSlotWhenRacingUnindexedAdd")) {
+      while (allInterleavings.hasNext()) {
+        var array = new CASObjectArray<Integer>();
+
+        // Pre-fill so that size == TARGET_INDEX.
+        for (int i = 0; i < TARGET_INDEX; i++) {
+          array.add(FILLER);
+        }
+
+        var indexedWriter = new Thread(() -> {
+          array.add(INDEXED_VALUE, TARGET_INDEX);
+        });
+
+        var unindexedWriter = new Thread(() -> {
+          array.add(UNINDEXED_VALUE);
+        });
+
+        indexedWriter.start();
+        unindexedWriter.start();
+        indexedWriter.join();
+        unindexedWriter.join();
+
+        // The unindexed add always succeeds, so size is at least
+        // TARGET_INDEX + 1. If the indexed add also succeeded (won the
+        // CAS), size is TARGET_INDEX + 2; otherwise TARGET_INDEX + 1.
+        var size = array.size();
+        assertTrue(
+            size == TARGET_INDEX + 1 || size == TARGET_INDEX + 2,
+            "Size should be TARGET_INDEX+1 or TARGET_INDEX+2, got: " + size);
+
+        var valueAtTarget = array.get(TARGET_INDEX);
+
+        if (size == TARGET_INDEX + 2) {
+          // Both adds succeeded. The indexed add won the CAS at
+          // TARGET_INDEX, and the unindexed add retried at TARGET_INDEX + 1.
+          // Verify values landed at their correct indices.
+          assertEquals(INDEXED_VALUE, valueAtTarget.intValue(),
+              "When both succeed, indexed value must be at TARGET_INDEX");
+          assertEquals(UNINDEXED_VALUE, array.get(TARGET_INDEX + 1).intValue(),
+              "When both succeed, unindexed value must be at TARGET_INDEX + 1");
+        } else {
+          // Only the unindexed add succeeded at TARGET_INDEX; the indexed
+          // add lost the CAS and returned false without writing.
+          assertEquals(UNINDEXED_VALUE, valueAtTarget.intValue(),
+              "When indexed add loses, unindexed value must be at TARGET_INDEX");
+        }
+
+        // Filler slots must be untouched in all interleavings.
+        for (int i = 0; i < TARGET_INDEX; i++) {
+          assertEquals(FILLER, array.get(i),
+              "Index " + i + " should still hold filler value, but was: " + array.get(i));
+        }
+      }
+    }
+  }
+
+  /**
    * Verifies that concurrent set() calls targeting the same index never write
    * the value to the adjacent index (index + 1).
    *
@@ -201,7 +449,13 @@ public class CASObjectArrayMTTest {
         // The slot at TARGET_INDEX + 1 must never have been written with
         // a writer value. If the bug triggers, one writer's add() overshoots
         // and lands its value here.
-        var nextValue = array.get(TARGET_INDEX);
+        Integer nextValue;
+        try {
+          nextValue = array.get(TARGET_INDEX + 1);
+        } catch (ArrayIndexOutOfBoundsException e) {
+          nextValue = PLACEHOLDER;
+          // index was not populated concurrently, everything is fine
+        }
         assertTrue(
             PLACEHOLDER.equals(nextValue),
             "Index " + (TARGET_INDEX + 1) + " should only contain the placeholder ("
