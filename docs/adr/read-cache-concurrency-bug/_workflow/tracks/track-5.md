@@ -94,6 +94,73 @@ helper shape (one helper + intent enum vs 2-3 named helpers). Add javadoc to
 >   external code cannot regress to a non-gated
 >   `getFilledUpTo`-based discovery channel.
 
+## Track 4 Phase C deferral absorbed — rename `loadOrAddPageForWrite` → `allocatePageForWrite`
+
+Track 4's Phase C review surfaced that the post-Step-2 AOBT-layer
+contract is **allocator-only** on the disk engine (`pageIndex` below
+the committed file size raises `IllegalStateException`), yet the
+method name and the surrounding API still read as "load or add"
+(total semantics). The AOBT Javadoc admits this explicitly: *"Despite
+the historical name, this method does NOT load existing pages on the
+disk engine."* The misleading name propagates from the cache-layer
+primitive `WriteCache.loadOrAdd` (which IS total) through the AOBT
+wrapper (allocator-only) and the `StorageComponent` wrapper to every
+production call site.
+
+This track absorbs the rename because Track 5's existing charter is
+the post-Track-4 API hygiene pass.
+
+**Recommended new name:** `allocatePageForWrite(fileId, pageIndex)` —
+parallel naming with the existing `loadPageForWrite(fileId, pageIndex,
+pageCount, verifyChecksum)`. The `<verb>PageForWrite` shape makes
+load-vs-allocate intent explicit at every call site.
+
+**Scope:**
+- `AtomicOperation.loadOrAddPageForWrite` (SPI interface declaration,
+  one site) → `AtomicOperation.allocatePageForWrite`.
+- `AtomicOperationBinaryTracking.loadOrAddPageForWrite` (impl, one
+  site, plus its Javadoc).
+- `StorageComponent.loadOrAddPageForWrite` (the
+  `core/.../paginated/base/StorageComponent.java` protected wrapper,
+  one declaration + body comment).
+- 19 production allocator call sites across BTree, SLBB, CPMV2, PCV2,
+  FSM, CDPB, IHM (per `git grep -c 'loadOrAddPageForWrite' core/src/main`
+  the count at Track-4 tip is ~30 production refs including comments
+  + Javadoc cross-references; 19 are the call sites named in Track 4's
+  per-site migration record).
+- Test class rename: `LoadOrAddPageForWriteTest` → `AllocatePageForWriteTest`
+  (file + class header + every test-method narration that names the
+  AOBT method).
+- ~80 test references across `AtomicOperationBinaryTrackingWALSkipTest`,
+  `AtomicOperationSnapshotProxyTest`, `CollectionPositionMapV2Test`,
+  `CollectionDirtyPageBitSetTest`, `FlushPendingOperationsTest`,
+  `PageOperationAccumulationLifecycleTest`, `RegisterPageOperationTest`
+  (each test class has Javadoc + inline references + Mockito stubs
+  keyed by the method name).
+- Javadoc `{@link AtomicOperation#loadOrAddPageForWrite}` cross-
+  references (need PSI to enumerate exactly — at minimum the AOBT
+  impl + the SPI interface body + the `StorageComponent` body
+  cross-link to it).
+
+**Why the IDE refactor (not raw `Edit`):**
+- 109 textual occurrences across 18 files at Track-4 tip; raw
+  `grep + Edit` would miss polymorphic dispatch through the SPI
+  interface (different code paths see different `AtomicOperation`
+  implementations) and would skip Javadoc `{@link}` references.
+- Per project `CLAUDE.md` § MCP Steroid → Refactoring: "Renames,
+  moves, signature changes, … and any refactor that touches more
+  than one reference site route through the IDE refactoring engine
+  via mcp-steroid, not raw Edit."
+- Phase A of Track 5 should verify mcp-steroid is reachable before
+  scheduling this step — if not, surface to the user and wait for a
+  session where the IDE is available rather than fall back to grep.
+
+**Plan-correction commits introducing this deferral:**
+- `9dff2ac2e3` (Track 6 scope expansion + Non-Goals unit-level
+  backlog).
+- The plan correction adding this Track 5 rename absorption (this
+  commit, recorded in Track 4's track-completion summary).
+
 ## Progress
 - [ ] Review + decomposition
 - [ ] Step implementation

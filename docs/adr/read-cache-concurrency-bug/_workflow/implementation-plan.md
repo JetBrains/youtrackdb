@@ -399,17 +399,34 @@ flowchart LR
   > rationale comments at the stay-on-physical sites.
   > **Depends on:** Track 1
 
-- [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers
+- [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers; rename `loadOrAddPageForWrite`
   > Make `WriteCache.getFilledUpTo` non-public and route the surviving
   > external consumers (≥ 5 — see `tracks/track-5.md` for the per-site set)
   > through narrowly-scoped helpers with rationale-bearing names.
   > Phase A picks the helper shape (one helper + intent enum vs 2-3
   > named helpers). Add javadoc to `WriteCache` and `StorageComponent`
   > documenting the discovery contract.
-  > **Scope:** ~3-4 steps covering the helper-shape decision and
-  > introduction, per-consumer migration to the helpers, the
-  > access downgrade on `WriteCache.getFilledUpTo`, and the
-  > javadoc + PSI-find-usages verification pass.
+  >
+  > **Also absorbs from Track 4 Phase C review:** rename
+  > `AtomicOperation.loadOrAddPageForWrite` →
+  > `allocatePageForWrite` (plus the `StorageComponent` wrapper,
+  > the `AtomicOperationBinaryTracking` impl, 19 production allocator
+  > call sites, and ~80 test references including the test class
+  > `LoadOrAddPageForWriteTest` → `AllocatePageForWriteTest`). The
+  > current name is misleading: Track 4's Step 2 narrowed the
+  > AOBT-layer contract from "load or add" (total) to allocator-only
+  > on the disk engine; the AOBT Javadoc itself admits *"Despite the
+  > historical name, this method does NOT load existing pages on the
+  > disk engine"*. The rename must use the IDE Rename refactoring
+  > engine via `mcp-steroid://ide/change-signature` so polymorphic
+  > dispatch through the `AtomicOperation` SPI + Javadoc `{@link}`
+  > references update atomically (raw `Edit` silently misses these).
+  >
+  > **Scope:** ~4-5 steps covering: the helper-shape decision and
+  > introduction; per-consumer migration to the helpers; the access
+  > downgrade on `WriteCache.getFilledUpTo`; the `loadOrAddPageForWrite`
+  > → `allocatePageForWrite` rename via the IDE refactoring engine;
+  > the javadoc + PSI-find-usages verification pass.
   > **Depends on:** Track 4
 
 - [ ] Track 6: Integration regression test
