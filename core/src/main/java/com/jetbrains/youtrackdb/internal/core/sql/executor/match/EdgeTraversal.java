@@ -232,6 +232,19 @@ public class EdgeTraversal {
   @Nullable private HashMap<Object, RidSet> cache;
 
   /**
+   * Skip reason recorded alongside each cached {@code null} entry in
+   * {@link #cache}. Restored onto {@link #lastSkipReason} whenever a
+   * cached-null hit occurs, so that an interleaved external
+   * {@code recordPreFilterSkip(LINKBAG_TOO_SMALL)} call (from
+   * {@code MatchEdgeTraverser.applyPreFilter} on a small-link-bag vertex)
+   * cannot overwrite the original rejection cause between V1's caching and
+   * V2's cached-null hit. Kept parallel to {@link #cache} rather than
+   * merged because the existing cache contract (null = rejected,
+   * non-null = resolved RidSet) is used in several places.
+   */
+  @Nullable private HashMap<Object, PreFilterSkipReason> cachedSkipReasons;
+
+  /**
    * Collection IDs for the target node's class constraint. When set,
    * the traverser applies a zero-I/O class filter to the link bag,
    * skipping vertices whose collection ID does not match.
@@ -434,6 +447,21 @@ public class EdgeTraversal {
   }
 
   /**
+   * Stores {@code reason} as the rejection cause for cache entry
+   * {@code key}, so that future cached-null hits on this key can restore
+   * {@link #lastSkipReason} accurately. The caller must already have
+   * inserted {@code null} into {@link #cache} for the same key — the two
+   * maps are kept in lock-step.
+   */
+  private void rememberCachedSkipReason(
+      Object key, PreFilterSkipReason reason) {
+    if (cachedSkipReasons == null) {
+      cachedSkipReasons = new HashMap<>();
+    }
+    cachedSkipReasons.put(key, reason);
+  }
+
+  /**
    * Records that a pre-filter was applied for one vertex. Increments
    * {@link #preFilterAppliedCount} only — the probed/filtered totals are
    * updated lazily by {@link #recordPreFilterTraversalStats} once the
@@ -521,8 +549,17 @@ public class EdgeTraversal {
         if (cached == null) {
           // Previously rejected descriptor (e.g., CAP_EXCEEDED,
           // SELECTIVITY_TOO_LOW) — count each vertex that hits the
-          // cached-null entry as a skip for accurate PROFILE output.
-          preFilterSkippedCount++;
+          // cached-null entry as a skip for accurate PROFILE output, and
+          // restore the original rejection reason so that an interleaved
+          // external recordPreFilterSkip(LINKBAG_TOO_SMALL) cannot mask
+          // the real cause in NEVER-APPLIED diagnostics.
+          var reason =
+              cachedSkipReasons != null ? cachedSkipReasons.get(key) : null;
+          if (reason != null) {
+            recordPreFilterSkip(reason);
+          } else {
+            preFilterSkippedCount++;
+          }
         }
         return cached;
       }
@@ -537,10 +574,10 @@ public class EdgeTraversal {
     //    No vertex of any link bag size would benefit from a RidSet
     //    this large (exceeds maxRidSetSize).
     if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
-      lastSkipReason = PreFilterSkipReason.CAP_EXCEEDED;
-      preFilterSkippedCount++;
+      recordPreFilterSkip(PreFilterSkipReason.CAP_EXCEEDED);
       if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
         cache.put(key, null);
+        rememberCachedSkipReason(key, PreFilterSkipReason.CAP_EXCEEDED);
       }
       return null;
     }
@@ -584,8 +621,7 @@ public class EdgeTraversal {
             && !composite.anyChildPassesExcluding(
                 RidFilterDescriptor.IndexLookup.class,
                 estimatedSize, linkBagSize, ctx)) {
-          lastSkipReason = PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH;
-          preFilterSkippedCount++;
+          recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
           return null;
         }
         // At least one non-IndexLookup child passes → materialize.
@@ -597,8 +633,7 @@ public class EdgeTraversal {
     } else if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       // EdgeRidLookup / DirectRid: delegate to the descriptor.
-      lastSkipReason = PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH;
-      preFilterSkippedCount++;
+      recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
       return null;
     }
 
@@ -747,10 +782,10 @@ public class EdgeTraversal {
     if (estimatedSize >= 0
         && indexLookupSelectivity
             > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
-      lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
-      preFilterSkippedCount++;
+      recordPreFilterSkip(PreFilterSkipReason.SELECTIVITY_TOO_LOW);
       if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
         cache.put(key, null);
+        rememberCachedSkipReason(key, PreFilterSkipReason.SELECTIVITY_TOO_LOW);
       }
       return AmortizationDecision.REJECT;
     }
@@ -784,8 +819,7 @@ public class EdgeTraversal {
     long f = forecastN < 0 ? 0L : forecastN;
     double trigger = Math.max(2.0 * f, m);
     if (accumulatedLinkBagTotal < (long) Math.ceil(trigger)) {
-      lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
-      preFilterSkippedCount++;
+      recordPreFilterSkip(PreFilterSkipReason.BUILD_NOT_AMORTIZED);
       assert key == null || cache == null || !cache.containsKey(key)
           : "deferred build must not cache null";
       return AmortizationDecision.DEFER;
@@ -908,11 +942,11 @@ public class EdgeTraversal {
     // forecastN is bind-independent (depends only on schema/schedule), so the
     // plan cache reuses it across executions.
     copy.forecastN = forecastN;
-    // Cache, accumulatedLinkBagTotal, indexLookupSelectivity, mode, metric
-    // references, and pre-filter counters are intentionally not copied —
-    // stale data from a previous execution must not leak into a new plan
-    // instance. The constructor and field initializers reset them to their
-    // correct initial values.
+    // Cache, cachedSkipReasons, accumulatedLinkBagTotal,
+    // indexLookupSelectivity, mode, metric references, and pre-filter
+    // counters are intentionally not copied — stale data from a previous
+    // execution must not leak into a new plan instance. The constructor
+    // and field initializers reset them to their correct initial values.
     return copy;
   }
 }

@@ -2126,6 +2126,48 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
+   * Regression: cached-null hit must restore the original rejection reason
+   * even if an external {@code recordPreFilterSkip(LINKBAG_TOO_SMALL)} call
+   * (made by {@code MatchEdgeTraverser.applyPreFilter} when a vertex has
+   * a link bag below {@code minLinkBagSize}) overwrites
+   * {@link EdgeTraversal#lastSkipReason} between the original caching and
+   * the next cached-null hit. Without restoration, PROFILE's NEVER-APPLIED
+   * diagnostic would report LINKBAG_TOO_SMALL instead of the real
+   * permanent cause (here: CAP_EXCEEDED), masking the actual reason
+   * pre-filter was disabled for this edge.
+   */
+  @Test
+  public void resolveWithCache_cacheHitNull_restoresReasonAfterInterleavedSkip() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any(), any()))
+        .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // V1: large link bag → CAP_EXCEEDED, null cached, reason recorded.
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.CAP_EXCEEDED);
+
+    // V2: small link bag → MatchEdgeTraverser bypasses resolveWithCache
+    // and overwrites lastSkipReason with LINKBAG_TOO_SMALL.
+    et.recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.LINKBAG_TOO_SMALL);
+
+    // V3: large link bag → cached-null hit must restore CAP_EXCEEDED.
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.CAP_EXCEEDED);
+    // Both skips (V2 external + V3 cached-null) counted.
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
+  }
+
+  /**
    * When resolve() returns null on the materialization cold path (all
    * selectivity checks passed, but descriptor produced no RidSet),
    * preFilterBuildTimeNanos is accumulated (build cost was real) but
