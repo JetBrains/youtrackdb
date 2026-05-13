@@ -1,11 +1,11 @@
 ---
 name: code-review
-description: "Review code AND test changes across multiple dimensions (quality, bugs, concurrency, crash-safety, security, performance, test behavior, test completeness, test structure, test concurrency, test crash-safety) using specialized agents with triage-based selection."
+description: "Review code, test, and workflow-machinery changes across multiple dimensions using specialized agents with triage-based selection."
 argument-hint: "[branch | commit-range | uncommitted | PR-number]"
 user-invocable: true
 ---
 
-Review code and test changes across multiple dimensions by dispatching to specialized review agents and synthesizing their findings. Production code and test code are two sides of the same review — this skill handles both in one pass.
+Review code, test, and workflow-machinery changes across multiple dimensions by dispatching to specialized review agents and synthesizing their findings. Production code, test code, and workflow files (skills, agents, hooks, settings, prompts, CLAUDE.md, plan/design artifacts) are reviewed in one pass with triage-driven agent selection.
 
 Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or "uncommitted").
 
@@ -113,13 +113,14 @@ Scan the diff and assign one or more categories to **every** changed file — pr
 | **configuration** | `GlobalConfiguration`, config parameters, system properties |
 | **tests-only** | Changes exclusively in test files with no production code changes |
 | **build-config** | `pom.xml`, CI workflows, Maven profiles, Docker configs |
-| **docs-only** | Markdown, documentation, comments-only changes |
+| **workflow-machinery** | Files under `.claude/` (skills, agents, hooks, scripts, settings, workflow rules, workflow prompts, output styles, docs), project root `CLAUDE.md`, plan/design artifacts under `docs/adr/<dir>/_workflow/` and the durable `design-final.md` / `adr.md` |
+| **docs-only** | Markdown documentation outside `.claude/` and `docs/adr/<dir>/_workflow/`, end-user docs under `docs/`, comments-only changes |
 
-A file can belong to multiple categories (e.g., a lock change in storage code is both `storage-engine` and `concurrency`). Production and test files in the same domain should share the same categories.
+A file can belong to multiple categories (e.g., a lock change in storage code is both `storage-engine` and `concurrency`). Production and test files in the same domain should share the same categories. `workflow-machinery` is exclusive with `docs-only` — markdown under `.claude/` is `workflow-machinery`, not `docs-only`.
 
 ### 5b: Map Categories to Agents
 
-There are **10 specialized review agents** in two groups:
+There are **16 specialized review agents** in three groups:
 
 **Code-review agents** (review production code):
 
@@ -143,6 +144,19 @@ There are **10 specialized review agents** in two groups:
 
 Categories from **both** production and test code count for the test-review side — for example, if production code adds a new `synchronized` block but tests don't exercise threading, `review-test-concurrency` should still launch to flag the gap.
 
+**Workflow-review agents** (review changes to the workflow machinery itself):
+
+| Agent | Launch when |
+|---|---|
+| **review-workflow-consistency** | `workflow-machinery` is present — always launched for this group |
+| **review-workflow-prompt-design** | `workflow-machinery` AND changes touch any file under `.claude/skills/`, `.claude/agents/`, or `.claude/workflow/prompts/` |
+| **review-workflow-instruction-completeness** | `workflow-machinery` AND changes touch skill bodies, agent bodies, workflow rules under `.claude/workflow/`, or workflow prompts |
+| **review-workflow-hook-safety** | `workflow-machinery` AND changes touch `.claude/hooks/`, `.claude/scripts/`, or `.claude/settings*.json` |
+| **review-workflow-context-budget** | `workflow-machinery` AND changes affect always-loaded surface — skill/agent `description:` fields, project root `CLAUDE.md`, `MEMORY.md` index, SessionStart hook stdout |
+| **review-workflow-writing-style** | `workflow-machinery` AND any markdown content changed |
+
+The workflow-review agents focus on `.claude/`, root `CLAUDE.md`, and plan artifacts under `docs/adr/<dir>/_workflow/`. They ignore Java code changes — the code-review and test-review agents handle those.
+
 ### 5c: Log Your Triage Decision
 
 Before launching agents, output a brief triage summary so the user can see the reasoning:
@@ -152,13 +166,16 @@ Before launching agents, output a brief triage summary so the user can see the r
 - **Categories detected**: storage-engine, concurrency, index-data-structures
 - **Code agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
 - **Test agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-concurrency, review-test-crash-safety
+- **Workflow agents selected**: (none — no workflow-machinery changes)
 - **Agents skipped**: review-security (no network/API/SQL/config/dependency changes)
 ```
 
 ### 5d: Edge Cases
-- If **all categories are `docs-only`**: Skip all agents. Just report that only documentation changed and no review is needed.
-- If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes). Skip all test-review agents.
+- If **all categories are `docs-only`**: Skip all agents. Just report that only end-user documentation changed and no review is needed.
+- If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes). Skip all test-review and workflow-review agents.
 - If **all categories are `tests-only`**: Launch `review-code-quality` and `review-bugs-concurrency` (test logic can have bugs too), plus the full test-review set selected by the test-side rules above.
+- If **all categories are `workflow-machinery`**: Skip all code-review and test-review agents (no Java code or tests to evaluate). Launch the workflow-review agents selected by the workflow-side rules.
+- If the diff mixes `workflow-machinery` with code/test categories: launch each group's agents on its in-scope files. Each agent's prompt restricts its scope, so cross-contamination is bounded.
 - If **in doubt** about whether an agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
 
 ## Step 6: Dispatch Selected Review Agents
@@ -207,7 +224,7 @@ only when mcp-steroid is unreachable. See `CLAUDE.md` § MCP Steroid →
 {DIFF}
 ```
 
-The 10 possible agents (launch only those selected in Step 5):
+The 16 possible agents (launch only those selected in Step 5):
 
 **Code-review agents:**
 1. **review-code-quality** — code quality, conventions, readability
@@ -222,6 +239,14 @@ The 10 possible agents (launch only those selected in Step 5):
 8. **review-test-structure** — isolation, independence, readability, documentation
 9. **review-test-concurrency** — concurrent behavior testing quality
 10. **review-test-crash-safety** — crash/recovery test quality, production assert statements
+
+**Workflow-review agents:**
+11. **review-workflow-consistency** — cross-file references, threshold sync, hook wiring, recipe paths, glossary drift
+12. **review-workflow-prompt-design** — prompts-as-prompts-to-an-LLM: description discriminability, deterministic decision rules, clean-context invocation, sub-agent delegation annotations
+13. **review-workflow-instruction-completeness** — branch coverage, gate resume paths, sub-agent input/output handshake, error recovery, loop termination
+14. **review-workflow-hook-safety** — shell hygiene, `/tmp` collision safety, hook performance, secret hygiene, JSON schema validity
+15. **review-workflow-context-budget** — always-loaded surface (descriptions, CLAUDE.md, MEMORY.md, SessionStart stdout), load-on-demand discipline
+16. **review-workflow-writing-style** — concise-doc style: banned vocabulary, em-dash cap, BLUF lead, 200-word section cap, repo-anchored voice
 
 Set `subagent_type` to the agent name and `model` to `opus` for each.
 
