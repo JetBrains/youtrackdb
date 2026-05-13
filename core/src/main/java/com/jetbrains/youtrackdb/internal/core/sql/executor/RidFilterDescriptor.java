@@ -300,11 +300,23 @@ public sealed interface RidFilterDescriptor {
     /**
      * Index query parameters are {@code :namedParams} or literals (never
      * {@code $matched}), so the result is constant for the entire query.
-     * The index name uniquely identifies the result within a single query.
+     *
+     * <p>Delegates to
+     * {@link IndexSearchDescriptor#cacheFingerprint()}, which includes
+     * the index name plus the key condition and any additional range
+     * condition. Index name alone would alias two IndexLookups on the
+     * same index but different conditions — today the MATCH planner
+     * emits at most one IndexLookup per edge (see
+     * {@code MatchExecutionPlanner.findIndexForFilter}), so collisions
+     * cannot occur, but pinning the contract on planner discipline made
+     * the cache key a silent correctness trap one planner change away.
+     * The fingerprint removes that dependency at the cost of one extra
+     * string concatenation per cache miss (bounded by
+     * {@code CACHE_CAPACITY} = 64 per query).
      */
     @Override
     @Nullable public Object cacheKey(CommandContext ctx) {
-      return indexDescriptor.getIndex().getName();
+      return indexDescriptor.cacheFingerprint();
     }
   }
 

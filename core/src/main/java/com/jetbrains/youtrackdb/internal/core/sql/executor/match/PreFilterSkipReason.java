@@ -41,5 +41,17 @@ public enum PreFilterSkipReason {
    * EdgeRidLookup} overlap ratio exceeds the configured threshold — the
    * RidSet covers too large a fraction of the adjacency list.
    */
-  OVERLAP_RATIO_TOO_HIGH
+  OVERLAP_RATIO_TOO_HIGH,
+
+  /**
+   * Descriptor's {@code resolve()} returned {@code null} on the cold path
+   * after passing all up-front guards. Causes include the runtime
+   * checkpoint-abort in {@code resolveIndexToRidSet} (estimate was below
+   * the cap but the iterated size grew past it), a
+   * {@code RecordNotFoundException} on a reverse-edge target vertex, or
+   * an empty result stream. Treated as a permanent rejection: cached so
+   * subsequent vertices on the same key short-circuit instead of
+   * re-attempting the build.
+   */
+  BUILD_FAILED
 }

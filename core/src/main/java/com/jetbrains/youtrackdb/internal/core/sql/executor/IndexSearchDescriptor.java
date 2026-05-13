@@ -403,6 +403,27 @@ public class IndexSearchDescriptor {
     return index;
   }
 
+  /**
+   * Returns a stable identity string for using this descriptor as a
+   * HashMap key — combines the index name, the key condition, and any
+   * additional range condition. Two descriptors representing the same
+   * index query produce equal fingerprints; two descriptors on the same
+   * index but with different conditions do not. Used by
+   * {@link RidFilterDescriptor.IndexLookup#cacheKey} to avoid aliasing
+   * cache entries of distinct queries on the same index.
+   *
+   * <p>String concatenation keeps the result HashMap-friendly without
+   * forcing an equals/hashCode override on {@code IndexSearchDescriptor}.
+   * The fingerprint is bounded in size and computed at most once per
+   * cache miss (≤ {@code CACHE_CAPACITY} times per query).
+   */
+  public String cacheFingerprint() {
+    if (keyCondition == null && additionalRangeCondition == null) {
+      return index.getName();
+    }
+    return index.getName() + "|" + keyCondition + "|" + additionalRangeCondition;
+  }
+
   protected SQLBooleanExpression getKeyCondition() {
     return keyCondition;
   }

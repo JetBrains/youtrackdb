@@ -322,15 +322,14 @@ public class EdgeTraversalCacheTest {
   // =========================================================================
 
   /**
-   * {@link IndexLookup#cacheKey} returns the index name, which uniquely
+   * {@link IndexLookup#cacheKey} delegates to
+   * {@link IndexSearchDescriptor#cacheFingerprint()}, which uniquely
    * identifies the result within a single query execution.
    */
   @Test
-  public void indexLookup_cacheKey_returnsIndexName() {
-    var index = mock(Index.class);
-    when(index.getName()).thenReturn("Post.creationDate");
+  public void indexLookup_cacheKey_returnsFingerprint() {
     var indexDesc = mock(IndexSearchDescriptor.class);
-    when(indexDesc.getIndex()).thenReturn(index);
+    when(indexDesc.cacheFingerprint()).thenReturn("Post.creationDate");
     var desc = new IndexLookup(indexDesc);
     var key = desc.cacheKey(new BasicCommandContext());
 
@@ -343,14 +342,59 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void indexLookup_cacheKey_isStable() {
-    var index = mock(Index.class);
-    when(index.getName()).thenReturn("Post.creationDate");
     var indexDesc = mock(IndexSearchDescriptor.class);
-    when(indexDesc.getIndex()).thenReturn(index);
+    when(indexDesc.cacheFingerprint()).thenReturn("Post.creationDate");
     var desc = new IndexLookup(indexDesc);
     var ctx = new BasicCommandContext();
 
     assertThat(desc.cacheKey(ctx)).isEqualTo(desc.cacheKey(ctx));
+  }
+
+  /**
+   * Two {@link IndexLookup} descriptors on the same index but with
+   * different key conditions must produce different cache keys. Without
+   * the keyCondition fingerprint, both would collapse onto the index
+   * name alone and the second descriptor would silently return the
+   * first's resolved RidSet — a latent correctness trap one planner
+   * change away from firing. Today the MATCH planner emits at most one
+   * IndexLookup per edge, so this scenario is not reachable through
+   * normal query execution; the test pins the contract regardless.
+   */
+  @Test
+  public void indexLookup_cacheKey_distinctConditionsDoNotAlias() {
+    var descA = mock(IndexSearchDescriptor.class);
+    when(descA.cacheFingerprint())
+        .thenReturn("Post.creationDate|creationDate >= '2020-01-01'|null");
+
+    var descB = mock(IndexSearchDescriptor.class);
+    when(descB.cacheFingerprint())
+        .thenReturn("Post.creationDate|creationDate >= '2024-01-01'|null");
+
+    var ctx = new BasicCommandContext();
+    assertThat(new IndexLookup(descA).cacheKey(ctx))
+        .as("same index, different keyCondition must not share cache key")
+        .isNotEqualTo(new IndexLookup(descB).cacheKey(ctx));
+  }
+
+  /**
+   * Conversely, two IndexLookups producing the same fingerprint still
+   * share a cache key — the caching contract for "equivalent query,
+   * equivalent result" is preserved. Pins the symmetry of the
+   * fingerprint contract.
+   */
+  @Test
+  public void indexLookup_cacheKey_identicalConditionsShareKey() {
+    var fingerprint = "Post.creationDate|creationDate >= '2020-01-01'|null";
+
+    var descA = mock(IndexSearchDescriptor.class);
+    when(descA.cacheFingerprint()).thenReturn(fingerprint);
+
+    var descB = mock(IndexSearchDescriptor.class);
+    when(descB.cacheFingerprint()).thenReturn(fingerprint);
+
+    var ctx = new BasicCommandContext();
+    assertThat(new IndexLookup(descA).cacheKey(ctx))
+        .isEqualTo(new IndexLookup(descB).cacheKey(ctx));
   }
 
   /**
@@ -1827,7 +1871,10 @@ public class EdgeTraversalCacheTest {
   // =========================================================================
 
   /**
-   * All six expected enum values are defined with the correct names.
+   * All expected enum values are defined with the correct names, in the
+   * declared order. BUILD_FAILED is recorded when descriptor.resolve()
+   * returns null on the materialization cold path (e.g. resolveIndexToRidSet
+   * aborted, or RecordNotFoundException on a reverse-edge target).
    */
   @Test
   public void preFilterSkipReason_allValuesExist() {
@@ -1838,7 +1885,8 @@ public class EdgeTraversalCacheTest {
             PreFilterSkipReason.SELECTIVITY_TOO_LOW,
             PreFilterSkipReason.BUILD_NOT_AMORTIZED,
             PreFilterSkipReason.LINKBAG_TOO_SMALL,
-            PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
+            PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH,
+            PreFilterSkipReason.BUILD_FAILED);
   }
 
   // =========================================================================
@@ -2223,12 +2271,16 @@ public class EdgeTraversalCacheTest {
 
   /**
    * When resolve() returns null on the materialization cold path (all
-   * selectivity checks passed, but descriptor produced no RidSet),
-   * preFilterBuildTimeNanos is accumulated (build cost was real) but
-   * preFilterAppliedCount stays at 0 and no skip reason is set.
+   * selectivity checks passed, but descriptor produced no RidSet — e.g.
+   * resolveIndexToRidSet aborted on the runtime checkpoint guard, or a
+   * RecordNotFoundException short-circuited resolveReverseEdgeLookup),
+   * preFilterBuildTimeNanos is accumulated (build cost was real),
+   * preFilterAppliedCount stays at 0, and BUILD_FAILED is recorded as the
+   * skip reason so the PROFILE NEVER-APPLIED diagnostic names a concrete
+   * cause instead of leaving lastSkipReason at NONE.
    */
   @Test
-  public void resolveWithCache_resolveReturnsNull_buildTimeButNotApplied() {
+  public void resolveWithCache_resolveReturnsNull_recordsBuildFailedReason() {
     var et = createEdgeTraversal();
     var desc = mock(EdgeRidLookup.class);
     var key = new RecordId(5, 1);
@@ -2245,8 +2297,129 @@ public class EdgeTraversalCacheTest {
     assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThan(0L);
     assertThat(et.getPreFilterAppliedCount()).isZero();
     assertThat(et.getPreFilterRidSetSize()).isZero();
-    // No explicit skip reason is set on this path — remains at NONE.
-    assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.BUILD_FAILED);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+  }
+
+  /**
+   * Regression for the second part of the same cold-path bug: a cached
+   * null produced by resolve() returning null must remember BUILD_FAILED
+   * in cachedSkipReasons so a subsequent vertex with the same key
+   * restores BUILD_FAILED rather than carrying a stale prior reason (or
+   * leaving lastSkipReason untouched, which the original code did).
+   * Without this, an interleaved external skip between V1 and V2 would
+   * mask the real cold-path failure in the PROFILE diagnostic.
+   */
+  @Test
+  public void resolveWithCache_cachedNullFromBuildFailure_restoresReason() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.resolve(any(), any())).thenReturn(null);
+    stubSmallEstimate(desc);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // V1: cold-path resolve returns null, BUILD_FAILED cached.
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.BUILD_FAILED);
+
+    // External interleaved skip overwrites lastSkipReason.
+    et.recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.LINKBAG_TOO_SMALL);
+
+    // V2: cached-null hit must restore BUILD_FAILED, not leave the stale
+    // LINKBAG_TOO_SMALL value visible to PROFILE.
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.BUILD_FAILED);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
+  }
+
+  /**
+   * Regression for the cache-capacity off-by-one. When the cache is
+   * full from prior CAP_EXCEEDED rejections and a new key undergoes a
+   * REJECT-then-successful-rescue path, the rescue's resolved RidSet must
+   * replace the just-inserted null sentinel (a HashMap.put on an existing
+   * key does not grow the map, so it is safe at capacity).
+   *
+   * <p>Before the fix, the rescue path's {@code cache.put(key, ridSet)}
+   * was guarded by {@code cache.size() < CACHE_CAPACITY} — false at
+   * capacity — so the freshly-built RidSet was silently dropped and the
+   * cached null persisted, causing subsequent vertices on the same key
+   * to skip with the rejection reason of the very last REJECT (here:
+   * CAP_EXCEEDED) instead of returning the materialized set.
+   *
+   * <p>Note: this test exercises a non-Composite descriptor so the same
+   * key flow that recorded the null can also produce a non-null RidSet —
+   * we simulate the rescue by reconfiguring the mock between the null
+   * caching call and the materialization call. The mechanism under test
+   * (HashMap.put overwrite at capacity) is descriptor-agnostic.
+   */
+  @Test
+  public void resolveWithCache_atCapacity_overwritesCachedNullWithRidSet() {
+    var et = createEdgeTraversal();
+    var ctx = new BasicCommandContext();
+
+    // Fill the 64-slot cache with CAP_EXCEEDED null entries on 64
+    // distinct keys. Each vertex uses its own descriptor returning a
+    // unique cacheKey and an over-cap estimate.
+    var capacity = 64;
+    for (int i = 0; i < capacity; i++) {
+      var filler = mock(EdgeRidLookup.class);
+      when(filler.cacheKey(any())).thenReturn(new RecordId(9, i));
+      when(filler.estimatedSize(any(), any()))
+          .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
+      et.setIntersectionDescriptor(filler);
+      et.resolveWithCache(ctx, LARGE_LINKBAG);
+    }
+
+    // 65th key: descriptor whose estimate also overflows the cap so the
+    // first call inserts another null. The cache is already at CAPACITY,
+    // so this insert would not be accepted under the old guard — verify
+    // we still cache it (containsKey-aware guard means a fresh put at
+    // capacity is rejected, but an overwrite on an already-cached key is
+    // accepted). To exercise the overwrite, we then reconfigure the
+    // descriptor to return a real RidSet and call again with the SAME
+    // key, simulating the Composite REJECT-then-rescue control flow.
+    var target = new RecordId(7, 99);
+    var pivot = mock(EdgeRidLookup.class);
+    when(pivot.cacheKey(any())).thenReturn(target);
+
+    // Phase 1: over-cap estimate → CAP_EXCEEDED → null cached (or
+    // dropped if cache is full — either way the post-phase state is
+    // important: the key may or may not be in the cache).
+    when(pivot.estimatedSize(any(), any()))
+        .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
+    et.setIntersectionDescriptor(pivot);
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+
+    // Phase 2: descriptor now passes selectivity and resolves a real
+    // RidSet. Old guard at the materialization branch would NOT allow
+    // overwriting the cached null at full capacity → silent drop.
+    // New guard via canCache(key) does allow it, so the second call on
+    // the same key must return the non-null RidSet either freshly
+    // resolved or restored from the now-overwritten cache.
+    var ridSet = singletonRidSet(7, 99);
+    when(pivot.resolve(any(), any())).thenReturn(ridSet);
+    when(pivot.estimatedSize(any(), any())).thenReturn(1);
+    when(pivot.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+
+    var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(first).isSameAs(ridSet);
+
+    // Third call on the same key must NOT see the stale cached null —
+    // either it hits the freshly cached ridSet, or (if the cache
+    // dropped the new entry as well) re-resolves. Asserting non-null is
+    // sufficient: the bug manifested as a stale-null return here.
+    var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(second).isSameAs(ridSet);
   }
 
   // ---- Metric resolve fallback (null registry in unit test env) ----

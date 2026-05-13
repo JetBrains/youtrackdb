@@ -592,7 +592,7 @@ public class EdgeTraversal {
     //    this large (exceeds maxRidSetSize).
     if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
       recordPreFilterSkip(PreFilterSkipReason.CAP_EXCEEDED);
-      if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
+      if (key != null && cache != null && canCache(key)) {
         cache.put(key, null);
         rememberCachedSkipReason(key, PreFilterSkipReason.CAP_EXCEEDED);
       }
@@ -668,16 +668,47 @@ public class EdgeTraversal {
         preFilterRidSetSize = ridSet.size();
       }
       lastSkipReason = PreFilterSkipReason.NONE;
+    } else {
+      // resolve() returned null after passing all up-front guards — e.g.
+      // resolveIndexToRidSet aborted on its runtime checkpoint guard, or
+      // resolveReverseEdgeLookup hit RecordNotFoundException on the
+      // target vertex. Record a dedicated skip reason so a subsequent
+      // cached-null hit on this key restores a meaningful cause onto
+      // lastSkipReason instead of leaving it stale.
+      recordPreFilterSkip(PreFilterSkipReason.BUILD_FAILED);
     }
-    if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
+    if (key != null && cache != null && canCache(key)) {
+      // canCache allows overwriting an existing entry, so a Composite
+      // REJECT-then-rescue path (where checkIndexLookupAmortization
+      // inserted a null at near-capacity) can replace that null with the
+      // freshly-materialized RidSet rather than silently dropping it.
       cache.put(key, ridSet);
-      // Clear any previously stored skip reason: this key now resolves to
-      // a real RidSet, so cachedSkipReasons must not carry a stale entry.
-      if (cachedSkipReasons != null) {
-        cachedSkipReasons.remove(key);
+      if (ridSet != null) {
+        // Real RidSet now lives at this key — drop any stale rejection
+        // reason from a prior REJECT before the rescue path materialized.
+        if (cachedSkipReasons != null) {
+          cachedSkipReasons.remove(key);
+        }
+      } else {
+        rememberCachedSkipReason(key, PreFilterSkipReason.BUILD_FAILED);
       }
     }
     return ridSet;
+  }
+
+  /**
+   * Returns {@code true} if {@link #cache} can accept a put for
+   * {@code key} without growing beyond {@link #CACHE_CAPACITY}. Allows
+   * overwriting an existing entry (a {@code HashMap.put} on a key already
+   * present does not increase the map's size), which is required by the
+   * Composite REJECT-then-rescue path: an earlier REJECT may have inserted
+   * a {@code null} for this key at near-capacity, and the subsequent
+   * successful materialization must be able to replace that sentinel.
+   *
+   * <p>Caller must already have null-checked {@link #cache}.
+   */
+  private boolean canCache(Object key) {
+    return cache.size() < CACHE_CAPACITY || cache.containsKey(key);
   }
 
   /**
@@ -805,7 +836,7 @@ public class EdgeTraversal {
         && indexLookupSelectivity
             > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
       recordPreFilterSkip(PreFilterSkipReason.SELECTIVITY_TOO_LOW);
-      if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
+      if (key != null && cache != null && canCache(key)) {
         cache.put(key, null);
         rememberCachedSkipReason(key, PreFilterSkipReason.SELECTIVITY_TOO_LOW);
       }
