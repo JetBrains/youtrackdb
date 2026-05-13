@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBetweenCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
@@ -34,7 +33,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsKeyOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsTextCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsValueCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsValueOperator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
@@ -216,60 +214,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
           "search for index for " + condition + " is not supported yet");
     };
-  }
-
-  /**
-   * Handles {@code key IN [a, b, c]} conditions by performing one point lookup per value
-   * and collecting the resulting streams.
-   */
-  private static List<Stream<RawPair<Object, RID>>> processInCondition(
-      Index index, SQLBooleanExpression condition, CommandContext ctx, boolean orderAsc) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    // Track streams by identity (not equals()) to avoid adding the same stream object
-    // twice, which would cause double-close or duplicate results.
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
-        Collections.newSetFromMap(new IdentityHashMap<>());
-    var definition = index.getDefinition();
-    var inCondition = (SQLInCondition) condition;
-
-    var left = inCondition.getLeft();
-    if (!left.toString().equalsIgnoreCase("key")) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    }
-    var transaction = ctx.getDatabaseSession().getActiveTransaction();
-    var rightValue = inCondition.evaluateRight((Result) null, ctx);
-    var equals = new SQLEqualsOperator(-1);
-    if (MultiValue.isMultiValue(rightValue)) {
-      for (var item : MultiValue.getMultiValueIterable(rightValue)) {
-        if (item instanceof Result) {
-          if (((Result) item).isEntity()) {
-            item = ((Result) item).asEntity();
-          } else if (((Result) item).getPropertyNames().size() == 1) {
-            item =
-                ((Result) item).getProperty(
-                    ((Result) item).getPropertyNames().getFirst());
-          }
-        }
-
-        var localCursor =
-            createCursor(transaction, index, equals, definition, item, orderAsc,
-                condition);
-
-        if (acquiredStreams.add(localCursor)) {
-          streams.add(localCursor);
-        }
-      }
-    } else {
-      var stream =
-          createCursor(
-              transaction, index, equals, definition, rightValue, orderAsc, condition);
-      if (acquiredStreams.add(stream)) {
-        streams.add(stream);
-      }
-    }
-
-    return streams;
   }
 
   /**
@@ -651,82 +595,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return types[0].convert(val, null, null, session);
   }
 
-  /** Handles {@code key BETWEEN a AND b} conditions with an inclusive range scan. */
-  private static List<Stream<RawPair<Object, RID>>> processBetweenCondition(
-      Index index, SQLBooleanExpression condition, boolean isOrderAsc,
-      CommandContext ctx) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-
-    var definition = index.getDefinition();
-    var key = ((SQLBetweenCondition) condition).getFirst();
-    if (!key.toString().equalsIgnoreCase("key")) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    }
-    var second = ((SQLBetweenCondition) condition).getSecond();
-    var third = ((SQLBetweenCondition) condition).getThird();
-
-    var secondValue = second.execute((Result) null, ctx);
-    secondValue = unboxResult(secondValue);
-    var thirdValue = third.execute((Result) null, ctx);
-    thirdValue = unboxResult(thirdValue);
-    var session = ctx.getDatabaseSession();
-    var transaction = session.getActiveTransaction();
-    var stream =
-        index.streamEntriesBetween(session,
-            toBetweenIndexKey(transaction, definition, secondValue),
-            true,
-            toBetweenIndexKey(transaction, definition, thirdValue),
-            true, isOrderAsc);
-    streams.add(stream);
-    return streams;
-  }
-
-  /** Handles a single binary condition (=, >, <, >=, <=) against the index key. */
-  private static List<Stream<RawPair<Object, RID>>> processBinaryCondition(
-      FrontendTransaction transaction,
-      Index index,
-      SQLBooleanExpression condition,
-      boolean isOrderAsc,
-      CommandContext ctx) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
-        Collections.newSetFromMap(new IdentityHashMap<>());
-
-    var definition = index.getDefinition();
-    var operator = ((SQLBinaryCondition) condition).getOperator();
-    var left = ((SQLBinaryCondition) condition).getLeft();
-    if (!left.toString().equalsIgnoreCase("key")) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    }
-    var rightValue = ((SQLBinaryCondition) condition).getRight().execute((Result) null, ctx);
-    var stream =
-        createCursor(transaction, index, operator, definition, rightValue, isOrderAsc, condition);
-    if (acquiredStreams.add(stream)) {
-      streams.add(stream);
-    }
-
-    return streams;
-  }
-
-  /** Converts a user-supplied value into an index key suitable for point lookups. */
-  private static Collection<?> toIndexKey(
-      FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
-    if (definition.getProperties().size() == 1 && rightValue instanceof Collection) {
-      rightValue = ((Collection<?>) rightValue).iterator().next();
-    }
-    if (rightValue instanceof List) {
-      rightValue = definition.createValue(transaction, (List<?>) rightValue);
-    } else if (!(rightValue instanceof CompositeKey)) {
-      rightValue = definition.createValue(transaction, rightValue);
-    }
-    if (!(rightValue instanceof Collection)) {
-      rightValue = Collections.singleton(rightValue);
-    }
-    return (Collection<?>) rightValue;
-  }
-
   /** Converts a user-supplied value into an index key suitable for range (BETWEEN) lookups. */
   private static Object toBetweenIndexKey(
       FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
@@ -745,37 +613,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
 
     return rightValue;
-  }
-
-  /**
-   * Creates an index cursor stream for the given operator and value. Dispatches to
-   * the appropriate index API (point lookup, major, minor) based on operator type.
-   */
-  private static Stream<RawPair<Object, RID>> createCursor(
-      FrontendTransaction transaction,
-      Index index,
-      SQLBinaryCompareOperator operator,
-      IndexDefinition definition,
-      Object value,
-      boolean orderAsc,
-      SQLBooleanExpression condition) {
-    var session = transaction.getDatabaseSession();
-    if (operator instanceof SQLEqualsOperator
-        || operator instanceof SQLContainsKeyOperator
-        || operator instanceof SQLContainsValueOperator) {
-      return index.streamEntries(session, toIndexKey(transaction, definition, value), orderAsc);
-    } else if (operator instanceof SQLGeOperator) {
-      return index.streamEntriesMajor(session, value, true, orderAsc);
-    } else if (operator instanceof SQLGtOperator) {
-      return index.streamEntriesMajor(session, value, false, orderAsc);
-    } else if (operator instanceof SQLLeOperator) {
-      return index.streamEntriesMinor(session, value, true, orderAsc);
-    } else if (operator instanceof SQLLtOperator) {
-      return index.streamEntriesMinor(session, value, false, orderAsc);
-    } else {
-      throw new CommandExecutionException(session,
-          "search for index for " + condition + " is not supported yet");
-    }
   }
 
   protected boolean isOrderAsc() {

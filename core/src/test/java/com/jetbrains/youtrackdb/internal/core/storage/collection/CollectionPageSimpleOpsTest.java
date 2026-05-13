@@ -48,14 +48,52 @@ public class CollectionPageSimpleOpsTest {
     var pointer = BUFFER_POOL.acquireDirect(true, Intention.TEST);
     var cachePointer = new CachePointer(pointer, BUFFER_POOL, 0, 0);
     cachePointer.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
-    entry.acquireExclusiveLock();
-    return entry;
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+      entry.acquireExclusiveLock();
+      return entry;
+    } catch (RuntimeException | Error e) {
+      // If CacheEntryImpl constructor or acquireExclusiveLock throws, we still own the
+      // referrer increment from above — release it before propagating so the page tracker
+      // (enabled via -Dyoutrackdb.memory.directMemory.trackMode=true) does not report a
+      // leaked direct-memory page at JVM shutdown and abort surefire with System.exit(1).
+      cachePointer.decrementReferrer();
+      throw e;
+    }
   }
 
   private void releaseEntry(CacheEntry entry) {
-    entry.releaseExclusiveLock();
-    entry.getCachePointer().decrementReferrer();
+    try {
+      entry.releaseExclusiveLock();
+    } finally {
+      // Run the referrer release in finally so a buggy redo that corrupted entry state
+      // (causing releaseExclusiveLock to throw) does not leak the direct-memory referrer
+      // — see TX3 in the Track 19 Phase C iter-1 review findings for the full rationale.
+      entry.getCachePointer().decrementReferrer();
+    }
+  }
+
+  /**
+   * Allocates a pair of cache entries for a two-page redo test, runs the action, and releases
+   * both entries deterministically — even if entry-2 allocation throws (which would otherwise
+   * leak entry-1's referrer and trigger the page-tracker JVM abort under
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true}).
+   *
+   * <p>The {@code try} block opens immediately after entry-1 is allocated, so a failure in
+   * entry-2 setup unwinds through the {@code finally} that releases entry-1.
+   */
+  private void withTwoPages(java.util.function.BiConsumer<CacheEntry, CacheEntry> action) {
+    var entry1 = createRawCacheEntry();
+    try {
+      var entry2 = createRawCacheEntry();
+      try {
+        action.accept(entry1, entry2);
+      } finally {
+        releaseEntry(entry2);
+      }
+    } finally {
+      releaseEntry(entry1);
+    }
   }
 
   // --- Record ID tests ---
@@ -100,9 +138,10 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testInitOpRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    // Use withTwoPages so a failure between the two acquireDirect() calls cannot leak
+    // entry1's referrer (which would trigger the page-tracker JVM abort under
+    // -Dyoutrackdb.memory.directMemory.trackMode=true).
+    withTwoPages((entry1, entry2) -> {
       // Apply init directly
       var page1 = new CollectionPage(entry1);
       page1.init();
@@ -117,10 +156,7 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertEquals(page1.getPageIndexesLength(), page2.getPageIndexesLength());
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
@@ -200,9 +236,7 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testDeleteRecordRedoWithPreserveTrue() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       // Set up pages with a record
       var page1 = new CollectionPage(entry1);
       page1.init();
@@ -226,17 +260,12 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertTrue(page1.isDeleted(0));
       Assert.assertTrue(page2.isDeleted(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
   public void testDeleteRecordRedoWithPreserveFalse() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPage(entry1);
       page1.init();
       var record = new byte[] {10, 20, 30};
@@ -256,10 +285,7 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertEquals(page1.getPageIndexesLength(), page2.getPageIndexesLength());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
@@ -330,9 +356,7 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testSetRecordVersionRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPage(entry1);
       page1.init();
       page1.appendRecord(1L, new byte[] {1, 2, 3}, -1,
@@ -352,10 +376,7 @@ public class CollectionPageSimpleOpsTest {
       op.redo(page2);
 
       Assert.assertEquals(page1.getRecordVersion(0), page2.getRecordVersion(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
@@ -449,9 +470,7 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testDoDefragmentationRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       // Set up pages with fragmented state: add 3 records, delete the middle one
       var page1 = new CollectionPage(entry1);
       page1.init();
@@ -485,10 +504,7 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getFreePosition(), page2.getFreePosition());
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- No registration during redo path ---
@@ -533,6 +549,72 @@ public class CollectionPageSimpleOpsTest {
 
     var op4 = new CollectionPageDeleteRecordOp(5, 10, 15, lsn, 99, true);
     Assert.assertNotEquals(op1, op4);
+  }
+
+  // --- toString coverage ---
+
+  @Test
+  public void testInitOpToString() {
+    // CollectionPageInitOp does not override toString(), so the call resolves to
+    // PageOperation.toString() which renders the simple class name and the
+    // initialLsn value (PageOperation's only op-level field). A regression that
+    // dropped PageOperation.toString() would fall back to AbstractWALRecord's
+    // null-LSN format and lose the initialLsn substring.
+    var op = new CollectionPageInitOp(7, 11, 13, new LogSequenceNumber(10, 20));
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageInitOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=10"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=20"));
+  }
+
+  @Test
+  public void testDeleteRecordOpToString() {
+    // DeleteRecordOp.toString() must render its op-specific fields position and
+    // preserveFreeListPointer (from CollectionPageDeleteRecordOp.toString()) so the op is
+    // identifiable in WAL logs.
+    var op = new CollectionPageDeleteRecordOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, true);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageDeleteRecordOp"));
+    Assert.assertTrue("toString must include position value: " + s,
+        s.contains("position=17"));
+    Assert.assertTrue("toString must include preserveFreeListPointer: " + s,
+        s.contains("preserveFreeListPointer=true"));
+  }
+
+  @Test
+  public void testSetRecordVersionOpToString() {
+    // SetRecordVersionOp.toString() must render position and version (the two op-specific
+    // fields appended by CollectionPageSetRecordVersionOp.toString()).
+    var op = new CollectionPageSetRecordVersionOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 19, 23);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageSetRecordVersionOp"));
+    Assert.assertTrue("toString must include position value: " + s,
+        s.contains("position=19"));
+    Assert.assertTrue("toString must include version value: " + s,
+        s.contains("version=23"));
+  }
+
+  @Test
+  public void testDoDefragmentationOpToString() {
+    // DoDefragmentationOp also inherits PageOperation.toString() (no op-specific fields
+    // and no own override). Pin the class name and the initialLsn values — a regression
+    // that dropped PageOperation.toString() would lose the initialLsn segment substring.
+    var op = new CollectionPageDoDefragmentationOp(
+        29, 2, 3, new LogSequenceNumber(31, 37));
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageDoDefragmentationOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=31"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=37"));
   }
 
   @Test

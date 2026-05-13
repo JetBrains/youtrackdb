@@ -38,6 +38,9 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
 
   @Override
   protected boolean removeEldestEntry(final Map.Entry<K, V> eldest) {
-    return size() >= cacheSize;
+    // Eviction must fire only AFTER the put has pushed size past the configured
+    // cap, so the steady-state cache holds exactly cacheSize entries. The prior
+    // `>=` form fired one put too early and capped the cache at cacheSize-1.
+    return size() > cacheSize;
   }
 }

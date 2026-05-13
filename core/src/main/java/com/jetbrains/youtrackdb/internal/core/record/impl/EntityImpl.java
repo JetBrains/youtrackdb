@@ -114,7 +114,7 @@ import javax.annotation.Nullable;
 @SuppressWarnings({"unchecked"})
 public class EntityImpl extends RecordAbstract implements Entity {
 
-  public static char OPPOSITE_LINK_CONTAINER_PREFIX = '#';
+  public static final char OPPOSITE_LINK_CONTAINER_PREFIX = '#';
   public static final byte RECORD_TYPE = 'd';
 
   public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";

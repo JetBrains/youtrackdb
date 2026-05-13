@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -190,7 +189,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
     indexEntry.content.put("rid", rid); // bypass setProperty (see first test)
 
     // Use the entity's actual collection ID to guarantee a match
-    var filterIds = new IntArrayList(new int[]{rid.getCollectionId()});
+    var filterIds = new IntArrayList(new int[] {rid.getCollectionId()});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
     step.setPrevious(sourceStep(ctx, List.of(indexEntry)));
 
@@ -224,7 +223,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
 
     // Use a collection ID that does not match the entity's collection
     var nonMatchingId = rid.getCollectionId() + 9999;
-    var filterIds = new IntArrayList(new int[]{nonMatchingId});
+    var filterIds = new IntArrayList(new int[] {nonMatchingId});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
     step.setPrevious(sourceStep(ctx, List.of(indexEntry)));
 
@@ -256,7 +255,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
 
     // The filter collection ID 999 does NOT match -1, but the negative ID
     // bypasses the filter entirely.
-    var filterIds = new IntArrayList(new int[]{999});
+    var filterIds = new IntArrayList(new int[] {999});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
     step.setPrevious(sourceStep(ctx, List.of(indexEntry)));
 
@@ -278,7 +277,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
     var indexEntry = new ResultInternal(session);
     indexEntry.setProperty("rid", "not-identifiable");
 
-    var filterIds = new IntArrayList(new int[]{10});
+    var filterIds = new IntArrayList(new int[] {10});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
     step.setPrevious(sourceStep(ctx, List.of(indexEntry)));
 
@@ -306,7 +305,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
     indexEntry.content.put("rid", rid); // bypass setProperty (see first test)
 
     // The matching collection ID is the second in the list
-    var filterIds = new IntArrayList(new int[]{collectionId + 9999, collectionId});
+    var filterIds = new IntArrayList(new int[] {collectionId + 9999, collectionId});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
     step.setPrevious(sourceStep(ctx, List.of(indexEntry)));
 
@@ -335,7 +334,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
     var indexEntry = new ResultInternal(session);
     indexEntry.setProperty("rid", innerResult);
 
-    var filterIds = new IntArrayList(new int[]{10});
+    var filterIds = new IntArrayList(new int[] {10});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
     step.setPrevious(sourceStep(ctx, List.of(indexEntry)));
 
@@ -423,7 +422,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
   @Test
   public void prettyPrintWithCollectionFilterRendersFilterList() {
     var ctx = newContext();
-    var filterIds = new IntArrayList(new int[]{5, 12});
+    var filterIds = new IntArrayList(new int[] {5, 12});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, false);
 
     var output = step.prettyPrint(0, 2);
@@ -456,7 +455,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
   @Test
   public void prettyPrintWithProfilingAndFilterRendersBoth() {
     var ctx = newContext();
-    var filterIds = new IntArrayList(new int[]{7});
+    var filterIds = new IntArrayList(new int[] {7});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, true);
 
     var output = step.prettyPrint(0, 2);
@@ -482,7 +481,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
     assertThat(step.canBeCached()).isTrue();
 
     var stepWithFilter = new GetValueFromIndexEntryStep(
-        ctx, new IntArrayList(new int[]{1}), false);
+        ctx, new IntArrayList(new int[] {1}), false);
     assertThat(stepWithFilter.canBeCached()).isTrue();
   }
 
@@ -498,7 +497,7 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
   @Test
   public void copyProducesIndependentStepWithSameSettings() {
     var ctx = newContext();
-    var filterIds = new IntArrayList(new int[]{3, 7});
+    var filterIds = new IntArrayList(new int[] {3, 7});
     var step = new GetValueFromIndexEntryStep(ctx, filterIds, true);
 
     var copied = step.copy(ctx);
@@ -567,12 +566,6 @@ public class GetValueFromIndexEntryStepTest extends TestUtilsFixture {
   // =========================================================================
   // Helpers
   // =========================================================================
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
-  }
 
   /**
    * Creates a source step that produces the given results on each start().

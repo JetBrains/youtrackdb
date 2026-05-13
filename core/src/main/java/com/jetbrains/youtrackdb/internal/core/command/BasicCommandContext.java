@@ -476,28 +476,6 @@ public class BasicCommandContext implements CommandContext {
   }
 
   @Override
-  public CommandContext copy() {
-    final var copy = new BasicCommandContext();
-    copy.init();
-
-    if (variables != null && !variables.isEmpty()) {
-      copy.variables.putAll(variables);
-    }
-    if (!systemVariables.isEmpty()) {
-      copy.systemVariables.putAll(systemVariables);
-    }
-
-    copy.recordMetrics = recordMetrics;
-
-    copy.child = child.copy();
-    copy.child.setParent(copy);
-
-    copy.setDatabaseSession(null);
-
-    return copy;
-  }
-
-  @Override
   public void merge(final CommandContext iContext) {
     // TODO: SOME VALUES NEED TO BE MERGED
   }

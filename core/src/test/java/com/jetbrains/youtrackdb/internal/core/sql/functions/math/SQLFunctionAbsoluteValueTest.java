@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -37,14 +38,14 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNull() {
-    function.execute(null, null, null, new Object[]{null}, null);
+    function.execute(null, null, null, new Object[] {null}, null);
     var result = function.getResult();
     assertNull(result);
   }
 
   @Test
   public void testPositiveInteger() {
-    function.execute(null, null, null, new Object[]{10}, null);
+    function.execute(null, null, null, new Object[] {10}, null);
     var result = function.getResult();
     assertTrue(result instanceof Integer);
     assertEquals(10, result);
@@ -52,7 +53,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeInteger() {
-    function.execute(null, null, null, new Object[]{-10}, null);
+    function.execute(null, null, null, new Object[] {-10}, null);
     var result = function.getResult();
     assertTrue(result instanceof Integer);
     assertEquals(10, result);
@@ -60,7 +61,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testPositiveLong() {
-    function.execute(null, null, null, new Object[]{10L}, null);
+    function.execute(null, null, null, new Object[] {10L}, null);
     var result = function.getResult();
     assertTrue(result instanceof Long);
     assertEquals(10L, result);
@@ -68,7 +69,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeLong() {
-    function.execute(null, null, null, new Object[]{-10L}, null);
+    function.execute(null, null, null, new Object[] {-10L}, null);
     var result = function.getResult();
     assertTrue(result instanceof Long);
     assertEquals(10L, result);
@@ -76,7 +77,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testPositiveShort() {
-    function.execute(null, null, null, new Object[]{(short) 10}, null);
+    function.execute(null, null, null, new Object[] {(short) 10}, null);
     var result = function.getResult();
     assertTrue(result instanceof Short);
     assertEquals((short) 10, result);
@@ -84,7 +85,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeShort() {
-    function.execute(null, null, null, new Object[]{(short) -10}, null);
+    function.execute(null, null, null, new Object[] {(short) -10}, null);
     var result = function.getResult();
     assertTrue(result instanceof Short);
     assertEquals((short) 10, result);
@@ -92,7 +93,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testPositiveDouble() {
-    function.execute(null, null, null, new Object[]{10.5D}, null);
+    function.execute(null, null, null, new Object[] {10.5D}, null);
     var result = function.getResult();
     assertTrue(result instanceof Double);
     assertEquals(10.5D, result);
@@ -100,7 +101,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeDouble() {
-    function.execute(null, null, null, new Object[]{-10.5D}, null);
+    function.execute(null, null, null, new Object[] {-10.5D}, null);
     var result = function.getResult();
     assertTrue(result instanceof Double);
     assertEquals(10.5D, result);
@@ -108,7 +109,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testPositiveFloat() {
-    function.execute(null, null, null, new Object[]{10.5F}, null);
+    function.execute(null, null, null, new Object[] {10.5F}, null);
     var result = function.getResult();
     assertTrue(result instanceof Float);
     assertEquals(10.5F, result);
@@ -116,7 +117,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeFloat() {
-    function.execute(null, null, null, new Object[]{-10.5F}, null);
+    function.execute(null, null, null, new Object[] {-10.5F}, null);
     var result = function.getResult();
     assertTrue(result instanceof Float);
     assertEquals(10.5F, result);
@@ -124,7 +125,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testPositiveBigDecimal() {
-    function.execute(null, null, null, new Object[]{new BigDecimal("10.5")}, null);
+    function.execute(null, null, null, new Object[] {new BigDecimal("10.5")}, null);
     var result = function.getResult();
     assertTrue(result instanceof BigDecimal);
     assertEquals(new BigDecimal("10.5"), result);
@@ -132,7 +133,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeBigDecimal() {
-    function.execute(null, null, null, new Object[]{BigDecimal.valueOf(-10.5D)}, null);
+    function.execute(null, null, null, new Object[] {BigDecimal.valueOf(-10.5D)}, null);
     var result = function.getResult();
     assertTrue(result instanceof BigDecimal);
     assertEquals(new BigDecimal("10.5"), result);
@@ -140,7 +141,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testPositiveBigInteger() {
-    function.execute(null, null, null, new Object[]{new BigInteger("10")}, null);
+    function.execute(null, null, null, new Object[] {new BigInteger("10")}, null);
     var result = function.getResult();
     assertTrue(result instanceof BigInteger);
     assertEquals(new BigInteger("10"), result);
@@ -148,7 +149,7 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testNegativeBigInteger() {
-    function.execute(null, null, null, new Object[]{new BigInteger("-10")}, null);
+    function.execute(null, null, null, new Object[] {new BigInteger("-10")}, null);
     var result = function.getResult();
     assertTrue(result instanceof BigInteger);
     assertEquals(new BigInteger("10"), result);
@@ -156,7 +157,23 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testNonNumber() {
-    function.execute(null, null, null, new Object[]{"abc"}, null);
+    function.execute(null, null, null, new Object[] {"abc"}, null);
+  }
+
+  @Test
+  public void testGetSyntaxAdvertisesFunctionShape() {
+    // Covers SQLFunctionAbsoluteValue.getSyntax — previously uncovered.
+    final var syntax = function.getSyntax(null);
+    assertTrue("Expected 'abs(' prefix, got: " + syntax, syntax.startsWith("abs("));
+  }
+
+  @Test
+  public void testAggregateResultsIsAlwaysFalse() {
+    // abs is a per-row function — aggregateResults must always be false, regardless of
+    // configured parameter count. Guards against copy-paste of aggregate behavior.
+    assertFalse(function.aggregateResults());
+    function.config(new Object[] {"x"});
+    assertFalse(function.aggregateResults());
   }
 
   @Test

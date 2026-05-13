@@ -3,15 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.nkbtree.normalizers
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.math.MathContext;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 public class DecimalKeyNormalizer implements KeyNormalizers {
-
-  private static final BigInteger BIG_INT_TEN = new BigInteger("10");
-  private static final BigInteger BIG_INT_ONE = new BigInteger("1");
-  private static final BigInteger BIG_INT_ZERO = new BigInteger("0");
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
@@ -38,66 +33,5 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
     return BigInteger.valueOf(value >>> 1)
         .shiftLeft(1) // the upper 63 bits
         .or(BigInteger.valueOf(value & 1L)); // plus the lowest bit
-  }
-
-  private BigDecimal scaleToDecimal128(final BigDecimal rawValue) {
-    final var value = clampAndRound(rawValue);
-    long exponent = -value.scale();
-    if (exponent >= -6176L && exponent <= 6111L) {
-      if (value.unscaledValue().bitLength() > 113) {
-        throw new AssertionError(
-            "Unscaled roundedValue is out of range for Decimal128 encoding:"
-                + value.unscaledValue());
-      }
-    } else {
-      throw new AssertionError("Exponent is out of range for Decimal128 encoding: " + exponent);
-    }
-    return value;
-  }
-
-  private BigDecimal clampAndRound(BigDecimal initialValue) {
-    BigDecimal value;
-    int diff;
-    if (-initialValue.scale() > 6111) {
-      diff = -initialValue.scale() - 6111;
-      if (initialValue.unscaledValue().equals(BIG_INT_ZERO)) {
-        value = new BigDecimal(initialValue.unscaledValue(), -6111);
-      } else {
-        if (diff + initialValue.precision() > 34) {
-          throw new NumberFormatException(
-              "Exponent is out of range for Decimal128 encoding of " + initialValue);
-        }
-        final var multiplier = BIG_INT_TEN.pow(diff);
-        value =
-            new BigDecimal(
-                initialValue.unscaledValue().multiply(multiplier), initialValue.scale() + diff);
-      }
-    } else if (-initialValue.scale() < -6176) {
-      diff = initialValue.scale() + -6176;
-      var undiscardedPrecision = ensureExactRounding(initialValue, diff);
-      var divisor = undiscardedPrecision == 0 ? BIG_INT_ONE : BIG_INT_TEN.pow(diff);
-      value =
-          new BigDecimal(initialValue.unscaledValue().divide(divisor), initialValue.scale() - diff);
-    } else {
-      value = initialValue.round(MathContext.DECIMAL128);
-      diff = initialValue.precision() - value.precision();
-      if (diff > 0) {
-        ensureExactRounding(initialValue, diff);
-      }
-    }
-    return value;
-  }
-
-  private int ensureExactRounding(final BigDecimal value, final int extraPrecision) {
-    final var significand = value.unscaledValue().abs().toString();
-    final var undiscardedPrecision = Math.max(0, significand.length() - extraPrecision);
-
-    for (var i = undiscardedPrecision; i < significand.length(); ++i) {
-      if (significand.charAt(i) != '0') {
-        throw new NumberFormatException(
-            "Conversion to Decimal128 would require inexact rounding of " + value);
-      }
-    }
-    return undiscardedPrecision;
   }
 }

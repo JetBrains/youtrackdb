@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.fetch;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -31,11 +30,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson.FormatSettings;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
@@ -50,8 +47,7 @@ public class FetchHelper {
   public static final String DEFAULT = "*:0";
   public static final FetchPlan DEFAULT_FETCHPLAN = new FetchPlan(DEFAULT);
 
-  @Nullable
-  public static FetchPlan buildFetchPlan(final String iFetchPlan) {
+  @Nullable public static FetchPlan buildFetchPlan(final String iFetchPlan) {
     if (iFetchPlan == null) {
       return null;
     }
@@ -90,24 +86,6 @@ public class FetchHelper {
     } catch (final Exception e) {
       LogManager.instance()
           .error(FetchHelper.class, "Fetching error on record %s", e, rootRecord.getIdentity());
-    }
-  }
-
-  public static void checkFetchPlanValid(final String iFetchPlan) {
-
-    if (iFetchPlan != null && !iFetchPlan.isEmpty()) {
-      // CHECK IF THERE IS SOME FETCH-DEPTH
-      final var planParts = StringSerializerHelper.split(iFetchPlan, ' ');
-      if (!planParts.isEmpty()) {
-        for (var planPart : planParts) {
-          final var parts = StringSerializerHelper.split(planPart, ':');
-          if (parts.size() != 2) {
-            throw new IllegalArgumentException("Fetch plan '" + iFetchPlan + "' is invalid");
-          }
-        }
-      } else {
-        throw new IllegalArgumentException("Fetch plan '" + iFetchPlan + "' is invalid");
-      }
     }
   }
 
@@ -153,20 +131,24 @@ public class FetchHelper {
       fieldValue = record.getProperty(fieldName);
       if (fieldValue == null
           || (!(fieldValue instanceof Identifiable)
-          && (!(fieldValue instanceof Iterable<?>)
-          || !((Iterable<?>) fieldValue).iterator().hasNext()
-          || ((Iterable<?>) fieldValue).iterator().next() == null)
-          && (!(fieldValue instanceof Collection<?>)
-          || ((Collection<?>) fieldValue).isEmpty()
-          || !(((Collection<?>) fieldValue).iterator().next() instanceof Identifiable))
-          && (!fieldValue.getClass().isArray()
-          || Array.getLength(fieldValue) == 0
-          || !(Array.get(fieldValue, 0) instanceof Identifiable))
-          && !(fieldValue instanceof MultiCollectionIterator<?>)
-          && (!(fieldValue instanceof Map<?, ?>)
-          || ((Map<?, ?>) fieldValue).isEmpty()
-          || !(((Map<?, ?>) fieldValue).values().iterator().next()
-          instanceof Identifiable)))) {
+              && (!(fieldValue instanceof Iterable<?>)
+                  || !((Iterable<?>) fieldValue).iterator().hasNext()
+                  || ((Iterable<?>) fieldValue).iterator().next() == null)
+              && (!(fieldValue instanceof Collection<?>)
+                  || ((Collection<?>) fieldValue).isEmpty()
+                  || !(((Collection<?>) fieldValue).iterator().next() instanceof Identifiable))
+              && (!(fieldValue instanceof Map<?, ?>)
+                  || ((Map<?, ?>) fieldValue).isEmpty()
+                  || !(((Map<?, ?>) fieldValue).values().iterator()
+                      .next() instanceof Identifiable))
+              // Raw Java arrays / MultiCollectionIterator are unreachable here:
+              // EntityImpl.setProperty routes them through
+              // PropertyTypeInternal.getTypeByValue -> EMBEDDEDLIST/EMBEDDEDMAP.convert,
+              // which wrap them as typed Collections/Maps before storage. The binary
+              // deserializer follows the same path. containsIdentifiers below covers the
+              // remaining identifier-bearing container shapes (mirrors process() and
+              // processFieldTypes()).
+              && !containsIdentifiers(fieldValue))) {
         //noinspection UnnecessaryContinue
         continue;
       } else {
@@ -491,9 +473,9 @@ public class FetchHelper {
     var fetch =
         !format.contains("shallow")
             && (!(fieldValue instanceof Identifiable)
-            || depthLevel == -1
-            || currentLevel <= depthLevel
-            || (fetchPlan != null && fetchPlan.has(fieldPath, currentLevel)));
+                || depthLevel == -1
+                || currentLevel <= depthLevel
+                || (fetchPlan != null && fetchPlan.has(fieldPath, currentLevel)));
     final var isEmbedded = isEmbedded(fieldValue);
 
     if (!fetch && isEmbedded && fetchContext.fetchEmbeddedDocuments()) {
@@ -505,10 +487,12 @@ public class FetchHelper {
         || fieldValue == null
         || (!fetch && fieldValue instanceof Identifiable)
         || (!(fieldValue instanceof Identifiable)
-        && (!fieldValue.getClass().isArray()
-        || Array.getLength(fieldValue) == 0
-        || !(Array.get(fieldValue, 0) instanceof Identifiable))
-        && !containsIdentifiers(fieldValue))) {
+            // Raw Java arrays are unreachable here: EntityImpl.setProperty routes raw
+            // arrays through PropertyTypeInternal.getTypeByValue -> EMBEDDEDLIST.convert,
+            // which wraps them as typed Collections before storage. The binary
+            // deserializer follows the same path. containsIdentifiers below covers the
+            // remaining identifier-bearing container shapes.
+            && !containsIdentifiers(fieldValue))) {
       fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject, fieldType);
     }
   }
@@ -552,9 +536,9 @@ public class FetchHelper {
     var fetch =
         !format.contains("shallow")
             && (!(fieldValue instanceof Identifiable)
-            || depthLevel == -1
-            || currentLevel <= depthLevel
-            || (fetchPlan != null && fetchPlan.has(fieldPath, currentLevel)));
+                || depthLevel == -1
+                || currentLevel <= depthLevel
+                || (fetchPlan != null && fetchPlan.has(fieldPath, currentLevel)));
     final var isEmbedded = isEmbedded(fieldValue);
 
     if (!fetch && isEmbedded && fetchContext.fetchEmbeddedDocuments()) {
@@ -566,13 +550,15 @@ public class FetchHelper {
         || fieldValue == null
         || (!fetch && fieldValue instanceof Identifiable)
         || (!(fieldValue instanceof Identifiable)
-        && (!(fieldValue instanceof Iterable<?>)
-        || !((Iterable<?>) fieldValue).iterator().hasNext()
-        || !(((Iterable<?>) fieldValue).iterator().next() instanceof Identifiable))
-        && (!fieldValue.getClass().isArray()
-        || Array.getLength(fieldValue) == 0
-        || !(Array.get(fieldValue, 0) instanceof Identifiable))
-        && !containsIdentifiers(fieldValue))) {
+            && (!(fieldValue instanceof Iterable<?>)
+                || !((Iterable<?>) fieldValue).iterator().hasNext()
+                || !(((Iterable<?>) fieldValue).iterator().next() instanceof Identifiable))
+            // Raw Java arrays are unreachable here: EntityImpl.setProperty routes raw
+            // arrays through PropertyTypeInternal.getTypeByValue -> EMBEDDEDLIST.convert,
+            // which wraps them as typed Collections before storage. The binary
+            // deserializer follows the same path. containsIdentifiers below covers the
+            // remaining identifier-bearing container shapes.
+            && !containsIdentifiers(fieldValue))) {
       fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject,
           PropertyTypeInternal.convertFromPublicType(fieldType));
       fetchListener.processStandardField(db,
@@ -624,7 +610,7 @@ public class FetchHelper {
     var isEmbedded =
         fieldValue instanceof EntityImpl entityImpl
             && (entityImpl.isEmbedded()
-            || !entityImpl.getIdentity().isPersistent());
+                || !entityImpl.getIdentity().isPersistent());
 
     // ridbag can contain only edges no embedded documents are allowed.
     if (fieldValue instanceof LinkBag) {
@@ -636,8 +622,8 @@ public class FetchHelper {
         isEmbedded =
             f != null
                 && (f instanceof EntityImpl entity
-                && (entity.isEmbedded()
-                || !entity.getIdentity().isPersistent()));
+                    && (entity.isEmbedded()
+                        || !entity.getIdentity().isPersistent()));
       } catch (Exception e) {
         LogManager.instance().error(FetchHelper.class, "", e);
         // IGNORE IT

@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -294,12 +293,6 @@ public class CountFromIndexStepTest extends TestUtilsFixture {
     identifier.setIndexNameString(name.getValue());
     identifier.setType(identifierType);
     return identifier;
-  }
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
   }
 
   private List<Result> drain(ExecutionStream stream, CommandContext ctx) {

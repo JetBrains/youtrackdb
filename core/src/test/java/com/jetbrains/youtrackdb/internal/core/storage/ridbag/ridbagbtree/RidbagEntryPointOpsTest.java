@@ -25,6 +25,85 @@ public class RidbagEntryPointOpsTest {
     PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
   }
 
+  // ---- Direct-memory-safe one-page and two-page helpers ----
+
+  @FunctionalInterface
+  private interface SinglePageAction {
+    void run(CacheEntry entry, CachePointer cp);
+  }
+
+  @FunctionalInterface
+  private interface TwoPageAction {
+    void run(CacheEntry entry1, CachePointer cp1, CacheEntry entry2, CachePointer cp2);
+  }
+
+  /**
+   * Allocates one raw cache entry (page) for a single-page test and routes the
+   * {@code incrementReferrer} → entry construction → lock-acquire sequence through a
+   * single try/finally so a throw at any of the three steps still releases the
+   * referrer. Mirrors {@link #withTwoPages} for the single-page case.
+   */
+  private static void withSinglePage(SinglePageAction action) {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp = new CachePointer(pointer, bufferPool, 0, 0);
+    cp.incrementReferrer();
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
+      entry.acquireExclusiveLock();
+      try {
+        action.run(entry, cp);
+      } finally {
+        entry.releaseExclusiveLock();
+      }
+    } finally {
+      cp.decrementReferrer();
+    }
+  }
+
+  /**
+   * Allocates two raw cache entries for a redo-correctness comparison test, runs the action,
+   * and releases both deterministically — even if the second allocation throws.
+   *
+   * <p>The {@code try} block opens immediately after entry-1 is allocated, so if entry-2's
+   * setup fails, the {@code finally} releases entry-1's referrer. Without this scoping,
+   * entry-1 would leak and the page tracker (enabled via
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true} in {@code core/pom.xml}) would
+   * call {@code System.exit(1)} at JVM shutdown, aborting the surefire JVM and masking the
+   * real failure as "Tests run: 0".
+   */
+  private static void withTwoPages(TwoPageAction action) {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cp1.incrementReferrer();
+    try {
+      CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
+      entry1.acquireExclusiveLock();
+      try {
+        var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+        var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
+        cp2.incrementReferrer();
+        try {
+          CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
+          entry2.acquireExclusiveLock();
+          try {
+            action.run(entry1, cp1, entry2, cp2);
+          } finally {
+            entry2.releaseExclusiveLock();
+          }
+        } finally {
+          cp2.decrementReferrer();
+        }
+      } finally {
+        entry1.releaseExclusiveLock();
+      }
+    } finally {
+      cp1.decrementReferrer();
+    }
+  }
+
   // ---- Record ID verification ----
 
   @Test
@@ -150,21 +229,7 @@ public class RidbagEntryPointOpsTest {
 
   @Test
   public void testInitOpRedoCorrectness() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       // Pre-populate with non-default values
       var page1 = new EntryPoint(entry1);
       page1.setTreeSize(100L);
@@ -185,31 +250,12 @@ public class RidbagEntryPointOpsTest {
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertEquals(0L, page2.getTreeSize());
       Assert.assertEquals(1, page2.getPagesSize());
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   @Test
   public void testSetTreeSizeOpRedoCorrectness() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       new EntryPoint(entry1).init();
       new EntryPoint(entry2).init();
 
@@ -218,31 +264,12 @@ public class RidbagEntryPointOpsTest {
           .redo(new EntryPoint(entry2));
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   @Test
   public void testSetPagesSizeOpRedoCorrectness() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       new EntryPoint(entry1).init();
       new EntryPoint(entry2).init();
 
@@ -251,35 +278,26 @@ public class RidbagEntryPointOpsTest {
           .redo(new EntryPoint(entry2));
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   // ---- Redo suppression ----
 
   @Test
   public void testRedoSuppression_initDoesNotRegister() {
-    var bufferPool = ByteBufferPool.instance(null);
-    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp = new CachePointer(pointer, bufferPool, 0, 0);
-    cp.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
-    entry.acquireExclusiveLock();
-    try {
+    // Routed through withSinglePage so a throw between incrementReferrer and the
+    // lock acquire (e.g., out-of-direct-memory at CacheEntryImpl construction)
+    // still releases the referrer. The previous shape opened the try block AFTER
+    // entry construction and lock-acquire, so a throw at either site leaked the
+    // referrer and aborted the surefire JVM via the page tracker.
+    withSinglePage((entry, cp) -> {
       var ep = new EntryPoint(entry);
       ep.setTreeSize(100L);
       ep.setPagesSize(10);
       ep.init();
       Assert.assertEquals(0L, ep.getTreeSize());
       Assert.assertEquals(1, ep.getPagesSize());
-    } finally {
-      entry.releaseExclusiveLock();
-      cp.decrementReferrer();
-    }
+    });
   }
 
   // ---- Equals/hashCode ----
@@ -306,5 +324,42 @@ public class RidbagEntryPointOpsTest {
     Assert.assertEquals(op1, op2);
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
     Assert.assertNotEquals(op1, op3);
+  }
+
+  // ---- toString coverage for all entry-point ops ----
+
+  /**
+   * toString() on all three entry-point ops must render the simple class name plus its
+   * op-specific fields. The pins are op-specific so a regression that drops or
+   * mis-routes the @Override is detectable.
+   */
+  @Test
+  public void testAllEntryPointOpsToString() {
+    var lsn = new LogSequenceNumber(1, 10);
+
+    // InitOp has no op-specific fields and its own toString() passes an empty
+    // append string, so only the class name and the "lsn =" header survive in the
+    // output. Pin both pieces so a regression that drops AbstractWALRecord.toString()
+    // is detectable.
+    var init = new RidbagEntryPointInitOp(17, 2, 3, lsn).toString();
+    Assert.assertTrue("toString must name InitOp: " + init,
+        init.contains("RidbagEntryPointInitOp"));
+    Assert.assertTrue(
+        "InitOp.toString must include the inherited 'lsn =' header: " + init,
+        init.contains("lsn ="));
+
+    // SetTreeSizeOp.toString() appends size (the new tree size).
+    var setTreeSize = new RidbagEntryPointSetTreeSizeOp(1, 2, 3, lsn, 19L).toString();
+    Assert.assertTrue("toString must name SetTreeSizeOp: " + setTreeSize,
+        setTreeSize.contains("RidbagEntryPointSetTreeSizeOp"));
+    Assert.assertTrue("SetTreeSizeOp.toString must include size=19: " + setTreeSize,
+        setTreeSize.contains("size=19"));
+
+    // SetPagesSizeOp.toString() appends pages (the new pages count).
+    var setPagesSize = new RidbagEntryPointSetPagesSizeOp(1, 2, 3, lsn, 23).toString();
+    Assert.assertTrue("toString must name SetPagesSizeOp: " + setPagesSize,
+        setPagesSize.contains("RidbagEntryPointSetPagesSizeOp"));
+    Assert.assertTrue("SetPagesSizeOp.toString must include pages=23: " + setPagesSize,
+        setPagesSize.contains("pages=23"));
   }
 }

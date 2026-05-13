@@ -12,6 +12,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
@@ -42,11 +43,19 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests the in-memory non-durable file tracking in WOWCache: addFile with nonDurable flag,
  * isNonDurable queries, deleteFile cleanup, replaceFileId cleanup, and close() clearing.
+ *
+ * <p>Tagged {@link SequentialTest} because {@link #beforeClass()} mutates two
+ * {@link GlobalConfiguration} flags ({@code STORAGE_EXCLUSIVE_FILE_ACCESS}, {@code FILE_LOCK})
+ * without per-method save/restore. {@link #afterClass()} captures the pre-test values in
+ * {@link #beforeClass()} and restores them so a parallel surefire fork running afterwards is
+ * not affected by the leak.
  */
+@Category(SequentialTest.class)
 public class WOWCacheNonDurableFileTrackingTest {
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
@@ -58,12 +67,20 @@ public class WOWCacheNonDurableFileTrackingTest {
   private static String storageName;
   private static final ByteBufferPool bufferPool = new ByteBufferPool(PAGE_SIZE);
 
+  // Pre-test snapshot of the two GlobalConfiguration flags this class mutates. Captured in
+  // beforeClass() and restored in afterClass() so the leak does not affect later tests.
+  private static Object savedExclusiveFileAccess;
+  private static Object savedFileLock;
+
   private CASDiskWriteAheadLog writeAheadLog;
   private WOWCache wowCache;
   private ClosableLinkedContainer<Long, File> files;
 
   @BeforeClass
   public static void beforeClass() {
+    // Snapshot before mutating so afterClass() can restore the exact pre-test values
+    savedExclusiveFileAccess = GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValue();
+    savedFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
     var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -74,6 +91,14 @@ public class WOWCacheNonDurableFileTrackingTest {
   @AfterClass
   public static void afterClass() {
     bufferPool.clear();
+    // Restore the pre-test GlobalConfiguration values to avoid leaking the mutation into
+    // any sequential test that runs afterwards in the same JVM
+    if (savedExclusiveFileAccess != null) {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(savedExclusiveFileAccess);
+    }
+    if (savedFileLock != null) {
+      GlobalConfiguration.FILE_LOCK.setValue(savedFileLock);
+    }
   }
 
   @Before

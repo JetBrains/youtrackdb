@@ -56,19 +56,4 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
   public ScheduledEvent getEvent(final String name) {
     return delegate.getEvent(name);
   }
-
-  @Override
-  public void load() {
-    delegate.load(session);
-  }
-
-  @Override
-  public void close() {
-    // DO NOTHING THE DELEGATE CLOSE IS MANAGED IN A DIFFERENT CONTEXT
-  }
-
-  @Override
-  public void create() {
-    SchedulerImpl.create(session);
-  }
 }

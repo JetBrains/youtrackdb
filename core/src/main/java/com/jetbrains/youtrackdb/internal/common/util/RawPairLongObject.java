@@ -29,7 +29,7 @@ public final class RawPairLongObject<V> {
       return false;
     }
 
-    var oRawPair = (RawPairIntegerObject<?>) o;
+    var oRawPair = (RawPairLongObject<?>) o;
 
     if (first != oRawPair.first) {
       return false;

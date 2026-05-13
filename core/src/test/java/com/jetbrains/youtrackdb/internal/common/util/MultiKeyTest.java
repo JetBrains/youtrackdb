@@ -113,4 +113,26 @@ public class MultiKeyTest {
 
     assertNotNull(mapResult);
   }
+
+  @Test
+  public void testEqualsSameInstance() {
+    // Reflexive equality: a MultiKey should equal itself.
+    final var multiKey = new MultiKey(Arrays.asList("a", "b"));
+    assertEquals(multiKey, multiKey);
+  }
+
+  @Test
+  public void testHashCodeOrderIndependent() {
+    // XOR-based hash is order-independent, so {a,b} and {b,a} must match.
+    final var mk1 = new MultiKey(Arrays.asList("a", "b"));
+    final var mk2 = new MultiKey(Arrays.asList("b", "a"));
+    assertEquals(mk1.hashCode(), mk2.hashCode());
+  }
+
+  @Test
+  public void testToString() {
+    // toString should contain the keys.
+    final var multiKey = new MultiKey(Arrays.asList("x", "y"));
+    assertEquals("MultiKey [x, y]", multiKey.toString());
+  }
 }

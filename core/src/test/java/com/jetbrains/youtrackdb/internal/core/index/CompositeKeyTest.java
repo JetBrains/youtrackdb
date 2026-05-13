@@ -1,16 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 public class CompositeKeyTest extends DbTestBase {
@@ -307,6 +313,148 @@ public class CompositeKeyTest extends DbTestBase {
     assertNotSame(compositeKeyOne, compositeKeyTwo);
 
     assertEquals(buffer.position() - serializationOffset, len);
+  }
+
+  // ---- asCompositeKey -------------------------------------------------------
+
+  /**
+   * Verifies that asCompositeKey returns the same instance when given a CompositeKey,
+   * avoiding an unnecessary copy on the read-only path.
+   */
+  @Test
+  public void testAsCompositeKeyReturnsSameInstance() {
+    var key = new CompositeKey("a", "b");
+    assertSame(key, CompositeKey.asCompositeKey(key));
+  }
+
+  /**
+   * Verifies that asCompositeKey wraps a non-CompositeKey value in a new single-element
+   * CompositeKey containing that value.
+   */
+  @Test
+  public void testAsCompositeKeyWrapsNonCompositeKey() {
+    var result = CompositeKey.asCompositeKey("hello");
+    assertEquals(1, result.getKeys().size());
+    assertEquals("hello", result.getKeys().get(0));
+  }
+
+  // ---- reset ---------------------------------------------------------------
+
+  /**
+   * Verifies that reset() clears all keys so the composite key can be reused,
+   * and that getKeys() afterwards returns an empty list.
+   */
+  @Test
+  public void testResetClearsAllKeys() {
+    var key = new CompositeKey();
+    key.addKey("x");
+    key.addKey("y");
+    assertEquals(2, key.getKeys().size());
+
+    key.reset();
+
+    assertEquals(0, key.getKeys().size());
+  }
+
+  // ---- addKeyDirect ---------------------------------------------------------
+
+  /**
+   * Verifies that addKeyDirect bypasses ChangeableIdentity tracking and simply appends
+   * the element to the key list — canChangeIdentity stays false.
+   */
+  @Test
+  public void testAddKeyDirectDoesNotTrackIdentity() {
+    var key = new CompositeKey();
+    key.addKeyDirect("immutableValue");
+
+    assertEquals(1, key.getKeys().size());
+    assertEquals("immutableValue", key.getKeys().get(0));
+    assertFalse("addKeyDirect must not trigger identity tracking", key.canChangeIdentity());
+  }
+
+  // ---- constructors ---------------------------------------------------------
+
+  /**
+   * Verifies the List-based constructor copies all elements in order.
+   */
+  @Test
+  public void testListConstructorCopiesElements() {
+    List<Object> elements = Arrays.asList("p", "q", "r");
+    var key = new CompositeKey(elements);
+    assertEquals(elements, key.getKeys());
+  }
+
+  /**
+   * Verifies the varargs constructor copies all elements in order.
+   */
+  @Test
+  public void testVarargsConstructorCopiesElements() {
+    var key = new CompositeKey(1, 2, 3);
+    assertEquals(Arrays.asList(1, 2, 3), key.getKeys());
+  }
+
+  /**
+   * Verifies the capacity constructor produces an empty key ready to accept addKey calls.
+   */
+  @Test
+  public void testCapacityConstructorProducesEmptyKey() {
+    var key = new CompositeKey(8);
+    assertEquals(0, key.getKeys().size());
+    key.addKey("x");
+    assertEquals(1, key.getKeys().size());
+  }
+
+  // ---- canChangeIdentity / identity-change listeners ------------------------
+
+  /**
+   * Verifies that a CompositeKey with only plain (non-ChangeableIdentity) values
+   * reports canChangeIdentity() == false.
+   */
+  @Test
+  public void testCanChangeIdentityFalseForPlainValues() {
+    var key = new CompositeKey("a", 42);
+    assertFalse(key.canChangeIdentity());
+  }
+
+  /**
+   * Verifies that addIdentityChangeListener and removeIdentityChangeListener are
+   * no-ops when canChangeIdentity() is false — the listener is not registered and
+   * the remove does not throw.
+   */
+  @Test
+  public void testAddRemoveIdentityChangeListenerNoOpWhenNotChangeable() {
+    var key = new CompositeKey("stable");
+    AtomicInteger callCount = new AtomicInteger(0);
+    IdentityChangeListener listener = new IdentityChangeListener() {
+      @Override
+      public void onBeforeIdentityChange(Object source) {
+        callCount.incrementAndGet();
+      }
+
+      @Override
+      public void onAfterIdentityChange(Object source) {
+        callCount.incrementAndGet();
+      }
+    };
+
+    // Should be a no-op — key is not changeable
+    key.addIdentityChangeListener(listener);
+    key.removeIdentityChangeListener(listener);
+
+    assertEquals("No listener calls expected for a non-changeable key", 0, callCount.get());
+  }
+
+  // ---- toString -------------------------------------------------------------
+
+  /**
+   * Verifies that toString returns a non-null string that mentions the keys.
+   */
+  @Test
+  public void testToStringContainsKeys() {
+    var key = new CompositeKey("alpha", "beta");
+    var str = key.toString();
+    assertTrue(str.contains("alpha"));
+    assertTrue(str.contains("beta"));
   }
 
   @Test

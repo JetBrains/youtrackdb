@@ -8,11 +8,18 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Gauge;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import java.util.AbstractSet;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -1013,10 +1020,10 @@ public class StaleTransactionMonitorTest {
     var executor = new FakeScheduledExecutor();
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(1);
+    assertThat(executor.scheduledCount.get()).isEqualTo(1);
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(1); // should not schedule again
+    assertThat(executor.scheduledCount.get()).isEqualTo(1); // should not schedule again
   }
 
   /**
@@ -1047,24 +1054,281 @@ public class StaleTransactionMonitorTest {
     var executor = new FakeScheduledExecutor();
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(1);
+    assertThat(executor.scheduledCount.get()).isEqualTo(1);
 
     monitor.stop();
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(2);
+    assertThat(executor.scheduledCount.get()).isEqualTo(2);
+  }
+
+  /**
+   * Multi-threaded crash-freedom probe for
+   * {@link StaleTransactionMonitor#start(ScheduledExecutorService)} under concurrent entry. The
+   * production code uses a non-atomic check of the volatile {@code scheduledFuture} field
+   * (read-then-set) and currently relies on the caller holding
+   * {@code AbstractStorage.stateLock} write lock for redundant-schedule prevention; the
+   * redundant-schedule contract under that locking is already pinned by the single-thread
+   * {@code testStartIsIdempotent} (asserts schedule count == 1 after the second {@code start()}).
+   *
+   * <p>This probe verifies only that concurrent {@code start()} calls without external
+   * synchronization (a) do not throw, (b) do not deadlock, and (c) leave the monitor in a
+   * consistent post-race state where a subsequent {@code start()} is a no-op (volatile
+   * publication is observed). The schedule-count upper bound is asserted as
+   * {@code <= racerCount} because the field is read-then-set rather than CAS-guarded — multiple
+   * racers can legitimately observe the field as null before the first writer's store becomes
+   * visible, and the empirical count varies with hardware and scheduler. When the production
+   * guard in {@code start()} is hardened to AtomicReference.compareAndSet, this bound can be
+   * tightened to <= 1.
+   *
+   * <p>The probe uses a {@link CyclicBarrier} to synchronise thread start so all racers attempt
+   * the {@code start()} call as close together as possible, an {@link AtomicReference} for any
+   * worker exception, and a 5 s join timeout to fail fast on hangs.
+   */
+  @Test
+  public void testStartIdempotentUnderConcurrentRace() throws Exception {
+    int racerCount = 8;
+    var monitor = createMonitor();
+    var executor = new FakeScheduledExecutor();
+
+    var startBarrier = new CyclicBarrier(racerCount);
+    var error = new AtomicReference<Throwable>();
+    var racers = new ArrayList<Thread>(racerCount);
+
+    for (int i = 0; i < racerCount; i++) {
+      var t = new Thread(() -> {
+        try {
+          // Synchronise so all racers call start() as close together as possible.
+          startBarrier.await(5, TimeUnit.SECONDS);
+          monitor.start(executor);
+        } catch (Throwable th) {
+          error.compareAndSet(null, th);
+        }
+      });
+      t.setName("start-racer-" + i);
+      t.setDaemon(true);
+      racers.add(t);
+    }
+
+    racers.forEach(Thread::start);
+    for (var r : racers) {
+      r.join(5_000);
+      assertThat(r.isAlive()).as("racer %s should finish", r.getName()).isFalse();
+    }
+
+    if (error.get() != null) {
+      throw new AssertionError("Racer thread failure", error.get());
+    }
+
+    // Production behaviour today: the read-then-set in start() permits a benign race so the
+    // schedule count may exceed 1 when multiple racers observe the field as null before the
+    // first writer's store becomes visible. The strict upper bound is N (every racer can in
+    // principle observe null in the worst case); empirical counts vary with hardware and
+    // scheduler. The redundant-schedule contract is pinned by the single-thread idempotency
+    // test, so this MT probe asserts only crash-freedom and at-least-1 progress — until the
+    // production guard is hardened to AtomicReference.compareAndSet, a stricter bound is
+    // empirically flaky.
+    assertThat(executor.scheduledCount.get())
+        .as("at least one racer must have scheduled")
+        .isGreaterThanOrEqualTo(1);
+    assertThat(executor.scheduledCount.get())
+        .as("upper bound is racerCount: every racer can observe null before "
+            + "the first writer's store becomes visible")
+        .isLessThanOrEqualTo(racerCount);
+
+    // After the race, a subsequent start() must be a no-op because scheduledFuture
+    // is now non-null on the racing thread that wrote last (visibility guaranteed by
+    // the volatile field). Capture the current count and verify it does not change.
+    int afterRaceCount = executor.scheduledCount.get();
+    monitor.start(executor);
+    assertThat(executor.scheduledCount.get())
+        .as("post-race start() must be a no-op (volatile read sees non-null future)")
+        .isEqualTo(afterRaceCount);
+  }
+
+  /**
+   * Sequential start/stop cycle pin: every {@code start()} after a {@code stop()} schedules a
+   * fresh future, so the executor's schedule count must equal the cycle count. The last
+   * {@code stop()} must leave {@code scheduledFuture} cancelled. Verifies the lifecycle
+   * correctly nulls {@code scheduledFuture} so that later {@code start()} calls always
+   * schedule.
+   */
+  @Test
+  public void testRepeatedStartStopCycles() throws Exception {
+    int cycles = 20;
+    var monitor = createMonitor();
+    var executor = new FakeScheduledExecutor();
+
+    var ready = new CountDownLatch(1);
+    var done = new AtomicInteger();
+    var error = new AtomicReference<Throwable>();
+
+    var t = new Thread(() -> {
+      try {
+        ready.await();
+        for (int i = 0; i < cycles; i++) {
+          monitor.start(executor);
+          monitor.stop();
+          done.incrementAndGet();
+        }
+      } catch (Throwable th) {
+        error.compareAndSet(null, th);
+      }
+    });
+    t.setDaemon(true);
+    t.start();
+
+    ready.countDown();
+    t.join(5_000);
+    assertThat(t.isAlive()).isFalse();
+    if (error.get() != null) {
+      throw new AssertionError(error.get());
+    }
+    assertThat(done.get()).isEqualTo(cycles);
+    assertThat(executor.scheduledCount.get()).isEqualTo(cycles);
+    // The last stop() must have left scheduledFuture cancelled.
+    assertThat(executor.lastFuture.cancelled).isTrue();
+  }
+
+  /**
+   * Crash-freedom probe for the {@code start()} ↔ {@code stop()} race. Two threads under a
+   * {@link CyclicBarrier} simultaneously call {@code start()} and {@code stop()} on the same
+   * monitor across many iterations; the test asserts only that no thread throws, no thread
+   * deadlocks (each iteration completes inside a short timeout), and the final state is
+   * deterministic (the monitor is either running with a non-null future or stopped — not in a
+   * half-initialised intermediate state). This pins the lifecycle's robustness under contended
+   * entry, complementing the sequential start/stop coverage above.
+   *
+   * <p>This is not a strict ordering contract: depending on which thread wins the race in any
+   * given iteration, the post-iteration {@code scheduledFuture} may be null (stop won) or a
+   * cancelled future (start won and the trailing stop cancelled it). Both outcomes are valid;
+   * neither corrupts subsequent iterations.
+   */
+  @Test
+  public void testConcurrentStartAgainstStopRace() throws Exception {
+    int iterations = 50;
+    var monitor = createMonitor();
+    var executor = new FakeScheduledExecutor();
+    var error = new AtomicReference<Throwable>();
+
+    for (int i = 0; i < iterations; i++) {
+      var barrier = new CyclicBarrier(2);
+
+      var starter = new Thread(() -> {
+        try {
+          barrier.await(5, TimeUnit.SECONDS);
+          monitor.start(executor);
+        } catch (Throwable th) {
+          error.compareAndSet(null, th);
+        }
+      });
+      starter.setName("start-vs-stop-starter-" + i);
+      starter.setDaemon(true);
+
+      var stopper = new Thread(() -> {
+        try {
+          barrier.await(5, TimeUnit.SECONDS);
+          monitor.stop();
+        } catch (Throwable th) {
+          error.compareAndSet(null, th);
+        }
+      });
+      stopper.setName("start-vs-stop-stopper-" + i);
+      stopper.setDaemon(true);
+
+      starter.start();
+      stopper.start();
+
+      // Per-iteration timeout: deadlock detection. Each thread must finish inside the
+      // budget; otherwise the loop would hang indefinitely after a regression.
+      starter.join(2_000);
+      stopper.join(2_000);
+      assertThat(starter.isAlive())
+          .as("starter for iteration %d must finish within timeout", i)
+          .isFalse();
+      assertThat(stopper.isAlive())
+          .as("stopper for iteration %d must finish within timeout", i)
+          .isFalse();
+
+      if (error.get() != null) {
+        throw new AssertionError(
+            "start/stop racer thread failure on iteration " + i, error.get());
+      }
+
+      // Reset the monitor for the next iteration: ensure stopped state regardless of who
+      // won the race so the next iteration starts from a deterministic baseline.
+      monitor.stop();
+    }
+
+    // Final-state determinism: after the last forced stop above, scheduledFuture must be
+    // cancelled (or null — stop on a never-started monitor is a no-op). The total schedule
+    // count is bounded above by the iteration count plus one extra reset stop per iteration
+    // (which schedules nothing); a regression that double-schedules under contention would
+    // exceed this bound.
+    assertThat(executor.scheduledCount.get())
+        .as("scheduling count must not exceed one per iteration")
+        .isLessThanOrEqualTo(iterations);
+    if (executor.lastFuture != null) {
+      assertThat(executor.lastFuture.cancelled)
+          .as("the last scheduled future must be cancelled after the final stop()")
+          .isTrue();
+    }
   }
 
   // --- run() wraps exceptions ---
 
   /**
-   * The run() method catches exceptions from doCheck() and logs them instead of propagating.
+   * The {@link StaleTransactionMonitor#run()} method catches all exceptions thrown from
+   * {@code doCheck()} and logs them instead of propagating, so the scheduler can keep firing.
+   * This test injects a faulty {@code tsMins} Set whose {@code iterator()} throws a
+   * RuntimeException; the production code reaches the iteration during its low-water-mark
+   * scan, and run() must swallow the exception. Without the production try/catch the
+   * exception would propagate out of run() and the test would fail. After the failed run, the
+   * sibling-healthy assertion is non-vacuous: the shared {@code tsMins} field is pre-populated
+   * with one active holder, so a working {@code run()} on the healthy monitor must observe
+   * {@code activeTxCount == 1}, NOT the trivial empty-set default.
    */
   @Test
   public void testRunDoesNotPropagateExceptions() {
-    var monitor = createMonitor();
-    // run() should not throw even if tsMins iteration encounters issues
-    monitor.run();
+    // The injected faulty Set is a synthetic AbstractSet whose iterator() throws — this is
+    // distinct from the production ConcurrentHashMap.KeySetView's weakly-consistent iteration
+    // contract. The path under test is the broad try/catch wrapper inside run(), not
+    // ConcurrentHashMap iteration semantics.
+    Set<TsMinHolder> faultyTsMins = new AbstractSet<>() {
+      @Override
+      public Iterator<TsMinHolder> iterator() {
+        throw new RuntimeException("boom from faulty tsMins.iterator()");
+      }
+
+      @Override
+      public int size() {
+        return 0;
+      }
+    };
+
+    var faultyMonitor = new StaleTransactionMonitor(
+        "test", faultyTsMins, snapshotIndexSize, idGen, ticker, config, registry);
+
+    // run() must NOT propagate the RuntimeException from iterator(). If it did, this call
+    // would throw and the test would fail.
+    faultyMonitor.run();
+
+    // Pre-populate the shared tsMins field with one active holder before the healthy monitor
+    // runs. This makes the post-run assertion below observably falsifiable: a regression that
+    // accidentally swallows the catch block's resumption (e.g. removing the metric update
+    // path) would leave activeTxCount at the default 0, while a working run() over a Set with
+    // one active holder must observe 1.
+    var holder = createActiveHolder(TimeUnit.SECONDS.toNanos(5));
+    tsMins.add(holder);
+    idGen.setStartId(100);
+    idGen.nextId();
+
+    var healthyMonitor = createMonitor();
+    healthyMonitor.run();
+    assertThat(activeTxCount.getValue())
+        .as("healthy monitor must still update metrics with the seeded active holder "
+            + "after sibling monitor's faulty run()")
+        .isEqualTo(1);
   }
 
   // --- Diagnostic fields on TsMinHolder ---
@@ -1315,17 +1579,21 @@ public class StaleTransactionMonitorTest {
 
   /**
    * A fake ScheduledExecutorService that records calls without actually scheduling.
+   * {@code scheduledCount} is an {@link AtomicInteger} so concurrent racers in
+   * {@link #testStartIdempotentUnderConcurrentRace} cannot drop increments via the
+   * non-atomic {@code i++} read-modify-write pattern; {@code lastFuture} is volatile so
+   * cross-thread reads see the latest write.
    */
   private static final class FakeScheduledExecutor
       implements ScheduledExecutorService {
 
-    int scheduledCount;
-    FakeScheduledFuture lastFuture;
+    final AtomicInteger scheduledCount = new AtomicInteger();
+    volatile FakeScheduledFuture lastFuture;
 
     @Override
     public ScheduledFuture<?> scheduleWithFixedDelay(
         Runnable command, long initialDelay, long delay, TimeUnit unit) {
-      scheduledCount++;
+      scheduledCount.incrementAndGet();
       lastFuture = new FakeScheduledFuture();
       return lastFuture;
     }
@@ -1426,7 +1694,7 @@ public class StaleTransactionMonitorTest {
   private static final class FakeScheduledFuture
       implements ScheduledFuture<Void> {
 
-    boolean cancelled;
+    volatile boolean cancelled;
 
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {

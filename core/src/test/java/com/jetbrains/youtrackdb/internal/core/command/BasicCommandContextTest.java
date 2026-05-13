@@ -1,10 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.command;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import java.lang.reflect.Field;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -79,9 +82,21 @@ public class BasicCommandContextTest extends DbTestBase {
    * Verifies that setVariable for a variable that exists in the parent context
    * propagates to the parent, except for "current" and "parent" which are bound
    * locally.
+   *
+   * <p>Falsifiability: the earlier iter-1 strengthening used {@link BasicCommandContext#hasVariable}
+   * to pin the storage location, but {@code hasVariable} walks UP the parent chain — from the
+   * child it always returns {@code true} regardless of where the write landed, and from the
+   * parent it also returns {@code true} because the parent seeded "shared" earlier. The
+   * combined check was a tautology (see TB1 iter-2 gate-check). We fix the pin by reflecting
+   * into the {@code private Map<String,Object> variables} field of both contexts and asserting
+   * the exact storage location: after propagation, the parent's local map must hold "updated",
+   * and the child's local map must NOT contain a "shared" entry at all. A regression that
+   * routed the write to the child's own map would be caught here — {@code parent.getVariable}
+   * would still return "fromParent" (its stale local), AND the child's local map would hold
+   * "shared" = "updated".
    */
   @Test
-  public void testSetVariableExistingInParent() {
+  public void testSetVariableExistingInParent() throws Exception {
     var parent = new BasicCommandContext(session);
     var child = new BasicCommandContext(session);
     parent.setChild(child);
@@ -90,7 +105,31 @@ public class BasicCommandContextTest extends DbTestBase {
 
     // Setting "shared" in child should propagate to parent
     child.setVariable("shared", "updated");
-    assertEquals("updated", parent.getVariable("shared"));
+    assertEquals("parent sees the updated value", "updated", parent.getVariable("shared"));
+    // Pin the exact storage location via direct-map inspection (not hasVariable which walks up).
+    final Map<String, Object> parentLocal = readVariables(parent);
+    final Map<String, Object> childLocal = readVariables(child);
+    assertEquals(
+        "parent's local map must hold the propagated value",
+        "updated",
+        parentLocal.get("shared"));
+    assertFalse(
+        "child's local map must NOT hold a 'shared' entry — write propagated to parent",
+        childLocal.containsKey("shared"));
+  }
+
+  /**
+   * Test-only helper that reflects into the private {@code variables} field of
+   * {@link BasicCommandContext} to read its local map directly, bypassing the parent-chain
+   * walk performed by {@code getVariables()} (which merges child + local). Used to pin the
+   * exact storage location for propagation tests where the public API cannot distinguish.
+   */
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> readVariables(BasicCommandContext ctx) throws Exception {
+    final Field f = BasicCommandContext.class.getDeclaredField("variables");
+    f.setAccessible(true);
+    final var raw = (Map<String, Object>) f.get(ctx);
+    return raw == null ? Map.of() : raw;
   }
 
   /**
@@ -161,5 +200,54 @@ public class BasicCommandContextTest extends DbTestBase {
 
     // "ROOT.$greeting" should navigate to root, then resolve "greeting"
     assertEquals("hello", child.getVariable("$ROOT.$greeting"));
+  }
+
+  /**
+   * Verifies the DB-dependent dot-path branch at {@code BasicCommandContext.java:184-188}:
+   * when {@code getVariable} receives a path like {@code "entity.fieldName"} and the prefix
+   * resolves to an Entity-like value (not a CommandContext and not {@code $PARENT}/{@code $ROOT}),
+   * the suffix is forwarded to {@link
+   * com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper#getFieldValue} with a live
+   * session, which reads the named property off the entity. The active transaction is required
+   * because {@code EntityHelper.getIdentifiableValue} calls {@code session.getActiveTransaction()}
+   * on the read path.
+   */
+  @Test
+  public void testGetVariableDotPathResolvesFieldOnEmbeddedEntity() {
+    session.begin();
+    try {
+      var entity = session.newEmbeddedEntity();
+      entity.setProperty("nickname", "Alice");
+
+      var ctx = new BasicCommandContext(session);
+      ctx.setVariable("person", entity);
+
+      // Forwards to EntityHelper.getFieldValue(session, entity, "nickname", ctx) — the
+      // session-required slow path. Cannot be covered without a DbTestBase.
+      assertEquals("Alice", ctx.getVariable("person.nickname"));
+    } finally {
+      if (session.isTxActive()) {
+        session.commit();
+      }
+    }
+  }
+
+  /**
+   * Verifies the DB-dependent {@code $PARENT.fieldName} branch at {@code BasicCommandContext.java:
+   * 159-161}: the suffix is resolved against the parent CommandContext itself via
+   * {@link com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper#getFieldValue}, which
+   * requires a session. On a parent that is also a {@link BasicCommandContext}, looking up a
+   * non-existent reflective field returns {@code null} rather than throwing — this pin locks in
+   * the observed shape so any change to raise an error is detected.
+   */
+  @Test
+  public void testParentDotPathEntityHelperReturnsNullForUnknownField() {
+    var parent = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    parent.setChild(child);
+
+    // "$PARENT.noSuchField" hits the EntityHelper path on the parent object; there is no such
+    // field on BasicCommandContext, and the current behavior is to return null quietly.
+    assertNull(child.getVariable("$PARENT.noSuchField"));
   }
 }

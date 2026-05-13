@@ -1047,4 +1047,162 @@ public class PaginatedCollectionV2OptimisticReadTest {
       }
     });
   }
+
+  // --- PaginatedCollectionV2 metadata methods ---
+
+  /**
+   * toString() must return a non-null, non-empty string that includes the collection name
+   * so it is identifiable in logs.
+   */
+  @Test
+  public void testToString() {
+    var s = collection.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must include the collection name",
+        s.contains("optReadCollection"));
+  }
+
+  /**
+   * encryption() must return null for a non-encrypted collection.
+   */
+  @Test
+  public void testEncryptionReturnsNull() {
+    Assert.assertNull("non-encrypted collection must return null encryption",
+        collection.encryption());
+  }
+
+  /**
+   * Pins the close() contract: close() must flush in-memory state to disk and release the
+   * collection's file handles cleanly.
+   *
+   * <p>The original version of this test only asserted "close() does not throw" — that
+   * assertion was satisfied by an empty close() body, leaving the actual flush-and-close
+   * contract unverified. This test now reads the inserted record back AFTER close() and a
+   * fresh open() and asserts the bytes match what was written: this fails if close() left
+   * state un-flushed (the new collection instance would not see the record) or if close()
+   * left file handles in a state that reopen() rejects.
+   *
+   * <p>The companion test {@code testOpenReloadsStateFromDisk} covers the related but
+   * distinct scenario where the entire DB is closed and reopened (full read-cache
+   * eviction). This test covers the narrower scope: close()-only on the collection,
+   * with the underlying database still open, exercising the flush-and-close path
+   * without involving DB-level eviction.
+   */
+  @Test
+  public void testCloseAndReopen() throws IOException {
+    // Insert a record so there is something to flush.
+    final byte[] data = {1, 2, 3};
+    final var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
+    // close() must not throw.
+    collection.close();
+
+    // Re-open. If close() did not flush the record's storage state to the underlying
+    // pages (or if it left file handles in a bad state), the open() call below will
+    // either throw or the readRecord() that follows will return stale/null data.
+    collection = new PaginatedCollectionV2("optReadCollection", storage);
+    collection.configure(55, "optReadCollection");
+    atomicOps().executeInsideAtomicOperation(op -> collection.open(op));
+
+    // Read back the previously-inserted record to verify close() did persist the state.
+    // A close() that didn't actually do anything (empty body) would leave the new
+    // collection instance unaware of the pre-close insert; readRecord would either
+    // return null or throw, and this assertion would fail.
+    final var buf = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
+    Assert.assertNotNull("Record must be readable after close+reopen", buf);
+    Assert.assertArrayEquals(
+        "Record bytes after close+reopen must match what was inserted before close",
+        data, buf.buffer());
+  }
+
+  /**
+   * setRecordConflictStrategy() must install the named strategy so a subsequent
+   * getRecordConflictStrategy() returns a strategy whose name matches what was set.
+   *
+   * <p>The previous version of this test only asserted that toString() did not throw
+   * after the call — that pin was satisfied even by an empty setRecordConflictStrategy
+   * body (and even by Object.toString()). The current shape pins the round-trip
+   * (set → get) so a regression that drops the assignment is detectable.
+   */
+  @Test
+  public void testSetRecordConflictStrategy() {
+    // "version" is a valid built-in conflict strategy in YouTrackDB.
+    collection.setRecordConflictStrategy("version");
+
+    // The collection must now report "version" as its active strategy.
+    var strategy = collection.getRecordConflictStrategy();
+    Assert.assertNotNull("getRecordConflictStrategy must return a non-null strategy after set",
+        strategy);
+    Assert.assertEquals("strategy name must round-trip set -> get",
+        "version", strategy.getName());
+  }
+
+  /**
+   * setCollectionName() must rename the backing files AND keep the collection usable
+   * for subsequent reads. The previous version of this test only asserted that
+   * toString() contained the new name — a no-op rename that updated the in-memory
+   * label but skipped writeCache.renameFile / collectionPositionMap.rename /
+   * freeSpaceMap.rename / dirtyPageBitSet.rename would still pass that pin.
+   *
+   * <p>The current shape exercises the full rename path by reading back a record
+   * inserted before the rename: if any of the file-system rename operations is
+   * dropped or mis-routed, readRecord either returns null/zero bytes (because the
+   * collection looks for files under the new name that were never moved) or throws.
+   */
+  @Test
+  public void testSetCollectionName() throws IOException {
+    // Insert a record so the collection has files to rename and a payload to read back.
+    final byte[] data = {7, 8, 9, 10, 11};
+    final var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
+    // Rename the collection — this must update writeCache, collectionPositionMap,
+    // freeSpaceMap, and dirtyPageBitSet.
+    collection.setCollectionName("renamedOptReadCollection");
+
+    // The collection's reported name must be updated.
+    Assert.assertEquals("getName must reflect the new collection name",
+        "renamedOptReadCollection", collection.getName());
+
+    // Reading back the record after rename exercises the full file-system rename:
+    // the read path resolves files via the new name; if any rename was dropped,
+    // the read either fails or returns wrong bytes.
+    final var buf = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
+    Assert.assertNotNull("Record must be readable after rename", buf);
+    Assert.assertArrayEquals(
+        "Record bytes after rename must match what was inserted before rename",
+        data, buf.buffer());
+
+    // Rename back so @After tearDown can clean up normally.
+    collection.setCollectionName("optReadCollection");
+    Assert.assertEquals("getName must reflect the restored collection name",
+        "optReadCollection", collection.getName());
+  }
+
+  /**
+   * open() via flushToReadCache() exercises the open() lambda (the 23 uncovered lines in
+   * lambda$open$1) by closing and reopening the database, then calling collection.open().
+   * This test verifies that open() correctly reloads the collection state from disk and
+   * that subsequently inserted records are readable.
+   */
+  @Test
+  public void testOpenReloadsStateFromDisk() throws IOException {
+    // Insert a record before the close/reopen cycle.
+    byte[] data = {42, 43, 44};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
+    // Close and reopen the DB (exercises open() lambda).
+    flushToReadCache();
+
+    // The record inserted before reopen must still be readable.
+    var buf = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
+    Assert.assertNotNull(buf);
+    Assertions.assertThat(buf.buffer()).isEqualTo(data);
+  }
 }

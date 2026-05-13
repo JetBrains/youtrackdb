@@ -26,6 +26,95 @@ public class RidbagBucketSimpleOpsTest {
     PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
   }
 
+  // ---- Direct-memory-safe one-page and two-page helpers ----
+
+  @FunctionalInterface
+  private interface SinglePageAction {
+    void run(CacheEntry entry, CachePointer cp);
+  }
+
+  @FunctionalInterface
+  private interface TwoPageAction {
+    void run(CacheEntry entry1, CachePointer cp1, CacheEntry entry2, CachePointer cp2);
+  }
+
+  /**
+   * Allocates one raw cache entry (page) for a single-page test, runs the action, and
+   * releases deterministically — even if the {@link CacheEntryImpl} construction or
+   * the {@link CacheEntry#acquireExclusiveLock()} call throws.
+   *
+   * <p>The {@code try} block opens immediately after the {@code incrementReferrer()},
+   * so a throw between increment and lock-acquire still routes through the
+   * {@code finally} that calls {@code decrementReferrer()}. Without this scoping the
+   * referrer count would leak and the page tracker (enabled via
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true} in {@code core/pom.xml})
+   * would call {@code System.exit(1)} at JVM shutdown.
+   *
+   * <p>This mirrors the safety contract pinned by the iter-1 {@link #withTwoPages}
+   * helper, applied to the single-page redo-suppression tests below.
+   */
+  private static void withSinglePage(SinglePageAction action) {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp = new CachePointer(pointer, bufferPool, 0, 0);
+    cp.incrementReferrer();
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
+      entry.acquireExclusiveLock();
+      try {
+        action.run(entry, cp);
+      } finally {
+        entry.releaseExclusiveLock();
+      }
+    } finally {
+      cp.decrementReferrer();
+    }
+  }
+
+  /**
+   * Allocates two raw cache entries (page1 + page2) for a redo-correctness comparison test,
+   * runs the action, and releases both deterministically — even if the second allocation
+   * throws.
+   *
+   * <p>The {@code try} block opens immediately after entry-1 is allocated, so if entry-2's
+   * setup fails (e.g., out-of-direct-memory mid-allocation), the {@code finally} releases
+   * entry-1's referrer. Without this scoping, entry-1 would leak and the page tracker
+   * (enabled via {@code -Dyoutrackdb.memory.directMemory.trackMode=true} in {@code core/pom.xml})
+   * would call {@code System.exit(1)} at JVM shutdown, aborting the surefire JVM and masking
+   * the real failure as "Tests run: 0".
+   */
+  private static void withTwoPages(TwoPageAction action) {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cp1.incrementReferrer();
+    try {
+      CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
+      entry1.acquireExclusiveLock();
+      try {
+        var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+        var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
+        cp2.incrementReferrer();
+        try {
+          CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
+          entry2.acquireExclusiveLock();
+          try {
+            action.run(entry1, cp1, entry2, cp2);
+          } finally {
+            entry2.releaseExclusiveLock();
+          }
+        } finally {
+          cp2.decrementReferrer();
+        }
+      } finally {
+        entry1.releaseExclusiveLock();
+      }
+    } finally {
+      cp1.decrementReferrer();
+    }
+  }
+
   // ---- Record ID verification ----
 
   @Test
@@ -186,85 +275,33 @@ public class RidbagBucketSimpleOpsTest {
   /** init(leaf): apply directly on page1, redo on page2. Byte-level identical. */
   @Test
   public void testInitOpRedoCorrectness_leaf() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       new Bucket(entry1).init(true);
       new RidbagBucketInitOp(0, 0, 0, new LogSequenceNumber(0, 0), true)
           .redo(new Bucket(entry2));
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertTrue(new Bucket(entry2).isLeaf());
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   /** init(non-leaf): apply directly on page1, redo on page2. */
   @Test
   public void testInitOpRedoCorrectness_nonLeaf() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       new Bucket(entry1).init(false);
       new RidbagBucketInitOp(0, 0, 0, new LogSequenceNumber(0, 0), false)
           .redo(new Bucket(entry2));
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertFalse(new Bucket(entry2).isLeaf());
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   /** switchBucketType: leaf → non-leaf. */
   @Test
   public void testSwitchBucketTypeOpRedoCorrectness() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       // Init both as leaf (empty)
       new Bucket(entry1).init(true);
       new Bucket(entry2).init(true);
@@ -278,32 +315,13 @@ public class RidbagBucketSimpleOpsTest {
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertFalse(new Bucket(entry2).isLeaf());
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   /** setLeftSibling: set a specific page index. */
   @Test
   public void testSetLeftSiblingOpRedoCorrectness() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       new Bucket(entry1).init(true);
       new Bucket(entry2).init(true);
 
@@ -313,32 +331,13 @@ public class RidbagBucketSimpleOpsTest {
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertEquals(42L, new Bucket(entry2).getLeftSibling());
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   /** setRightSibling: set a specific page index. */
   @Test
   public void testSetRightSiblingOpRedoCorrectness() {
-    var bufferPool = ByteBufferPool.instance(null);
-
-    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
-    cp1.incrementReferrer();
-    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
-    entry1.acquireExclusiveLock();
-
-    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
-    cp2.incrementReferrer();
-    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
-    entry2.acquireExclusiveLock();
-
-    try {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
       new Bucket(entry1).init(true);
       new Bucket(entry2).init(true);
 
@@ -348,35 +347,26 @@ public class RidbagBucketSimpleOpsTest {
 
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertEquals(99L, new Bucket(entry2).getRightSibling());
-    } finally {
-      entry1.releaseExclusiveLock();
-      entry2.releaseExclusiveLock();
-      cp1.decrementReferrer();
-      cp2.decrementReferrer();
-    }
+    });
   }
 
   // ---- Redo suppression ----
 
   @Test
   public void testRedoSuppression_initDoesNotRegister() {
-    var bufferPool = ByteBufferPool.instance(null);
-    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp = new CachePointer(pointer, bufferPool, 0, 0);
-    cp.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
-    entry.acquireExclusiveLock();
-    try {
+    // Routed through withSinglePage so a throw between incrementReferrer and the
+    // lock acquire (e.g., out-of-direct-memory at CacheEntryImpl construction) still
+    // releases the referrer. The previous shape opened the try block AFTER the
+    // entry construction and lock-acquire, so a throw at either site would have
+    // leaked the referrer and aborted the surefire JVM via the page tracker.
+    withSinglePage((entry, cp) -> {
       var bucket = new Bucket(entry);
       bucket.init(true);
       Assert.assertTrue(bucket.isLeaf());
       Assert.assertTrue(bucket.isEmpty());
       Assert.assertEquals(-1L, bucket.getLeftSibling());
       Assert.assertEquals(-1L, bucket.getRightSibling());
-    } finally {
-      entry.releaseExclusiveLock();
-      cp.decrementReferrer();
-    }
+    });
   }
 
   // ---- Equals/hashCode ----
@@ -415,5 +405,50 @@ public class RidbagBucketSimpleOpsTest {
     Assert.assertEquals(op1, op2);
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
     Assert.assertNotEquals(op1, op3);
+  }
+
+  // ---- toString coverage for all simple ops ----
+
+  /**
+   * toString() on all four simple bucket ops must render the simple class name plus its
+   * op-specific fields. Each pin is op-specific so a regression that drops the @Override
+   * (or rewires it to a stale field) is detectable.
+   */
+  @Test
+  public void testAllSimpleOpsToString() {
+    var lsn = new LogSequenceNumber(1, 10);
+
+    // InitOp.toString() appends isLeaf.
+    var init = new RidbagBucketInitOp(1, 2, 3, lsn, true).toString();
+    Assert.assertTrue("toString must name InitOp: " + init,
+        init.contains("RidbagBucketInitOp"));
+    Assert.assertTrue("InitOp.toString must include isLeaf=true: " + init,
+        init.contains("isLeaf=true"));
+
+    // SwitchBucketTypeOp has no op-specific fields and its own toString() passes an
+    // empty append string, so only the class name and "lsn =" header survive in the
+    // output. Pin both pieces so a regression that drops AbstractWALRecord.toString()
+    // (and falls back to Object.toString()) is detectable.
+    var switchOp = new RidbagBucketSwitchBucketTypeOp(17, 2, 3, lsn).toString();
+    Assert.assertTrue("toString must name SwitchBucketTypeOp: " + switchOp,
+        switchOp.contains("RidbagBucketSwitchBucketTypeOp"));
+    Assert.assertTrue(
+        "SwitchBucketTypeOp.toString must include the inherited 'lsn =' header: "
+            + switchOp,
+        switchOp.contains("lsn ="));
+
+    // SetLeftSiblingOp.toString() appends pageIdx (the new left sibling's page index).
+    var setLeft = new RidbagBucketSetLeftSiblingOp(1, 2, 3, lsn, 19L).toString();
+    Assert.assertTrue("toString must name SetLeftSiblingOp: " + setLeft,
+        setLeft.contains("RidbagBucketSetLeftSiblingOp"));
+    Assert.assertTrue("SetLeftSiblingOp.toString must include pageIdx=19: " + setLeft,
+        setLeft.contains("pageIdx=19"));
+
+    // SetRightSiblingOp.toString() appends pageIdx (the new right sibling's page index).
+    var setRight = new RidbagBucketSetRightSiblingOp(1, 2, 3, lsn, 23L).toString();
+    Assert.assertTrue("toString must name SetRightSiblingOp: " + setRight,
+        setRight.contains("RidbagBucketSetRightSiblingOp"));
+    Assert.assertTrue("SetRightSiblingOp.toString must include pageIdx=23: " + setRight,
+        setRight.contains("pageIdx=23"));
   }
 }

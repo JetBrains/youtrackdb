@@ -106,11 +106,6 @@ public interface CommandContext {
   void setInputParameters(Map<Object, Object> inputParameters);
 
   /**
-   * Creates a copy of execution context.
-   */
-  CommandContext copy();
-
-  /**
    * Merges a context with current one.
    *
    * @param iContext the context to merge into this one

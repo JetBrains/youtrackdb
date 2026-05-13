@@ -29,18 +29,18 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Dynamic sql elements factory.
+ * Dynamic sql elements factory. Backs the runtime-mutable SPI surfaces consumed by
+ * {@link SQLEngine}: the static {@code FUNCTIONS} map for
+ * {@link SQLEngine#registerFunction}/{@link SQLEngine#unregisterFunction}, and the static
+ * {@code OPERATORS} set for {@link SQLEngine#registerOperator}.
  */
 public class DynamicSQLElementFactory
-    implements CommandExecutorSQLFactory, QueryOperatorFactory, SQLFunctionFactory {
+    implements QueryOperatorFactory, SQLFunctionFactory {
 
   // Used by SQLEngine to register on the fly new elements
   static final Map<String, Object> FUNCTIONS = new ConcurrentHashMap<String, Object>();
-  static final Map<String, Class<? extends CommandExecutorSQLAbstract>> COMMANDS =
-      new ConcurrentHashMap<String, Class<? extends CommandExecutorSQLAbstract>>();
   static final Set<QueryOperator> OPERATORS =
       Collections.synchronizedSet(new HashSet<QueryOperator>());
-
 
   @Override
   public void registerDefaultFunctions(DatabaseSessionEmbedded db) {
@@ -82,33 +82,6 @@ public class DynamicSQLElementFactory
                     + " errors"),
             e, session);
       }
-    }
-  }
-
-  @Override
-  public Set<String> getCommandNames() {
-    return COMMANDS.keySet();
-  }
-
-  @Override
-  public CommandExecutorSQLAbstract createCommand(final String name)
-      throws CommandExecutionException {
-    final var clazz = COMMANDS.get(name);
-
-    if (clazz == null) {
-      throw new CommandExecutionException("Unknown command name :" + name);
-    }
-
-    try {
-      return clazz.newInstance();
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new CommandExecutionException(
-              "Error in creation of command "
-                  + name
-                  + "(). Probably there is not an empty constructor or the constructor generates"
-                  + " errors"),
-          e, (String) null);
     }
   }
 

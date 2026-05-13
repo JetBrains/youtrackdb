@@ -1,0 +1,133 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+
+package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+
+import org.junit.Test;
+
+/**
+ * Pin the asymmetric error-handling between the two
+ * {@link RecordSerializerBinary#fromStream} overloads when the leading version byte
+ * is out of bounds:
+ *
+ * <ul>
+ *   <li>The {@code byte[]} overload at {@code RecordSerializerBinary.java:83} reads
+ *       the version byte from {@code iSource[0]} and indexes
+ *       {@code serializerByVersion[iSource[0]]} directly. An OOB version byte
+ *       (negative or {@code >= length}) throws
+ *       {@link ArrayIndexOutOfBoundsException} (un-decorated).
+ *   <li>The {@code ReadBytesContainer} overload at
+ *       {@code RecordSerializerBinary.java:118} explicitly validates
+ *       {@code serializerVersion} and throws {@link IllegalArgumentException} with
+ *       a descriptive message.
+ * </ul>
+ *
+ * <p>This is a regression-pinning test, not an endorsement of the asymmetry. The
+ * a future YTDB tracker issue should harmonise the two paths — the recommended fix is
+ * to validate in both overloads and throw the same {@link IllegalArgumentException}.
+ *
+ * <p>WHEN-FIXED: YTDB-724 — once the {@code byte[]} overload is
+ * updated to validate the version byte and throw a typed exception with a message,
+ * remove the {@link ArrayIndexOutOfBoundsException} expectation below and replace
+ * it with the {@link IllegalArgumentException} expectation that matches the other
+ * overload's behaviour.
+ *
+ * <p><strong>Security note:</strong> the {@code byte[]} overload's un-decorated
+ * AIOOBE pairs with the WARN-log diagnostic in {@code fromStream(byte[])}'s catch
+ * block (today), which Base64-encodes the entire un-validated input and writes it
+ * to a WARN log. Harmonising to a typed {@link IllegalArgumentException} thrown
+ * <em>before</em> the array index also short-circuits this log-amplification path —
+ * without the typed early exit, every malformed-leading-byte read writes O(N) of
+ * attacker-controlled bytes into the log file. The deferred-cleanup harmonisation
+ * is therefore a defense-in-depth fix as well as an error-shape consistency one.
+ *
+ * <p><strong>byte[]-overload AIOOBE pin deferred:</strong> a falsifiable test that
+ * actually triggers the byte[] overload's AIOOBE requires constructing a non-{@code
+ * Blob}, non-null {@link RecordAbstract} with a valid {@link RecordIdInternal} (the
+ * catch path calls {@code iRecord.getIdentity().toString()} for the WARN-log message)
+ * and a real {@link DatabaseSessionEmbedded}. This restructures the file from
+ * standalone into a {@code DbTestBase}-extending test. The future YTDB tracker issue
+ * that performs the actual harmonisation should add the pin at the same time it
+ * flips the {@code IllegalArgumentException} expectation, since both ends of the
+ * harmonisation land in lockstep.
+ */
+public class RecordSerializerBinaryVersionByteAsymmetryTest {
+
+  @Test
+  public void readBytesContainerOverloadRejectsNegativeVersion() {
+    var serializer = new RecordSerializerBinary();
+    var rbc = new ReadBytesContainer(new byte[] {0x01, 0x02});
+    var ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> serializer.fromStream(null, (byte) -1, rbc, null, null));
+    assertTrue(
+        "exception message must mention the offending version",
+        ex.getMessage() != null && ex.getMessage().contains("-1"));
+  }
+
+  @Test
+  public void readBytesContainerOverloadRejectsVersionAtArrayLength() {
+    // Number of supported versions is 1; passing 1 (== length) must reject.
+    var serializer = new RecordSerializerBinary();
+    var rbc = new ReadBytesContainer(new byte[] {0x01, 0x02});
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> serializer.fromStream(null, (byte) 1, rbc, null, null));
+  }
+
+  @Test
+  public void readBytesContainerOverloadRejectsVersionAboveArrayLength() {
+    var serializer = new RecordSerializerBinary();
+    var rbc = new ReadBytesContainer(new byte[] {0x01, 0x02});
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> serializer.fromStream(null, Byte.MAX_VALUE, rbc, null, null));
+  }
+
+  @Test
+  public void numberOfSupportedVersionsIsOne() {
+    // Pin: there is one record-format version registered today (V1). Adding V2 must
+    // be a deliberate plan-of-record change because every persisted record's leading
+    // byte will then be one of two values.
+    var serializer = new RecordSerializerBinary();
+    assertEquals(1, serializer.getNumberOfSupportedVersions());
+  }
+
+  @Test
+  public void getCurrentVersionMatchesExplicitlyPickedVersion() {
+    var explicit = new RecordSerializerBinary((byte) 0);
+    assertEquals(0, explicit.getCurrentVersion());
+    assertEquals(0, explicit.getMinSupportedVersion());
+
+    var defaulted = new RecordSerializerBinary();
+    assertEquals(0, defaulted.getCurrentVersion());
+  }
+
+  @Test
+  public void toStringIsTheSerializerName() {
+    var serializer = new RecordSerializerBinary();
+    assertEquals(RecordSerializerBinary.NAME, serializer.toString());
+    assertEquals("RecordSerializerBinary", RecordSerializerBinary.NAME);
+  }
+}

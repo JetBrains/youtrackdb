@@ -55,14 +55,51 @@ public class CollectionPositionMapBucketOpsTest {
     var pointer = BUFFER_POOL.acquireDirect(true, Intention.TEST);
     var cachePointer = new CachePointer(pointer, BUFFER_POOL, 0, 0);
     cachePointer.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
-    entry.acquireExclusiveLock();
-    return entry;
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+      entry.acquireExclusiveLock();
+      return entry;
+    } catch (RuntimeException | Error e) {
+      // If CacheEntryImpl constructor or acquireExclusiveLock throws, we still own the
+      // referrer increment from above — release it before propagating so the page tracker
+      // (enabled via -Dyoutrackdb.memory.directMemory.trackMode=true) does not report a
+      // leaked direct-memory page at JVM shutdown and abort surefire with System.exit(1).
+      cachePointer.decrementReferrer();
+      throw e;
+    }
   }
 
   private void releaseEntry(CacheEntry entry) {
-    entry.releaseExclusiveLock();
-    entry.getCachePointer().decrementReferrer();
+    try {
+      entry.releaseExclusiveLock();
+    } finally {
+      // Run the referrer release in finally so a buggy redo that corrupted entry state
+      // (causing releaseExclusiveLock to throw) does not leak the direct-memory referrer.
+      entry.getCachePointer().decrementReferrer();
+    }
+  }
+
+  /**
+   * Allocates a pair of cache entries for a two-page redo test, runs the action, and releases
+   * both entries deterministically — even if entry-2 allocation throws (which would otherwise
+   * leak entry-1's referrer and trigger the page-tracker JVM abort under
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true}).
+   *
+   * <p>The {@code try} block opens immediately after entry-1 is allocated, so a failure in
+   * entry-2 setup unwinds through the {@code finally} that releases entry-1.
+   */
+  private void withTwoPages(java.util.function.BiConsumer<CacheEntry, CacheEntry> action) {
+    var entry1 = createRawCacheEntry();
+    try {
+      var entry2 = createRawCacheEntry();
+      try {
+        action.accept(entry1, entry2);
+      } finally {
+        releaseEntry(entry2);
+      }
+    } finally {
+      releaseEntry(entry1);
+    }
   }
 
   // --- Record ID tests ---
@@ -91,9 +128,10 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testInitRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    // Use withTwoPages so a failure between the two acquireDirect() calls cannot leak
+    // entry1's referrer (which would trigger the page-tracker JVM abort under
+    // -Dyoutrackdb.memory.directMemory.trackMode=true).
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
 
@@ -101,10 +139,7 @@ public class CollectionPositionMapBucketOpsTest {
       new CollectionPositionMapBucketInitOp(0, 0, 0, new LogSequenceNumber(0, 0)).redo(page2);
 
       Assert.assertEquals(page1.getSize(), page2.getSize());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- AllocateOp ---
@@ -122,9 +157,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testAllocateRedoDeterministic() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       var idx1 = page1.allocate();
@@ -137,10 +170,7 @@ public class CollectionPositionMapBucketOpsTest {
       Assert.assertEquals(idx1, 0); // First allocate always returns 0
       Assert.assertEquals(page1.getSize(), page2.getSize());
       Assert.assertEquals(page1.getStatus(0), page2.getStatus(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- SetOp ---
@@ -177,9 +207,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testSetRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       page1.allocate();
@@ -198,10 +226,7 @@ public class CollectionPositionMapBucketOpsTest {
       Assert.assertEquals(e1.getPageIndex(), e2.getPageIndex());
       Assert.assertEquals(e1.getRecordPosition(), e2.getRecordPosition());
       Assert.assertEquals(e1.getRecordVersion(), e2.getRecordVersion());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- RemoveOp ---
@@ -224,9 +249,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testRemoveRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       page1.allocate();
@@ -242,10 +265,7 @@ public class CollectionPositionMapBucketOpsTest {
 
       Assert.assertEquals(page1.getStatus(0), page2.getStatus(0));
       Assert.assertEquals(page1.getRecordVersionAt(0), page2.getRecordVersionAt(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   /**
@@ -300,9 +320,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testUpdateVersionRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       page1.allocate();
@@ -318,10 +336,7 @@ public class CollectionPositionMapBucketOpsTest {
 
       Assert.assertEquals(55L, page1.getRecordVersionAt(0));
       Assert.assertEquals(55L, page2.getRecordVersionAt(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- Redo suppression ---
@@ -370,6 +385,245 @@ public class CollectionPositionMapBucketOpsTest {
 
     var op3 = new CollectionPositionMapBucketSetOp(5, 10, 15, lsn, 0, 42, 7, 100L);
     Assert.assertNotEquals(op1, op3);
+  }
+
+  // --- toString coverage for all 5 ops ---
+
+  @Test
+  public void testInitOpToString() {
+    // InitOp inherits PageOperation.toString() (no op-specific fields and no own
+    // override). Pin the class name and the initialLsn segment/position values —
+    // a regression that dropped PageOperation.toString() would lose the initialLsn
+    // substring and fall back to AbstractWALRecord's null-LSN format.
+    var op = new CollectionPositionMapBucketInitOp(
+        7, 11, 3, new LogSequenceNumber(31, 37));
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketInitOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=31"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=37"));
+  }
+
+  @Test
+  public void testAllocateOpToString() {
+    // AllocateOp also inherits PageOperation.toString(). Pin the class name plus the
+    // initialLsn values for the same reasoning as InitOp.
+    var op = new CollectionPositionMapBucketAllocateOp(
+        1, 13, 3, new LogSequenceNumber(41, 43));
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketAllocateOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=41"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=43"));
+  }
+
+  @Test
+  public void testSetOpToString() {
+    // SetOp.toString() appends index, entryPageIndex, recordPosition, recordVersion.
+    // Use distinct values so the substring checks are unambiguous.
+    var op = new CollectionPositionMapBucketSetOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, 19, 23, 29L);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketSetOp"));
+    Assert.assertTrue("toString must include index=17: " + s, s.contains("index=17"));
+    Assert.assertTrue("toString must include entryPageIndex=19: " + s,
+        s.contains("entryPageIndex=19"));
+    Assert.assertTrue("toString must include recordPosition=23: " + s,
+        s.contains("recordPosition=23"));
+    Assert.assertTrue("toString must include recordVersion=29: " + s,
+        s.contains("recordVersion=29"));
+  }
+
+  @Test
+  public void testRemoveOpToString() {
+    // RemoveOp.toString() appends index and deletionVersion.
+    var op = new CollectionPositionMapBucketRemoveOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, 31L);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketRemoveOp"));
+    Assert.assertTrue("toString must include index=17: " + s, s.contains("index=17"));
+    Assert.assertTrue("toString must include deletionVersion=31: " + s,
+        s.contains("deletionVersion=31"));
+  }
+
+  @Test
+  public void testUpdateVersionOpToString() {
+    // UpdateVersionOp.toString() appends index and recordVersion.
+    var op = new CollectionPositionMapBucketUpdateVersionOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, 37L);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketUpdateVersionOp"));
+    Assert.assertTrue("toString must include index=17: " + s, s.contains("index=17"));
+    Assert.assertTrue("toString must include recordVersion=37: " + s,
+        s.contains("recordVersion=37"));
+  }
+
+  // --- PositionEntry equals / hashCode / toString ---
+
+  @Test
+  public void testPositionEntryEqualsHashCodeToString() {
+    // Two PositionEntry instances with the same fields must be equal and have the same hashCode.
+    var e1 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 99L);
+    var e2 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 99L);
+    Assert.assertEquals(e1, e2);
+    Assert.assertEquals(e1.hashCode(), e2.hashCode());
+
+    // Different pageIndex makes them unequal.
+    var e3 = new CollectionPositionMapBucket.PositionEntry(11L, 5, 99L);
+    Assert.assertNotEquals(e1, e3);
+
+    // Different recordPosition makes them unequal.
+    var e4 = new CollectionPositionMapBucket.PositionEntry(10L, 6, 99L);
+    Assert.assertNotEquals(e1, e4);
+
+    // Different recordVersion makes them unequal.
+    var e5 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 100L);
+    Assert.assertNotEquals(e1, e5);
+
+    // toString must render the labelled field values per the production override
+    // ("PositionEntry{pageIndex=…, recordPosition=…, recordVersion=…}"). Bare digit
+    // checks ("5", "10") would match accidentally (e.g., a "5" in the LSN); using the
+    // labelled form makes the pin specific to the override under test.
+    var labelled = new CollectionPositionMapBucket.PositionEntry(101L, 53, 997L);
+    var str = labelled.toString();
+    Assert.assertTrue("toString must include pageIndex=101: " + str,
+        str.contains("pageIndex=101"));
+    Assert.assertTrue("toString must include recordPosition=53: " + str,
+        str.contains("recordPosition=53"));
+    Assert.assertTrue("toString must include recordVersion=997: " + str,
+        str.contains("recordVersion=997"));
+    // The PositionEntry@<hash> default is also explicitly excluded — the prefix must be
+    // the named record format, not Object.toString().
+    Assert.assertTrue("toString must use the PositionEntry record prefix: " + str,
+        str.startsWith("PositionEntry{"));
+  }
+
+  // --- add() method ---
+
+  @Test
+  public void testAddMethodWritesEntryDirectly() {
+    // add() writes a raw entry (status, pageIndex, recordPosition, recordVersion)
+    // without registering a WAL op. The written entry should be readable via
+    // getEntryWithStatus() and getRecordVersionAt().
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+
+      // Write two entries using add() with FILLED and REMOVED status.
+      var idx0 = bucket.add(42L, 7, 100L, CollectionPositionMapBucket.FILLED);
+      var idx1 = bucket.add(99L, 3, 200L, CollectionPositionMapBucket.REMOVED);
+
+      Assert.assertEquals(0, idx0);
+      Assert.assertEquals(1, idx1);
+      Assert.assertEquals(2, bucket.getSize());
+
+      // FILLED entry should be readable as a PositionEntry.
+      var e0 = bucket.getEntryWithStatus(idx0);
+      Assert.assertEquals(CollectionPositionMapBucket.FILLED, e0.status());
+      Assert.assertNotNull(e0.entry());
+      Assert.assertEquals(42L, e0.entry().getPageIndex());
+      Assert.assertEquals(7, e0.entry().getRecordPosition());
+      Assert.assertEquals(100L, e0.entry().getRecordVersion());
+
+      // REMOVED entry should carry the deletion version.
+      var e1 = bucket.getEntryWithStatus(idx1);
+      Assert.assertEquals(CollectionPositionMapBucket.REMOVED, e1.status());
+      Assert.assertNotNull(e1.entry());
+      Assert.assertEquals(99L, e1.entry().getPageIndex());
+
+      // Confirm getRecordVersionAt returns the stored version.
+      Assert.assertEquals(100L, bucket.getRecordVersionAt(idx0));
+      Assert.assertEquals(200L, bucket.getRecordVersionAt(idx1));
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  // --- getEntryWithStatus() edge cases ---
+
+  @Test
+  public void testGetEntryWithStatusOutOfBoundsReturnsNotExistent() {
+    // getEntryWithStatus() on an index past the bucket size must return NOT_EXISTENT
+    // and a null entry — this exercises the index-out-of-range branch.
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+
+      // Bucket is empty; querying index 0 must return NOT_EXISTENT.
+      var status = bucket.getEntryWithStatus(0);
+      Assert.assertEquals(CollectionPositionMapBucket.NOT_EXISTENT, status.status());
+      Assert.assertNull(status.entry());
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  @Test
+  public void testGetEntryWithStatusAllocatedReturnsNullEntry() {
+    // An ALLOCATED slot should return ALLOCATED status and a null entry because
+    // the slot has not been filled yet — exercises the ALLOCATED branch in
+    // getEntryWithStatus().
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+      bucket.allocate();
+
+      var status = bucket.getEntryWithStatus(0);
+      Assert.assertEquals(CollectionPositionMapBucket.ALLOCATED, status.status());
+      Assert.assertNull(status.entry());
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  // --- exists() method ---
+
+  @Test
+  public void testExistsReturnsTrueForFilledEntry() {
+    // exists() must return true for a FILLED slot and false for an index past
+    // the bucket size (the out-of-range branch).
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+      bucket.allocate();
+      bucket.set(0, new CollectionPositionMapBucket.PositionEntry(42L, 7, 100L));
+
+      Assert.assertTrue(bucket.exists(0));
+
+      // Out-of-range index must return false.
+      Assert.assertFalse(bucket.exists(1));
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  @Test
+  public void testExistsReturnsFalseForRemovedEntry() {
+    // exists() must return false for an entry that has been removed — exercises
+    // the non-FILLED branch in exists().
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+      bucket.allocate();
+      bucket.set(0, new CollectionPositionMapBucket.PositionEntry(42L, 7, 100L));
+      bucket.remove(0, 999L);
+
+      Assert.assertFalse(bucket.exists(0));
+    } finally {
+      releaseEntry(entry);
+    }
   }
 
   @Test

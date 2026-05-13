@@ -1,8 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.Arrays;
 import java.util.Collections;
 import org.junit.After;
@@ -118,5 +121,101 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
   @Test
   public void testClassName() {
     Assert.assertEquals("testClass", propertyIndex.getClassName());
+  }
+
+  // ---- toCreateIndexDDL -----------------------------------------------------
+
+  /**
+   * Verifies that toCreateIndexDDL produces a valid CREATE INDEX DDL string containing
+   * the index name, type, class, and property field.
+   */
+  @Test
+  public void testToCreateIndexDDL() {
+    var ddl = propertyIndex.toCreateIndexDDL("myIdx", "UNIQUE", null);
+    Assert.assertTrue(ddl.contains("myIdx"));
+    Assert.assertTrue(ddl.contains("UNIQUE"));
+    Assert.assertTrue(ddl.contains("testClass"));
+    Assert.assertTrue(ddl.contains("fOne"));
+  }
+
+  /**
+   * Verifies that toCreateIndexDDL includes the engine name when provided.
+   */
+  @Test
+  public void testToCreateIndexDDLWithEngine() {
+    var ddl = propertyIndex.toCreateIndexDDL("myIdx", "UNIQUE", "LUCENE");
+    Assert.assertTrue(ddl.contains("LUCENE"));
+  }
+
+  // ---- getFieldsToIndex with collate ----------------------------------------
+
+  /**
+   * Verifies that getFieldsToIndex returns just the field name when the collate is
+   * the default (no collate suffix appended).
+   */
+  @Test
+  public void testGetFieldsToIndexDefaultCollate() {
+    var fields = propertyIndex.getFieldsToIndex();
+    Assert.assertEquals(1, fields.size());
+    Assert.assertEquals("fOne", fields.get(0));
+  }
+
+  /**
+   * Verifies that getFieldsToIndex appends the collate name when a non-default collate
+   * is configured, so the index manager can use the full field specifier.
+   */
+  @Test
+  public void testGetFieldsToIndexWithCaseInsensitiveCollate() {
+    propertyIndex.setCollate(SQLEngine.getCollate(CaseInsensitiveCollate.NAME));
+    var fields = propertyIndex.getFieldsToIndex();
+    Assert.assertEquals(1, fields.size());
+    Assert.assertTrue("Field spec should include collate name",
+        fields.get(0).contains(CaseInsensitiveCollate.NAME));
+  }
+
+  // ---- setCollate(String) ---------------------------------------------------
+
+  /**
+   * Verifies that setCollate(String) with null defaults to the DefaultCollate.
+   */
+  @Test
+  public void testSetCollateStringNullDefaultsToDefault() {
+    propertyIndex.setCollate((String) null);
+    Assert.assertEquals(DefaultCollate.NAME, propertyIndex.getCollate().getName());
+  }
+
+  /**
+   * Verifies that setCollate(String) with the CI collate name installs the CI collate.
+   */
+  @Test
+  public void testSetCollateStringCaseInsensitive() {
+    propertyIndex.setCollate(CaseInsensitiveCollate.NAME);
+    Assert.assertEquals(CaseInsensitiveCollate.NAME, propertyIndex.getCollate().getName());
+  }
+
+  // ---- isAutomatic ----------------------------------------------------------
+
+  /**
+   * Verifies that PropertyIndexDefinition is automatic when bound to a schema class
+   * property (it attaches to schema-driven indexing).
+   */
+  @Test
+  public void testIsAutomatic() {
+    Assert.assertTrue(propertyIndex.isAutomatic());
+  }
+
+  // ---- toString -------------------------------------------------------------
+
+  /**
+   * Verifies that toString returns a non-null string that contains the class name,
+   * field, and key type.
+   */
+  @Test
+  public void testToStringContainsFields() {
+    var str = propertyIndex.toString();
+    Assert.assertNotNull(str);
+    Assert.assertTrue(str.contains("testClass"));
+    Assert.assertTrue(str.contains("fOne"));
+    Assert.assertTrue(str.contains("INTEGER"));
   }
 }

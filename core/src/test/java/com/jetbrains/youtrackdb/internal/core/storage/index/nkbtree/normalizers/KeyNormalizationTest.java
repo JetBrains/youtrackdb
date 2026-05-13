@@ -598,7 +598,7 @@ public class KeyNormalizationTest {
 
   @Test
   public void normalizeCompositeBinary() {
-    final var key = new byte[]{1, 2, 3, 4, 5, 6};
+    final var key = new byte[] {1, 2, 3, 4, 5, 6};
 
     final var compositeKey = new CompositeKey();
     compositeKey.addKey(key);
@@ -615,10 +615,10 @@ public class KeyNormalizationTest {
 
   @Test
   public void normalizeCompositeBinaryCompare() {
-    final var smallest = getNormalizedKeySingle(new byte[]{1, 2, 3, 4, 5, 6},
+    final var smallest = getNormalizedKeySingle(new byte[] {1, 2, 3, 4, 5, 6},
         PropertyType.BINARY);
-    final var middle = getNormalizedKeySingle(new byte[]{2, 2, 3, 4, 5, 6}, PropertyType.BINARY);
-    final var biggest = getNormalizedKeySingle(new byte[]{3, 2, 3, 4, 5, 6},
+    final var middle = getNormalizedKeySingle(new byte[] {2, 2, 3, 4, 5, 6}, PropertyType.BINARY);
+    final var biggest = getNormalizedKeySingle(new byte[] {3, 2, 3, 4, 5, 6},
         PropertyType.BINARY);
     compareWithUnsafeByteArrayComparator(smallest, middle, biggest);
     compareWithByteArrayComparator(smallest, middle, biggest);
@@ -649,6 +649,22 @@ public class KeyNormalizationTest {
     compositeKey.addKey(key);
     Assert.assertEquals(1, compositeKey.getKeys().size());
     return compositeKey;
+  }
+
+  /**
+   * Passing a {@link PropertyTypeInternal} that has no registered normalizer (e.g. LINK)
+   * causes {@link KeyNormalizer#normalize} to throw {@link UnsupportedOperationException}.
+   * This exercises the {@code keyNormalizer == null} branch in
+   * {@code normalizeCompositeKeys}.
+   */
+  @Test(expected = UnsupportedOperationException.class)
+  public void normalizeUnsupportedTypeThrows() {
+    final var compositeKey = new CompositeKey();
+    compositeKey.addKey("ignored");
+    // LINK is not registered in KeyNormalizer's normalizer map;
+    // normalizeCompositeKeys() throws UnsupportedOperationException for it.
+    final var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK};
+    keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   private void compareWithByteArrayComparator(byte[] negative, byte[] zero, byte[] positive) {

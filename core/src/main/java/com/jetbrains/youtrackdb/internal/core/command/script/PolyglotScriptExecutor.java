@@ -30,8 +30,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
     implements ResourcePoolListener<DatabaseSessionEmbedded, Context> {
 
   private final ScriptTransformer transformer;
-  protected ConcurrentHashMap<String, ResourcePool<DatabaseSessionEmbedded, Context>>
-      contextPools =
+  protected ConcurrentHashMap<String, ResourcePool<DatabaseSessionEmbedded, Context>> contextPools =
       new ConcurrentHashMap<>();
 
   public PolyglotScriptExecutor(final String language, ScriptTransformer scriptTransformer) {
@@ -108,8 +107,6 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
 
   @Override
   public ResultSet execute(DatabaseSessionEmbedded database, String script, Object... params) {
-    preExecute(database, script, params);
-
     var par = new Int2ObjectOpenHashMap<Object>();
 
     for (var i = 0; i < params.length; i++) {
@@ -120,9 +117,6 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
 
   @Override
   public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
-
-    preExecute(database, script, params);
-
     final var scriptManager =
         database.getSharedContext().getYouTrackDB().getScriptManager();
 

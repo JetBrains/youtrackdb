@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -329,12 +328,6 @@ public class CountFromIndexWithKeyStepTest extends TestUtilsFixture {
 
   private SQLIndexIdentifier createIndexIdentifier() {
     return new SQLIndexIdentifier(indexName, SQLIndexIdentifier.Type.INDEX);
-  }
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
   }
 
   /**

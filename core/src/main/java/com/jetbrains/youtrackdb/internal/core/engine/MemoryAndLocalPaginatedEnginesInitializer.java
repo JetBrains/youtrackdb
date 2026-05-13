@@ -100,7 +100,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
     long diskCacheInMB;
     if (osMemory.insideContainer) {
       final var additionalArgs =
-          new Object[]{
+          new Object[] {
               GlobalConfiguration.MEMORY_LEFT_TO_CONTAINER.getValueAsString(),
               GlobalConfiguration.MEMORY_LEFT_TO_CONTAINER.getKey()
           };
@@ -120,7 +120,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
               / (1024 * 1024);
     } else {
       final var additionalArgs =
-          new Object[]{
+          new Object[] {
               GlobalConfiguration.MEMORY_LEFT_TO_OS.getValueAsString(),
               GlobalConfiguration.MEMORY_LEFT_TO_OS.getKey()
           };
@@ -279,11 +279,17 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
   }
 
   private void warningInvalidMemoryLeftValue(String parameter, String memoryLeft) {
+    // Format args were also swapped relative to the message — the format string reads
+    // "Invalid value of '<parameter>' parameter ('<memoryLeft>') ...", so parameter must
+    // come first. Casting both args to Object also disambiguates the varargs call so
+    // a null `memoryLeft` cannot be re-routed to the (Object, String dbName, String
+    // message, Object... args) overload in SLF4JLogManager, which would NPE on
+    // requireNonNull(message).
     LogManager.instance()
         .warn(
             this,
             "Invalid value of '%s' parameter ('%s') memory limit will not be decreased",
-            memoryLeft,
-            parameter);
+            (Object) parameter,
+            (Object) memoryLeft);
   }
 }

@@ -186,6 +186,186 @@ public class IdentifiableMultiValueTest {
     Assert.assertEquals(0, result.length);
   }
 
+  // --- getSize with Map, null, and single values ---
+
+  @Test
+  public void testGetSizeMap() {
+    var map = new HashMap<String, Object>();
+    map.put("a", 1);
+    map.put("b", 2);
+    Assert.assertEquals(2, MultiValue.getSize(map));
+  }
+
+  @Test
+  public void testGetSizeNull() {
+    // Null should return 0.
+    Assert.assertEquals(0, MultiValue.getSize(null));
+  }
+
+  @Test
+  public void testGetSizeNonMultiValue() {
+    // A plain object that is not a collection/array/map returns 0.
+    Assert.assertEquals(0, MultiValue.getSize("hello"));
+  }
+
+  // --- isEmpty ---
+
+  @Test
+  public void testIsEmptyWithEmptyCollection() {
+    Assert.assertTrue(MultiValue.isEmpty(new ArrayList<>()));
+  }
+
+  @Test
+  public void testIsEmptyWithNonEmptyCollection() {
+    var list = new ArrayList<String>();
+    list.add("a");
+    Assert.assertFalse(MultiValue.isEmpty(list));
+  }
+
+  @Test
+  public void testIsEmptyWithEmptyArray() {
+    Assert.assertTrue(MultiValue.isEmpty(new String[] {}));
+  }
+
+  @Test
+  public void testIsEmptyWithNonEmptyArray() {
+    Assert.assertFalse(MultiValue.isEmpty(new String[] {"a"}));
+  }
+
+  // --- getFirstValue / getLastValue with maps ---
+
+  @Test
+  public void testGetFirstValueMap() {
+    // For a Map, getFirstValue returns the first value from the entry set.
+    var map = new LinkedHashMap<String, Object>();
+    map.put("x", 10);
+    map.put("y", 20);
+    Assert.assertEquals(10, MultiValue.getFirstValue(map));
+  }
+
+  @Test
+  public void testGetLastValueMap() {
+    var map = new LinkedHashMap<String, Object>();
+    map.put("x", 10);
+    map.put("y", 20);
+    Assert.assertEquals(20, MultiValue.getLastValue(map));
+  }
+
+  // --- getFirstValue / getLastValue with null / empty ---
+
+  @Test
+  public void testGetFirstValueNull() {
+    Assert.assertNull(MultiValue.getFirstValue(null));
+  }
+
+  @Test
+  public void testGetLastValueNull() {
+    Assert.assertNull(MultiValue.getLastValue(null));
+  }
+
+  @Test
+  public void testGetFirstValueEmptyList() {
+    Assert.assertNull(MultiValue.getFirstValue(new ArrayList<>()));
+  }
+
+  @Test
+  public void testGetLastValueEmptyList() {
+    Assert.assertNull(MultiValue.getLastValue(new ArrayList<>()));
+  }
+
+  // --- add to collection ---
+
+  @Test
+  public void testAddSingleValueToCollection() {
+    var list = new ArrayList<Object>();
+    MultiValue.add(list, "item");
+    Assert.assertEquals(1, list.size());
+    Assert.assertEquals("item", list.get(0));
+  }
+
+  @Test
+  public void testAddMultipleValues() {
+    var list = new ArrayList<Object>();
+    MultiValue.add(list, "a");
+    MultiValue.add(list, "b");
+    MultiValue.add(list, "c");
+    Assert.assertEquals(java.util.Arrays.asList("a", "b", "c"), list);
+  }
+
+  // --- remove with allOccurrences flag ---
+
+  @Test
+  public void testRemoveAllOccurrences() {
+    var list = new ArrayList<Object>();
+    list.add("a");
+    list.add("b");
+    list.add("a");
+    list.add("c");
+    MultiValue.remove(list, "a", true);
+    Assert.assertEquals(java.util.Arrays.asList("b", "c"), list);
+  }
+
+  // --- isEmpty with null and Map ---
+
+  @Test
+  public void testIsEmptyWithNull() {
+    Assert.assertTrue(MultiValue.isEmpty(null));
+  }
+
+  @Test
+  public void testIsEmptyWithEmptyMap() {
+    Assert.assertTrue(MultiValue.isEmpty(new HashMap<>()));
+  }
+
+  @Test
+  public void testIsEmptyWithNonEmptyMap() {
+    var map = new HashMap<String, Object>();
+    map.put("k", "v");
+    Assert.assertFalse(MultiValue.isEmpty(map));
+  }
+
+  // --- getFirstValue / getLastValue with empty arrays ---
+
+  @Test
+  public void testGetFirstValueEmptyArray() {
+    Assert.assertNull(MultiValue.getFirstValue(new String[] {}));
+  }
+
+  @Test
+  public void testGetLastValueEmptyArray() {
+    // getLastValue relies on RuntimeException catch for empty arrays
+    // (ArrayIndexOutOfBoundsException from Array.get with index -1).
+    Assert.assertNull(MultiValue.getLastValue(new String[] {}));
+  }
+
+  // --- add to array ---
+
+  @Test
+  public void testAddSingleValueToArray() {
+    // Adding to an array returns a new, larger array.
+    Object[] base = new Object[] {"a", "b"};
+    Object[] result = (Object[]) MultiValue.add(base, "c");
+    Assert.assertEquals(3, result.length);
+    Assert.assertEquals("a", result[0]);
+    Assert.assertEquals("b", result[1]);
+    Assert.assertEquals("c", result[2]);
+    // Original array is unchanged.
+    Assert.assertEquals(2, base.length);
+  }
+
+  @Test
+  public void testRemoveFirstOccurrenceOnly() {
+    var list = new ArrayList<Object>();
+    list.add("a");
+    list.add("b");
+    list.add("a");
+    MultiValue.remove(list, "a", false);
+    Assert.assertEquals(2, list.size());
+    // First "a" removed, second "a" remains.
+    Assert.assertEquals("b", list.get(0));
+    Assert.assertEquals("a", list.get(1));
+  }
+
   /**
    * Stub that implements both Iterable and Identifiable — used to verify that isMultiValue returns
    * false for such types (a record that happens to be iterable is not a multi-value collection).

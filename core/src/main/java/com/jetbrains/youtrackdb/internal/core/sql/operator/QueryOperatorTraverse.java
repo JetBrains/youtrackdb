@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.query.QueryRuntimeValueMulti;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemFieldAll;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemFieldAny;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -132,7 +133,7 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
                 return true;
               }
             }
-          } else if (cfgField.equalsIgnoreCase(SQLFilterItemFieldAny.FULL_NAME)) {
+          } else if (cfgField.equalsIgnoreCase(SQLFilterItemFieldAll.FULL_NAME)) {
             // ALL
             for (final var fieldName : target.propertyNames()) {
               if (!traverse(
@@ -198,7 +199,7 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
     final var start = !iParams.isEmpty() ? Integer.parseInt(iParams.get(0)) : startDeepLevel;
     final var end = iParams.size() > 1 ? Integer.parseInt(iParams.get(1)) : endDeepLevel;
 
-    var fields = new String[]{"any()"};
+    var fields = new String[] {"any()"};
     if (iParams.size() > 2) {
       var f = iParams.get(2);
       if (f.startsWith("'") || f.startsWith("\"")) {
@@ -233,14 +234,12 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
         "%s(%d,%d,%s)", keyword, startDeepLevel, endDeepLevel, Arrays.toString(cfgFields));
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getBeginRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }

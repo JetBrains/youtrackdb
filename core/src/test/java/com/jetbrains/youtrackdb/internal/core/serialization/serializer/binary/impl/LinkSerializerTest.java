@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.i
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -106,7 +107,8 @@ public class LinkSerializerTest {
 
     Assert.assertEquals(
         linkSerializer.deserializeFromByteBufferObject(serializerFactory, serializationOffset,
-            buffer), OBJECT);
+            buffer),
+        OBJECT);
     Assert.assertEquals(0, buffer.position());
   }
 
@@ -132,5 +134,77 @@ public class LinkSerializerTest {
         OBJECT);
 
     Assert.assertEquals(0, buffer.position());
+  }
+
+  @Test
+  public void testIdAndFixedLengthContract() {
+    // ID 9 is the byte the BinarySerializerFactory uses to dispatch this serializer at
+    // deserialise time. The on-disk byte size is fixed at FIELD_SIZE (10 bytes — short
+    // collectionId + long collectionPosition, regardless of value width). Pin both so a
+    // regression that breaks SBTree forward-compat or factory dispatch fails loudly.
+    Assert.assertEquals((byte) 9, linkSerializer.getId());
+    Assert.assertTrue(linkSerializer.isFixedLength());
+    Assert.assertEquals(FIELD_SIZE, linkSerializer.getFixedLength());
+  }
+
+  @Test
+  public void testStaticGetObjectSizeMatchesFieldSize() {
+    // staticGetObjectSize() is a static convenience accessor used by callers that do not
+    // hold a serializer instance — pin its return value against the canonical FIELD_SIZE.
+    Assert.assertEquals(FIELD_SIZE, LinkSerializer.staticGetObjectSize());
+  }
+
+  @Test
+  public void testPreprocessReturnsIdentityWhenValueIsNonNull() {
+    // preprocess delegates to value.getIdentity(). Passing a RID (which is its own identity)
+    // pins that the result equals the input — exercises the non-null branch.
+    Assert.assertEquals(OBJECT, linkSerializer.preprocess(serializerFactory, OBJECT));
+  }
+
+  @Test
+  public void testPreprocessReturnsNullWhenValueIsNull() {
+    // The null branch short-circuits at the top of preprocess. This pins the contract used by
+    // index-layer normalisation when a position is intentionally null.
+    Assert.assertNull(linkSerializer.preprocess(serializerFactory, null));
+  }
+
+  @Test
+  public void testRecordIdRejectsClusterIdAboveShortMax() {
+    // The on-wire format reserves 16 bits for the clusterId; this serializer casts
+    // `(short) r.getCollectionId()` unconditionally in serialize / serializeNativeObject.
+    // The cast would silently truncate cluster ids > Short.MAX_VALUE — but RecordId's
+    // constructor rejects oversized cluster ids first via checkCollectionLimits, so the
+    // cast is never reachable through the public RID API. Pin the upstream rejection so
+    // a regression that loosened the constructor guard would fail here before the
+    // silent truncation in the serializer became observable. WHEN-FIXED — when the wire
+    // format eventually widens beyond 16 bits, both the constructor check and the
+    // serializer cast must relax in lockstep, and this pin gets updated.
+    final var oversizedClusterId = Short.MAX_VALUE + 1; // 32768
+    Assert.assertThrows(DatabaseException.class, () -> new RecordId(oversizedClusterId, 100L));
+  }
+
+  @Test
+  public void testRecordIdMaximumClusterIdRoundTripsThroughLinkSerializer() {
+    // Maximum legitimate cluster id (Short.MAX_VALUE = 32767) is right on the boundary
+    // of the on-wire short representation. Pinning a round-trip at the limit catches
+    // a regression that off-by-one'd the constructor guard or that mis-encoded the
+    // top of the unsigned-vs-signed boundary in serialize/deserialize.
+    final var maxClusterId = (int) Short.MAX_VALUE;
+    final var rid = new RecordId(maxClusterId, 12345L);
+
+    final var stream = new byte[FIELD_SIZE];
+    linkSerializer.serialize(rid, serializerFactory, stream, 0);
+    final var roundTripped = linkSerializer.deserialize(serializerFactory, stream, 0);
+    Assert.assertEquals(
+        "max-cluster portable round-trip preserves cluster id", maxClusterId,
+        roundTripped.getCollectionId());
+
+    final var nativeStream = new byte[FIELD_SIZE];
+    linkSerializer.serializeNativeObject(rid, serializerFactory, nativeStream, 0);
+    final var nativeRoundTripped =
+        linkSerializer.deserializeNativeObject(serializerFactory, nativeStream, 0);
+    Assert.assertEquals(
+        "max-cluster native round-trip preserves cluster id", maxClusterId,
+        nativeRoundTripped.getCollectionId());
   }
 }

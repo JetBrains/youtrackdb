@@ -20,16 +20,14 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
- * Scheduler interface. <<<<<<< HEAD
+ * Scheduler interface.
  *
  * @since Mar 28, 2013
  */
 public interface Scheduler {
 
   enum STATUS {
-    RUNNING,
-    STOPPED,
-    WAITING
+    RUNNING, STOPPED, WAITING
   }
 
   /**
@@ -63,22 +61,4 @@ public interface Scheduler {
    * @param eventName Event's name
    */
   ScheduledEvent getEvent(String eventName);
-
-  /**
-   * Loads the scheduled events from database in memory and schedule them.
-   */
-  @Deprecated
-  void load();
-
-  /**
-   * Shuts down the scheduler.
-   */
-  @Deprecated
-  void close();
-
-  /**
-   * Creates the scheduler classes on database.
-   */
-  @Deprecated
-  void create();
 }

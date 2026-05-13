@@ -20,9 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptDatabaseWrapper;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -30,7 +28,6 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.query.BasicLegacyResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.query.LegacyResultSet;
-import java.io.IOException;
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.Map;
@@ -131,32 +128,21 @@ public class SQLScriptEngine implements ScriptEngine {
 
   @Override
   public Object eval(Reader reader, Bindings n) throws ScriptException {
-    DatabaseSessionEmbedded session = null;
-    if (n != null) {
-      session = (DatabaseSessionEmbedded) n.get("db");
-    }
-    if (session == null) {
-      throw new CommandExecutionException("No database available in bindings");
-    }
-
-    final var buffer = new StringBuilder();
-    try {
-      while (reader.ready()) {
-        buffer.append((char) reader.read());
-      }
-    } catch (IOException e) {
-      throw new ScriptException(e);
-    }
-
-    return new CommandScript(buffer.toString()).execute(session, n);
+    // Reader-based script evaluation is not supported. Callers must provide the script as a
+    // String via eval(String, Bindings) — every Reader overload (eval(Reader),
+    // eval(Reader, ScriptContext)) routes here and is therefore equally unsupported. The
+    // legacy implementation delegated to a CommandScript executor that has since been removed
+    // as dead code; rather than retain the transitive infrastructure, the contract is now an
+    // explicit refusal so misuses surface immediately instead of silently mis-executing.
+    throw new UnsupportedOperationException(
+        "Reader-based script evaluation is not supported; use eval(String, Bindings) instead");
   }
 
   @Override
   public void put(String key, Object value) {
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Object get(String key) {
     return null;
   }
@@ -175,8 +161,7 @@ public class SQLScriptEngine implements ScriptEngine {
     return new SimpleBindings();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public ScriptContext getContext() {
     return null;
   }
