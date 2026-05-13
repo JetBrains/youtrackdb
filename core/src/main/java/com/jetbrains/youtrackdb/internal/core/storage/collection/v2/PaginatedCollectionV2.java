@@ -2228,9 +2228,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * <p>If a previous transaction crashed after physically extending the file but before bumping
    * the logical file-size counter, the physical file may carry an orphan past the logical end.
    * The allocator-only contract would throw {@link IllegalStateException} for such a target
-   * rather than silently reuse it. This partial-replay-orphan recovery is the BC4 hazard
-   * deferred to Step 5 -- a future maintainer who hits the IllegalStateException can follow
-   * that thread.
+   * rather than silently reuse it -- the structural fix moves the partial-replay-orphan recovery
+   * hazard from silent reuse to a loud failure surface. End-to-end coverage of that recovery
+   * flow lives in the integration regression test.
    *
    * @param atomicOperation the current atomic operation context
    * @return a {@link CacheEntry} for the newly allocated page (caller must close it)
@@ -2246,8 +2246,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       // bookkeeping keep fileSize + 1 at or above the in-progress allocation
       // floor, satisfying loadOrAddPageForWrite's allocator-only contract: the
       // call registers a fresh overlay and throws IllegalStateException if the
-      // target is below the floor (BC4 partial-replay-orphan hazard deferred
-      // to Step 5).
+      // target is below the floor (partial-replay-orphan recovery: physical
+      // extent ahead of logical fileSize after a crash now surfaces as a hard
+      // failure rather than silent reuse).
       cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, fileSize + 1);
 
       collectionState.setFileSize(fileSize + 1);

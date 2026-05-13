@@ -5397,6 +5397,10 @@ public abstract class AbstractStorage
           // the migration to total loadOrAdd.
           final var cacheEntry =
               readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          // Asymmetric assert vs throw: see AtomicOperationBinaryTracking.commitChanges
+          // for the rationale. This WAL-replay site is disk-only because
+          // MemoryWriteAheadLog is a no-op, so -ea is sufficient; the in-memory-reachable
+          // commitChanges site throws unconditionally.
           assert cacheEntry != null
               : "readCache.loadOrAddForWrite returned null during WAL replay"
                   + " UpdatePageRecord branch for fileId=" + fileId
@@ -5471,6 +5475,11 @@ public abstract class AbstractStorage
           // the migration to total loadOrAdd.
           final var cacheEntry =
               readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          // -ea assert is sufficient on this disk-only WAL-replay site
+          // (MemoryWriteAheadLog is a no-op, so PageOperation never reaches the
+          // in-memory engine); the throw-vs-assert rationale is documented in
+          // AtomicOperationBinaryTracking.commitChanges, which throws because it is
+          // the only site reachable from the in-memory engine.
           assert cacheEntry != null
               : "readCache.loadOrAddForWrite returned null during WAL replay"
                   + " PageOperation branch for fileId=" + fileId

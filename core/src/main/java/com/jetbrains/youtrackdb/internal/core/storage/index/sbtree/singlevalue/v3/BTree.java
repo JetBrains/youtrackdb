@@ -2170,13 +2170,18 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             new CellBTreeSingleValueBucketV3<>(rightBucketEntry);
         entryPoint.setFreeListHead(bucket.getNextFreeListPage());
       } else {
-        // Probe collapse: pre-Track-1 the call site discriminated between
-        // "reuse the next pre-allocated pageIndex when filledUpTo is ahead of
-        // pagesSize" and "extend the file via addPage". loadOrAddPageForWrite
-        // is total over both shapes (Track 1's WriteCache.loadOrAdd handles
-        // load-or-install uniformly), so the per-component pre-probe is no
-        // longer required. The new pageIndex is dictated by the logical size
-        // bookkeeping carried on the entry point.
+        // loadOrAddPageForWrite registers a fresh overlay for any new pageIndex at
+        // or above the in-progress allocation floor (the entry-point write lock
+        // plus the monotonic pagesSize bookkeeping keep entryPoint.pagesSize + 1
+        // above the floor here), so the per-component pre-probe that previously
+        // discriminated between "reuse the next pre-allocated pageIndex when
+        // filledUpTo is ahead of pagesSize" and "extend the file via addPage" is
+        // no longer required. The new pageIndex is dictated by the logical size
+        // bookkeeping carried on the entry point. A partial-replay orphan
+        // (physical extent ahead of logical pagesSize after a crash) would
+        // surface as a hard IllegalStateException from the AO allocator-only
+        // guard rather than silent reuse; end-to-end recovery coverage lives in
+        // the integration regression test.
         final var newPageIndex = entryPoint.getPagesSize() + 1;
         rightBucketEntry =
             loadOrAddPageForWrite(atomicOperation, fileId, newPageIndex);

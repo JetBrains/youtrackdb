@@ -19,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryOnlyDiskCache;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -133,7 +132,8 @@ public class LoadOrAddPageForWriteTest {
 
     assertThatThrownBy(() -> op.loadOrAddPageForWrite(fileId, 9L))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("pageIndex 9");
+        .hasMessageContaining("pageIndex 9")
+        .hasMessageContaining("allocationFloor 10");
   }
 
   /**
@@ -306,11 +306,11 @@ public class LoadOrAddPageForWriteTest {
    * subsequent {@code loadOrAddPageForWrite} for the same {@code (fileId,
    * pageIndex)}. The new method's early-return short-circuits engine dispatch
    * entirely, so the allocator-only contract never fires on the second call
-   * even though the pageIndex is below {@code committedFilledUpTo} — the
+   * even though the pageIndex is below {@code allocationFloor} — the
    * existing overlay placed by {@code loadPageForWrite} takes precedence.
-   * This is the most likely real-world ordering once Step 2-3 component
-   * migrations land: a component first loads a known page for write, then later
-   * in the same TX needs to ensure a page exists (re-entering the same overlay).
+   * Mirrors the most likely real-world ordering once collection migrations
+   * land: a component first loads a known page for write, then later in the
+   * same TX needs to ensure a page exists (re-entering the same overlay).
    */
   @Test
   public void loadPageForWriteThenLoadOrAddReturnsSameOverlay() throws IOException {
@@ -335,12 +335,12 @@ public class LoadOrAddPageForWriteTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Bookkeeping: extending an existing file beyond committedFilledUpTo must set
+  // Bookkeeping: extending an existing file beyond allocationFloor must set
   // the in-progress visibility horizon correctly and flag the page as new.
   // ---------------------------------------------------------------------------
 
   /**
-   * Extending an existing (non-fresh) file: with {@code committedFilledUpTo=10}
+   * Extending an existing (non-fresh) file: with {@code allocationFloor=10}
    * and a {@code pageIndex=10} allocation, the page must be flagged as new
    * (extends beyond the committed horizon), {@code filledUpTo} must advance to
    * {@code 11} (the new in-progress horizon), and {@code hasChangesForPage} must
@@ -352,11 +352,11 @@ public class LoadOrAddPageForWriteTest {
   @Test
   public void extendsExistingFileBumpsFilledUpToAndFlagsIsNew() throws IOException {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 10; // == committedFilledUpTo, the one-page-extend target
+    long pageIndex = 10; // == allocationFloor, the one-page-extend target
 
     // Existing file (NOT created in this TX) — no addFile call, so the
     // FileChanges that loadOrAddPageForWrite lazily creates has isNew=false.
-    // committedFilledUpTo from the write cache is 10 → allocating pageIndex=10
+    // allocationFloor from the write cache is 10 → allocating pageIndex=10
     // is the extend case.
     when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
 
@@ -364,7 +364,7 @@ public class LoadOrAddPageForWriteTest {
 
     // Stub-shape delegate: null buffer (commit-time install handles the cache slot).
     assertThat(entry.getDelegate().getCachePointer().getBuffer()).isNull();
-    // isNew=true because pageIndex (10) >= committedFilledUpTo (10).
+    // isNew=true because pageIndex (10) >= allocationFloor (10).
     assertThat(entry.isNew).isTrue();
     // filledUpTo advanced to maxNewPageIndex + 1 = 11.
     assertThat(op.filledUpTo(fileId)).isEqualTo(11L);
@@ -400,7 +400,7 @@ public class LoadOrAddPageForWriteTest {
    * {@code commitChanges} replay loop's call to {@code readCache.loadOrAddForWrite}
    * would return {@code null} for every new-page entry on this engine and the
    * accumulated changes would have no slot to apply against — the exact NPE that
-   * blew up the prior Step 5 attempt against a fresh in-memory database.
+   * blew up the prior migration attempt against a fresh in-memory database.
    *
    * <p>The test pins three things: (1) the eager install fires exactly once with
    * the expected {@code (fileId, pageIndex, false)} arguments, (2) the returned
@@ -415,7 +415,7 @@ public class LoadOrAddPageForWriteTest {
     final var inMemoryOp = newInMemoryOp(inMemoryCache);
 
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 10; // == committedFilledUpTo, the one-page-extend target
+    long pageIndex = 10; // == allocationFloor, the one-page-extend target
     when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
     var pointer = stubPointer(fileId, pageIndex);
     when(inMemoryCache.loadOrAdd(fileId, pageIndex, false)).thenReturn(pointer);
@@ -424,7 +424,7 @@ public class LoadOrAddPageForWriteTest {
 
     // The overlay wraps the cache-installed pointer (no null-buffer stub on this branch).
     assertThat(entry.getDelegate().getCachePointer()).isSameAs(pointer);
-    // isNew=true because pageIndex (10) >= committedFilledUpTo (10).
+    // isNew=true because pageIndex (10) >= allocationFloor (10).
     assertThat(entry.isNew).isTrue();
     // The eager install fired exactly once with verifyChecksums=false (mirrors the
     // historical legacy-allocator shape; DirectMemoryOnlyDiskCache ignores the flag anyway).
@@ -700,8 +700,9 @@ public class LoadOrAddPageForWriteTest {
    * non-null entry from {@code loadOrAddForWrite}, simulating the production
    * {@link DirectMemoryOnlyDiskCache#loadOrAddForWrite} behavior after the
    * page has been installed in {@code MemoryFile}. The test does not invoke
-   * {@code commitChanges} itself — it pins the contract premise that Step 5b
-   * relies on (eager install precedes commit replay, replay finds the page).
+   * {@code commitChanges} itself — it pins the contract premise that the
+   * in-memory engine relies on (eager install precedes commit replay, replay
+   * finds the page).
    */
   @Test
   public void commitChangesFindsEagerlyInstalledPageOnInMemoryEngine() throws IOException {
@@ -801,11 +802,11 @@ public class LoadOrAddPageForWriteTest {
    * {@code IllegalStateException}) and the page must remain installed with a
    * balanced referrer count.
    *
-   * <p>The episode that triggered Step 5a (the 4-thread CME race in
-   * {@code EntityPartialDeserializationLinkBagTest.testOppositeLinkBagSurvives
-   * ConcurrentModification}) repeatedly produced rollback orphans that hit this
-   * branch under contention. A regression that re-introduced the strict allocator-only
-   * check on the in-memory engine would surface here as an
+   * <p>The episode that triggered the rollback-orphan-tolerant branch (the 4-thread
+   * CME race in {@code EntityPartialDeserializationLinkBagTest.testOppositeLinkBag
+   * SurvivesConcurrentModification}) repeatedly produced rollback orphans that hit
+   * this branch under contention. A regression that re-introduced the strict
+   * allocator-only check on the in-memory engine would surface here as an
    * {@code IllegalStateException} from at least one of the threads.
    */
   @Test
@@ -861,6 +862,14 @@ public class LoadOrAddPageForWriteTest {
         assertThat(finishGate.await(30, TimeUnit.SECONDS)).isTrue();
       } finally {
         pool.shutdownNow();
+        // Ensure submitted tasks have fully terminated before the outer finally
+        // runs realCache.delete() — without this, a still-in-flight task could
+        // race with cache teardown. Restore the interrupt flag if interrupted.
+        try {
+          pool.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+        }
       }
 
       assertThat(error1.get())
@@ -905,14 +914,19 @@ public class LoadOrAddPageForWriteTest {
   }
 
   /**
-   * The truncate arm of {@code filledUpTo}: after {@code truncateFile} runs on a
-   * pre-existing (non-fresh) file, {@code filledUpTo} must return 0 regardless of
-   * the committed {@code writeCache.getFilledUpTo} value. Pins that the truncate
-   * flag wins over the physical write-cache extent — without this, a truncated file
-   * would still appear to span its pre-truncate page count for the rest of the TX.
+   * After {@code truncateFile} runs on a pre-existing (non-fresh) file,
+   * {@code filledUpTo} must return 0 regardless of the committed
+   * {@code writeCache.getFilledUpTo} value. The test name reflects the actual
+   * arm exercised: {@code truncateFile} pre-sets {@code maxNewPageIndex = -1},
+   * so the second arm of the inlined three-arm body ({@code maxNewPageIndex > -2})
+   * fires first and returns {@code maxNewPageIndex + 1 = 0}. The third
+   * ({@code changesContainer.truncate}) arm is structurally unreachable under
+   * current call shapes; a future refactor that drops the {@code maxNewPageIndex = -1}
+   * pre-set in {@code truncateFile} would activate the third arm, at which point
+   * a dedicated test would be added — this setup would still fall through arm 2.
    */
   @Test
-  public void filledUpToOnTruncatedFileReturnsZero() {
+  public void filledUpToAfterTruncateExercisesMaxNewPageIndexArm() {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     // Pre-existing file with five committed pages on disk; truncateFile must override
     // this with the in-TX truncate flag.
@@ -991,8 +1005,4 @@ public class LoadOrAddPageForWriteTest {
   private static long composeFileId(long fileId, int storageId) {
     return (((long) storageId) << 32) | fileId;
   }
-
-  // Suppress unused-warning for the LSN type — referenced indirectly via mock signatures.
-  @SuppressWarnings("unused")
-  private static final LogSequenceNumber DUMMY = new LogSequenceNumber(0, 0);
 }

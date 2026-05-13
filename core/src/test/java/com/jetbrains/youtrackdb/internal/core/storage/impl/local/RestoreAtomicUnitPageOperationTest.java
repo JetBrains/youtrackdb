@@ -254,8 +254,11 @@ public class RestoreAtomicUnitPageOperationTest {
    * (gap-fills intermediate pages on the disk engine) so the reconciliation loop is
    * provably unreachable. End-to-end gap-fill mechanics are not exercised here because
    * {@code readCache} is mocked; durable gap-fill coverage lives in
-   * {@code LocalPaginatedStorageRestoreFromWALIT}. Other PageOperation-branch
-   * contracts (redo applied, LSN updated, releaseFromWrite called) are pinned by
+   * {@code LocalPaginatedStorageRestoreFromWALIT}. WAL replay runs on a single
+   * recovery thread before the storage engine accepts concurrent transactions, so
+   * this contract is single-threaded by construction; MT coverage is not in scope
+   * for the replay path. Other PageOperation-branch contracts (redo applied, LSN
+   * updated, releaseFromWrite called) are pinned by
    * {@link #testPageOperationRedoAppliedAndLsnUpdated()}.
    */
   @Test
@@ -302,7 +305,10 @@ public class RestoreAtomicUnitPageOperationTest {
    * PageOperation-branch contract pinned by
    * {@link #testPageOperationGapFillReplaySingleLoadCall()}; covers the sibling
    * branch that the prior collapse touched. End-to-end gap-fill mechanics are not
-   * exercised here because {@code readCache} is mocked.
+   * exercised here because {@code readCache} is mocked. WAL replay runs on a single
+   * recovery thread before the storage engine accepts concurrent transactions, so
+   * this contract is single-threaded by construction; MT coverage is not in scope
+   * for the replay path.
    */
   @Test
   public void testUpdatePageRecordGapFillReplaySingleLoadCall() throws Exception {

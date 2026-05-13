@@ -215,11 +215,13 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         // lock + entry-point page write lock + monotonic mapEntryPoint.fileSize
         // bookkeeping guarantee lastPage + 1 sits at or above the in-progress
         // allocation floor on entry, so the AO-layer allocator-only contract
-        // is satisfied; any below-floor target would throw IllegalStateException
-        // and surface a partial-replay orphan (logical fileSize lags behind
-        // physical extent after a crash) as a hard error rather than silent
-        // reuse. That partial-replay-orphan recovery scenario is the BC4
-        // hazard deferred to Step 5.
+        // is satisfied. The partial-replay-orphan recovery hazard (a prior
+        // transaction physically extended the file via EnsurePageIsValidInFileTask
+        // but the WAL never committed, so the next allocator here would see
+        // pageIndex (= lastPage + 1) below writeCache.getFilledUpTo(fileId))
+        // surfaces as a hard IllegalStateException from the AO allocator rather
+        // than silent reuse; end-to-end coverage of that recovery flow lives in
+        // the integration regression test.
         cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);
         mapEntryPoint.setFileSize(lastPage + 1);
 
@@ -240,9 +242,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           // Same invariant as the first-bucket branch above: per-component
           // lock + entry-point page write lock + monotonic mapEntryPoint.fileSize
           // keep lastPage + 1 at or above the in-progress allocation floor,
-          // so the AO-layer allocator-only contract holds; a below-floor
-          // partial-replay orphan would surface as IllegalStateException
-          // (BC4 hazard deferred to Step 5).
+          // so the AO-layer allocator-only contract holds. A partial-replay
+          // orphan (physical extent ahead of logical fileSize after a crash)
+          // would surface as a hard IllegalStateException from the AO allocator
+          // rather than silent reuse; end-to-end recovery coverage lives in the
+          // integration regression test.
           cacheEntry.close();
 
           cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);

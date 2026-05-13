@@ -474,10 +474,10 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * TB6 — Mixed operation must call setEndLSN(txEndLsn) on the durable cache
-   * entry but NOT on the non-durable entry. DurablePage.setLsn(changeLSN) is
-   * also guarded by the same condition but writes directly to a ByteBuffer, so
-   * it is not verifiable via Mockito — only setEndLSN is checked here.
+   * A mixed operation must call setEndLSN(txEndLsn) on the durable cache entry
+   * but NOT on the non-durable entry. DurablePage.setLsn(changeLSN) is also
+   * guarded by the same condition but writes directly to a ByteBuffer, so it
+   * is not verifiable via Mockito — only setEndLSN is checked here.
    */
   @Test
   public void mixedOperationSetsEndLSNOnlyOnDurableCacheEntry()
@@ -509,9 +509,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * TC6 — Truncating a non-durable file must not produce any WAL records
-   * (truncate doesn't use FileDeletedWALRecord — it has no WAL record type at
-   * all). The cache truncation (readCache.truncateFile) must still be applied.
+   * Truncating a non-durable file must not produce any WAL records (truncate
+   * doesn't use FileDeletedWALRecord — it has no WAL record type at all). The
+   * cache truncation (readCache.truncateFile) must still be applied.
    */
   @Test
   public void truncateNonDurableFileSkipsWALButAppliesCache()
@@ -564,9 +564,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * TY4 — WAL write-then-replay round-trip: create a mixed operation with both
-   * durable and non-durable files, capture the WAL records from commitChanges(),
-   * verify only durable-file records are emitted, then feed those records into
+   * WAL write-then-replay round-trip: create a mixed operation with both durable
+   * and non-durable files, capture the WAL records from commitChanges(), verify
+   * only durable-file records are emitted, then feed those records into
    * restoreAtomicUnit() and verify the durable file's page is restored.
    */
   @Test

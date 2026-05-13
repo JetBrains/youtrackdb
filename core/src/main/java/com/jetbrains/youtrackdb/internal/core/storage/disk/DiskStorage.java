@@ -1823,6 +1823,9 @@ public class DiskStorage extends AbstractStorage {
         // loadOrAdd.
         final var cacheEntry =
             readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+        // Incremental-backup restore is disk-only by construction, so an -ea assert
+        // is sufficient here; AtomicOperationBinaryTracking.commitChanges documents
+        // why the in-memory-reachable site throws instead.
         assert cacheEntry != null
             : "readCache.loadOrAddForWrite returned null during incremental backup restore"
                 + " for fileId=" + fileId + " pageIndex=" + pageIndex

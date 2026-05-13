@@ -1887,9 +1887,10 @@ public class IndexHistogramManager extends StorageComponent {
    * {@code closeStatsFile}, and from {@code doRebalance}) could race with
    * {@code writeSnapshotToPage} (reachable from {@code buildHistogram} via the BTree
    * engines' {@code buildInitialHistogram} and from
-   * {@code createStatsFileWithCounters} at storage open), and Track 1's fail-fast
-   * {@code IllegalStateException} in {@code WOWCache.loadOrAdd} would surface a hard
-   * crash on the loser of the I4-violating concurrent allocation.
+   * {@code createStatsFileWithCounters} at storage open), and the cache-layer
+   * load-or-add primitive's fail-fast {@code IllegalStateException} in
+   * {@code WOWCache.loadOrAdd} would surface a hard crash on the loser of the
+   * I4-violating concurrent allocation.
    *
    * <p>The lock is acquired directly via
    * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete} rather
@@ -1949,8 +1950,8 @@ public class IndexHistogramManager extends StorageComponent {
    * {@code writeSnapshotToPage} (called from {@code buildHistogram} and
    * {@code createStatsFileWithCounters}) for the same {@code fileId},
    * causing two concurrent allocators to target page 1 simultaneously and
-   * trip the fail-fast {@code IllegalStateException} in
-   * {@code WOWCache.loadOrAdd} that Track 1 added to surface I4 violations.
+   * trip the cache-layer fail-fast {@code IllegalStateException} in
+   * {@code WOWCache.loadOrAdd} that surfaces I4 violations.
    * Audit: PSI call-hierarchy showed {@code flushSnapshotToPage} reachable
    * from {@code applyDelta} (commit-time batch flush above threshold),
    * {@code flushIfDirty} (checkpoint / shutdown / recovery via
@@ -1972,14 +1973,18 @@ public class IndexHistogramManager extends StorageComponent {
     // use executeInsideComponentOperation(null, ...) because that
     // passes null to AtomicOperationsManager which requires non-null.
     storage.getAtomicOperationsManager()
-        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, op2 -> {
-          var cacheEntry = loadPageForWrite(op2, fileId, 0, true);
+        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, lockedOp -> {
+          // lockedOp is the same AtomicOperation as op, re-bound after the
+          // per-component exclusive lock has been acquired by
+          // executeInsideComponentOperation; the rename makes the relationship
+          // explicit at every use site below.
+          var cacheEntry = loadPageForWrite(lockedOp, fileId, 0, true);
           try {
             var page = new HistogramStatsPage(cacheEntry);
             page.writeSnapshot(snapshot, serializerId,
                 keySerializer, serializerFactory);
           } finally {
-            releasePageFromWrite(op2, cacheEntry);
+            releasePageFromWrite(lockedOp, cacheEntry);
           }
 
           // Write HLL to page 1 when spilled. Same allocator-only
@@ -1990,16 +1995,16 @@ public class IndexHistogramManager extends StorageComponent {
           // with the subsequent allocate/load call.
           if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
             CacheEntry page1Entry;
-            if (op2.filledUpTo(fileId) > 1) {
-              page1Entry = loadPageForWrite(op2, fileId, 1, true);
+            if (lockedOp.filledUpTo(fileId) > 1) {
+              page1Entry = loadPageForWrite(lockedOp, fileId, 1, true);
             } else {
-              page1Entry = loadOrAddPageForWrite(op2, fileId, 1);
+              page1Entry = loadOrAddPageForWrite(lockedOp, fileId, 1);
             }
             try {
               HistogramStatsPage.writeHllToPage1(
                   page1Entry, snapshot.hllSketch());
             } finally {
-              releasePageFromWrite(op2, page1Entry);
+              releasePageFromWrite(lockedOp, page1Entry);
             }
           }
         }));

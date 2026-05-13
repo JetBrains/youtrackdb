@@ -235,9 +235,12 @@ public class CollectionPositionMapV2Test {
     assertThat(overflowPos).isEqualTo((long) maxEntries);
   }
 
-  // When the bucket is full and a pre-existing (but unused) page follows in the file,
-  // that page should be reused instead of adding a brand-new page. This covers the
-  // allocate() branch where lastPage < filledUpTo-1 after bucket overflow.
+  // When the bucket is full and a pre-existing (but unused) page follows in the
+  // file, the cache-layer WriteCache.loadOrAdd allows that page to be reused
+  // instead of adding a brand-new page. This test pins the cache-layer behavior
+  // directly via the broadened Mockito stub above; the AOBT-layer wrapper would
+  // reject this orphan-reuse shape with IllegalStateException under the
+  // allocator-only contract (LoadOrAddPageForWriteTest pins the rejection).
   @Test
   public void allocationReusesExistingPageAfterBucketOverflow() throws IOException {
     var maxEntries = CollectionPositionMapBucket.MAX_ENTRIES;
@@ -257,8 +260,11 @@ public class CollectionPositionMapV2Test {
     assertThat(overflowPos).isEqualTo((long) maxEntries);
   }
 
-  // When lastPage == 0 and there is already a pre-existing page at index 1 (but the
-  // entry-point hasn't tracked it yet), allocate should load that page and reuse it.
+  // When lastPage == 0 and there is already a pre-existing page at index 1 (but
+  // the entry-point hasn't tracked it yet), the cache-layer WriteCache.loadOrAdd
+  // allows that page to be loaded and reused. As above, this test pins the
+  // cache-layer behavior via the broadened Mockito stub; the AOBT-layer wrapper
+  // would reject this orphan-reuse shape under the allocator-only contract.
   @Test
   public void firstAllocationReusesExistingPageWhenFilledUpToIsAhead() throws IOException {
     // The setUp() create() left pageCount == 1 (just the entry-point).
@@ -1205,15 +1211,15 @@ public class CollectionPositionMapV2Test {
     // CollectionPositionMapV2.create on a brand-new file, and lastPage + 1 from
     // allocate(), where lastPage tracks the monotonic logical fileSize under the
     // per-component lock. The mock returns a CacheEntry for whatever index is
-    // requested and grows the simulated file to cover it; it mirrors the
-    // AtomicOperationBinaryTracking.loadOrAddPageForWrite allocator-only contract
-    // but broadens it to tolerate any pageIndex because the unit tests do not
-    // model the AOBT allocation-floor check. The existing orphan-reuse tests
+    // requested and grows the simulated file to cover it; it deliberately
+    // broadens the AOBT allocator-only contract so two of the tests below
     // (allocationReusesExistingPageAfterBucketOverflow,
-    // firstAllocationReusesExistingPageWhenFilledUpToIsAhead) exercise a
-    // scenario the production AO layer now rejects, but the underlying cache-layer
-    // WriteCache.loadOrAdd still supports; Step 4 / Step 5 will decide whether
-    // to retain those tests after BC4 (partial-replay-orphan recovery) is resolved.
+    // firstAllocationReusesExistingPageWhenFilledUpToIsAhead) can pin the
+    // cache-layer WriteCache.loadOrAdd totality directly. The structural fix
+    // converted partial-replay-orphan recovery from silent reuse at the
+    // AOBT-layer wrapper to a loud IllegalStateException — those two tests
+    // exercise the orphan-reuse shape the cache layer still supports, while
+    // the AOBT-layer rejection is pinned in LoadOrAddPageForWriteTest.
     when(op.loadOrAddPageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
       int pIdx = ((Long) inv.getArgument(1)).intValue();
       var entry = getOrCreatePage(pIdx);
