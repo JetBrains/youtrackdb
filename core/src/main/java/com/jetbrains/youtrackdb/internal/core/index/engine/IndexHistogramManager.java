@@ -1831,9 +1831,14 @@ public class IndexHistogramManager extends StorageComponent {
       releasePageFromRead(op, cacheEntry);
     }
 
-    // If HLL was spilled to page 1, load it separately.
-    // Guard against missing page 1 (e.g., crash between page-0 and
-    // page-1 write — both are in the same atomic op, but defensive).
+    // Defensive physical-presence probe for the optional HLL page 1. Pages 0 and 1
+    // are written in the same atomic op, so under normal operation `hllOnPage1()`
+    // implies page 1 is present; this probe guards against a partial-crash window
+    // between the page-0 and page-1 writes. Stays on physical extent (rather than a
+    // logical bookkeeping field) for tx-uniform behaviour with the rest of IHM, and
+    // routes through the gated `physicalSize`-shaped helper introduced for
+    // stay-on-physical sites. Option A (probe + skip) is pre-committed here -- do
+    // NOT migrate to a `loadIfPresent`-style helper.
     if (snapshot.hllOnPage1()) {
       long filledUpTo = getFilledUpTo(op, fileId);
       if (filledUpTo > 1) {

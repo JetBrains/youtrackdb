@@ -388,6 +388,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       additionalArgs1);
 
               freeSpaceMap.create(atomicOperation);
+              // FSM-rebuild recovery scan: the free-space map was missing or lost in a
+              // prior crash, so logical bookkeeping that would normally bound this scan
+              // is unavailable. Physical extent is the only source of truth here. Routes
+              // through the gated `physicalSize`-shaped helper introduced for
+              // stay-on-physical sites.
               final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
               for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
 
@@ -2257,6 +2262,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
+    // Bootstrap emptiness check on the state page (chicken-and-egg): the page being
+    // inspected IS the collection-state page itself, so logical bookkeeping
+    // (PaginatedCollectionStateV2 fileSize) is not yet available. Physical extent is
+    // the only source of truth here. Routes through the gated `physicalSize`-shaped
+    // helper introduced for stay-on-physical sites.
     if (getFilledUpTo(atomicOperation, fileId) == 0) {
       // Fresh file -- append the state page (statically known-new at STATE_ENTRY_INDEX).
       stateEntry = loadOrAddPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);

@@ -138,7 +138,11 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
 
     long bitSetPageIndex = dataPageIndex / DirtyPageBitSetPage.BITS_PER_PAGE;
 
-    // If the bit set file doesn't cover this page index, the bit is already clear.
+    // EP-less pure-sizing bounds check under the per-component lock: this bitset
+    // file has no entry-point page carrying logical size, so physical extent is the
+    // only available source. Routes through the gated `physicalSize`-shaped helper
+    // introduced for stay-on-physical sites. If the file doesn't cover this page
+    // index, the bit is already clear.
     if (bitSetPageIndex >= getFilledUpTo(atomicOperation, fileId)) {
       return;
     }
@@ -166,6 +170,11 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
 
     long bitSetPageIndex = fromDataPageIndex / DirtyPageBitSetPage.BITS_PER_PAGE;
     var bitIndex = fromDataPageIndex % DirtyPageBitSetPage.BITS_PER_PAGE;
+    // EP-less pure-sizing iteration bound under the per-component lock: this bitset
+    // file has no entry-point page carrying logical size, so physical extent is the
+    // only available source. Same shape as the `clear` bounds check above. Routes
+    // through the gated `physicalSize`-shaped helper introduced for stay-on-physical
+    // sites.
     var totalPages = getFilledUpTo(atomicOperation, fileId);
 
     while (bitSetPageIndex < totalPages) {
