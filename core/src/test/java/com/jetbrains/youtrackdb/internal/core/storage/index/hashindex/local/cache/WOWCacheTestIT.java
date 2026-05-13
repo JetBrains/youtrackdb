@@ -375,7 +375,12 @@ public class WOWCacheTestIT {
 
     for (var i = 0; i < 2048; i++) {
       // Pre-extend the file to pageIndex i so the subsequent store() finds a slot.
-      wowCache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
+      // Pin that loadOrAdd returns the requested pageIndex — a regression where the
+      // cache hands back a different index would corrupt subsequent store() calls.
+      // Same shape as the other nine sequential-extension sites in this file.
+      final var allocPointer = wowCache.loadOrAdd(fileId, i, false);
+      Assert.assertEquals(i, allocPointer.getPageIndex());
+      allocPointer.decrementReadersReferrer();
 
       final var pointer = bufferPool.acquireDirect(true, Intention.TEST);
       final var cachePointer = new CachePointer(pointer, bufferPool, fileId, i);

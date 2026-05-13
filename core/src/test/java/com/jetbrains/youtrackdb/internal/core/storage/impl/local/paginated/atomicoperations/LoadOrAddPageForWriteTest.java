@@ -10,6 +10,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -694,53 +695,22 @@ public class LoadOrAddPageForWriteTest {
   }
 
   /**
-   * Commit-time observability of an eagerly-installed page: the in-memory eager
-   * install makes the page visible to the {@code commitChanges} replay loop's
-   * {@code readCache.loadOrAddForWrite} call. Pin via a mock that returns a
-   * non-null entry from {@code loadOrAddForWrite}, simulating the production
-   * {@link DirectMemoryOnlyDiskCache#loadOrAddForWrite} behavior after the
-   * page has been installed in {@code MemoryFile}. The test does not invoke
-   * {@code commitChanges} itself — it pins the contract premise that the
-   * in-memory engine relies on (eager install precedes commit replay, replay
-   * finds the page).
-   */
-  @Test
-  public void commitChangesFindsEagerlyInstalledPageOnInMemoryEngine() throws IOException {
-    final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
-    final var inMemoryOp = newInMemoryOp(inMemoryCache);
-
-    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 10;
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    var pointer = stubPointer(fileId, pageIndex);
-    when(inMemoryCache.loadOrAdd(fileId, pageIndex, false)).thenReturn(pointer);
-    // Once eagerly installed, loadOrAddForWrite must hand back a non-null entry —
-    // this is exactly the behavior commitChanges's replay loop depends on.
-    var commitTimeEntry = mockCacheEntry(fileId, (int) pageIndex);
-    when(inMemoryCache.loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), anyBoolean(), any()))
-        .thenReturn(commitTimeEntry);
-
-    inMemoryOp.loadOrAddPageForWrite(fileId, pageIndex);
-
-    // Simulate commitChanges's loadOrAddForWrite call shape against the eager-installed page.
-    var resolved =
-        inMemoryCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
-    assertThat(resolved).isNotNull();
-    assertThat(resolved.getPageIndex()).isEqualTo((int) pageIndex);
-  }
-
-  /**
    * Dispatch pin for the disk-engine + non-fresh-file path: the stub-shape branch must
    * fire and the in-memory cache primitive must NOT be touched. Complements the in-
    * memory dispatch tests by explicitly verifying the negative space — a regression
    * that flipped the {@code instanceof DirectMemoryOnlyDiskCache} guard would
    * otherwise silently route disk-engine traffic through the in-memory branch.
+   *
+   * <p>The null-buffer delegate is the structural marker for the stub branch: the in-
+   * memory eager-install branch installs a real {@link CachePointer} with a non-null
+   * buffer, so a regression that misroutes to that branch would surface here as a
+   * non-null buffer on the returned delegate. The companion
+   * {@code verifyNoInteractions(readCache)} confirms the dispatch never enters any
+   * cache primitive on this path — the stub-shape entry is materialized purely from
+   * the in-progress {@code pageChangesMap} state.
    */
   @Test
-  public void diskEngineWithNonFreshFileTakesStubBranchAndDoesNotCallInMemoryLoadOrAdd()
-      throws IOException {
-    final var inMemoryCacheMock = mock(DirectMemoryOnlyDiskCache.class);
+  public void diskEngineWithNonFreshFileTakesStubBranch() throws IOException {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
 
@@ -749,8 +719,10 @@ public class LoadOrAddPageForWriteTest {
     var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 10L);
 
     assertThat(entry.getDelegate().getCachePointer().getBuffer()).isNull();
-    // The in-memory loadOrAdd primitive must never fire on the disk-engine path.
-    verify(inMemoryCacheMock, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+    // The disk-engine stub branch must materialize the entry without entering any
+    // cache primitive — no loadOrAdd, no addFile, no release. verifyNoInteractions
+    // would also flag any unexpected readCache touch by a future regression.
+    verifyNoInteractions(readCache);
   }
 
   // ---------------------------------------------------------------------------
@@ -881,6 +853,32 @@ public class LoadOrAddPageForWriteTest {
       // Page 0 must still be resident — both threads decremented exactly once each
       // and the in-cache referrer (held by installEmptyPage) keeps it pinned.
       assertThat(realCache.getFilledUpTo(fileId)).isEqualTo(1L);
+
+      // Probe the orphan pointer's referrer count directly. Both threads incremented
+      // the readers-referrer once via MemoryFile.loadOrAddPage and the in-memory
+      // eager-install branch decremented it once each, so the post-concurrency state
+      // must be referrersCount=1 (the in-cache reference held by installEmptyPage).
+      // A regression that skipped the eager-install-branch decrement on one or both
+      // threads would surface here as referrersCount>1 (the count would never fall
+      // back to 1 because the matching decrement never fired). A regression that
+      // double-decremented would already have thrown IllegalStateException inside
+      // decrementReadersReferrer and been captured by error1/error2 above.
+      // Reflection is the cheapest probe — the field is package-private with no
+      // public accessor, and adding one purely for this test would be over-fitting.
+      var orphanReload = realCache.loadOrAdd(fileId, 0L, false);
+      // loadOrAdd bumps the referrer by 1 for the caller; release it immediately so
+      // the field read measures the steady-state count rather than a transient bump.
+      orphanReload.decrementReadersReferrer();
+      assertThat(orphanReload)
+          .as("page 0 must still be the same orphan pointer — a recycled frame would "
+              + "break the readers-referrer accounting under the eager-install branch")
+          .isSameAs(orphanPointer);
+      var referrersField = CachePointer.class.getDeclaredField("referrersCount");
+      referrersField.setAccessible(true);
+      assertThat(referrersField.getInt(orphanPointer))
+          .as("orphan readers-referrer must be balanced: bump-once / decrement-once per "
+              + "thread leaves the in-cache referrer at 1")
+          .isEqualTo(1);
     } finally {
       realCache.delete();
     }
