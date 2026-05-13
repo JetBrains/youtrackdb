@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/7 complete)
+- [ ] Step implementation (4/7 complete; Step 5 failed — split pending user decision)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -974,41 +974,87 @@ the stay-on-physical sites).
   > defensively as test scaffolding). Track 6 regression test:
   > no new constraints from Step 4.
 
-- [ ] Step 5: Collapse replay-loop reconciliation + add WOWCache `assert false`
+- [!] Step 5: Collapse replay-loop reconciliation + add WOWCache `assert false`
   > **Risk:** high — crash-safety/durability (modifies WAL replay
   > and commit paths; foundation of recovery semantics).
   >
-  > **Scope:**
-  > - `AtomicOperationBinaryTracking.commitChanges`: delete the
-  >   `if (cacheEntry == null) { do { allocateNewPage } while
-  >   (cacheEntry.getPageIndex() != pageIndex) }` block at lines
-  >   860-872. Remove the surrounding TODO comment at 853-859.
-  >   `pageChangesMap` iteration order is preserved (Long2ObjectMap
-  >   key-sorted iteration on actual pageIndex).
-  > - `AbstractStorage.restoreAtomicUnit`: collapse both reconciliation
-  >   loops — `UpdatePageRecord` branch at 5400-5408 and `PageOperation`
-  >   branch at 5479-5486 — to single `loadOrAddForWrite` calls.
-  > - `DiskStorage.restoreFromIncrementalBackup`: collapse the do/while
-  >   at 1826-1833 to a single `loadOrAddForWrite` call.
-  > - **Do NOT drop `internalFilledUpTo`** in this step — its
-  >   `addPage:355` caller is still alive until step 7 removes
-  >   `AtomicOperationBinaryTracking.addPage`. The helper is dropped
-  >   in step 7 alongside the `addPage` deletion.
-  > - Add `assert false : "loadFileContent returned null on load
-  >   branch — dispatch prelude invariant violated; pageIndex <
-  >   currentSize should always find a page on disk";` to the
-  >   defensive fallback in `WOWCache.loadOrAddLoadBranch` where
-  >   `loadFileContent` returns null. The existing Javadoc says
-  >   this path is dead code today; the assertion surfaces a
-  >   regression in `-ea` test runs without runtime cost in
-  >   production.
-  > - Tests: existing `RestoreAtomicUnitPageOperationTest`,
-  >   `LocalPaginatedStorageRestoreFromWALIT`,
-  >   `StorageBackupMTStateTest`. Add a gap-fill replay regression
-  >   test (a WAL record stream with an artificial gap exercising
-  >   the `recordedPageIdx > currentSize` case) if existing tests
-  >   don't cover that branch.
-  > - Spotless apply on `core`.
+  > **What was attempted:** Applied the full planned scope —
+  > collapsed the three replay-loop / commit-loop null-branch
+  > reconciliations (`AOBT.commitChanges` lines 980-998,
+  > `AbstractStorage.restoreAtomicUnit` UpdatePage branch
+  > 5400-5408, `AbstractStorage.restoreAtomicUnit` PageOperation
+  > branch 5479-5486, `DiskStorage.restoreFromIncrementalBackup`
+  > 1826-1833) down to a single `loadOrAddForWrite` call each;
+  > added the `assert false` defensive fallback to
+  > `WOWCache.loadOrAddLoadBranch` with an updated method Javadoc
+  > explaining the relaxation contract; freshened three
+  > fixture-comments in AOBT test classes that still referenced
+  > the deleted fallback by name. Targeted unit tests for the
+  > AOBT, cache, replay-loop, and incremental-backup paths all
+  > passed (78 + 257 = 335 tests); Spotless was clean on `core`.
+  >
+  > **Why it failed:** The full `./mvnw -pl core clean package -P
+  > coverage` build aborted with 3,007 errors. First error in the
+  > chain: `NullPointerException` at
+  > `DirectMemoryOnlyDiskCache.releaseFromWrite:381` invoked from
+  > the `finally` clause of `AOBT.commitChanges:1010`, fired during
+  > `AbstractStorage.doCreate:1096` when creating a fresh in-memory
+  > database. The track description (lines 30-38) and Step 5 scope
+  > (lines 982-987) both state that *"the new `loadOrAddPageForWrite`
+  > impl handles the null [in-memory engine return] by falling back
+  > to `readCache.loadOrAdd(fileId, pageIndex, verifyChecksums)` …
+  > after this eager install, subsequent `loadOrAddForWrite` calls
+  > find the page (it is in `MemoryFile`), so the existing
+  > null-branch in `commitChanges` becomes genuinely unreachable on
+  > both engines and is deleted in step 5"*. That prerequisite was
+  > implemented in Step 1's initial commit, then **removed** by Step
+  > 2's review fix `48a83793cb` ("Review fix: collapse
+  > loadOrAddPageForWrite to allocator-only") on the rationale that
+  > "the cache-install branch never fired in production". That trace
+  > examined the *synchronous* TX-time call path only — at *commit
+  > time*, `AOBT.commitChanges` replays each `pageChangesMap` entry
+  > through `readCache.loadOrAddForWrite`, and on the in-memory
+  > engine that returns null (per Track 1's deliberate divergence,
+  > `DirectMemoryOnlyDiskCache.java:188-216`) because the page was
+  > never installed in `MemoryFile`. The pre-collapse code recovered
+  > via the now-deleted `if (cacheEntry == null) { allocateNewPage }`
+  > branch; with that branch removed, `cacheEntry` stays null and
+  > the `finally`-clause `releaseFromWrite(null, ...)` NPEs. The
+  > disk-engine path (`LockFreeReadCache + WOWCache`) is correct —
+  > `WOWCache.loadOrAdd`'s totality makes the null-branch dead code
+  > on disk. `restoreAtomicUnit` and `restoreFromIncrementalBackup`
+  > are disk-only by construction (no in-memory engine path reaches
+  > them), so collapsing those two replay loops in isolation would
+  > have been safe — but the step's scope requires collapsing all
+  > three sites as one atomic change, and the missing in-memory
+  > prerequisite blocks the third.
+  >
+  > **Impact on remaining steps:** Step 6 (rationale comments at
+  > the 6 stay-on-physical sites) is independent of Step 5's
+  > null-branch deletions and can proceed unaffected. Step 7
+  > (delete `addPage` / `internalFilledUpTo` / `allocateNewPage`)
+  > depends on Step 5: deleting `LockFreeReadCache.allocateNewPage`
+  > / `WOWCache.allocateNewPage` /
+  > `DirectMemoryOnlyDiskCache.allocateNewPage` requires zero
+  > remaining callers, and the surviving null-branch in
+  > `AOBT.commitChanges` keeps a
+  > `readCache.allocateNewPage(fileId, writeCache, fileStartLSN)`
+  > caller alive. Step 7 stays blocked until either the in-memory
+  > eager-install lands or the commitChanges fallback is rewired
+  > to a different totally-defined primitive (e.g.,
+  > `WriteCache.loadOrAdd`). Track 5 (gated `physicalSize` helper)
+  > and Track 6 (end-to-end concurrent-insert regression test) are
+  > unaffected — Track 5 sits on top of Track 4's surface and Track
+  > 6 exercises the disk engine.
+  >
+  > **Key files (all reverted to base; no commit produced):**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorage.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTrackingWALSkipTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/FlushPendingOperationsTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/PageOperationAccumulationLifecycleTest.java`
 
 - [ ] Step 6: Add rationale-bearing inline comments at the 6 stay-on-physical sites
   > **Risk:** low — comments-only (Javadoc / inline comments
