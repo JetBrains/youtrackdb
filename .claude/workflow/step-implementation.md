@@ -346,6 +346,16 @@ sub-agent context.
 ### `on_success(step, result)` — sub-steps 4–7
 
 The implementer's commit is now on disk; `result.COMMIT` is its SHA.
+Per [`implementer-rules.md`](implementer-rules.md) §Return contract,
+`RESULT: SUCCESS` implies the commit has been pushed to `origin`.
+
+**Defensive push check.** Before running sub-steps 4–7, assert that
+the implementer's step commit (`result.COMMIT`) is on `origin` per
+[`defensive-push-check.md`](defensive-push-check.md). The check
+short-circuits when no upstream is set, asserts ancestry against
+`@{u}`, and auto-recovers via `git push` if the implementer skipped
+the push.
+
 Run sub-steps 4–7 in order.
 
 **Sub-step 4 — Dimensional review loop (only when `step.risk_tag ==
