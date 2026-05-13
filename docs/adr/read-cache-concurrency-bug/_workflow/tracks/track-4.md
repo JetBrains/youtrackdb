@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS, 4 should-fix items deferred to Phase C)
+- [ ] Step implementation (6/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS; Step 5b [x] closed via dim-review iter-3 PASS, 13 deferred items folded into Track 6 + Track 2-style follow-ups)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1287,12 +1287,138 @@ the stay-on-physical sites).
   >     before commit to catch any other engine-branch regression.
   > - Spotless apply on `core`.
 
-- [ ] Step 5b: Collapse replay-loop reconciliation + add WOWCache `assert false` (split from failed Step 5 above)
+- [x] Step 5b: Collapse replay-loop reconciliation + add WOWCache `assert false` (split from failed Step 5 above)
+  - [x] Context: info
   > **Risk:** high — crash-safety/durability (modifies WAL replay
   > and commit paths; foundation of recovery semantics). Identical
   > scope to the original failed Step 5; now safe to land because
   > Step 5a guarantees `commitChanges`'s `loadOrAddForWrite` call
   > finds the page on both engines.
+  >
+  > **What was done:**
+  > Collapsed the three null-branch reconciliation loops to single
+  > `loadOrAddForWrite` calls in `AtomicOperationBinaryTracking.commitChanges`,
+  > `AbstractStorage.restoreAtomicUnit` (both UpdatePageRecord and
+  > PageOperation branches), and `DiskStorage.restoreFromIncrementalBackup`.
+  > Added `assert false` to `WOWCache.loadOrAddLoadBranch`'s defensive
+  > dead-code fallback. Added regression test
+  > `testPageOperationGapFillReplaySingleLoadCall` pinning the
+  > no-reconciliation single-call contract on the PageOperation
+  > WAL-replay branch. Through three dim-review iterations (9-agent
+  > fan-out on iter-1; 8-agent gate check on iter-2; focused TS gate
+  > on iter-3), the safety net was hardened: the prior
+  > `assert cacheEntry != null` in `commitChanges` was promoted to an
+  > unconditional `IllegalStateException` throw (the in-memory
+  > engine is the only reachability vector among the four collapsed
+  > sites, so production-build hardening is warranted; the three
+  > disk-only sibling sites kept `assert` semantics with
+  > site-distinguishing messages). The first iter-1 test was
+  > reworded to honestly scope the single-call contract (mock-based,
+  > not end-to-end gap-fill); a sibling
+  > `testUpdatePageRecordGapFillReplaySingleLoadCall` was added
+  > covering the UpdatePageRecord branch; a
+  > `testCommitChangesThrowsWhenLoadOrAddForWriteReturnsNull`
+  > negative-null test pinned the new throw's type and full message
+  > contract (fileId, pageIndex, isNew, contract phrase). Two
+  > workflow-label leaks introduced by Step 5a in
+  > `AtomicOperationBinaryTracking` (around lines 520 / 553 —
+  > "Step 5", "Step 1", "BC1") were rewritten contract-first on
+  > iter-3; one pre-existing leak in
+  > `AtomicOperationBinaryTrackingWALSkipTest` was rewritten on
+  > iter-1. Validation: full `./mvnw -pl core clean package -P
+  > coverage` BUILD SUCCESS on the iter-1+2 commit (coverage gate
+  > 93.4% line / 81.7% branch on changed code); targeted module
+  > rerun on the iter-3 comment-only + test-only commit (50/50
+  > passing). Spotless clean throughout.
+  >
+  > **What was discovered:**
+  > 1. Four-dimension consensus (CQ + BC + CS + TY) elevated the
+  >    `commitChanges` assert to an unconditional throw, matching the
+  >    Track 2 cache-hardening precedent. Only `commitChanges` is
+  >    reachable on the in-memory engine; `restoreAtomicUnit` and
+  >    `restoreFromIncrementalBackup` are disk-only because
+  >    `MemoryWriteAheadLog` throws UOE, so the three sibling sites
+  >    stay on `assert` semantics.
+  > 2. The first iter-1 test was coverage-driven, not behavior-driven —
+  >    it mocked `readCache.loadOrAddForWrite` at the very seam its
+  >    Javadoc claimed to pin. Iter-1 reworded the docstring to scope
+  >    the single-call contract honestly and slimmed assertions to
+  >    the unique `verify(times(1))` + `verify(never).allocateNewPage`
+  >    pair; end-to-end gap-fill mechanics live in
+  >    `LocalPaginatedStorageRestoreFromWALIT`.
+  > 3. Latent hazard (BC1): in-memory engine `truncateFile` within a
+  >    transaction followed by a subsequent write to the same fileId
+  >    can produce a null return at commit time. No production caller
+  >    of `AtomicOperation.truncateFile` exists today (PSI/grep audit
+  >    found zero). The new `IllegalStateException` mitigates by
+  >    surfacing the failure loudly in production rather than silently
+  >    NPE'ing — adequate mitigation; no structural fix applied here.
+  > 4. Pre-existing workflow-label leaks on develop (lines around
+  >    1133 / 1181 in AOBT carrying `(Track 4)`, plus three finding-ID
+  >    references in `AtomicOperationBinaryTrackingWALSkipTest` at
+  >    lines 477 / 512 / 567) come from commit `887c483e` — out of
+  >    this branch's scope.
+  > 5. The 9-agent dim-review fan-out is highly productive on
+  >    storage/durability changes (30+ findings on iter-1, converging
+  >    cleanly through iter-2 and iter-3). The Performance dimension
+  >    reported zero findings, confirming Step 5b is a net
+  >    performance win (O(N) → O(1) replay lock cycles, no new
+  >    allocations, lazy assert message construction).
+  >
+  > **Cross-track impact:**
+  > - **Step 7** (dead-code deletion of `addPage` / `internalFilledUpTo`
+  >   / `allocateNewPage`) is now safer: any incomplete deletion that
+  >   leaves a caller reaching `commitChanges` on the in-memory engine
+  >   will surface as `IllegalStateException` with a self-documenting
+  >   message rather than silent data corruption. The throw's
+  >   contract name and surrounding rationale comment explicitly cite
+  >   the eager-install requirement, so the diagnostic chain is
+  >   self-documenting.
+  > - **Track 6** (end-to-end concurrent-insert regression test)
+  >   absorbs the deferred items TC2 (DiskStorage.restoreFromIncrementalBackup
+  >   Mockito test), TY4 (`checksumMode=StoreAndThrow` axis on WAL
+  >   replay), CS3 (checksum + gap-fill IT), TX1 (`StorageBackupMTStateTest`
+  >   `@Ignore` resurrection). All four map cleanly onto Track 6's
+  >   E2E shape; no plan amendment required.
+  > - **Track 2-style cache-test follow-ups** absorb: TY2 (WOWCache
+  >   `assert false` activation under a `loadFileContent`-override
+  >   seam), TX2 (the same assert under concurrent file extension),
+  >   BC4 / CS2 (WOWCache assert inline comment precision).
+  > - **Step 6 and Track 5** unaffected.
+  >
+  > **Deferred (suggestion-tier, not load-bearing):** CQ3 / CQ5 / CQ6 /
+  > CQ8 (comment-block density, three-site comment-block DRY,
+  > assert-message + comment + Javadoc overlap on WOWCache, sibling-
+  > test helper extraction), TB4 / TB5 (WOWCache deferral
+  > cross-reference, WALSkipTest `mockLoadOrAddForWrite` Javadoc
+  > disambiguation), TB6 / TC5 (in-memory commit-time replay
+  > regression test — covered structurally by the new throw + Step
+  > 5a's tests + the coverage build), TC3 / TC4 (gap=1 boundary,
+  > multi-record atomic unit), TS3 (promote `never(allocateNewPage)`
+  > to sibling tests), NEW-TC2 (negative-null test for `isNew=false`
+  > shape — structurally redundant since the throw is unconditional
+  > on `isNew`), NEW-TC3 (UpdatePageRecord happy-path
+  > RestoreChanges/LSN test — covered E2E by
+  > `LocalPaginatedStorageRestoreFromWALIT`).
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorage.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/RestoreAtomicUnitPageOperationTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTrackingWALSkipTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/FlushPendingOperationsTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/PageOperationAccumulationLifecycleTest.java`
+  >
+  > **Critical context:**
+  > The four collapsed sites form an asymmetric safety pattern:
+  > production-throw at `commitChanges` (in-memory reachable);
+  > `-ea`-only assert at the three disk-only sibling sites. This is
+  > intentional and documented in the AOBT inline comment block.
+  > Future readers extending this pattern (e.g., adding a fifth
+  > collapsed site) should classify the new site's engine
+  > reachability and pick the matching safety level.
   >
   > **Scope:**
   > - `AtomicOperationBinaryTracking.commitChanges`: delete the
