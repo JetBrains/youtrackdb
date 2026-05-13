@@ -1,6 +1,6 @@
 ---
 name: review-crash-safety
-description: "Reviews code changes for crash safety, WAL correctness, durability guarantees, atomic operations, page-level consistency, and recovery semantics. Launched by the /code-review command — not intended for direct use."
+description: "Reviews code changes for crash safety, WAL correctness, durability guarantees, atomic operations, page-level consistency, and recovery semantics. Dispatched by /code-review."
 model: opus
 ---
 
@@ -55,7 +55,7 @@ Review the provided code changes **only for crash safety and durability**. Do no
 ## Input
 
 You will receive:
-- A diff of the changes to review
+- A path to a temp file containing the full diff (read it with the `Read` tool; for diffs > 2000 lines, page through with the `offset`/`limit` parameters)
 - The list of changed files
 - The commit log for the changes
 - Optionally, a PR description providing motivation and context
@@ -216,6 +216,9 @@ HYPOTHESIS UPDATE: H[N] [CONFIRMED | REFUTED | REFINED] — [Explanation]
 
 #### Informational
 [Observations about crash safety that are good to know but not blocking]
+
+### Reviewer notes
+[Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
 For each finding, include:

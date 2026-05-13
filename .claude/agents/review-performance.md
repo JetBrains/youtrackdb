@@ -1,6 +1,6 @@
 ---
 name: review-performance
-description: "Reviews code changes for performance issues including algorithmic complexity, unnecessary allocations, lock contention, cache efficiency, direct memory pressure, and I/O patterns. Launched by the /code-review command — not intended for direct use."
+description: "Reviews code changes for performance issues including algorithmic complexity, unnecessary allocations, lock contention, cache efficiency, direct memory pressure, and I/O patterns. Dispatched by /code-review."
 model: opus
 ---
 
@@ -52,7 +52,7 @@ Review the provided code changes **only for performance implications**. Do not r
 ## Input
 
 You will receive:
-- A diff of the changes to review
+- A path to a temp file containing the full diff (read it with the `Read` tool; for diffs > 2000 lines, page through with the `offset`/`limit` parameters)
 - The list of changed files
 - The commit log for the changes
 - Optionally, a PR description providing motivation and context
@@ -213,6 +213,9 @@ performance issues that slow CI).
 #### Minor
 [Small optimizations, mostly for hot paths]
 - **Impact**: [Expected impact]
+
+### Reviewer notes
+[Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
 For each finding, include:
