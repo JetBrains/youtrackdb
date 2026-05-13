@@ -43,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryOnlyDiskCache;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
@@ -374,18 +375,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   /**
    * Allocation-only write-side primitive. <b>Despite the historical name, this method does
-   * NOT load existing pages</b> — callers targeting a {@code pageIndex} below the committed
-   * file size raise {@link IllegalStateException}. Use {@link #loadPageForWrite} for existing
-   * pages. Returns a stub-shaped {@link CacheEntryChanges} overlay that the caller
-   * accumulates writes into via {@code CacheEntryChanges.changes}; the real cache slot is
-   * materialized at commit time inside {@link #commitChanges}, when the pageChangesMap
-   * replay loop calls {@code readCache.loadOrAddForWrite} for each new-page entry.
+   * NOT load existing pages on the disk engine</b> — callers targeting a {@code pageIndex}
+   * below the committed file size raise {@link IllegalStateException} on that engine. Use
+   * {@link #loadPageForWrite} for existing pages. Returns a {@link CacheEntryChanges}
+   * overlay that the caller accumulates writes into via {@code CacheEntryChanges.changes};
+   * the underlying delegate shape differs by engine (see "Per-engine delegate shape" below).
    *
    * <p>The caller must supply a target {@code pageIndex} that is genuinely new — either
    * the file was booked in this TX (everything past page -1 is new) or
    * {@code pageIndex >= writeCache.getFilledUpTo(fileId)}. Asking for an existing page
-   * raises {@link IllegalStateException}; use {@link #loadPageForWrite} to mutate an
-   * existing page.
+   * raises {@link IllegalStateException} on the disk engine; use {@link #loadPageForWrite}
+   * to mutate an existing page. On the in-memory engine the strict allocator-only check
+   * is bypassed to support rollback-orphan re-use (see "Per-engine delegate shape" → in-memory
+   * branch).
    *
    * <p>Idempotency: a second call for the same {@code (fileId, pageIndex)} within the
    * same TX returns the previously-registered overlay. The early-return is what makes
@@ -397,14 +399,58 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    * {@code pageChangesMap} keyed by the actual {@code pageIndex}, and
    * {@code maxNewPageIndex} is bumped so the in-progress visibility horizon consulted
    * by {@link #loadPageForWrite}, {@link #loadPageForRead}, and {@link #hasChangesForPage}
-   * stays consistent.
+   * stays consistent. The fresh-booked-file branch additionally takes the stub-shape
+   * path regardless of engine, because {@code readCache.addFile} has not yet run at
+   * allocation time and the underlying file is not registered with either engine.
    *
-   * <p>Stub shape rationale: the overlay's delegate wraps a {@link CachePointer} with a
-   * null native pointer. {@link #releasePageFromWrite} gates the underlying cache
-   * release on a non-null buffer, so multi-access in the same TX (via repeated
-   * {@code loadPageForWrite} on the same pageIndex returning the existing overlay)
-   * stays a no-op on the cache's usage counter. A real cache-installed delegate would
-   * underflow as soon as the second close fires.
+   * <p><b>Per-engine delegate shape.</b>
+   *
+   * <ul>
+   *   <li><b>Disk engine</b> ({@code LockFreeReadCache} + {@code WOWCache}): the delegate
+   *       wraps a {@link CachePointer} with a null native pointer (the stub shape). The
+   *       real cache slot is materialized at commit time inside {@link #commitChanges},
+   *       when the {@code pageChangesMap} replay loop calls
+   *       {@code readCache.loadOrAddForWrite} for each new-page entry. The disk-engine
+   *       {@code loadOrAddForWrite} bottoms out on the total {@code WriteCache.loadOrAdd}
+   *       primitive, so the install always succeeds at commit time.
+   *   <li><b>In-memory engine</b> ({@link DirectMemoryOnlyDiskCache}): we eagerly install
+   *       the page in {@code MemoryFile} via {@code readCache.loadOrAdd}, which delegates
+   *       to {@code MemoryFile.loadOrAddPage} and bumps the returned pointer's
+   *       readers-referrer count by 1. We then decrement that bump once so the net
+   *       referrer balance matches the disk-engine path (whose commit-time install never
+   *       hands out an extra readers reference). The eager install is required because
+   *       the in-memory engine's read-cache wrappers are deliberately non-total
+   *       ({@code loadOrAddForWrite} / {@code loadForRead} return {@code null} on miss),
+   *       so without the install the {@link #commitChanges} replay loop's
+   *       {@code loadOrAddForWrite} call would return null and the per-page accumulated
+   *       changes would have no slot to apply against. The strict allocator-only check
+   *       is bypassed on this branch — a rolled-back TX leaves its eagerly-installed
+   *       pages in {@code MemoryFile} (the cache is not rolled back), so the next TX
+   *       legitimately sees {@code writeCache.getFilledUpTo()} above the logical
+   *       allocation horizon (e.g., {@code mapEntryPoint.fileSize}) and must re-allocate
+   *       the same logical page. {@code MemoryFile.loadOrAddPage}'s {@code putIfAbsent}
+   *       semantics keep the re-use safe: the orphan's magic-empty-LSN header carries
+   *       no real data and the new TX overwrites it via {@code CacheEntryChanges}.
+   * </ul>
+   *
+   * <p>Stub shape rationale (disk engine and fresh-booked-file branch on either engine):
+   * the overlay's delegate wraps a {@link CachePointer} with a null native pointer.
+   * {@link #releasePageFromWrite} gates the underlying cache release on a non-null buffer,
+   * so multi-access in the same TX (via repeated {@code loadPageForWrite} on the same
+   * pageIndex returning the existing overlay) stays a no-op on the cache's usage counter.
+   * A real cache-installed delegate would underflow as soon as the second close fires.
+   *
+   * <p>The in-memory eager-install branch wraps the cache-installed pointer in a
+   * {@link CacheEntryImpl} (insideCache=false, no exclusive lock held) and relies on
+   * the readers-referrer balancing to keep the {@link #releasePageFromWrite} gate
+   * accurate: the gate checks {@code getCachePointer().getBuffer() != null}, which is
+   * true on this branch, and the call goes through {@code readCache.releaseFromRead}
+   * which on the in-memory engine only manipulates usagesCount and never touches
+   * readers-referrer. The eager-install path therefore explicitly decrements the
+   * readers-referrer the {@code readCache.loadOrAdd} call handed us, returning the
+   * page to the cache's "no caller-held reference" baseline before the overlay is
+   * wrapped; subsequent {@code releaseFromRead}-driven release inside
+   * {@link #releasePageFromWrite} is a usages-only decrement with no leak.
    */
   // The IOException on the signature comes from the AtomicOperation interface, which
   // covers implementations that perform I/O (today's body does not, but the contract
@@ -434,48 +480,111 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return existing;
     }
 
-    // Lower bound on legal fresh-page indices. For new files this is 0. For existing files
-    // with at least one prior in-TX allocation, this is maxNewPageIndex + 1 — by the
-    // per-component lock, no cross-TX writer can have extended past maxNewPageIndex, so the
-    // in-progress horizon is an equally valid floor (and is immutable across this TX).
-    // Otherwise we probe the write cache once for the committed cross-TX horizon.
     final boolean fileIsNew = changesContainer.isNew;
-    final long allocationFloor;
-    if (fileIsNew) {
-      allocationFloor = 0;
-    } else if (changesContainer.maxNewPageIndex > -2) {
-      allocationFloor = changesContainer.maxNewPageIndex + 1;
+
+    // Engine + fresh-booked-file dispatch happens BEFORE the allocator-only contract
+    // check. The two engines have different invariants around "physical extent vs
+    // logical allocation horizon":
+    //   - Disk engine: WriteCache.loadOrAdd is total and below-floor calls are caller
+    //     bugs — the strict allocator-only contract surfaces the violation as
+    //     IllegalStateException. The check fires below.
+    //   - In-memory engine: a TX rollback after this method eagerly installs pages
+    //     leaves the page in MemoryFile (rollback does not roll back the cache).
+    //     The next TX sees writeCache.getFilledUpTo() > mapEntryPoint.fileSize and
+    //     the strict check would fire on a perfectly legal allocator-only re-entry.
+    //     We deliberately bypass the strict check on this branch — re-using a
+    //     rollback-orphan page is the in-memory engine's equivalent of the disk
+    //     engine's partial-replay-orphan recovery, and MemoryFile.loadOrAddPage's
+    //     putIfAbsent semantics make the re-use safe (the orphan's magic-empty-LSN
+    //     header carries no real data; this TX overwrites it via CacheEntryChanges).
+    // Fresh-booked files (fileIsNew=true on either engine) take the stub-shape branch
+    // unconditionally because readCache.addFile has not yet run — the underlying file
+    // is not registered with the engine's per-file map and a direct readCache.loadOrAdd
+    // against the in-memory engine would throw IllegalArgumentException. The cache slot
+    // for a fresh-booked-file page is installed at commit time on both engines.
+    final CacheEntry delegate;
+    if (!fileIsNew && readCache instanceof DirectMemoryOnlyDiskCache inMemoryCache) {
+      // In-memory engine, file already registered with the cache: eagerly install the
+      // page in MemoryFile so the commitChanges replay loop's loadOrAddForWrite call
+      // (which is null-on-miss on this engine, per DirectMemoryOnlyDiskCache.java's
+      // deliberate divergence from the disk engine) finds the page via MemoryFile.loadPage.
+      // Without this install, commitChanges would see null and the per-page accumulated
+      // changes would have no slot to apply against — that exact NPE blew up the prior
+      // Step 5 attempt against a fresh in-memory database.
+      //
+      // verifyChecksums is irrelevant on the in-memory engine (no on-disk image to
+      // verify); pass false to match the legacy addPage shape. DirectMemoryOnlyDiskCache
+      // explicitly ignores the flag.
+      final var pointer = inMemoryCache.loadOrAdd(fileId, pageIndex, false);
+      assert pointer != null
+          : "DirectMemoryOnlyDiskCache.loadOrAdd returned null for fileId=" + fileId
+              + " pageIndex=" + pageIndex + " (totality contract violated)";
+      // MemoryFile.loadOrAddPage bumped the readers-referrer count by 1 for the caller
+      // (the bump runs under the per-file clearLock readLock so a concurrent
+      // clear() / deleteFile() / truncateFile() cannot recycle the frame between
+      // publication and the increment). Our CacheEntryImpl(insideCache=false) wrapper
+      // is released through ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease,
+      // which only manipulates usagesCount and never decrements readers-referrer (unlike
+      // LockFreeReadCache.releaseFromRead's !insideCache branch on the disk engine).
+      // Without this decrement, every page allocated through this branch would leak a
+      // readers-referrer reference, and MemoryFile.clear (on deleteFile / truncate /
+      // storage drop) would observe referrer > 1, pinning the page frame in the pool
+      // forever. After the decrement the count is 1 (the in-cache referrer held by
+      // installEmptyPage) so the page stays resident and subsequent commit-time
+      // loadOrAddForWrite still finds it via MemoryFile.loadPage. This is the BC1
+      // fix rationale from the original Step 1 implementation.
+      pointer.decrementReadersReferrer();
+      // No exclusive lock is acquired on this branch. The AOBT lifecycle relies on
+      // the CacheEntryChanges overlay (the change buffer) to serialize all in-TX
+      // writes against the page; the underlying CachePointer's exclusive lock is
+      // only acquired at commit time by commitChanges (which calls
+      // readCache.loadOrAddForWrite for each pageChangesMap entry, and that method
+      // returns a write-locked entry on both engines). Acquiring the per-page lock
+      // here would not change observable behavior and would diverge from the
+      // legacy stub-shape branch immediately below.
+      delegate = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
     } else {
-      allocationFloor = writeCache.getFilledUpTo(fileId);
+      // Stub-shape branch: disk engine (any file state) + fresh-booked-file branch on
+      // either engine. The strict allocator-only contract applies here — the disk
+      // engine's WriteCache.loadOrAdd is total at commit time, so a below-floor target
+      // is unambiguously a caller bug (use loadPageForWrite for existing pages); the
+      // fresh-booked-file path has no committed pages so the check trivially passes.
+      //
+      // Lower bound on legal fresh-page indices. For new files this is 0. For existing
+      // files with at least one prior in-TX allocation, this is maxNewPageIndex + 1 — by
+      // the per-component lock, no cross-TX writer can have extended past
+      // maxNewPageIndex, so the in-progress horizon is an equally valid floor (and is
+      // immutable across this TX). Otherwise we probe the write cache once for the
+      // committed cross-TX horizon.
+      final long allocationFloor;
+      if (fileIsNew) {
+        allocationFloor = 0;
+      } else if (changesContainer.maxNewPageIndex > -2) {
+        allocationFloor = changesContainer.maxNewPageIndex + 1;
+      } else {
+        allocationFloor = writeCache.getFilledUpTo(fileId);
+      }
+      if (!(fileIsNew || pageIndex >= allocationFloor)) {
+        throw new IllegalStateException(
+            "loadOrAddPageForWrite is allocation-only; pageIndex " + pageIndex
+                + " is below allocationFloor " + allocationFloor
+                + " on file with id " + fileId
+                + ". Use loadPageForWrite for existing pages.");
+      }
+      // Stub-shape delegate: null native pointer so multi-access in the same TX stays a
+      // no-op on the cache's usage counter (releasePageFromWrite gates the release on
+      // a non-null buffer; commitChanges installs the real CachePointer at apply time
+      // via readCache.loadOrAddForWrite).
+      delegate =
+          new CacheEntryImpl(
+              fileId,
+              (int) pageIndex,
+              new CachePointer((Pointer) null, null, fileId, (int) pageIndex),
+              false,
+              readCache);
+      assert delegate.getCachePointer().getBuffer() == null
+          : "stub-shape delegate must carry a null buffer for fresh allocations";
     }
-
-    final boolean isNew = fileIsNew || pageIndex >= allocationFloor;
-
-    // Allocator-only contract: the caller must target a genuinely new pageIndex.
-    // Existing pages must go through loadPageForWrite, which preserves the WAL change
-    // buffer's single-accumulator invariant. We let the early-return above absorb
-    // idempotent repeat calls so the per-component allocator can re-enter without
-    // tripping this guard — anything that reaches here is a fresh slot.
-    if (!isNew) {
-      throw new IllegalStateException(
-          "loadOrAddPageForWrite is allocation-only; pageIndex " + pageIndex
-              + " is below allocationFloor " + allocationFloor
-              + " on file with id " + fileId
-              + ". Use loadPageForWrite for existing pages.");
-    }
-
-    // Stub-shape delegate: null native pointer so multi-access in the same TX stays a
-    // no-op on the cache's usage counter (releasePageFromWrite gates the release on
-    // a non-null buffer; commitChanges installs the real CachePointer at apply time).
-    final var delegate =
-        new CacheEntryImpl(
-            fileId,
-            (int) pageIndex,
-            new CachePointer((Pointer) null, null, fileId, (int) pageIndex),
-            false,
-            readCache);
-    assert delegate.getCachePointer().getBuffer() == null
-        : "stub-shape delegate must carry a null buffer for fresh allocations";
 
     final var changes = new CacheEntryChanges(false, this);
     changes.isNew = true;
