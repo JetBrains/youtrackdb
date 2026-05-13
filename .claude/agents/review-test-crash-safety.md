@@ -1,6 +1,6 @@
 ---
 name: review-test-crash-safety
-description: "Reviews test code for crash safety testing quality and production assert statements: whether crash/recovery scenarios are simulated, WAL replay is verified, and Java assert statements protect invariants. Launched by the /test-review command — not intended for direct use."
+description: "Reviews test code for crash safety testing quality and production assert statements: whether crash/recovery scenarios are simulated, WAL replay is verified, and Java assert statements protect invariants. Launched by the /code-review command — not intended for direct use."
 model: opus
 ---
 

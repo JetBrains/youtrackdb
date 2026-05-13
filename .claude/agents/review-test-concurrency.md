@@ -1,6 +1,6 @@
 ---
 name: review-test-concurrency
-description: "Reviews test code for concurrency testing quality: whether multi-threaded behavior is properly verified, race conditions are exercised, and synchronization primitives are used correctly in tests. Launched by the /test-review command — not intended for direct use."
+description: "Reviews test code for concurrency testing quality: whether multi-threaded behavior is properly verified, race conditions are exercised, and synchronization primitives are used correctly in tests. Launched by the /code-review command — not intended for direct use."
 model: opus
 ---
 

@@ -1,11 +1,11 @@
 ---
 name: code-review
-description: "Review code changes across multiple dimensions (quality, bugs, concurrency, crash-safety, security, performance) using specialized agents with triage-based selection."
+description: "Review code AND test changes across multiple dimensions (quality, bugs, concurrency, crash-safety, security, performance, test behavior, test completeness, test structure, test concurrency, test crash-safety) using specialized agents with triage-based selection."
 argument-hint: "[branch | commit-range | uncommitted | PR-number]"
 user-invocable: true
 ---
 
-Review code changes across multiple dimensions by dispatching to specialized review agents and synthesizing their findings.
+Review code and test changes across multiple dimensions by dispatching to specialized review agents and synthesizing their findings. Production code and test code are two sides of the same review — this skill handles both in one pass.
 
 Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or "uncommitted").
 
@@ -93,16 +93,16 @@ Include this filter note in the context passed to agents.
 
 ## Step 5: Triage — Categorize Changes and Select Relevant Agents
 
-Before dispatching agents, perform a quick triage pass over the diff to determine which review dimensions are actually relevant. This avoids wasting time on agents that have nothing meaningful to review.
+Before dispatching agents, perform a quick triage pass over the **entire diff** (both production and test code) to determine which review dimensions are actually relevant. This avoids wasting time on agents that have nothing meaningful to review.
 
 ### 5a: Categorize Each Changed File
 
-Scan the diff and assign one or more categories to each changed file:
+Scan the diff and assign one or more categories to **every** changed file — production code, test code, and other files alike:
 
 | Category | Signals |
 |---|---|
 | **storage-engine** | Files in `storage/`, `cache/`, `wal/`, `StorageComponent` subclasses, page read/write logic, `DiskStorage`, `WriteCache`, `ReadCache`, `LogSequenceNumber`, double-write log |
-| **concurrency** | `synchronized`, `Lock`, `Atomic*`, `volatile`, `StampedLock`, `ReentrantLock`, thread pools, `ConcurrentHashMap`, `CompletableFuture`, shared mutable state, `@GuardedBy` |
+| **concurrency** | `synchronized`, `Lock`, `Atomic*`, `volatile`, `StampedLock`, `ReentrantLock`, thread pools, `ConcurrentHashMap`, `CompletableFuture`, shared mutable state, `@GuardedBy`, `ConcurrentTestHelper`, `CountDownLatch`, `CyclicBarrier` |
 | **index-data-structures** | Files in `index/`, B-tree, hash index, `SBTree`, `CellBTree`, histogram, `IndexEngine` |
 | **network-server** | Files in `server/`, `driver/`, Gremlin Server, protocol handling, TLS/SSL, authentication, session management |
 | **sql-query** | Files in `sql/` (excluding `parser/`), query execution, command handlers, `SELECT`/`INSERT`/`UPDATE`/`DELETE` logic |
@@ -115,11 +115,13 @@ Scan the diff and assign one or more categories to each changed file:
 | **build-config** | `pom.xml`, CI workflows, Maven profiles, Docker configs |
 | **docs-only** | Markdown, documentation, comments-only changes |
 
-A file can belong to multiple categories (e.g., a lock change in storage code is both `storage-engine` and `concurrency`).
+A file can belong to multiple categories (e.g., a lock change in storage code is both `storage-engine` and `concurrency`). Production and test files in the same domain should share the same categories.
 
 ### 5b: Map Categories to Agents
 
-Use the following mapping to decide which agents to launch:
+There are **10 specialized review agents** in two groups:
+
+**Code-review agents** (review production code):
 
 | Agent | Launch when ANY of these categories are present |
 |---|---|
@@ -129,6 +131,18 @@ Use the following mapping to decide which agents to launch:
 | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
 | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
 
+**Test-review agents** (review test quality and coverage gaps):
+
+| Agent | Launch when |
+|---|---|
+| **review-test-behavior** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-test-completeness** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-test-structure** | Any test files are changed (reviews isolation, readability, setup/teardown of test code itself) |
+| **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
+| **review-test-crash-safety** | `crash-durability` |
+
+Categories from **both** production and test code count for the test-review side — for example, if production code adds a new `synchronized` block but tests don't exercise threading, `review-test-concurrency` should still launch to flag the gap.
+
 ### 5c: Log Your Triage Decision
 
 Before launching agents, output a brief triage summary so the user can see the reasoning:
@@ -136,14 +150,15 @@ Before launching agents, output a brief triage summary so the user can see the r
 ```
 ### Triage Summary
 - **Categories detected**: storage-engine, concurrency, index-data-structures
-- **Agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
+- **Code agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
+- **Test agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-concurrency, review-test-crash-safety
 - **Agents skipped**: review-security (no network/API/SQL/config/dependency changes)
 ```
 
 ### 5d: Edge Cases
-- If **all categories are `docs-only`**: Skip all agents. Just report that only documentation changed and no code review is needed.
-- If **all categories are `build-config`**: Launch `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes).
-- If **all categories are `tests-only`**: Launch only `review-code-quality` and `review-bugs-concurrency` (test logic can have bugs too).
+- If **all categories are `docs-only`**: Skip all agents. Just report that only documentation changed and no review is needed.
+- If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes). Skip all test-review agents.
+- If **all categories are `tests-only`**: Launch `review-code-quality` and `review-bugs-concurrency` (test logic can have bugs too), plus the full test-review set selected by the test-side rules above.
 - If **in doubt** about whether an agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
 
 ## Step 6: Dispatch Selected Review Agents
@@ -153,7 +168,7 @@ Launch the selected agents **in parallel** using the Agent tool. Each agent rece
 For each agent, use this prompt template (fill in the agent-specific name):
 
 ```
-Review the following code changes from your specialized perspective.
+Review the following changes from your specialized perspective.
 
 ## Review Scope
 {REVIEW_SCOPE}
@@ -177,25 +192,36 @@ Use **mcp-steroid PSI find-usages / find-implementations / type-hierarchy
 via `steroid_execute_code`, not grep**, for any reference-accuracy
 question about a Java symbol in this diff (callers/overrides/usages of
 a method, field, class, or annotation; whether a slot is genuinely
-unused; whether a renamed symbol still has stale references). Grep is
-acceptable for filename globs, unique string literals, and orientation
-reads, but the load-bearing answer behind a finding must be PSI-backed
-when the mcp-steroid MCP server is reachable per the SessionStart hook
-(`steroid_list_projects` once at the start confirms the open project
-matches the working tree). Fall back to grep with an explicit
-reference-accuracy caveat in the finding only when mcp-steroid is
-unreachable. See `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch" for the full routing rule.
+unused; whether a renamed symbol still has stale references; for test
+review, which production methods a test exercises and where else they
+are called). Grep is acceptable for filename globs, unique string
+literals, and orientation reads, but the load-bearing answer behind a
+finding must be PSI-backed when the mcp-steroid MCP server is
+reachable per the SessionStart hook (`steroid_list_projects` once at
+the start confirms the open project matches the working tree). Fall
+back to grep with an explicit reference-accuracy caveat in the finding
+only when mcp-steroid is unreachable. See `CLAUDE.md` § MCP Steroid →
+"Grep vs PSI — when to switch" for the full routing rule.
 
 ## Diff
 {DIFF}
 ```
 
-The 5 possible agents (launch only those selected in Step 5):
+The 10 possible agents (launch only those selected in Step 5):
+
+**Code-review agents:**
 1. **review-code-quality** — code quality, conventions, readability
 2. **review-bugs-concurrency** — bugs, logic errors, concurrency, resource leaks
 3. **review-crash-safety** — WAL correctness, durability, crash recovery
 4. **review-security** — injection, auth, data exposure, dependencies
 5. **review-performance** — algorithmic complexity, allocations, lock contention, I/O
+
+**Test-review agents:**
+6. **review-test-behavior** — behavior-driven quality, assertion precision, exception testing
+7. **review-test-completeness** — corner cases, boundary conditions, test data quality
+8. **review-test-structure** — isolation, independence, readability, documentation
+9. **review-test-concurrency** — concurrent behavior testing quality
+10. **review-test-crash-safety** — crash/recovery test quality, production assert statements
 
 Set `subagent_type` to the agent name and `model` to `opus` for each.
 
@@ -203,24 +229,25 @@ Set `subagent_type` to the agent name and `model` to `opus` for each.
 
 After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
-1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a resource leak flagged by both bugs-concurrency and performance), merge into one finding and note which dimensions it affects.
+1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a resource leak flagged by both bugs-concurrency and performance, or a missing crash-recovery test flagged by both crash-safety and test-crash-safety), merge into one finding and note which dimensions it affects.
 
 2. **Prioritize**: Order findings by severity:
-   - **blocker** — must fix before merge (bugs, security vulns, crash safety, data corruption)
-   - **should-fix** — should fix before merge (likely bugs, serious performance issues, concurrency risks)
-   - **suggestion** — recommended improvements (code quality, moderate performance, style, optional optimizations)
+   - **blocker** — must fix before merge (bugs, security vulns, crash safety, data corruption, tests that give false confidence, missing tests for dangerous code paths)
+   - **should-fix** — should fix before merge (likely bugs, serious performance issues, concurrency risks, missing corner cases for critical code, weak assertions that could hide bugs)
+   - **suggestion** — recommended improvements (code quality, moderate performance, style, optional optimizations, test data quality, naming, optional edge cases)
 
-3. **Attribute**: For each finding, indicate which review dimension(s) identified it.
+3. **Attribute**: For each finding, indicate which review dimension(s) identified it. Use a short label (e.g., `[code-quality]`, `[bugs-concurrency]`, `[test-behavior]`, `[test-crash-safety]`).
 
-4. **Summarize**: Write a brief overall assessment (2-3 sentences).
+4. **Summarize**: Write a brief overall assessment (2-3 sentences) covering both code quality and test quality.
 
 ### Output Format
 
 ```markdown
-## Code Review: {REVIEW_SCOPE}
+## Review: {REVIEW_SCOPE}
 
 ### Overall Assessment
-[2-3 sentences: is this ready to merge? What are the main concerns?]
+[2-3 sentences: is this ready to merge? What are the main concerns on the
+code side and on the test side?]
 
 ### Blockers
 [Must fix before merge]

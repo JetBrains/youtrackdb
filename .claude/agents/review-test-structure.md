@@ -1,6 +1,6 @@
 ---
 name: review-test-structure
-description: "Reviews test code for isolation, independence, readability, documentation quality, and proper setup/teardown. Checks that tests are self-contained and serve as living documentation. Launched by the /test-review command — not intended for direct use."
+description: "Reviews test code for isolation, independence, readability, documentation quality, and proper setup/teardown. Checks that tests are self-contained and serve as living documentation. Launched by the /code-review command — not intended for direct use."
 model: opus
 ---
 

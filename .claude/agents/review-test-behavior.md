@@ -1,6 +1,6 @@
 ---
 name: review-test-behavior
-description: "Reviews test code for behavior-driven quality: whether tests verify real behavior vs just chasing coverage, assertion depth and precision, and exception testing correctness. Launched by the /test-review command — not intended for direct use."
+description: "Reviews test code for behavior-driven quality: whether tests verify real behavior vs just chasing coverage, assertion depth and precision, and exception testing correctness. Launched by the /code-review command — not intended for direct use."
 model: opus
 ---
 

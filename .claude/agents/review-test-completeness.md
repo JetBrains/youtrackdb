@@ -1,6 +1,6 @@
 ---
 name: review-test-completeness
-description: "Reviews test code for missing corner cases, boundary conditions, edge cases, and test data quality. Identifies gaps in test coverage that metrics alone cannot detect. Launched by the /test-review command — not intended for direct use."
+description: "Reviews test code for missing corner cases, boundary conditions, edge cases, and test data quality. Identifies gaps in test coverage that metrics alone cannot detect. Launched by the /code-review command — not intended for direct use."
 model: opus
 ---
 
