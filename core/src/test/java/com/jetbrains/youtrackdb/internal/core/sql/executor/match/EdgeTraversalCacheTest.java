@@ -2156,20 +2156,31 @@ public class EdgeTraversalCacheTest {
   // ---- Metric resolve fallback (null registry in unit test env) ----
 
   /**
-   * resolveEffectivenessMetric() must return a functional Ratio that
-   * either resolves from the live registry (Impl) or falls back to
-   * NOOP. The cached reference is reused on subsequent calls, avoiding
-   * repeated ConcurrentHashMap lookups.
+   * resolveEffectivenessMetric() must return a functional dual-sink Ratio
+   * that delegates {@code record(filtered, probed)} both to the global
+   * registry metric (live {@link Ratio.Impl} or {@link Ratio#NOOP}) and to
+   * this traversal's per-query probed/filtered totals. The cached reference
+   * is reused on subsequent calls, avoiding repeated ConcurrentHashMap
+   * lookups in the registry.
    */
   @Test
   public void resolveEffectivenessMetricReturnsCachedFunctionalMetric() {
     var et = createEdgeTraversal();
     var metric = et.resolveEffectivenessMetric();
     assertThat(metric).isNotNull();
-    assertThat(metric).isInstanceOfAny(Ratio.Impl.class, Ratio.NOOP.getClass());
+
+    // Recording on the wrapper must not throw and must update this
+    // traversal's per-query counters via the second sink.
     metric.record(50, 100);
-    // Second call returns the same cached reference.
+    assertThat(et.getPreFilterTotalProbed()).isEqualTo(100);
+    assertThat(et.getPreFilterTotalFiltered()).isEqualTo(50);
+
+    // Second call returns the same cached wrapper reference (no re-resolve).
     assertThat(et.resolveEffectivenessMetric()).isSameAs(metric);
+
+    // The wrapper's getRatio() must delegate without throwing, even when the
+    // backing global delegate has no data yet (returns 0.0 from NOOP/Impl).
+    assertThat(metric.getRatio()).isNotNaN();
   }
 
   // =========================================================================

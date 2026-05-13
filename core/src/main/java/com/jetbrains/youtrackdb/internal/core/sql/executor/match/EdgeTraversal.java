@@ -434,18 +434,36 @@ public class EdgeTraversal {
   }
 
   /**
-   * Records a successful pre-filter application for one vertex.
-   * Increments {@link #preFilterTotalProbed} by the link bag size and
-   * {@link #preFilterTotalFiltered} by the estimated number of entries
-   * removed (link bag size minus the RidSet size, floored at zero).
-   *
-   * @param linkBagSize the number of adjacency list entries for this vertex
-   * @param ridSetSize  the number of entries in the pre-filter RidSet
+   * Records that a pre-filter was applied for one vertex. Increments
+   * {@link #preFilterAppliedCount} only — the probed/filtered totals are
+   * updated lazily by {@link #recordPreFilterTraversalStats} once the
+   * iterator that consumes the pre-filtered link bag is exhausted or
+   * closed, so the values reflect the true intersection of link bag and
+   * RidSet rather than the broken {@code linkBagSize − ridSet.size()}
+   * estimate this method used to apply eagerly.
    */
-  void recordPreFilterApplied(int linkBagSize, int ridSetSize) {
+  void recordPreFilterApplied() {
     preFilterAppliedCount++;
-    preFilterTotalProbed += linkBagSize;
-    preFilterTotalFiltered += Math.max(0, linkBagSize - ridSetSize);
+  }
+
+  /**
+   * Records the true probed/filtered counts for one vertex's iteration,
+   * called from the wrapper {@link Ratio} returned by
+   * {@link #resolveEffectivenessMetric()} once the iterator wrapping the
+   * pre-filtered link bag is exhausted or closed.
+   *
+   * <p>{@code probed} is the number of link-bag entries that survived the
+   * class filter and were tested against the RidSet; {@code filtered} is
+   * the subset rejected by that test ({@code filtered ≤ probed}). The
+   * iterator guards against zero-probe flushes so this method is only
+   * reached with {@code probed > 0}.
+   *
+   * @param filtered count of link-bag entries rejected by the RidSet
+   * @param probed   count of link-bag entries tested against the RidSet
+   */
+  void recordPreFilterTraversalStats(long filtered, long probed) {
+    preFilterTotalProbed += probed;
+    preFilterTotalFiltered += filtered;
   }
 
   /**
@@ -823,9 +841,22 @@ public class EdgeTraversal {
   }
 
   /**
-   * Resolves the {@link CoreMetrics#PREFILTER_EFFECTIVENESS} metric,
-   * caching the reference for reuse across vertices. Falls back to
-   * {@link Ratio#NOOP} when the MetricsRegistry is unavailable.
+   * Resolves the effectiveness sink used by {@code applyPreFilter} and the
+   * iterators it wraps. The returned {@link Ratio} fans out each
+   * {@code record(filtered, probed)} call to two sinks:
+   *
+   * <ol>
+   *   <li>the global {@link CoreMetrics#PREFILTER_EFFECTIVENESS} metric in
+   *       the {@link MetricsRegistry} (or {@link Ratio#NOOP} when the
+   *       registry is unavailable);</li>
+   *   <li>this traversal's per-query {@link #preFilterTotalProbed} and
+   *       {@link #preFilterTotalFiltered} counters, surfaced in PROFILE
+   *       output via the {@code MatchStep} pretty-printer.</li>
+   * </ol>
+   *
+   * <p>Cached for reuse across vertices so the wrapper is allocated at most
+   * once per traversal; the per-vertex hot path only performs a single
+   * delegated {@code record(...)} call followed by two {@code +=} updates.
    */
   Ratio resolveEffectivenessMetric() {
     if (cachedEffectiveness != null) {
@@ -833,9 +864,21 @@ public class EdgeTraversal {
     }
     MetricsRegistry registry =
         YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    cachedEffectiveness = registry != null
+    final Ratio globalDelegate = registry != null
         ? registry.globalMetric(CoreMetrics.PREFILTER_EFFECTIVENESS)
         : Ratio.NOOP;
+    cachedEffectiveness = new Ratio() {
+      @Override
+      public void record(long filtered, long probed) {
+        globalDelegate.record(filtered, probed);
+        recordPreFilterTraversalStats(filtered, probed);
+      }
+
+      @Override
+      public double getRatio() {
+        return globalDelegate.getRatio();
+      }
+    };
     return cachedEffectiveness;
   }
 

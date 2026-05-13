@@ -177,6 +177,17 @@ public class MatchStep extends AbstractExecutionStep {
         result.append(
             String.format(Locale.ROOT, " selectivity=%.4f", selectivity));
       }
+      // Show estimated hit count alongside selectivity so operators can spot
+      // pre-filter cap-vs-linkBag mismatches at plan time without running
+      // PROFILE. -1 from estimateHits() means "no statistics / non-constant
+      // key / unsupported operator", which we render as "unknown" rather
+      // than a misleading number.
+      if (ctx != null) {
+        long estHits = indexLookup.indexDescriptor().estimateHits(ctx);
+        if (estHits >= 0) {
+          result.append(" estHits=").append(estHits);
+        }
+      }
       result.append(")");
     } else if (descriptor instanceof RidFilterDescriptor.Composite composite) {
       for (var inner : composite.descriptors()) {

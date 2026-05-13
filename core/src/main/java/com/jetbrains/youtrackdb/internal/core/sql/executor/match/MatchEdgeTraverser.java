@@ -574,7 +574,12 @@ public class MatchEdgeTraverser implements ExecutionStream {
     // link bag is large enough triggers actual resolution and caching.
     if (edge.getIntersectionDescriptor() != null) {
       // Resolve effectiveness metric from the EdgeTraversal's cache,
-      // avoiding per-vertex MetricsRegistry map lookups.
+      // avoiding per-vertex MetricsRegistry map lookups. The metric is
+      // recorded lazily by the iterator wrapping pfli — see
+      // EdgeFromLinkBagIterator#flushEffectivenessMetric — so probed/filtered
+      // reflect the true intersection size rather than the broken
+      // (linkBagSize − ridSet.size()) approximation, which would have been
+      // wrong whenever ridSet was not a subset of the link bag.
       Ratio effectiveness = edge.resolveEffectivenessMetric();
       int linkBagSize = pfli.size();
       if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
@@ -602,20 +607,14 @@ public class MatchEdgeTraverser implements ExecutionStream {
               || desc.passesSelectivityCheck(
                   ridSet.size(), linkBagSize, ctx)) {
             this.currentPreFilterRids = ridSet;
-            edge.recordPreFilterApplied(linkBagSize, ridSet.size());
-            // Record effectiveness metric: filtered = (linkBagSize - ridSetSize),
-            // probed = linkBagSize. Guarded by probed > 0 (R5).
-            if (linkBagSize > 0) {
-              long filtered = Math.max(0, linkBagSize - ridSet.size());
-              effectiveness.record(filtered, linkBagSize);
-            }
+            edge.recordPreFilterApplied();
             if (logger.isDebugEnabled()) {
               logger.debug(
                   "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
                   linkBagSize, ridSet.size(),
                   edge.getIntersectionDescriptor());
             }
-            pfli = pfli.withRidFilter(ridSet);
+            pfli = pfli.withRidFilter(ridSet, effectiveness);
           } else {
             // EdgeRidLookup ratio check failed on actual ridSet.size().
             edge.recordPreFilterSkip(

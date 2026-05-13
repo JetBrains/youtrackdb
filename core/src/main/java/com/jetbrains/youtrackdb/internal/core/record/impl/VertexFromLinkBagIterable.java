@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -36,21 +37,34 @@ public class VertexFromLinkBagIterable
 
   @Nullable private final Set<RID> acceptedRids;
 
+  /**
+   * Metric that receives the lazy pre-filter effectiveness report when the
+   * iterator created from this iterable is exhausted or closed. Always
+   * {@link Ratio#NOOP} unless this iterable was produced by
+   * {@link #withRidFilter(Set, Ratio)} with a non-NOOP metric. Carried through
+   * subsequent {@link #withClassFilter(IntSet)} chaining so callers can mix
+   * filters in any order without losing the metric reference.
+   */
+  @Nonnull
+  private final Ratio effectivenessMetric;
+
   public VertexFromLinkBagIterable(
       @Nonnull LinkBag linkBag,
       @Nonnull DatabaseSessionEmbedded session) {
-    this(linkBag, session, null, null);
+    this(linkBag, session, null, null, Ratio.NOOP);
   }
 
   private VertexFromLinkBagIterable(
       @Nonnull LinkBag linkBag,
       @Nonnull DatabaseSessionEmbedded session,
       @Nullable IntSet acceptedCollectionIds,
-      @Nullable Set<RID> acceptedRids) {
+      @Nullable Set<RID> acceptedRids,
+      @Nonnull Ratio effectivenessMetric) {
     this.linkBag = linkBag;
     this.session = session;
     this.acceptedCollectionIds = acceptedCollectionIds;
     this.acceptedRids = acceptedRids;
+    this.effectivenessMetric = effectivenessMetric;
   }
 
   /**
@@ -64,26 +78,48 @@ public class VertexFromLinkBagIterable
   @Nonnull
   @Override
   public VertexFromLinkBagIterable withClassFilter(@Nonnull IntSet collectionIds) {
-    return new VertexFromLinkBagIterable(linkBag, session, collectionIds, acceptedRids);
+    return new VertexFromLinkBagIterable(
+        linkBag, session, collectionIds, acceptedRids, effectivenessMetric);
   }
 
   /**
    * Returns a new iterable that only yields vertices whose RID is in the given set.
-   * Vertices not in the set are skipped without any disk I/O.
+   * Vertices not in the set are skipped without any disk I/O. The resulting
+   * iterator reports the true {@code (filtered, probed)} ratio to
+   * {@code effectivenessMetric} on exhaustion or close.
    *
-   * @param ridSet accepted RIDs (typically built from an index query)
+   * @param ridSet              accepted RIDs (typically built from an index query)
+   * @param effectivenessMetric metric receiving the lazy effectiveness report;
+   *                            {@link Ratio#NOOP} disables reporting
+   */
+  @Nonnull
+  @Override
+  public VertexFromLinkBagIterable withRidFilter(
+      @Nonnull Set<RID> ridSet, @Nonnull Ratio effectivenessMetric) {
+    return new VertexFromLinkBagIterable(
+        linkBag, session, acceptedCollectionIds, ridSet, effectivenessMetric);
+  }
+
+  /**
+   * Covariant override of the single-argument {@link
+   * PreFilterableLinkBagIterable#withRidFilter(Set)} default — narrows the
+   * return type back to {@link VertexFromLinkBagIterable} so chained calls
+   * (and tests typed via {@code var}) keep the concrete type. Delegates to
+   * the two-argument form with {@link Ratio#NOOP}; effectiveness reporting
+   * is disabled.
    */
   @Nonnull
   @Override
   public VertexFromLinkBagIterable withRidFilter(@Nonnull Set<RID> ridSet) {
-    return new VertexFromLinkBagIterable(linkBag, session, acceptedCollectionIds, ridSet);
+    return withRidFilter(ridSet, Ratio.NOOP);
   }
 
   @Nonnull
   @Override
   public Iterator<Vertex> iterator() {
     return new VertexFromLinkBagIterator(
-        linkBag.iterator(), session, linkBag.size(), acceptedCollectionIds, acceptedRids);
+        linkBag.iterator(), session, linkBag.size(),
+        acceptedCollectionIds, acceptedRids, effectivenessMetric);
   }
 
   @Override

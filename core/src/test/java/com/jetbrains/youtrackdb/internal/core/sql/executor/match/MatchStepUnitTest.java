@@ -271,8 +271,11 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies MatchStep.prettyPrint() shows "(intersection: index ...)" when
-   * the edge has an IndexLookup descriptor.
+   * Verifies MatchStep.prettyPrint() shows "(intersection: index ...)" with
+   * selectivity AND estimated hit count when the edge has an IndexLookup
+   * descriptor and statistics are available — operators rely on est. hits
+   * to spot pre-filter cap-vs-linkBag mismatches at plan time without
+   * running PROFILE.
    */
   @Test
   public void testMatchStepPrettyPrintIndexLookupIntersection() {
@@ -285,6 +288,38 @@ public class MatchStepUnitTest extends DbTestBase {
         com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
     when(indexDesc.getIndex()).thenReturn(index);
     when(indexDesc.estimateSelectivity(ctx)).thenReturn(0.42);
+    when(indexDesc.estimateHits(ctx)).thenReturn(42_000L);
+
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.IndexLookup(indexDesc));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue(
+        "Should contain IndexLookup intersection with selectivity and est. hits: "
+            + result,
+        result.contains(
+            "(intersection: index Post.creationDate selectivity=0.4200 estHits=42000)"));
+  }
+
+  /**
+   * When statistics are unavailable, {@code IndexSearchDescriptor.estimateHits}
+   * returns {@code -1}.  MatchStep.prettyPrint() must omit the {@code estHits=}
+   * suffix in that case rather than render a meaningless number.
+   */
+  @Test
+  public void testMatchStepPrettyPrintIndexLookupOmitsEstHitsWhenUnknown() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(index.getName()).thenReturn("Post.creationDate");
+    var indexDesc = mock(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
+    when(indexDesc.getIndex()).thenReturn(index);
+    when(indexDesc.estimateSelectivity(ctx)).thenReturn(0.42);
+    // -1 → "no statistics / non-constant key / unsupported operator"
+    when(indexDesc.estimateHits(ctx)).thenReturn(-1L);
 
     edge.setIntersectionDescriptor(
         new RidFilterDescriptor.IndexLookup(indexDesc));
@@ -292,7 +327,10 @@ public class MatchStepUnitTest extends DbTestBase {
     var step = new MatchStep(ctx, edge, false);
     var result = step.prettyPrint(0, 2);
     assertTrue("Should contain IndexLookup intersection with selectivity",
-        result.contains("(intersection: index Post.creationDate selectivity=0.4200)"));
+        result.contains(
+            "(intersection: index Post.creationDate selectivity=0.4200)"));
+    assertFalse("Must not render estHits when estimate is unknown (-1): " + result,
+        result.contains("estHits"));
   }
 
   /**

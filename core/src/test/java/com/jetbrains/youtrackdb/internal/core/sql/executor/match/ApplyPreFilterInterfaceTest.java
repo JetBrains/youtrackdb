@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -16,8 +17,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHel
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import org.junit.Test;
@@ -230,60 +234,64 @@ public class ApplyPreFilterInterfaceTest {
   }
 
   /**
-   * On the EdgeRidLookup success path, applyPreFilter records
-   * preFilterTotalProbed and preFilterTotalFiltered. The RidFilter is
-   * applied to the iterable.
+   * On the EdgeRidLookup success path, applyPreFilter applies the RidFilter
+   * to the iterable; once the resulting iterable is drained, the lazy
+   * effectiveness flush updates {@code preFilterTotalProbed} and
+   * {@code preFilterTotalFiltered}. The link-bag has 1000 entries with
+   * exactly one ({@code 10:1}) matching the RidSet, so the true
+   * intersection size is 1 → probed=1000, filtered=999.
    */
   @Test
   public void applyPreFilter_success_recordsCounters() {
     var edge = createEdgeTraversal();
     var desc = mock(EdgeRidLookup.class);
     var key = new RecordId(5, 1);
-    var ridSet = singletonRidSet(10, 1); // size = 1
+    var ridMatch = new RecordId(10, 1);
+    var ridSet = singletonRidSet(10, 1); // size = 1, contains 10:1
 
     when(desc.cacheKey(any())).thenReturn(key);
     when(desc.estimatedSize(any(), any())).thenReturn(1);
-    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any()))
-        .thenReturn(true);
+    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any())).thenReturn(true);
     when(desc.resolve(any(), any())).thenReturn(ridSet);
     edge.setIntersectionDescriptor(desc);
     var traverser = createTraverser(edge);
     var ctx = new BasicCommandContext();
 
-    // size=1000 above minLinkBagSize (50)
-    var stub = new StubPreFilterable(1000);
-    var result = traverser.applyPreFilter(stub, ctx);
+    // size=1000 above minLinkBagSize (50); seed one overlap with the RidSet.
+    var stub = new StubPreFilterable(linkBagWithOverlap(1000, List.of(ridMatch)));
+    var result = drainAndCast(traverser.applyPreFilter(stub, ctx));
 
     assertThat(edge.getPreFilterAppliedCount()).isEqualTo(1);
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(1000);
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(999);
     assertThat(edge.getPreFilterSkippedCount()).isZero();
     assertThat(edge.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
-    assertThat(((StubPreFilterable) result).appliedRidFilter)
-        .containsExactly(new RecordId(10, 1));
+    assertThat(result.appliedRidFilter).containsExactly(ridMatch);
   }
 
   /**
    * IndexLookup success path: applyPreFilter skips passesSelectivityCheck
    * for IndexLookup descriptors (selectivity was already checked in
-   * resolveWithCache at the class level). Counters still record the
-   * application.
+   * resolveWithCache at the class level). Counters are updated once the
+   * iterable is drained — the link-bag has 1000 entries, exactly one of
+   * which matches the singleton RidSet, so the true intersection size is 1.
    */
   @Test
   public void applyPreFilter_indexLookup_skipsRechecks_recordsCounters() {
     var edge = createEdgeTraversal();
-    var indexDesc = mock(
-        com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
+    var indexDesc =
+        mock(com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
     when(indexDesc.estimateSelectivity(any())).thenReturn(0.1);
     when(indexDesc.estimateHits(any())).thenReturn(10L);
-    var index = mock(
-        com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
     when(index.getName()).thenReturn("Post.date");
     when(indexDesc.getIndex()).thenReturn(index);
 
-    var desc = mock(
-        com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup.class);
+    var desc =
+        mock(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup.class);
     when(desc.indexDescriptor()).thenReturn(indexDesc);
+    var ridMatch = new RecordId(10, 1);
     var ridSet = singletonRidSet(10, 1);
     when(desc.cacheKey(any())).thenReturn("Post.date");
     when(desc.estimatedSize(any(), any())).thenReturn(10);
@@ -292,69 +300,76 @@ public class ApplyPreFilterInterfaceTest {
     var traverser = createTraverser(edge);
     var ctx = new BasicCommandContext();
 
-    var stub = new StubPreFilterable(1000);
-    var result = traverser.applyPreFilter(stub, ctx);
+    var stub = new StubPreFilterable(linkBagWithOverlap(1000, List.of(ridMatch)));
+    var result = drainAndCast(traverser.applyPreFilter(stub, ctx));
 
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(1000);
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(999);
-    assertThat(((StubPreFilterable) result).appliedRidFilter)
-        .containsExactly(new RecordId(10, 1));
+    assertThat(result.appliedRidFilter).containsExactly(ridMatch);
   }
 
   /**
    * Multiple applyPreFilter calls accumulate preFilterTotalProbed and
-   * preFilterTotalFiltered across vertices. The second vertex's stats
-   * add to the first's (cache hit for ridSet).
+   * preFilterTotalFiltered across vertices once each vertex's iterable
+   * is drained. The second vertex's stats add to the first's (cache hit
+   * for ridSet). Each vertex's link-bag seeds one overlap with the
+   * RidSet so the true intersection size is 1 per vertex.
    */
   @Test
   public void applyPreFilter_multipleVertices_accumulatesCounters() {
     var edge = createEdgeTraversal();
     var desc = mock(EdgeRidLookup.class);
     var key = new RecordId(5, 1);
+    var ridMatch = new RecordId(10, 1);
     var ridSet = singletonRidSet(10, 1); // size = 1
 
     when(desc.cacheKey(any())).thenReturn(key);
     when(desc.estimatedSize(any(), any())).thenReturn(1);
-    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any()))
-        .thenReturn(true);
+    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any())).thenReturn(true);
     when(desc.resolve(any(), any())).thenReturn(ridSet);
     edge.setIntersectionDescriptor(desc);
     var traverser = createTraverser(edge);
     var ctx = new BasicCommandContext();
 
-    // Vertex 1: linkBagSize=200
-    traverser.applyPreFilter(new StubPreFilterable(200), ctx);
+    // Vertex 1: linkBagSize=200, one overlap with the RidSet.
+    drainAndCast(traverser.applyPreFilter(
+        new StubPreFilterable(linkBagWithOverlap(200, List.of(ridMatch))), ctx));
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(200);
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(199);
 
-    // Vertex 2: linkBagSize=300 (cache hit for ridSet)
-    traverser.applyPreFilter(new StubPreFilterable(300), ctx);
+    // Vertex 2: linkBagSize=300 (cache hit for ridSet), one overlap again.
+    drainAndCast(traverser.applyPreFilter(
+        new StubPreFilterable(linkBagWithOverlap(300, List.of(ridMatch))), ctx));
     assertThat(edge.getPreFilterAppliedCount()).isEqualTo(2);
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(500); // 200+300
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(498); // 199+299
   }
 
   /**
-   * When ridSetSize exceeds linkBagSize (e.g. IndexLookup returns more
-   * hits than the vertex has neighbors), preFilterTotalFiltered stays at
-   * zero via the Math.max(0, ...) floor in recordPreFilterApplied.
+   * When every link-bag entry is also in the RidSet (e.g. IndexLookup
+   * returns a superset including all neighbors), the true intersection
+   * equals the link-bag size — so {@code preFilterTotalFiltered} is zero
+   * after the iterable is drained. This pins the corrected semantics:
+   * the count reflects real intersection, not the obsolete
+   * {@code Math.max(0, linkBagSize − ridSet.size())} floor that PR #973
+   * originally used.
    */
   @Test
-  public void applyPreFilter_ridSetLargerThanLinkBag_filteredStaysZero() {
+  public void applyPreFilter_ridSetSupersetOfLinkBag_filteredStaysZero() {
     var edge = createEdgeTraversal();
-    var indexDesc = mock(
-        com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
+    var indexDesc =
+        mock(com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
     when(indexDesc.estimateSelectivity(any())).thenReturn(0.1);
     when(indexDesc.estimateHits(any())).thenReturn(10L);
-    var index = mock(
-        com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
     when(index.getName()).thenReturn("Post.date");
     when(indexDesc.getIndex()).thenReturn(index);
 
-    var desc = mock(
-        com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup.class);
+    var desc =
+        mock(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup.class);
     when(desc.indexDescriptor()).thenReturn(indexDesc);
-    // RidSet has 500 entries, link bag only has 100
+    // RidSet contains 500 entries; the link bag's 100 entries are all in it.
     var ridSet = new RidSet();
     for (int i = 0; i < 500; i++) {
       ridSet.add(new RecordId(10, i));
@@ -366,8 +381,13 @@ public class ApplyPreFilterInterfaceTest {
     var traverser = createTraverser(edge);
     var ctx = new BasicCommandContext();
 
-    var stub = new StubPreFilterable(100);
-    traverser.applyPreFilter(stub, ctx);
+    // Link-bag content matches the first 100 entries of the RidSet → every
+    // probed entry is found in the set, filtered=0.
+    var linkBag = new ArrayList<RID>(100);
+    for (int i = 0; i < 100; i++) {
+      linkBag.add(new RecordId(10, i));
+    }
+    drainAndCast(traverser.applyPreFilter(new StubPreFilterable(linkBag), ctx));
 
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(100);
     assertThat(edge.getPreFilterTotalFiltered()).isZero();
@@ -378,27 +398,97 @@ public class ApplyPreFilterInterfaceTest {
    * Lightweight stub implementing PreFilterableLinkBagIterable for testing
    * filter dispatch without requiring a real LinkBag or database session.
    * Records which filters were applied so tests can assert on them.
+   *
+   * <p>When constructed with concrete link-bag content, the iterator yielded
+   * by {@link #iterator()} walks those RIDs, counts probed/filtered against
+   * the captured {@code appliedRidFilter}, and flushes the true counts to
+   * the captured {@code Ratio} on exhaustion — mirroring the production
+   * iterator's lazy-flush behaviour so tests can exercise the end-to-end
+   * {@code applyPreFilter} → counter pipeline.
+   *
+   * <p>When constructed via {@link #StubPreFilterable(int)}, synthetic RIDs
+   * disjoint from any RidSet built by the tests are used; this remains the
+   * right fixture for tests that only care about skip paths.
    */
   static class StubPreFilterable implements PreFilterableLinkBagIterable {
     final int reportedSize;
+    final List<RID> linkBagContent;
     IntSet appliedClassFilter;
     Set<RID> appliedRidFilter;
+    Ratio capturedEffectivenessMetric;
 
     StubPreFilterable(int size) {
-      this.reportedSize = size;
+      this(syntheticContent(size));
+    }
+
+    StubPreFilterable(List<RID> content) {
+      this.linkBagContent = List.copyOf(content);
+      this.reportedSize = content.size();
     }
 
     private StubPreFilterable(
-        int size, IntSet classFilter, Set<RID> ridFilter) {
-      this.reportedSize = size;
+        List<RID> content,
+        IntSet classFilter,
+        Set<RID> ridFilter,
+        Ratio effectivenessMetric) {
+      this.linkBagContent = content;
+      this.reportedSize = content.size();
       this.appliedClassFilter = classFilter;
       this.appliedRidFilter = ridFilter;
+      this.capturedEffectivenessMetric = effectivenessMetric;
     }
 
+    /**
+     * Returns an iterator that mirrors the production
+     * {@code EdgeFromLinkBagIterator} probe/filter accounting: it counts
+     * link-bag entries that survive the (no-op here) class check, tests each
+     * against {@code appliedRidFilter}, increments {@code filteredCount} on
+     * mismatch, and flushes both counts to the captured Ratio on exhaustion.
+     */
     @Nonnull
     @Override
     public Iterator<?> iterator() {
-      return Collections.emptyIterator();
+      if (appliedRidFilter == null) {
+        // No RID filter applied → no metric to flush; behave as before.
+        return Collections.emptyIterator();
+      }
+      return new Iterator<RID>() {
+        final Iterator<RID> source = linkBagContent.iterator();
+        long probed;
+        long filtered;
+        boolean flushed;
+        RID nextSurvivor;
+
+        @Override
+        public boolean hasNext() {
+          while (nextSurvivor == null && source.hasNext()) {
+            var rid = source.next();
+            probed++;
+            if (appliedRidFilter.contains(rid)) {
+              nextSurvivor = rid;
+            } else {
+              filtered++;
+            }
+          }
+          if (nextSurvivor == null && !flushed) {
+            flushed = true;
+            if (probed > 0) {
+              capturedEffectivenessMetric.record(filtered, probed);
+            }
+          }
+          return nextSurvivor != null;
+        }
+
+        @Override
+        public RID next() {
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          var out = nextSurvivor;
+          nextSurvivor = null;
+          return out;
+        }
+      };
     }
 
     @Override
@@ -416,15 +506,73 @@ public class ApplyPreFilterInterfaceTest {
     public PreFilterableLinkBagIterable withClassFilter(
         @Nonnull IntSet collectionIds) {
       return new StubPreFilterable(
-          reportedSize, collectionIds, appliedRidFilter);
+          linkBagContent,
+          collectionIds,
+          appliedRidFilter,
+          capturedEffectivenessMetric);
     }
 
     @Nonnull
     @Override
     public PreFilterableLinkBagIterable withRidFilter(
-        @Nonnull Set<RID> ridSet) {
+        @Nonnull Set<RID> ridSet,
+        @Nonnull Ratio effectivenessMetric) {
       return new StubPreFilterable(
-          reportedSize, appliedClassFilter, ridSet);
+          linkBagContent, appliedClassFilter, ridSet, effectivenessMetric);
     }
+
+    /**
+     * Synthetic link-bag content of {@code size} entries in a cluster (99)
+     * that no test's RidSet uses — keeps the {@code linkBag ∩ ridSet}
+     * intersection empty when the test does not explicitly seed overlap.
+     */
+    private static List<RID> syntheticContent(int size) {
+      var list = new ArrayList<RID>(size);
+      for (int i = 0; i < size; i++) {
+        list.add(new RecordId(99, i));
+      }
+      return list;
+    }
+  }
+
+  // =========================================================================
+  // Iteration-driven counter helpers
+  //
+  // The production iterator flushes preFilterTotalProbed/Filtered lazily on
+  // exhaustion, so tests asserting on those counters must drain the iterable
+  // returned by applyPreFilter.  These helpers keep the boilerplate out of
+  // each individual test.
+  // =========================================================================
+
+  /**
+   * Builds a link-bag of {@code totalSize} RIDs that includes {@code overlap}
+   * RIDs which the test will also place in its RidSet, padded with synthetic
+   * RIDs in a disjoint cluster.  Used to seed a known true-intersection size
+   * so post-iteration counters are deterministic.
+   */
+  private static List<RID> linkBagWithOverlap(int totalSize, List<RID> overlap) {
+    if (overlap.size() > totalSize) {
+      throw new IllegalArgumentException(
+          "Overlap size " + overlap.size() + " exceeds total " + totalSize);
+    }
+    var list = new ArrayList<RID>(totalSize);
+    list.addAll(overlap);
+    for (int i = overlap.size(); i < totalSize; i++) {
+      list.add(new RecordId(99, i));
+    }
+    return list;
+  }
+
+  /**
+   * Drains the iterable returned by {@code applyPreFilter} so the lazy
+   * effectiveness flush fires. Returns the stub cast back for inspection.
+   */
+  private static StubPreFilterable drainAndCast(Object result) {
+    var stub = (StubPreFilterable) result;
+    var it = stub.iterator();
+    while (it.hasNext()) {
+      it.next();
+    }
+    return stub;
   }
 }
