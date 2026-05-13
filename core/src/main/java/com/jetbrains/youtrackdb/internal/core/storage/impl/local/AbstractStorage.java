@@ -5397,6 +5397,11 @@ public abstract class AbstractStorage
           // the migration to total loadOrAdd.
           final var cacheEntry =
               readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          assert cacheEntry != null
+              : "readCache.loadOrAddForWrite returned null during WAL replay"
+                  + " UpdatePageRecord branch for fileId=" + fileId
+                  + " pageIndex=" + pageIndex
+                  + "; WriteCache.loadOrAdd totality contract violated";
 
           try {
             final var durablePage = new DurablePage(cacheEntry);
@@ -5466,6 +5471,11 @@ public abstract class AbstractStorage
           // the migration to total loadOrAdd.
           final var cacheEntry =
               readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          assert cacheEntry != null
+              : "readCache.loadOrAddForWrite returned null during WAL replay"
+                  + " PageOperation branch for fileId=" + fileId
+                  + " pageIndex=" + pageIndex
+                  + "; WriteCache.loadOrAdd totality contract violated";
 
           try {
             final var durablePage = new DurablePage(cacheEntry);

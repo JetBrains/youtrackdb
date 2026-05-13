@@ -24,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -243,16 +245,18 @@ public class RestoreAtomicUnitPageOperationTest {
   }
 
   /**
-   * Replay of a PageOperation referencing a page index beyond the file's current size
-   * (gap-fill scenario): {@code readCache.loadOrAddForWrite} is total on the disk engine
-   * (it delegates to {@code WriteCache.loadOrAdd} which gap-fills any intermediate pages
-   * between {@code currentSize} and the recorded {@code pageIndex} and returns a usable
-   * entry for the requested index). After collapsing the prior do/while reconciliation
-   * loop, restoreAtomicUnit must call {@code loadOrAddForWrite} exactly once per
-   * PageOperation (no reconciliation re-allocation) and apply redo against the returned
-   * entry. The test pins this single-call contract for a high-pageIndex operation that
-   * would have previously triggered the deleted reconciliation loop if loadOrAddForWrite
-   * had ever returned null.
+   * Pins the no-reconciliation single-call contract on the {@code PageOperation} branch
+   * of {@code restoreAtomicUnit}: each PageOperation triggers exactly one
+   * {@code readCache.loadOrAddForWrite} call at the recorded pageIndex and never falls
+   * back to {@code allocateNewPage}. The prior implementation wrapped the call in a
+   * {@code do/while} that re-allocated until the cache returned the requested index;
+   * after the collapse, totality is supplied by {@code WriteCache.loadOrAdd}
+   * (gap-fills intermediate pages on the disk engine) so the reconciliation loop is
+   * provably unreachable. End-to-end gap-fill mechanics are not exercised here because
+   * {@code readCache} is mocked; durable gap-fill coverage lives in
+   * {@code LocalPaginatedStorageRestoreFromWALIT}. Other PageOperation-branch
+   * contracts (redo applied, LSN updated, releaseFromWrite called) are pinned by
+   * {@link #testPageOperationRedoAppliedAndLsnUpdated()}.
    */
   @Test
   public void testPageOperationGapFillReplaySingleLoadCall() throws Exception {
@@ -260,10 +264,10 @@ public class RestoreAtomicUnitPageOperationTest {
     var walLsn = new LogSequenceNumber(1, 100);
     var initialLsn = new LogSequenceNumber(0, 0);
 
-    // High pageIndex simulating a WAL record for a page that is above the file's
-    // current physical size — the gap-fill case the deleted reconciliation loop
-    // existed to recover from.
-    final int gapPageIndex = 5;
+    // High pageIndex visibly out-of-range for any fresh file in this test — makes
+    // the gap-fill symbolic role obvious. The actual value is immaterial: the mocked
+    // readCache returns a valid entry regardless of the requested index.
+    final int gapPageIndex = 1_000;
     var pageOp = spy(new TestPageOperation(
         gapPageIndex, DURABLE_EXTERNAL_ID, 1, initialLsn, 42));
     pageOp.setLsn(walLsn);
@@ -282,22 +286,58 @@ public class RestoreAtomicUnitPageOperationTest {
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
     // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
-    // loop, no allocateNewPage retries.
+    // loop, no allocateNewPage retries. These are the only assertions unique to this
+    // test; the other PageOperation-branch contracts are already pinned by
+    // testPageOperationRedoAppliedAndLsnUpdated.
     verify(readCache, times(1)).loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any());
     verify(readCache, never()).allocateNewPage(anyLong(), any(), any());
 
-    // Redo must be applied against the entry returned by loadOrAddForWrite.
-    verify(pageOp).redo(any(DurablePage.class));
+    assertTrue(atLeastOnePageUpdate.getValue());
+  }
 
-    // Page LSN updated to the WAL record's LSN.
-    var buffer = cacheEntry.getCachePointer().getBuffer();
-    var newLsn = DurablePage.getLogSequenceNumberFromPage(buffer);
-    assertEquals(
-        "Page LSN at gap-fill index should be updated to WAL record LSN", walLsn, newLsn);
+  /**
+   * Pins the no-reconciliation single-call contract on the {@code UpdatePageRecord}
+   * branch of {@code restoreAtomicUnit}: each UpdatePageRecord triggers exactly one
+   * {@code readCache.loadOrAddForWrite} call at the recorded pageIndex and never falls
+   * back to {@code allocateNewPage}. Mirrors the PageOperation-branch contract pinned
+   * by {@link #testPageOperationGapFillReplaySingleLoadCall()}; covers the sibling
+   * branch that the prior collapse touched. End-to-end gap-fill mechanics are not
+   * exercised here because {@code readCache} is mocked.
+   */
+  @Test
+  public void testUpdatePageRecordGapFillReplaySingleLoadCall() throws Exception {
+    var pageLsn = new LogSequenceNumber(0, 0);
+    var walLsn = new LogSequenceNumber(1, 100);
 
-    // Cache entry must be released exactly once.
-    verify(readCache, times(1)).releaseFromWrite(eq(cacheEntry), eq(writeCache), eq(true));
+    final int gapPageIndex = 1_000;
+    var updateRecord = mock(UpdatePageRecord.class);
+    when(updateRecord.getFileId()).thenReturn(DURABLE_EXTERNAL_ID);
+    when(updateRecord.getPageIndex()).thenReturn((long) gapPageIndex);
+    when(updateRecord.getInitialLsn()).thenReturn(pageLsn);
+    when(updateRecord.getLsn()).thenReturn(walLsn);
+    // WALChanges mock for restoreChanges — driven only when pageLsn < walRecord.getLsn().
+    var walChanges = mock(WALChanges.class);
+    when(updateRecord.getChanges()).thenReturn(walChanges);
+
+    var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, gapPageIndex, pageLsn);
+    when(readCache.loadOrAddForWrite(
+        eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any()))
+        .thenReturn(cacheEntry);
+
+    var atomicUnit = new ArrayList<WALRecord>();
+    atomicUnit.add(new AtomicUnitStartRecord(false, 1));
+    atomicUnit.add(updateRecord);
+    atomicUnit.add(new AtomicUnitEndRecord(1, false, null));
+
+    var atLeastOnePageUpdate = new ModifiableBoolean();
+    storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+
+    // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
+    // loop, no allocateNewPage retries.
+    verify(readCache, times(1)).loadOrAddForWrite(
+        eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any());
+    verify(readCache, never()).allocateNewPage(anyLong(), any(), any());
 
     assertTrue(atLeastOnePageUpdate.getValue());
   }

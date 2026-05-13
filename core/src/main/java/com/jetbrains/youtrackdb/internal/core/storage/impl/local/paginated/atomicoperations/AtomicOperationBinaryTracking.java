@@ -1151,13 +1151,23 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             //     installs the page in MemoryFile during the TX, so the commit-time
             //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
             // The prior null-branch reconciliation (do/while readCache.allocateNewPage) was
-            // a defensive belt during the migration to total loadOrAdd; an explicit assert
-            // here surfaces any regression in either engine's totality under -ea without
-            // production cost.
-            assert cacheEntry != null
-                : "readCache.loadOrAddForWrite returned null for fileId=" + fileId
-                    + " pageIndex=" + pageIndex
-                    + "; totality contract violated (in-memory eager-install missing?)";
+            // a defensive belt during the migration to total loadOrAdd. Of the four
+            // collapsed sites, this one is the only reachable site on the in-memory engine
+            // (the AbstractStorage WAL-replay branches and DiskStorage incremental-backup
+            // restore are disk-only because MemoryWriteAheadLog is a no-op). So an
+            // assertion is not sufficient here: any future extension or test caller that
+            // bypasses loadOrAddPageForWrite on the in-memory engine would surface a null
+            // return only in -ea test builds. Throw unconditionally so the violation is
+            // visible in production builds too.
+            if (cacheEntry == null) {
+              throw new IllegalStateException(
+                  "readCache.loadOrAddForWrite returned null in commitChanges for fileId="
+                      + fileId + " pageIndex=" + pageIndex
+                      + " isNew=" + filePageChanges.isNew
+                      + " (in-memory engine: eager-install in loadOrAddPageForWrite must"
+                      + " have run; disk engine: WriteCache.loadOrAdd is total);"
+                      + " WriteCache.loadOrAdd totality contract violated");
+            }
 
             try {
               final var durablePage = new DurablePage(cacheEntry);

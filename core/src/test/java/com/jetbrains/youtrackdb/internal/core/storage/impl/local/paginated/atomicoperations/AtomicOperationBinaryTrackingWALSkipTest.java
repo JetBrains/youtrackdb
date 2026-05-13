@@ -368,11 +368,11 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long durableFileId =
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
 
-    // After Step 4 both the durable file and the existing non-durable file route their
-    // cache application through readCache.loadOrAddForWrite (the AOBT.commitChanges
-    // primitive). Consolidate the per-file stubs into a single answer so the durable
-    // and non-durable paths each get a real-buffer-backed CacheEntry without one stub
-    // overriding the other.
+    // Both the durable file and the existing non-durable file now route their cache
+    // application through readCache.loadOrAddForWrite (the AOBT.commitChanges primitive).
+    // Consolidate the per-file stubs into a single answer so the durable and non-durable
+    // paths each get a real-buffer-backed CacheEntry without one stub overriding the
+    // other.
     var durableCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
     var ndCacheEntry = createCacheEntryWithBuffer(fullFileId, 0);
     when(readCache.loadOrAddForWrite(

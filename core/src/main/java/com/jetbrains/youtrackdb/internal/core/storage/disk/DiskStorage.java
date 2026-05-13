@@ -1823,6 +1823,10 @@ public class DiskStorage extends AbstractStorage {
         // loadOrAdd.
         final var cacheEntry =
             readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+        assert cacheEntry != null
+            : "readCache.loadOrAddForWrite returned null during incremental backup restore"
+                + " for fileId=" + fileId + " pageIndex=" + pageIndex
+                + "; WriteCache.loadOrAdd totality contract violated";
 
         try {
           final var buffer = cacheEntry.getCachePointer().getBuffer();
