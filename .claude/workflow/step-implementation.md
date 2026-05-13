@@ -71,6 +71,59 @@ Before spawning the first implementer:
 
    Skip the commit on resume (when `## Base commit` already had a
    SHA and no write happened).
+
+   **On resume, verify the recorded base is reachable from HEAD
+   before using it for orphan detection (step 3 below) or any other
+   downstream computation.** A rebase between the prior session and
+   this resume rewrites every on-branch commit; the recorded SHA
+   still resolves (the old object stays in the reflog) but is no
+   longer an ancestor of HEAD, and `git log {base_commit}..HEAD`
+   would then enumerate commits from earlier tracks instead of just
+   the orphans for this track.
+
+   ```bash
+   ACTUAL_BASE="$BASE_SHA"
+   if ! git merge-base --is-ancestor "$ACTUAL_BASE" HEAD; then
+       # Stale — typically a post-Phase-B rebase.
+       RECORDING=$(git log -F \
+           --grep="Record Phase B base commit for <track>" \
+           --format=%H HEAD | head -n 1)
+       if [ -z "$RECORDING" ]; then
+           # No recording commit on HEAD's path — surface to user;
+           # do not invent a base.
+           exit 1
+       fi
+       ACTUAL_BASE=$(git log -1 --format=%P "$RECORDING")
+   fi
+   # Use $ACTUAL_BASE as {base_commit} for the rest of Phase B.
+   ```
+
+   Scope `git log` to `HEAD` (not `--all`) and match the track title
+   literally with `-F` (fixed-strings) so titles containing regex
+   metacharacters (`.`, `(`, `[`, `*`, …) cannot mis-match and so
+   reflog orphans and other tracks' recording commits are ignored.
+   If `git log --grep` returns nothing, surface the discrepancy to
+   the user before proceeding; do not invent a base.
+
+   On stale, **append** a discrepancy note to the step file's
+   `## Base commit` section (do not overwrite the original SHA —
+   keep both for the audit trail):
+
+   ```
+   Note: recorded base <stale-sha> was stale (likely from a
+   rebase since Phase B); using actual on-branch parent <actual-sha>
+   for resume.
+   ```
+
+   Commit the step-file edit as a Workflow update commit before
+   spawning the first implementer (per
+   [`commit-conventions.md`](commit-conventions.md) § Commit type
+   prefixes — "Workflow update" row) so the draft PR records the
+   recompute. Use `$ACTUAL_BASE` as `{base_commit}` for the orphan
+   detection in step 3 and every subsequent reference in Phase B
+   (the implementer's `base_commit` field in §Implementer Prompt
+   Template, the recovery file's `git log {base_commit}..HEAD`
+   patterns).
 2. **Generate the slim plan snapshot** at
    `/tmp/claude-code-plan-slim-$PPID.md` by running:
 

@@ -139,6 +139,20 @@ Phase B, before the first implementation commit. Phase B writes this once
 at session start. Phase C reads it to compute `git diff {base_commit}..HEAD`
 for the track-level code review.
 
+**Readers must verify the recorded SHA is a HEAD-ancestor before using
+it.** A rebase between recording and reading rewrites every on-branch
+commit; the recorded SHA still resolves (kept in the reflog) but is no
+longer an ancestor of HEAD, and any `git diff` / `git log` computed
+against it returns commits from earlier tracks. The canonical
+preflight-and-recompute procedure lives at the two reader sites:
+[`step-implementation.md`](step-implementation.md) §Phase B Startup
+step 1 (resume case) and
+[`track-code-review.md`](track-code-review.md) §Phase C Startup
+step 2. On stale, both sites recompute the actual on-branch parent
+from the `Record Phase B base commit for` commit and append a
+discrepancy note to this section — they never overwrite the original
+SHA, so the audit trail records both values.
+
 The **Reviews completed** section records which pre-execution reviews
 finished. If a session is interrupted during Phase A, the next session
 can skip completed reviews and only re-run missing ones.

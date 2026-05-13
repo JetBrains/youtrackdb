@@ -108,12 +108,67 @@ of the changes.
 
 1. Read the step file's `## Base commit` section to get the SHA recorded
    at the start of Phase B.
-2. Read the **implementation plan** (`docs/adr/<dir-name>/_workflow/implementation-plan.md`)
+2. **Verify the recorded base is reachable from HEAD.** A rebase
+   between Phase B and Phase C rewrites every on-branch commit, so the
+   SHA recorded at Phase B startup still resolves (the old object stays
+   in the reflog) but is no longer an ancestor of HEAD. `git diff
+   <stale-base>..HEAD` then returns commits from earlier tracks —
+   either inflating the review diff by orders of magnitude or, after a
+   subtle rebase, silently shifting it by a handful of files.
+
+   Run the ancestor check, and on stale, recompute the actual on-branch
+   parent from the `Record Phase B base commit for` commit:
+
+   ```bash
+   ACTUAL_BASE="$BASE_SHA"
+   if ! git merge-base --is-ancestor "$ACTUAL_BASE" HEAD; then
+       # Stale — typically a post-Phase-B rebase.
+       RECORDING=$(git log -F \
+           --grep="Record Phase B base commit for <track>" \
+           --format=%H HEAD | head -n 1)
+       if [ -z "$RECORDING" ]; then
+           # No recording commit on HEAD's path — surface to user;
+           # do not invent a base.
+           exit 1
+       fi
+       ACTUAL_BASE=$(git log -1 --format=%P "$RECORDING")
+   fi
+   # Use $ACTUAL_BASE as {base_commit} for the rest of Phase C.
+   ```
+
+   Scope `git log` to `HEAD` (not `--all`) and match the track title
+   literally with `-F` (fixed-strings) so titles containing regex
+   metacharacters (`.`, `(`, `[`, `*`, …) cannot mis-match and so
+   reflog orphans and any other tracks' recording commits are ignored.
+   If `git log --grep` returns nothing (no recording commit on HEAD's
+   path for this track), the base SHA was never written through the
+   workflow path — surface the discrepancy to the user before
+   proceeding; do not invent a base.
+
+   On stale, **append** a discrepancy note to the step file's `## Base
+   commit` section (do not overwrite the original SHA — keep both for
+   the audit trail):
+
+   ```
+   Note: recorded base <stale-sha> was stale (likely from a
+   post-Phase-B rebase); using actual on-branch parent <actual-sha>
+   for this Phase C.
+   ```
+
+   Commit the step-file edit as a Workflow update commit before
+   continuing (per
+   [`commit-conventions.md`](commit-conventions.md) § Commit type
+   prefixes — "Workflow update" row) so the draft PR records the
+   recompute. Use `$ACTUAL_BASE` as `{base_commit}` for every
+   subsequent step in Phase C (review sub-agent spawns, the diff
+   measurement at step 7, the implementer's `base_commit` field in
+   §Implementer Spawns).
+3. Read the **implementation plan** (`docs/adr/<dir-name>/_workflow/implementation-plan.md`)
    — this provides strategic context (goals, architecture notes, decision
    records, track episodes from completed tracks).
-3. Read the **step file** (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) — this
+4. Read the **step file** (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) — this
    provides the step descriptions and episodes.
-4. **Generate the slim plan snapshot** at
+5. **Generate the slim plan snapshot** at
    `/tmp/claude-code-plan-slim-$PPID.md` by running:
 
    ```bash
@@ -134,9 +189,9 @@ of the changes.
    agent's tool-call history from accumulating a plan copy per
    sub-agent spawn. Regenerate the snapshot if plan corrections are
    applied during the review loop (before the next spawn batch).
-5. Use `{base_commit}` when spawning all review sub-agents.
+6. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
-6. **Measure the cumulative diff and pre-stage if it exceeds the
+7. **Measure the cumulative diff and pre-stage if it exceeds the
    threshold.** Run:
 
    ```bash
@@ -228,7 +283,7 @@ this review carries more of the load there).
 {Below the size threshold (~3K diff lines / ~25 files): paste output
 of `git diff {base_commit}..HEAD --name-only` inline. Above the
 threshold: reference the pre-staged file written at Phase C Startup
-step 6 —
+step 7 —
   pre_staged_files_path: /tmp/claude-code-track-{N}-files-{PPID}.txt
 The sub-agent reads it via Bash / Read.}
 
@@ -256,7 +311,7 @@ that depends on a symbol search.
 `git diff {base_commit}..HEAD` inline (the diff is the review target
 and at small sizes the orchestrator tool-call cost is negligible).
 Above the threshold: reference the pre-staged file written at
-Phase C Startup step 6 —
+Phase C Startup step 7 —
   pre_staged_diff_path: /tmp/claude-code-track-{N}-diff-{PPID}.patch
 The sub-agent reads it via Bash / Read. See § "Pre-stage above
 threshold" below for staging mechanics and regeneration rules.}
@@ -265,7 +320,7 @@ threshold" below for staging mechanics and regeneration rules.}
 ### Pre-stage above threshold
 
 For cumulative track diffs exceeding ~3K lines or ~25 files, the diff
-and the changed-files list are pre-staged at Phase C Startup step 6
+and the changed-files list are pre-staged at Phase C Startup step 7
 and the canonical context block references the staged paths instead
 of inlining content.
 
@@ -303,7 +358,7 @@ The unique-suffix requirement from project-level `CLAUDE.md`
 commit.** Each iteration's `Review fix:` commit grows the cumulative
 diff, so any previously staged files go stale and a previously
 sub-threshold diff may now exceed the threshold. Re-run the full
-measurement + staging logic from Phase C Startup step 6 before
+measurement + staging logic from Phase C Startup step 7 before
 composing the next fan-out's sub-agent prompts — this covers both
 the in-loop gate-check fan-out (§ Iteration loop) and the post-approval
 re-review fan-out triggered by user-requested fixes during
@@ -448,7 +503,7 @@ orchestrator never edits source files itself in Phase C.
      The gate-check sub-agents review the new HEAD (after the
      `Review fix:` commit), which they reach via the same
      `git diff {base_commit}..HEAD` instruction. **Re-run the
-     measurement + staging logic from Phase C Startup step 6 before
+     measurement + staging logic from Phase C Startup step 7 before
      composing the gate-check prompts** — the new `Review fix:` commit
      grew the cumulative diff, which may now exceed the threshold (and
      need fresh staging) or, if already staged, leave the staged copies
