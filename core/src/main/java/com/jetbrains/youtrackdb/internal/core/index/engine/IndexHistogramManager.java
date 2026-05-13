@@ -245,7 +245,7 @@ public class IndexHistogramManager extends StorageComponent {
             .getValueAsInteger();
   }
 
-  // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
+  // ---- Configuration setters wired post-construction by the storage layer ----
 
   public void setKeyStreamSupplier(Function<AtomicOperation, Stream<Object>> supplier) {
     this.keyStreamSupplier = supplier;
