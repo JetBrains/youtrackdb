@@ -237,6 +237,18 @@ flowchart LR
 - Vestigial allocation flag cleanup — tracked in
   `ISSUE-vestigial-allocation-flag.md`.
 - Public API renames or new `AddPage*` WAL record class.
+- Track 4 Phase C unit-level test-hardening backlog — out-of-scope for
+  this plan; tracked as Track 2-style follow-ups. Items: truncate-then-
+  allocate same-TX scenario, `BTree.doAssertFreePages` pure-logical-
+  sizing divergence test, `WOWCache.loadOrAddLoadBranch` `assert false`
+  activation test, FSM `updatePageFreeSpace` growth-loop boundary
+  cases, AOBT in-memory `loadOrAdd` non-null totality unit pin, BTree
+  freelist branch dedicated test, `eagerlyInstalledInCache` flag commit-
+  time skip unit pin, negative-pageIndex overflow boundary; defensive
+  asserts at `SLBB.splitRootBucket` (leftPageIndex distinctness) and
+  FSM/CDPB growth-loop invariants; F14 probe comment-prose imprecision
+  (claims `IllegalStateException` but `-ea` fires `AssertionError`
+  first) — items noted in Track 4 episode for future reference.
 
 ## Checklist
 
@@ -409,8 +421,33 @@ flowchart LR
   > `IllegalStateException`, no `StorageException("Page Y is broken")`,
   > no "Internal error happened in storage" cascade, and that all
   > committed records are readable on reopen.
-  > **Scope:** ~2 steps covering the test scaffolding and a fail-on-develop
-  > / pass-on-fix verification.
+  >
+  > **Phase C deferrals absorbed (Track 4 review fan-out):**
+  > - **Partial-flush-orphan recovery (CS1)** — intentionally exercise
+  >   the multi-page partial-flush-orphan path so the structural
+  >   "loud `IllegalStateException` rather than silent reuse" trade-off
+  >   is verified end-to-end and the evidence either motivates a future
+  >   `reuseOrphanPageForWrite` SPI or confirms the bounded-leak
+  >   acceptance.
+  > - **HLL-spill recovery** — crash-then-second-spill regression for
+  >   the IHM HLL-page-1 discriminator (`op.filledUpTo > 1 ? load :
+  >   allocate`).
+  > - **StorageBackupMTStateTest `@Ignore` resurrection** — concurrent
+  >   incremental-backup recovery test for the collapsed
+  >   `restoreFromIncrementalBackup` loop.
+  > - **I4 per-component MT pins** — IHM `flushSnapshotToPage` vs
+  >   `writeSnapshotToPage` lock contract; two-TX contention on
+  >   `op.loadOrAddPageForWrite(fileId, sameKnownIndex)` at BTree.create,
+  >   SLBB.splitRootBucket, CPMV2.allocate, PCV2.allocateNewPage;
+  >   strengthen `inMemoryEagerInstallToleratesConcurrentOrphanReuse`
+  >   contention window.
+  >
+  > **Scope:** ~5-7 steps covering: (a) original poison-cascade test
+  > scaffolding + fail-on-develop / pass-on-fix verification;
+  > (b) CS1 partial-flush-orphan scenario; (c) HLL-spill recovery;
+  > (d) StorageBackupMTStateTest resurrection; (e) I4 per-component
+  > MT pins across the four allocator sites + in-memory contention
+  > strengthening.
   > **Depends on:** Track 1, Track 4
 
 ## Plan Review
