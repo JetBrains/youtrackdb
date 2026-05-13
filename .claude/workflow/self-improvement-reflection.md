@@ -115,39 +115,52 @@ ready to record — drop it or sharpen it.
 
 ---
 
-## Generality requirement for improvements
+## Frequency and context-cost gate
 
-Improvements (Feature-type proposals — missing rule, missing recipe,
-missing automation, or any other gap-fill) must be **generally
-applicable**: the proposed fix should help a recurring class of
-situations across different ADRs, tracks, or phases — not a single
-narrow use case from this session. Drop a candidate whose only
-justification reads "this would have helped on the one step I just
-did".
+Every candidate (Bug or Feature) must clear a single cost-benefit
+check before it is recorded. A fix lands in some specific workflow
+doc — a phase doc like `track-review.md`, a recipe loaded only when
+ESCALATE fires, this reflection guide, or an always-loaded base file
+like `conventions.md` or `workflow.md`. The added content is paid in
+tokens by every future session that loads that doc. File the issue
+only when the friction is frequent enough to justify the per-session
+cost at the target doc's actual load frequency.
 
-Problems (Bug-type proposals — workflow producing wrong outputs,
-silent failures, blocked sessions) are exempt from this rule. A bug
-that bites once is still a bug worth fixing, because the next session
-hitting the same trigger will fail the same way. The asymmetry is
-deliberate: adding a new rule or recipe expands the workflow surface
-every future agent must read; fixing a broken rule does not.
+Both prongs must hold:
 
-Quick tests for a Feature candidate before recording:
+1. **Frequency.** Pass if EITHER (a) the trigger is deterministic
+   and will fire on every matching future session, OR (b) the
+   situation arises across ≥3 plausible future ADRs, tracks, or
+   phases. A deterministic Bug that fires once still passes via (a),
+   because the next session hitting the same trigger will fail the
+   same way; a non-deterministic one-off (CI flake, network blip,
+   unreproducible session state) fails both paths.
 
-- Would the proposed fix help on **at least 3** plausible future
-  sessions across different ADRs, tracks, or phases?
-- Is the trigger condition generic (any phase, any track, any
-  sub-agent) or specific to this ADR's domain (e.g., specific to one
-  refactor, one Maven module, or one sub-agent's prompt for one kind
-  of question)?
-- If the proposed fix is "add a recipe for X", is X a recurring
-  pattern across the workflow, or a one-off the agent rolled this
-  session?
+2. **Context-cost justification.** Sketch the workflow edit the fix
+   would land and name the doc it would live in. Weigh the edit's
+   length (roughly, in added lines or sections) against that doc's
+   load frequency — every session, every Phase-A session, every
+   reflection session, only on ESCALATE, etc. Is the saved friction
+   worth that running cost?
 
-If any test fails, the friction is real but the fix is project- or
-ADR-shaped, not workflow-shaped — drop the candidate. Project-shaped
-findings can still be valuable; surface them to the user in the
-session's normal output, but do not file them under `dev-workflow`.
+Quick tests before recording:
+
+- **Frequency prong:** Would the proposed fix prevent friction on
+  ≥3 plausible future sessions, OR is the trigger deterministic and
+  guaranteed to recur on every matching session? (Fail if neither
+  path holds.)
+- **Context-cost prong:** Sketch the edit and name the target doc.
+  Does (edit length × that doc's load frequency) feel worth the
+  saved friction? (Fail if the sketched edit would not earn its
+  tokens against the target doc's load frequency.)
+
+If either prong fails, drop the candidate. The friction may still be
+real, but the fix is project- or ADR-shaped, not workflow-shaped —
+or the saved friction does not justify the context cost.
+Project-shaped findings can still be valuable; surface them to the
+user in the session's normal output, but do not file them under
+`dev-workflow`. When uncertain, prefer to drop: the workflow's
+signal-to-noise ratio matters more than completeness.
 
 ---
 
@@ -205,14 +218,27 @@ correct outcome, not a failure to look hard enough.
    - *"What would I want a future agent in my exact position to know,
      that the current docs do not tell them?"*
 
-5. **Draft candidate proposals.** First, drop any friction whose
-   severity is below `medium` (see §Severity guide). Low-severity
-   annoyances are noise — do not file them, and do not promote them
-   to medium just to keep the proposal alive. If every friction in
-   the session falls below medium, that is a zero-finding session;
-   skip to step 7 with the empty-result template.
+5. **Draft candidate proposals.** Apply the filters in order:
 
-   For each surviving candidate (after capping at 3), draft:
+   1. Drop any friction whose severity is below `medium` (see
+      §Severity guide). Low-severity annoyances are noise — do not
+      file them, and do not promote them to medium just to keep the
+      proposal alive.
+   2. Drop any friction that fails the §Frequency and context-cost
+      gate. Run the quick tests in that section explicitly — both
+      the recurrence assessment and the rough sketch of what
+      workflow content the fix would add. A friction that survives
+      severity but fails the gate is a project- or ADR-shaped
+      finding; mention it in the session's normal output if useful,
+      but do not file it.
+   3. Cap the surviving list at 3 (highest severity, most frequent,
+      or blocking the most downstream work — see §Per-session cap).
+
+   If every friction in the session is filtered out by the first
+   two passes, that is a zero-finding session; skip to step 7 with
+   the empty-result template.
+
+   For each surviving candidate, draft:
    - Title (imperative summary, ≤80 chars)
    - One-line summary
    - Type: `Bug` if the friction is the workflow producing wrong
@@ -461,12 +487,11 @@ When in doubt: content describes "broken" → `Bug`; content describes
 in this project — `Feature` is the closest match and is used for all
 gap-fill work surfaced by reflection.
 
-`Feature` candidates must additionally satisfy the §Generality
-requirement for improvements — the proposed fix has to apply to a
-recurring class of situations across ADRs, tracks, or phases, not a
-single narrow use case from this session. Bug candidates are not
-gated on generality; a one-time silent failure is still worth
-filing.
+Both `Bug` and `Feature` candidates must clear the §Frequency and
+context-cost gate. There is no Bug-vs-Feature asymmetry: the
+question is whether the friction recurs often enough to justify the
+per-session token cost of whatever workflow change the fix would
+land, not whether the issue is framed as "broken" or "missing".
 
 ---
 
@@ -550,11 +575,12 @@ the triager can verify it.
   nearest accepted enum value (see §Severity → YouTrack `Priority`
   mapping) and set it at creation. The triager can re-calibrate,
   but the default priority is the agent's responsibility.
-- **Do not** record Feature-type proposals whose proposed fix
-  targets a single narrow use case. Improvements must be generally
-  applicable (see §Generality requirement for improvements). Bugs
-  are exempt — a problem is a problem regardless of how often it
-  bites.
+- **Do not** record any candidate (Bug or Feature) that fails the
+  §Frequency and context-cost gate. The bar is recurrence high
+  enough to justify the per-session token cost of the workflow
+  change the fix would require; one-off, non-deterministic, or ADR-
+  specific frictions do not qualify, regardless of how the issue is
+  framed.
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
