@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (7/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS; Step 5b [x] closed via dim-review iter-3 PASS, 13 deferred items folded into Track 6 + Track 2-style follow-ups; Step 6 [x] closed, comments-only)
+- [x] Step implementation (8/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS; Step 5b [x] closed via dim-review iter-3 PASS, 13 deferred items folded into Track 6 + Track 2-style follow-ups; Step 6 [x] closed, comments-only; Step 7 [x] closed via dim-review iter-2 PASS, TB5/TC3 deferred as suggestions)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1531,40 +1531,131 @@ the stay-on-physical sites).
   > - No code change; no tests needed.
   > - Spotless apply on `core` (no-op expected).
 
-- [ ] Step 7: Delete dead-code surfaces (`addPage`, `internalFilledUpTo`, `allocateNewPage`)
+- [x] Step 7: Delete dead-code surfaces (`addPage`, `internalFilledUpTo`, `allocateNewPage`)
+  - [x] Context: info
   > **Risk:** high — public API surface (interface method
   > deletions); architecture (load-bearing SPI). Irreversible point
   > in the track — once landed, prior `addPage`/`allocateNewPage`
   > callers cannot compile.
   >
-  > **Scope:**
-  > - PSI ReferencesSearch on each method below; confirm zero
-  >   remaining callers after steps 1-6.
-  > - Use `mcp-steroid://ide/safe-delete` recipe to drive each
-  >   deletion through the IDE refactoring engine; the engine will
-  >   refuse if any caller remains.
-  > - Delete:
-  >   - `AtomicOperation.addPage(long)` (interface method)
-  >   - `AtomicOperationBinaryTracking.addPage(long)` (impl;
-  >     removes the last `internalFilledUpTo` caller at AOBT:355)
-  >   - `StorageComponent.addPage(AtomicOperation, long)` (protected
-  >     method)
-  >   - `WriteCache.allocateNewPage(long, ...)` (interface method)
-  >   - `LockFreeReadCache.allocateNewPage(...)` (deprecated stub)
-  >   - `WOWCache.allocateNewPage(...)` (deprecated stub)
-  >   - `DirectMemoryOnlyDiskCache.allocateNewPage(...)`
-  >     (deprecated stub)
-  > - Inline `AtomicOperationBinaryTracking.internalFilledUpTo`
-  >   private helper (lines 517-528) into
-  >   `AtomicOperationBinaryTracking.filledUpTo` (line 514, the
-  >   impl of the `AtomicOperation.filledUpTo` interface method).
-  >   The three-arm logic becomes inline: new file →
-  >   `maxNewPageIndex + 1`, truncated → 0, committed →
-  >   `writeCache.getFilledUpTo(fileId)`. Delete the private helper
-  >   itself; `maxNewPageIndex` field survives.
-  > - Tests: full `core` build + test suite (`./mvnw -pl core clean
-  >   test`) to confirm compilation + behavioral correctness.
-  > - Spotless apply on `core`.
+  > **What was done:** Deleted the legacy write-side allocator
+  > surfaces that prior Phase B steps had migrated callers off.
+  > Production: removed `AtomicOperation.addPage` +
+  > `AtomicOperationBinaryTracking.addPage`,
+  > `StorageComponent.addPage` helper, `WriteCache.allocateNewPage`,
+  > `ReadCache.allocateNewPage`, and the three engine
+  > implementations (`LockFreeReadCache`, `WOWCache`,
+  > `DirectMemoryOnlyDiskCache` — both overloads on the last).
+  > Inlined `AtomicOperationBinaryTracking.internalFilledUpTo` into
+  > the public `filledUpTo` override, preserving the three-arm
+  > logic verbatim and leaving `maxNewPageIndex` in place. Tests:
+  > dropped `allocateNewPage` `@Override` stubs in five
+  > `WriteCache` test fixtures, dropped the two `op.addPage`
+  > Mockito stubs on `AtomicOperation`, removed dedicated allocator
+  > tests on `DirectMemoryOnlyDiskCacheTest`, migrated six
+  > auxiliary tests that used `allocateNewPage` as an "install a
+  > page" helper to the total `cache.loadOrAdd` primitive with
+  > `decrementReadersReferrer` balancing, and updated wording in
+  > `RestoreAtomicUnitPageOperationTest` +
+  > `LoadOrAddPageForWriteTest` to drop residual references to the
+  > deleted API. Iter-1 dim-review fix (commit `8e164c4475`)
+  > applied 10 findings: added `assert cacheEntry != null` to
+  > `LockFreeReadCache.loadOrAddForWrite` mirroring the three
+  > sibling replay-site assertions (TY1), reworded the surrounding
+  > comment to drop engine-specific wording (CQ3), dropped a dead
+  > local-variable re-assignment from `AOBT.filledUpTo` while
+  > extending the inline comment (CQ2), deepened
+  > `testLoadOrAddInstallsAndReleases` to pin install
+  > observability + pointer-coordinate identity + exactly-once
+  > referrer-bump (TB1/TC2), exercised the exclusive-lock contract
+  > under `-ea` in `testLoadOrAddForWriteMissAndHit` (TB2) and made
+  > the read-cache-wrapper vs write-cache-primitive divergence
+  > inline-visible (TB3), reworded `TrackingWriteCache` stub
+  > comments to flag the deliberate fixture-only contract collapse
+  > (TB4), added two direct `filledUpTo` tests covering the
+  > deleted-file and truncate arms (TC1), and fixed a Javadoc
+  > fragment line in `LoadOrAddPageForWriteTest` (CQ1).
+  >
+  > **What was discovered:** (1) Two pre-existing test-compile
+  > breaks on HEAD predated the step (PR #1056 carry-over):
+  > `LockFreeReadCacheFileOpsTest.TrackingWriteCache` did not
+  > implement `WriteCache.loadOrAdd` (interface method added by an
+  > earlier Phase B track), and
+  > `DirectMemoryOnlyDiskCacheTest.testLoadForWriteMissAndHit`
+  > called `cache.loadForWrite(...)` which has never existed on
+  > `ReadCache` (only `loadOrAddForWrite` does). Repaired both as
+  > side effects of the step's existing scope: added `loadOrAdd` +
+  > `loadIfPresent` stubs delegating to `load()` on
+  > `TrackingWriteCache`, and renamed the DMODCT test to
+  > `testLoadOrAddForWriteMissAndHit` with the correct method.
+  > Without these incidental repairs, no test in the affected
+  > modules could compile and the step's test verification would
+  > have been blocked. (2) Iter-1 fix discovered two assertion-shape
+  > subtleties: under `-ea`,
+  > `CachePointer.decrementReadersReferrer` fires
+  > `assert readers >= 0` before its `IllegalStateException` retry
+  > path, so the TB1 second-decrement assertion targets
+  > `AssertionError`, not `IllegalStateException`; and
+  > `cache.releaseFromWrite` would double-release the exclusive
+  > lock after the explicit `loaded.releaseExclusiveLock()` (since
+  > `releaseFromWrite` calls `releaseExclusiveLock` internally), so
+  > the post-release cleanup path was switched to
+  > `cache.releaseFromRead(...)` to satisfy both the explicit
+  > smoke-gate release and the cache bookkeeping balance. (3)
+  > Iter-2 gate check surfaced TB5/TC3 — same observation under two
+  > IDs: the new `filledUpToOnTruncatedFileReturnsZero` test
+  > exercises `filledUpTo`'s second arm
+  > (`maxNewPageIndex > -2` returning `(-1) + 1 = 0`) rather than
+  > the literal `else if (truncate)` third arm, because
+  > `truncateFile` sets `maxNewPageIndex = -1` before flagging
+  > `truncate = true`. The third arm of the inlined helper is
+  > therefore structurally unreachable under current call shapes —
+  > defensive code, not load-bearing. Deferred as a follow-up
+  > suggestion rather than fixed in iter-3 (suggestion-only
+  > severity, iter-2 closed PASS).
+  >
+  > **What changed from the plan:** Plan unchanged on the
+  > production-deletion list — every method enumerated in the step
+  > description was deleted, and the `internalFilledUpTo` inlining
+  > matches the planned three-arm shape. The test-fixture scope
+  > expanded beyond the plan's two explicitly-named Mockito stubs
+  > to include the broader `DirectMemoryOnlyDiskCacheTest`
+  > migration (natural-home rule placed those test rewrites here)
+  > and the pre-existing PR #1056 carry-over fixes (sized to the
+  > minimum needed to unblock test verification). No remaining
+  > Phase B steps to affect — this is the final Phase B step.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/ReadCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/WriteCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponent.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/AsyncReadCacheTestIT.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheBatchingTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheConcurrentTestIT.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheFileOpsTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheOptimisticTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionDirtyPageBitSetTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2Test.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/RestoreAtomicUnitPageOperationTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/LoadOrAddPageForWriteTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCacheTest.java`
+  >
+  > **Critical context:** The `LockFreeReadCache.loadOrAddForWrite`
+  > defensive null-branch is retained — the TODO above it has been
+  > removed (its precondition is now satisfied) and the new
+  > `assert cacheEntry != null` mirrors the three sibling replay
+  > sites; the defensive `if (cacheEntry != null)` guard remains
+  > as belt-and-braces for assertion-disabled production builds.
+  > The structurally-unreachable `else if (truncate)` third arm of
+  > the inlined `filledUpTo` is recorded as a deferred follow-up:
+  > a future cleanup could either delete the dead branch or refit
+  > `truncateFile` to not pre-set `maxNewPageIndex = -1` so the
+  > third arm becomes reachable — out of scope for this step.
 
 ## Base commit
 
