@@ -84,7 +84,7 @@ Store the collected context:
 - `PR_DESCRIPTION` — the PR body text, or the literal string `"No PR associated with these changes."` if absent
 - `REVIEW_SCOPE` — human-readable description of what's being reviewed (e.g., "Branch `ytdb-605-unified-edges` vs `develop` (15 commits, 23 files)")
 
-The temp file is ephemeral — leave it in `/tmp` after dispatch; the OS will clean it up on reboot, and the unique suffix prevents collision with concurrent agents.
+The temp file is ephemeral — remove it at the end of Step 7 (synthesis) so orphans don't accumulate. The unique suffix prevents collision with concurrent agents while the review is in flight.
 
 ## Step 4: Filter non-reviewable files
 
@@ -193,7 +193,7 @@ The rules below cover combinations not handled by the per-row tables above. Wher
 
 Launch the selected agents **in parallel** using the Agent tool. Each agent receives a scope-filtered context: build `IN_SCOPE_FILES` per agent group from the triage categories assigned in Step 5a.
 
-- **Code-review group**: files categorized as anything other than `docs-only`, `build-config`-only, `workflow-machinery`, or `other`.
+- **Code-review group**: files categorized as anything other than `docs-only`, `workflow-machinery`, or `other`. (Files categorized as `build-config` stay in scope — `review-code-quality` and `review-security` need to see `pom.xml` and CI changes per Step 5d.)
 - **Test-review group**: files that match the agent's individual launch rule plus any file categorized `tests-only`.
 - **Workflow-review group**: files categorized as `workflow-machinery`.
 
@@ -318,12 +318,19 @@ Set `subagent_type` to the agent name. The agent's frontmatter declares its mode
 
 After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
-1. **Map sub-agent severities to synthesized severities.** Each sub-agent emits findings under `Critical / Recommended / Minor`. Translate as:
-   - `Critical` → **blocker**
-   - `Recommended` → **should-fix**
-   - `Minor` → **suggestion**
+1. **Map sub-agent severities to synthesized severities.** Most sub-agents emit findings under `Critical / Recommended / Minor`, but three of the older code-review agents use legacy scales. Translate as:
+   - `Critical` → **blocker** (all agents)
+   - `Recommended` → **should-fix** (most agents)
+   - `Minor` → **suggestion** (most agents)
+   - `Likely Issues` → **should-fix** (`review-bugs-concurrency`)
+   - `Potential Concerns` → **suggestion** (`review-bugs-concurrency`)
+   - `Concerning` → **should-fix** (`review-crash-safety`)
+   - `Informational` → **suggestion** (`review-crash-safety`)
+   - `High` → **blocker** (`review-security`)
+   - `Medium` → **should-fix** (`review-security`)
+   - `Low` → **suggestion** (`review-security`)
 
-   Apply this mapping verbatim. The "do not soften" rule below means: do not demote a sub-agent's `Critical` to anything below `blocker`. The only legal override is promoting (e.g., raising a `Recommended` to `blocker` because another sub-agent's `Critical` finding on the same line escalates the severity).
+   Apply this mapping verbatim. The "do not soften" rule below means: do not demote a sub-agent's blocker-level finding to anything below `blocker`. The only legal override is promoting (e.g., raising a `should-fix` to `blocker` because another sub-agent's blocker-level finding on the same line escalates the severity).
 
 2. **Deduplicate.** Findings merge when they share the same `(file, line-range, root issue)`. Different review dimensions on the same line merge into one finding listing all dimensions. Different lines do not merge. Workflow-review findings on a shell or JSON file may merge with code-review findings on the same file when they describe the same root issue.
 
@@ -336,6 +343,7 @@ After all selected agents complete, produce a unified review report. Do NOT simp
 - If a sub-agent returns empty output, errors out, or times out, add it to a `### Failed reviewers` section at the top of the report with a one-line note and continue. Do not block the synthesis.
 - If a sub-agent emits agent-specific preface sections beyond `Critical / Recommended / Minor` (for example, `review-workflow-context-budget` emits an `Always-loaded delta` table), propagate them under a `### Reviewer notes` section after the severity blocks rather than dropping them silently.
 - If all selected agents return zero findings, emit an explicit `### All clear` block under the overall assessment instead of an empty report.
+- After the synthesized report is produced (whether with findings or `### All clear`), remove the temp diff file from Step 3: `rm "$DIFF_FILE"`. The file is no longer needed once every sub-agent has returned.
 
 ### Output format
 
