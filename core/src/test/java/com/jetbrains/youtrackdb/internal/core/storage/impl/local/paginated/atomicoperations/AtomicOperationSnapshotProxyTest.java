@@ -1482,7 +1482,7 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   @Test
-  public void testAddFileNonDurableAfterDeleteReusesFileId() {
+  public void testAddFileNonDurableAfterDeleteReusesFileId() throws IOException {
     // When a file is deleted then re-added with nonDurable=true, the code takes
     // the deletedFileNameIdMap branch (isNew=false). Verify the nonDurable flag
     // is stored correctly on this reuse path.
@@ -1510,7 +1510,7 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   @Test
-  public void testAddFileDuplicateNameWithNonDurableThrows() {
+  public void testAddFileDuplicateNameWithNonDurableThrows() throws IOException {
     // Adding two files with the same name should throw StorageException
     // regardless of the nonDurable flag values.
     var readCache = mock(ReadCache.class);

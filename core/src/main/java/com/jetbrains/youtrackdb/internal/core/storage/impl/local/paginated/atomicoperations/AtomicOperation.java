@@ -46,14 +46,17 @@ public interface AtomicOperation {
   /**
    * Allocates a fresh page at the given {@code pageIndex} and registers an in-progress
    * overlay for it, returning a {@code CacheEntry} usable inside this atomic operation.
-   * <b>Despite the historical name, this method does NOT load existing pages</b> — callers
-   * targeting a {@code pageIndex} below the committed file size raise
-   * {@link IllegalStateException}. Use {@link #loadPageForWrite} for existing pages.
+   * <b>Despite the historical name, this method does NOT load existing pages on the disk
+   * engine</b> — disk-engine callers targeting a {@code pageIndex} below the committed file
+   * size raise {@link IllegalStateException}. Use {@link #loadPageForWrite} for existing
+   * pages. The in-memory engine deliberately bypasses the below-floor check to support
+   * rollback-orphan re-use; see "Per-engine behavior" below.
    *
    * <p>The caller states the target pageIndex up front (typically computed from the
-   * component's logical page count, e.g. {@code entryPoint.pagesSize + 1}). The page is
-   * &quot;new&quot; iff the file was booked in this same TX or
-   * {@code pageIndex >= writeCache.getFilledUpTo(fileId)}; otherwise the guard fires.
+   * component's logical page count, e.g. {@code entryPoint.pagesSize + 1}). On the disk
+   * engine the page is &quot;new&quot; iff the file was booked in this same TX or
+   * {@code pageIndex >= writeCache.getFilledUpTo(fileId)}; otherwise the strict guard
+   * fires.
    *
    * <p>If the page is already part of this operation's local page-change overlay (because
    * it was previously loaded for write or allocated earlier in the same TX), the existing
@@ -61,23 +64,40 @@ public interface AtomicOperation {
    * accesses inside the same atomic operation. The early-return short-circuits the
    * allocator-only guard for idempotent re-entry.
    *
-   * <p>The returned overlay is always stub-shaped: the delegate wraps a
-   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer} with a
-   * {@code null} native pointer. The real cache slot is materialized at commit time inside
-   * {@code commitChanges}'s pageChangesMap replay loop, which calls
-   * {@code readCache.loadOrAddForWrite} for each new-page entry. This means callers must not
-   * read page bytes through the returned entry before commit; the {@code CacheEntryChanges}
-   * overlay buffers writes via {@code changes} and the materialised slot picks them up.
+   * <p><b>Per-engine behavior.</b>
+   *
+   * <ul>
+   *   <li><b>Disk engine.</b> The returned overlay is stub-shaped: the delegate wraps a
+   *       {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer} with a
+   *       {@code null} native pointer. The real cache slot is materialized at commit time
+   *       inside {@code commitChanges}'s pageChangesMap replay loop, which calls
+   *       {@code readCache.loadOrAddForWrite} for each new-page entry. Disk-engine callers
+   *       therefore must not read page bytes through the returned entry before commit; the
+   *       {@code CacheEntryChanges} overlay buffers writes via {@code changes} and the
+   *       materialised slot picks them up.
+   *   <li><b>In-memory engine.</b> The page is eagerly installed in {@code MemoryFile} via
+   *       the in-memory total cache primitive at allocation time, so the returned overlay
+   *       carries a non-null buffer immediately and reads through it before commit are
+   *       legal. Eager install is required because the in-memory engine's read-cache
+   *       wrappers are non-total ({@code null}-on-miss); without it the commit-time replay
+   *       loop would find no slot to apply page changes against. The strict below-floor
+   *       guard is bypassed on this engine — a rolled-back TX leaves its eagerly-installed
+   *       pages in {@code MemoryFile} (the cache is not rolled back), and the next TX must
+   *       be allowed to re-allocate the same logical pageIndex without tripping
+   *       {@code IllegalStateException}.
+   * </ul>
    *
    * @param fileId    the file ID; must be open and registered with this operation
-   * @param pageIndex zero-based page index to allocate; must be non-negative and target a
-   *     page that does not yet exist in the committed file (otherwise
-   *     {@link IllegalStateException})
+   * @param pageIndex zero-based page index to allocate; must be non-negative. On the disk
+   *     engine it must target a page that does not yet exist in the committed file
+   *     (otherwise {@link IllegalStateException}); the in-memory engine accepts any
+   *     non-negative index to support rollback-orphan re-use.
    * @return a {@link CacheEntry} (a {@code CacheEntryChanges} overlay) positioned at the
    *     target page; never {@code null}
    * @throws IOException if the underlying cache primitive fails
-   * @throws IllegalStateException if {@code pageIndex} is below the committed file size and
-   *     no prior overlay exists for it
+   * @throws IllegalStateException on the disk engine when {@code pageIndex} is below the
+   *     committed file size and no prior overlay exists for it; the in-memory engine
+   *     bypasses this check for rollback-orphan re-use
    */
   CacheEntry loadOrAddPageForWrite(long fileId, long pageIndex) throws IOException;
 

@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -399,9 +400,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    * {@code pageChangesMap} keyed by the actual {@code pageIndex}, and
    * {@code maxNewPageIndex} is bumped so the in-progress visibility horizon consulted
    * by {@link #loadPageForWrite}, {@link #loadPageForRead}, and {@link #hasChangesForPage}
-   * stays consistent. The fresh-booked-file branch additionally takes the stub-shape
-   * path regardless of engine, because {@code readCache.addFile} has not yet run at
-   * allocation time and the underlying file is not registered with either engine.
+   * stays consistent. Fresh-booked files take the stub-shape path only on the disk engine
+   * (where {@code readCache.addFile} runs in {@code commitChanges}); on the in-memory
+   * engine {@link #addFile} eagerly registers the underlying {@code MemoryFile} so the
+   * eager-install branch covers fresh-booked-file pages too.
    *
    * <p><b>Per-engine delegate shape.</b>
    *
@@ -431,14 +433,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    *       the same logical page. {@code MemoryFile.loadOrAddPage}'s {@code putIfAbsent}
    *       semantics keep the re-use safe: the orphan's magic-empty-LSN header carries
    *       no real data and the new TX overwrites it via {@code CacheEntryChanges}.
+   *       Fresh-booked files take this branch too: {@link #addFile} eagerly calls
+   *       {@code readCache.addFile} on the in-memory engine so the underlying
+   *       {@code MemoryFile} is registered before {@code loadOrAddPageForWrite} fires,
+   *       and {@code commitChanges} skips its late {@code readCache.addFile} call via
+   *       the {@code FileChanges.eagerlyInstalledInCache} flag.
    * </ul>
    *
-   * <p>Stub shape rationale (disk engine and fresh-booked-file branch on either engine):
-   * the overlay's delegate wraps a {@link CachePointer} with a null native pointer.
-   * {@link #releasePageFromWrite} gates the underlying cache release on a non-null buffer,
-   * so multi-access in the same TX (via repeated {@code loadPageForWrite} on the same
-   * pageIndex returning the existing overlay) stays a no-op on the cache's usage counter.
-   * A real cache-installed delegate would underflow as soon as the second close fires.
+   * <p>Stub shape rationale (disk engine only): the overlay's delegate wraps a
+   * {@link CachePointer} with a null native pointer. {@link #releasePageFromWrite} gates
+   * the underlying cache release on a non-null buffer, so multi-access in the same TX
+   * (via repeated {@code loadPageForWrite} on the same pageIndex returning the existing
+   * overlay) stays a no-op on the cache's usage counter. A real cache-installed delegate
+   * would underflow as soon as the second close fires.
    *
    * <p>The in-memory eager-install branch wraps the cache-installed pointer in a
    * {@link CacheEntryImpl} (insideCache=false, no exclusive lock held) and relies on
@@ -482,9 +489,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     final boolean fileIsNew = changesContainer.isNew;
 
-    // Engine + fresh-booked-file dispatch happens BEFORE the allocator-only contract
-    // check. The two engines have different invariants around "physical extent vs
-    // logical allocation horizon":
+    // Engine dispatch happens BEFORE the allocator-only contract check. The two engines
+    // have different invariants around "physical extent vs logical allocation horizon":
     //   - Disk engine: WriteCache.loadOrAdd is total and below-floor calls are caller
     //     bugs — the strict allocator-only contract surfaces the violation as
     //     IllegalStateException. The check fires below.
@@ -497,20 +503,22 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     //     engine's partial-replay-orphan recovery, and MemoryFile.loadOrAddPage's
     //     putIfAbsent semantics make the re-use safe (the orphan's magic-empty-LSN
     //     header carries no real data; this TX overwrites it via CacheEntryChanges).
-    // Fresh-booked files (fileIsNew=true on either engine) take the stub-shape branch
-    // unconditionally because readCache.addFile has not yet run — the underlying file
-    // is not registered with the engine's per-file map and a direct readCache.loadOrAdd
-    // against the in-memory engine would throw IllegalArgumentException. The cache slot
-    // for a fresh-booked-file page is installed at commit time on both engines.
+    // Fresh-booked files (fileIsNew=true) on the in-memory engine also take the
+    // eager-install branch: AtomicOperationBinaryTracking.addFile eagerly calls
+    // readCache.addFile when the engine is DirectMemoryOnlyDiskCache, so the
+    // underlying MemoryFile is already registered and readCache.loadOrAdd will not
+    // throw "File with id ... not found". On the disk engine, fresh-booked files
+    // must still take the stub-shape branch — readCache.addFile creates physical
+    // state (WAL records, AsyncFile open) that has not yet run at this point.
     final CacheEntry delegate;
-    if (!fileIsNew && readCache instanceof DirectMemoryOnlyDiskCache inMemoryCache) {
-      // In-memory engine, file already registered with the cache: eagerly install the
-      // page in MemoryFile so the commitChanges replay loop's loadOrAddForWrite call
-      // (which is null-on-miss on this engine, per DirectMemoryOnlyDiskCache.java's
-      // deliberate divergence from the disk engine) finds the page via MemoryFile.loadPage.
-      // Without this install, commitChanges would see null and the per-page accumulated
-      // changes would have no slot to apply against — that exact NPE blew up the prior
-      // Step 5 attempt against a fresh in-memory database.
+    if (readCache instanceof DirectMemoryOnlyDiskCache inMemoryCache) {
+      // In-memory engine: eagerly install the page in MemoryFile so the commitChanges
+      // replay loop's loadOrAddForWrite call (which is null-on-miss on this engine, per
+      // DirectMemoryOnlyDiskCache.java's deliberate divergence from the disk engine)
+      // finds the page via MemoryFile.loadPage. Without this install, commitChanges
+      // would see null and the per-page accumulated changes would have no slot to
+      // apply against — that exact NPE blew up the prior Step 5 attempt against a
+      // fresh in-memory database.
       //
       // verifyChecksums is irrelevant on the in-memory engine (no on-disk image to
       // verify); pass false to match the legacy addPage shape. DirectMemoryOnlyDiskCache
@@ -519,6 +527,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       assert pointer != null
           : "DirectMemoryOnlyDiskCache.loadOrAdd returned null for fileId=" + fileId
               + " pageIndex=" + pageIndex + " (totality contract violated)";
+      // CachePointer stores the int file id (the high-32 storage-id bits are stripped by
+      // DirectMemoryOnlyDiskCache.extractFileId before MemoryFile.loadOrAddPage builds the
+      // pointer), so compare against the low-32-bit extraction of the request's fileId.
+      assert pointer.getFileId() == AbstractWriteCache.extractFileId(fileId)
+          && pointer.getPageIndex() == (int) pageIndex
+          : "in-memory loadOrAdd returned pointer at ("
+              + pointer.getFileId() + ", " + pointer.getPageIndex()
+              + ") but requested (" + AbstractWriteCache.extractFileId(fileId)
+              + ", " + pageIndex + "); composed fileId=" + fileId;
       // MemoryFile.loadOrAddPage bumped the readers-referrer count by 1 for the caller
       // (the bump runs under the per-file clearLock readLock so a concurrent
       // clear() / deleteFile() / truncateFile() cannot recycle the frame between
@@ -526,13 +543,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // is released through ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease,
       // which only manipulates usagesCount and never decrements readers-referrer (unlike
       // LockFreeReadCache.releaseFromRead's !insideCache branch on the disk engine).
-      // Without this decrement, every page allocated through this branch would leak a
-      // readers-referrer reference, and MemoryFile.clear (on deleteFile / truncate /
-      // storage drop) would observe referrer > 1, pinning the page frame in the pool
-      // forever. After the decrement the count is 1 (the in-cache referrer held by
-      // installEmptyPage) so the page stays resident and subsequent commit-time
-      // loadOrAddForWrite still finds it via MemoryFile.loadPage. This is the BC1
-      // fix rationale from the original Step 1 implementation.
+      // Without this decrement, every page allocated through this branch would leak
+      // both a `readers` reference and a `referrersCount` reference. On
+      // MemoryFile.clear, the cache's decrementReferrer would bring referrersCount
+      // from 2 to 1 (not 0), so the page frame stays allocated past clear() until the
+      // leaked readers reference is released — which never happens. After the decrement
+      // the count is 1 (the in-cache referrer held by installEmptyPage) so the page
+      // stays resident and subsequent commit-time loadOrAddForWrite still finds it via
+      // MemoryFile.loadPage. This is the BC1 fix rationale from the original Step 1
+      // implementation.
       pointer.decrementReadersReferrer();
       // No exclusive lock is acquired on this branch. The AOBT lifecycle relies on
       // the CacheEntryChanges overlay (the change buffer) to serialize all in-TX
@@ -543,12 +562,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // here would not change observable behavior and would diverge from the
       // legacy stub-shape branch immediately below.
       delegate = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
+      // The AOBT-created wrapper starts with usagesCount=0. The eventual release at
+      // releasePageFromWrite (gated by getBuffer() != null below) routes through
+      // readCache.releaseFromRead -> doRelease.decrementUsages(), which would drive
+      // the count to -1 without this increment. Pairing the increment here with the
+      // release-driven decrement keeps the count balanced on a 1→0 transition,
+      // matching the disk-engine path's invariant.
+      delegate.incrementUsages();
+      assert delegate.getCachePointer().getBuffer() != null
+          : "in-memory eager-install delegate must carry a non-null buffer so"
+              + " releasePageFromWrite drives readCache.releaseFromRead; fileId="
+              + fileId + " pageIndex=" + pageIndex;
     } else {
-      // Stub-shape branch: disk engine (any file state) + fresh-booked-file branch on
-      // either engine. The strict allocator-only contract applies here — the disk
-      // engine's WriteCache.loadOrAdd is total at commit time, so a below-floor target
-      // is unambiguously a caller bug (use loadPageForWrite for existing pages); the
-      // fresh-booked-file path has no committed pages so the check trivially passes.
+      // Stub-shape branch: disk engine (any file state). The in-memory engine never
+      // reaches this branch — its dispatch above covers both pre-existing and fresh-
+      // booked files (addFile eagerly registers the underlying MemoryFile). The strict
+      // allocator-only contract applies here: the disk engine's WriteCache.loadOrAdd
+      // is total at commit time, so a below-floor target is unambiguously a caller bug
+      // (use loadPageForWrite for existing pages); the fresh-booked-file path has no
+      // committed pages so the check trivially passes.
       //
       // Lower bound on legal fresh-page indices. For new files this is 0. For existing
       // files with at least one prior in-TX allocation, this is maxNewPageIndex + 1 — by
@@ -783,7 +815,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public long addFile(final String fileName, final boolean nonDurable) {
+  public long addFile(final String fileName, final boolean nonDurable) throws IOException {
     assert fileName != null : "fileName must not be null";
     checkIfActive();
 
@@ -809,6 +841,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     fileChanges.fileName = fileName;
     fileChanges.nonDurable = nonDurable;
     fileChanges.maxNewPageIndex = -1;
+
+    // In-memory engine: eagerly register the file with the read cache so subsequent
+    // loadOrAddPageForWrite calls in this TX can take the eager-install branch even for
+    // pages 0/1 of a freshly-booked file. The disk engine cannot do this — its
+    // readCache.addFile creates physical state (WAL records, AsyncFile open) that would
+    // need to be rolled back on TX failure. The in-memory engine has neither: addFile
+    // just inserts a MemoryFile into the per-storage map, and a rolled-back TX leaves
+    // the empty MemoryFile orphaned in the cache (bounded session-scoped leak, same
+    // shape as the rollback-orphan page leak documented in loadOrAddPageForWrite).
+    //
+    // The eagerlyInstalledInCache flag tells commitChanges to skip the late
+    // readCache.addFile call for this fileChanges entry (a second addFile would throw
+    // "File with id ... already exists"). The flag is only set for the truly-fresh
+    // path (isNew && readCache instanceof DirectMemoryOnlyDiskCache); deleted-then-readded
+    // files reuse the cache's existing entry so no eager call is needed.
+    if (isNew && readCache instanceof DirectMemoryOnlyDiskCache) {
+      readCache.addFile(fileName, fileId, writeCache, nonDurable);
+      fileChanges.eagerlyInstalledInCache = true;
+    }
 
     this.fileChanges.put(fileId, fileChanges);
 
@@ -1054,11 +1105,18 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         final boolean nonDurable = nonDurableFlags.get(fileId);
 
         if (fileChanges.isNew) {
-          readCache.addFile(
-              fileChanges.fileName,
-              newFileNamesId.getLong(fileChanges.fileName),
-              writeCache,
-              nonDurable);
+          // On the in-memory engine, addFile already eagerly registered this fileId with
+          // readCache so that fresh-booked-file pages could take the eager-install branch
+          // in loadOrAddPageForWrite (see AtomicOperationBinaryTracking.addFile). A second
+          // readCache.addFile call would throw "File with id ... already exists" from
+          // DirectMemoryOnlyDiskCache.addFile.
+          if (!fileChanges.eagerlyInstalledInCache) {
+            readCache.addFile(
+                fileChanges.fileName,
+                newFileNamesId.getLong(fileChanges.fileName),
+                writeCache,
+                nonDurable);
+          }
         } else if (fileChanges.truncate) {
           LogManager.instance()
               .warn(
@@ -1512,6 +1570,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     private boolean truncate;
     private boolean nonDurable;
     private String fileName;
+    /**
+     * In-memory engine only: {@code true} when {@link AtomicOperationBinaryTracking#addFile}
+     * already called {@code readCache.addFile} for this fileId so that fresh-booked-file
+     * pages can take the eager-install branch in {@code loadOrAddPageForWrite}. When set,
+     * {@code commitChanges} must skip its late {@code readCache.addFile} call to avoid a
+     * duplicate-registration error from {@code DirectMemoryOnlyDiskCache}. Always
+     * {@code false} on the disk engine.
+     */
+    private boolean eagerlyInstalledInCache;
   }
 
   private static int storageId(final long fileId) {

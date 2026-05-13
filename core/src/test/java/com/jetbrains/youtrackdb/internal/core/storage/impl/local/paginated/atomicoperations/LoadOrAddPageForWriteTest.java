@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -23,26 +24,45 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryOnlyDiskCache;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
  * Verifies the new {@link AtomicOperation#loadOrAddPageForWrite(long, long)} method on
- * {@link AtomicOperationBinaryTracking}: allocator contract, bookkeeping, and idempotency.
+ * {@link AtomicOperationBinaryTracking}: allocator contract, bookkeeping, idempotency,
+ * and the dual-engine delegate shape.
  *
  * <p>The method is the write-side allocator that replaces today's {@code addPage(long)} —
  * callers state the target {@code pageIndex} up front (typically derived from
- * {@code entryPoint.pagesSize + 1}) instead of letting the cache pick the index. It is
- * allocator-only: the caller must target a genuinely new pageIndex (fresh-booked file,
- * or {@code pageIndex >= writeCache.getFilledUpTo}), and asking for an existing page
- * raises {@link IllegalStateException}. Use {@link AtomicOperation#loadPageForWrite}
- * to mutate an existing page.
+ * {@code entryPoint.pagesSize + 1}) instead of letting the cache pick the index. On the
+ * disk engine it is strictly allocator-only: targeting a {@code pageIndex} below the
+ * committed file size raises {@link IllegalStateException}; use
+ * {@link AtomicOperation#loadPageForWrite} to mutate an existing page. The in-memory
+ * engine bypasses that check to support rollback-orphan re-use.
  *
- * <p>The returned overlay is always stub-shaped on both engines: the delegate wraps a
- * {@link CachePointer} with a null native pointer, and the real cache slot is
- * materialized at commit time inside {@code commitChanges}'s pageChangesMap replay loop.
+ * <p>The tests fall into two groups:
+ *
+ * <ul>
+ *   <li><b>Disk-engine stub-shape tests</b> (default {@link #setUp()} fixture): the
+ *       returned overlay wraps a {@link CachePointer} with a null native pointer; the
+ *       real cache slot is materialized at commit time inside {@code commitChanges}'s
+ *       pageChangesMap replay loop. Allocator-only guard, idempotency, cross-API
+ *       interaction with {@code loadPageForWrite}, and bookkeeping are pinned here.
+ *   <li><b>In-memory eager-install tests</b> (built via {@link #newInMemoryOp(DirectMemoryOnlyDiskCache)}):
+ *       the eager-install branch calls {@code DirectMemoryOnlyDiskCache.loadOrAdd},
+ *       wraps the returned pointer in a {@link CacheEntryImpl}, and decrements the
+ *       readers-referrer once so the {@code MemoryFile} accounting is balanced.
+ *       Rollback-orphan re-use and the loop-style net-zero invariant are pinned here.
+ * </ul>
  */
 public class LoadOrAddPageForWriteTest {
 
@@ -393,24 +413,12 @@ public class LoadOrAddPageForWriteTest {
   @Test
   public void inMemoryEngineEagerlyInstallsPageOnNonFreshFile() throws IOException {
     final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
-    final var inMemoryOp =
-        new AtomicOperationBinaryTracking(
-            inMemoryCache,
-            writeCache,
-            wal,
-            STORAGE_ID,
-            new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong(),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong());
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
 
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     long pageIndex = 10; // == committedFilledUpTo, the one-page-extend target
     when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    var pointer = mock(CachePointer.class);
+    var pointer = stubPointer(fileId, pageIndex);
     when(inMemoryCache.loadOrAdd(fileId, pageIndex, false)).thenReturn(pointer);
 
     var entry = (CacheEntryChanges) inMemoryOp.loadOrAddPageForWrite(fileId, pageIndex);
@@ -449,40 +457,46 @@ public class LoadOrAddPageForWriteTest {
   @Test
   public void inMemoryEagerInstallBalancesReferrerOnEveryCall() throws IOException {
     final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
-    final var inMemoryOp =
-        new AtomicOperationBinaryTracking(
-            inMemoryCache,
-            writeCache,
-            wal,
-            STORAGE_ID,
-            new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong(),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong());
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
 
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     int allocations = 8;
     // Pre-existing file: getFilledUpTo > 0 keeps changesContainer.isNew=false, so the
-    // in-memory eager-install branch fires. Fresh-booked files take the stub branch
-    // (no readCache interaction until commitChanges) — covered by
-    // freshBookedFileSkipsReadCacheUntilCommit.
+    // in-memory eager-install branch fires. The eager-install branch also covers
+    // fresh-booked files now (see freshBookedFileTakesEagerInstallBranchOnInMemoryEngine),
+    // but using a pre-existing file here keeps the loop bookkeeping straightforward.
     when(writeCache.getFilledUpTo(fileId)).thenReturn((long) allocations);
+    // Use a shared mock pointer with per-call answers for getPageIndex so the
+    // production-side fileId+pageIndex compatibility assert sees the expected target on
+    // every iteration. The pointer is shared deliberately: collapsing the per-iteration
+    // decrementReadersReferrer call into a single mock makes the times(allocations)
+    // verify below directly measure the loop arithmetic.
     var pointer = mock(CachePointer.class);
-    when(inMemoryCache.loadOrAdd(eq(fileId), anyLong(), eq(false))).thenReturn(pointer);
+    when(pointer.getFileId()).thenReturn((long) AbstractWriteCache.extractFileId(fileId));
+    when(pointer.getBuffer()).thenReturn(ByteBuffer.allocate(8));
+    when(inMemoryCache.loadOrAdd(eq(fileId), anyLong(), eq(false)))
+        .thenAnswer(
+            invocation -> {
+              long pi = invocation.getArgument(1, Long.class);
+              when(pointer.getPageIndex()).thenReturn((int) pi);
+              return pointer;
+            });
 
     for (int i = 0; i < allocations; i++) {
       inMemoryOp.loadOrAddPageForWrite(fileId, allocations + i);
     }
 
-    // N calls to loadOrAdd produce exactly N decrements on the returned pointer.
-    // The shared mock pointer collapses the count to a single invocation total,
-    // which is the load-bearing arithmetic — the production fix is a single
-    // decrement per eager-install hit.
+    // Each loop iteration must call loadOrAdd once and decrementReadersReferrer once.
+    // With a shared mock pointer Mockito sums calls across iterations, so we verify
+    // exactly N invocations total — net-zero referrer accounting per allocation.
     verify(inMemoryCache, times(allocations)).loadOrAdd(eq(fileId), anyLong(), eq(false));
     verify(pointer, times(allocations)).decrementReadersReferrer();
+    // Post-loop bookkeeping: filledUpTo = highest pageIndex + 1 = allocations*2,
+    // and every iteration's pageChangesMap entry is observable via hasChangesForPage.
+    assertThat(inMemoryOp.filledUpTo(fileId)).isEqualTo(allocations * 2L);
+    for (int i = 0; i < allocations; i++) {
+      assertThat(inMemoryOp.hasChangesForPage(fileId, allocations + i)).isTrue();
+    }
   }
 
   /**
@@ -516,19 +530,7 @@ public class LoadOrAddPageForWriteTest {
   @Test
   public void inMemoryEngineReusesRollbackOrphanBelowAllocationFloor() throws IOException {
     final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
-    final var inMemoryOp =
-        new AtomicOperationBinaryTracking(
-            inMemoryCache,
-            writeCache,
-            wal,
-            STORAGE_ID,
-            new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong(),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong());
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
 
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     // Simulate the rollback-orphan condition: MemoryFile.size reports 2 (a prior
@@ -536,7 +538,7 @@ public class LoadOrAddPageForWriteTest {
     // logically reports 0. The next TX asks for pageIndex 1 (its logical "first
     // allocation"). The strict disk-engine check would throw because 1 < 2.
     when(writeCache.getFilledUpTo(fileId)).thenReturn(2L);
-    var pointer = mock(CachePointer.class);
+    var pointer = stubPointer(fileId, 1L);
     when(inMemoryCache.loadOrAdd(fileId, 1L, false)).thenReturn(pointer);
 
     // The call must succeed (no IllegalStateException) and the in-memory engine
@@ -547,49 +549,208 @@ public class LoadOrAddPageForWriteTest {
     assertThat(entry.isNew).isTrue(); // allocator semantics from the logical TX's view
     verify(inMemoryCache, times(1)).loadOrAdd(fileId, 1L, false);
     verify(pointer, times(1)).decrementReadersReferrer();
+    // Bookkeeping pin: pageChangesMap.put fired and maxNewPageIndex bumped on the
+    // orphan-reuse branch, same as a non-orphan allocation. A regression that skipped
+    // either step only on the orphan path would otherwise silently pass.
+    assertThat(inMemoryOp.hasChangesForPage(fileId, 1L)).isTrue();
+    assertThat(inMemoryOp.filledUpTo(fileId)).isEqualTo(2L);
   }
 
   /**
-   * Fresh-booked files take the stub-shape branch on BOTH engines, including
-   * when the read cache is a {@link DirectMemoryOnlyDiskCache}. The reason is
-   * timing: {@code readCache.addFile} runs only inside {@code commitChanges}, so
-   * at the time {@code loadOrAddPageForWrite} fires the underlying
-   * {@code MemoryFile} is not yet registered with the cache. A direct
-   * {@code readCache.loadOrAdd} would throw {@link IllegalArgumentException}
-   * ("File with id ... not found").
-   *
-   * <p>This test pins that branch ordering — the in-memory eager-install must
-   * NOT fire when {@code fileIsNew} is true, even if the read cache is the
-   * in-memory engine.
+   * Boundary variant of {@link #inMemoryEngineReusesRollbackOrphanBelowAllocationFloor}:
+   * the rollback orphan sits at pageIndex 0, the entry-point bootstrap case for
+   * components that allocate page 0 first (CPMV2 / PCV2 / IHM). Pins that the eager-
+   * install branch handles pageIndex 0 the same way as higher indices.
    */
   @Test
-  public void freshBookedFileTakesStubBranchEvenOnInMemoryEngine() throws IOException {
+  public void inMemoryEngineReusesRollbackOrphanAtPageZero() throws IOException {
     final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
-    final var inMemoryOp =
-        new AtomicOperationBinaryTracking(
-            inMemoryCache,
-            writeCache,
-            wal,
-            STORAGE_ID,
-            new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong(),
-            new ConcurrentSkipListMap<>(),
-            new ConcurrentSkipListMap<>(),
-            new AtomicLong());
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
+
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    // filledUpTo=1 indicates a prior TX eagerly installed page 0 then rolled back.
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(1L);
+    var pointer = stubPointer(fileId, 0L);
+    when(inMemoryCache.loadOrAdd(fileId, 0L, false)).thenReturn(pointer);
+
+    var entry = (CacheEntryChanges) inMemoryOp.loadOrAddPageForWrite(fileId, 0L);
+
+    assertThat(entry.getDelegate().getCachePointer()).isSameAs(pointer);
+    assertThat(entry.isNew).isTrue();
+    verify(inMemoryCache, times(1)).loadOrAdd(fileId, 0L, false);
+    verify(pointer, times(1)).decrementReadersReferrer();
+  }
+
+  /**
+   * Fresh-booked files on the in-memory engine take the eager-install branch (same as
+   * non-fresh files). {@link AtomicOperationBinaryTracking#addFile} eagerly calls
+   * {@code readCache.addFile} when the engine is {@link DirectMemoryOnlyDiskCache}, so
+   * the underlying {@code MemoryFile} is already registered before
+   * {@code loadOrAddPageForWrite} fires and {@code readCache.loadOrAdd} succeeds. The
+   * {@code commitChanges} replay loop later skips its own {@code readCache.addFile} call
+   * (via the {@code eagerlyInstalledInCache} flag on {@code FileChanges}) so the
+   * duplicate-registration error never fires.
+   *
+   * <p>This was a deliberate behavior change: prior iterations of this method tried
+   * to dispatch fresh files to the stub branch on the in-memory engine, but the commit-
+   * time replay then NPE'd because the in-memory {@code loadOrAddForWrite} returns null
+   * on miss and the page was never installed. Eager registration in {@code addFile}
+   * closes that gap. The disk engine still takes the stub branch on fresh files —
+   * {@code readCache.addFile} on the disk engine creates physical state (WAL records,
+   * AsyncFile open) that has not yet run at allocation time.
+   */
+  @Test
+  public void freshBookedFileTakesEagerInstallBranchOnInMemoryEngine() throws IOException {
+    final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
 
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    var pointer = stubPointer(fileId, 0L);
+    when(inMemoryCache.loadOrAdd(fileId, 0L, false)).thenReturn(pointer);
+
     inMemoryOp.addFile("fresh.dat");
 
     var entry = (CacheEntryChanges) inMemoryOp.loadOrAddPageForWrite(fileId, 0);
 
-    // Stub-shape delegate even on the in-memory engine: null buffer.
-    assertThat(entry.getDelegate().getCachePointer().getBuffer()).isNull();
+    // Eager-install branch: the overlay wraps the cache-installed pointer (no null-
+    // buffer stub on this branch).
+    assertThat(entry.getDelegate().getCachePointer()).isSameAs(pointer);
     assertThat(entry.isNew).isTrue();
-    // The eager-install MUST NOT fire on the fresh-booked-file branch.
-    verify(inMemoryCache, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+    // addFile eagerly registered the file with the in-memory cache so that
+    // loadOrAddPageForWrite could take the eager-install branch.
+    verify(inMemoryCache, times(1))
+        .addFile(eq("fresh.dat"), eq(fileId), eq(writeCache), anyBoolean());
+    // Eager install fired exactly once.
+    verify(inMemoryCache, times(1)).loadOrAdd(fileId, 0L, false);
+    // Referrer balance: bump-once + decrement-once = net zero, same as the non-fresh
+    // path.
+    verify(pointer, times(1)).decrementReadersReferrer();
+    // Bookkeeping is unchanged.
+    assertThat(inMemoryOp.hasChangesForPage(fileId, 0L)).isTrue();
+    assertThat(inMemoryOp.filledUpTo(fileId)).isEqualTo(1L);
+  }
+
+  /**
+   * Idempotency on the in-memory eager-install branch: a second call for the same
+   * {@code (fileId, pageIndex)} must short-circuit through the existing overlay
+   * (registered in {@code pageChangesMap}) and must not call {@code loadOrAdd} a
+   * second time. Without this property, the SLBB.splitRootBucket two-page recipe
+   * could double-allocate and double-decrement the referrer on a regression that
+   * moves the dispatch above the early-return.
+   */
+  @Test
+  public void inMemoryEagerInstallIsIdempotentForSamePageIndex() throws IOException {
+    final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
+
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long pageIndex = 10;
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
+    var pointer = stubPointer(fileId, pageIndex);
+    when(inMemoryCache.loadOrAdd(fileId, pageIndex, false)).thenReturn(pointer);
+
+    var first = inMemoryOp.loadOrAddPageForWrite(fileId, pageIndex);
+    var second = inMemoryOp.loadOrAddPageForWrite(fileId, pageIndex);
+
+    assertThat(second).isSameAs(first);
+    // Only one loadOrAdd dispatch — the second call returned through the
+    // pageChangesMap early-return.
+    verify(inMemoryCache, times(1)).loadOrAdd(fileId, pageIndex, false);
+    // Referrer balanced exactly once across both calls.
+    verify(pointer, times(1)).decrementReadersReferrer();
+  }
+
+  /**
+   * SLBB.splitRootBucket recipe on the in-memory engine: two consecutive allocations
+   * for distinct pageIndices must produce two distinct overlays, each wrapping the
+   * per-pageIndex pointer the cache handed out. Pins the contract that the same-
+   * pageIndex idempotency does NOT bleed across consecutive distinct pageIndices —
+   * a regression that keyed the early-return on a per-file counter (rather than
+   * pageIndex) would silently merge leftBucketEntry and rightBucketEntry into one
+   * overlay.
+   */
+  @Test
+  public void twoConsecutiveAllocationsProduceDistinctOverlaysOnInMemoryEngine()
+      throws IOException {
+    final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
+
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(5L);
+    var leftPointer = stubPointer(fileId, 5L);
+    when(inMemoryCache.loadOrAdd(fileId, 5L, false)).thenReturn(leftPointer);
+    var rightPointer = stubPointer(fileId, 6L);
+    when(inMemoryCache.loadOrAdd(fileId, 6L, false)).thenReturn(rightPointer);
+
+    var leftEntry = (CacheEntryChanges) inMemoryOp.loadOrAddPageForWrite(fileId, 5L);
+    var rightEntry = (CacheEntryChanges) inMemoryOp.loadOrAddPageForWrite(fileId, 6L);
+
+    assertThat(rightEntry).isNotSameAs(leftEntry);
+    assertThat(leftEntry.getDelegate().getCachePointer()).isSameAs(leftPointer);
+    assertThat(rightEntry.getDelegate().getCachePointer()).isSameAs(rightPointer);
+    verify(leftPointer, times(1)).decrementReadersReferrer();
+    verify(rightPointer, times(1)).decrementReadersReferrer();
+    assertThat(inMemoryOp.filledUpTo(fileId)).isEqualTo(7L);
+  }
+
+  /**
+   * Commit-time observability of an eagerly-installed page: the in-memory eager
+   * install makes the page visible to the {@code commitChanges} replay loop's
+   * {@code readCache.loadOrAddForWrite} call. Pin via a mock that returns a
+   * non-null entry from {@code loadOrAddForWrite}, simulating the production
+   * {@link DirectMemoryOnlyDiskCache#loadOrAddForWrite} behavior after the
+   * page has been installed in {@code MemoryFile}. The test does not invoke
+   * {@code commitChanges} itself — it pins the contract premise that Step 5b
+   * relies on (eager install precedes commit replay, replay finds the page).
+   */
+  @Test
+  public void commitChangesFindsEagerlyInstalledPageOnInMemoryEngine() throws IOException {
+    final var inMemoryCache = mock(DirectMemoryOnlyDiskCache.class);
+    final var inMemoryOp = newInMemoryOp(inMemoryCache);
+
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long pageIndex = 10;
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
+    var pointer = stubPointer(fileId, pageIndex);
+    when(inMemoryCache.loadOrAdd(fileId, pageIndex, false)).thenReturn(pointer);
+    // Once eagerly installed, loadOrAddForWrite must hand back a non-null entry —
+    // this is exactly the behavior commitChanges's replay loop depends on.
+    var commitTimeEntry = mockCacheEntry(fileId, (int) pageIndex);
+    when(inMemoryCache.loadOrAddForWrite(
+        eq(fileId), eq(pageIndex), eq(writeCache), anyBoolean(), any()))
+        .thenReturn(commitTimeEntry);
+
+    inMemoryOp.loadOrAddPageForWrite(fileId, pageIndex);
+
+    // Simulate commitChanges's loadOrAddForWrite call shape against the eager-installed page.
+    var resolved =
+        inMemoryCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
+    assertThat(resolved).isNotNull();
+    assertThat(resolved.getPageIndex()).isEqualTo((int) pageIndex);
+  }
+
+  /**
+   * Dispatch pin for the disk-engine + non-fresh-file path: the stub-shape branch must
+   * fire and the in-memory cache primitive must NOT be touched. Complements the in-
+   * memory dispatch tests by explicitly verifying the negative space — a regression
+   * that flipped the {@code instanceof DirectMemoryOnlyDiskCache} guard would
+   * otherwise silently route disk-engine traffic through the in-memory branch.
+   */
+  @Test
+  public void diskEngineWithNonFreshFileTakesStubBranchAndDoesNotCallInMemoryLoadOrAdd()
+      throws IOException {
+    final var inMemoryCacheMock = mock(DirectMemoryOnlyDiskCache.class);
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
+
+    // The default fixture's readCache is a plain ReadCache mock (NOT a
+    // DirectMemoryOnlyDiskCache), so dispatch must take the stub branch.
+    var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 10L);
+
+    assertThat(entry.getDelegate().getCachePointer().getBuffer()).isNull();
+    // The in-memory loadOrAdd primitive must never fire on the disk-engine path.
+    verify(inMemoryCacheMock, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
   }
 
   // ---------------------------------------------------------------------------
@@ -633,9 +794,144 @@ public class LoadOrAddPageForWriteTest {
         .hasMessageContaining("is deleted");
   }
 
+  /**
+   * Multi-thread regression pin for the rollback-orphan reuse branch: two AOBT
+   * instances on two threads, both calling {@code loadOrAddPageForWrite(fileId, 0L)}
+   * against a {@code DirectMemoryOnlyDiskCache} where pageIndex 0 is already a
+   * leftover orphan from a prior aborted "TX". Both threads must succeed (no
+   * {@code IllegalStateException}) and the page must remain installed with a
+   * balanced referrer count.
+   *
+   * <p>The episode that triggered Step 5a (the 4-thread CME race in
+   * {@code EntityPartialDeserializationLinkBagTest.testOppositeLinkBagSurvives
+   * ConcurrentModification}) repeatedly produced rollback orphans that hit this
+   * branch under contention. A regression that re-introduced the strict allocator-only
+   * check on the in-memory engine would surface here as an
+   * {@code IllegalStateException} from at least one of the threads.
+   */
+  @Test
+  public void inMemoryEagerInstallToleratesConcurrentOrphanReuse() throws Exception {
+    final var realCache = newRealInMemoryCache();
+    try {
+      // Pre-stage the orphan: pretend a prior TX installed page 0 in MemoryFile then
+      // rolled back. From the next TX's perspective, mapEntryPoint.fileSize would still
+      // read 0 (logical horizon) but realCache.getFilledUpTo would return 1 (physical
+      // horizon). Both threads ask for pageIndex 0 — the legal "first allocation"
+      // from the logical TX's view.
+      long fileId = realCache.addFile("orphan.dat", writeCache);
+      var orphanPointer = realCache.loadOrAdd(fileId, 0L, false);
+      orphanPointer.decrementReadersReferrer();
+      assertThat(realCache.getFilledUpTo(fileId)).isEqualTo(1L);
+
+      // Two AOBT instances coordinated via CountDownLatch to maximize contention on
+      // the orphan-reuse path. Each instance owns its own pageChangesMap, so the
+      // idempotency early-return does NOT collapse the two calls into one.
+      final var op1 = newInMemoryOp(realCache);
+      final var op2 = newInMemoryOp(realCache);
+      final var startGate = new CountDownLatch(1);
+      final var finishGate = new CountDownLatch(2);
+      final var error1 = new AtomicReference<Throwable>();
+      final var error2 = new AtomicReference<Throwable>();
+
+      final ExecutorService pool = Executors.newFixedThreadPool(2);
+      try {
+        pool.submit(
+            () -> {
+              try {
+                startGate.await();
+                op1.loadOrAddPageForWrite(fileId, 0L);
+              } catch (Throwable t) {
+                error1.set(t);
+              } finally {
+                finishGate.countDown();
+              }
+            });
+        pool.submit(
+            () -> {
+              try {
+                startGate.await();
+                op2.loadOrAddPageForWrite(fileId, 0L);
+              } catch (Throwable t) {
+                error2.set(t);
+              } finally {
+                finishGate.countDown();
+              }
+            });
+
+        startGate.countDown();
+        assertThat(finishGate.await(30, TimeUnit.SECONDS)).isTrue();
+      } finally {
+        pool.shutdownNow();
+      }
+
+      assertThat(error1.get())
+          .as("thread 1 must not raise IllegalStateException on rollback-orphan reuse")
+          .isNull();
+      assertThat(error2.get())
+          .as("thread 2 must not raise IllegalStateException on rollback-orphan reuse")
+          .isNull();
+      // Page 0 must still be resident — both threads decremented exactly once each
+      // and the in-cache referrer (held by installEmptyPage) keeps it pinned.
+      assertThat(realCache.getFilledUpTo(fileId)).isEqualTo(1L);
+    } finally {
+      realCache.delete();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Builds a real {@link DirectMemoryOnlyDiskCache} via reflection — its constructor is
+   * package-private and lives in the {@code memory} package, while this test class lives
+   * in the AOBT package. The reflection hop is the cheapest way to exercise the genuine
+   * cache in a multi-thread regression test without restructuring production visibility.
+   */
+  private static DirectMemoryOnlyDiskCache newRealInMemoryCache() throws Exception {
+    final Constructor<DirectMemoryOnlyDiskCache> ctor =
+        DirectMemoryOnlyDiskCache.class.getDeclaredConstructor(int.class, int.class, String.class);
+    ctor.setAccessible(true);
+    return ctor.newInstance(1024, STORAGE_ID, "loadOrAddPageForWriteRealCache");
+  }
+
+  /**
+   * Builds a {@link CachePointer} mock that satisfies the production-side asserts on the
+   * in-memory eager-install branch: a non-null {@code getBuffer()} (so the
+   * {@code releasePageFromWrite} gate fires and the
+   * {@code "delegate must carry a non-null buffer"} assertion passes), the matching
+   * {@code getFileId()} (the in-memory engine's cache builds pointers keyed by the
+   * extracted int file id, not the composed fileId), and the matching
+   * {@code getPageIndex()}.
+   */
+  private static CachePointer stubPointer(long fileId, long pageIndex) {
+    var pointer = mock(CachePointer.class);
+    when(pointer.getFileId()).thenReturn((long) AbstractWriteCache.extractFileId(fileId));
+    when(pointer.getPageIndex()).thenReturn((int) pageIndex);
+    when(pointer.getBuffer()).thenReturn(ByteBuffer.allocate(8));
+    return pointer;
+  }
+
+  /**
+   * Builds an {@link AtomicOperationBinaryTracking} bound to the in-memory cache mock.
+   * Mirrors the {@link #setUp()} body but accepts an explicit {@link DirectMemoryOnlyDiskCache}
+   * so each eager-install test gets a fresh, isolated cache without duplicating the 11-arg
+   * constructor at every test site.
+   */
+  private AtomicOperationBinaryTracking newInMemoryOp(DirectMemoryOnlyDiskCache inMemoryCache) {
+    return new AtomicOperationBinaryTracking(
+        inMemoryCache,
+        writeCache,
+        wal,
+        STORAGE_ID,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
+        new ConcurrentSkipListMap<>(),
+        new ConcurrentSkipListMap<>(),
+        new AtomicLong(),
+        new ConcurrentSkipListMap<>(),
+        new ConcurrentSkipListMap<>(),
+        new AtomicLong());
+  }
 
   private CacheEntry mockCacheEntry(long fileId, int pageIndex) {
     var pointer = mock(CachePointer.class);
