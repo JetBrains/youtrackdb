@@ -95,22 +95,6 @@ authoritative source for edge cases.
 
 Review against these criteria:
 
-NAMED REFERENCES IN STEP FILE
-- For every production class, package, or SPI service named in the step
-  file's `## Description` (`**What/How/Constraints/Interactions**` blocks)
-  and `## Steps` bodies, verify the name resolves via PSI find-class
-  (`steroid_execute_code` with `JavaPsiFacade.findClass` or the shortname
-  recipe). Pattern-inducing class names from precedent (V1 → V2/V3) is a
-  known trap — generic-extraction refactors often collapse version-
-  suffixed classes into a single generic class (e.g., the v3 single-/
-  multi-value B-tree engines share one generic
-  `internal.core.storage.index.sbtree.singlevalue.v3.BTree` rather than
-  separate `CellBTreeSingleValueV3` / `CellBTreeMultiValueV2` classes).
-  Any name that does NOT resolve is a `blocker` finding so the
-  orchestrator corrects it before Phase B. If mcp-steroid is unreachable,
-  fall back to `find . -name '<ClassName>.java'` and downgrade severity
-  only when the find result is unambiguous.
-
 CRITICAL PATH EXPOSURE
 - Which steps in this track touch critical system paths (storage, WAL,
   transactions, indexes, cache)?

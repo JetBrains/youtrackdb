@@ -106,6 +106,31 @@ COMPONENT MAP ACCURACY (for this track)
 - Are the relationships (calls, depends-on, extends) accurate?
 - Are there components this track misses that will be affected?
 
+NAMED REFERENCES IN STEP FILE
+- For every production class named in the step file's `## Description`
+  (`**What/How/Constraints/Interactions**` blocks), verify the name
+  resolves via PSI find-class (`steroid_execute_code` with
+  `JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`).
+  Pattern-inducing class names from precedent (V1 → V2/V3) is a known
+  trap: generic-extraction refactors often collapse version-suffixed
+  classes into a single generic class. The v3 single- and multi-value
+  B-tree engines, for instance, share one generic
+  `com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`
+  rather than separate `CellBTreeSingleValueV3` / `CellBTreeMultiValueV2`
+  classes.
+- Each verified name produces a Premise certificate (see §Certificate
+  requirements). A name that does NOT resolve is a `blocker` finding
+  UNLESS the track's `## Description` explicitly marks it as a class
+  this track creates (e.g., "we will introduce `Foo`"). In the
+  planned-class case, log the Premise with verdict CONFIRMED and note
+  "planned by this track" in `Detail`. Read the description carefully
+  before flagging — references to existing code and references to
+  code this track creates look identical at the name level.
+- If mcp-steroid is unreachable, fall back to
+  `find . -name '<ClassName>.java'` and downgrade severity only when
+  the find result is unambiguous; record the fallback in the
+  Premise's `Search performed` field.
+
 DESIGN FEASIBILITY
 - Does the described approach work given the current code structure?
 - Are there APIs, interfaces, or contracts the track assumes but that don't
@@ -145,10 +170,12 @@ interface probably has that method" and catches subtle mismatches.
 ```markdown
 #### Premise: <what the track assumes>
 - **Track claim**: <quote or paraphrase from the track description>
-- **Search performed**: <PSI find-usages / find-implementations /
-  type-hierarchy query when the IDE is reachable; Grep/Glob query
-  otherwise. Record which tool was used so the certificate's
-  reference-accuracy is auditable.>
+- **Search performed**: <PSI find-class / find-usages /
+  find-implementations / type-hierarchy query when the IDE is
+  reachable; Grep/Glob query otherwise. Record which tool was used so
+  the certificate's reference-accuracy is auditable. For NAMED
+  REFERENCES IN STEP FILE premises, this is `findClass` against the
+  reconstructed FQN.>
 - **Code location**: <file:line, or "NOT FOUND">
 - **Actual behavior**: <what the code actually shows — copy relevant
   declaration, method signature, or excerpt>
@@ -188,10 +215,13 @@ interface probably has that method" and catches subtle mismatches.
 ### Rules for certificates
 
 - **Every premise requires a search.** Do not confirm an API exists
-  because its name is plausible. Search and read the actual code. For
-  Java symbols, use mcp-steroid PSI find-usages / find-implementations
-  when the IDE is reachable; only fall back to grep for filename globs,
-  unique string literals, or when mcp-steroid is unreachable.
+  because its name is plausible — and do not confirm a class exists
+  because its name follows a sibling-version pattern (the V1 → V2/V3
+  trap). Search and read the actual code. For Java symbols, use
+  mcp-steroid PSI find-class (for NAMED REFERENCES existence checks),
+  find-usages, or find-implementations when the IDE is reachable;
+  only fall back to grep for filename globs, unique string literals,
+  or when mcp-steroid is unreachable.
 - **Follow calls interprocedurally.** When checking feasibility of an
   approach, trace the actual call chain. A method may delegate, throw,
   or behave differently than its name suggests.

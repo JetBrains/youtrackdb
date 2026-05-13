@@ -56,6 +56,60 @@ all default to grep unless their prompts explicitly route them to
 PSI. The canonical prompts under `prompts/` already include this
 instruction — keep it intact when customising.
 
+### Pre-write rule — PSI-verify class names
+
+Before any write that names a production class in the step file's
+`## Description` (`**What/How/Constraints/Interactions**` blocks,
+including light amendments committed via the Track Pre-Flight gate's
+step 4) or in decomposed step bodies under `## Steps`, the orchestrator
+MUST PSI-verify every named class via `mcp-steroid` find-class. Use
+`steroid_execute_code` with
+`JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`.
+If the orchestrator only has a short name (e.g., `BTree`), construct
+the FQN from package context first — `findClass` returns null on bare
+short names.
+
+Pattern-inducing class names from precedent is a known trap: the
+V1 → V2/V3 naming pattern often does NOT survive a generic-extraction
+refactor. For example, the live v3 single- and multi-value B-tree
+lifecycle classes are NOT `CellBTreeSingleValueV3` /
+`CellBTreeMultiValueV2` / `SBTreeV2` — they collapsed into a single
+generic
+`com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`
+that is wrapped twice from
+`core/.../index/engine/v1/BTreeMultiValueIndexEngine.java:77,81`.
+When the orchestrator infers a class name from sibling-version
+conventions, generated-code conventions, or package-naming precedent
+rather than reading existing tests or production callers, it MUST
+verify the name via PSI before committing it to the step file.
+
+**mcp-steroid state handling.** The session-start hook surfaces one
+of three states per [`conventions.md`](conventions.md) §1.4:
+
+- **Reachable + cwd matches** → run PSI find-class as above.
+- **Reachable + cwd mismatch** (`steroid_list_projects` reports a
+  different project from the working tree) → pause and ask the user
+  via `AskUserQuestion` to switch the open project before proceeding.
+  Do NOT silently fall back to `find` — a PSI query against the wrong
+  project produces false negatives that look identical to a true
+  hallucination.
+- **Unreachable** → fall back to `find . -name '<ClassName>.java'`
+  and add a reference-accuracy caveat to the step file's
+  `### Clarifications` subsection.
+
+**Failure path.** If PSI-verify reports a name does not resolve and
+the track's `## Description` does not explicitly mark it as a class
+this track creates: try once — read the production code or existing
+tests for the named target, derive the canonical name, and re-verify.
+If after one retry the name still does not resolve, do NOT write or
+commit the step file. Surface the conflict via `AskUserQuestion` with
+three options: **Use the verified alternative** (orchestrator proposes
+the closest matching name), **Drop the mention** (remove the reference
+from the step body), **Escalate to inline replanning**.
+
+This rule is the orchestrator-side complement to the sub-agent-side
+PSI rule in §Tooling above.
+
 ### Track Pre-Flight — Strategy Assessment + Track Summary
 
 Before Phase A's reviews and decomposition begin, the orchestrator
@@ -160,10 +214,11 @@ when more than two sites are touched — these are markdown edits, no
 IntelliJ PSI/VFS refresh concern applies, so the project CLAUDE.md
 "always route file edits through MCP Steroid" rule is satisfied with
 native `Edit` for single-site changes here). Amendments that name
-production classes, packages, or SPI services in the
-`**What/How/Constraints/Interactions**` blocks are bound by the §What You
-Do pre-write rule — PSI-verify every named target via `mcp-steroid` find-
-class before committing the amendment:
+production classes in the `**What/How/Constraints/Interactions**`
+blocks are bound by the §Pre-write rule above — PSI-verify every
+named class via `mcp-steroid` find-class **before applying the Edit**
+inside the Adjust round, so the user can correct a pattern-induced
+name in the same `AskUserQuestion` round rather than after commit:
 
 - Track title, intro paragraph
 - Scope indicators in the plan-file checklist entries
@@ -322,32 +377,8 @@ output so the user does not re-issue them in this round's
 > The Track Pre-Flight gate above must clear before sub-step 1 starts.
 > On State C resume the gate is skipped (see §Phase A Resume).
 
-**Pre-write rule — PSI-verify class names before authoring the step file.**
-Before any write that names a production class, package, or SPI service in
-the step file's `## Description` (`**What/How/Constraints/Interactions**`
-blocks, including light amendments committed via the Track Pre-Flight gate's
-step 4) or in decomposed step bodies under `## Steps`, the orchestrator MUST
-PSI-verify every named target via `mcp-steroid` find-class (use
-`steroid_execute_code` with `JavaPsiFacade.findClass(fqn,
-GlobalSearchScope.allScope(project))` or the shortname recipe in
-[`conventions.md`](conventions.md) §1.4). Pattern-inducing class names from
-precedent is a known trap: the V1 → V2/V3 naming pattern often does NOT
-survive a generic-extraction refactor. For example, the live v3 single- and
-multi-value B-tree lifecycle classes are NOT `CellBTreeSingleValueV3` /
-`CellBTreeMultiValueV2` / `SBTreeV2` — they collapsed into a single generic
-`com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`
-that is wrapped twice from
-`core/.../index/engine/v1/BTreeMultiValueIndexEngine.java:77,81`. When the
-orchestrator infers a class name from sibling-version conventions, generated-
-code conventions, or package-naming precedent rather than reading existing
-tests or production callers, it MUST verify the name via PSI before
-committing it to the step file. If `mcp-steroid` is unreachable, fall back to
-`find . -name '<ClassName>.java'` and add a reference-accuracy caveat to the
-step file's `### Clarifications` subsection (or, when reconstructing a
-missing description, to the Reconstruction note). This is the orchestrator-
-side complement to the sub-agent-side PSI rule in §Tooling — PSI is required
-for symbol audits in Phase A (lines 27-58); the sub-agent-side rule binds
-the spawned reviewers, this rule binds the orchestrator's own writes.
+> The §Pre-write rule above governs every write below that names a
+> production class — apply it before the atomic write in sub-step 5.
 
 1. **Read the plan file** for strategic context (Goals, Architecture
    Notes, Decision Records, Component Map) and the **step file**
@@ -391,11 +422,14 @@ the spawned reviewers, this rule binds the orchestrator's own writes.
 5. **Write decomposed steps** to the step file's `## Steps` section as
    `[ ]` items, each with its `**Risk:**` line in the description
    blockquote. Mark `Review + decomposition` as `[x]` in the Progress
-   section. Before this atomic write, apply the §What You Do pre-write
-   rule above to every production class, package, or SPI service named in
-   a step body — PSI-verify each via `mcp-steroid` find-class so a
-   pattern-induced name (V1 → V2/V3 trap, generated-code package drift)
-   does not slip into the step file and force an iter-2 fix round.
+   section. Before this atomic write, apply the §Pre-write rule above
+   to every production class named in a step body — PSI-verify each
+   via `mcp-steroid` find-class so a pattern-induced name (V1 → V2/V3
+   trap, generated-code package drift) does not slip into the step
+   file and force an iter-2 fix round. On unresolved-name failure,
+   follow the **Failure path** in §Pre-write rule (one retry, then
+   `AskUserQuestion`) — do NOT write the step file with an unresolved
+   reference.
 
 6. **Commit and push the Phase A workflow updates.** Phase A's on-disk
    writes — the populated `## Steps` section and the `[x]` mark in
