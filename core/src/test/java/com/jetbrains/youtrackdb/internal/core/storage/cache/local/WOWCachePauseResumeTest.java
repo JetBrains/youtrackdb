@@ -1,13 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import java.lang.reflect.Field;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import org.junit.After;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -34,6 +42,19 @@ import org.mockito.Mockito;
  * {@code WOWCache} has no test-friendly constructor.
  */
 public class WOWCachePauseResumeTest {
+
+  /**
+   * Clears the per-thread interrupt flag after every test. Surefire is configured with
+   * {@code parallel=classes}, so all @Test methods in this class run sequentially on a
+   * single reused thread. If a test left the interrupt flag set (e.g., a regression in
+   * {@link WOWCache#pauseBackgroundFlush()} that throws something other than
+   * {@link BaseException} on the interrupt path), the leak would pollute whichever test
+   * runs next on that thread. Calling {@link Thread#interrupted()} both reads and clears.
+   */
+  @After
+  public void clearInterruptFlag() {
+    Thread.interrupted();
+  }
 
   /**
    * Verifies that {@link WOWCache#executePeriodicFlush} returns immediately when the
@@ -79,6 +100,7 @@ public class WOWCachePauseResumeTest {
     assertSame(
         "resume without pause must not schedule a new periodic task",
         sentinelFuture, getFlushFuture(cache));
+    Mockito.verify(cache, Mockito.never()).scheduleResumeFlush();
   }
 
   /**
@@ -107,6 +129,7 @@ public class WOWCachePauseResumeTest {
     assertSame(
         "resume with pagesFlushInterval == 0 must not schedule a new periodic task",
         sentinelFuture, getFlushFuture(cache));
+    Mockito.verify(cache, Mockito.never()).scheduleResumeFlush();
   }
 
   /**
@@ -134,6 +157,7 @@ public class WOWCachePauseResumeTest {
     assertSame(
         "resume with stopFlush == true must not schedule a new periodic task",
         sentinelFuture, getFlushFuture(cache));
+    Mockito.verify(cache, Mockito.never()).scheduleResumeFlush();
   }
 
   /**
@@ -161,6 +185,7 @@ public class WOWCachePauseResumeTest {
     assertSame(
         "double resume without pause must leave flushFuture untouched",
         sentinelFuture, getFlushFuture(cache));
+    Mockito.verify(cache, Mockito.never()).scheduleResumeFlush();
   }
 
   /**
@@ -181,6 +206,244 @@ public class WOWCachePauseResumeTest {
     stub.resumeBackgroundFlush();
     stub.resumeBackgroundFlush(); // idempotent on default path too
     assertTrue("default pause / resume completed without throwing", true);
+  }
+
+  /**
+   * Verifies the happy path of {@link WOWCache#pauseBackgroundFlush()}: the pause flag is
+   * set, the barrier task is awaited, and the currently-scheduled {@code flushFuture} is
+   * cancelled with {@code cancel(false)} (NOT {@code cancel(true)} — interrupting a
+   * running flusher mid-write is exactly the hazard pause is meant to avoid).
+   *
+   * <p>The barrier executor seam ({@code submitPauseBarrier()}) is stubbed so the test
+   * does not depend on the real global commit executor; what we are pinning here is the
+   * method's own flow control — set flag, wait for barrier, cancel pending without
+   * interrupt. The full barrier semantics (drains every in-flight
+   * {@code AsynchronousFileChannel.write} via {@code IOResult.await()}) are covered by
+   * the integration test {@code LocalPaginatedStorageRestoreFromWALIT.testSimpleRestore},
+   * which runs in the nightly {@code -P ci-integration-tests} profile.
+   */
+  @SuppressWarnings("unchecked") // unchecked: generic Future<Object> mock
+  @Test
+  public void testPauseSetsFlagAndCancelsPendingFuture() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "backgroundFlushPaused", false);
+
+    // Use a Mockito-mocked Future so we can verify the EXACT cancel argument.
+    // A real CompletableFuture would not let us distinguish cancel(false) from
+    // cancel(true) because CompletableFuture#cancel ignores mayInterruptIfRunning
+    // per the JDK contract — making the cancel(true) regression invisible.
+    var pending = Mockito.mock(Future.class);
+    setField(cache, "flushFuture", pending);
+
+    // Stub the barrier so we don't touch the singleton executor. doReturn form
+    // is required because submitPauseBarrier() is dispatched via CALLS_REAL_METHODS.
+    var completedBarrier = CompletableFuture.<Object>completedFuture(null);
+    Mockito.doReturn(completedBarrier).when(cache).submitPauseBarrier();
+
+    cache.pauseBackgroundFlush();
+
+    assertTrue(
+        "pause must set the backgroundFlushPaused flag",
+        getBackgroundFlushPaused(cache));
+    Mockito.verify(cache).submitPauseBarrier();
+    Mockito.verify(pending).cancel(false);
+    Mockito.verify(pending, Mockito.never()).cancel(true);
+  }
+
+  /**
+   * Verifies that {@link WOWCache#pauseBackgroundFlush()} skips the cancel call when
+   * {@code flushFuture} is null. The null check is what makes pause safe to call before
+   * any periodic task has been scheduled (e.g., when the constructor was given
+   * {@code pagesFlushInterval == 0}).
+   */
+  @Test
+  public void testPauseSkipsCancelWhenFlushFutureNull() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "backgroundFlushPaused", false);
+    setField(cache, "flushFuture", null);
+
+    var completedBarrier = CompletableFuture.<Object>completedFuture(null);
+    Mockito.doReturn(completedBarrier).when(cache).submitPauseBarrier();
+
+    // Must not NPE despite flushFuture being null.
+    cache.pauseBackgroundFlush();
+
+    assertTrue(
+        "pause must set the backgroundFlushPaused flag even when flushFuture is null",
+        getBackgroundFlushPaused(cache));
+    assertNull(
+        "pause must not write a new future into flushFuture when it started as null",
+        getFlushFuture(cache));
+    Mockito.verify(cache).submitPauseBarrier();
+  }
+
+  /**
+   * Verifies that {@link WOWCache#pauseBackgroundFlush()} restores the interrupt flag and
+   * throws a {@link ThreadInterruptedException} wrapping the original
+   * {@link InterruptedException} when the barrier {@code get()} is interrupted. Pins the
+   * exact wrapper subtype and cause chain so a regression that swaps the wrapper for a
+   * different {@link BaseException} subclass, or drops the {@code initCause} call, fails
+   * loudly. Callers must be able to detect the interruption via {@link Thread#interrupted()}
+   * for downstream shutdown handling.
+   */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testPauseInterruptedRestoresInterruptFlagAndThrowsBaseException()
+      throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "backgroundFlushPaused", false);
+    setField(cache, "flushFuture", null);
+    setField(cache, "storageName", "test");
+
+    // Mock Future whose get() throws InterruptedException. We can't use a real
+    // CompletableFuture for this because there is no way to make its get()
+    // throw InterruptedException without interrupting the calling thread first
+    // (which would race against the actual barrier path under test).
+    var barrier = Mockito.mock(Future.class);
+    Mockito.when(barrier.get()).thenThrow(new InterruptedException("simulated"));
+    Mockito.doReturn(barrier).when(cache).submitPauseBarrier();
+
+    // Clear any stale interrupt flag from prior tests so we can assert on the
+    // restoration below.
+    Thread.interrupted();
+
+    try {
+      cache.pauseBackgroundFlush();
+      fail("expected ThreadInterruptedException wrapping the InterruptedException");
+    } catch (ThreadInterruptedException e) {
+      // Thread.interrupted() both reads and clears; the @After also clears, but the
+      // assertion here pins that the catch block restored the flag at the moment of throw.
+      assertTrue(
+          "interrupt flag must be restored by the catch block before throwing",
+          Thread.interrupted());
+      assertTrue(
+          "cause must be the original InterruptedException so operators can diagnose",
+          e.getCause() instanceof InterruptedException);
+      assertEquals(
+          "original interrupt message must be preserved in the cause chain",
+          "simulated", e.getCause().getMessage());
+      assertTrue(
+          "flag must be set before the barrier wait, so the pause flag remains true "
+              + "even on a failed pause",
+          getBackgroundFlushPaused(cache));
+    }
+  }
+
+  /**
+   * Verifies that {@link WOWCache#pauseBackgroundFlush()} does NOT cancel the
+   * pending {@code flushFuture} when the barrier {@code get()} throws — the re-throw
+   * exits the method before reaching the cancel block. Pins the semantic so a future
+   * refactor that hoists the cancel into the catch handler is caught: hoisting would
+   * interrupt a flusher that the failed pause did not actually drain, breaking the
+   * very invariant pause was added to protect.
+   */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testPauseInterruptedDoesNotCancelPendingFlushFuture() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "backgroundFlushPaused", false);
+    setField(cache, "storageName", "test");
+
+    // Non-null pending future; the catch path must NOT cancel it. Mockito-mocked
+    // so we can verify cancel was never invoked on either argument value.
+    var pending = Mockito.mock(Future.class);
+    setField(cache, "flushFuture", pending);
+
+    var barrier = Mockito.mock(Future.class);
+    Mockito.when(barrier.get()).thenThrow(new InterruptedException("simulated"));
+    Mockito.doReturn(barrier).when(cache).submitPauseBarrier();
+
+    Thread.interrupted();
+
+    try {
+      cache.pauseBackgroundFlush();
+      fail("expected ThreadInterruptedException");
+    } catch (ThreadInterruptedException e) {
+      Mockito.verify(pending, Mockito.never()).cancel(Mockito.anyBoolean());
+    }
+  }
+
+  /**
+   * Verifies that {@link WOWCache#pauseBackgroundFlush()} wraps a barrier
+   * {@link ExecutionException} as a {@link WriteCacheException} and preserves the full
+   * cause chain ({@code WriteCacheException → ExecutionException → original cause}) so
+   * operators can diagnose the underlying executor failure. Also pins that this path
+   * does NOT touch the thread interrupt flag (only the InterruptedException path does)
+   * and that the pause flag remains set after the throw (mirroring the interrupted-path
+   * invariant — both failure paths leave the caller responsible for clearing state).
+   */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testPauseExecutionExceptionWrapsAsBaseException() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "backgroundFlushPaused", false);
+    setField(cache, "flushFuture", null);
+    setField(cache, "storageName", "test");
+
+    var barrier = Mockito.mock(Future.class);
+    Mockito.when(barrier.get())
+        .thenThrow(new ExecutionException(new RuntimeException("executor down")));
+    Mockito.doReturn(barrier).when(cache).submitPauseBarrier();
+
+    // Pre-clear the interrupt flag so the post-condition assertion is meaningful.
+    Thread.interrupted();
+
+    try {
+      cache.pauseBackgroundFlush();
+      fail("expected WriteCacheException wrapping the ExecutionException");
+    } catch (WriteCacheException e) {
+      assertTrue(
+          "wrapped cause must be the ExecutionException raised by the barrier",
+          e.getCause() instanceof ExecutionException);
+      assertTrue(
+          "ExecutionException must preserve the underlying root cause for operator diagnosis",
+          e.getCause().getCause() instanceof RuntimeException);
+      assertEquals(
+          "root-cause message must survive the wrap",
+          "executor down", e.getCause().getCause().getMessage());
+      assertFalse(
+          "ExecutionException path must NOT set the interrupt flag (only the "
+              + "InterruptedException path restores it)",
+          Thread.interrupted());
+      assertTrue(
+          "flag must be set before the barrier wait, so the pause flag remains true "
+              + "even on a failed pause",
+          getBackgroundFlushPaused(cache));
+    }
+  }
+
+  /**
+   * Verifies the happy path of {@link WOWCache#resumeBackgroundFlush()}: when the pause
+   * flag is set, {@code pagesFlushInterval > 0}, and {@code stopFlush == false}, resume
+   * clears the flag and writes the newly-scheduled future into {@code flushFuture}. The
+   * schedule seam ({@code scheduleResumeFlush()}) is stubbed so we verify the wiring
+   * without depending on the real executor or instantiating a PeriodicFlushTask against
+   * a partly-built mock.
+   */
+  @Test
+  public void testResumeSchedulesNewPeriodicTaskWhenIntervalPositive() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "backgroundFlushPaused", true);
+    setField(cache, "pagesFlushInterval", 25L);
+    setField(cache, "stopFlush", false);
+
+    // Pre-existing flushFuture (e.g., a cancelled one left by pause) must be
+    // replaced by the freshly-scheduled future.
+    var previousFuture = new CompletableFuture<Void>();
+    setField(cache, "flushFuture", previousFuture);
+
+    var newScheduledFuture = new CompletableFuture<Void>();
+    Mockito.doReturn(newScheduledFuture).when(cache).scheduleResumeFlush();
+
+    cache.resumeBackgroundFlush();
+
+    assertFalse(
+        "resume must clear the pause flag",
+        getBackgroundFlushPaused(cache));
+    assertSame(
+        "resume must write the freshly-scheduled future into flushFuture",
+        newScheduledFuture, getFlushFuture(cache));
+    Mockito.verify(cache).scheduleResumeFlush();
   }
 
   // ---------------------------------------------------------------------------

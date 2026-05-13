@@ -1420,7 +1420,7 @@ public final class WOWCache extends AbstractWriteCache
     // scheduled (not yet running) will see the flag at the entry guard and
     // exit without doing work, so no work is queued behind the barrier
     // either.
-    final var barrier = commitExecutor().submit(() -> null);
+    final var barrier = submitPauseBarrier();
     try {
       barrier.get();
     } catch (final java.lang.InterruptedException e) {
@@ -1440,9 +1440,9 @@ public final class WOWCache extends AbstractWriteCache
     // removes the task from the executor's delay queue; on the currently
     // running task it only sets the cancelled bit (the task continues, but
     // its entry guard and finally re-arm both see the flag and skip work).
-    // Without this, a fast action.run() could return before the queued task
-    // fired, leaving an orphan chain in the queue that resumeBackgroundFlush
-    // would then duplicate.
+    // Without this, a fast PeriodicFlushTask.run() could return before the
+    // queued task fired, leaving an orphan chain in the queue that
+    // resumeBackgroundFlush would then duplicate.
     final var pending = flushFuture;
     if (pending != null) {
       pending.cancel(false);
@@ -1462,10 +1462,27 @@ public final class WOWCache extends AbstractWriteCache
     // has been closed (stopFlush == true), stay idle — matching the
     // constructor's gating at construction time.
     if (pagesFlushInterval > 0 && !stopFlush) {
-      flushFuture =
-          commitExecutor().schedule(
-              new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
+      flushFuture = scheduleResumeFlush();
     }
+  }
+
+  // Package-private test seam: submit the barrier no-op task used by
+  // pauseBackgroundFlush(). Extracted so unit tests can stub the executor
+  // interaction (the real commitExecutor() is a global singleton fetched
+  // via YouTrackDBEnginesManager and cannot be mocked). Production
+  // behavior is identical to inlining commitExecutor().submit(() -> null).
+  Future<?> submitPauseBarrier() {
+    return commitExecutor().submit(() -> null);
+  }
+
+  // Package-private test seam: schedule the periodic flush task used by
+  // resumeBackgroundFlush(). Extracted so unit tests can verify that the
+  // schedule branch is taken without depending on the real executor.
+  // Production behavior is identical to inlining the
+  // commitExecutor().schedule(...) call.
+  Future<?> scheduleResumeFlush() {
+    return commitExecutor().schedule(
+        new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
   }
 
   @Override

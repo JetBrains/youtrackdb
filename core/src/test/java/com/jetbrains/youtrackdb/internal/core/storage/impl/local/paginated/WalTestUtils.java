@@ -52,8 +52,20 @@ final class WalTestUtils {
     var walBegin = wal.begin();
     wal.addCutTillLimit(walBegin);
     try {
-      writeCache.pauseBackgroundFlush();
+      // Inner try-finally covers BOTH pause and action so that a pause that
+      // throws after setting backgroundFlushPaused = true (e.g., barrier
+      // wait was interrupted, executor rejected the no-op task) still falls
+      // through to resumeBackgroundFlush() and clears the flag. Without
+      // this nesting, a failed pause would leave the cache paused for the
+      // rest of its lifetime — every subsequent periodic flush would exit
+      // at the entry guard and the cache would silently stop writing.
+      // resumeBackgroundFlush() is a documented safe no-op when no prior
+      // pause set the flag (pinned by
+      // WOWCachePauseResumeTest#testResumeWithoutPauseIsNoOp), so it is
+      // safe to call even if pauseBackgroundFlush() threw before reaching
+      // the volatile-flag write.
       try {
+        writeCache.pauseBackgroundFlush();
         action.run();
       } finally {
         writeCache.resumeBackgroundFlush();
