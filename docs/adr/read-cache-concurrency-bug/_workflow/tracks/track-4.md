@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A)
+- [ ] Step implementation (5/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS, 4 should-fix items deferred to Phase C)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1056,12 +1056,170 @@ the stay-on-physical sites).
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/FlushPendingOperationsTest.java`
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/PageOperationAccumulationLifecycleTest.java`
 
-- [ ] Step 5a: In-memory engine eager-install in `AOBT.loadOrAddPageForWrite` (split from failed Step 5 above)
+- [x] Step 5a: In-memory engine eager-install in `AOBT.loadOrAddPageForWrite` (split from failed Step 5 above)
+  - [x] Context: warning
   > **Risk:** high — concurrency (touches the per-engine dispatch in
   > the AO write-side primitive every transaction goes through; the
   > in-memory engine path must wrap the bumped `CachePointer` referrer
   > correctly to avoid the leak the original Step 1 implementation
   > hit and was fixed twice during review).
+  >
+  > **What was done:** Re-introduced the in-memory eager-install in
+  > `AtomicOperationBinaryTracking.loadOrAddPageForWrite` — the branch
+  > that Step 2's review fix `48a83793cb` deleted on the (incomplete)
+  > rationale that the cache-install branch never fires in production.
+  > Dispatch is on `readCache instanceof DirectMemoryOnlyDiskCache`.
+  > Implementation evolved across two commits driven by the dimensional
+  > review loop:
+  > - **Initial commit `7820af9689`**: covered the non-fresh-booked-file
+  >   path on the in-memory engine. Called `readCache.loadOrAdd(fileId,
+  >   pageIndex, false)`, wrapped the returned `CachePointer` in a
+  >   `CacheEntryImpl(insideCache=false)`, balanced the readers-referrer
+  >   bump with one `decrementReadersReferrer()` per call (the BC1 fix
+  >   shape from the original Step 1). Bypassed the strict allocator-only
+  >   check on the in-memory branch because rolled-back TXs leave orphan
+  >   pages in `MemoryFile`; the next TX legitimately sees
+  >   `writeCache.getFilledUpTo()` above the logical horizon and must
+  >   re-allocate. The disk engine kept the strict check.
+  > - **Iter-2 fix commit `da95e51858` (Option A)**: extended the
+  >   in-memory dispatch to cover fresh-booked files. `AOBT.addFile` now
+  >   eagerly calls `readCache.addFile(name, fileId, writeCache,
+  >   nonDurable)` when the read cache is `DirectMemoryOnlyDiskCache`,
+  >   registering an empty `MemoryFile` immediately. The dispatch in
+  >   `loadOrAddPageForWrite` dropped its `!fileIsNew` guard for the
+  >   in-memory branch. A new `FileChanges.eagerlyInstalledInCache` flag
+  >   gates `commitChanges`'s late `readCache.addFile` so duplicate
+  >   registration is impossible. Empirically validated by temporarily
+  >   commenting out the `commitChanges` null-branch (Step 5b's planned
+  >   deletion) and re-running the full coverage build — BUILD SUCCESS
+  >   — then restored the block.
+  > - `AtomicOperation` SPI Javadoc rewritten with a "Per-engine behavior"
+  >   section reflecting the dual-engine contract. Test class Javadoc
+  >   updated. Helper `newInMemoryOp(...)` extracted to remove 4× of
+  >   12-line constructor boilerplate. Two new production-side
+  >   assertions added on the eager-install branch: buffer-non-null and
+  >   fileId/pageIndex compatibility (the latter uses
+  >   `AbstractWriteCache.extractFileId(fileId)` because `CachePointer`
+  >   stores the int file id, not the composed long).
+  > - Tests grew from 4 new in-memory tests in `7820af9689` to 11 new
+  >   tests across iter-1 + iter-2 (`LoadOrAddPageForWriteTest`:
+  >   eager-install, referrer balance loop, fresh-booked-file branch,
+  >   rollback-orphan reuse below floor, rollback-orphan reuse at
+  >   pageIndex=0, idempotency, two-page back-to-back, commit-time
+  >   observability stub, disk-engine dispatch negative-space, 2-thread
+  >   real-cache concurrency under `inMemoryEagerInstallToleratesConcurrentOrphanReuse`).
+  >   Existing `freshBookedFileTakesStubBranchEvenOnInMemoryEngine`
+  >   renamed to `freshBookedFileTakesEagerInstallBranchOnInMemoryEngine`
+  >   and rewritten against the new contract. The pre-existing
+  >   `AtomicOperationSnapshotProxyTest` gained `throws IOException` on
+  >   two methods because `AOBT.addFile` now propagates the checked
+  >   exception from `readCache.addFile`.
+  > - Full `./mvnw -pl core clean package -P coverage`: BUILD SUCCESS.
+  >   Targeted suites: 21/21 (`LoadOrAddPageForWriteTest`) + 384/384
+  >   (broader regression set). Spotless clean.
+  >
+  > **What was discovered:**
+  > - The Step 5 NPE that triggered this split traced back to an
+  >   incomplete analysis in Step 2's review fix `48a83793cb`. That fix
+  >   examined only the synchronous TX-time call path; commit-time
+  >   replay through `AOBT.commitChanges` was not considered. The
+  >   in-memory engine's `loadOrAddForWrite` is deliberately non-total
+  >   (returns null on miss per Track 1's divergence — see
+  >   `DirectMemoryOnlyDiskCache.java:188-216`), and the page is only
+  >   in `MemoryFile` if `loadOrAddPageForWrite` eagerly installed it
+  >   during the TX. Without eager install, the replay loop's
+  >   `loadOrAddForWrite` returns null and the surviving null-branch
+  >   (the one Step 5b plans to delete) was the only recovery path.
+  > - Iter-1 dim review surfaced CS1: the fresh-booked-file case on
+  >   the in-memory engine was NOT covered by the initial eager-install
+  >   (the `!fileIsNew` guard sent it to the stub-shape branch).
+  >   Step 5b's premise was therefore false. User selected Option A
+  >   from a three-way split, extending Step 5a to eagerly register
+  >   the file in the cache at `addFile` time. The empirical
+  >   validation (commenting out the null-branch, re-running the full
+  >   coverage build) confirms Step 5b can now safely proceed.
+  > - The TY3 assertion as drafted in iter-1 findings would have
+  >   fired on every real-cache call because `MemoryFile` builds
+  >   `CachePointer` with the int file id (`MemoryFile.java:147,184`)
+  >   while AOBT receives the composed long. The assertion was
+  >   tightened to compare against
+  >   `AbstractWriteCache.extractFileId(fileId)` — the genuine
+  >   invariant. The new test helper `stubPointer` stubs
+  >   `pointer.getFileId()` to return the extracted int value.
+  > - **BC6 (informational, surfaced in iter-2 gate)**: a rolled-back
+  >   `AOBT.addFile` on the in-memory engine leaves an orphan
+  >   `(fileName, fileId)` registration in `DirectMemoryOnlyDiskCache`.
+  >   This changes visible semantics for subsequent operations in the
+  >   same storage session: `isFileExists` returns `true`, `addFile`
+  >   with the same name throws `"file already exists"`. The leak
+  >   clears on `storage.delete()`. In production this is bounded
+  >   (component create-time errors are rare; the in-memory engine is
+  >   primarily used in tests with per-test storage lifetimes). Not a
+  >   crash-safety issue (no persistent data, no WAL on this engine).
+  >   Could be hardened later by plumbing a rollback hook in AOBT to
+  >   call `readCache.deleteFile(fileId)` on entries with
+  >   `eagerlyInstalledInCache && rollback` — captured here for
+  >   future-track awareness.
+  > - **Iter-2 deferred should-fixes** (not fixed in Step 5a; carried
+  >   for Phase C track-level review): CQ7 — stale Javadoc on
+  >   `freshBookedFileSkipsReadCacheUntilCommit` test method that
+  >   still claims stub-shape is universal (same shape as the CQ2 fix);
+  >   TB5 — `commitChangesFindsEagerlyInstalledPageOnInMemoryEngine`
+  >   is coverage-chasing (stub assertions fire regardless of
+  >   production state); TB6 — vacuous `verify(inMemoryCacheMock,
+  >   never())` on a mock not wired into the production path; TC6 —
+  >   no unit test pins the `eagerlyInstalledInCache` commit-time-skip
+  >   contract (integration tests would catch a regression loudly,
+  >   but a unit pin is cheaper feedback). Context-window pressure
+  >   (warning level at iter-2 close) prevented an iter-3 fix pass;
+  >   Phase C track-level review will reassess these against the
+  >   cumulative track diff.
+  >
+  > **What changed from the plan:**
+  > - **Step 5a scope expanded** via the iter-1 split-decision Option A
+  >   selected by the user: original Step 5a covered non-fresh-booked
+  >   files only; iter-2 fix added the eager `readCache.addFile` in
+  >   `AOBT.addFile` plus the `eagerlyInstalledInCache` flag plus the
+  >   dispatch refactor. The step file's Step 5a description (the
+  >   `[!]` block above) reflects the original scope and is preserved
+  >   for traceability; this episode documents the expansion.
+  > - **Step 5a plan said** "acquire the per-page exclusive lock via
+  >   `lockManager.acquireExclusiveLock(new PageKey(...))`". No such
+  >   `lockManager` field exists on AOBT. The proven original Step 1
+  >   shape (no exclusive lock acquired on the freshly-built wrapper;
+  >   the underlying `CachePointer`'s exclusive lock is acquired only
+  >   at commit time by `readCache.loadOrAddForWrite`) was used
+  >   instead. No observable behavior change.
+  > - **Strict allocator-only check** is bypassed on the in-memory
+  >   branch (rollback-orphan reuse requires this). The disk engine
+  >   keeps the strict check; this is a deliberate per-engine
+  >   asymmetry documented in the inline comments and pinned by
+  >   `inMemoryEngineReusesRollbackOrphanBelowAllocationFloor` and
+  >   `inMemoryEngineReusesRollbackOrphanAtPageZero`.
+  > - **`AOBT.addFile` signature** now propagates `IOException`
+  >   declared by `readCache.addFile`. The `AtomicOperation`
+  >   interface signature already declared `IOException`; only test
+  >   fixtures needed touch-up.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationSnapshotProxyTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/LoadOrAddPageForWriteTest.java`
+  >
+  > **Critical context for Step 5b:**
+  > Step 5b can land its planned null-branch deletion in
+  > `AOBT.commitChanges:987-998` — this was empirically validated by
+  > temporarily commenting out the block and running the full coverage
+  > build (BUILD SUCCESS). Step 5b should additionally pin the
+  > deletion with an explicit `assert cacheEntry != null` so any
+  > future regression in Step 5a's eager-install coverage surfaces
+  > loudly under `-ea`. The 7 new in-memory tests added in Step 5a
+  > (eager-install branches, idempotency, two-page, fresh-booked,
+  > rollback-orphan boundary, dispatch negative-space, concurrent
+  > orphan-reuse) plus the existing `freshBookedFile*` and
+  > `inMemoryEager*` tests cover the regression surface Step 5b
+  > inherits.
   >
   > **Background.** Step 2's review fix `48a83793cb` ("collapse
   > loadOrAddPageForWrite to allocator-only") removed the in-memory
