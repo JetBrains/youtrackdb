@@ -26,12 +26,23 @@ public class CommandTimeoutChecker {
   protected void check() {
     if (active) {
       var curTime = System.nanoTime() / 1000000;
-      var iter = running.entrySet().iterator();
-      while (iter.hasNext()) {
-        var entry = iter.next();
-        if (curTime > entry.getValue()) {
-          entry.getKey().interrupt();
-          iter.remove();
+      for (var entry : running.entrySet()) {
+        var thread = entry.getKey();
+        var deadline = entry.getValue();
+        if (curTime > deadline) {
+          thread.interrupt();
+          // Conditional remove: between thread.interrupt() above and removing the entry
+          // here, the worker thread may wake up from its Thread.sleep, catch the
+          // InterruptedException, finish its endCommand calls, and re-register with a
+          // fresh deadline via startCommand(). CHM's Iterator.remove() and the
+          // unconditional running.remove(thread) overload both remove by key alone, so
+          // either would wipe that fresh entry, leaving no future sweep able to interrupt
+          // the re-registered command. The two-arg remove(thread, deadline) is a CAS that
+          // only removes if the value is still the deadline we just expired, preserving
+          // any concurrent re-registration. The race is observable on Windows JDK 25,
+          // where the just-interrupted worker is scheduled promptly enough to slip its
+          // re-registration in between the two operations above.
+          running.remove(thread, deadline);
         }
       }
     }

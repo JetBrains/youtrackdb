@@ -32,6 +32,24 @@ import org.junit.Test;
  */
 public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
+  /**
+   * Sleep ceiling for race regression workers. Picked so that an un-interrupted second
+   * sleep blocks well past every {@code await(...)} budget in this file — the latch
+   * assertion fails before the sleep ends, making the missed-interrupt failure mode
+   * unambiguous rather than racing with the worker's natural sleep duration. The
+   * companion {@link #joinSpawnedWorkersAndShutdownScheduler} loops interrupt+join so
+   * a regression cannot leak a 60 s sleeper into the surefire JVM.
+   */
+  private static final long REGRESSION_SLEEP_MS = 60_000L;
+
+  /**
+   * Generous per-latch deadline for the race regression tests. Big enough to absorb
+   * heavy CI runner contention (we have observed first {@code ScheduledExecutorService}
+   * ticks stall for hundreds of milliseconds on contended Windows runners), while still
+   * a bounded fail-fast when an interrupt genuinely fails to fire.
+   */
+  private static final long AWAIT_SECS = 15;
+
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
   private final List<Thread> spawnedWorkers = new CopyOnWriteArrayList<>();
 
@@ -76,12 +94,24 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
   @After
   public void joinSpawnedWorkersAndShutdownScheduler() throws InterruptedException {
-    // Join workers first so their final endCommand calls land before scheduler shutdown.
-    // Bounded join — a worker that is still sleeping at this point indicates a leaked
-    // spawn or a missing latch.countDown; the bound prevents the test class from hanging
-    // indefinitely.
+    // Drain every spawned worker before shutting the scheduler down so a worker's final
+    // endCommand lands first. Workers in the long-sleep regression tests intentionally
+    // sleep for REGRESSION_SLEEP_MS at each phase; on the happy path the production
+    // sweep ends every sleep, on a regression nothing does — so we loop interrupt+join
+    // until the worker exits OR a total per-worker budget elapses. The loop is
+    // necessary because a worker may have several Thread.sleep calls back-to-back
+    // (e.g., one before phase 1's endCommand and one after phase 2's startCommand) and
+    // a single interrupt would only release one of them.
+    var perWorkerBudgetNanos = TimeUnit.SECONDS.toNanos(5);
     for (var t : spawnedWorkers) {
-      t.join(2_000);
+      var deadlineNanos = System.nanoTime() + perWorkerBudgetNanos;
+      while (t.isAlive() && System.nanoTime() < deadlineNanos) {
+        t.interrupt();
+        t.join(200);
+      }
+      assert !t.isAlive()
+          : "worker " + t.getName() + " still alive after 5 s of interrupt+join — "
+              + "a regression that fails to deliver an interrupt is leaking this thread";
     }
     spawnedWorkers.clear();
     scheduler.shutdownNow();
@@ -297,9 +327,29 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
   }
 
   /**
-   * Idempotency: calling {@code endCommand} after the timeout sweep already removed the
-   * entry must not throw, and a subsequent {@code startCommand} on the same thread must
-   * still register a fresh deadline. Pins the {@code remove()} no-op return path.
+   * Idempotency + re-registration: calling {@code endCommand} after the timeout sweep
+   * already removed the entry must not throw, and a subsequent {@code startCommand} on
+   * the same thread must still register a fresh deadline that the next sweep picks up.
+   * <p>
+   * This test also exercises the race window between {@code thread.interrupt()} and the
+   * deadline-entry removal inside {@code check()}. The just-interrupted worker can wake
+   * up, finish its {@code endCommand} calls, and re-register a fresh deadline before the
+   * sweep removes the old entry — if the removal is unconditional remove-by-key (CHM's
+   * {@code iter.remove()}), the fresh entry is wiped and the re-registered command never
+   * gets interrupted. The production fix in
+   * {@link CommandTimeoutChecker#check} uses {@code remove(thread, deadline)} so the
+   * remove only fires when the value is still the one we expired. The race was
+   * observable on Windows JDK 25 (commit 4cfa1ed, check-run 75601955134), where the
+   * interrupted worker is rescheduled promptly enough to slip the re-registration into
+   * the gap.
+   * <p>
+   * The worker sleeps {@link #REGRESSION_SLEEP_MS} so that a missed second interrupt
+   * fails the latch-await assertion with an unambiguous failure-mode rather than
+   * spuriously passing because the worker's own sleep happened to end inside the await
+   * window. The long sleep is not a determinism guarantee — on Linux the race window is
+   * effectively never wide enough for the bug to manifest; the test relies on the
+   * Windows JDK 25 CI matrix to actually exercise the regression. See also the
+   * companion multi-worker stress test {@link #multiWorkerInterruptReregisterStress}.
    */
   @Test
   public void endCommandIsIdempotentAndStartCommandReregisters() throws Exception {
@@ -313,7 +363,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       // First registration — gets interrupted by the sweep.
       checker.startCommand(null);
       try {
-        Thread.sleep(2_000);
+        Thread.sleep(REGRESSION_SLEEP_MS);
       } catch (InterruptedException e) {
         firstInterrupted.countDown();
       }
@@ -322,10 +372,12 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       // And a redundant endCommand again — must remain a no-op.
       checker.endCommand();
 
-      // Re-register and get interrupted again — pins that the checker is still usable.
+      // Re-register and get interrupted again — pins that the checker is still usable
+      // and that the prior sweep did not wipe this fresh registration via the race
+      // described in the method Javadoc.
       checker.startCommand(null);
       try {
-        Thread.sleep(2_000);
+        Thread.sleep(REGRESSION_SLEEP_MS);
       } catch (InterruptedException e) {
         secondInterrupted.countDown();
       }
@@ -334,10 +386,55 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     });
 
     assertTrue("first registration must be interrupted",
-        firstInterrupted.await(2, TimeUnit.SECONDS));
+        firstInterrupted.await(AWAIT_SECS, TimeUnit.SECONDS));
     assertTrue("re-registered command must also be interrupted",
-        secondInterrupted.await(2, TimeUnit.SECONDS));
-    assertTrue("worker must complete", done.await(3, TimeUnit.SECONDS));
+        secondInterrupted.await(AWAIT_SECS, TimeUnit.SECONDS));
+    assertTrue("worker must complete", done.await(AWAIT_SECS, TimeUnit.SECONDS));
+
+    checker.close();
+  }
+
+  /**
+   * Multi-worker stress: a single checker shared by several workers, each running many
+   * interrupt-then-reregister cycles concurrently. Verifies two contracts together that
+   * the single-worker test cannot: (i) the {@code for-each} loop in {@code check()}
+   * processes every expired entry in the same sweep even when one of them CAS-fails its
+   * remove due to a concurrent {@code startCommand} from the same thread; (ii) a sweep
+   * tick that finds several expired entries does not interleave with concurrent
+   * registrations in a way that drops interrupts. A buggy unconditional remove-by-key
+   * would lose at least one second-cycle interrupt across the worker × cycle matrix,
+   * leaving a worker stuck in its 60 s sleep and timing out the {@code allDone} latch.
+   */
+  @Test
+  public void multiWorkerInterruptReregisterStress() throws Exception {
+    var checker = new CommandTimeoutChecker(50, this);
+    var workerCount = 5;
+    var cyclesPerWorker = 10;
+    var observedInterrupts = new AtomicInteger();
+    var allDone = new CountDownLatch(workerCount);
+
+    for (var w = 0; w < workerCount; w++) {
+      spawn(() -> {
+        for (var c = 0; c < cyclesPerWorker; c++) {
+          checker.startCommand(null);
+          try {
+            Thread.sleep(REGRESSION_SLEEP_MS);
+          } catch (InterruptedException e) {
+            observedInterrupts.incrementAndGet();
+          }
+          checker.endCommand();
+        }
+        allDone.countDown();
+      });
+    }
+
+    assertTrue("all workers must finish all cycles",
+        allDone.await(AWAIT_SECS, TimeUnit.SECONDS));
+    assertEquals(
+        "every cycle on every worker must end via interrupt — none should leak past the"
+            + " sweep due to a remove that wipes a concurrent re-registration",
+        workerCount * cyclesPerWorker,
+        observedInterrupts.get());
 
     checker.close();
   }
