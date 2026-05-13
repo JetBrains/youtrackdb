@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS; Step 5b [x] closed via dim-review iter-3 PASS, 13 deferred items folded into Track 6 + Track 2-style follow-ups)
+- [ ] Step implementation (7/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS; Step 5b [x] closed via dim-review iter-3 PASS, 13 deferred items folded into Track 6 + Track 2-style follow-ups; Step 6 [x] closed, comments-only)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1456,9 +1456,52 @@ the stay-on-physical sites).
   >   Step 5 failure; it must pass cleanly here).
   > - Spotless apply on `core`.
 
-- [ ] Step 6: Add rationale-bearing inline comments at the 6 stay-on-physical sites
+- [x] Step 6: Add rationale-bearing inline comments at the 6 stay-on-physical sites
+  - [x] Context: info
   > **Risk:** low — comments-only (Javadoc / inline comments
   > documenting the physical-size access contract).
+  >
+  > **What was done:**
+  > Added rationale-bearing inline comments at the six stay-on-physical
+  > sizing sites: two bootstrap emptiness checks
+  > (`CollectionPositionMapV2.create`,
+  > `PaginatedCollectionV2.initCollectionState`); one FSM-rebuild
+  > recovery scan (`PaginatedCollectionV2.open`); one defensive HLL
+  > page-1 probe (`IndexHistogramManager.readSnapshotFromPage`); and
+  > two EP-less pure-sizing bounds checks in
+  > `CollectionDirtyPageBitSet` (`clear`, `nextSetBit`). Each comment
+  > names the contract that justifies physical-size access at that
+  > location and points at the gated `physicalSize`-shaped helper
+  > that Track 5 will introduce. The IHM comment pre-commits Option A
+  > and explicitly forbids future migration to a `loadIfPresent`-style
+  > helper at that call site. No code change; no tests. Spotless clean.
+  >
+  > **What was discovered:**
+  > 1. Plan-write line numbers had drifted a few lines from the actual
+  >    file state (e.g., `PaginatedCollectionV2.initCollectionState` at
+  >    line 2260 not 2256; `CollectionDirtyPageBitSet.clear` at 142 not
+  >    141). Located each site via file-level grep on `getFilledUpTo`;
+  >    every plan-named site was present and unambiguous.
+  > 2. The plan-written comment wording referenced "Track 5" directly,
+  >    which the Ephemeral Identifier Rule forbids in durable source.
+  >    Rephrased every reference as "the gated `physicalSize`-shaped
+  >    helper introduced for stay-on-physical sites" or similar
+  >    contract-first phrasing. Self-check grep on the staged diff
+  >    confirmed zero Track/Step/finding-ID leakage in additions.
+  >
+  > **Cross-track impact:**
+  > - **Track 5** (gated helper introduction) benefits — every call
+  >   site now has a self-contained rationale comment, so the helper
+  >   introducer can confirm the helper's contract against the source
+  >   without consulting the ADR.
+  > - **Step 7** unaffected — none of the comment sites overlap with
+  >   the dead-code deletion targets.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionDirtyPageBitSet.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2.java`
   >
   > **Scope:**
   > - `CollectionPositionMapV2.create:136` — comment: "Bootstrap
