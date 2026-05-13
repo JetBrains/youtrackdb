@@ -299,15 +299,19 @@ The unique-suffix requirement from project-level `CLAUDE.md`
 § Concurrent Agent File Isolation applies: never use bare names like
 `/tmp/track-diff.patch`.
 
-**Regenerate before every gate-check fan-out.** Each iteration's
-`Review fix:` commit grows the cumulative diff, so the staged files
-go stale after every successful implementer return. Re-run the two
-staging commands from Phase C Startup step 6 before composing the
-next iteration's gate-check sub-agent prompts. Within a single
-iteration, the six dimensional reviewers can share the same staged
-paths (they all review the same HEAD). If a `RESULT_MISSING` or
-`FAILED` iteration leaves HEAD unchanged, the staged files are still
-current — skip the regeneration.
+**Re-measure and regenerate before every fan-out after a `Review fix:`
+commit.** Each iteration's `Review fix:` commit grows the cumulative
+diff, so any previously staged files go stale and a previously
+sub-threshold diff may now exceed the threshold. Re-run the full
+measurement + staging logic from Phase C Startup step 6 before
+composing the next fan-out's sub-agent prompts — this covers both
+the in-loop gate-check fan-out (§ Iteration loop) and the post-approval
+re-review fan-out triggered by user-requested fixes during
+§ Track Completion (step 3, "Fixes needed" path). Within a single
+iteration, the dimensional reviewers can share the same staged paths
+(they all review the same HEAD). If a `RESULT_MISSING` or `FAILED`
+iteration leaves HEAD unchanged, the previous measurement and staged
+files are still current — skip the re-run.
 
 **Why paths, not inline contents.** Inlining the plan and track file
 into every track-level sub-agent spawn embeds copies in the main
@@ -443,13 +447,12 @@ orchestrator never edits source files itself in Phase C.
      If findings span all dimensions, re-run all originally selected agents.
      The gate-check sub-agents review the new HEAD (after the
      `Review fix:` commit), which they reach via the same
-     `git diff {base_commit}..HEAD` instruction. **If the cumulative
-     diff was pre-staged at Phase C Startup step 6, regenerate both
-     `/tmp/claude-code-track-{N}-diff-$PPID.patch` and
-     `…-files-$PPID.txt` before composing the gate-check prompts** —
-     the new `Review fix:` commit grew the cumulative diff and the
-     staged copies are stale (see § Sub-agents → § "Pre-stage above
-     threshold").
+     `git diff {base_commit}..HEAD` instruction. **Re-run the
+     measurement + staging logic from Phase C Startup step 6 before
+     composing the gate-check prompts** — the new `Review fix:` commit
+     grew the cumulative diff, which may now exceed the threshold (and
+     need fresh staging) or, if already staged, leave the staged copies
+     stale (see § Sub-agents → § "Pre-stage above threshold").
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
