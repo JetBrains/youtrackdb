@@ -517,8 +517,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // DirectMemoryOnlyDiskCache.java's deliberate divergence from the disk engine)
       // finds the page via MemoryFile.loadPage. Without this install, commitChanges
       // would see null and the per-page accumulated changes would have no slot to
-      // apply against — that exact NPE blew up the prior Step 5 attempt against a
-      // fresh in-memory database.
+      // apply against — that exact NPE has been observed in regression scenarios
+      // where this install was skipped and commitChanges then hit MemoryFile.loadPage
+      // on a fresh in-memory database.
       //
       // verifyChecksums is irrelevant on the in-memory engine (no on-disk image to
       // verify); pass false to match the legacy addPage shape. DirectMemoryOnlyDiskCache
@@ -550,8 +551,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // leaked readers reference is released — which never happens. After the decrement
       // the count is 1 (the in-cache referrer held by installEmptyPage) so the page
       // stays resident and subsequent commit-time loadOrAddForWrite still finds it via
-      // MemoryFile.loadPage. This is the BC1 fix rationale from the original Step 1
-      // implementation.
+      // MemoryFile.loadPage. The in-cache referrer is intentionally retained across
+      // the AOBT lifecycle so commit-time loadOrAddForWrite finds the page on the
+      // in-memory engine.
       pointer.decrementReadersReferrer();
       // No exclusive lock is acquired on this branch. The AOBT lifecycle relies on
       // the CacheEntryChanges overlay (the change buffer) to serialize all in-TX

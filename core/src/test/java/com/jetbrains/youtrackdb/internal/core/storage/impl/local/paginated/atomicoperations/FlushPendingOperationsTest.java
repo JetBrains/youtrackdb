@@ -316,6 +316,9 @@ public class FlushPendingOperationsTest {
     Assert.assertTrue(
         "Message must cite the totality contract, was: " + message,
         message.contains("WriteCache.loadOrAdd totality contract violated"));
+    Assert.assertTrue(
+        "Message must include isNew diagnostic field, was: " + message,
+        message.contains("isNew="));
   }
 
   /**
