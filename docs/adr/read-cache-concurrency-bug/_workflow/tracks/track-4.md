@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/7 complete; Step 5 failed — split pending user decision)
+- [ ] Step implementation (4/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1055,6 +1055,122 @@ the stay-on-physical sites).
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTrackingWALSkipTest.java`
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/FlushPendingOperationsTest.java`
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/PageOperationAccumulationLifecycleTest.java`
+
+- [ ] Step 5a: In-memory engine eager-install in `AOBT.loadOrAddPageForWrite` (split from failed Step 5 above)
+  > **Risk:** high — concurrency (touches the per-engine dispatch in
+  > the AO write-side primitive every transaction goes through; the
+  > in-memory engine path must wrap the bumped `CachePointer` referrer
+  > correctly to avoid the leak the original Step 1 implementation
+  > hit and was fixed twice during review).
+  >
+  > **Background.** Step 2's review fix `48a83793cb` ("collapse
+  > loadOrAddPageForWrite to allocator-only") removed the in-memory
+  > eager-install on the rationale that the cache-install branch
+  > never fired in production. That trace examined the synchronous
+  > TX-time call path only — at commit time
+  > `AOBT.commitChanges:977-979` replays each `pageChangesMap` entry
+  > through `readCache.loadOrAddForWrite`, which on the in-memory
+  > engine (`DirectMemoryOnlyDiskCache`) deliberately returns null
+  > on miss (per Track 1's divergence). With the page never installed
+  > in `MemoryFile` during the TX, the replay's null-branch fallback
+  > (`if (cacheEntry == null) { allocateNewPage }` at lines 987-998)
+  > is the only thing keeping the in-memory engine alive. Step 5
+  > tried to delete that block and the full-coverage build NPE'd
+  > on fresh in-memory database creation.
+  >
+  > **Scope:**
+  > - `AtomicOperationBinaryTracking.loadOrAddPageForWrite` (lines
+  >   414-500 today): after the existing idempotency early-return
+  >   and the `isNew` allocation-floor guard, branch on
+  >   `readCache instanceof DirectMemoryOnlyDiskCache`:
+  >   - **In-memory branch:** call
+  >     `readCache.loadOrAdd(fileId, pageIndex, verifyChecksums)` —
+  >     the in-memory total primitive on `ReadCache` /
+  >     `DirectMemoryOnlyDiskCache` — which returns a `CachePointer`
+  >     with bumped readers-referrer. Acquire the per-page exclusive
+  >     lock via `lockManager.acquireExclusiveLock(new PageKey(...))`
+  >     (mirroring `LockFreeReadCache.loadOrAddForWrite`'s contract),
+  >     wrap in a real `CacheEntryImpl(fileId, pageIndex, pointer,
+  >     false, readCache)`, immediately release the exclusive lock
+  >     (the AOBT lifecycle mirrors the disk-engine
+  >     `loadPageForWrite` shape — the lock is released at install
+  >     time and the overlay's `CacheEntryChanges` buffer carries
+  >     all subsequent writes). Decrement the readers-referrer once
+  >     so the net referrer balance matches the disk-engine path
+  >     (per the Step 1 episode's BC1 fix rationale).
+  >   - **Disk branch (current behavior, unchanged):** construct
+  >     the stub-shape `CacheEntryImpl` with a null
+  >     `CachePointer`. `LockFreeReadCache.loadOrAddForWrite` at
+  >     commit time installs the real delegate.
+  > - Update the existing Javadoc (lines 379-409) so it reflects
+  >   the dual-engine contract: disk path stays stub-shape; in-memory
+  >   path eagerly installs in `MemoryFile`.
+  > - **Bookkeeping invariants (unchanged on both branches):**
+  >   `changesContainer.pageChangesMap.put(pageIndex, changes)` keyed
+  >   by the actual returned `pageIndex`, `maxNewPageIndex` bump,
+  >   `isNew=true`, and the assertion that
+  >   `pageChangesMap.get(pageIndex) == null` before the put.
+  > - **Tests:**
+  >   - Restore the `inMemoryFallbackBalancesReferrerOnEveryCall`
+  >     and `inMemoryEngineFallsBackToWriteCacheLoadOrAddOnNullReturn`
+  >     test shapes (deleted by `48a83793cb`) but rewrite them
+  >     against the new contract — verify `readCache.loadOrAdd` is
+  >     called exactly once per allocation, the
+  >     readers-referrer is balanced (net zero after the wrap +
+  >     decrement), and the returned `CacheEntry` carries a
+  >     non-null buffer on the in-memory branch.
+  >   - Add an integration test that creates a fresh in-memory
+  >     database (the path that NPE'd in the Step 5 attempt) and
+  >     commits a transaction with at least one new page —
+  >     `commitChanges` should find the page in `MemoryFile` via the
+  >     existing `loadOrAddForWrite` call (no null-branch needed
+  >     for this scenario after Step 5b).
+  >   - Run the full `./mvnw -pl core clean package -P coverage`
+  >     before commit to catch any other engine-branch regression.
+  > - Spotless apply on `core`.
+
+- [ ] Step 5b: Collapse replay-loop reconciliation + add WOWCache `assert false` (split from failed Step 5 above)
+  > **Risk:** high — crash-safety/durability (modifies WAL replay
+  > and commit paths; foundation of recovery semantics). Identical
+  > scope to the original failed Step 5; now safe to land because
+  > Step 5a guarantees `commitChanges`'s `loadOrAddForWrite` call
+  > finds the page on both engines.
+  >
+  > **Scope:**
+  > - `AtomicOperationBinaryTracking.commitChanges`: delete the
+  >   `if (cacheEntry == null) { do { allocateNewPage } while
+  >   (cacheEntry.getPageIndex() != pageIndex) }` block at lines
+  >   987-999. Remove the surrounding TODO comment at 980-986
+  >   (now provably wrong on both engines after Step 5a).
+  >   `pageChangesMap` iteration order is preserved (Long2ObjectMap
+  >   key-sorted iteration on actual pageIndex).
+  > - `AbstractStorage.restoreAtomicUnit`: collapse both reconciliation
+  >   loops — `UpdatePageRecord` branch at 5400-5408 and `PageOperation`
+  >   branch at 5479-5486 — to single `loadOrAddForWrite` calls.
+  > - `DiskStorage.restoreFromIncrementalBackup`: collapse the do/while
+  >   at 1826-1833 to a single `loadOrAddForWrite` call.
+  > - **Do NOT drop `internalFilledUpTo`** in this step — its
+  >   `addPage:355` caller is still alive until Step 7 removes
+  >   `AtomicOperationBinaryTracking.addPage`. The helper is dropped
+  >   in Step 7 alongside the `addPage` deletion.
+  > - Add `assert false : "loadFileContent returned null on load
+  >   branch — dispatch prelude invariant violated; pageIndex <
+  >   currentSize should always find a page on disk";` to the
+  >   defensive fallback in `WOWCache.loadOrAddLoadBranch` where
+  >   `loadFileContent` returns null. The existing Javadoc says
+  >   this path is dead code today; the assertion surfaces a
+  >   regression in `-ea` test runs without runtime cost in
+  >   production.
+  > - Tests: existing `RestoreAtomicUnitPageOperationTest`,
+  >   `LocalPaginatedStorageRestoreFromWALIT`,
+  >   `StorageBackupMTStateTest`. Add a gap-fill replay regression
+  >   test (a WAL record stream with an artificial gap exercising
+  >   the `recordedPageIdx > currentSize` case) if existing tests
+  >   don't cover that branch.
+  > - Run the full `./mvnw -pl core clean package -P coverage`
+  >   before commit (this is the build that surfaced the original
+  >   Step 5 failure; it must pass cleanly here).
+  > - Spotless apply on `core`.
 
 - [ ] Step 6: Add rationale-bearing inline comments at the 6 stay-on-physical sites
   > **Risk:** low — comments-only (Javadoc / inline comments
