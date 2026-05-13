@@ -393,7 +393,7 @@ the stay-on-physical sites).
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (8/8 complete; Step 5 [!] split into Step 5a + Step 5b per user decision — Option A; Step 5a [x] closed via dim-review iter-2 PASS; Step 5b [x] closed via dim-review iter-3 PASS, 13 deferred items folded into Track 6 + Track 2-style follow-ups; Step 6 [x] closed, comments-only; Step 7 [x] closed via dim-review iter-2 PASS, TB5/TC3 deferred as suggestions)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations)
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 3 (9 findings; 4 should-fix accepted as plan amendments — T1 test scope, T2 per-component recipe, T3 doAssertFreePages wording, T4 lock audit; 4 suggestions actioned or noted; 1 SKIP rejected — Track 4 required)
