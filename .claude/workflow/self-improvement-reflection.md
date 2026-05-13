@@ -156,9 +156,9 @@ Quick tests before recording:
 
 If either prong fails, drop the candidate. The friction may still be
 real, but the fix is project- or ADR-shaped, not workflow-shaped —
-or the context cost is not justified by the recurrence. Project-
-shaped findings can still be valuable; surface them to the user in
-the session's normal output, but do not file them under
+or the saved friction does not justify the context cost.
+Project-shaped findings can still be valuable; surface them to the
+user in the session's normal output, but do not file them under
 `dev-workflow`. When uncertain, prefer to drop: the workflow's
 signal-to-noise ratio matters more than completeness.
 
