@@ -510,4 +510,50 @@ public class VertexFromLinkBagIteratorTest {
     assertEquals(0L, metric.calls.get(0)[0]);
     assertEquals(1L, metric.calls.get(0)[1]);
   }
+
+  /**
+   * When {@code loadEntity} throws a runtime exception mid-iteration, a
+   * caller using try-with-resources still gets exactly one flush of the
+   * effectiveness metric — driven by {@code close()} — carrying the
+   * probed/filtered counts accumulated up to the exception. The metric
+   * must not be skipped or double-recorded.
+   */
+  @Test
+  public void testEffectivenessFlush_exceptionMidIteration_closeStillFlushesOnce() {
+    var passing = new RecordId(10, 1);
+    var poisoned = new RecordId(10, 2);
+    var unreached = new RecordId(10, 3);
+    mockLoadReturnsVertex(passing);
+    when(transaction.loadEntity(poisoned))
+        .thenThrow(new IllegalStateException("storage failure"));
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(passing);
+    acceptedRids.add(poisoned);
+    acceptedRids.add(unreached);
+    var metric = new RecordingRatio();
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(20, 1), passing),
+            RidPair.ofPair(new RecordId(20, 2), poisoned),
+            RidPair.ofPair(new RecordId(20, 3), unreached)).iterator(),
+        session, 3, null, acceptedRids, metric);
+
+    boolean caught = false;
+    try (iterator) {
+      iterator.next(); // consumes 'passing'
+      try {
+        iterator.next(); // throws on 'poisoned'
+      } catch (IllegalStateException expected) {
+        caught = true;
+      }
+    }
+
+    assertTrue("Exception must propagate to caller", caught);
+    assertEquals("close() must flush exactly once after a mid-iteration throw",
+        1, metric.calls.size());
+    assertEquals(0L, metric.calls.get(0)[0]);
+    assertEquals(2L, metric.calls.get(0)[1]);
+  }
 }

@@ -412,6 +412,60 @@ public class EdgeTraversalCacheTest {
     assertThat(composite.descriptors()).containsExactly(desc1, desc2);
   }
 
+  /**
+   * Adding a third descriptor must produce a flat Composite of three leaves,
+   * not a nested {@code Composite(Composite(A, B), C)}. A nested structure
+   * would hide leaves from helpers that only walk the top-level descriptor
+   * list (notably {@link RidFilterDescriptor.Composite#findIndexLookup}),
+   * silently degrading the build-amortization guard.
+   */
+  @Test
+  public void addIntersectionDescriptor_three_producesFlatComposite() {
+    var et = createEdgeTraversal();
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+    var desc3 = mock(EdgeRidLookup.class);
+    et.addIntersectionDescriptor(desc1);
+    et.addIntersectionDescriptor(desc2);
+    et.addIntersectionDescriptor(desc3);
+
+    assertThat(et.getIntersectionDescriptor())
+        .isInstanceOf(RidFilterDescriptor.Composite.class);
+    var composite = (RidFilterDescriptor.Composite) et.getIntersectionDescriptor();
+    assertThat(composite.descriptors())
+        .as("three adds must flatten into a single Composite")
+        .containsExactly(desc1, desc2, desc3);
+    for (var child : composite.descriptors()) {
+      assertThat(child)
+          .as("no child of the top-level Composite may itself be a Composite")
+          .isNotInstanceOf(RidFilterDescriptor.Composite.class);
+    }
+  }
+
+  /**
+   * When an IndexLookup is added after two EdgeRidLookups, the resulting
+   * Composite must still expose the IndexLookup leaf through
+   * {@link RidFilterDescriptor.Composite#findIndexLookup}. Regression for the
+   * blind spot where a {@code Composite(Composite(EdgeRid, EdgeRid),
+   * IndexLookup)} would mask the IndexLookup from the build-amortization
+   * guard.
+   */
+  @Test
+  public void addIntersectionDescriptor_indexLookupAfterTwoEdgeRid_findIndexLookupSucceeds() {
+    var et = createEdgeTraversal();
+    var edge1 = mock(EdgeRidLookup.class);
+    var edge2 = mock(EdgeRidLookup.class);
+    var indexLookup = mock(RidFilterDescriptor.IndexLookup.class);
+    et.addIntersectionDescriptor(edge1);
+    et.addIntersectionDescriptor(edge2);
+    et.addIntersectionDescriptor(indexLookup);
+
+    var composite = (RidFilterDescriptor.Composite) et.getIntersectionDescriptor();
+    assertThat(composite.findIndexLookup())
+        .as("IndexLookup must remain visible despite multiple prior adds")
+        .isSameAs(indexLookup);
+  }
+
   // =========================================================================
   // Composite — resolve, cacheKey, and estimatedSize
   // =========================================================================

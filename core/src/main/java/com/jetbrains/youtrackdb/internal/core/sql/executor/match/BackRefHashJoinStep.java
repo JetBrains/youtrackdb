@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +120,22 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    * resets for each plan instance.
    */
   private long accumulatedLinkBagTotal;
+
+  /**
+   * Back-ref RIDs that have already contributed their link-bag size to
+   * {@link #accumulatedLinkBagTotal}. Guards against double-counting when
+   * an entry is evicted from {@link #cache} (LRU capacity 256) and later
+   * re-enters via a cache miss — without this set, the same back-ref's
+   * link bag would be added to the accumulator a second time, firing the
+   * amortization guard slightly before the strict break-even point.
+   *
+   * <p>Allocated lazily on the first DEFER path. Nulled in {@link #close}
+   * to free memory between query executions, and once
+   * {@link #indexRidSetResolved} flips to {@code true} (the accumulator is
+   * no longer read after that point) further increments are gated out, so
+   * the set can stop growing.
+   */
+  @Nullable private HashSet<RID> backRefsContributedToAccumulator;
 
   /**
    * Cached class-level selectivity of {@code descriptor.chain().indexFilter()}.
@@ -608,7 +625,14 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
                 : (int) Math.min(estimatedHits, Integer.MAX_VALUE);
         // Accumulate the current back-ref's reverse-link-bag size before
         // the guard check — mirrors EdgeTraversal's accumulator semantics.
-        accumulatedLinkBagTotal += linkBag.size();
+        // Only count each back-ref once: an entry evicted from the LRU
+        // cache and later re-entering must not be added twice.
+        if (backRefsContributedToAccumulator == null) {
+          backRefsContributedToAccumulator = new HashSet<>();
+        }
+        if (backRefsContributedToAccumulator.add(backRefRid)) {
+          accumulatedLinkBagTotal += linkBag.size();
+        }
         var decision = EdgeTraversal.evaluateIndexLookupAmortization(
             estimatedSize, cachedIndexLookupSelectivity,
             accumulatedLinkBagTotal, cachedLoadToScanRatio);
@@ -620,6 +644,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
             indexLookupRejected = true;
             cachedIndexRidSet = null;
             indexRidSetResolved = true;
+            // Accumulator will no longer be read; release the dedup set.
+            backRefsContributedToAccumulator = null;
           }
           case DEFER -> {
             // Accumulator not yet over the break-even threshold. Leave
@@ -632,6 +658,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
             cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
                 chain.indexFilter(), ctx);
             indexRidSetResolved = true;
+            // Accumulator will no longer be read; release the dedup set.
+            backRefsContributedToAccumulator = null;
           }
         }
       }
@@ -791,6 +819,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     cachedIndexRidSet = null;
     indexRidSetResolved = false;
     accumulatedLinkBagTotal = 0L;
+    backRefsContributedToAccumulator = null;
     cachedIndexLookupSelectivity = Double.NaN;
     cachedLoadToScanRatio = Double.NaN;
     indexLookupRejected = false;

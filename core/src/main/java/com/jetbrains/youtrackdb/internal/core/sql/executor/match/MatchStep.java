@@ -240,6 +240,10 @@ public class MatchStep extends AbstractExecutionStep {
 
   private void appendSkipDiagnostic(
       StringBuilder result, PreFilterSkipReason reason) {
+    // Exhaustive over PreFilterSkipReason. Listing every constant — including
+    // those with no extra diagnostic — makes new additions fail-loud (compiler
+    // warning / IDE inspection) rather than silently producing a bare
+    // "(reason: NEW_REASON)" line in PROFILE output.
     switch (reason) {
       case CAP_EXCEEDED -> result.append(", cap=")
           .append(TraversalPreFilterHelper.maxRidSetSize());
@@ -247,7 +251,7 @@ public class MatchStep extends AbstractExecutionStep {
           .append(TraversalPreFilterHelper.indexLookupMaxSelectivity());
       case OVERLAP_RATIO_TOO_HIGH -> result.append(", threshold=")
           .append(TraversalPreFilterHelper.edgeLookupMaxRatio());
-      default -> {
+      case NONE, BUILD_NOT_AMORTIZED, LINKBAG_TOO_SMALL -> {
         /* no extra diagnostic */ }
     }
   }

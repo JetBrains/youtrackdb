@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHel
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -313,14 +314,30 @@ public class EdgeTraversal {
   /**
    * Adds a descriptor to this edge. If a descriptor is already set,
    * wraps both in a {@link RidFilterDescriptor.Composite} that intersects
-   * their results at the bitmap level.
+   * their results at the bitmap level. Composites are kept flat — if
+   * either side is already a Composite, its children are spliced in rather
+   * than nested, so {@link RidFilterDescriptor.Composite#findIndexLookup}
+   * and other child scans always see every leaf in one pass.
    */
   public void addIntersectionDescriptor(RidFilterDescriptor descriptor) {
     if (intersectionDescriptor == null) {
       intersectionDescriptor = descriptor;
+      return;
+    }
+    var flattened = new ArrayList<RidFilterDescriptor>();
+    appendFlattened(flattened, intersectionDescriptor);
+    appendFlattened(flattened, descriptor);
+    intersectionDescriptor = new RidFilterDescriptor.Composite(flattened);
+  }
+
+  private static void appendFlattened(
+      List<RidFilterDescriptor> out, RidFilterDescriptor desc) {
+    if (desc instanceof RidFilterDescriptor.Composite c) {
+      for (var child : c.descriptors()) {
+        appendFlattened(out, child);
+      }
     } else {
-      intersectionDescriptor = new RidFilterDescriptor.Composite(
-          List.of(intersectionDescriptor, descriptor));
+      out.add(desc);
     }
   }
 
@@ -654,6 +671,11 @@ public class EdgeTraversal {
     }
     if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
       cache.put(key, ridSet);
+      // Clear any previously stored skip reason: this key now resolves to
+      // a real RidSet, so cachedSkipReasons must not carry a stale entry.
+      if (cachedSkipReasons != null) {
+        cachedSkipReasons.remove(key);
+      }
     }
     return ridSet;
   }

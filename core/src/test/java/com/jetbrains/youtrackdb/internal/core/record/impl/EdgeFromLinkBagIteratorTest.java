@@ -773,4 +773,64 @@ public class EdgeFromLinkBagIteratorTest {
     assertTrue("Empty link bag must not produce a record(0,0) call",
         metric.calls.isEmpty());
   }
+
+  /**
+   * When {@code loadEntity} throws a runtime exception mid-iteration (e.g.
+   * the legacy-lightweight-edge {@code IllegalStateException} at
+   * {@code EdgeFromLinkBagIterator:194-198}), a caller using
+   * try-with-resources still gets exactly one flush of the effectiveness
+   * metric — driven by {@code close()} — carrying the probed/filtered
+   * counts accumulated up to the exception. The metric must not be
+   * skipped or double-recorded.
+   */
+  @Test
+  public void testEffectivenessFlush_exceptionMidIteration_closeStillFlushesOnce() {
+    var passing = new RecordId(20, 1);
+    var poisoned = new RecordId(20, 2);
+    var unreached = new RecordId(20, 3);
+
+    var p1 = RidPair.ofPair(passing, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(poisoned, new RecordId(10, 2));
+    var p3 = RidPair.ofPair(unreached, new RecordId(10, 3));
+
+    mockLoadReturnsEdge(passing);
+    // The poisoned RID's load throws IllegalStateException, mirroring the
+    // legacy-lightweight-edge path inside loadEdge().
+    when(transaction.loadEntity(poisoned))
+        .thenThrow(new IllegalStateException("legacy lightweight edge"));
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(passing);
+    acceptedRids.add(poisoned);
+    acceptedRids.add(unreached);
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2, p3).iterator(), session, 3,
+        null, acceptedRids, metric);
+
+    // Drain via try-with-resources; the second hasNext() triggers the throw.
+    boolean caught = false;
+    try (iterator) {
+      iterator.next(); // consumes 'passing' (probed=1, filtered=0)
+      try {
+        iterator.next(); // attempts 'poisoned' → throws
+        fail("Expected IllegalStateException to propagate");
+      } catch (IllegalStateException expected) {
+        caught = true;
+      }
+    }
+
+    assertTrue("Exception must propagate to caller", caught);
+    assertEquals("close() must flush exactly once after a mid-iteration throw",
+        1, metric.calls.size());
+    // probed counts entries that reached the acceptedRids check: 'passing'
+    // succeeded, 'poisoned' was probed then threw inside loadEntity (still
+    // counted because the probe increments before storage I/O), 'unreached'
+    // is never visited.
+    assertEquals("filtered=0: every probed RID was in the accepted set",
+        0L, metric.calls.get(0)[0]);
+    assertEquals("probed=2: passing succeeded, poisoned counted before throw",
+        2L, metric.calls.get(0)[1]);
+  }
 }
