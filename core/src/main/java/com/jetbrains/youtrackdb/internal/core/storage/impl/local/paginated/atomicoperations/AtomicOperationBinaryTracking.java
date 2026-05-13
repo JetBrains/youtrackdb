@@ -340,40 +340,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return Collections.unmodifiableMap(metadata);
   }
 
-  @Override
-  public CacheEntry addPage(long fileId) {
-    checkIfActive();
-
-    fileId = checkFileIdCompatibility(fileId, storageId);
-
-    if (deletedFiles.contains(fileId)) {
-      throw new StorageException(writeCache.getStorageName(),
-          "File with id " + fileId + " is deleted.");
-    }
-
-    final var changesContainer =
-        fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
-
-    final var filledUpTo = internalFilledUpTo(fileId, changesContainer);
-
-    var pageChangesContainer = changesContainer.pageChangesMap.get(filledUpTo);
-    assert pageChangesContainer == null;
-
-    pageChangesContainer = new CacheEntryChanges(false, this);
-    pageChangesContainer.isNew = true;
-
-    changesContainer.pageChangesMap.put(filledUpTo, pageChangesContainer);
-    changesContainer.maxNewPageIndex = filledUpTo;
-    pageChangesContainer.delegate =
-        new CacheEntryImpl(
-            fileId,
-            (int) filledUpTo,
-            new CachePointer((Pointer) null, null, fileId, (int) filledUpTo),
-            false,
-            readCache);
-    return pageChangesContainer;
-  }
-
   /**
    * Allocation-only write-side primitive. <b>Despite the historical name, this method does
    * NOT load existing pages on the disk engine</b> — callers targeting a {@code pageIndex}
@@ -780,11 +746,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       throw new StorageException(writeCache.getStorageName(),
           "File with id " + fileId + " is deleted.");
     }
-    final var changesContainer = fileChanges.get(fileId);
-    return internalFilledUpTo(fileId, changesContainer);
-  }
-
-  private long internalFilledUpTo(final long fileId, FileChanges changesContainer) {
+    // Three-arm logic preserved verbatim from the prior private helper: a missing
+    // entry registers an empty FileChanges placeholder and falls through to the
+    // committed-file branch; a new or page-overlay-bearing entry returns the
+    // logical extent (maxNewPageIndex + 1); a truncate-flagged entry returns 0;
+    // otherwise the physical extent from the write cache is the answer.
+    var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
       changesContainer = new FileChanges();
       fileChanges.put(fileId, changesContainer);

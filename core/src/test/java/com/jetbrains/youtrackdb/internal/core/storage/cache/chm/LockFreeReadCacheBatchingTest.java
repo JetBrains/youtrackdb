@@ -2442,11 +2442,6 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public int allocateNewPage(final long fileId) {
-      return 0;
-    }
-
-    @Override
     public CachePointer load(
         final long fileId,
         final long startPageIndex,

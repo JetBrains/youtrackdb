@@ -1380,47 +1380,6 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   /**
-   * @deprecated Use {@link #loadOrAdd(long, long, boolean)} instead. This method is the legacy
-   *     disk-engine allocator that pre-publishes the new {@code pageIndex} before the
-   *     {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer} is installed,
-   *     creating the race documented in the read-cache concurrency fix design. Final deletion
-   *     lands in the write-side API collapse.
-   */
-  @Deprecated
-  @Override
-  public int allocateNewPage(final long fileId) throws IOException {
-    int pageIndex;
-    filesLock.acquireReadLock();
-    try {
-      checkForClose();
-
-      final var entry = files.acquire(fileId);
-      try {
-        final var fileClassic = entry.get();
-        final var allocatedPosition = fileClassic.allocateSpace(pageSize);
-        final var allocationIndex = allocatedPosition / pageSize;
-
-        pageIndex = (int) allocationIndex;
-        if (pageIndex < 0) {
-          throw new IllegalStateException("Illegal page index value " + pageIndex);
-        }
-
-      } finally {
-        files.release(entry);
-      }
-    } catch (final java.lang.InterruptedException e) {
-      throw BaseException.wrapException(
-          new StorageException(storageName, "Allocation of page was interrupted"), e, storageName);
-    } finally {
-      filesLock.releaseReadLock();
-    }
-    commitExecutor().submit(
-        new EnsurePageIsValidInFileTask(internalFileId(fileId), pageIndex, this));
-
-    return pageIndex;
-  }
-
-  /**
    * Total page-access primitive: returns a usable {@link CachePointer} for the given
    * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
    *

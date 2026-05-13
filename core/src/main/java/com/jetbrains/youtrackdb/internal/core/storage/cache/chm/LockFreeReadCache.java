@@ -155,11 +155,11 @@ public final class LockFreeReadCache implements ReadCache {
     final var cacheEntry =
         doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ true);
 
-    // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
-    // doLoad now delegates to WriteCache#loadOrAdd, which is total — the returned
-    // CacheEntry is never null on the rewired path. The guard is kept here as a
-    // defensive belt during the migration window and removed alongside the
-    // addPage/allocateNewPage write-side API.
+    // Defensive guard: doLoad delegates to the total WriteCache#loadOrAdd primitive,
+    // so the returned CacheEntry should never be null on this engine. The null check
+    // is retained as a belt-and-braces measure against future divergence in doLoad's
+    // miss-handling branches; if the contract ever weakens, callers still see a clean
+    // null instead of an NPE on the lock acquisition below.
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
       writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
@@ -479,27 +479,6 @@ public final class LockFreeReadCache implements ReadCache {
     // This can lead to the data loss after restore and corruption of data structures
     cacheEntry.releaseExclusiveLock();
     cacheEntry.releaseEntry();
-  }
-
-  /**
-   * @deprecated Use {@link #loadOrAddForWrite(long, long, WriteCache, boolean, LogSequenceNumber)}
-   *     instead. This method calls the legacy {@link WriteCache#allocateNewPage} which exposes the
-   *     new page index before the cache entry is installed, creating the race documented in the
-   *     read-cache concurrency fix design. Final deletion lands in the write-side API collapse.
-   */
-  @Deprecated
-  @Override
-  public CacheEntry allocateNewPage(
-      long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN)
-      throws IOException {
-    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var newPageIndex = writeCache.allocateNewPage(fileId);
-    final var cacheEntry = addNewPagePointerToTheCache(fileId, newPageIndex);
-
-    cacheEntry.acquireExclusiveLock();
-    cacheEntry.markAllocated();
-    writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
-    return cacheEntry;
   }
 
   private void afterRead(final CacheEntry entry) {

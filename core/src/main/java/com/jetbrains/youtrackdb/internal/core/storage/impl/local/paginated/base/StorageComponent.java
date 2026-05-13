@@ -166,12 +166,6 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     return atomicOperation.loadPageForRead(fileId, pageIndex);
   }
 
-  protected CacheEntry addPage(@Nonnull final AtomicOperation atomicOperation, final long fileId)
-      throws IOException {
-    assert atomicOperation != null;
-    return atomicOperation.addPage(fileId);
-  }
-
   protected void releasePageFromWrite(
       @Nonnull final AtomicOperation atomicOperation, final CacheEntry cacheEntry)
       throws IOException {

@@ -247,9 +247,9 @@ public class RestoreAtomicUnitPageOperationTest {
   /**
    * Pins the no-reconciliation single-call contract on the {@code PageOperation} branch
    * of {@code restoreAtomicUnit}: each PageOperation triggers exactly one
-   * {@code readCache.loadOrAddForWrite} call at the recorded pageIndex and never falls
-   * back to {@code allocateNewPage}. The prior implementation wrapped the call in a
-   * {@code do/while} that re-allocated until the cache returned the requested index;
+   * {@code readCache.loadOrAddForWrite} call at the recorded pageIndex. The prior
+   * implementation wrapped the call in a {@code do/while} that re-allocated via a
+   * since-deleted legacy allocator until the cache returned the requested index;
    * after the collapse, totality is supplied by {@code WriteCache.loadOrAdd}
    * (gap-fills intermediate pages on the disk engine) so the reconciliation loop is
    * provably unreachable. End-to-end gap-fill mechanics are not exercised here because
@@ -286,12 +286,11 @@ public class RestoreAtomicUnitPageOperationTest {
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
     // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
-    // loop, no allocateNewPage retries. These are the only assertions unique to this
-    // test; the other PageOperation-branch contracts are already pinned by
-    // testPageOperationRedoAppliedAndLsnUpdated.
+    // loop, no retry through the since-deleted legacy allocator. These are the only
+    // assertions unique to this test; the other PageOperation-branch contracts are
+    // already pinned by testPageOperationRedoAppliedAndLsnUpdated.
     verify(readCache, times(1)).loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any());
-    verify(readCache, never()).allocateNewPage(anyLong(), any(), any());
 
     assertTrue(atLeastOnePageUpdate.getValue());
   }
@@ -299,9 +298,9 @@ public class RestoreAtomicUnitPageOperationTest {
   /**
    * Pins the no-reconciliation single-call contract on the {@code UpdatePageRecord}
    * branch of {@code restoreAtomicUnit}: each UpdatePageRecord triggers exactly one
-   * {@code readCache.loadOrAddForWrite} call at the recorded pageIndex and never falls
-   * back to {@code allocateNewPage}. Mirrors the PageOperation-branch contract pinned
-   * by {@link #testPageOperationGapFillReplaySingleLoadCall()}; covers the sibling
+   * {@code readCache.loadOrAddForWrite} call at the recorded pageIndex. Mirrors the
+   * PageOperation-branch contract pinned by
+   * {@link #testPageOperationGapFillReplaySingleLoadCall()}; covers the sibling
    * branch that the prior collapse touched. End-to-end gap-fill mechanics are not
    * exercised here because {@code readCache} is mocked.
    */
@@ -334,10 +333,9 @@ public class RestoreAtomicUnitPageOperationTest {
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
     // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
-    // loop, no allocateNewPage retries.
+    // loop, no retry through the since-deleted legacy allocator.
     verify(readCache, times(1)).loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq((long) gapPageIndex), eq(writeCache), eq(true), any());
-    verify(readCache, never()).allocateNewPage(anyLong(), any(), any());
 
     assertTrue(atLeastOnePageUpdate.getValue());
   }

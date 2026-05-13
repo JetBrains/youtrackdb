@@ -41,9 +41,9 @@ import org.junit.Test;
  * {@link AtomicOperationBinaryTracking}: allocator contract, bookkeeping, idempotency,
  * and the dual-engine delegate shape.
  *
- * <p>The method is the write-side allocator that replaces today's {@code addPage(long)} —
- * callers state the target {@code pageIndex} up front (typically derived from
- * {@code entryPoint.pagesSize + 1}) instead of letting the cache pick the index. On the
+ * <p>The method is the write-side allocator: callers state the target {@code pageIndex}
+ * up front (typically derived from {@code entryPoint.pagesSize + 1}) instead of letting
+ * the cache pick the index. On the
  * disk engine it is strictly allocator-only: targeting a {@code pageIndex} below the
  * committed file size raises {@link IllegalStateException}; use
  * {@link AtomicOperation#loadPageForWrite} to mutate an existing page. The in-memory
@@ -427,8 +427,8 @@ public class LoadOrAddPageForWriteTest {
     assertThat(entry.getDelegate().getCachePointer()).isSameAs(pointer);
     // isNew=true because pageIndex (10) >= committedFilledUpTo (10).
     assertThat(entry.isNew).isTrue();
-    // The eager install fired exactly once with verifyChecksums=false (the legacy
-    // addPage shape; DirectMemoryOnlyDiskCache ignores the flag anyway).
+    // The eager install fired exactly once with verifyChecksums=false (mirrors the
+    // historical legacy-allocator shape; DirectMemoryOnlyDiskCache ignores the flag anyway).
     verify(inMemoryCache, times(1)).loadOrAdd(fileId, pageIndex, false);
     // The readers-referrer bump that MemoryFile.loadOrAddPage performed for the
     // caller is balanced by exactly one decrement so the in-cache referrer stays
@@ -780,7 +780,7 @@ public class LoadOrAddPageForWriteTest {
   /**
    * Calling {@code loadOrAddPageForWrite} on a file that this operation has marked
    * for deletion must raise {@link StorageException} — same contract as
-   * {@code addPage}, {@code loadPageForWrite}, and {@code loadPageForRead}.
+   * {@code loadPageForWrite} and {@code loadPageForRead}.
    */
   @Test
   public void deletedFileRaisesStorageException() throws IOException {

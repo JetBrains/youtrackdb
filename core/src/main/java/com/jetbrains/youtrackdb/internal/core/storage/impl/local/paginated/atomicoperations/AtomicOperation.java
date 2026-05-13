@@ -101,8 +101,6 @@ public interface AtomicOperation {
    */
   CacheEntry loadOrAddPageForWrite(long fileId, long pageIndex) throws IOException;
 
-  CacheEntry addPage(long fileId) throws IOException;
-
   void releasePageFromRead(CacheEntry cacheEntry);
 
   void releasePageFromWrite(CacheEntry cacheEntry) throws IOException;

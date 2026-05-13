@@ -123,21 +123,13 @@ public interface WriteCache {
   void checkCacheOverflow() throws InterruptedException;
 
   /**
-   * @deprecated Use {@link #loadOrAdd(long, long, boolean)} instead. This method is the legacy
-   *     allocator that exposes the new {@code pageIndex} before the cache entry is installed,
-   *     creating the race documented in the read-cache concurrency fix design. Final deletion
-   *     is deferred until the write-side API collapse that migrates all replay-loop callers
-   *     to {@link ReadCache#loadOrAddForWrite}.
-   */
-  @Deprecated
-  int allocateNewPage(final long fileId) throws IOException;
-
-  /**
    * @deprecated Use {@link #loadIfPresent(long, long, boolean)} for silent (non-extending) reads
    *     or {@link #loadOrAdd(long, long, boolean)} for allocating reads. This method carries the
    *     {@code cacheHit} out-parameter that the new primitives drop; it has no remaining
-   *     production callers as of the read-cache concurrency fix and will be deleted alongside
-   *     {@link #allocateNewPage} in the write-side API collapse.
+   *     production callers as of the read-cache concurrency fix. The legacy allocator that
+   *     pre-published the new {@code pageIndex} before the cache entry was installed has been
+   *     deleted; this overload is the only remaining legacy read primitive and will be deleted
+   *     alongside the read-side API consolidation.
    */
   @Deprecated
   CachePointer load(

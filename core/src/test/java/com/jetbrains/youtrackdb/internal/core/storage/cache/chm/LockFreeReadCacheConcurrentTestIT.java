@@ -344,11 +344,6 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
-    public int allocateNewPage(final long fileId) {
-      return 0;
-    }
-
-    @Override
     public void flush(final long fileId) {
     }
 

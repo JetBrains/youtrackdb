@@ -372,12 +372,6 @@ public class CollectionDirtyPageBitSetTest {
 
     when(op.filledUpTo(FILE_ID)).thenAnswer(inv -> (long) pageCount);
 
-    when(op.addPage(FILE_ID)).thenAnswer(inv -> {
-      var entry = getOrCreatePage(pageCount);
-      pageCount++;
-      return entry;
-    });
-
     // Production callers pass a statically-known fresh pageIndex: 0 from create()
     // on a brand-new file and the sequence filledUpTo, filledUpTo+1, ... from
     // ensureCapacity's growth loop (each iteration is strictly past the physical

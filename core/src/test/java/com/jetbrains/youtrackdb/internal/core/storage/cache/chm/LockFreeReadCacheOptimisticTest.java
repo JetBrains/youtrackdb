@@ -335,11 +335,6 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public int allocateNewPage(long fileId) {
-      return 0;
-    }
-
-    @Override
     public void flush(long fileId) {
     }
 

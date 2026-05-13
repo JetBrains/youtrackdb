@@ -260,33 +260,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
-  @Override
-  public CacheEntry allocateNewPage(
-      final long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN) {
-    final var intId = extractFileId(fileId);
-
-    final var memoryFile = getFile(intId);
-    final var cacheEntry = memoryFile.addNewPage(this);
-
-    synchronized (cacheEntry) {
-      cacheEntry.incrementUsages();
-    }
-    cacheEntry.acquireExclusiveLock();
-    return cacheEntry;
-  }
-
-  /**
-   * @deprecated Use {@link #loadOrAdd(long, long, boolean)} instead. The in-memory engine never
-   *     had a working implementation (this always throws {@link UnsupportedOperationException});
-   *     callers should migrate to {@link #loadOrAdd} which is total on this engine. Final
-   *     deletion lands in the write-side API collapse.
-   */
-  @Deprecated
-  @Override
-  public int allocateNewPage(final long fileId) {
-    throw new UnsupportedOperationException();
-  }
-
   /**
    * In-memory parallel of the disk engine's {@code WOWCache.loadOrAdd}: a total page-access
    * primitive that returns a usable {@link CachePointer} for the given

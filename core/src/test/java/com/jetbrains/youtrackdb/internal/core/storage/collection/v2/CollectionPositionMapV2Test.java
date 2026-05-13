@@ -252,7 +252,7 @@ public class CollectionPositionMapV2Test {
     makePage(pageCount);
     pageCount++;
 
-    // Next allocation should reuse the pre-existing page rather than calling addPage.
+    // Next allocation should reuse the pre-existing page rather than allocating a new one.
     var overflowPos = positionMap.allocate(atomicOperation);
     assertThat(overflowPos).isEqualTo((long) maxEntries);
   }
@@ -1200,12 +1200,6 @@ public class CollectionPositionMapV2Test {
     when(op.loadFile(anyString())).thenReturn(FILE_ID);
 
     when(op.filledUpTo(FILE_ID)).thenAnswer(inv -> (long) pageCount);
-
-    when(op.addPage(FILE_ID)).thenAnswer(inv -> {
-      var entry = getOrCreatePage(pageCount);
-      pageCount++;
-      return entry;
-    });
 
     // Production callers pass a statically-known fresh pageIndex: 0 from
     // CollectionPositionMapV2.create on a brand-new file, and lastPage + 1 from

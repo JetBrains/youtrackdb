@@ -329,6 +329,25 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
+    public CachePointer loadIfPresent(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      // Mirror load() semantics: NULL_PAGE_INDEX surfaces null; all other indices return
+      // a fresh CachePointer. The TrackingWriteCache fixture does not need a separate
+      // present-vs-absent state for file-lifecycle assertions.
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
+    @Override
+    public CachePointer loadOrAdd(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      // Total read-or-allocate primitive: this fixture has no on-disk state distinction,
+      // so loadOrAdd reuses load() and always returns a fresh CachePointer for non-sentinel
+      // page indices. The file-lifecycle tests in this class do not exercise the
+      // miss-vs-hit asymmetry that loadOrAdd targets in production.
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
+    @Override
     public void truncateFile(final long fileId) {
       truncateCount.incrementAndGet();
     }
@@ -420,11 +439,6 @@ public class LockFreeReadCacheFileOpsTest {
 
     @Override
     public void checkCacheOverflow() {
-    }
-
-    @Override
-    public int allocateNewPage(final long fileId) {
-      return 0;
     }
 
     @Override

@@ -320,61 +320,65 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that {@code allocateNewPage()} returns a writable cache entry with an exclusive lock
-   * held, and that the page can be released via {@code releaseFromWrite()}.
+   * Verifies that the total {@code loadOrAdd()} primitive installs a fresh page in
+   * {@link MemoryFile} and returns a non-null {@link CachePointer} that the caller can
+   * release via {@code decrementReadersReferrer()}. This is the in-memory engine's
+   * allocator path on the new write-side API.
    */
   @Test
-  public void testAllocateNewPageAndRelease() {
+  public void testLoadOrAddInstallsAndReleases() {
     var fileId = cache.addFile("pages.cf");
-    var entry = cache.allocateNewPage(fileId, cache, null);
+    var pointer = cache.loadOrAdd(fileId, 0, false);
 
-    assertNotNull("allocateNewPage must return a non-null entry", entry);
-    // The entry holds an exclusive lock; release it.
-    cache.releaseFromWrite(entry, cache, false);
+    assertNotNull("loadOrAdd must return a non-null pointer", pointer);
+    // loadOrAdd bumps readers-referrer exactly once before publication; balance it.
+    pointer.decrementReadersReferrer();
   }
 
   /**
    * Verifies that {@code getFilledUpTo()} returns 0 for a file with no pages and increments
-   * after each page allocation.
+   * after each page is installed via {@code loadOrAdd()}.
    */
   @Test
   public void testGetFilledUpTo() {
     var fileId = cache.addFile("filled.cf");
     assertEquals(0L, cache.getFilledUpTo(fileId));
 
-    var entry1 = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(entry1, cache, false);
+    var pointer1 = cache.loadOrAdd(fileId, 0, false);
+    pointer1.decrementReadersReferrer();
     assertEquals(1L, cache.getFilledUpTo(fileId));
 
-    var entry2 = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(entry2, cache, false);
+    var pointer2 = cache.loadOrAdd(fileId, 1, false);
+    pointer2.decrementReadersReferrer();
     assertEquals(2L, cache.getFilledUpTo(fileId));
   }
 
   /**
-   * Verifies that {@code loadForWrite()} returns {@code null} when the page has not been
-   * allocated, and returns the page entry after it is allocated.
+   * Verifies that {@code loadOrAddForWrite()} returns {@code null} when the page has not been
+   * installed (the in-memory engine's deliberate read-cache divergence: read-cache wrappers
+   * keep null-on-miss semantics while the {@code loadOrAdd} write-cache primitive is total),
+   * and returns the page entry with the exclusive lock after the page is installed.
    */
   @Test
-  public void testLoadForWriteMissAndHit() {
+  public void testLoadOrAddForWriteMissAndHit() {
     var fileId = cache.addFile("rw.cf");
 
-    // Miss — page 0 not yet allocated.
-    assertNull(cache.loadForWrite(fileId, 0, cache, false, null));
+    // Miss — page 0 not yet installed. loadOrAddForWrite is null-on-miss on this engine.
+    assertNull(cache.loadOrAddForWrite(fileId, 0, cache, false, null));
 
-    // Allocate the page.
-    var allocated = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(allocated, cache, false);
+    // Install the page via the total write-side primitive.
+    var allocated = cache.loadOrAdd(fileId, 0, false);
+    allocated.decrementReadersReferrer();
 
-    // Hit — page 0 now exists and loadForWrite must return it with the exclusive lock.
-    var loaded = cache.loadForWrite(fileId, 0, cache, false, null);
-    assertNotNull("loadForWrite must find the allocated page", loaded);
+    // Hit — page 0 now exists and loadOrAddForWrite must return it with the exclusive lock.
+    var loaded = cache.loadOrAddForWrite(fileId, 0, cache, false, null);
+    assertNotNull("loadOrAddForWrite must find the installed page", loaded);
     cache.releaseFromWrite(loaded, cache, false);
   }
 
   /**
    * Verifies that {@code loadForRead()} returns {@code null} when the page has not been
-   * allocated, and returns the entry (without exclusive lock) after allocation.
+   * installed, and returns the entry (without exclusive lock) after installation.
    */
   @Test
   public void testLoadForReadMissAndHit() {
@@ -382,17 +386,17 @@ public class DirectMemoryOnlyDiskCacheTest {
 
     assertNull(cache.loadForRead(fileId, 0, cache, false));
 
-    var allocated = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(allocated, cache, false);
+    var allocated = cache.loadOrAdd(fileId, 0, false);
+    allocated.decrementReadersReferrer();
 
     var loaded = cache.loadForRead(fileId, 0, cache, false);
-    assertNotNull("loadForRead must find the allocated page", loaded);
+    assertNotNull("loadForRead must find the installed page", loaded);
     cache.releaseFromRead(loaded);
   }
 
   /**
    * Verifies that {@code silentLoadForRead()} behaves identically to {@code loadForRead()} —
-   * returns {@code null} on a miss and the entry on a hit.
+   * returns {@code null} on a miss and the entry on a hit after page installation.
    */
   @Test
   public void testSilentLoadForRead() {
@@ -400,8 +404,8 @@ public class DirectMemoryOnlyDiskCacheTest {
 
     assertNull(cache.silentLoadForRead(fileId, 0, cache, false));
 
-    var allocated = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(allocated, cache, false);
+    var allocated = cache.loadOrAdd(fileId, 0, false);
+    allocated.decrementReadersReferrer();
 
     var loaded = cache.silentLoadForRead(fileId, 0, cache, false);
     assertNotNull(loaded);
@@ -446,8 +450,8 @@ public class DirectMemoryOnlyDiskCacheTest {
   @Test
   public void testTruncateFile() {
     var fileId = cache.addFile("trunc.cf");
-    var entry = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(entry, cache, false);
+    var pointer = cache.loadOrAdd(fileId, 0, false);
+    pointer.decrementReadersReferrer();
     assertEquals(1L, cache.getFilledUpTo(fileId));
 
     cache.truncateFile(fileId);
@@ -461,8 +465,8 @@ public class DirectMemoryOnlyDiskCacheTest {
   @Test
   public void testTruncateFileWithWriteCache() {
     var fileId = cache.addFile("trunc2.cf");
-    var entry = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(entry, cache, false);
+    var pointer = cache.loadOrAdd(fileId, 0, false);
+    pointer.decrementReadersReferrer();
 
     cache.truncateFile(fileId, cache);
     assertEquals(0L, cache.getFilledUpTo(fileId));
@@ -571,16 +575,17 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that {@code getUsedMemory()} returns 0 when no pages have been allocated, and
-   * that it grows by exactly {@code pageSize} after each page allocation.
+   * Verifies that {@code getUsedMemory()} returns 0 when no pages have been installed, and
+   * that it grows by exactly {@code pageSize} after each page installation via the total
+   * {@code loadOrAdd()} primitive.
    */
   @Test
   public void testGetUsedMemory() {
     var fileId = cache.addFile("mem.cf");
     assertEquals(0L, cache.getUsedMemory());
 
-    var entry = cache.allocateNewPage(fileId, cache, null);
-    cache.releaseFromWrite(entry, cache, false);
+    var pointer = cache.loadOrAdd(fileId, 0, false);
+    pointer.decrementReadersReferrer();
     assertEquals((long) PAGE_SIZE, cache.getUsedMemory());
   }
 
@@ -622,16 +627,6 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
   // Unsupported-operation stubs
   // ---------------------------------------------------------------------------
-
-  /**
-   * Verifies that {@code allocateNewPage(fileId)} (the WAL-less overload) throws
-   * {@link UnsupportedOperationException}.
-   */
-  @Test(expected = UnsupportedOperationException.class)
-  public void testAllocateNewPageByFileIdThrows() {
-    var fileId = cache.addFile("uoe.cf");
-    cache.allocateNewPage(fileId);
-  }
 
   /**
    * Verifies that {@code replaceFileId()} throws {@link UnsupportedOperationException}.
