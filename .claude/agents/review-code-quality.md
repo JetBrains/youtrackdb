@@ -1,6 +1,6 @@
 ---
 name: review-code-quality
-description: "Reviews code changes for code quality, conventions, readability, DRY violations, error handling, test coverage, and YouTrackDB-specific coding standards. Launched by the /code-review command — not intended for direct use."
+description: "Reviews code changes for code quality, conventions, readability, DRY violations, error handling, test coverage, and YouTrackDB-specific coding standards. Dispatched by /code-review."
 model: opus
 ---
 
@@ -51,7 +51,7 @@ Review the provided code changes **only for code quality and conventions**. Do n
 ## Input
 
 You will receive:
-- A diff of the changes to review
+- A path to a temp file containing the full diff (read it with the `Read` tool; for diffs > 2000 lines, page through with the `offset`/`limit` parameters)
 - The list of changed files
 - The commit log for the changes
 - Optionally, a PR description providing motivation and context
@@ -125,6 +125,9 @@ You will receive:
 
 #### Minor
 [Nice-to-haves — style nits, minor naming suggestions, optional refactors]
+
+### Reviewer notes
+[Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
 For each finding, include:

@@ -363,6 +363,26 @@ finding ID prefixes, and gate format.
       Baseline agents (4) always run; conditional agents are added
       based on the step description and changed files.
 
+      Before composing prompts, **pre-stage the step diff and the
+      changed-files list** so the canonical context block references
+      paths instead of inlining content. Staging the diff matches the
+      agents' `## Input` contract (each spec says "a path to a temp
+      file containing the full diff", read via the `Read` tool);
+      staging the changed-files list is an orchestrator-context
+      optimisation that keeps the file list out of the tool-call
+      history across the multi-agent fan-out:
+
+      ```bash
+      git diff {commit}~1..{commit} \
+          > /tmp/claude-code-step-{N}-{M}-diff-$PPID.patch
+      git diff {commit}~1..{commit} --name-only \
+          > /tmp/claude-code-step-{N}-{M}-files-$PPID.txt
+      ```
+
+      Regenerate both files before every gate-check fan-out — each
+      `Review fix:` respawn produces a new commit, so `{commit}`
+      advances and the previously staged files go stale.
+
       Each agent receives the same context. The diff target is the
       implementer's commit (`{result.COMMIT}~1..{result.COMMIT}`),
       not uncommitted changes:
@@ -424,19 +444,28 @@ finding ID prefixes, and gate format.
       fall back to grep and note the reference-accuracy caveat in
       any finding that depends on a symbol search.
 
+      ## Changed Files
+      The changed-files list is at:
+        /tmp/claude-code-step-{N}-{M}-files-{PPID}.txt
+      Read it with the `Read` tool.
+
       ## Diff
-      {the step's diff at commit range {commit}~1..{commit} — passed
-      inline since it is the review target}
+      The step's diff (commit range {commit}~1..{commit}) is at:
+        /tmp/claude-code-step-{N}-{M}-diff-{PPID}.patch
+      Read it with the `Read` tool before forming findings. For
+      diffs over 2000 lines, page through with the `offset` and
+      `limit` parameters.
       ```
 
       **Why paths, not inline contents.** Inlining `{contents}` for
-      each of the plan and track file places a copy of those files
+      the plan, track file, diff, or changed-files list places a copy
       in the orchestrator's tool-call history for every sub-agent
       spawn. Across a Phase B session this dominates orchestrator
       context. Paths keep the orchestrator lean; sub-agents Read the
       files themselves so the contents land only in sub-agent
-      context. The diff is the one exception — it is the review
-      target, small, and step-specific, so it is passed inline.
+      context. Routing the diff via a path also matches the agents'
+      `## Input` spec uniformly across step-level and track-level
+      reviews and across the `/code-review` standalone entry point.
 
       The orchestrator substitutes `{PPID}`, `{dir-name}`, `{N}`,
       `{M}`, and `{commit}` with concrete values when composing each
@@ -487,6 +516,17 @@ finding ID prefixes, and gate format.
       iterations** reached.
    e. If max iterations reached, note remaining findings in the
       `EPISODE_DRAFT` so they appear in the step episode.
+   f. **Remove the staged temp files** for this step so they don't
+      accumulate as the orchestrator advances to later steps:
+
+      ```bash
+      rm -f /tmp/claude-code-step-{N}-{M}-diff-$PPID.patch \
+            /tmp/claude-code-step-{N}-{M}-files-$PPID.txt
+      ```
+
+      Skip this on a non-`SUCCESS` exit from the dim-review loop —
+      the post-commit handler rolls back and the files are already
+      orphaned by the next step's regeneration.
 
 **Sub-step 5 — Cross-track impact check.** Quick self-assessment
 against the plan, fed by `result.CROSS_TRACK_HINTS`. See §Cross-Track

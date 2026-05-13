@@ -1,6 +1,6 @@
 ---
 name: review-security
-description: "Reviews code changes for security vulnerabilities including injection attacks, sensitive data exposure, insecure deserialization, input validation gaps, and dependency risks. Launched by the /code-review command — not intended for direct use."
+description: "Reviews code changes for security vulnerabilities including injection attacks, sensitive data exposure, insecure deserialization, input validation gaps, and dependency risks. Dispatched by /code-review."
 model: opus
 ---
 
@@ -54,7 +54,7 @@ Review the provided code changes **only for security implications**. Do not revi
 ## Input
 
 You will receive:
-- A diff of the changes to review
+- A path to a temp file containing the full diff (read it with the `Read` tool; for diffs > 2000 lines, page through with the `offset`/`limit` parameters)
 - The list of changed files
 - The commit log for the changes
 - Optionally, a PR description providing motivation and context
@@ -221,6 +221,9 @@ sensitive data.
 #### Low
 [Defense-in-depth suggestions, hardening recommendations]
 - **Risk Level**: Low
+
+### Reviewer notes
+[Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
 For each finding, include:

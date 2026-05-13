@@ -1,6 +1,6 @@
 ---
 name: review-bugs-concurrency
-description: "Reviews code changes for potential bugs, logic errors, concurrency issues (race conditions, deadlocks, unsafe publication), resource leaks, and null safety. Launched by the /code-review command — not intended for direct use."
+description: "Reviews code changes for potential bugs, logic errors, concurrency issues (race conditions, deadlocks, unsafe publication), resource leaks, and null safety. Dispatched by /code-review."
 model: opus
 ---
 
@@ -54,7 +54,7 @@ Review the provided code changes **only for potential bugs and concurrency issue
 ## Input
 
 You will receive:
-- A diff of the changes to review
+- A path to a temp file containing the full diff (read it with the `Read` tool; for diffs > 2000 lines, page through with the `offset`/`limit` parameters)
 - The list of changed files
 - The commit log for the changes
 - Optionally, a PR description providing motivation and context
@@ -206,6 +206,9 @@ This prevents aimless exploration and ensures each file read has a purpose.
 
 #### Potential Concerns
 [Suspicious patterns that may or may not be bugs depending on broader context — explain what to verify]
+
+### Reviewer notes
+[Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
 For each finding, include:
