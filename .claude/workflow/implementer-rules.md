@@ -241,13 +241,18 @@ The implementer is responsible for the push; the orchestrator does
 not push on the implementer's behalf. Inspect the `git push` exit
 code: a successful push is a precondition for emitting
 `RESULT: SUCCESS` (see §Return contract `COMMIT` field rule below).
-On push failure (`non-fast-forward` from concurrent activity, network
-blip, auth, pre-receive hook), do **not** emit `SUCCESS` — surface
-the situation via `RESULT: FAILED` with
-`FAILURE.recommended_action: retry` and `FAILURE.why_it_failed`
-naming the push failure shape, so the Phase B / Phase C orchestrator
-can reconcile (e.g., run the branch-divergence gate before
-respawning).
+On push failure (the shapes enumerated in
+[`commit-conventions.md`](commit-conventions.md) § Push failure
+handling), do **not** emit `SUCCESS`. Surface the situation via
+`RESULT: FAILED` with `FAILURE.recommended_action: retry`,
+`FAILURE.failure_class: push_only`, and `FAILURE.why_it_failed`
+naming the push failure shape. The `failure_class: push_only` flag
+tells the orchestrator that the commit content is fine and only the
+push relationship to `origin` failed — at `mode=FIX_REVIEW_FINDINGS`
+the orchestrator skips the rollback that would otherwise revert the
+implementer's good commit (see
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§`rollback_and_handle_failure`).
 
 **Return.** Emit the structured result block (see §Return contract
 below). The orchestrator parses the block; everything else in the
@@ -768,6 +773,13 @@ FAILURE:                          # only if RESULT == FAILED
                                   # §Fundamental failure above).
                                   # Allowed values at level=track:
                                   # retry | escalate.
+  failure_class: push_only | content
+                                  # default: content. Set to push_only
+                                  # when the commit landed locally but
+                                  # `git push` failed (see Sub-step 3
+                                  # above). Routes the orchestrator
+                                  # past the rollback handler — the
+                                  # commit content is fine.
 ```
 
 ### Field rules
@@ -782,13 +794,12 @@ FAILURE:                          # only if RESULT == FAILED
   it is the SHA of the `Review fix:` commit applied on top.
   **`RESULT: SUCCESS` implies the commit at `COMMIT` has been pushed
   to `origin`.** Sub-step 3 above mandates `git push` immediately
-  after the commit lands. If the push failed (e.g.,
-  `non-fast-forward` from concurrent activity, network blip, auth,
-  pre-receive hook), do not emit `SUCCESS` — emit `RESULT: FAILED`
-  with `FAILURE.recommended_action: retry` and a
-  `FAILURE.why_it_failed` that names the push failure shape, so the
-  orchestrator can reconcile (e.g., run the branch-divergence gate
-  before respawning).
+  after the commit lands. If the push failed (see Sub-step 3 above
+  for the failure-shape reference), do not emit `SUCCESS`. Emit
+  `RESULT: FAILED` with `FAILURE.recommended_action: retry`,
+  `FAILURE.failure_class: push_only`, and a `FAILURE.why_it_failed`
+  that names the push failure shape so the orchestrator can
+  reconcile without rolling back the commit.
 - `FILES_TOUCHED` lists every path in the diff with a `(new)` or
   `(modified)` annotation. On `FAILED`, list paths the implementer
   attempted to modify even though they are now reverted.
@@ -830,6 +841,17 @@ FAILURE:                          # only if RESULT == FAILED
   §"Fundamental failure" above). Returning `split` from a
   `level=track` spawn is a contract violation; the orchestrator
   surfaces the return to the user instead of dispatching.
+- `FAILURE.failure_class` discriminates content failures (`content`,
+  the default) from push-only failures (`push_only`). Set `push_only`
+  only when Sub-step 1's content work succeeded, Sub-step 3's commit
+  landed locally, and only `git push` failed. The orchestrator uses
+  this flag at `mode=FIX_REVIEW_FINDINGS` to skip the rollback path
+  in `rollback_and_handle_failure` — see
+  [`step-implementation-recovery.md`](step-implementation-recovery.md).
+  Omit or set to `content` for every other failure (work didn't
+  start, tests failed, spotless failed, commit refused, etc.).
+  Mis-tagging a content failure as `push_only` leaves a broken
+  commit at HEAD and is a contract violation.
 
 ---
 

@@ -349,27 +349,12 @@ The implementer's commit is now on disk; `result.COMMIT` is its SHA.
 Per [`implementer-rules.md`](implementer-rules.md) §Return contract,
 `RESULT: SUCCESS` implies the commit has been pushed to `origin`.
 
-**Defensive push check.** Before running sub-steps 4–7, verify the
-commit is actually on `origin`:
-
-```bash
-git log @{u}..HEAD --format=%H
-```
-
-Expected output: empty (no local-only commits). If the output names
-any commit — including `result.COMMIT` itself — the implementer
-emitted `SUCCESS` without pushing, which is a contract violation.
-Recover by pushing the orphan(s) immediately:
-
-```bash
-git push
-```
-
-Then proceed with sub-steps 4–7. If the push fails (e.g.,
-`non-fast-forward`), route through
-[`branch-divergence-check.md`](branch-divergence-check.md) per
-`commit-conventions.md` § Push failure handling — do not silently
-continue with an unpushed implementer commit.
+**Defensive push check.** Before running sub-steps 4–7, assert that
+the implementer's step commit (`result.COMMIT`) is on `origin` per
+[`defensive-push-check.md`](defensive-push-check.md). The check
+short-circuits when no upstream is set, asserts ancestry against
+`@{u}`, and auto-recovers via `git push` if the implementer skipped
+the push.
 
 Run sub-steps 4–7 in order.
 

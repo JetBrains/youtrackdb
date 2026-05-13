@@ -339,12 +339,45 @@ Triggered when `result.RESULT == FAILED` from `mode=INITIAL` or
 `mode=FIX_REVIEW_FINDINGS`, the dim-review loop dispatches to
 `rollback_and_handle_failure` instead — see §Post-Commit Handlers.
 
-The implementer has already reverted any uncommitted changes and
-removed any untracked artefacts
-(the snapshot-and-diff revert sequence) before returning, so the
-working tree is clean at `step_base_commit`. `result.FAILURE` carries
-`what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
-and `recommended_action`.
+`result.FAILURE` carries `what_was_attempted`, `why_it_failed`,
+`impact_on_remaining_steps`, `recommended_action`, and
+`failure_class`.
+
+**Pre-step: push-only short-circuit.** If
+`result.FAILURE.failure_class == push_only`, the step's content is
+fine — Sub-steps 1–2 succeeded, the commit landed at HEAD, and only
+`git push` failed (see
+[`implementer-rules.md`](implementer-rules.md) §Return contract).
+The working tree is **not** clean at `step_base_commit` in this case
+(the implementer's commit is at HEAD by design); the snapshot-and-diff
+revert assumption documented below does **not** apply.
+
+Skip the `[!]` write and retry/split inserts entirely. Instead:
+
+1. Route the push failure per
+   [`commit-conventions.md`](commit-conventions.md) § Push failure
+   handling — `non-fast-forward` triggers
+   [`branch-divergence-check.md`](branch-divergence-check.md) (gated
+   to first per-session rejection); other shapes record-and-continue.
+2. After the gate (or record-and-continue), run `git push` from the
+   orchestrator to publish the implementer's commit.
+3. If the orchestrator's push succeeds, `result.COMMIT` is now on
+   `origin`. Synthesise the success path: treat the return as if the
+   implementer had emitted `SUCCESS`, then run `on_success(step,
+   result)` ([`step-implementation.md`](step-implementation.md))
+   from the top so the dimensional review loop, gate checks, and
+   episode write all happen on the now-pushed commit.
+4. If the orchestrator's push still fails after the gate, escalate
+   to the user with the step commit SHA and the `git push` stderr —
+   the situation is no longer mechanically recoverable. Do **not**
+   fall through to the numbered steps below; the commit at HEAD is
+   good work that should not be marked `[!]` for content reasons.
+
+The numbered steps below apply only to the default
+`failure_class: content` path. In that path the implementer has
+already reverted any uncommitted changes and removed any untracked
+artefacts (the snapshot-and-diff revert sequence) before returning,
+so the working tree is clean at `step_base_commit`.
 
 1. **Write the failed episode** to the step file from
    `result.FAILURE` (mark the step `[!]`).
@@ -442,7 +475,38 @@ Triggered when a `FIX_REVIEW_FINDINGS` respawn returns
 typically because the findings reveal a deeper issue than a
 mechanical fix can address. `fix_result.FAILURE` carries
 `what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
-and `recommended_action`.
+`recommended_action`, and `failure_class`.
+
+**Pre-step: push-only short-circuit.** If
+`fix_result.FAILURE.failure_class == push_only`, the `Review fix:`
+commit content is fine — Sub-step 1's work succeeded, the commit
+landed locally, and only `git push` failed (see
+[`implementer-rules.md`](implementer-rules.md) §Return contract).
+Skip the rollback entirely. Instead:
+
+1. Route the push failure per
+   [`commit-conventions.md`](commit-conventions.md) § Push failure
+   handling — `non-fast-forward` triggers
+   [`branch-divergence-check.md`](branch-divergence-check.md) (gated
+   to first per-session rejection); other shapes record-and-continue.
+2. After the divergence gate completes (or record-and-continue), run
+   `git push` from the orchestrator to publish the existing
+   `Review fix:` commit.
+3. If the orchestrator's push succeeds, treat the iteration as
+   successful — `result.COMMIT` is now on `origin`. Proceed with the
+   rest of `on_iteration_success`
+   ([`track-code-review.md`](track-code-review.md)) as if the
+   implementer had completed the push itself: stash `FIX_NOTES`,
+   continue with the gate-check fan-out. Do not run the rollback
+   steps below.
+4. If the orchestrator's push still fails after the gate, escalate
+   to the user with the `Review fix:` SHA and the `git push` stderr —
+   the situation is no longer mechanically recoverable.
+
+The numbered rollback steps below apply only to the default
+`failure_class: content` path. Reverting a good commit because
+its push collided with concurrent activity would destroy work the
+implementer already finished and validated.
 
 1. **Run the rollback** (revert + `Revert step:` commit) per the
    common procedure above. The revert lands **before** any step-file
@@ -551,16 +615,25 @@ trying to patch it — is the wrong tradeoff.
 
 ## Step Failure
 
-If the implementer returns `RESULT: FAILED`, the implementer has
-already reverted uncommitted changes and removed any untracked
-artefacts (the snapshot-and-diff revert sequence). For
-pre-commit failures (`mode=INITIAL` / `mode=WITH_GUIDANCE`) the
-working tree is now clean at `step_base_commit` and the orchestrator
-proceeds directly with the steps below. For post-commit failures
+If the implementer returns `RESULT: FAILED` with the default
+`failure_class: content`, the implementer has already reverted
+uncommitted changes and removed any untracked artefacts (the
+snapshot-and-diff revert sequence). For pre-commit failures
+(`mode=INITIAL` / `mode=WITH_GUIDANCE`) the working tree is now
+clean at `step_base_commit` and the orchestrator proceeds directly
+with the steps below. For post-commit failures
 (`mode=FIX_REVIEW_FINDINGS`) the orchestrator first runs the
 rollback per §Post-Commit Handlers, then proceeds with the steps
-below; the retry/split rows below apply to both. The orchestrator
-handles the rest:
+below; the retry/split rows below apply to both.
+
+`failure_class: push_only` short-circuits this entire flow — the
+commit at HEAD is good content that only failed to push. The
+relevant handler (`handle_failure` or `rollback_and_handle_failure`)
+runs its push-only pre-step instead of the rollback / step-file
+write, and on success routes back through `on_success` rather than
+the retry/split protocol below. See those handlers for the detail.
+
+For the `content` path the orchestrator handles the rest:
 
 1. **Write a failed episode** to the step file from
    `result.FAILURE` (see

@@ -578,31 +578,18 @@ iteration does not invalidate them).
 
 ### `on_iteration_success(result)`
 
-The implementer's `Review fix:` commit is on disk and — per
-[`implementer-rules.md`](implementer-rules.md) §Return contract —
-pushed to `origin`; `result.COMMIT` is its SHA. `result.FIX_NOTES`
-carries the implementer's per-iteration notes (which findings were
-addressed, which were skipped, what was discovered).
+The implementer's `Review fix:` commit is on disk and pushed to
+`origin` per [`implementer-rules.md`](implementer-rules.md) §Return
+contract; `result.COMMIT` is its SHA. `result.FIX_NOTES` carries the
+implementer's per-iteration notes (which findings were addressed,
+which were skipped, what was discovered).
 
 **Defensive push check.** Before stashing notes and proceeding,
-verify the `Review fix:` commit is actually on `origin`:
-
-```bash
-git log @{u}..HEAD --format=%H
-```
-
-Expected output: empty. If the output names any commit, the
-implementer emitted `SUCCESS` without pushing, which is a contract
-violation. Recover by pushing the orphan(s) immediately:
-
-```bash
-git push
-```
-
-If the push fails (e.g., `non-fast-forward`), route through
-[`branch-divergence-check.md`](branch-divergence-check.md) per
-`commit-conventions.md` § Push failure handling — do not silently
-continue with an unpushed `Review fix:` commit.
+assert that the `Review fix:` commit (`result.COMMIT`) is on
+`origin` per [`defensive-push-check.md`](defensive-push-check.md).
+The check short-circuits when no upstream is set, asserts ancestry
+against `@{u}`, and auto-recovers via `git push` if the implementer
+skipped the push.
 
 Stash `FIX_NOTES` and `CROSS_TRACK_HINTS` for inclusion in the
 eventual track episode (see §Track Completion below). Proceed to the
@@ -645,14 +632,44 @@ user instead of proceeding.
 
 ### `handle_iteration_failure(result)`
 
-Triggered when `result.RESULT == FAILED`. The implementer has run
+Triggered when `result.RESULT == FAILED`. `result.FAILURE` carries
+`what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`
+(at `level=track` this is "impact on remaining findings"),
+`recommended_action`, and `failure_class`.
+
+**Pre-step: push-only short-circuit.** If
+`result.FAILURE.failure_class == push_only`, the `Review fix:`
+commit content is fine — content work succeeded, the commit landed
+at HEAD, and only `git push` failed (see
+[`implementer-rules.md`](implementer-rules.md) §Return contract).
+The clean-tree-at-HEAD assumption below does **not** apply; the
+`Review fix:` commit is at HEAD by design.
+
+Skip the failure-recording flow entirely. Instead:
+
+1. Route the push failure per
+   [`commit-conventions.md`](commit-conventions.md) § Push failure
+   handling — `non-fast-forward` triggers
+   [`branch-divergence-check.md`](branch-divergence-check.md) (gated
+   to first per-session rejection); other shapes record-and-continue.
+2. After the gate (or record-and-continue), run `git push` from the
+   orchestrator to publish the existing `Review fix:` commit.
+3. If the orchestrator's push succeeds, `result.COMMIT` is now on
+   `origin`. Synthesise the success path: route to
+   `on_iteration_success(result)` above so notes are stashed and the
+   gate-check fan-out runs on the now-pushed commit.
+4. If the orchestrator's push still fails after the gate, escalate
+   to the user with the `Review fix:` SHA and the `git push` stderr.
+   Do **not** fall through to the numbered steps below; the
+   `Review fix:` commit at HEAD is good work that should not be
+   recorded as a content failure.
+
+The numbered steps below apply only to the default
+`failure_class: content` path. In that path the implementer has run
 the snapshot-and-diff revert sequence per
 [`implementer-rules.md`](implementer-rules.md) §Detection rules, so
-the working tree is clean at HEAD; no `Review fix:` commit was
-produced this iteration. `result.FAILURE` carries
-`what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`
-(at `level=track` this is "impact on remaining findings"), and
-`recommended_action`.
+the working tree is clean at HEAD and no `Review fix:` commit was
+produced this iteration.
 
 Verify `git status` is clean before continuing. A dirty tree at this
 point is a contract violation, but per
