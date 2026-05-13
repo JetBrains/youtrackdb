@@ -117,60 +117,50 @@ ready to record — drop it or sharpen it.
 
 ## Frequency and context-cost gate
 
-Every candidate — Bug or Feature — must clear a single cost-benefit
-check before it is recorded. The workflow docs in
-`.claude/workflow/` are loaded into the initial context of every
-future `/execute-tracks` session, so any rule, recipe, recovery
-procedure, or guardrail added by an issue's fix is paid in tokens
-forever by every future agent. File the issue only when the friction
-is frequent enough that the per-session context cost of the resulting
-workflow change is justified.
+Every candidate (Bug or Feature) must clear a single cost-benefit
+check before it is recorded. A fix lands in some specific workflow
+doc — a phase doc like `track-review.md`, a recipe loaded only when
+ESCALATE fires, this reflection guide, or an always-loaded base file
+like `conventions.md` or `workflow.md`. The added content is paid in
+tokens by every future session that loads that doc. File the issue
+only when the friction is frequent enough to justify the per-session
+cost at the target doc's actual load frequency.
 
 Both prongs must hold:
 
-1. **Frequency.** The friction must be assessed to recur — either
-   because the trigger is deterministic and will fire on every
-   matching future session, or because the situation arises across
-   multiple plausible future ADRs, tracks, or phases. One-off,
-   non-deterministic, ADR-specific frictions do not qualify.
+1. **Frequency.** Pass if EITHER (a) the trigger is deterministic
+   and will fire on every matching future session, OR (b) the
+   situation arises across ≥3 plausible future ADRs, tracks, or
+   phases. A deterministic Bug that fires once still passes via (a),
+   because the next session hitting the same trigger will fail the
+   same way; a non-deterministic one-off (CI flake, network blip,
+   unreproducible session state) fails both paths.
 
-2. **Context-cost justification.** Imagine the workflow change the
-   fix would land (a new rule, a new recipe, a clearer procedure, an
-   extra guardrail). Is the friction's expected recurrence high
-   enough that every future session paying the tokens for that added
-   content is a good trade? A frequent friction whose fix is a one-
-   line clarification clears the bar easily; a rare friction whose
-   fix is a multi-paragraph recipe almost never does.
-
-Bugs and Features apply this gate equally. A deterministic Bug that
-fires once still clears the frequency prong, because the next session
-hitting the same trigger will fail the same way. A non-deterministic
-one-off (CI flake, network blip, unreproducible session state) does
-not, regardless of whether it presented as a "bug" in the session.
+2. **Context-cost justification.** Sketch the workflow edit the fix
+   would land and name the doc it would live in. Weigh the edit's
+   length (roughly, in added lines or sections) against that doc's
+   load frequency — every session, every Phase-A session, every
+   reflection session, only on ESCALATE, etc. Is the saved friction
+   worth that running cost?
 
 Quick tests before recording:
 
-- Would the proposed fix prevent friction on **at least 3** plausible
-  future sessions across different ADRs, tracks, or phases? (Or, for
-  a deterministic Bug: is the trigger one that will reliably recur on
-  every matching session?)
-- Is the trigger condition generic (any phase, any track, any
-  sub-agent) or specific to this ADR's domain (e.g., specific to one
-  refactor, one Maven module, or one sub-agent's prompt for one kind
-  of question)?
-- Sketch the workflow edit the fix would require. Counting roughly
-  the number of lines or sections it would add, is the saved friction
-  worth that content sitting in every future session's initial
-  context window?
+- **Frequency prong:** Would the proposed fix prevent friction on
+  ≥3 plausible future sessions, OR is the trigger deterministic and
+  guaranteed to recur on every matching session? (Fail if neither
+  path holds.)
+- **Context-cost prong:** Sketch the edit and name the target doc.
+  Does (edit length × that doc's load frequency) feel worth the
+  saved friction? (Fail if the sketched edit would not earn its
+  tokens against the target doc's load frequency.)
 
-If any test fails, drop the candidate. The friction may still be
+If either prong fails, drop the candidate. The friction may still be
 real, but the fix is project- or ADR-shaped, not workflow-shaped —
 or the context cost is not justified by the recurrence. Project-
 shaped findings can still be valuable; surface them to the user in
 the session's normal output, but do not file them under
 `dev-workflow`. When uncertain, prefer to drop: the workflow's
-signal-to-noise ratio matters more than completeness, and the cap
-of three issues per session is a ceiling, not a target.
+signal-to-noise ratio matters more than completeness.
 
 ---
 
@@ -241,12 +231,14 @@ correct outcome, not a failure to look hard enough.
       severity but fails the gate is a project- or ADR-shaped
       finding; mention it in the session's normal output if useful,
       but do not file it.
+   3. Cap the surviving list at 3 (highest severity, most frequent,
+      or blocking the most downstream work — see §Per-session cap).
 
-   If every friction in the session is filtered out by these two
-   passes, that is a zero-finding session; skip to step 7 with the
-   empty-result template.
+   If every friction in the session is filtered out by the first
+   two passes, that is a zero-finding session; skip to step 7 with
+   the empty-result template.
 
-   For each surviving candidate (after capping at 3), draft:
+   For each surviving candidate, draft:
    - Title (imperative summary, ≤80 chars)
    - One-line summary
    - Type: `Bug` if the friction is the workflow producing wrong
@@ -583,7 +575,7 @@ the triager can verify it.
   nearest accepted enum value (see §Severity → YouTrack `Priority`
   mapping) and set it at creation. The triager can re-calibrate,
   but the default priority is the agent's responsibility.
-- **Do not** record any candidate — Bug or Feature — that fails the
+- **Do not** record any candidate (Bug or Feature) that fails the
   §Frequency and context-cost gate. The bar is recurrence high
   enough to justify the per-session token cost of the workflow
   change the fix would require; one-off, non-deterministic, or ADR-
