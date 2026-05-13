@@ -143,8 +143,8 @@ for the track-level code review.
 it.** A rebase between recording and reading rewrites every on-branch
 commit; the recorded SHA still resolves (kept in the reflog) but is no
 longer an ancestor of HEAD, and any `git diff` / `git log` computed
-against it returns commits from earlier tracks. The canonical preflight
-+ recompute procedure lives at the two reader sites:
+against it returns commits from earlier tracks. The canonical
+preflight-and-recompute procedure lives at the two reader sites:
 [`step-implementation.md`](step-implementation.md) §Phase B Startup
 step 1 (resume case) and
 [`track-code-review.md`](track-code-review.md) §Phase C Startup

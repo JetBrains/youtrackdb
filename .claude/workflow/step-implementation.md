@@ -84,18 +84,25 @@ Before spawning the first implementer:
    ```bash
    if ! git merge-base --is-ancestor "$BASE_SHA" HEAD; then
        # Stale — typically a post-Phase-B rebase.
-       RECORDING=$(git log --grep="^Record Phase B base commit for <track>" \
+       RECORDING=$(git log -F \
+           --grep="Record Phase B base commit for <track>" \
            --format=%H HEAD | head -1)
+       if [ -z "$RECORDING" ]; then
+           # No recording commit on HEAD's path — surface to user;
+           # do not invent a base.
+           exit 1
+       fi
        ACTUAL_BASE=$(git log -1 --format=%P "$RECORDING")
        # Use $ACTUAL_BASE as {base_commit} for the rest of Phase B.
    fi
    ```
 
-   Scope `git log` to `HEAD` (not `--all`) and grep on the track
-   title so the lookup ignores reflog orphans and other tracks'
-   recording commits. If `git log --grep` returns nothing, surface
-   the discrepancy to the user before proceeding; do not invent a
-   base.
+   Scope `git log` to `HEAD` (not `--all`) and match the track title
+   literally with `-F` (fixed-strings) so titles containing regex
+   metacharacters (`.`, `(`, `[`, `*`, …) cannot mis-match and so
+   reflog orphans and other tracks' recording commits are ignored.
+   If `git log --grep` returns nothing, surface the discrepancy to
+   the user before proceeding; do not invent a base.
 
    On stale, **append** a discrepancy note to the step file's
    `## Base commit` section (do not overwrite the original SHA —
