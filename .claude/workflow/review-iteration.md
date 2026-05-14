@@ -79,25 +79,67 @@ numbering. Summary: **PASS** or **FAIL**.
 
 Dimensional code-review gate-checks (the re-runs spawned at
 `step-implementation.md` §Per-Step Orchestration Loop sub-step 4(d) and
-`track-code-review.md` §Review loop step 3 — for the
-`review-code-quality`, `review-bugs-concurrency`, `review-test-behavior`,
-`review-test-completeness`, `review-crash-safety`, `review-security`,
-`review-performance`, `review-test-structure`, `review-test-concurrency`,
-`review-test-crash-safety` agents) **MUST** be spawned with the prompt
-template at
+`track-code-review.md` §Review loop step 3, for every dimensional
+review agent listed in
+[`review-agent-selection.md`](review-agent-selection.md)) **MUST** be
+spawned with the prompt template at
 [`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md).
 That template enforces:
 
 - **Total budget: ≤ 60 lines** of output per re-spawned agent.
-- One verdict line per open finding (`VERIFIED` / `STILL OPEN` /
-  `REGRESSION`), each ≤ 1 line of justification.
-- **≤ 3 new findings**, each ≤ 5 lines total — surface regressions or
+- One verdict line per open finding (`VERIFIED` / `MOOT` /
+  `STILL OPEN` / `REGRESSION`), each ≤ 1 line of justification.
+- **≤ 3 new findings**, each ≤ 5 lines total. Surface regressions or
   obvious misses directly tied to the listed open findings; do not
   re-survey the diff.
 - One-line `PASS` / `FAIL` summary.
 
-The following sections — present in every dimensional review agent's
-default Output Format — are **forbidden** at gate-check time:
+### Gate-check verdict handling
+
+The orchestrator processes each gate-check verdict as follows:
+
+- `VERIFIED` — finding clears for this iteration; do not pass it to
+  the next implementer spawn.
+- `MOOT` — finding is no longer reachable (file deleted, code moved,
+  approach changed). Clears for loop-termination purposes, identical
+  to `VERIFIED`; do not pass to the next implementer.
+- `STILL OPEN` — carry the finding into the next iteration's
+  implementer input verbatim, with the same finding ID.
+- `REGRESSION` — escalate as a blocker. Pass the regression's
+  `file:line` plus the original finding ID to the next implementer
+  with explicit `revert-or-repair` instructions: either revert the
+  change that caused the regression and find a different approach to
+  the original finding, or fix the regression in place if the new
+  approach is sound. A `REGRESSION` forces the iteration `FAIL` even
+  if every other verdict is `VERIFIED`.
+
+### Gate-check synthesis routing
+
+After collecting gate-check returns from all re-spawned agents,
+re-run § Synthesis (as defined in
+[`track-code-review.md`](track-code-review.md) § Synthesis) on the
+aggregated `New findings` blocks before composing the next iteration's
+implementer input. This deduplicates across dimensions and enforces
+the global pre-spawn budget (~15 findings), so the per-agent ≤ 3
+cap × N agents cannot silently inflate the total. The same routing
+applies at step level: re-run `step-implementation.md` sub-step 4(b)
+**Synthesise** on the aggregated gate-check returns before composing
+the next implementer spawn.
+
+### Gate-check budget enforcement is best-effort
+
+The ≤ 60-line cap is asked of the sub-agent but **not enforced** by
+the orchestrator. If a returned report exceeds the budget, accept
+the over-budget output and continue; do not retry, re-spawn, or
+block. The cap is a steering signal, not a hard gate. Recurring
+over-budget reports for a specific dimension across multiple
+sessions are feedback to tune that agent file's default Output
+Format, not a blocker for the current track.
+
+### Forbidden sections at gate-check time
+
+The following sections, present in every dimensional review agent's
+default Output Format, are **forbidden** at gate-check time:
 
 - `Reviewer notes`
 - `Files of interest`, `Scope`, `What I read`
@@ -108,22 +150,26 @@ default Output Format — are **forbidden** at gate-check time:
   subsections beyond the single-line shapes in the template
 - Multi-paragraph `Summary` prose
 
-**Why this matters (YTDB-696).** A Phase C session that runs 8
-dimensional reviewers plus a 5-agent gate-check fan-out routinely
-pushes the orchestrator's context past the 30 % `warning` threshold
-before iter-2 begins, forcing a mid-Phase-C session pause. The dense
-100–300-line gate-check reports are the dominant burn; the verbose
-sections above carry almost no signal at gate-check time because
-the orchestrator already has the original finding text. Stripping
-them recovers ~70 % of the gate-check token budget.
+### Why the gate-check budget matters (YTDB-696)
 
-The other gate-verification flows — structural review
+A Phase C session that runs 8 dimensional reviewers plus a 5-agent
+gate-check fan-out routinely pushes the orchestrator's context past
+the 30 % `warning` threshold before iter-2 begins, forcing a
+mid-Phase-C session pause. The dense 100–300-line gate-check reports
+are the dominant burn; the verbose sections listed above carry
+almost no signal at gate-check time because the orchestrator already
+has the original finding text. Stripping them recovers ~70 % of the
+gate-check token budget.
+
+### Out of scope: structural / Phase A review-gate / consistency gates
+
+The other gate-verification flows are out of scope for this budget:
+structural review
 ([`prompts/structural-gate-verification.md`](prompts/structural-gate-verification.md)),
 Phase A review gate
 ([`prompts/review-gate-verification.md`](prompts/review-gate-verification.md)),
-consistency gate
-([`prompts/consistency-gate-verification.md`](prompts/consistency-gate-verification.md))
-— are out of scope for this budget. Each has its own dedicated
-prompt file with a per-finding verification certificate format that
-is already terse; do not retrofit the dimensional-review template
-onto them.
+and consistency gate
+([`prompts/consistency-gate-verification.md`](prompts/consistency-gate-verification.md)).
+Each has its own dedicated prompt file with a per-finding
+verification certificate format that is already terse; do not
+retrofit the dimensional-review template onto them.

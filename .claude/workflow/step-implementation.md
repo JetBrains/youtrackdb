@@ -527,23 +527,30 @@ finding ID prefixes, and gate format.
       the compact prompt template at
       [`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md),
       not the dimensional review prompt from sub-step (a).**
-      Substitute `{dimension}` (the agent's review type),
-      `{findings_under_recheck}` (the open finding IDs and titles
-      for that dimension, copied verbatim from the synthesised
-      list), `{diff_path}` and `{files_path}` (the re-staged step
-      diff and changed-files list — regenerated per the staging
-      block in sub-step (a) because each `Review fix:` respawn
-      advanced `{commit}`), `{plan_slim_path}` (the slim plan
-      snapshot at `/tmp/claude-code-plan-slim-$PPID.md`),
-      `{step_file_path}` (`docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`),
-      and `{level}` (literal string `step`). The template enforces
-      a ≤ 60-line budget, a forbidden-sections list, and a
-      verdict-only output format — see
+      Substitute:
+      - `{dimension}` — the agent's review type
+      - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
+      - `{diff_path}`, `{files_path}` — the re-staged step diff and changed-files list (regenerated per the staging block in sub-step (a) because each `Review fix:` respawn advanced `{commit}`)
+      - `{plan_slim_path}` — `/tmp/claude-code-plan-slim-$PPID.md`
+      - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`
+
+      The template enforces a ≤ 60-line budget, a forbidden-sections
+      list, and a verdict-only output format. See
       [`review-iteration.md`](review-iteration.md) §"Dimensional-review
-      gate-check budget" (YTDB-696). Step-level review only fires
-      for `risk: high` steps, so this path is rarer than Phase C
-      track-level review, but the burn rate is identical when it
-      does fire.
+      gate-check budget" for the YTDB-696 rationale, the verdict-
+      handling rules (VERIFIED / MOOT / STILL OPEN / REGRESSION), and
+      the §Synthesis routing for gate-check returns. Step-level
+      review only fires for `risk: high` steps, so this path is rarer
+      than Phase C track-level review, but the burn rate is identical
+      when it does fire.
+
+      After collecting all gate-check returns, re-run sub-step 4(b)
+      **Synthesise** on the aggregated `New findings` blocks before
+      composing the next implementer input. Treat `REGRESSION`
+      verdicts as blocker-severity carry-forwards with
+      `revert-or-repair` guidance; treat `MOOT` verdicts as cleared
+      (identical to `VERIFIED`); carry `STILL OPEN` verdicts forward
+      verbatim with the original finding ID.
    e. If max iterations reached, note remaining findings in the
       `EPISODE_DRAFT` so they appear in the step episode.
    f. **Remove the staged temp files** for this step so they don't

@@ -10,17 +10,40 @@ Inputs:
 - Changed files list: {files_path}
 - Slim implementation plan: {plan_slim_path}
 - Step file: {step_file_path}
-- Review level: {level} (`step` or `track`)
+
+The IDs in `{findings_under_recheck}` already carry the cumulative-
+numbering prefix for this dimension (e.g., `BC3`, `CQ7`, `TC4` —
+see `review-iteration.md` § Finding ID prefixes). Reuse those exact
+IDs in verdict lines; for any new finding, continue the same prefix
+with the next available integer.
 
 Your job is exactly two things:
 
-1. For each finding under re-check, emit one verdict line: `VERIFIED`,
-   `STILL OPEN`, or `REGRESSION`.
-2. Optionally, emit up to **3** new findings — only when the `Review
-   fix:` commit introduced a regression directly tied to the listed
-   open findings, or you observed an obvious miss while reading the
-   fix. Do not re-survey the diff for unrelated issues; the next
-   iteration's full review (if one is allocated) covers that.
+1. For each finding under re-check, emit one verdict line. Choose
+   one of:
+   - `VERIFIED` — the fix landed and addresses the original issue.
+   - `MOOT` — the finding is no longer reachable in the diff (file
+     deleted, code moved, approach changed). The orchestrator treats
+     `MOOT` identically to `VERIFIED` for loop-termination purposes.
+   - `STILL OPEN` — the fix did not address the issue, or addressed
+     it incompletely.
+   - `REGRESSION` — the `Review fix:` commit actively broke working
+     code on a path the original finding pointed at.
+2. Optionally, emit up to **3** new findings. A new finding is in
+   scope only when **both** conditions hold:
+   - (a) The issue is on a file or line that the `Review fix:` commit
+     just touched (per `{diff_path}`), AND
+   - (b) The severity is `blocker` or `should-fix` under your
+     dimension.
+
+   Suggestions or observations on untouched code are deferred to the
+   next full review, not surfaced here. Do not re-survey the diff
+   for unrelated issues.
+
+Use the **synthesis severity scale** (`blocker` / `should-fix` /
+`suggestion`) for new findings here, not your agent's native scale
+(`Critical` / `Likely Issues` / `Potential Concerns`, etc.). The
+gate-check output feeds back into the synthesised finding list.
 
 ## Reference-accuracy
 
@@ -32,18 +55,23 @@ reachable`, and add a one-line `(grep-only)` caveat to the affected
 verdict. The original finding may have been generated against grep —
 verifying the fix with PSI catches subtle mismatches grep missed.
 
+Emit `PASS` iff every verdict is `VERIFIED` or `MOOT` and no new
+finding is severity `blocker` or `should-fix`. Any `STILL OPEN`,
+`REGRESSION`, or blocker/should-fix new finding forces `FAIL`.
+
 ## Output format (strict — ≤ 60 lines total, including blank lines)
 
 ```markdown
-## {Dimension} gate check
+## {Dimension} Review (gate check)
 
 ### Verdicts
 - <PREFIX><N>: VERIFIED — <≤ 1 line: where the fix landed and why it satisfies the original issue>
+- <PREFIX><L>: MOOT — <≤ 1 line: why the finding no longer applies (file deleted / code moved / approach changed)>
 - <PREFIX><M>: STILL OPEN — <≤ 1 line: what remains, with file:line>
 - <PREFIX><K>: REGRESSION — <≤ 1 line: what the fix broke, with file:line>
 
 ### New findings (omit this section entirely if none)
-- <PREFIX><N+1> [blocker|should-fix|suggestion] <file>:<line> — <issue, ≤ 2 lines> — fix: <≤ 1 line>
+- <PREFIX><N+1> [blocker|should-fix] <file>:<line> — <issue, ≤ 2 lines>. Fix: <≤ 1 line>
 
 ### Summary
 - PASS | FAIL
@@ -51,29 +79,28 @@ verifying the fix with PSI catches subtle mismatches grep missed.
 
 ## Forbidden in gate-check output
 
-The following sections (which a full dimensional review would normally
-include) are **forbidden** here — strip them even if your agent file's
-default Output Format defines them:
+The following sections, or any equivalent methodology / process /
+scope-recap content under different headings, are **forbidden** here.
+Strip them even if your agent file's default Output Format defines
+them, and strip the per-agent `Phase 1:` / `Phase 2:` reasoning-trace
+sections that play the same role:
 
 - `### Reviewer notes` (or `## Reviewer notes`)
 - `### Methodology`, `### Process`, `### Hypothesis tracking`,
   `### Observations`
 - `### Files of interest`, `### Scope`, `### What I read`
-- `### Reference-Accuracy Audit` (the PSI-vs-grep caveat lives on the
-  affected verdict line, not in a dedicated section)
+- `### Reference-Accuracy Audit` (the PSI-vs-grep caveat rides on
+  the affected verdict line as `(grep-only)`, not in a dedicated
+  section)
 - Any per-finding `Evidence:` / `Refutation considered:` /
-  `Suggested fix:` subsections beyond the single-line shapes above —
-  if a verdict needs more than 1 line to justify, mark it
-  `STILL OPEN` with a 1-line pointer and the next iteration will
-  carry the elaboration.
+  `Suggested fix:` subsections beyond the single-line shapes above.
+  If a verdict needs more than 1 line to justify, mark it
+  `STILL OPEN` with a 1-line pointer; the next iteration will carry
+  the elaboration.
 - A `### Summary` paragraph beyond the single PASS/FAIL line.
 
 ## Why the budget
 
-Phase C ran 8 dimensional reviewers + 5 gate-check reviewers in a
-single Track-21 session and pushed the orchestrator past the 30 %
-context threshold before iter-2 could begin (YTDB-696). The original
-spawn prompts asked for a verification format, but agents still
-produced 100–300-line reports because the default Output Format
-section in each `review-*.md` agent file was not overridden. This
-prompt is the override — keep it strict.
+See [`review-iteration.md`](../review-iteration.md) § "Dimensional-
+review gate-check budget" for the YTDB-696 rationale and the
+context-burn measurements. Keep this prompt strict.

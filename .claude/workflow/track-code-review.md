@@ -485,25 +485,33 @@ orchestrator never edits source files itself in Phase C.
      gate-check prompts** — the new `Review fix:` commit grew the
      cumulative diff, so the previously staged files are stale (see
      § Sub-agents → § "Pre-staged diff and changed-files list").
-     **Use the compact gate-check prompt template, not the dimensional
+   - **Use the compact gate-check prompt template, not the dimensional
      review prompt.** Spawn each re-checked agent with the prompt at
      [`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md),
-     substituting `{dimension}` (the agent's review type — e.g.,
-     "Bugs & Concurrency", "Test behavior"), `{findings_under_recheck}`
-     (the open finding IDs and titles for that dimension, copied
-     verbatim from the synthesised list), `{diff_path}` and
-     `{files_path}` (the re-staged temp files from Phase C Startup
-     step 7), `{plan_slim_path}` (the regenerated slim plan
-     snapshot — see Phase C Startup step 5), `{step_file_path}`
-     (`docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`), and
-     `{level}` (literal string `track`). That template enforces the
-     ≤ 60-line budget, the forbidden-section list, and the
-     verdict-only output format — see
+     substituting:
+     - `{dimension}` — the agent's review type (e.g., `Bugs & Concurrency`, `Test behavior`)
+     - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
+     - `{diff_path}`, `{files_path}` — the re-staged temp files from Phase C Startup step 7
+     - `{plan_slim_path}` — `/tmp/claude-code-plan-slim-$PPID.md`
+     - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`
+
+     The template enforces the ≤ 60-line budget, the forbidden-section
+     list, and the verdict-only output format. See
      [`review-iteration.md`](review-iteration.md) §"Dimensional-review
-     gate-check budget" for the rationale (YTDB-696). Re-using the
-     full dimensional review prompt at gate-check time burns roughly
-     three times the budget for no extra signal and is the
-     load-bearing cause of mid-Phase-C session pauses.
+     gate-check budget" for the YTDB-696 rationale, the verdict-handling
+     rules (VERIFIED / MOOT / STILL OPEN / REGRESSION), and the
+     §Synthesis routing for gate-check returns. Re-using the full
+     dimensional review prompt at gate-check time burns roughly three
+     times the budget for no extra signal and is the load-bearing
+     cause of mid-Phase-C session pauses.
+   - **After collecting all gate-check returns, run them through
+     §Synthesis** before composing the next iteration's implementer
+     input (per [`review-iteration.md`](review-iteration.md) §
+     "Synthesis routing for gate-check returns"). Treat
+     `REGRESSION` verdicts as blocker-severity carry-forwards with
+     `revert-or-repair` guidance; treat `MOOT` verdicts as cleared
+     (identical to `VERIFIED`); carry `STILL OPEN` verdicts forward
+     verbatim with the original finding ID.
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
