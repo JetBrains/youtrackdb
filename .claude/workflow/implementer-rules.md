@@ -194,10 +194,12 @@ rules:
   descriptions — see
   [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) for
   the full Ephemeral identifier rule and rewrite examples (the §2.3
-  stub in `conventions-execution.md` is a quick recap with the
-  self-check grep).
-  Branch-only commit messages are exempt (they are squashed away on
-  merge); the rule applies to durable content only.
+  stub in `conventions-execution.md` is a quick recap pointing at
+  the same regex). Sub-step 3 below makes that regex a hard
+  pre-commit gate; staying clean while writing prose avoids paying
+  for the gate's rewrite loop at commit time. Branch-only commit
+  messages are exempt (they are squashed away on merge); the rule
+  applies to durable content only.
 
 **Sub-step 2 — Add or update tests.** Run module tests, verify
 Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
@@ -234,6 +236,40 @@ episode commit, since Phase B is fully done before Phase C runs);
 see [`commit-conventions.md`](commit-conventions.md) and
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Resume-side commit-pattern reference.
+
+**Pre-commit gate, ephemeral-identifier check.** After staging and
+before `git commit`, run the narrowed grep over the `+`-prefixed
+additions of the staged diff outside `_workflow/` and
+`.claude/workflow/`:
+
+```bash
+git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' ':(exclude).claude/workflow/**' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}-?[0-9]+\b'
+```
+
+Inspect-then-rewrite. Matches that resolve to allowed exceptions
+(issue tracker IDs like `YTDB-806`, class / method / field names,
+file paths; see the rule file's §Allowed list) pass through;
+matches resolving to forbidden labels (`Track N`, `Step N`, review
+finding IDs) must be rewritten contract-first per
+[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+§"How to rewrite a forbidden reference". Re-stage and re-run until
+every remaining match resolves to the §Allowed list.
+
+The regex covers the three label-shaped forbidden classes only.
+Iteration counters (`iteration 1`) and named-only plan invariants
+(`Single-authority invariant`) still require a manual eyeball pass
+over the staged diff; see the same rule file's §Forbidden for the
+full list.
+
+The check is a hard gate. A commit landing ephemeral identifiers
+in non-`_workflow/` source is a contract violation; catching it
+locally costs milliseconds versus a downstream dim-review
+iteration. The gate scope is the current spawn's
+`git diff --cached`, not the cumulative diff against
+`origin/develop` or the cumulative track diff; a pre-existing
+committed leak is a separate finding for the next iteration. The
+gate applies on every spawn including `mode=FIX_REVIEW_FINDINGS`
+respawns.
 
 **After the commit lands, run `git push` immediately** per
 [`commit-conventions.md`](commit-conventions.md) § Push every commit.
@@ -870,8 +906,8 @@ duplicate the routing tables here. Pointers:
   PR title/body, `design-final.md`, `adr.md`):
   [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) is
   the full rule; the §2.3 stub in `conventions-execution.md` carries
-  the quick recap and the self-check grep. Branch-only commit
-  messages are exempt — see
+  the quick recap and the pre-commit gate regex. Branch-only commit
+  messages are exempt; see
   [`commit-conventions.md`](commit-conventions.md) "Branch-only
   commit messages may cite workflow-internal identifiers".
 - **Risk categories** referenced in `RISK_UPGRADE.category`:
