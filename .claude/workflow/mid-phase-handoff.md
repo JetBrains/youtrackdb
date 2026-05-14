@@ -94,8 +94,11 @@ top of their startup protocol, after the Branch Divergence Check
 (workflow.md startup step 5) but BEFORE any state evaluation:
 
 ```bash
-ls docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
 ```
+
+`-t` sorts most-recent-first by mtime, matching the resume
+protocol's processing order.
 
 If any files exist, load this document and follow §Resume protocol
 below INSTEAD of the normal state-evaluation path. The file's
@@ -317,7 +320,8 @@ orchestrator MUST:
 
 1. **Stop** — do NOT match the normal state-evaluation table yet, and
    do NOT spawn any sub-agents.
-2. **Sort the handoffs** most-recent-first by mtime. On mtime tie,
+2. **Sort the handoffs** most-recent-first by mtime (e.g., using
+   `ls -t`, which matches the detection command above). On mtime tie,
    fall back to filename sort order.
 3. **For each handoff** (one at a time — present, wait, resolve,
    then move to the next):

@@ -144,8 +144,10 @@ cross-track impact.
 
 4. **Check for active handoffs.** Run:
    ```bash
-   ls docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+   ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
    ```
+   `-t` sorts most-recent-first by mtime so the resume protocol
+   processes handoffs in the correct order.
    If any files exist, load
    [`mid-phase-handoff.md`](mid-phase-handoff.md) and follow its
    §Resume protocol. That protocol re-presents the pending decision

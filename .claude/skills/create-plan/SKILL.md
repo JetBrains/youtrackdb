@@ -27,7 +27,7 @@ it. Otherwise, default to `$(git branch --show-current)`.
 **Step 1a — Handoff check (mandatory, before any other on-disk work).**
 Run:
 ```bash
-ls docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
 ```
 If any files exist, load
 [`.claude/workflow/mid-phase-handoff.md`](../../workflow/mid-phase-handoff.md)

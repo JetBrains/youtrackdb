@@ -64,7 +64,7 @@ Follow the startup protocol in `workflow.md`:
    before any commit / push work in this session — including a
    handoff resolution commit in step 4.
 4. **Check for active handoffs.** Run
-   `ls docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null`. If any
+   `ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null`. If any
    files exist, load `.claude/workflow/mid-phase-handoff.md` and follow
    its §Resume protocol before any state evaluation below. Do NOT spawn
    sub-agents, recompile episodes, or re-run gate-checks while a handoff
