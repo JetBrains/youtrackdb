@@ -23,9 +23,10 @@ For both levels:
 - **Conditional agents (up to 6)** are added based on the step/track
   description and changed files.
 
-After all selected agents complete, findings are deduplicated,
-severity-assigned (blocker / should-fix / suggestion), and attributed to
-source dimension(s). Max 3 iterations per level.
+After all selected agents complete, findings are synthesised per
+[`finding-synthesis-recipe.md`](finding-synthesis-recipe.md):
+deduplicated, severity-assigned (blocker / should-fix / suggestion),
+and attributed to source dimension(s). Max 3 iterations per level.
 
 ---
 

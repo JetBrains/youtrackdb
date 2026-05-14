@@ -760,9 +760,12 @@ EPISODE_DRAFT:                    # populated only at level=step
 FIX_NOTES:                        # populated only at level=track
   what_was_fixed: |
     <factual summary of which findings the iteration addressed,
-    1–4 sentences. Cite finding IDs (CQ7, BC3, …) freely — these
-    are branch-only-commit-message-scope identifiers and never
-    leak into durable content.>
+    1–4 sentences. Cite the synthesised `M<n>` finding IDs from
+    the `findings:` input block (e.g., M3, M7) — these are
+    branch-only-commit-message-scope identifiers and never leak
+    into durable content. Per-dimension IDs (CQ7, BC3, …) are
+    orchestrator-internal audit-trail concepts and are not visible
+    to the implementer.>
   what_was_skipped: |
     <or "none". Findings the implementer chose not to address
     inside this iteration — typically because they would expand
