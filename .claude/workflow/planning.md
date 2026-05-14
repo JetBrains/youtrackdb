@@ -309,7 +309,8 @@ scope creep during execution.
    find any specific decision in under 10 seconds.
 6. **Update diagrams with steps** — when a step modifies component interactions,
    updating the Component Map diagram is part of the episode capture or the
-   Track Pre-Flight gate's `Adjust` action (Panel 1 strategy assessment).
+   Track Pre-Flight gate's review-mode loop (an `EDIT_PLAN` item per
+   [`review-mode.md`](review-mode.md) § Loop step 2).
 7. **Mermaid diagrams** — required when there are 3+ components with
    non-trivial relationships; omit for simpler cases where a bullet list
    alone is clearer.

@@ -964,22 +964,39 @@ proceed directly to track completion **in the same session**.
      subsections are now superseded by the committed code and step
      episodes
 
-3. **Wait for user response:**
-   - **Approved** — proceed to step 4.
-   - **Fixes needed** — package the user's specific fixes as a
-     synthesised findings list (each item: location, issue, proposed
-     fix) and **spawn a fresh implementer** with `level=track`,
-     `mode=FIX_REVIEW_FINDINGS`, and the user-provided findings.
-     Use the same prompt template, validity matrix, and handler
-     dispatch as §Implementer Spawns and §Phase C Implementer
-     Handlers above. The implementer's `Review fix:` commit lands
-     on top of HEAD; the orchestrator does not touch source files
-     itself. Re-run track-level code review if the user's fixes are
-     substantial enough that a gate-check run alone won't catch
-     potential regressions. Re-compile the track episode if fixes
-     changed outcomes. Present updated results and wait again.
-   - **Fundamental rework** — trigger ESCALATE (see workflow.md
-     §Inline Replanning).
+3. **Wait for user response.** Use `AskUserQuestion` with three
+   one-step options per the approval-panel contract in
+   [`review-mode.md`](review-mode.md) § Approval-panel contract:
+
+   - **Approve** — proceed to step 4 with whatever fix-finding
+     work the review-mode loop has accumulated (none on the first
+     render, or one or more `Review fix:` commits on HEAD if
+     earlier rounds applied `FIX_FINDING` items).
+   - **Review mode** — enter the free-form refinement loop per
+     [`review-mode.md`](review-mode.md) § Loop. The loop produces
+     a typed action set the user confirms before Apply. On Apply,
+     `FIX_FINDING` items are collected into a synthesised findings
+     list (each item: location, issue, proposed fix) and a fresh
+     implementer is spawned with `level=track`,
+     `mode=FIX_REVIEW_FINDINGS`, using the same prompt template,
+     validity matrix, and handler dispatch as §Implementer Spawns
+     and §Phase C Implementer Handlers above. The implementer's
+     `Review fix:` commit lands on top of HEAD; the orchestrator
+     does not touch source files itself. `QUESTION` items are
+     answered inline at proposal time and have no side effect.
+     `EDIT_PLAN` / `EDIT_STEP_DESC` / `CLARIFY` are not available
+     on Completion (see [`review-mode.md`](review-mode.md) § Loop
+     step 2). After Apply, re-read the cumulative track diff
+     (`git diff {base_commit}..HEAD`) and re-compile the track
+     episode; if the user's fixes were substantial enough that a
+     gate-check run alone won't catch potential regressions, also
+     re-run track-level code review. Present updated results and
+     re-render this three-option panel.
+   - **ESCALATE** — trigger inline replanning per
+     [`inline-replanning.md`](inline-replanning.md).
+
+   The three-option panel re-renders after every review-mode Apply
+   until the user picks **Approve** or **ESCALATE**.
 
 4. **Write the track episode, collapse the description, and mark `[x]`**
    in the plan file on disk (only after user approval).

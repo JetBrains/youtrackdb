@@ -10,11 +10,14 @@ notes.
 - Track Pre-Flight Panel 1 (strategy assessment) returns ESCALATE
   and the user accepts (see [`track-review.md`](track-review.md)
   § Track Pre-Flight step 1)
-- Track Pre-Flight `Adjust` would touch a deep amendment category
-  — Decision Records, Architecture Notes, Goals, Constraints,
-  adding/removing tracks, cross-track interaction surfaces, or
-  user-requested "fundamental rework" (see `track-review.md`
-  § Track Pre-Flight step 4)
+- Track Pre-Flight review mode produces an `ESCALATE` action item,
+  or the user picks **Escalate now** on the Mixed-set policy panel
+  (see [`review-mode.md`](review-mode.md) § ESCALATE detection and
+  § Mixed-set policy) — i.e., the requested change touches Decision
+  Records, Architecture Notes, Goals, Constraints, adds or removes
+  tracks, crosses cross-track interaction surfaces, or the user
+  describes it as "fundamental rework" (deep-amendment list in
+  `track-review.md` § Track Pre-Flight step 4)
 - Cross-track impact monitoring detects a fundamental assumption failure
 - A step failure affects the track's approach at a level additional commits
   cannot fix

@@ -81,8 +81,8 @@ flowchart TD
     READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nArtifacts"]
 
     P2 --> END_P2["Session ends\n(plan review complete)"]
-    PREFLIGHT -->|Proceed| PA["Phase A: Review +\nDecomposition"]
-    PREFLIGHT -->|"Adjust / Clarify\n(re-render panels,\nre-ask)"| PREFLIGHT
+    PREFLIGHT -->|Approve| PA["Phase A: Review +\nDecomposition"]
+    PREFLIGHT -->|"Review mode\n(translate, confirm,\napply; re-render)"| PREFLIGHT
     PREFLIGHT -->|"ESCALATE\n(Panel 1 ESCALATE\nor deep amendment)"| REPLAN["Inline Replanning"]
 
     REPLAN -->|"Revised plan"| END_S["Session ends"]
@@ -93,9 +93,9 @@ flowchart TD
 
     PC --> REVIEW["Code review\n+ plan corrections"]
     REVIEW --> PRESENT["Present track results\nUser reviews"]
-    PRESENT -->|Approved| END_TRACK["Session ends\n(track complete)"]
-    PRESENT -->|"Fixes needed"| FIX["Apply fixes"] --> PRESENT
-    PRESENT -->|"Fundamental rework"| REPLAN
+    PRESENT -->|Approve| END_TRACK["Session ends\n(track complete)"]
+    PRESENT -->|"Review mode\n(translate, confirm,\nspawn fixer; re-present)"| PRESENT
+    PRESENT -->|ESCALATE| REPLAN
 
     P4 --> END_P4["Session ends\n(Phase 4 complete)"]
 
@@ -404,10 +404,10 @@ User interaction points:
 |---|---|---|
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
-| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the step file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Proceed; adjust (light edits to any remaining track's plan / step file including reorder, applied directly); clarify (notes written into the upcoming track's step-file `## Description` as a `### Clarifications` subsection on Proceed); or ESCALATE (Panel 1 ESCALATE accepted, or deep amendment requested) → inline replanning. Skipped on State C resume. |
+| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the step file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (free-form refinement loop — translator + action-set confirmation; on Apply, executes `EDIT_PLAN` / `EDIT_STEP_DESC` items, buffers `CLARIFY` items, answers `QUESTION` items inline; re-renders panels); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
-| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
+| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write track episode + collapse + `[x]`); **Review mode** (free-form refinement loop — on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`; `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
 | **Self-improvement reflection (every session end)** | 0..N proposed YouTrack issues (capped at 3, deduped against existing `project: YTDB tag: dev-workflow` issues), each with title + Bug/Feature type + one-line summary; skipped with a notice when the YouTrack MCP server is unreachable | Pick which proposals to create in YouTrack (numbers, "all", or "none") |
@@ -428,9 +428,11 @@ inside Phase B.
 ## Inline Replanning (ESCALATE)
 
 Triggers when the Track Pre-Flight gate produces ESCALATE (Panel 1
-strategy assessment ESCALATE accepted by the user, or `Adjust` would
-touch a deep-amendment category — Decision Records, Architecture
-Notes, Goals, Constraints, adding/removing tracks, cross-track
+strategy assessment ESCALATE accepted by the user, or review mode
+produces an `ESCALATE` action item / a Mixed-set Escalate-now per
+[`review-mode.md`](review-mode.md) § ESCALATE detection — i.e., the
+requested change touches Decision Records, Architecture Notes,
+Goals, Constraints, adding/removing tracks, or cross-track
 interaction surfaces), cross-track impact detects fundamental
 assumption failure, or a step failure cannot be recovered with
 additional commits. Stops all new steps and enters a
