@@ -195,9 +195,10 @@ not a contract.
 a prior Review-mode pass, the guidance overrides the default
 bucketing for the items it named. Review-mode guidance names
 contributing dimension IDs (`BC3`, `TX1`, …), not `M<n>` IDs (which
-are fresh per synthesis). Walk the §Synthesis audit trail's
-contributing-dimensions list for each merged row and apply the
-user's bucket override before final assignment.
+are assigned during synthesis, after the Review-mode pass ran).
+Walk the §Synthesis audit trail's contributing-dimensions list for
+each merged row and apply the user's bucket override before final
+assignment.
 
 Step-level synthesis (per
 [`step-implementation.md`](step-implementation.md) §Per-Step
@@ -321,7 +322,7 @@ are the canonical names cited from elsewhere in this recipe and from
 synthesis decisions that do not appear in the in-scope or deferred
 lists land here.
 
-The `M<n>` prefix is fresh for the synthesised list. The
+The `M<n>` prefix is assigned at synthesis time. The
 per-dimension finding IDs (e.g., `BC3`, `TX1`) live only in the
 audit trail of which dimension contributed each merged row; the
 implementer's `findings:` block carries only the `M<n>` IDs and
@@ -370,9 +371,9 @@ After mapping, fold any `New findings` from the gate-check reports
 into the resulting list and run Steps 1–4 across the union. The
 output format from Step 5 applies unchanged.
 
-If the synthesised in-scope list is empty after Steps 1–4 AND no
-`REGRESSION` verdict was seen, return PASS and exit the review loop
-without respawning the implementer. A `REGRESSION` verdict always
-forces `FAIL` even when it produced no merged in-scope row — the
-regression's `revert-or-repair` guidance carries the iteration
-regardless of dedup outcome.
+If the synthesised in-scope list is empty after Steps 1–4, return
+PASS and exit the review loop without respawning the implementer.
+A `REGRESSION` verdict always forces `FAIL` and is forwarded as a
+standalone in-scope entry per Step 1 above, so an empty list and a
+`REGRESSION` verdict cannot co-occur; the regression's
+`revert-or-repair` guidance always reaches the implementer.
