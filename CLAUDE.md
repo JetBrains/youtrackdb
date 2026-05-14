@@ -245,6 +245,10 @@ The thresholds in this section MUST stay in sync with:
 - `.claude/scripts/statusline-command.sh` — the line that writes `level=...`
 - `.claude/workflow/workflow.md` — § Context Consumption Check (the level table)
 - `.claude/workflow/track-review.md` and `.claude/workflow/track-code-review.md` — the inline "warning (≥30%) or critical (≥40%)" gates
+- `.claude/workflow/implementation-review.md` — the State 0 inline gate
+- `.claude/workflow/step-implementation.md` — the Phase B inline gate
+- `.claude/workflow/prompts/create-final-design.md` — the Phase 4 inline gate
+- `.claude/workflow/mid-phase-handoff.md` — § When this protocol fires (defines the trigger thresholds)
 
 If you change a threshold here, grep for the others and update them in the same commit.
 

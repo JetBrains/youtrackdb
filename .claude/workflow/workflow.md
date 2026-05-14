@@ -131,7 +131,33 @@ cross-track impact.
    - `[x]` — completed
    - `[~]` — skipped
 
-3. **Determine session state** from the plan file and step files:
+3. **Run the Branch Divergence Check.** Load
+   [`branch-divergence-check.md`](branch-divergence-check.md) and
+   follow it. This must happen in turn 1, before any per-commit push
+   work — including handoff-resolution commits in the next step. A
+   diverged branch left undetected makes every `git push` across the
+   session reject silently and defeats the "push every commit"
+   safety net (see `commit-conventions.md` § Push every commit). The
+   protocol detects divergence and asks the user to pick one of three
+   resolutions (local-authoritative, remote-authoritative, defer);
+   no default is picked.
+
+4. **Check for active handoffs.** Run:
+   ```bash
+   ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+   ```
+   `-t` sorts most-recent-first by mtime so the resume protocol
+   processes handoffs in the correct order.
+   If any files exist, load
+   [`mid-phase-handoff.md`](mid-phase-handoff.md) and follow its
+   §Resume protocol. That protocol re-presents the pending decision
+   (or research findings) to the user, deletes resolved handoff files
+   and their secondary PAUSED markers, and only then returns control
+   to step 5 below. While a handoff is unresolved, the orchestrator
+   MUST NOT spawn sub-agents, re-run gate-checks, or recompile
+   episodes. See `mid-phase-handoff.md` for the full resume contract.
+
+5. **Determine session state** from the plan file and step files.
 
    | Plan file state | Step file state | Session state |
    |---|---|---|
@@ -180,7 +206,7 @@ cross-track impact.
    auto-fix vs. user escalation). End the session after the gate
    passes.
 
-4. **Inform the user** of the auto-resume decision:
+6. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why (or that plan review is
      pending if State 0)
    - If resuming mid-track: which steps are done, which is next
@@ -197,16 +223,6 @@ cross-track impact.
 
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
-
-5. **Run the Branch Divergence Check.** Load
-   [`branch-divergence-check.md`](branch-divergence-check.md) and
-   follow it. This must happen in turn 1, before any per-commit
-   push work. A diverged branch left undetected makes every
-   `git push` across the session reject silently and defeats the
-   "push every commit" safety net (see `commit-conventions.md`
-   § Push every commit). The protocol detects divergence and asks
-   the user to pick one of three resolutions (local-authoritative,
-   remote-authoritative, defer); no default is picked.
 
 ---
 
@@ -313,6 +329,25 @@ yet.
    - Ensure all code changes are committed
    - Ensure all progress is written to the step file on disk
    - Update the **Progress** section in the step file on disk
+   - **Write a handoff file** per
+     [`mid-phase-handoff.md`](mid-phase-handoff.md) if the pause
+     leaves mid-phase state the next session cannot re-derive from
+     the plan / step files alone. Mandatory for:
+     - between-iteration pauses in Phase C;
+     - post-decomposition / between-review pauses in Phase A;
+     - mid-research pauses in Phase 0 / 1;
+     - mid-section pauses in Phase 4;
+     - any pause where verbatim re-present text or partial research
+       notes would otherwise be lost.
+
+     The handoff file goes under
+     `docs/adr/<dir-name>/_workflow/handoff-<phase>.md`, paired with
+     a `**PAUSED ...**` marker in the natural progress-tracking file
+     (skipped for Phase 0 / 1 — see `mid-phase-handoff.md`
+     §Secondary marker) and a cross-reference in MEMORY.md. All
+     channels are written in a single commit with a bare imperative
+     message such as `Pause <phase> for context refresh — write
+     handoff`.
 3. **Ask the user for a session refresh:**
    - Inform them of current progress and what remains
    - Instruct: "Context window is running low. Please clear the session
@@ -492,7 +527,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
-- **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 5; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
+- **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 3; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)

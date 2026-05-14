@@ -491,10 +491,19 @@ orchestrator never edits source files itself in Phase C.
      `warning` (≥30%) or `critical` (≥40%), do NOT start the next
      iteration. Save all work (update Progress section with current
      iteration count, commit) and ask the user for a session refresh
-     (see workflow.md §Context Consumption Check). If the level is
-     `safe`/`info`, continue to the next iteration. If the file does
-     not exist or the command fails, this is **not an error** — treat
-     as `safe` and continue.
+     (see workflow.md §Context Consumption Check). If the pause leaves
+     Phase C mid-flight (for example, gate-checks already PASSed but
+     track-completion approval is still pending, or iteration N has
+     committed `Review fix:` but iteration N+1's gate-check sub-agents
+     have not run), write a handoff file per
+     [`mid-phase-handoff.md`](mid-phase-handoff.md). The handoff
+     captures the iteration count, the gate-check outcomes, and the
+     verbatim track-completion summary to re-present, so the next
+     session does not re-spawn reviewer / gate-check sub-agents whose
+     output is already on disk. If the level is `safe`/`info`,
+     continue to the next iteration. If the file does not exist or
+     the command fails, this is **not an error** — treat as `safe`
+     and continue.
 4. Max 3 iterations **total across sessions** — on resume, read the
    iteration count from the Progress section to determine how many remain.
    The iteration count is shared across all review dimensions (not

@@ -59,7 +59,17 @@ Follow the startup protocol in `workflow.md`:
    `docs/adr/<dir-name>/_workflow/implementation-plan.md`.
 2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
    `[~]` skipped).
-3. Determine session state and auto-resume:
+3. **Run the Branch Divergence Check** per
+   `.claude/workflow/branch-divergence-check.md`. This must complete
+   before any commit / push work in this session — including a
+   handoff resolution commit in step 4.
+4. **Check for active handoffs.** Run
+   `ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null`. If any
+   files exist, load `.claude/workflow/mid-phase-handoff.md` and follow
+   its §Resume protocol before any state evaluation below. Do NOT spawn
+   sub-agents, recompile episodes, or re-run gate-checks while a handoff
+   is unresolved.
+5. Determine session state and auto-resume:
    - **State 0** (`## Plan Review` is `[ ]` or section missing): load
      `implementation-review.md` on-demand and run the autonomous plan
      review (consistency + structural). End session after the audit
@@ -86,10 +96,10 @@ Follow the startup protocol in `workflow.md`:
 
    State 0 is checked **before** State A/C/D — plan review must
    complete before any track-level work begins.
-4. Inform the user of the auto-resume decision. The user can override, but
+6. Inform the user of the auto-resume decision. The user can override, but
    by default proceed without waiting for confirmation.
-5. Load the phase-specific workflow document and execute that phase only.
-6. After the phase completes, end the session. Instruct the user to clear
+7. Load the phase-specific workflow document and execute that phase only.
+8. After the phase completes, end the session. Instruct the user to clear
    context and re-run `/execute-tracks` for the next phase.
 
 Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):

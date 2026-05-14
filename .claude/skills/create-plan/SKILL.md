@@ -19,13 +19,39 @@ Do **NOT** read `.claude/workflow/planning.md` or
 `.claude/workflow/design-document-rules.md` yet — they are only needed when
 the user asks to create the plan (Step 4). Load them on demand at that point.
 
+**Resolve `<dir-name>`.** All subsequent steps reference
+`docs/adr/<dir-name>/_workflow/`; resolve the placeholder once before
+running any command that uses it. If `"$ARGUMENTS"` is non-empty, use
+it. Otherwise, default to `$(git branch --show-current)`.
+
+**Step 1a — Handoff check (mandatory, before any other on-disk work).**
+Run:
+```bash
+ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+```
+If any files exist, load
+[`.claude/workflow/mid-phase-handoff.md`](../../workflow/mid-phase-handoff.md)
+and follow its §Resume protocol BEFORE Step 1b. A previous
+`/create-plan` session paused mid-research or mid-planning and left a
+handoff to be re-presented. Do NOT ask for the aim, start fresh
+research, or write plan files until the handoff is resolved.
+
+**Step 1b — Create the workflow directory.**
+
+As the first durable action of `/create-plan`, ensure the workflow
+directory exists so research handoff files have a home if context
+fills up before Step 4:
+```bash
+mkdir -p docs/adr/<dir-name>/_workflow/tracks
+```
+This is idempotent — safe to re-run on resume. The directory carries
+the plan, design, step files, and handoff files; the Phase 4 cleanup
+commit removes it before merge (see
+`.claude/workflow/conventions.md` §1.2).
+
 **Step 2 — Ask the user for the aim.**
 
 After you have finished reading the workflow documents, ask the user to describe the aim and goal for this session. Do NOT proceed until the user provides the aim. Wait for the user's response before starting any research or planning work.
-
-Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
-name. Otherwise, default to the current git branch name
-(`git branch --show-current`).
 
 The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
