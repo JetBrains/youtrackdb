@@ -72,9 +72,16 @@ are readable on reopen.
 >   end-to-end race is gone, because the race vector lives in the
 >   discovery surface, not just the cache install. Track 4 absorbed
 >   the read-side migration that was originally Track 3.).
+> - Depends on Track 7 (the recovery-time orphan-truncation pass for
+>   EP-equipped components — Track 6's CS1 scenario asserts the
+>   post-replay invariant Track 7 establishes; verifying CS1 against
+>   pre-Track-7 code would produce the bare availability impact
+>   instead of the recovered-and-writable state the structural fix
+>   targets).
 > - Independent of Track 5 (which is API hygiene only).
-> - Verifies invariants **I1** and **I4** end-to-end and confirms the
->   bug-as-reported (the symptom that motivated this work) is resolved.
+> - Verifies invariants **I1**, **I4**, and **I6** end-to-end and
+>   confirms the bug-as-reported (the symptom that motivated this
+>   work) is resolved.
 
 ## Phase C deferrals absorbed (from Track 4 review fan-out)
 
@@ -90,15 +97,18 @@ beyond the original poison-cascade test:
   WAL flush and its `AsyncFile.allocateSpace` extension (or a
   `EnsurePageIsValidInFileTask` that stamps the file while the WAL
   is still buffered) can leave a physical page beyond
-  `entryPoint.pagesSize`. The next allocator on the same component
-  sees `pageIndex = pagesSize + 1 < writeCache.getFilledUpTo(fileId)`
-  and trips the AOBT `IllegalStateException("allocation-only;
-  pageIndex N is below allocationFloor M")`. Track 4's structural fix
-  trades silent reuse for loud failure. Track 6 must intentionally
-  exercise this path so we either confirm the bounded-leak acceptance
-  with evidence or gather data motivating a future
-  `reuseOrphanPageForWrite` SPI (or recovery-time `fileTruncate` to
-  `entryPoint.pagesSize * pageSize` at storage open).
+  `entryPoint.pagesSize`. Without the Track 7 recovery-time truncate
+  pass, the next allocator on the same component would see
+  `pageIndex = pagesSize + 1 < writeCache.getFilledUpTo(fileId)` and
+  trip `IllegalStateException("allocation-only; pageIndex N is below
+  allocationFloor M")`. **With Track 7 in place**, the storage-open
+  pass restores `physical == logical` post-replay, so Track 6's CS1
+  step drives the partial-flush path on each of the four EP-equipped
+  components, restarts the storage, asserts post-replay physical =
+  logical (invariant I6), and asserts the next TX completes without
+  `IllegalStateException`. Pin both the truncate-needed and
+  no-op-clean-shutdown branches so a future change that breaks the
+  recovery pass fails loudly.
 - **HLL-spill crash-then-second-spill recovery**. The IHM page-1
   discriminator introduced in Track 4 Step 2 routes the first spill
   through `loadOrAddPageForWrite` and subsequent spills through

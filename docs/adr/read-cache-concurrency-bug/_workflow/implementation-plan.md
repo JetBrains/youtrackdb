@@ -189,9 +189,42 @@ flowchart LR
   protocol.
 - **Risks/Caveats**: larger blast radius (touches storage components,
   not just the cache). Mitigated by the per-track test discipline
-  (Track 2 for cache; Track 6 for end-to-end).
+  (Track 2 for cache; Track 6 for end-to-end). The "cache absorbs
+  orphans uniformly" rationale holds **within-TX only**; cross-recovery
+  orphans (partial flush + JVM crash) are handled by D6's recovery-time
+  truncate pass for EP-equipped components, not by cache semantics.
 - **Implemented in**: Tracks 1, 3, 4 (the structural fix lands across
   all three).
+
+#### D6: Recovery-time orphan truncation pass for EP-equipped components
+
+- **Alternatives considered**: marker-bit (already rejected by D5);
+  `reuseOrphanPageForWrite` SPI allowing below-allocation-floor
+  pageIndex (rejected — re-exposes the discovery channel D4 is
+  tightening); accept the availability impact and document only in
+  `adr.md` (rejected — silent self-healing pre-fix becomes noisy
+  manual-recovery post-fix; operational regression).
+- **Rationale**: Track 4's `addPage` deletion + AOBT allocator-only
+  contract converts the previously-silent partial-flush-orphan path
+  into a noisy `IllegalStateException` at the next allocator call.
+  Without a recovery pass the storage component becomes unwriteable
+  after a JVM-only crash until manual repair. A storage-open pass —
+  for each in-scope component, load its EP page, compare logical
+  pages to `AsyncFile.getFileSize() / pageSize`, call the new
+  `WriteCache.shrinkFile(fileId, targetBytes)` when physical exceeds
+  logical — restores the `logical == physical` invariant before any
+  TX runs. The pass reads logical state from the EP only (no
+  `getFilledUpTo` on the steady-state discovery path), so D2 and D4
+  stay intact.
+- **Risks/Caveats**: in-scope is the four EP-equipped components
+  subject to CS1: `BTree`, `SharedLinkBagBTree`,
+  `CollectionPositionMapV2`, `PaginatedCollectionV2`. EP-less
+  components and `IndexHistogramManager` are deliberately out of
+  scope — see Non-Goals for the carve-out rationale.
+- **Implemented in**: Track 7.
+- **No `**Full design**` section**: D6 carries its rationale and
+  risks in the bullets above (precedent: D5 also has no
+  `**Full design**` link).
 
 ### Invariants
 
@@ -212,6 +245,11 @@ flowchart LR
 - **I5**: `entryPoint.pagesSize` / `fileSize` is bumped only inside the
   same WAL atomic unit that performed the corresponding `loadOrAdd`,
   via the existing `SetPagesSizeOp` / `SetFileSizeOp` WAL records.
+- **I6**: After `AbstractStorage.recoverIfNeeded()` returns and before
+  any TX runs, every EP-equipped storage component (BTree, SLBB,
+  CollectionPositionMapV2, PaginatedCollectionV2) satisfies
+  `entryPoint.fileSize == AsyncFile.getFileSize() / pageSize`.
+  Established by Track 7's recovery-time pass; maintained by I5.
 
 ### Integration Points
 
@@ -225,11 +263,25 @@ flowchart LR
   parallel implementation of the new primitive.
 - `DiskStorage.backupPagesWithChanges` reads file-physical size during
   storage quiesce via the gated path introduced in Track 5.
+- `AbstractStorage.recoverIfNeeded()` invokes the Track 7 recovery-
+  time truncate pass between `restoreFromWAL()` and `flushAllData()`,
+  iterating EP-equipped components. Per-component mechanics + field
+  list: see `tracks/track-7.md`.
 
 ### Non-Goals
 
-- Post-WAL-replay file truncation to reclaim orphan disk pages — bounded
-  leak, separate ticket.
+- Post-WAL-replay file truncation for **EP-less** components
+  (`FreeSpaceMap`, `CollectionDirtyPageBitSet`) — their allocators
+  derive target pageIndex from `getFilledUpTo`-anchored growth loops
+  and naturally skip orphans, so no recovery-time pass is required.
+  Track 7 lands the recovery-time truncate pass for the four
+  **EP-equipped** components subject to CS1; this Non-Goal records
+  the conscious EP-less carve-out.
+- Post-WAL-replay file truncation for `IndexHistogramManager` — IHM
+  uses a page-1 discriminator (`op.filledUpTo > 1 ? load : allocate`)
+  rather than an EP-fileSize check, so the Track 7 EP-driven pass
+  does not apply. The HLL-spill recovery scenario is covered by
+  Track 6.
 - Performance debt of the recovery probe — tracked in
   `ISSUE-recovery-log-perf-debt.md`.
 - Truncate-cache purge ordering bug — tracked in
@@ -440,15 +492,17 @@ flowchart LR
   > committed records are readable on reopen.
   >
   > **Phase C deferrals absorbed (Track 4 review fan-out):**
-  > - **Partial-flush-orphan recovery (CS1)** — intentionally exercise
-  >   the multi-page partial-flush-orphan path so the structural
-  >   "loud `IllegalStateException` rather than silent reuse" trade-off
-  >   is verified end-to-end and the evidence either motivates a future
-  >   `reuseOrphanPageForWrite` SPI or confirms the bounded-leak
-  >   acceptance.
+  > - **Partial-flush-orphan recovery (CS1)** — drive the multi-page
+  >   partial-flush-orphan path on each of the four EP-equipped
+  >   components (`BTree`, `SLBB`, `CPMV2`, `PCV2`); restart the
+  >   storage; assert that the Track 7 recovery-time truncate pass
+  >   restored `physical == logical` and the next TX completes without
+  >   `IllegalStateException`. Pin both the truncate-needed and
+  >   no-op-clean-shutdown branches.
   > - **HLL-spill recovery** — crash-then-second-spill regression for
   >   the IHM HLL-page-1 discriminator (`op.filledUpTo > 1 ? load :
-  >   allocate`).
+  >   allocate`). Out of Track 7 scope because IHM uses a page-1
+  >   discriminator rather than EP-fileSize sizing.
   > - **StorageBackupMTStateTest `@Ignore` resurrection** — concurrent
   >   incremental-backup recovery test for the collapsed
   >   `restoreFromIncrementalBackup` loop.
@@ -461,22 +515,51 @@ flowchart LR
   >
   > **Scope:** ~5-7 steps covering: (a) original poison-cascade test
   > scaffolding + fail-on-develop / pass-on-fix verification;
-  > (b) CS1 partial-flush-orphan scenario; (c) HLL-spill recovery;
-  > (d) StorageBackupMTStateTest resurrection; (e) I4 per-component
-  > MT pins across the four allocator sites + in-memory contention
-  > strengthening.
-  > **Depends on:** Track 1, Track 4
+  > (b) CS1 partial-flush-orphan scenario (post-Track-7 invariant
+  > assertion); (c) HLL-spill recovery; (d) StorageBackupMTStateTest
+  > resurrection; (e) I4 per-component MT pins across the four
+  > allocator sites + in-memory contention strengthening.
+  > **Depends on:** Track 1, Track 4, Track 7
+
+- [ ] Track 7: Recovery-time orphan-truncation pass
+  > Add a recovery-time pass to `AbstractStorage.recoverIfNeeded()`
+  > (after `restoreFromWAL()`, before `flushAllData()`) that walks
+  > each EP-equipped storage component, reads its entry-point logical
+  > page count, and truncates physical orphans via a new
+  > `WriteCache.shrinkFile(fileId, targetBytes)` primitive backed by
+  > `AsyncFile.shrink`.
+  >
+  > **Scope:** ~3-4 steps covering: (a) `WriteCache.shrinkFile` SPI
+  > addition + `WOWCache` impl wrapping `AsyncFile.shrink` +
+  > `DirectMemoryOnlyDiskCache` no-op impl + unit tests; (b)
+  > per-EP-equipped-component `verifyAndTruncateOrphans(AtomicOperation,
+  > WriteCache)` helper that loads its EP page (read-only), compares
+  > logical to `AsyncFile.getFileSize() / pageSize`, and calls
+  > `shrinkFile` when physical exceeds logical; (c)
+  > `AbstractStorage.recoverIfNeeded()` wiring + iteration over the
+  > four component classes via the existing `collections` /
+  > `indexEngines` / `linkCollectionsBTreeManager` fields; (d)
+  > integration tests pinning the post-replay `physical == logical`
+  > invariant for each EP-equipped component, including a positive
+  > test (orphan present → truncated) and a negative test (clean
+  > shutdown → no-op).
+  > **Depends on:** Track 4
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 3 (post-replan re-validation)
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
-**Auto-fixed (mechanical)**: CR1 (IHM:1833 EP-equipped misclassification in plan D4 + design §"Migration shape" — re-split as 3 EP-equipped + 3 EP-less = 6); CR2 (Track 4 double-count "≈21 external addPage call sites" — corrected to 19 in plan + backlog + design §"Why addPage is deletable"); CR3 (D2 "four sites" / "4 physical-by-design sites" stale after CR1 — corrected to "three sites" / "3 physical-by-design sites in EP-equipped components"); S1 (D2 41-line body — trimmed to four-bullet form, ~17 lines); S2 (D4 41-line body — trimmed to four-bullet form, ~17 lines); S3 (Track 4 plan-file intro ~19 lines — reduced to 3 sentences); S4 (Track 5 plan-file intro ~14 lines — reduced to 3 sentences); S5 (Component Map `EntryPoint` bullet + Invariant I1 stated "sole" / "only" discovery surface contradicting revised D2/D4 — rewritten for two-surface model); S6 (design.md Overview "every storage component already maintains" — softened to "most storage components" with EP-less carve-out and §"Allocation discovery surface" cross-reference); S8 (sibling of S6 in design.md §"Class Design" — "every storage component already has" rewritten to "most storage components already carry" with explicit EP-less enumeration).
+_Reset on 2026-05-14 by inline replan landing in response to the Track 4 Phase C CS1 escalation (user chose Option 3b — recovery-time truncate). Per inline-replanning.md step 6, the section is reset to `[ ]` so the next `/execute-tracks` session re-runs State 0 against the revised plan._
 
-**Escalated (design decisions)**: none.
+Revisions in this commit:
+- New Decision Record D6 (recovery-time orphan truncation pass).
+- D5 Risks/Caveats acknowledging the within-TX vs cross-recovery split.
+- New Invariant I6 pinning the post-recovery `logical == physical` invariant.
+- New Integration Points bullet for the recovery-time pass wiring.
+- New Track 7 added.
+- Track 6 CS1 scope reshaped + Depends-on updated to include Track 7.
+- Non-Goals first item rewritten to scope out EP-less components; new bullet scopes out `IndexHistogramManager`.
 
-**Deferred suggestions (logged in design-mutations.md)**: §"Migration shape" sub-bullet split for EP-equipped/EP-less visual parallelism; growth-loop arithmetic precision ("~9 + ~8 + 2") to be pinned in Phase A of Track 4; §"Why `addPage` is deletable" double-count clarifier (resolved by CR2); Overview dual-surface signalling polish; S7 Non-Goals ticket-path qualification (suggestion only, no structural defect).
-
-**Previous PASS (preserved for traceability)**: the consistency + structural reviews passed at iteration 2 during initial plan creation (committed in `02cd718e0d` alongside `_workflow/reviews/consistency.md` / `_workflow/reviews/structural.md`). Iteration-2 auto-fixes covered CR1–CR12 (path corrections, off-by-one counts, intra-plan contradiction reconciliation, intro trimming) and S1–S6 (structural cleanups). S7 (suggestion to reshape D5) was rejected with rationale. The post-replan re-validation above overwrote that audit; the iteration-1/2 finding IDs in this section refer to the post-replan run, not the original.
+_Previous PASS (preserved for traceability)_: prior consistency + structural reviews passed at iteration 3 of a post-replan re-validation (see git history before 2026-05-14). Earlier iteration-2 PASS at initial plan creation in commit `02cd718e0d`. Both audits are superseded by the next State 0 run.
 
 ## Final Artifacts
 
