@@ -1120,15 +1120,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             //   - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddPageForWrite eagerly
             //     installs the page in MemoryFile during the TX, so the commit-time
             //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
-            // The prior null-branch reconciliation (do/while readCache.allocateNewPage) was
-            // a defensive belt during the migration to total loadOrAdd. Of the four
-            // collapsed sites, this one is the only reachable site on the in-memory engine
-            // (the AbstractStorage WAL-replay branches and DiskStorage incremental-backup
-            // restore are disk-only because MemoryWriteAheadLog is a no-op). So an
-            // assertion is not sufficient here: any future extension or test caller that
-            // bypasses loadOrAddPageForWrite on the in-memory engine would surface a null
-            // return only in -ea test builds. Throw unconditionally so the violation is
-            // visible in production builds too.
+            // Of the four sibling loadOrAddForWrite sites, this one is the only reachable
+            // site on the in-memory engine (the AbstractStorage WAL-replay branches and
+            // DiskStorage incremental-backup restore are disk-only because
+            // MemoryWriteAheadLog is a no-op). So an assertion is not sufficient here:
+            // any future extension or test caller that bypasses loadOrAddPageForWrite on
+            // the in-memory engine would surface a null return only in -ea test builds.
+            // Throw unconditionally so the violation is visible in production builds too.
             if (cacheEntry == null) {
               throw new IllegalStateException(
                   "readCache.loadOrAddForWrite returned null in commitChanges for fileId="

@@ -1818,9 +1818,7 @@ public class DiskStorage extends AbstractStorage {
         // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
         // gap-fills intermediate pages between currentSize and the recorded pageIndex);
         // incremental-backup restore only runs on the disk engine, so the disk-engine
-        // totality is sufficient here. The prior null-branch reconciliation (do/while
-        // readCache.allocateNewPage) was a defensive belt during the migration to total
-        // loadOrAdd.
+        // totality is sufficient here.
         final var cacheEntry =
             readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
         // Incremental-backup restore is disk-only by construction, so an -ea assert

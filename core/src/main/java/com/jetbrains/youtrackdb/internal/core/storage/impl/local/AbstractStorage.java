@@ -5392,9 +5392,7 @@ public abstract class AbstractStorage
           // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
           // gap-fills any intermediate pages between currentSize and recordedPageIdx); WAL
           // replay never reaches the in-memory engine (MemoryWriteAheadLog is a no-op), so
-          // the disk-engine totality is sufficient here. The prior null-branch
-          // reconciliation (do/while readCache.allocateNewPage) was a defensive belt during
-          // the migration to total loadOrAdd.
+          // the disk-engine totality is sufficient here.
           final var cacheEntry =
               readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
           // Asymmetric assert vs throw: see AtomicOperationBinaryTracking.commitChanges
@@ -5470,9 +5468,7 @@ public abstract class AbstractStorage
           // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
           // gap-fills any intermediate pages between currentSize and recordedPageIdx); WAL
           // replay never reaches the in-memory engine (MemoryWriteAheadLog is a no-op), so
-          // the disk-engine totality is sufficient here. The prior null-branch
-          // reconciliation (do/while readCache.allocateNewPage) was a defensive belt during
-          // the migration to total loadOrAdd.
+          // the disk-engine totality is sufficient here.
           final var cacheEntry =
               readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
           // -ea assert is sufficient on this disk-only WAL-replay site
