@@ -992,22 +992,26 @@ proceed directly to track completion **in the same session**.
      work the review-mode loop has accumulated (none on the first
      render, or one or more `Review fix:` commits on HEAD if
      earlier rounds applied `FIX_FINDING` items).
-   - **Review mode** — enter the free-form refinement loop per
-     [`review-mode.md`](review-mode.md) § Loop.
+   - **Review mode** — enter the conversational refinement loop
+     per [`review-mode.md`](review-mode.md) § Flow.
    - **ESCALATE** — trigger inline replanning per
      [`inline-replanning.md`](inline-replanning.md).
 
-   **Review mode side effects.** On Apply, `FIX_FINDING` items are
-   collected into a synthesised findings list (each item: location,
-   issue, proposed fix) and a fresh implementer is spawned with
+   **Review mode side effects.** The user drops observations
+   across as many chat turns as they want; the orchestrator
+   silently classifies and accumulates them. When the user
+   signals completion, one approval panel surfaces the
+   accumulated set. On Apply, `FIX_FINDING` items are collected
+   into a synthesised findings list (each item: location, issue,
+   proposed fix) and a fresh implementer is spawned with
    `level=track`, `mode=FIX_REVIEW_FINDINGS`, using the same prompt
    template and validity matrix as §Implementer Spawns above. The
    implementer's `Review fix:` commit lands on top of HEAD; the
    orchestrator does not touch source files itself. `QUESTION`
-   items are answered inline at proposal time and have no side
-   effect. `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK` / `CLARIFY`
-   are not available on Completion (see
-   [`review-mode.md`](review-mode.md) § Loop step 2).
+   items are answered inline in chat as they came in (no Apply
+   side effect). `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK` /
+   `CLARIFY` are not available on Completion (see
+   [`review-mode.md`](review-mode.md) § Action types).
 
    **Completion outcome mapping.** For what each implementer
    return status (`SUCCESS` / `FAILED` / `DESIGN_DECISION` /
