@@ -481,10 +481,22 @@ finding ID prefixes, and gate format.
       `{M}`, and `{commit}` with concrete values when composing each
       prompt.
 
-   b. **Synthesise.** After all selected agents complete,
-      deduplicate findings across dimensions and prioritise
-      (blocker > should-fix > suggestion). Merge findings that
-      multiple agents flagged for the same code location.
+   b. **Synthesise.** After all selected agents complete, run the
+      canonical procedure in
+      [`finding-synthesis-recipe.md`](finding-synthesis-recipe.md):
+      deduplicate across dimensions by `file:line` → issue shape →
+      suggested fix shape, prioritise on the
+      `blocker` / `should-fix` / `suggestion` scale (per
+      [`review-iteration.md`](review-iteration.md) §Severity
+      levels), and emit the merged list in the format the
+      implementer's `findings:` block consumes. Step-level review
+      operates on a single step's diff, so the deferred /
+      plan-correction buckets in the recipe are typically empty
+      here — most surfaced findings are in-scope for the next
+      `FIX_REVIEW_FINDINGS` respawn. Items the orchestrator judges
+      out of scope for the step are recorded in the `EPISODE_DRAFT`
+      instead, not routed via §Plan Corrections (that flow is
+      track-level only).
    c. **If findings need fixes**, respawn the implementer with
       `mode=FIX_REVIEW_FINDINGS` and the synthesised findings as
       input. The implementer applies the fixes on top of the

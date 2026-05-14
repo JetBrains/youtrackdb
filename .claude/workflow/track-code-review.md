@@ -381,26 +381,34 @@ synthesis.
 
 ## Synthesis
 
-After all selected sub-agents complete, produce a unified findings list:
+After all selected sub-agents complete, produce a unified findings list
+by running the canonical procedure in
+[`finding-synthesis-recipe.md`](finding-synthesis-recipe.md). The recipe
+covers:
 
-1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a
-   missing crash-recovery test flagged by both `review-test-crash-safety`
-   and `review-crash-safety`), merge into one finding and note which
-   dimensions identified it.
+1. **Deduplication** by pivot order (`file:line` → issue shape →
+   suggested fix shape → severity tie-break), with a worked example
+   showing a 5-way cross-dimension merge.
+2. **Severity assignment** against the standard `blocker` /
+   `should-fix` / `suggestion` scale defined in
+   [`review-iteration.md`](review-iteration.md) §Severity levels,
+   including the rules for downgrading or upgrading singletons whose
+   stated impact does not match the agent's assigned severity.
+3. **Bucketing** into in-scope this iteration, deferred to next
+   iteration, and plan-correction / out-of-track.
+4. **Pre-spawn budget** (target 8–12 findings, ≤ 6–8 files per
+   iteration — soft pacing under the ~15 / ~10 ceiling enforced in
+   §Review loop step 2 below).
+5. **Output format** for the synthesised list, including the
+   per-finding shape the implementer's `findings:` block consumes.
 
-2. **Prioritize**: Assign severity using the standard review severity
-   levels:
-   - **blocker** — must fix before merge (bugs, security vulns, crash
-     safety, data corruption, tests giving false confidence)
-   - **should-fix** — should fix before merge (likely bugs, performance
-     issues, concurrency risks, missing critical test coverage)
-   - **suggestion** — recommended improvements (minor style, optional
-     optimizations, additional test scenarios)
+The recipe also covers gate-check synthesis (mapping `VERIFIED` /
+`REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION` verdicts and folding
+any `New findings` into the next iteration's input) — that is the same
+procedure routed from [`review-iteration.md`](review-iteration.md)
+§Gate-check synthesis routing.
 
-3. **Attribute**: For each finding, indicate which review dimension(s)
-   identified it and use the appropriate finding prefix.
-
-Present the synthesized findings list to proceed to the review loop.
+Present the synthesised findings list to proceed to the review loop.
 
 ---
 

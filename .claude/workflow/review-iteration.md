@@ -122,15 +122,21 @@ The orchestrator processes each gate-check verdict as follows:
 ### Gate-check synthesis routing
 
 After collecting gate-check returns from all re-spawned agents,
-re-run § Synthesis (as defined in
-[`track-code-review.md`](track-code-review.md) § Synthesis) on the
-aggregated `New findings` blocks before composing the next iteration's
-implementer input. This deduplicates across dimensions and enforces
-the global pre-spawn budget (~15 findings), so the per-agent ≤ 3
-cap × N agents cannot silently inflate the total. The same routing
-applies at step level: re-run `step-implementation.md` sub-step 4(b)
-**Synthesise** on the aggregated gate-check returns before composing
-the next implementer spawn.
+re-run the canonical synthesis procedure in
+[`finding-synthesis-recipe.md`](finding-synthesis-recipe.md) before
+composing the next iteration's implementer input. The recipe's
+§"Gate-check synthesis" section maps the five verdicts
+(`VERIFIED` / `REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION`) to
+forward / drop actions, then walks the aggregated `New findings`
+blocks through dedup, severity, and bucketing as for any initial
+synthesis. This deduplicates across dimensions and enforces the
+global pre-spawn budget (~15 findings), so the per-agent ≤ 3
+new-findings cap × N agents cannot silently inflate the total. The
+routing applies identically at both review levels — track-level
+re-enters from [`track-code-review.md`](track-code-review.md)
+§Review loop, step-level from
+[`step-implementation.md`](step-implementation.md) §Per-Step
+Orchestration Loop sub-step 4(d).
 
 ### Gate-check budget enforcement is best-effort
 
