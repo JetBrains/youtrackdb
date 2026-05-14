@@ -119,14 +119,22 @@ plan) couldn't resolve the reference, the reference is forbidden.
 
 ## Self-check before commit
 
-Run a quick grep on staged files before committing — applies to code,
-tests, and the two Phase 4 artifacts (NOT to commits that only stage
-files under `_workflow/`, which are themselves ephemeral):
+The implementer sub-agent runs this as a **hard pre-commit gate** —
+see [`implementer-rules.md`](implementer-rules.md) sub-step 3
+§"Pre-commit gate — ephemeral-identifier check" (and its mirror in
+[`commit-conventions.md`](commit-conventions.md) §"Ephemeral-identifier
+pre-commit gate"). For ad-hoc commits outside the workflow, run the
+same grep on staged files yourself — it applies to code, tests, and
+the two Phase 4 artifacts (NOT to commits that only stage files under
+`_workflow/`, which are themselves ephemeral):
 
 ```bash
-git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
 ```
 
-Anything this catches is either a genuine leak to rewrite or an
-allowed exception (e.g. issue tracker IDs, class names that happen to
-match the pattern) — inspect, then proceed.
+The `^\+`-anchored form narrows to additions so the gate stays fast
+on large refactor diffs by ignoring context lines. Anything this
+catches is either a genuine leak to rewrite (per §"How to rewrite a
+forbidden reference" above) or an allowed exception (e.g. issue
+tracker IDs, class names that happen to match the pattern) —
+inspect, then proceed.

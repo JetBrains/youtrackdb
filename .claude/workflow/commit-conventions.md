@@ -60,6 +60,43 @@ safety-net intent.
 
 ---
 
+## Ephemeral-identifier pre-commit gate
+
+Before issuing `git commit` on any change that touches paths
+outside `docs/adr/*/_workflow/`, run the narrowed grep over the
+`+`-prefixed additions of the staged diff:
+
+```bash
+git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
+```
+
+If the grep returns matches that aren't allowed exceptions (issue
+tracker IDs like `YTDB-NNN`, class / method / field names, file
+paths — see
+[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+§Allowed), load that file and rewrite each genuine leak per its
+§"How to rewrite a forbidden reference" section. Re-stage and
+re-run the grep until only allowed exceptions remain before
+issuing `git commit`. The check is a **hard gate** — a commit
+that lands ephemeral identifiers (`Track N`, `Step N`, review
+finding IDs, ephemeral iteration counters, named-only plan
+invariants) in non-`_workflow/` source is a contract violation,
+and the cost of catching the leak locally is milliseconds versus
+the downstream dim-review iteration that would otherwise flag it.
+The `^\+`-anchored form narrows to additions so the gate stays
+fast on large refactor diffs.
+
+The implementer sub-agent wires this gate into sub-step 3 of
+[`implementer-rules.md`](implementer-rules.md) (§"Pre-commit gate
+— ephemeral-identifier check") so every `/execute-tracks` commit
+runs it automatically. Manual commits outside the workflow — fix-up
+edits, branch hygiene, ad-hoc tweaks — must run the same gate by
+hand. Branch-only commit messages remain exempt regardless: they
+are squashed away on merge (see "Branch-only commit messages may
+cite workflow-internal identifiers" in the next section).
+
+---
+
 ## Commit type prefixes
 
 | Commit type | Message pattern | Example |

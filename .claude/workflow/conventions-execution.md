@@ -254,16 +254,27 @@ Forbidden in durable content:
 Allowed: file paths, class/method/field names, commit SHAs,
 `adr.md`-defined DR IDs, issue tracker IDs (e.g. `YTDB-123`).
 
-**Self-check before any code/test commit:**
+**Pre-commit gate — not a passive self-check.** The implementer
+sub-agent enforces this rule as a **hard gate** in sub-step 3 of
+[`implementer-rules.md`](implementer-rules.md) (§"Pre-commit gate
+— ephemeral-identifier check") before every `git commit` that
+touches paths outside `_workflow/`; the same gate is mirrored in
+[`commit-conventions.md`](commit-conventions.md) §"Ephemeral-identifier
+pre-commit gate" for ad-hoc commits outside `/execute-tracks`. Both
+sites carry the canonical procedure (regex, inspect-then-rewrite
+loop, contract-violation language); this stub does not duplicate
+them. For convenience, the regex is:
 
 ```bash
-git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
 ```
 
-If the grep fires zero matches, the commit is clean and
-`ephemeral-identifier-rule.md` does not need to be loaded for that
-commit. If it fires any matches — load the full rule and consult its
-"How to rewrite a forbidden reference" section before resolving.
+If it returns matches that aren't allowed exceptions (issue
+tracker IDs, class names that happen to match the pattern), load
+the full rule and consult its "How to rewrite a forbidden
+reference" section before issuing `git commit`. The `^\+`-anchored
+form narrows to additions so the gate stays fast on large refactor
+diffs.
 
 **Branch-only commit messages are exempt.** Individual commit messages
 on the development branch may cite Track / Step / finding labels —
