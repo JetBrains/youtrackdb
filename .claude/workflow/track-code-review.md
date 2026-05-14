@@ -1001,49 +1001,18 @@ proceed directly to track completion **in the same session**.
    are not available on Completion (see
    [`review-mode.md`](review-mode.md) § Loop step 2).
 
-   **Completion outcome mapping.** Completion FIX_FINDING does
-   **not** reuse §Phase C Implementer Handlers — those handlers
-   carry per-iteration bookkeeping (3-iteration counter, Progress
-   row, gate-check fan-out) tied to the pre-Completion review loop,
-   which has already exited by the time Completion's three-option
-   panel renders. The `Track-level code review` Progress row is
-   already `[x]` and stays that way; there is no iteration counter
-   at Completion (user-initiated, not budget-driven). The four
-   implementer outcomes feed Completion's re-render directly:
-
-   - **`SUCCESS`** (implementer committed a `Review fix:` on top of
-     HEAD). Re-read the cumulative track diff (`git diff
-     {base_commit}..HEAD`) and re-compile the track episode against
-     the new HEAD. If the user's fixes were substantial enough that
-     a gate-check run alone won't catch potential regressions, also
-     re-run track-level code review against the new HEAD (this is a
-     separate per-substance decision; not automatic). Present
-     updated results and re-render the three-option panel.
-   - **`FAILED`** (implementer returned `level=track, status=FAILED`
-     after exhausting its own internal retries). Do not write any
-     Progress row. Re-read the diff and re-compile the track episode
-     (the working tree may still have partial progress on HEAD).
-     Surface the unfixed findings to the user in the re-render with
-     a `**Review-mode fix attempt failed:**` line listing the
-     items that did not land. The user picks Review mode again to
-     refine, Approve to accept the track as-is despite the failure,
-     or ESCALATE.
-   - **`DESIGN_DECISION`** (implementer returned a deferred design
-     decision rather than a fix). Invoke
-     [`design-decision-escalation.md`](design-decision-escalation.md)
-     to walk the user through the alternatives. Treat the chosen
-     alternative as a new `FIX_FINDING` and re-enter the Review-mode
-     loop with that item pre-seeded — the user confirms it via the
-     action-set confirmation panel before another implementer
-     spawns.
-   - **`RESULT_MISSING`** (implementer exited without producing the
-     expected output — e.g., context exhaustion or crash). Present
-     three sub-options via `AskUserQuestion`: **commit-as-is**
-     (the implementer made partial progress on HEAD; treat it as
-     `SUCCESS` and re-compile the episode), **re-spawn** (one more
-     try with the same findings), **discard** (revert HEAD to
-     pre-Apply via `git reset --hard {pre_apply_sha}` and re-render
-     the panel as if Apply had not run).
+   **Completion outcome mapping.** For what each implementer
+   return status (`SUCCESS` / `FAILED` / `DESIGN_DECISION` /
+   `RESULT_MISSING`) means at Completion — including the
+   re-compile, the `**Review-mode fix attempt failed:**` surfacing,
+   the design-decision escalation flow, and the
+   `commit-as-is / re-spawn / discard` sub-panel for
+   `RESULT_MISSING` — see
+   [`review-mode.md`](review-mode.md) § Completion FIX_FINDING
+   outcome mapping. Completion FIX_FINDING does **not** reuse
+   §Phase C Implementer Handlers above; the spec lives at the
+   review-mode callsite because the four outcomes feed the
+   review-mode three-option re-render, not the iteration loop.
 
    The three-option panel re-renders after every review-mode Apply
    until the user picks **Approve** or **ESCALATE**.

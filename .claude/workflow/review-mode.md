@@ -307,14 +307,11 @@ net for rare real-write failures (disk full, file lock).
 - `FIX_FINDING`: collect into the synthesised findings list.
   After all other items have run, spawn a fresh implementer with
   `level=track`, `mode=FIX_REVIEW_FINDINGS` per
-  `track-code-review.md` § Track Completion step 3, which also
-  defines the Completion-specific outcome mapping for the four
+  `track-code-review.md` § Track Completion step 3. See
+  § Completion FIX_FINDING outcome mapping below for the four
   implementer return statuses (`SUCCESS` / `FAILED` /
-  `DESIGN_DECISION` / `RESULT_MISSING`). Completion FIX_FINDING
-  does **not** reuse the §Phase C Implementer Handlers (those carry
-  per-iteration bookkeeping for the pre-Completion review loop,
-  which has already exited); the spec lives at the Completion
-  callsite.
+  `DESIGN_DECISION` / `RESULT_MISSING`) and what each means for
+  the re-render.
 - `ESCALATE`: see §Mixed-set policy below. A sole `ESCALATE` item
   routes to `inline-replanning.md` immediately; mixed sets are
   refused before they reach this step.
@@ -457,6 +454,67 @@ On Completion, `CLARIFY` is not available: Completion has no
 upcoming-track step file to write into. Forward-looking notes on
 Completion are typically `FIX_FINDING` items ("change X to handle
 the case I just noticed").
+
+## Completion FIX_FINDING outcome mapping
+
+Completion `FIX_FINDING` Apply spawns an implementer with
+`level=track`, `mode=FIX_REVIEW_FINDINGS` per
+[`track-code-review.md`](track-code-review.md) § Track Completion
+step 3. This section defines what each of the four implementer
+return statuses means for review-mode's three-option re-render at
+Completion.
+
+Completion FIX_FINDING does **not** reuse the §Phase C Implementer
+Handlers from `track-code-review.md` — those handlers carry
+per-iteration bookkeeping (3-iteration counter, Progress row,
+gate-check fan-out) tied to the pre-Completion review loop, which
+has already exited by the time Completion's three-option panel
+renders. The `Track-level code review` Progress row is already
+`[x]` and stays that way; there is no iteration counter at
+Completion (user-initiated, not budget-driven; see
+`track-code-review.md` § Track Completion step 5 for the matching
+re-open rule).
+
+The four implementer outcomes feed Completion's re-render
+directly:
+
+- **`SUCCESS`** (implementer committed a `Review fix:` on top of
+  HEAD). Re-read the cumulative track diff (`git diff
+  {base_commit}..HEAD`) and re-compile the track episode against
+  the new HEAD per `track-code-review.md` § Track Completion
+  step 1 (the single re-compile entry point). If the user's fixes
+  were substantial enough that a gate-check run alone won't catch
+  potential regressions, also re-run track-level code review
+  against the new HEAD (this is a separate per-substance decision;
+  not automatic). Present updated results and re-render the
+  three-option panel.
+- **`FAILED`** (implementer returned `level=track, status=FAILED`
+  after exhausting its own internal retries). Do not write any
+  Progress row. Re-read the diff and re-compile the track episode
+  (the working tree may still have partial progress on HEAD).
+  Surface the unfixed findings to the user in the re-render with
+  a `**Review-mode fix attempt failed:**` line listing the items
+  that did not land. The user picks Review mode again to refine,
+  Approve to accept the track as-is despite the failure, or
+  ESCALATE.
+- **`DESIGN_DECISION`** (implementer returned a deferred design
+  decision rather than a fix). Invoke
+  [`design-decision-escalation.md`](design-decision-escalation.md)
+  to walk the user through the alternatives. Treat the chosen
+  alternative as a new `FIX_FINDING` and re-enter the Review-mode
+  loop with that item pre-seeded — the user confirms it via the
+  action-set confirmation panel before another implementer spawns.
+- **`RESULT_MISSING`** (implementer exited without producing the
+  expected output — e.g., context exhaustion or crash). Present
+  three sub-options via `AskUserQuestion`: **commit-as-is**
+  (the implementer made partial progress on HEAD; treat it as
+  `SUCCESS` and re-compile the episode), **re-spawn** (one more
+  try with the same findings), **discard** (revert HEAD to
+  pre-Apply via `git reset --hard {pre_apply_sha}` and re-render
+  the panel as if Apply had not run). `pre_apply_sha` is captured
+  by step 5's Apply preflight before any side effect runs. Off-
+  panel chat replies on this sub-panel re-render the panel rather
+  than routing as implicit Refine — see §Off-panel responses.
 
 ## State and resume
 
