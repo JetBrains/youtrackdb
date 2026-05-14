@@ -107,6 +107,20 @@ three options: **Use the verified alternative** (orchestrator proposes
 the closest matching name), **Drop the mention** (remove the reference
 from the step body), **Escalate to inline replanning**.
 
+This rule applies to non-interactive orchestrator writes (Phase 1
+plan write, Phase A decomposition writes, inline-replanning writes,
+autonomous strategy-refresh writes). Interactive writes through
+review mode (Track Pre-Flight and Track Completion) follow the same
+verify mechanism, the same one-retry rule, and the same mcp-steroid
+state handling, but substitute the action-set confirmation panel
+for this hard-stop `AskUserQuestion` — see
+[`review-mode.md`](review-mode.md) § Loop step 3 for the mapping.
+The action-set panel renders the same warning information; the
+user's Refine / Cancel paths cover Use-alternative / Drop /
+Escalate; Apply-with-warnings is the explicit user consent step
+that does not exist (and could not exist) in the non-interactive
+path.
+
 This rule is the orchestrator-side complement to the sub-agent-side
 PSI rule in §Tooling above.
 
@@ -116,9 +130,11 @@ Before Phase A's reviews and decomposition begin, the orchestrator
 runs a single Pre-Flight gate that combines a backward-looking
 strategy assessment (when an earlier track has just completed or
 been skipped) with a forward-looking summary of the upcoming track.
-The gate is the user's chance to apply light edits to remaining
-tracks, attach clarifications to the upcoming track, or escalate to
-inline replanning before sub-agents start reading the plan.
+The gate is the user's chance to refine the plan / step file before
+sub-agents start reading them — via free-form review mode (see
+[`review-mode.md`](review-mode.md)) for light edits, clarifications,
+questions, skipping a remaining track, and combinations thereof —
+or to escalate to inline replanning when the change is deep.
 
 The gate fires once per fresh Phase A entry. State C resume (the
 step file's `## Description` already carries the agreed-upon track
@@ -156,7 +172,7 @@ escalation** and **Override**. On **Accept**, route to
 [`inline-replanning.md`](inline-replanning.md) immediately and do
 NOT render Panel 2. On **Override** (the user disagrees with the
 ESCALATE recommendation), fall through to step 2: build Panel 2
-and present the full 4-option gate in step 3, treating the
+and present the full three-option gate in step 3, treating the
 overridden assessment as `CONTINUE` for the purpose of step 6's
 on-disk strategy-refresh line.
 
@@ -179,46 +195,58 @@ escalation`, the gate has already exited and this step does not
 run.
 
 Render Panel 1 (if active) followed by Panel 2, and use
-`AskUserQuestion` with four options:
+`AskUserQuestion` with three one-step options per the approval-panel
+contract in [`review-mode.md`](review-mode.md) § Approval-panel
+contract:
 
-- **Proceed** — accept the assessment (CONTINUE) and start Phase A
-  with the upcoming track as summarised.
-- **Adjust** — modify any remaining track's plan-file entry and/or
-  step file's `## Description`. Light edits only (see step 4 below
-  for the boundary). Reordering remaining `[ ]` tracks is a light
-  edit; if the reorder changes which track is "next", re-render
-  Panel 2 with the new upcoming track's summary before re-asking.
-- **Clarify** — attach guidance, must-/must-not- considerations,
-  or open questions to be carried into Phase A. Clarifications
-  target the **upcoming track only**; they do not modify the plan
-  or other tracks' step files and are written into the upcoming
-  track's step file's `## Description` as a `### Clarifications`
-  subsection on Proceed (see step 6 below).
-- **ESCALATE** — request "fundamental rework" → route to inline
-  replanning.
+- **Approve** — accept the assessment and proceed to step 6
+  (persist) below with whatever clarifications buffer (see step 5)
+  and on-disk amendments the review-mode loop has accumulated
+  (empty on the first render, populated if earlier rounds applied
+  items).
+- **Review mode** — enter the free-form refinement loop per
+  [`review-mode.md`](review-mode.md) § Loop.
 
-`AskUserQuestion` captures one option per round, so a user who
-wants to combine **Adjust** and **Clarify** spans multiple rounds.
-Each round: the user picks one option; the orchestrator applies it
-(edit the plan/step file for **Adjust**, append to the
-clarifications buffer for **Clarify**); then re-render Panel 1
-(re-running the strategy assessment if Panel 1 is active and the
-adjustment touched a remaining track) and Panel 2 from the
-(now-updated) files; re-ask. Loop until the user picks **Proceed**
-or **ESCALATE**.
+  On Apply, the orchestrator executes `EDIT_PLAN` /
+  `EDIT_STEP_DESC` items against the plan / step files, appends
+  `CLARIFY` items to the in-conversation clarifications buffer
+  (step 5 below), and answers `QUESTION` items inline (no side
+  effect). `FIX_FINDING` is not available on Pre-Flight (see
+  [`review-mode.md`](review-mode.md) § Loop step 2).
+
+  After Apply, return here: re-render Panel 1 (re-running the
+  strategy assessment if any `EDIT_PLAN` item touched a remaining
+  track, since the touched track may have changed the look-back
+  picture) and Panel 2 from the now-updated files; re-ask.
+- **ESCALATE** — route to inline replanning per
+  [`inline-replanning.md`](inline-replanning.md).
+
+The three-option panel re-renders after every review-mode Apply
+until the user picks **Approve** or **ESCALATE**. Step 4 below
+defines the light-vs-deep boundary; review mode's translator and
+Mixed-set policy enforce it (see [`review-mode.md`](review-mode.md)
+§ Mixed-set policy).
+
+If an `EDIT_PLAN` reorder during review-mode Apply changes which
+track is "next", Panel 2 is rebuilt against the new upcoming track
+per [`track-skip.md`](track-skip.md) step 2's panel-rendering
+contract.
 
 **4. Apply amendments — light vs deep boundary.**
 
-Light amendments (apply directly via `Edit`, or `steroid_apply_patch`
-when more than two sites are touched — these are markdown edits, no
-IntelliJ PSI/VFS refresh concern applies, so the project CLAUDE.md
-"always route file edits through MCP Steroid" rule is satisfied with
-native `Edit` for single-site changes here). Amendments that name
-production classes in the `**What/How/Constraints/Interactions**`
-blocks are bound by the §Pre-write rule above — PSI-verify every
-named class via `mcp-steroid` find-class **before applying the Edit**
-inside the Adjust round, so the user can correct a pattern-induced
-name in the same `AskUserQuestion` round rather than after commit:
+Light amendments are applied by review mode's Apply step per
+[`review-mode.md`](review-mode.md) § Loop step 5, via `Edit` for
+single-site changes or `steroid_apply_patch` when more than two
+sites are touched. These are markdown edits, so the project
+CLAUDE.md "always route file edits through MCP Steroid" rule is
+satisfied with native `Edit` for single-site changes here.
+Amendments that name production classes in the
+`**What/How/Constraints/Interactions**` blocks are bound by the
+§Pre-write rule above — PSI-verify every named class via
+`mcp-steroid` find-class **before rendering the action-set
+confirmation panel** (review mode step 3), so the user can correct
+a pattern-induced name during the same review-mode round rather
+than after commit:
 
 - Track title, intro paragraph
 - Scope indicators in the plan-file checklist entries
@@ -228,6 +256,11 @@ name in the same `AskUserQuestion` round rather than after commit:
 - Reordering of remaining `[ ]` tracks within the plan checklist
   (only if dependencies still hold; re-render Panel 2 if the
   reorder changes the upcoming track)
+- Skipping a remaining track (`SKIP_TRACK` action item — single
+  user-initiated drop with a required reason; runs the full
+  [`track-skip.md`](track-skip.md) § Process on Apply, including
+  the terminal step-file delete; re-render Panel 1 with the
+  skipped track as the new look-back anchor)
 
 Deep amendments — route to inline replanning per
 [`inline-replanning.md`](inline-replanning.md) (trigger: "user
@@ -235,7 +268,10 @@ requests escalation during track pre-flight"):
 
 - Decision Records, Architecture Notes, Goals, or Constraints in
   the plan file
-- Adding or removing tracks
+- **Adding** a new track (requires authoring a fresh step file
+  `## Description`, dependency analysis, and design decisions).
+  **Removing** a remaining track is light — it is the `SKIP_TRACK`
+  action item above, not a deep amendment.
 - Cross-track interaction surfaces (i.e., the change would affect
   another track's scope beyond pure reordering)
 - Anything the user describes as "fundamental rework"
@@ -249,14 +285,15 @@ relevant, then load `inline-replanning.md` and proceed.
 **5. Capture clarifications.** Keep a clarifications buffer in the
 orchestrator's conversation context — a bullet list of the user's
 notes plus any orchestrator-stated interpretations the user
-confirmed. The buffer is non-empty only if the user picked
-**Clarify** at least once during the loop. When the user picks
-**Proceed**, the buffer flows verbatim into the step file's
+confirmed. The buffer is non-empty only if at least one `CLARIFY`
+item was applied during a review-mode round (see
+[`review-mode.md`](review-mode.md) § Loop step 5). When the user
+picks **Approve**, the buffer flows verbatim into the step file's
 `## Description` in step 6 below.
 
 **6. Persist amendments + clarifications + strategy-refresh line.**
 
-After the user picks **Proceed**, write the on-disk artifacts of
+After the user picks **Approve**, write the on-disk artifacts of
 this round:
 
 - **Strategy-refresh line** (Panel 1 was active): append a
@@ -309,10 +346,12 @@ this round:
   preserved as-is in this case (the user neither re-clarified nor
   asked for it to be removed).
 
-- **Plan/step-file amendments** (any `Adjust` rounds in the loop):
-  the edits already landed in the working tree during step 4. They
-  are committed alongside the strategy-refresh line and any
-  clarifications below.
+- **Plan/step-file amendments** (any `EDIT_PLAN` / `EDIT_STEP_DESC`
+  / `SKIP_TRACK` items applied during review-mode rounds): the edits
+  already landed in the working tree during review mode's Apply step
+  ([`review-mode.md`](review-mode.md) § Loop step 5), including any
+  step-file deletions produced by `SKIP_TRACK`. They are committed
+  alongside the strategy-refresh line and any clarifications below.
 
 After all artifacts are in place, run a single Workflow update
 commit:
@@ -329,7 +368,7 @@ touched. If the round produced no amendments, no clarifications,
 and no strategy-refresh line (the gate was a pure no-op — only
 possible when Panel 1 was skipped or its outcome was already on
 disk from a prior interrupted session, and the user picked
-Proceed without Adjust/Clarify rounds), skip this commit
+**Approve** without entering review mode), skip this commit
 entirely.
 
 **7. Resume idempotency.** If the merged gate is re-entered on a
@@ -368,9 +407,9 @@ refresh:**` line is present on disk under the
 just-completed/skipped track's block, the prior session's edits
 are the new baseline — surface this in Panel 1's user-facing
 output so the user does not re-issue them in this round's
-`Adjust` rounds.
+review-mode rounds.
 
-**8. Proceed.** Continue to §What You Do sub-step 1 below.
+**8. Continue.** Move to §What You Do sub-step 1 below.
 
 ### What You Do
 

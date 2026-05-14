@@ -7,9 +7,11 @@ A track can be skipped (`[~]`) in two situations:
    this redundant"). The agent presents the finding to the user.
 2. **User requests skip** — the user overrides at session start or during
    the Track Pre-Flight gate (e.g., "skip Track 4, we don't need it
-   anymore"). When a skip is requested in the Pre-Flight gate's `Adjust`
-   loop:
-   - If the request would shift which track is "next", re-render
+   anymore"). When a skip is requested via a Pre-Flight review-mode
+   `SKIP_TRACK` item (see [`review-mode.md`](review-mode.md) § Loop —
+   `SKIP_TRACK` carries `{track_index, reason}` and on Apply runs the
+   full Process below):
+   - If the skip would shift which track is "next", re-render
      Panel 2 against the new upcoming track per the gate's
      reordering rule.
    - If the skipped track was the upcoming track summarised in
