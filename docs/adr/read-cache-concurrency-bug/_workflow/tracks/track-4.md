@@ -1665,3 +1665,9 @@ Note: recorded base `62fc621c83` was stale (likely from a rebase since
 Phase B started); using actual on-branch parent `6f610c811f` (parent of
 the `Record Phase B base commit for Track 4` commit `ba21dade2d`) for
 Step 7 resume.
+
+Note: previously recomputed base `6f610c811f` is also stale at Phase C
+track-completion resume (further rebase rewrote on-branch commits);
+using actual on-branch parent `b0a37d6ee3` (parent of the
+`Record Phase B base commit for Track 4` commit `8f72a5412d`) for the
+track-completion compile-and-present.
