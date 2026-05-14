@@ -239,10 +239,11 @@ see [`commit-conventions.md`](commit-conventions.md) and
 
 **Pre-commit gate, ephemeral-identifier check.** After staging and
 before `git commit`, run the narrowed grep over the `+`-prefixed
-additions of the staged diff outside `_workflow/`:
+additions of the staged diff outside `_workflow/` and
+`.claude/workflow/`:
 
 ```bash
-git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' ':(exclude).claude/workflow/**' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}-?[0-9]+\b'
 ```
 
 Inspect-then-rewrite. Matches that resolve to allowed exceptions

@@ -63,12 +63,19 @@ safety-net intent.
 ## Ephemeral-identifier pre-commit gate
 
 Before issuing `git commit` on any change that touches paths
-outside `docs/adr/*/_workflow/`, run the narrowed grep over the
-`+`-prefixed additions of the staged diff:
+outside `docs/adr/*/_workflow/` and `.claude/workflow/`, run the
+narrowed grep over the `+`-prefixed additions of the staged diff:
 
 ```bash
-git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' ':(exclude).claude/workflow/**' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}-?[0-9]+\b'
 ```
+
+The `.claude/workflow/**` exclusion mirrors the `_workflow/`
+exclusion: the workflow rule docs themselves cite Track / Step /
+finding-ID examples by necessity (see
+[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+§Forbidden), so the gate would always fire on docs-only edits in
+that area.
 
 If the grep returns matches that aren't allowed exceptions (issue
 tracker IDs like `YTDB-NNN`, class / method / field names, file
