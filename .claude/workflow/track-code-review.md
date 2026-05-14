@@ -343,8 +343,8 @@ any previously staged files go stale. Re-run the staging commands
 from Phase C Startup step 7 before composing the next fan-out's
 sub-agent prompts — this covers both the in-loop gate-check fan-out
 (§ Iteration loop) and the post-approval re-review fan-out triggered
-by user-requested fixes during § Track Completion (step 3, "Fixes
-needed" path). Within a single iteration, the dimensional reviewers
+by user-requested fixes during § Track Completion (step 3, **Review
+mode** path — `FIX_FINDING` items). Within a single iteration, the dimensional reviewers
 can share the same staged paths (they all review the same HEAD). If
 a `RESULT_MISSING` or `FAILED` iteration leaves HEAD unchanged, the
 previously staged files are still current — skip the re-run.
@@ -952,6 +952,18 @@ proceed directly to track completion **in the same session**.
    affected. If any iteration ended in a non-`SUCCESS` return, name
    the unfixed findings and why they were not addressed.
 
+   **This step is the single re-compile entry point.** It runs on
+   initial Completion entry, on post-Apply re-render after a
+   FIX_FINDING round, and on State C session re-entry (per
+   `workflow.md` § Startup Protocol State C sub-states row "All
+   steps `[x]`, code review `[x]`, track still `[ ]` in plan").
+   In all three cases, re-read `git diff {base_commit}..HEAD`
+   against current HEAD before compiling, so the episode reflects
+   any `Review fix:` commits a prior-session implementer may have
+   landed before the orchestrator could re-render. This subsumes
+   the mid-Apply-crash + session-restart case (see
+   [`review-mode.md`](review-mode.md) § State and resume).
+
 2. **Present track results to the user** (do NOT write to plan file yet):
    - Track episode (compiled but not yet persisted)
    - All step episodes from the step file
@@ -973,27 +985,65 @@ proceed directly to track completion **in the same session**.
      render, or one or more `Review fix:` commits on HEAD if
      earlier rounds applied `FIX_FINDING` items).
    - **Review mode** — enter the free-form refinement loop per
-     [`review-mode.md`](review-mode.md) § Loop. The loop produces
-     a typed action set the user confirms before Apply. On Apply,
-     `FIX_FINDING` items are collected into a synthesised findings
-     list (each item: location, issue, proposed fix) and a fresh
-     implementer is spawned with `level=track`,
-     `mode=FIX_REVIEW_FINDINGS`, using the same prompt template,
-     validity matrix, and handler dispatch as §Implementer Spawns
-     and §Phase C Implementer Handlers above. The implementer's
-     `Review fix:` commit lands on top of HEAD; the orchestrator
-     does not touch source files itself. `QUESTION` items are
-     answered inline at proposal time and have no side effect.
-     `EDIT_PLAN` / `EDIT_STEP_DESC` / `CLARIFY` are not available
-     on Completion (see [`review-mode.md`](review-mode.md) § Loop
-     step 2). After Apply, re-read the cumulative track diff
-     (`git diff {base_commit}..HEAD`) and re-compile the track
-     episode; if the user's fixes were substantial enough that a
-     gate-check run alone won't catch potential regressions, also
-     re-run track-level code review. Present updated results and
-     re-render this three-option panel.
+     [`review-mode.md`](review-mode.md) § Loop.
    - **ESCALATE** — trigger inline replanning per
      [`inline-replanning.md`](inline-replanning.md).
+
+   **Review mode side effects.** On Apply, `FIX_FINDING` items are
+   collected into a synthesised findings list (each item: location,
+   issue, proposed fix) and a fresh implementer is spawned with
+   `level=track`, `mode=FIX_REVIEW_FINDINGS`, using the same prompt
+   template and validity matrix as §Implementer Spawns above. The
+   implementer's `Review fix:` commit lands on top of HEAD; the
+   orchestrator does not touch source files itself. `QUESTION`
+   items are answered inline at proposal time and have no side
+   effect. `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK` / `CLARIFY`
+   are not available on Completion (see
+   [`review-mode.md`](review-mode.md) § Loop step 2).
+
+   **Completion outcome mapping.** Completion FIX_FINDING does
+   **not** reuse §Phase C Implementer Handlers — those handlers
+   carry per-iteration bookkeeping (3-iteration counter, Progress
+   row, gate-check fan-out) tied to the pre-Completion review loop,
+   which has already exited by the time Completion's three-option
+   panel renders. The `Track-level code review` Progress row is
+   already `[x]` and stays that way; there is no iteration counter
+   at Completion (user-initiated, not budget-driven). The four
+   implementer outcomes feed Completion's re-render directly:
+
+   - **`SUCCESS`** (implementer committed a `Review fix:` on top of
+     HEAD). Re-read the cumulative track diff (`git diff
+     {base_commit}..HEAD`) and re-compile the track episode against
+     the new HEAD. If the user's fixes were substantial enough that
+     a gate-check run alone won't catch potential regressions, also
+     re-run track-level code review against the new HEAD (this is a
+     separate per-substance decision; not automatic). Present
+     updated results and re-render the three-option panel.
+   - **`FAILED`** (implementer returned `level=track, status=FAILED`
+     after exhausting its own internal retries). Do not write any
+     Progress row. Re-read the diff and re-compile the track episode
+     (the working tree may still have partial progress on HEAD).
+     Surface the unfixed findings to the user in the re-render with
+     a `**Review-mode fix attempt failed:**` line listing the
+     items that did not land. The user picks Review mode again to
+     refine, Approve to accept the track as-is despite the failure,
+     or ESCALATE.
+   - **`DESIGN_DECISION`** (implementer returned a deferred design
+     decision rather than a fix). Invoke
+     [`design-decision-escalation.md`](design-decision-escalation.md)
+     to walk the user through the alternatives. Treat the chosen
+     alternative as a new `FIX_FINDING` and re-enter the Review-mode
+     loop with that item pre-seeded — the user confirms it via the
+     action-set confirmation panel before another implementer
+     spawns.
+   - **`RESULT_MISSING`** (implementer exited without producing the
+     expected output — e.g., context exhaustion or crash). Present
+     three sub-options via `AskUserQuestion`: **commit-as-is**
+     (the implementer made partial progress on HEAD; treat it as
+     `SUCCESS` and re-compile the episode), **re-spawn** (one more
+     try with the same findings), **discard** (revert HEAD to
+     pre-Apply via `git reset --hard {pre_apply_sha}` and re-render
+     the panel as if Apply had not run).
 
    The three-option panel re-renders after every review-mode Apply
    until the user picks **Approve** or **ESCALATE**.
@@ -1096,6 +1146,17 @@ proceed directly to track completion **in the same session**.
    If the user re-opens this track later (e.g., post-PR fixes), the
    regeneration rule from § Sub-agents → § "Pre-staged diff and
    changed-files list" stages fresh copies before the next fan-out.
+
+   **Budget rule for re-opened FIX_FINDING.** Any FIX_FINDING
+   spawn produced by a re-opened track's Completion gate (the user
+   re-enters Review mode and clicks Apply on a FIX_FINDING action
+   set) is **budgetless** — same rule as a same-session Completion
+   FIX_FINDING per § Track Completion step 3 "Completion outcome
+   mapping". The 3-iteration cap exists to bound autonomous
+   review-loop spinning; the user-in-the-loop check at each Apply
+   is the natural rate limit and replaces the autonomous cap. The
+   pre-Completion review loop's counter from the original session
+   is not consulted on re-open.
 
 6. **Run self-improvement reflection.** Load
    `.claude/workflow/self-improvement-reflection.md` on-demand and

@@ -233,8 +233,10 @@ backward-looking strategy assessment (when an earlier track has
 just completed or been skipped) with a forward-looking summary of
 the upcoming track. The user can apply light edits to remaining
 tracks, attach clarifications to the upcoming track, or escalate to
-inline replanning. The gate runs in the same session as Phase A —
-this is the only exception to mandatory phase boundaries.
+inline replanning — all via the free-form review-mode loop (see
+[`review-mode.md`](review-mode.md)). The gate runs in the same
+session as Phase A; this is the only exception to mandatory phase
+boundaries.
 
 **Full protocol:** [`track-review.md`](track-review.md) § Track Pre-Flight
 
@@ -404,7 +406,7 @@ User interaction points:
 |---|---|---|
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
-| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the step file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (free-form refinement loop — translator + action-set confirmation; on Apply, executes `EDIT_PLAN` / `EDIT_STEP_DESC` items, buffers `CLARIFY` items, answers `QUESTION` items inline; re-renders panels); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
+| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the step file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (free-form refinement loop — translator + action-set confirmation; on Apply, executes `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK` items, buffers `CLARIFY` items, answers `QUESTION` items inline; re-renders panels); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write track episode + collapse + `[x]`); **Review mode** (free-form refinement loop — on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`; `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
@@ -432,11 +434,12 @@ strategy assessment ESCALATE accepted by the user, or review mode
 produces an `ESCALATE` action item / a Mixed-set Escalate-now per
 [`review-mode.md`](review-mode.md) § ESCALATE detection — i.e., the
 requested change touches Decision Records, Architecture Notes,
-Goals, Constraints, adding/removing tracks, or cross-track
-interaction surfaces), cross-track impact detects fundamental
-assumption failure, or a step failure cannot be recovered with
-additional commits. Stops all new steps and enters a
-propose → review → iterate cycle.
+Goals, Constraints, **adding** a new track, or cross-track
+interaction surfaces; **removing** a remaining track is light
+(`SKIP_TRACK`), not ESCALATE), cross-track impact detects
+fundamental assumption failure, or a step failure cannot be
+recovered with additional commits. Stops all new steps and enters
+a propose → review → iterate cycle.
 
 **Full protocol:** [`inline-replanning.md`](inline-replanning.md)
 

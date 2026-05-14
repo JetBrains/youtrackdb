@@ -14,10 +14,12 @@ notes.
   or the user picks **Escalate now** on the Mixed-set policy panel
   (see [`review-mode.md`](review-mode.md) § ESCALATE detection and
   § Mixed-set policy) — i.e., the requested change touches Decision
-  Records, Architecture Notes, Goals, Constraints, adds or removes
-  tracks, crosses cross-track interaction surfaces, or the user
+  Records, Architecture Notes, Goals, Constraints, **adds** a new
+  track, crosses cross-track interaction surfaces, or the user
   describes it as "fundamental rework" (deep-amendment list in
-  `track-review.md` § Track Pre-Flight step 4)
+  `track-review.md` § Track Pre-Flight step 4). **Removing** a
+  remaining track is light (`SKIP_TRACK`) and does not trigger
+  inline replanning.
 - Cross-track impact monitoring detects a fundamental assumption failure
 - A step failure affects the track's approach at a level additional commits
   cannot fix
@@ -33,6 +35,14 @@ notes.
 - What assumptions broke and why
 - Which remaining tracks are affected and how
 - What Decision Records are weakened or invalidated
+
+If `pending_escalate_description` is set in conversation context
+when inline-replanning fires from a Track Pre-Flight or Track
+Completion gate (captured by a Strip-and-apply earlier in the same
+session per [`review-mode.md`](review-mode.md) § Mixed-set policy),
+read the stashed text as the user-supplied deep-change description
+for this Assess. Do not prompt the user to re-state it. Clear the
+slot after consumption.
 
 **3. Propose** — draft a revised plan:
 

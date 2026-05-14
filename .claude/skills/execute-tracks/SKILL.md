@@ -113,10 +113,10 @@ Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):
 User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
 - State 0 design-decision findings: resolve each escalated finding (only design-decision; mechanical fixes apply autonomously)
-- Track Pre-Flight (State A — pre-Phase-A): two-panel gate. Panel 1 (strategy assessment, look-back) is shown when an earlier track has just completed/skipped — accept the CONTINUE/ADJUST recommendation or override; an ESCALATE recommendation routes to inline replanning. Panel 2 (upcoming track summary, look-forward) always renders. Options on the combined gate: Proceed; Adjust (light edits to any remaining track's plan / step file including reorder); Clarify (notes written into the upcoming track's step-file Description as a `### Clarifications` subsection on Proceed); ESCALATE → inline replanning. Skipped on State C resume.
+- Track Pre-Flight (State A — pre-Phase-A): two-panel gate. Panel 1 (strategy assessment, look-back) is shown when an earlier track has just completed/skipped — accept the CONTINUE/ADJUST recommendation or override; an ESCALATE recommendation routes to inline replanning. Panel 2 (upcoming track summary, look-forward) always renders. Three one-step options per `.claude/workflow/review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with whatever review-mode-accumulated amendments and clarifications have landed); **Review mode** (free-form refinement loop — translator produces a typed action set the user confirms before Apply; on Apply executes `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK`, buffers `CLARIFY`, answers `QUESTION` inline; panels re-render); **ESCALATE** → inline replanning. Skipped on State C resume.
 - Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate
-- Track complete: approve, request fixes, or request rework
+- Track complete: three one-step options per `.claude/workflow/review-mode.md` § Approval-panel contract — **Approve** (write track episode + collapse + `[x]`); **Review mode** (free-form refinement; on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`; `QUESTION` items are answered inline); **ESCALATE** → inline replanning
 - Step failure (2nd attempt): retry, adjust, or escalate
 
 Everything within a phase executes autonomously: Phase A runs reviews
