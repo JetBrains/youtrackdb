@@ -410,10 +410,16 @@ output so the user does not re-issue them in this round's
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
      `warning` (≥30%) or `critical` (≥40%), do NOT start the next review
      or decomposition. Save all work and ask the user for a session
-     refresh (see workflow.md §Context Consumption Check). If the level
-     is `safe`/`info`, continue. If the file does not exist or the
-     command fails, this is **not an error** — treat as `safe` and
-     continue.
+     refresh (see workflow.md §Context Consumption Check). If the pause
+     leaves Phase A mid-flight — for example, technical review PASSed
+     but risk / adversarial reviews are still unrun, or all reviews
+     PASSed but decomposition has not yet been written — write a
+     handoff file per
+     [`mid-phase-handoff.md`](mid-phase-handoff.md) so the next session
+     does not re-spawn reviewers whose results already landed in the
+     **Reviews completed** section. If the level is `safe`/`info`,
+     continue. If the file does not exist or the command fails, this
+     is **not an error** — treat as `safe` and continue.
 4. **Decompose scope indicators** into concrete steps. For each step,
    assign a **risk tag** (`low` / `medium` / `high`) per the criteria
    in [`risk-tagging.md`](risk-tagging.md) — load that file at the

@@ -609,7 +609,14 @@ reports the unpushed-commit count. The full rule lives in
 **Session-end gate.** After committing the episode: if the context
 level was `warning` or `critical`, do NOT spawn the implementer for
 the next step. Save all work and ask the user for a session refresh
-(see workflow.md §Context Consumption Check).
+(see workflow.md §Context Consumption Check). The default Phase B
+case (just finished a step, next session resumes from the next `[ ]`
+step) does **not** require a handoff file — the step file's Progress
+section is sufficient. Write a handoff per
+[`mid-phase-handoff.md`](mid-phase-handoff.md) only if the pause
+captures state the next session cannot re-derive from the step file
+(for example, a partial cross-track-impact finding that needs to be
+re-presented before the next step starts).
 
 **→ GATE: Step is now complete.** Do not spawn the next implementer
 until sub-steps 1–8 above are done.

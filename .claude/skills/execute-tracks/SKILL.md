@@ -59,7 +59,13 @@ Follow the startup protocol in `workflow.md`:
    `docs/adr/<dir-name>/_workflow/implementation-plan.md`.
 2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
    `[~]` skipped).
-3. Determine session state and auto-resume:
+3. **Check for active handoffs first.** Run
+   `ls docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null`. If any
+   files exist, load `.claude/workflow/mid-phase-handoff.md` and follow
+   its §Resume protocol before any state evaluation below. Do NOT spawn
+   sub-agents, recompile episodes, or re-run gate-checks while a handoff
+   is unresolved.
+4. Determine session state and auto-resume:
    - **State 0** (`## Plan Review` is `[ ]` or section missing): load
      `implementation-review.md` on-demand and run the autonomous plan
      review (consistency + structural). End session after the audit

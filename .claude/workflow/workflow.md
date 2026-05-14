@@ -131,7 +131,22 @@ cross-track impact.
    - `[x]` — completed
    - `[~]` — skipped
 
-3. **Determine session state** from the plan file and step files:
+3. **Determine session state** from the plan file and step files.
+
+   **First, check for active handoffs.** Before consulting the state
+   table below, run:
+   ```bash
+   ls docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+   ```
+   If any files exist, load
+   [`mid-phase-handoff.md`](mid-phase-handoff.md) and follow its
+   §Resume protocol. That protocol re-presents the pending decision
+   (or research findings) to the user, deletes resolved handoff files
+   and their secondary PAUSED markers, and only then returns control
+   to this state table. While a handoff is unresolved, the
+   orchestrator MUST NOT spawn sub-agents, re-run gate-checks, or
+   recompile episodes. See `mid-phase-handoff.md` for the full
+   resume contract.
 
    | Plan file state | Step file state | Session state |
    |---|---|---|
@@ -313,6 +328,20 @@ yet.
    - Ensure all code changes are committed
    - Ensure all progress is written to the step file on disk
    - Update the **Progress** section in the step file on disk
+   - **If the pause leaves mid-phase state that the next session
+     cannot re-derive from the plan / step files alone, write a
+     handoff file per
+     [`mid-phase-handoff.md`](mid-phase-handoff.md).** This is
+     mandatory for: between-iteration pauses in Phase C, post-
+     decomposition / between-review pauses in Phase A, mid-research
+     pauses in Phase 0 / 1, mid-section pauses in Phase 4, and any
+     pause where verbatim re-present text or partial research notes
+     would otherwise be lost. The handoff file goes under
+     `docs/adr/<dir-name>/_workflow/handoff-<phase>.md`, with a
+     matching `**PAUSED ...**` marker in the natural progress-
+     tracking file and a cross-reference in MEMORY.md — all three
+     channels are written in a single `Workflow update: pause
+     <phase> for context refresh` commit.
 3. **Ask the user for a session refresh:**
    - Inform them of current progress and what remains
    - Instruct: "Context window is running low. Please clear the session
