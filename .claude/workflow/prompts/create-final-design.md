@@ -93,8 +93,11 @@ Phase-4-specific reminders that follow from the shared rule:
   only the substance, plus a file/class reference or commit SHA if
   "where" still matters.
 
-Re-scan both artifacts before Step 4 (commit) with the self-check
-grep — see [`../ephemeral-identifier-rule.md`](../ephemeral-identifier-rule.md)
+Re-scan both artifacts before the commit step with the pre-commit
+gate regex. Phase 4 commits go directly via this skill rather than
+through the implementer sub-agent, so the gate is run by hand here
+under the "ad-hoc commits outside the workflow" branch of
+[`../ephemeral-identifier-rule.md`](../ephemeral-identifier-rule.md)
 §"Self-check before commit" (also restated in the §2.3 stub of
 `../conventions-execution.md`).
 

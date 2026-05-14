@@ -27,8 +27,10 @@ Read this file when about to author durable content:
   and body (see
   [`prompts/create-final-design.md`](prompts/create-final-design.md)).
 
-The §"Self-check before commit" grep below is the precondition — if
-it fires zero matches on staged files, the full rule is not needed
+The §"Self-check before commit" pre-commit gate below is mandatory
+for the implementer sub-agent on every spawn and required by hand
+for ad-hoc commits outside `/execute-tracks`. If the grep returns
+zero matches on staged files, the full rule below is not needed
 for that commit.
 
 ## Where the rule applies
@@ -119,22 +121,22 @@ plan) couldn't resolve the reference, the reference is forbidden.
 
 ## Self-check before commit
 
-The implementer sub-agent runs this as a **hard pre-commit gate** —
-see [`implementer-rules.md`](implementer-rules.md) sub-step 3
-§"Pre-commit gate — ephemeral-identifier check" (and its mirror in
+The implementer sub-agent runs this as a **hard pre-commit gate**.
+See [`implementer-rules.md`](implementer-rules.md) sub-step 3
+§"Pre-commit gate, ephemeral-identifier check" (and its mirror in
 [`commit-conventions.md`](commit-conventions.md) §"Ephemeral-identifier
 pre-commit gate"). For ad-hoc commits outside the workflow, run the
-same grep on staged files yourself — it applies to code, tests, and
-the two Phase 4 artifacts (NOT to commits that only stage files under
-`_workflow/`, which are themselves ephemeral):
+same grep on staged files yourself. It applies to code, tests, and
+the two Phase 4 artifacts (NOT to commits that only stage files
+under `_workflow/`, which are themselves ephemeral):
 
 ```bash
-git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' | grep -nE '^\+.*\b(Track|Step)[ ]?[0-9]+|^\+.*\b[A-Z]{1,3}[0-9]+\b'
 ```
 
 The `^\+`-anchored form narrows to additions so the gate stays fast
 on large refactor diffs by ignoring context lines. Anything this
 catches is either a genuine leak to rewrite (per §"How to rewrite a
 forbidden reference" above) or an allowed exception (e.g. issue
-tracker IDs, class names that happen to match the pattern) —
-inspect, then proceed.
+tracker IDs, class names that happen to match the pattern).
+Inspect, then proceed.
