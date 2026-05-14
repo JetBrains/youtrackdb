@@ -538,19 +538,20 @@ finding ID prefixes, and gate format.
       list, and a verdict-only output format. See
       [`review-iteration.md`](review-iteration.md) §"Dimensional-review
       gate-check budget" for the YTDB-696 rationale, the verdict-
-      handling rules (VERIFIED / MOOT / STILL OPEN / REGRESSION), and
-      the §Synthesis routing for gate-check returns. Step-level
-      review only fires for `risk: high` steps, so this path is rarer
-      than Phase C track-level review, but the burn rate is identical
-      when it does fire.
+      handling rules (VERIFIED / REJECTED / MOOT / STILL OPEN /
+      REGRESSION), and the §Synthesis routing for gate-check returns.
+      Step-level review only fires for `risk: high` steps, so this
+      path is rarer than Phase C track-level review, but the burn
+      rate is identical when it does fire.
 
       After collecting all gate-check returns, re-run sub-step 4(b)
       **Synthesise** on the aggregated `New findings` blocks before
       composing the next implementer input. Treat `REGRESSION`
       verdicts as blocker-severity carry-forwards with
-      `revert-or-repair` guidance; treat `MOOT` verdicts as cleared
-      (identical to `VERIFIED`); carry `STILL OPEN` verdicts forward
-      verbatim with the original finding ID.
+      `revert-or-repair` guidance; treat `REJECTED` and `MOOT`
+      verdicts as cleared (identical to `VERIFIED`); carry
+      `STILL OPEN` verdicts forward verbatim with the original
+      finding ID.
    e. If max iterations reached, note remaining findings in the
       `EPISODE_DRAFT` so they appear in the step episode.
    f. **Remove the staged temp files** for this step so they don't

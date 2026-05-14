@@ -499,8 +499,8 @@ orchestrator never edits source files itself in Phase C.
      list, and the verdict-only output format. See
      [`review-iteration.md`](review-iteration.md) §"Dimensional-review
      gate-check budget" for the YTDB-696 rationale, the verdict-handling
-     rules (VERIFIED / MOOT / STILL OPEN / REGRESSION), and the
-     §Synthesis routing for gate-check returns. Re-using the full
+     rules (VERIFIED / REJECTED / MOOT / STILL OPEN / REGRESSION), and
+     the §Synthesis routing for gate-check returns. Re-using the full
      dimensional review prompt at gate-check time burns roughly three
      times the budget for no extra signal and is the load-bearing
      cause of mid-Phase-C session pauses.
@@ -509,9 +509,10 @@ orchestrator never edits source files itself in Phase C.
      input (per [`review-iteration.md`](review-iteration.md) §
      "Synthesis routing for gate-check returns"). Treat
      `REGRESSION` verdicts as blocker-severity carry-forwards with
-     `revert-or-repair` guidance; treat `MOOT` verdicts as cleared
-     (identical to `VERIFIED`); carry `STILL OPEN` verdicts forward
-     verbatim with the original finding ID.
+     `revert-or-repair` guidance; treat `REJECTED` and `MOOT`
+     verdicts as cleared (identical to `VERIFIED`); carry
+     `STILL OPEN` verdicts forward verbatim with the original
+     finding ID.
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is

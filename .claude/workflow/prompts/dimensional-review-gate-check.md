@@ -22,6 +22,11 @@ Your job is exactly two things:
 1. For each finding under re-check, emit one verdict line. Choose
    one of:
    - `VERIFIED` — the fix landed and addresses the original issue.
+   - `REJECTED` — on re-reading the code, the original finding was
+     not a real issue (misread, false positive, or assumption that
+     turned out to be wrong). The orchestrator treats `REJECTED`
+     identically to `VERIFIED` for loop-termination purposes. Use
+     this sparingly; default to `STILL OPEN` if uncertain.
    - `MOOT` — the finding is no longer reachable in the diff (file
      deleted, code moved, approach changed). The orchestrator treats
      `MOOT` identically to `VERIFIED` for loop-termination purposes.
@@ -55,17 +60,19 @@ reachable`, and add a one-line `(grep-only)` caveat to the affected
 verdict. The original finding may have been generated against grep —
 verifying the fix with PSI catches subtle mismatches grep missed.
 
-Emit `PASS` iff every verdict is `VERIFIED` or `MOOT` and no new
-finding is severity `blocker` or `should-fix`. Any `STILL OPEN`,
-`REGRESSION`, or blocker/should-fix new finding forces `FAIL`.
+Emit `PASS` iff every verdict is `VERIFIED`, `REJECTED`, or `MOOT`
+and no new finding is severity `blocker` or `should-fix`. Any
+`STILL OPEN`, `REGRESSION`, or blocker/should-fix new finding forces
+`FAIL`.
 
 ## Output format (strict — ≤ 60 lines total, including blank lines)
 
 ```markdown
-## {Dimension} Review (gate check)
+## {dimension} Review (gate check)
 
 ### Verdicts
 - <PREFIX><N>: VERIFIED — <≤ 1 line: where the fix landed and why it satisfies the original issue>
+- <PREFIX><J>: REJECTED — <≤ 1 line: why the original finding was not a real issue>
 - <PREFIX><L>: MOOT — <≤ 1 line: why the finding no longer applies (file deleted / code moved / approach changed)>
 - <PREFIX><M>: STILL OPEN — <≤ 1 line: what remains, with file:line>
 - <PREFIX><K>: REGRESSION — <≤ 1 line: what the fix broke, with file:line>

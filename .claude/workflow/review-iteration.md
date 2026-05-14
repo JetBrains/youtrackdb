@@ -87,8 +87,9 @@ spawned with the prompt template at
 That template enforces:
 
 - **Total budget: ≤ 60 lines** of output per re-spawned agent.
-- One verdict line per open finding (`VERIFIED` / `MOOT` /
-  `STILL OPEN` / `REGRESSION`), each ≤ 1 line of justification.
+- One verdict line per open finding (`VERIFIED` / `REJECTED` /
+  `MOOT` / `STILL OPEN` / `REGRESSION`), each ≤ 1 line of
+  justification.
 - **≤ 3 new findings**, each ≤ 5 lines total. Surface regressions or
   obvious misses directly tied to the listed open findings; do not
   re-survey the diff.
@@ -100,6 +101,11 @@ The orchestrator processes each gate-check verdict as follows:
 
 - `VERIFIED` — finding clears for this iteration; do not pass it to
   the next implementer spawn.
+- `REJECTED` — the reviewer on re-read concluded the original
+  finding was not a real issue (misread, false positive). Clears
+  identically to `VERIFIED`; do not pass to the next implementer.
+  Log the rejection rationale in the iteration record so the next
+  reviewer instance does not re-raise the same finding.
 - `MOOT` — finding is no longer reachable (file deleted, code moved,
   approach changed). Clears for loop-termination purposes, identical
   to `VERIFIED`; do not pass to the next implementer.
