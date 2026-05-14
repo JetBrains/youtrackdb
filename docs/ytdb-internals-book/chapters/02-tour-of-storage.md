@@ -17,7 +17,7 @@ distinction between "graph data" and "document data" at the storage level. They 
 thing.
 
 What makes records useful as a foundation is that every one of them carries a stable identity
-from the moment it is written. That identity is the ***RID***.
+from the moment it is written. That identity is the ***RID***(record id).
 
 ## 2.2 RIDs: physical addresses that double as primary keys
 
@@ -51,7 +51,7 @@ in class hierarchies (a `Person` class can extend a base `Vertex` class, so a qu
 
 A class is divided into one or more ***collections***. A collection is a physical storage unit — a
 file on disk. When you write a new `Person` record, the engine selects one of the collections that
-belongs to `Person` and appends the record there. The collection id embedded in the resulting RID
+belongs to `Person` class and appends the record there. The collection id embedded in the resulting RID
 tells every future reader which file to open.
 
 > **Terminology note:** the source code and Java API use "collection" throughout —
@@ -67,7 +67,7 @@ The mapping is worth making explicit:
   can spread across many collections; a RID always points at exactly one.
 
 This means a full class scan — "give me every `Person`" — visits every collection assigned to
-`Person` in turn. The engine knows those collection ids from the schema, not from the data.
+`Person` class in turn. The engine knows those collection ids from the schema, not from the data.
 
 ## 2.4 Vertices are just records
 
@@ -81,52 +81,55 @@ What *is* special is what gets stored alongside the vertex's own properties. Whe
 to a vertex, the engine writes adjacency information directly into that vertex record. That is
 the subject of the next section.
 
-## 2.5 Two ways to store an edge
+## 2.5 How edges are stored
 
-Consider the relationship `Alice --Knows--> Bob`. YouTrackDB can represent it in two ways.
+Consider the relationship `Alice --Knows--> Bob`. Every edge in YouTrackDB is its own record:
+the `Knows` edge has its own RID and belongs to a class that extends `E` (the built-in edge
+base class). The edge record carries two special properties — `out`, holding the RID of its
+tail vertex (Alice), and `in`, holding the RID of its head vertex (Bob) — plus any user-defined
+properties (a timestamp, a weight, a label).
 
-**As a regular edge record.** The `Knows` edge is its own record, with its own RID, belonging to
-a class that extends `E` (the built-in edge base class). The edge record carries two special
-properties: `out`, which holds the RID of its tail vertex (Alice), and `in`, which holds the RID
-of its head vertex (Bob). If you need to put properties on the edge — a timestamp, a weight, a
-label — this is the form to use. The edge record is a first-class citizen in the storage layer.
+The edge record alone is not enough for fast traversal. If "give me Alice's neighbours" required
+scanning the `Knows` collection for every edge whose `out` field equals `#12:0`, every hop would
+cost O(|Knows|). YouTrackDB sidesteps that by also writing an adjacency entry into each endpoint:
+Alice's record gains an `out_Knows` field, Bob's record gains an `in_Knows` field. Each entry is
+a **pair** of RIDs — the edge record's RID and the opposite vertex's RID — stored together in
+a `LinkBag` (`Iterable<RidPair>`). One pair per edge, written on both sides at creation time.
 
-**As a lightweight embedded RID.** When the edge carries no properties, the engine can skip
-creating a separate edge record entirely. Instead, it records the relationship by adding Bob's
-RID to a field on Alice's record named `out_Knows`, and adding Alice's RID to a field on Bob's
-record named `in_Knows`. No edge record exists. The adjacency information lives inside the vertex
-records themselves.
-
-The query engine handles both forms transparently. From a MATCH query's perspective, walking the
-`Knows` edge between Alice and Bob is the same operation regardless of whether a dedicated edge
-record exists. The traversal machinery detects which form is in use and reads the adjacency
-accordingly.
+The pair carries the neighbour RID alongside the edge RID for a reason: a traversal that doesn't
+read edge properties never has to load the edge record. The engine reads Alice's `out_Knows`,
+takes the neighbour RID from each pair, and resolves directly to Bob. The edge record is only
+fetched when the query touches one of its properties.
 
 ```mermaid
 erDiagram
     ALICE {
         RID rid "#12:0"
         string name "Alice"
-        LinkBag out_Knows "#13:0"
+        LinkBag out_Knows "[(edge=#13:0, in=#12:1)]"
+    }
+    KNOWS {
+        RID rid "#13:0"
+        RID out "#12:0"
+        RID in "#12:1"
     }
     BOB {
         RID rid "#12:1"
         string name "Bob"
-        LinkBag in_Knows "#12:0"
+        LinkBag in_Knows "[(edge=#13:0, out=#12:0)]"
     }
-    ALICE ||--|| BOB : "out_Knows (lightweight)"
+    ALICE ||--|| KNOWS : "out_Knows pair"
+    KNOWS ||--|| BOB : "in_Knows pair"
 ```
 
-**Figure 2.1 — The lightweight edge form. Alice's record carries an `out_Knows` field that contains Bob's RID; Bob's record carries an `in_Knows` field that contains Alice's RID. No separate edge record exists.**
-
-**Figure 2.2 — The same relationship shown as a graph.**
+**Figure 2.1 — Three records: Alice, Bob, and the `Knows` edge between them. Alice's `out_Knows` LinkBag holds one pair `(edge=#13:0, in=#12:1)`; Bob's `in_Knows` LinkBag holds the symmetric pair `(edge=#13:0, out=#12:0)`. The edge record carries the canonical `out`/`in` fields plus any user-defined edge properties.**
 
 ```mermaid
 graph LR
-    A["Alice #12:0"] -->|Knows| B["Bob #12:1"]
+    A["Alice #12:0"] -->|"Knows #13:0"| B["Bob #12:1"]
 ```
 
-**Figure 2.2 — The same two vertices and one Knows edge as a graph. The arrow direction matches the `out_Knows` / `in_Knows` field naming: `out` is the tail, `in` is the head.**
+**Figure 2.2 — The same relationship as a logical graph. Two vertices and one edge — the same content as Figure 2.1, with the storage-level structure (LinkBag pairs, `out`/`in` fields) abstracted away. The arrow direction matches the `out_Knows` / `in_Knows` field naming: `out` is the tail, `in` is the head; the edge label includes the edge record's RID so it can be cross-referenced with Figure 2.1.**
 
 ## 2.6 Why one hop is O(degree), not O(|graph|)
 
@@ -138,16 +141,19 @@ primary key. The cost grows with the size of the `Knows` table, not with Alice's
 friend count.
 
 In YouTrackDB, Alice's adjacency list is stored *inside Alice's own record*. The `out_Knows`
-field (a `LinkBag`) contains exactly the RIDs of Alice's outgoing `Knows` neighbours. To answer
-"give me all of Alice's Knows neighbours", the engine:
+field (a `LinkBag`) contains one entry per outgoing `Knows` edge — each entry a pair of the
+edge record's RID and the neighbour vertex's RID. To answer "give me all of Alice's Knows
+neighbours", the engine:
 
 1. Looks up Alice by her RID (`#12:0`) — O(1), as described in §2.2.
 2. Reads her `out_Knows` field — already in the record, no secondary lookup.
-3. Iterates the RIDs in that field — O(degree(Alice)).
+3. Iterates the pairs, taking the neighbour RID from each — O(degree(Alice)). The edge record
+   itself is not loaded unless the query reads an edge property.
 
 The total cost is O(1 + degree(Alice)). It does not depend on how many people are in the database,
-how many `Knows` edges exist globally, or how large the `Knows` collection is. The engine never looks
-at any other vertex's record to resolve Alice's neighbourhood.
+how many `Knows` edges exist globally, or how large the `Knows` collection is. The engine never
+looks at any other vertex's record — or at the `Knows` collection itself — to resolve Alice's
+neighbourhood.
 
 This is the design decision that makes graph traversal fast in YouTrackDB, and it is why the
 query planner treats fan-out — the average degree — as its primary cost signal when scheduling
@@ -169,28 +175,29 @@ Bob is at position 1. Each record, when serialised, looks roughly like this:
 // Alice's record at #12:0 (schematic — actual binary format not shown)
 class:    "Person"
 name:     "Alice"
-out_Knows: [#12:1]   // a LinkBag containing Bob's RID
+out_Knows: [(edge=#13:0, in=#12:1)]   // a LinkBag of RID pairs
+
+// The Knows edge record at #13:0
+class:    "Knows"
+out:      #12:0      // Alice
+in:       #12:1      // Bob
 
 // Bob's record at #12:1
 class:    "Person"
 name:     "Bob"
-in_Knows: [#12:0]    // a LinkBag containing Alice's RID
+in_Knows: [(edge=#13:0, out=#12:0)]   // a LinkBag of RID pairs
 ```
 
-The `LinkBag` type
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/record/ridbag/LinkBag.java`)
-is the container that holds these RID collections. When the number of entries is small, the
-`LinkBag` is stored inline in the record itself (*embedded* mode). When the vertex accumulates
-enough neighbours, the bag transparently migrates to a B-tree–backed structure. All large bags
-across all vertices share a single file (`global_collection_*.grb`), not a separate file per
-bag; the B-tree entry records which bag each RID belongs to. The API seen by the traversal layer
-above is identical in both modes. Either way, iterating the `out_Knows` field of a vertex record
-gives you the full set of outgoing `Knows` neighbours.
+The `LinkBag` itself has more structure than the schematic above suggests — small bags are
+stored inline in the vertex record, large bags migrate to a B-tree–backed form that shares a
+single file across all vertices — but those storage mechanics are deferred to a later chapter.
+For the purposes of this tour, iterating the `out_Knows` field of a vertex record gives you
+the full set of outgoing `Knows` neighbours, regardless of how the bag is physically backed.
 
 ---
 
 With that picture in hand — records identified by RIDs, adjacency lists embedded directly in
-vertex records, O(1) hops because there is no secondary index to consult — you have everything
+vertex records, produce O(1) hops because there is no secondary index to consult — you have everything
 you need to follow a query through the engine. Chapter 3 traces a plain
 `SELECT FROM Person WHERE name='Alice'` end-to-end through all four pipeline stages, building
 the mental model of pull-based execution that every later chapter will depend on.
