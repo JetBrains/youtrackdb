@@ -140,3 +140,44 @@ should-fix, 0 suggestions.
 
 
 
+
+## Mutation 5 — 2026-05-14 — content-edit (design.md)
+
+**Diff summary**: two staleness-reconciliation edits arising from
+Phase 2 autonomous consistency review (iteration 1) of the
+post-replan plan (inline replan commit `0a003588f7` added D6 / I6 /
+Track 7). (a) §"Crash safety" §"Edge cases / Gotchas" — first bullet
+rewritten from the stale "orphan disk pages from scenario A leak
+space until a vacuum / repack. Bounded today; a separate ticket
+tracks adding a post-replay alignment pass." to a full description of
+the D6 / Track 7 recovery-time pass: names the four EP-equipped
+components in scope, the `AbstractStorage.recoverIfNeeded()` insertion
+point between `restoreFromWAL()` and `flushAllData()`, the new
+`WriteCache.shrinkFile(fileId, targetBytes)` primitive, the I6
+invariant, and the EP-less + IHM out-of-scope set per the Non-Goals.
+(b) §"Allocation discovery surface" §"Logical-size surface per
+component" — appended one sentence to the IndexHistogramManager
+bullet noting the page-1 discriminator
+(`op.filledUpTo > 1 ? load : allocate`) also justifies IHM's
+exclusion from Track 7's EP-driven pass, with a cross-reference to
+Non-Goals in `implementation-plan.md`. Iteration 1 cold-read passed
+the comprehension check but flagged two should-fix footer-cite gaps:
+§"Crash safety" References missing D6 + I6, §"Allocation discovery
+surface" References missing D6. Both fixed in iteration 2; verified.
+
+**Mechanical checks** (target=design): PASS — 0 findings (both runs).
+**Cold-read** (scope: whole-doc — Mutation 5 → periodic whole-doc
+check fired): PASS — iteration 1 returned 2 should-fix footer-cite
+findings; iteration 2 verification PASS, 0 findings.
+
+**Findings**:
+- iter 1: should-fix — §"Crash safety" References footer missing D6
+  and I6. **Resolved** in iter 2 by appending `D6 (recovery-time
+  orphan truncation for EP-equipped components)` and `I6 (post-
+  recovery 'logical == physical' for EP-equipped components)`.
+- iter 1: should-fix — §"Allocation discovery surface" References
+  footer missing D6. **Resolved** in iter 2 by appending `D6
+  (recovery-time orphan truncation — anchors the IHM / EP-less
+  carve-out in the gotcha bullet)`.
+
+**Iterations**: 2 of 3 (PASS).

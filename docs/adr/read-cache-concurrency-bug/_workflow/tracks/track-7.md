@@ -48,10 +48,26 @@ EP-less components (`FreeSpaceMap`, `CollectionDirtyPageBitSet`) and
 >   `restoreFromWAL()` and `flushAllData()`, iterate the four
 >   EP-equipped component groups via the existing fields on
 >   `AbstractStorage`:
->   - `collections : List<StorageCollection>` — each one wraps a
->     `CollectionPositionMapV2` + `PaginatedCollectionV2` pair.
->   - `indexEngines : List<BaseIndexEngine>` — BTree-backed engines
->     wrap a `BTree` instance.
+>   - `collections : List<StorageCollection>` — each entry is a
+>     `PaginatedCollectionV2` (the sole concrete/instantiable
+>     production inheritor of `StorageCollection`; the only other
+>     inheritor `PaginatedCollection` (V1) is `abstract` and never
+>     instantiated by `StorageCollectionFactory`); call
+>     `verifyAndTruncateOrphans` on the PCV2 instance AND on its
+>     embedded `collectionPositionMap` field (`CollectionPositionMapV2`).
+>   - `indexEngines : List<BaseIndexEngine>` — filter by
+>     `instanceof BTreeSingleValueIndexEngine || instanceof
+>     BTreeMultiValueIndexEngine` (other `BaseIndexEngine` inheritors
+>     like `V1IndexEngine`, `RemoteIndexEngine`, the non-BTree
+>     single/multi-value engines must be skipped); the BTree-family
+>     engines hold one or more `CellBTreeSingleValue<CompositeKey>`-typed
+>     fields (`BTreeSingleValueIndexEngine` has `sbTree`;
+>     `BTreeMultiValueIndexEngine` has `svTree` + `nullTree` — both
+>     are separately-managed BTree instances and both need
+>     `verifyAndTruncateOrphans`) whose runtime impl is the concrete
+>     `BTree`. Phase A locks the exact accessor shape (cast,
+>     `instanceof BTree` filter on the field value, or new getter on
+>     the engine).
 >   - `linkCollectionsBTreeManager` — holds the `SharedLinkBagBTree`
 >     instance.
 >   For each component instance: call its `verifyAndTruncateOrphans`

@@ -69,8 +69,9 @@ flowchart LR
   that calls `WriteCache.loadOrAdd`.
 - **`WriteCache` (`WOWCache` + `DirectMemoryOnlyDiskCache`)** — gains a
   total `loadOrAdd(fileId, pageIndex, verifyChecksums)` primitive that
-  loads, extends, or gap-fills (recovery only) as needed. Loses
-  `allocateNewPage`. `getFilledUpTo` becomes package-private.
+  loads, extends, or gap-fills (recovery only) as needed; gains a
+  recovery-time `shrinkFile(fileId, targetBytes)` primitive (Track 7,
+  D6). Loses `allocateNewPage`. `getFilledUpTo` becomes package-private.
 - **`AsyncFile`** — unchanged; `allocateSpace` (in-memory `getAndAdd`)
   and `EnsurePageIsValidInFileTask` (idempotent disk stamping) keep their
   current roles.
@@ -193,8 +194,9 @@ flowchart LR
   orphans uniformly" rationale holds **within-TX only**; cross-recovery
   orphans (partial flush + JVM crash) are handled by D6's recovery-time
   truncate pass for EP-equipped components, not by cache semantics.
-- **Implemented in**: Tracks 1, 3, 4 (the structural fix lands across
-  all three).
+- **Implemented in**: Tracks 1, 4 (the structural fix lands across
+  both; the discovery-channel removal originally split across the
+  retired Track 3 and Track 4 is now wholly inside Track 4).
 
 #### D6: Recovery-time orphan truncation pass for EP-equipped components
 
@@ -222,9 +224,6 @@ flowchart LR
   components and `IndexHistogramManager` are deliberately out of
   scope — see Non-Goals for the carve-out rationale.
 - **Implemented in**: Track 7.
-- **No `**Full design**` section**: D6 carries its rationale and
-  risks in the bullets above (precedent: D5 also has no
-  `**Full design**` link).
 
 ### Invariants
 
@@ -248,8 +247,8 @@ flowchart LR
 - **I6**: After `AbstractStorage.recoverIfNeeded()` returns and before
   any TX runs, every EP-equipped storage component (BTree, SLBB,
   CollectionPositionMapV2, PaginatedCollectionV2) satisfies
-  `entryPoint.fileSize == AsyncFile.getFileSize() / pageSize`.
-  Established by Track 7's recovery-time pass; maintained by I5.
+  `entryPoint.logicalPages == AsyncFile.getFileSize() / pageSize` —
+  established by Track 7, maintained by I5.
 
 ### Integration Points
 
@@ -263,10 +262,9 @@ flowchart LR
   parallel implementation of the new primitive.
 - `DiskStorage.backupPagesWithChanges` reads file-physical size during
   storage quiesce via the gated path introduced in Track 5.
-- `AbstractStorage.recoverIfNeeded()` invokes the Track 7 recovery-
-  time truncate pass between `restoreFromWAL()` and `flushAllData()`,
-  iterating EP-equipped components. Per-component mechanics + field
-  list: see `tracks/track-7.md`.
+- `AbstractStorage.recoverIfNeeded()` invokes Track 7's recovery-time
+  truncate pass between `restoreFromWAL()` and `flushAllData()`,
+  iterating EP-equipped components.
 
 ### Non-Goals
 
@@ -524,8 +522,8 @@ flowchart LR
 - [ ] Track 7: Recovery-time orphan-truncation pass
   > Add a recovery-time pass to `AbstractStorage.recoverIfNeeded()`
   > (after `restoreFromWAL()`, before `flushAllData()`) that walks
-  > each EP-equipped storage component, reads its entry-point logical
-  > page count, and truncates physical orphans via a new
+  > each EP-equipped storage component and reads its entry-point
+  > logical page count. The pass truncates physical orphans via a new
   > `WriteCache.shrinkFile(fileId, targetBytes)` primitive backed by
   > `AsyncFile.shrink`.
   >
@@ -546,20 +544,15 @@ flowchart LR
   > **Depends on:** Track 4
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 3 (post-replan re-validation, 2026-05-14)
 
-_Reset on 2026-05-14 by inline replan landing in response to the Track 4 Phase C CS1 escalation (user chose Option 3b — recovery-time truncate). Per inline-replanning.md step 6, the section is reset to `[ ]` so the next `/execute-tracks` session re-runs State 0 against the revised plan._
+**Auto-fixed (mechanical)**: CR1 (I6 invariant wording matched to BTree/SLBB EP `getPagesSize()` vs collection-family `getFileSize()`); CR2 (Track 7 step-file iteration target re-phrased — `StorageCollection` entries ARE `PaginatedCollectionV2`, not pair-wrappers); CR3 (Track 7 step-file `indexEngines` annotation gained the `BTreeSingleValueIndexEngine`/`BTreeMultiValueIndexEngine` filter list); CR6 (`StorageCollection` "sole production inheritor" tightened to "sole concrete/instantiable" with the abstract V1 carve-out); CR7 (`BTreeMultiValueIndexEngine.{svTree, nullTree}` both flagged for `verifyAndTruncateOrphans`); design.md References footers re-cited D6 / I6 in §"Crash safety" and D6 in §"Allocation discovery surface"; S1 (I6 trimmed to 5 lines, accessor mapping by reference to `design.md` §"Logical-size surface per component"); S2 (Track 7 Integration-Points bullet trimmed to 3 lines); S3 (D5 `**Implemented in**` stale Track 3 reference dropped — discovery-channel removal now wholly inside Track 4); S4 (WriteCache Component Map bullet now lists the new `shrinkFile` SPI); S6 (Track 7 plan-file intro split into two sentences); S7 + S8 (I6 + Integration-Points bullet final-trim to budget).
 
-Revisions in this commit:
-- New Decision Record D6 (recovery-time orphan truncation pass).
-- D5 Risks/Caveats acknowledging the within-TX vs cross-recovery split.
-- New Invariant I6 pinning the post-recovery `logical == physical` invariant.
-- New Integration Points bullet for the recovery-time pass wiring.
-- New Track 7 added.
-- Track 6 CS1 scope reshaped + Depends-on updated to include Track 7.
-- Non-Goals first item rewritten to scope out EP-less components; new bullet scopes out `IndexHistogramManager`.
+**Escalated (design decisions)**: CR4 (design.md §"Crash safety" Edge-case bullet rewritten via edit-design discipline to describe the D6 / Track 7 recovery-time pass — user chose "Update both now via edit-design"); CR5 (design.md §"Allocation discovery surface" IHM bullet gained a cross-reference sentence pointing at the Non-Goals page-1-discriminator carve-out — same user choice); S5 (D6 trailing meta-bullet about omitting `**Full design**` removed to match D5's sibling-shape precedent — user chose "Drop D6's meta-bullet").
 
-_Previous PASS (preserved for traceability)_: prior consistency + structural reviews passed at iteration 3 of a post-replan re-validation (see git history before 2026-05-14). Earlier iteration-2 PASS at initial plan creation in commit `02cd718e0d`. Both audits are superseded by the next State 0 run.
+Mechanical-check + cold-read mutation discipline logged in `design-mutations.md` as Mutation 5 (whole-doc cold-read fired per the N=5 periodic counter; iteration 2 PASS).
+
+_Previous PASS (preserved for traceability)_: prior consistency + structural reviews passed at iteration 3 of a post-replan re-validation (see git history before 2026-05-14). Earlier iteration-2 PASS at initial plan creation in commit `02cd718e0d`. Superseded by this run.
 
 ## Final Artifacts
 

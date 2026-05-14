@@ -486,7 +486,10 @@ already track logical-size advances continue to do so.
   documents the intent). Track 4 Phase A picks between (a) staying on
   `getFilledUpTo` via Track 5's gated helper, or (b) migrating to
   `WriteCache.loadIfPresent(fileId, 1)` + null check — both preserve
-  the defensive intent.
+  the defensive intent. Note: the page-1 discriminator
+  (`op.filledUpTo > 1 ? load : allocate`) is also what justifies
+  excluding IHM from Track 7's EP-driven recovery-time
+  orphan-truncation pass — see Non-Goals in `implementation-plan.md`.
 - **Backup path** — `DiskStorage.backupPagesWithChanges` runs under
   storage quiesce, which holds back any concurrent cache writes. The
   storage-quiesced contract (no concurrent extension, no concurrent
@@ -498,7 +501,9 @@ already track logical-size advances continue to do so.
 
 - D-records: D2 (logical surface as discovery — revised after Track 3
   audit), D3 (`addPage` deletion + reconciliation collapse),
-  D4 (`getFilledUpTo` lockdown — revised after Track 3 audit), D5
+  D4 (`getFilledUpTo` lockdown — revised after Track 3 audit), D5,
+  D6 (recovery-time orphan truncation — anchors the IHM / EP-less
+  carve-out in the gotcha bullet)
 - Invariants: I1, I5
 
 ## Concurrency model
@@ -675,9 +680,18 @@ durable post-eviction.
 
 ### Edge cases / Gotchas
 
-- **Post-WAL-replay file truncation** — orphan disk pages from
-  scenario A leak space until a vacuum / repack. Bounded today; a
-  separate ticket tracks adding a post-replay alignment pass.
+- **Post-WAL-replay file truncation** — for EP-equipped components
+  (`BTree`, `SharedLinkBagBTree`, `CollectionPositionMapV2`,
+  `PaginatedCollectionV2`), the recovery-time pass introduced by
+  D6 / Track 7 wires into `AbstractStorage.recoverIfNeeded()` between
+  `restoreFromWAL()` and `flushAllData()`; it compares the entry-point
+  logical page count to `AsyncFile.getFileSize() / pageSize` and
+  truncates physical orphans via the new
+  `WriteCache.shrinkFile(fileId, targetBytes)` primitive (I6). EP-less
+  components (`FreeSpaceMap`, `CollectionDirtyPageBitSet`) and
+  `IndexHistogramManager` are deliberately out of scope per the
+  Non-Goals — their growth-loops are `getFilledUpTo`-anchored or use
+  a page-1 discriminator pattern.
 - **`DoubleWriteLog` interaction** — anti-tear protection for
   partially-written pages is orthogonal to allocation. Unchanged.
 - **In-memory engine** — `DirectMemoryOnlyDiskCache` has no
@@ -688,7 +702,9 @@ durable post-eviction.
 
 - D-records: D1 (`loadOrAdd` covers all three scenarios), D5 (the
   marker-bit alternative would have papered over scenario B without
-  removing the discovery channel)
-- Invariants: I3, I5
+  removing the discovery channel), D6 (recovery-time orphan
+  truncation for EP-equipped components)
+- Invariants: I3, I5, I6 (post-recovery `logical == physical` for
+  EP-equipped components)
 - Related: `ISSUE-ensurevalidpagetask-torn-write.md` (orthogonal
   torn-write / OS-writeback durability gap, out of scope here)
