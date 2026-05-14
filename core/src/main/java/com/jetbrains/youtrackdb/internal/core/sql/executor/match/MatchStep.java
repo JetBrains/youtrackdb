@@ -251,7 +251,8 @@ public class MatchStep extends AbstractExecutionStep {
           .append(TraversalPreFilterHelper.indexLookupMaxSelectivity());
       case OVERLAP_RATIO_TOO_HIGH -> result.append(", threshold=")
           .append(TraversalPreFilterHelper.edgeLookupMaxRatio());
-      case NONE, BUILD_NOT_AMORTIZED, LINKBAG_TOO_SMALL, BUILD_FAILED -> {
+      case NONE, BUILD_NOT_AMORTIZED, LINKBAG_TOO_SMALL,
+          BUILD_FAILED, STATS_UNAVAILABLE -> {
         /* no extra diagnostic */ }
     }
   }

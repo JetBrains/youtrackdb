@@ -1247,13 +1247,17 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * Unknown selectivity (-1.0) → 0.0 (build immediately to be conservative,
-   * per review finding T1).
+   * Unknown selectivity (-1.0) → {@link Double#MAX_VALUE} (never build).
+   * The cost-model formula m = estimatedSize / (ratio · (1 − s)) cannot
+   * be evaluated without a valid s; mapping to MAX_VALUE makes the
+   * downstream {@code forecastN > ceil(m)} and {@code accumulator < ceil(T)}
+   * comparisons collapse to "never trigger", which is the design-coherent
+   * response to a missing histogram input.
    */
   @Test
-  public void computeMinNeighborsForBuild_unknownSelectivity_buildsImmediately() {
+  public void computeMinNeighborsForBuild_unknownSelectivity_neverBuilds() {
     assertThat(EdgeTraversal.computeMinNeighborsForBuild(
-        100_000, 100.0, -1.0)).isEqualTo(0.0);
+        100_000, 100.0, -1.0)).isEqualTo(Double.MAX_VALUE);
   }
 
   /**
@@ -1425,24 +1429,39 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * When estimateSelectivity returns -1.0 (unknown), the RidSet is
-   * materialized immediately even with a tiny linkBag — the accumulator
-   * is bypassed because unknown selectivity means we cannot compute a
-   * meaningful build threshold.
+   * Regression: when {@code estimateSelectivity} returns -1.0 (unknown),
+   * {@code resolveWithCache} records {@link PreFilterSkipReason#STATS_UNAVAILABLE}
+   * and skips materialisation. Previously this path returned PROCEED
+   * optimistically — safe only while {@code maxRidSetSize} was a fixed
+   * 100K cap, but disastrous after auto-scaling raised the cap to 10M
+   * (see IC2 regression: a 1.5M-entry index scan on the cold path for
+   * every query). The fix matches the design's bounded-loss contract:
+   * without a known {@code s} the build cost {@code B} is unbounded,
+   * so the only safe response is to skip the pre-filter.
    */
   @Test
-  public void resolveWithCache_indexLookup_unknownSelectivity_materializesImmediately() {
+  public void resolveWithCache_indexLookup_unknownSelectivity_skipsAndRecordsStatsUnavailable() {
     var et = createEdgeTraversal();
     var ridSet = singletonRidSet(10, 1);
-    // selectivity=-1.0 (unknown), estimatedSize=100_000
     var desc = stubIndexLookup(-1.0, 100_000, "Post.date", ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    // Even with tiny linkBag, unknown selectivity → immediate materialization
-    var result = et.resolveWithCache(ctx, 1);
-    assertThat(result).isSameAs(ridSet);
-    verify(desc, times(1)).resolve(any(), any());
+    var result = et.resolveWithCache(ctx, 10_000);
+
+    assertThat(result).isNull();
+    verify(desc, never()).resolve(any(), any());
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.STATS_UNAVAILABLE);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+
+    // Subsequent vertices hit cached null and restore STATS_UNAVAILABLE
+    // (rather than leaving lastSkipReason stale from an interleaved skip).
+    assertThat(et.resolveWithCache(ctx, 10_000)).isNull();
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.STATS_UNAVAILABLE);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(2);
+    verify(desc, never()).resolve(any(), any());
   }
 
   /**
@@ -1875,6 +1894,10 @@ public class EdgeTraversalCacheTest {
    * declared order. BUILD_FAILED is recorded when descriptor.resolve()
    * returns null on the materialization cold path (e.g. resolveIndexToRidSet
    * aborted, or RecordNotFoundException on a reverse-edge target).
+   * STATS_UNAVAILABLE is recorded by checkIndexLookupAmortization when
+   * estimateSelectivity returns -1 — the cost-model formula degenerates
+   * without a known selectivity, so the only design-coherent response is
+   * to skip the pre-filter and let normal traversal proceed.
    */
   @Test
   public void preFilterSkipReason_allValuesExist() {
@@ -1886,7 +1909,8 @@ public class EdgeTraversalCacheTest {
             PreFilterSkipReason.BUILD_NOT_AMORTIZED,
             PreFilterSkipReason.LINKBAG_TOO_SMALL,
             PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH,
-            PreFilterSkipReason.BUILD_FAILED);
+            PreFilterSkipReason.BUILD_FAILED,
+            PreFilterSkipReason.STATS_UNAVAILABLE);
   }
 
   // =========================================================================
@@ -2643,19 +2667,22 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * Selectivity unknown (negative sentinel from IndexSearchDescriptor)
-   * skips both the REJECT branch and the amortization branch → PROCEED
-   * optimistically. This matches the existing behaviour of
-   * {@link IndexLookup#passesSelectivityCheck} when statistics are absent.
+   * Selectivity unknown (negative sentinel from IndexSearchDescriptor) →
+   * REJECT. The stateless variant cannot bound build cost B without a
+   * valid s, so the design's bounded-loss contract requires REJECT
+   * (callers cache null with STATS_UNAVAILABLE when they have the state).
+   * Previously this branch returned PROCEED, which combined with the
+   * auto-scaled 10M maxRidSetSize cap caused IC2 to scan a 1.5M-entry
+   * index on the cold path for every query.
    */
   @Test
-  public void evaluateIndexLookupAmortization_unknownSelectivity_proceeds() {
+  public void evaluateIndexLookupAmortization_unknownSelectivity_rejects() {
     var decision = EdgeTraversal.evaluateIndexLookupAmortization(
         /* estimatedSize */ 100_000,
         /* selectivity   */ -1.0,
         /* accumulated   */ 0L,
         /* loadToScan    */ 100.0);
-    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.PROCEED);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.REJECT);
   }
 
   /**

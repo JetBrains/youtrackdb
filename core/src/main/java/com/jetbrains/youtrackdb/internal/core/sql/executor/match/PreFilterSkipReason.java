@@ -53,5 +53,17 @@ public enum PreFilterSkipReason {
    * subsequent vertices on the same key short-circuit instead of
    * re-attempting the build.
    */
-  BUILD_FAILED
+  BUILD_FAILED,
+
+  /**
+   * Index statistics or histogram unavailable — {@code estimateSelectivity}
+   * returned {@code -1}. The cost-model amortization formula
+   * {@code m = estimatedSize / (loadToScanRatio · (1 − s))} cannot be
+   * evaluated without a valid {@code s}, so the bounded-loss contract
+   * for BUILD_EAGER / DEFERRED_WITH_NET does not hold. Cached as a
+   * permanent rejection: class-level selectivity does not change during
+   * a single query, so a missing statistic at the first vertex stays
+   * missing for all subsequent vertices.
+   */
+  STATS_UNAVAILABLE
 }

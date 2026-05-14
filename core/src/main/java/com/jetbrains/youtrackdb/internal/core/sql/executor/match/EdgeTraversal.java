@@ -750,7 +750,8 @@ public class EdgeTraversal {
    *                                 {@code < 0} (unknown)
    * @param selectivity              cached class-level selectivity;
    *                                 {@code NaN} or {@code < 0} means
-   *                                 unknown — see PROCEED handling below
+   *                                 unknown — short-circuits to REJECT
+   *                                 (see {@link PreFilterSkipReason#STATS_UNAVAILABLE})
    * @param accumulatedLinkBagTotal  running sum of link bag sizes across
    *                                 vertices/back-refs observed so far
    *                                 (caller must include current call's
@@ -763,16 +764,21 @@ public class EdgeTraversal {
       double selectivity,
       long accumulatedLinkBagTotal,
       double loadToScanRatio) {
-    // Unknown selectivity (negative sentinel) → PROCEED optimistically.
-    // Rationale: REJECT would cache null permanently for the whole query,
-    // too aggressive when stats may just be transiently missing; DEFER is
-    // meaningless because the amortization formula degenerates to 0
-    // without a valid selectivity. Other guards still bound the worst
-    // case (maxRidSetSize cap in resolveWithCache, per-vertex ratio for
-    // EdgeRidLookup in applyPreFilter), and IndexLookup.passesSelectivityCheck
-    // already returns true for unknown selectivity — keeping these in sync.
+    // Unknown selectivity (negative sentinel) → REJECT. Stateless callers
+    // cannot bound the build cost B without a valid s; the design's
+    // bounded-loss contract requires a known B before committing to a
+    // BUILD_EAGER decision or a meaningful safety-net trigger T. The
+    // previous "PROCEED optimistically" branch worked only while
+    // maxRidSetSize was a fixed 100K cap that aborted runaway scans;
+    // the auto-scaled cap (up to 10M) no longer provides that bound,
+    // making PROCEED on unknown stats unbounded.
+    //
+    // Stateful callers (checkIndexLookupAmortization) record
+    // STATS_UNAVAILABLE for PROFILE diagnostics; this stateless variant
+    // returns REJECT and lets the caller (BackRefHashJoinStep) attach
+    // its own reason if it has one.
     if (selectivity < 0) {
-      return AmortizationDecision.PROCEED;
+      return AmortizationDecision.REJECT;
     }
     if (estimatedSize >= 0
         && selectivity
@@ -825,10 +831,25 @@ public class EdgeTraversal {
           indexLookup.indexDescriptor().estimateSelectivity(ctx);
     }
 
-    // Unknown selectivity → PROCEED optimistically (existing behavior,
-    // no mode decision; other guards bound the worst case).
+    // Unknown selectivity → REJECT permanently, record STATS_UNAVAILABLE.
+    // The cost-model formula m = estimatedSize / (ratio · (1 − s)) cannot
+    // be evaluated without a valid s, so the bounded-loss contract that
+    // backs BUILD_EAGER / DEFERRED_WITH_NET does not hold. Acting on
+    // unknown stats was safe when maxRidSetSize was a fixed 100K cap that
+    // aborted runaway scans; the auto-scaled cap (up to 10M on a 4 GB
+    // heap) no longer provides that bound. Class-level selectivity is
+    // constant per query — caching null with the reason lets every
+    // subsequent vertex restore the diagnostic via cachedSkipReasons.
+    // REJECT (rather than DEFER) also lets the Composite rescue path in
+    // resolveWithCache try a non-IndexLookup child (e.g. EdgeRidLookup)
+    // that has its own per-vertex bound and does not depend on histogram.
     if (indexLookupSelectivity < 0) {
-      return AmortizationDecision.PROCEED;
+      recordPreFilterSkip(PreFilterSkipReason.STATS_UNAVAILABLE);
+      if (key != null && cache != null && canCache(key)) {
+        cache.put(key, null);
+        rememberCachedSkipReason(key, PreFilterSkipReason.STATS_UNAVAILABLE);
+      }
+      return AmortizationDecision.REJECT;
     }
 
     // Class-level selectivity too high → REJECT permanently, cache null.
@@ -894,12 +915,17 @@ public class EdgeTraversal {
    *   <li>{@code estimatedSize <= 0} → {@code 0.0} (build immediately —
    *       trivially small or unknown size; the materialised RidSet will
    *       be empty or near-empty, so the threshold is moot)</li>
-   *   <li>{@code selectivity < 0} → {@code 0.0} (unknown selectivity:
-   *       build immediately. The formula degenerates without a valid
-   *       selectivity, and rejecting permanently would be too aggressive
-   *       — other guards still bound the worst case. Note that callers
-   *       that go through {@link #evaluateIndexLookupAmortization}
-   *       short-circuit on this case before reaching this method)</li>
+   *   <li>{@code selectivity < 0} → {@link Double#MAX_VALUE} (unknown
+   *       selectivity: never build. The formula degenerates without a
+   *       valid {@code s} — we cannot bound the build cost {@code B},
+   *       which the design's bounded-loss contract requires before
+   *       committing to BUILD_EAGER or computing the safety-net trigger
+   *       {@code T = max(2·forecast, m)}. Callers above this method
+   *       (the stateful {@link #checkIndexLookupAmortization} and the
+   *       stateless {@link #evaluateIndexLookupAmortization}) also
+   *       short-circuit on this case for diagnostic reasons — this
+   *       return value is the defensive default if either ever forgets
+   *       to.)</li>
    *   <li>{@code selectivity >= 1.0} → {@link Double#MAX_VALUE} (never
    *       build — no filtering benefit when all records match)</li>
    *   <li>Normal case → {@code estimatedSize / (loadToScanRatio *
@@ -919,7 +945,7 @@ public class EdgeTraversal {
       return 0.0;
     }
     if (selectivity < 0) {
-      return 0.0;
+      return Double.MAX_VALUE;
     }
     if (selectivity >= 1.0) {
       return Double.MAX_VALUE;
