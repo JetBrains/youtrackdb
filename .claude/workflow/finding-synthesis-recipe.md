@@ -27,6 +27,16 @@ Synthesis produces three outputs, in this order:
 Apply the steps below in order. Skip a step that is inapplicable
 (e.g., a 4-finding fan-out has no deduplication to do).
 
+If every selected agent returned zero findings, emit:
+
+```markdown
+## Synthesised findings — iteration {N}/3
+
+(no findings)
+```
+
+and signal PASS to the caller. Do not respawn the implementer.
+
 ---
 
 ## Step 1 — Deduplicate across dimensions
@@ -50,20 +60,32 @@ Each level breaks ties for the level above. Walk the raw findings
 once in dimension order (baseline first, then conditional), inserting
 each into the running merged list at this key:
 
-1. **`file:line`** — exact code location. Two findings at the same
-   file and line are candidates to merge.
-2. **Issue shape** — the substantive complaint, ignoring how each
+Some findings have no single `file:line` — missing-test flags
+(`review-test-completeness`), missing-invariant flags
+(`review-crash-safety`), architectural plan-vs-code drift. For
+these, substitute the affected component or test class as the
+level-1 key (e.g., `core/.../CASDiskWAL` or
+`BTreeMultiValueIndexTest`). When even a component cannot be named,
+skip directly to level 2 (issue shape) and rely on suggested-fix
+shape for the merge decision.
+
+1. **`file:line`**: exact code location. Two findings at the same
+   file and line are candidates to merge. Two findings whose line
+   ranges overlap, or whose lines fall within ±5 lines of each
+   other in the same method body, share the level-1 key. Distant
+   lines in the same file stay separate.
+2. **Issue shape**: the substantive complaint, ignoring how each
    reviewer framed it. "Polling loop with fixed sleep", "race-prone
    flake on slow CI", "wasted CPU per assertion", "no deterministic
    synchronisation" — same issue. When two findings at the same
    `file:line` express genuinely different complaints (e.g.,
    "incorrect lock order" vs "missing null check"), they stay
    separate even though `file:line` matches.
-3. **Suggested fix shape** — the concrete change the finding asks
+3. **Suggested fix shape**: the concrete change the finding asks
    for. Two findings at adjacent lines proposing the same fix merge
    under one row; two findings at the same line proposing different
    fixes stay separate.
-4. **Severity (tie-break only)** — when the merged finding inherits
+4. **Severity (tie-break only)**: when the merged finding inherits
    severities from multiple agents, take the **strictest** (blocker
    > should-fix > suggestion). Record the contributing dimensions so
    the gate-check fan-out re-runs only the implicated reviewers.
@@ -93,6 +115,13 @@ After dedup, one merged row:
 Severity is `blocker` — strictest of the five contributing severities,
 inherited from `review-test-concurrency`.
 
+The example covers Step 1 in full. Step 2 does not apply because M1
+is a multi-contributor row, not a singleton. In Step 3 the `blocker`
+severity routes M1 to **In-scope this iteration**. In Step 4 a
+1-finding spawn is well under the 8–12 target, so no split is
+needed. The Step 5 output carries M1 as the sole entry in the
+**In-scope this iteration** section.
+
 ---
 
 ## Step 2 — Assign severity to singletons
@@ -101,22 +130,22 @@ Findings that survive Step 1 as singletons keep their original
 severity unless it conflicts with the standard scale in
 [`review-iteration.md`](review-iteration.md) §Severity levels:
 
-- **blocker** — must fix before merge: bugs, security vulns, crash
+- **blocker**: must fix before merge — bugs, security vulns, crash
   safety, data corruption, tests giving false confidence, CI-hang
   risks.
-- **should-fix** — should fix before merge: likely bugs, performance
+- **should-fix**: should fix before merge — likely bugs, performance
   issues, concurrency risks, missing critical test coverage,
   falsifiability gaps in newly-added tests.
-- **suggestion** — recommended improvements: minor style, optional
+- **suggestion**: recommended improvements — minor style, optional
   optimisations, additional test scenarios.
 
 When an agent assigned a severity higher than the criteria above
 support (e.g., `blocker` for a style preference), downgrade during
-synthesis with a one-line justification in the iteration record so
-the next reviewer instance does not re-raise the same finding at the
-same severity. Conversely, when a singleton's stated impact reads
-clearly above its assigned severity, upgrade with the same
-justification trail.
+synthesis and log an `OVERRIDE` entry in the §Synthesis audit trail
+(Step 5 output) so the next reviewer instance does not re-raise the
+same finding at the same severity. Conversely, when a singleton's
+stated impact reads clearly above its assigned severity, upgrade and
+log the same `OVERRIDE` entry.
 
 ---
 
@@ -154,15 +183,27 @@ For each merged finding, choose one of three buckets:
   hierarchy" surfaced during a 2-line bug-fix track). Plan
   correction.
 - Findings the orchestrator judges out-of-scope on re-read despite
-  the reviewer flagging them. Record the rationale in the iteration
-  record; if the rationale is purely "low value", treat as a
-  rejected `suggestion` and drop from the list entirely instead of
-  routing it to a plan correction.
+  the reviewer flagging them. Log a `DROP` entry in the §Synthesis
+  audit trail (Step 5 output) with the rationale; if the rationale
+  is purely "low value", treat as a rejected `suggestion` and drop
+  from the list entirely instead of routing it to a plan correction.
 
 The split is a judgement call; the buckets above are the default,
-not a contract. When the user gave explicit guidance during a prior
-Review-mode pass, the guidance overrides the default bucketing for
-the items it named.
+not a contract.
+
+**At track level only**, when the user gave explicit guidance during
+a prior Review-mode pass, the guidance overrides the default
+bucketing for the items it named. Review-mode guidance names
+contributing dimension IDs (`BC3`, `TX1`, …), not `M<n>` IDs (which
+are fresh per synthesis). Walk the §Synthesis audit trail's
+contributing-dimensions list for each merged row and apply the
+user's bucket override before final assignment.
+
+Step-level synthesis (per
+[`step-implementation.md`](step-implementation.md) §Per-Step
+Orchestration Loop sub-step 4(b)) runs before any Review-mode pass
+exists; this override is unreachable there and the default
+bucketing always wins.
 
 ---
 
@@ -172,6 +213,8 @@ The hard ceiling from
 [`track-code-review.md`](track-code-review.md) §Review loop step 2 is
 ~15 in-scope findings or ~10 distinct source files per implementer
 spawn.
+
+### Why the headroom matters
 
 **Aim lower than the ceiling.** Target 8–12 findings touching ≤ 6–8
 files per iteration. The headroom matters because:
@@ -185,10 +228,11 @@ files per iteration. The headroom matters because:
   fills faster when the originating iteration covered more
   ground; splitting now leaves room for carry-overs without
   re-tripping the ceiling.
-- Opus implementers truncated mid-iteration in past Phase C
-  sessions when the spawn hit 22 findings × 14 files (the Track-18
-  incident, 2026-05-07). A 12-finding target keeps the
-  message-budget margin healthy on cache-cold spawns.
+- Cache-cold Opus spawns truncated mid-iteration at 22 findings ×
+  14 files in past Phase C sessions. A 12-finding target keeps the
+  message-budget margin healthy.
+
+### Splitting vs accepting a larger spawn
 
 When the deduped in-scope set exceeds 12 findings, split it: take
 the highest-severity 8–12 items first, displace the rest to
@@ -201,7 +245,29 @@ independent and the per-finding fix is small (e.g., 20
 identical-pattern Javadoc fixes touching 10 files), one large
 iteration is still fine. When iteration counts are already tight
 (2 of 3 used) and the remaining findings cohere, accept the larger
-spawn and document the choice in the iteration record.
+spawn and log an `OVER-BUDGET` entry in the §Synthesis audit trail
+(Step 5 output) with the rationale.
+
+When a single merged finding inherently spans more files than the
+per-iteration ceiling (systematic rename, polymorphic SPI signature
+change, package move), keep it as one finding and log the
+over-ceiling decision with an `OVER-BUDGET` entry in the §Synthesis
+audit trail. Splitting an atomic refactor across iterations is
+worse than the over-budget spawn — the partial states between
+iterations would not compile.
+
+### High-volume synthesis and handoff
+
+When the deduped in-scope set is so large that the binary split
+cascades across iterations (≳24 findings), do not surface a
+decision to the user. The context-consumption gate at the end of
+each iteration is the natural pause point — high-volume synthesis
+drives context pressure into `warning` / `critical`, which fires
+the handoff per [`mid-phase-handoff.md`](mid-phase-handoff.md). The
+synthesised list and §Synthesis audit trail are preserved across
+the handoff as work-in-progress; a fresh-context orchestrator on
+resume can decide whether to continue, `ESCALATE`, or route some
+items to plan corrections with cache headroom intact.
 
 ---
 
@@ -236,13 +302,24 @@ section; this recipe produces the canonical merged list.
   [`track-code-review.md`](track-code-review.md) §Plan Corrections
   from Deferred Findings.
 
-### Dropped during synthesis (audit trail only)
+### Synthesis audit trail
 
-- BC7 — rejected on re-read: covered by existing test
+- `DROP BC7` — rejected on re-read: covered by existing test
   `<class>#<method>`; reviewer missed the assertion.
-- PF4 — downgraded from `blocker` to `suggestion` and dropped:
-  ~50 µs improvement on a non-hot path.
+- `OVERRIDE PF4 blocker→suggestion` — ~50 µs improvement on a
+  non-hot path; criteria support `suggestion` only. Dropped from
+  in-scope list.
+- `OVER-BUDGET 14 findings` — iteration counts already 2/3 used
+  and the remaining findings cohere; accepted one larger spawn.
+- `REJECTED-VERDICT BC9` — gate-check reviewer recanted: original
+  finding was a misread of the `volatile` semantics.
 ```
+
+Entry-kind tags (`DROP`, `OVERRIDE`, `OVER-BUDGET`, `REJECTED-VERDICT`)
+are the canonical names cited from elsewhere in this recipe and from
+[`review-iteration.md`](review-iteration.md) §Verdict handling. All
+synthesis decisions that do not appear in the in-scope or deferred
+lists land here.
 
 The `M<n>` prefix is fresh for the synthesised list. The
 per-dimension finding IDs (e.g., `BC3`, `TX1`) live only in the
@@ -251,6 +328,15 @@ implementer's `findings:` block carries only the `M<n>` IDs and
 their merged bodies. The implementer does not need to know which
 reviewer framing originated each item.
 
+`M<n>` IDs are cumulative across iterations of the same review loop.
+Iteration N's first new finding starts at `M<last+1>` where `<last>`
+is the highest M-ID seen in iteration N−1's synthesised list,
+regardless of which earlier findings cleared. Cumulative numbering
+keeps implementer commit messages and gate-check verdicts unambiguous
+across the loop.
+
+Omit empty sections; never emit a heading with no content beneath it.
+
 ---
 
 ## Gate-check synthesis
@@ -258,17 +344,35 @@ reviewer framing originated each item.
 When this recipe runs against gate-check returns (per
 [`review-iteration.md`](review-iteration.md) §Gate-check synthesis
 routing), the inputs are verdicts plus optional `New findings`
-blocks, not raw dimensional findings. Map the verdicts as follows
-before walking Steps 1–4:
+blocks, not raw dimensional findings.
+
+### Verdict-to-action mapping
+
+Map the verdicts as follows before walking Steps 1–4:
 
 | Gate-check verdict | Action |
 |---|---|
 | `VERIFIED` | Drop from the forwarded list. Cleared this iteration. |
-| `REJECTED` | Drop from the forwarded list. Reviewer recanted; log the rationale. |
+| `REJECTED` | Drop from the forwarded list. Reviewer recanted; log a `REJECTED-VERDICT` entry in the §Synthesis audit trail (Step 5 output) with the rationale. |
 | `MOOT` | Drop from the forwarded list. Code path no longer reachable. |
 | `STILL OPEN` | Forward verbatim with the original `M<n>` ID and severity. |
 | `REGRESSION` | Escalate to `blocker` with `revert-or-repair` guidance; carry the regression's `file:line` plus the original finding ID into the next implementer spawn. A `REGRESSION` forces the iteration `FAIL` even if every other verdict is `VERIFIED`. |
 
+### Dedup and termination
+
+`REGRESSION` rows never merge with other rows during Step 1, even
+at the same `file:line`. Their `revert-or-repair` guidance is
+load-bearing and must reach the implementer unmerged. Forward
+`REGRESSION` findings as standalone entries; other findings at the
+same location continue through normal dedup.
+
 After mapping, fold any `New findings` from the gate-check reports
 into the resulting list and run Steps 1–4 across the union. The
 output format from Step 5 applies unchanged.
+
+If the synthesised in-scope list is empty after Steps 1–4 AND no
+`REGRESSION` verdict was seen, return PASS and exit the review loop
+without respawning the implementer. A `REGRESSION` verdict always
+forces `FAIL` even when it produced no merged in-scope row — the
+regression's `revert-or-repair` guidance carries the iteration
+regardless of dedup outcome.

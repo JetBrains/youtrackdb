@@ -104,8 +104,10 @@ The orchestrator processes each gate-check verdict as follows:
 - `REJECTED` — the reviewer on re-read concluded the original
   finding was not a real issue (misread, false positive). Clears
   identically to `VERIFIED`; do not pass to the next implementer.
-  Log the rejection rationale in the iteration record so the next
-  reviewer instance does not re-raise the same finding.
+  Log a `REJECTED-VERDICT` entry in the §Synthesis audit trail of
+  [`finding-synthesis-recipe.md`](finding-synthesis-recipe.md)
+  Step 5 output so the next reviewer instance does not re-raise the
+  same finding.
 - `MOOT` — finding is no longer reachable (file deleted, code moved,
   approach changed). Clears for loop-termination purposes, identical
   to `VERIFIED`; do not pass to the next implementer.
@@ -136,7 +138,8 @@ routing applies identically at both review levels — track-level
 re-enters from [`track-code-review.md`](track-code-review.md)
 §Review loop, step-level from
 [`step-implementation.md`](step-implementation.md) §Per-Step
-Orchestration Loop sub-step 4(d).
+Orchestration Loop sub-step 4(d) (gate-check collection), which
+re-enters sub-step 4(b) for synthesis.
 
 ### Gate-check budget enforcement is best-effort
 

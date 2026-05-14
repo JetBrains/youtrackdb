@@ -496,7 +496,10 @@ finding ID prefixes, and gate format.
       `FIX_REVIEW_FINDINGS` respawn. Items the orchestrator judges
       out of scope for the step are recorded in the `EPISODE_DRAFT`
       instead, not routed via §Plan Corrections (that flow is
-      track-level only).
+      track-level only). The orchestrator stages these notes
+      alongside the sub-step 5 cross-track-impact observations;
+      sub-step 7's episode merge folds both into
+      `EPISODE_DRAFT.what_was_discovered`.
    c. **If findings need fixes**, respawn the implementer with
       `mode=FIX_REVIEW_FINDINGS` and the synthesised findings as
       input. The implementer applies the fixes on top of the
@@ -551,7 +554,7 @@ finding ID prefixes, and gate format.
       [`review-iteration.md`](review-iteration.md) §"Dimensional-review
       gate-check budget" for the YTDB-696 rationale, the verdict-
       handling rules (VERIFIED / REJECTED / MOOT / STILL OPEN /
-      REGRESSION), and the §Synthesis routing for gate-check returns.
+      REGRESSION), and the §Gate-check synthesis routing.
       Step-level review only fires for `risk: high` steps, so this
       path is rarer than Phase C track-level review, but the burn
       rate is identical when it does fire.
@@ -726,7 +729,8 @@ The episode includes:
 - **What was done** — factual summary from `EPISODE_DRAFT.what_was_done`.
 - **What was discovered** — unexpected findings; merge
   `EPISODE_DRAFT.what_was_discovered` with any cross-track impact
-  observations.
+  observations from sub-step 5 and any out-of-step items the
+  orchestrator deferred during sub-step 4(b) review synthesis.
 - **What changed from the plan** — deviations from
   `EPISODE_DRAFT.what_changed_from_plan`, naming affected future
   steps.

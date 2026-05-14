@@ -508,14 +508,14 @@ orchestrator never edits source files itself in Phase C.
      [`review-iteration.md`](review-iteration.md) §"Dimensional-review
      gate-check budget" for the YTDB-696 rationale, the verdict-handling
      rules (VERIFIED / REJECTED / MOOT / STILL OPEN / REGRESSION), and
-     the §Synthesis routing for gate-check returns. Re-using the full
+     the §Gate-check synthesis routing. Re-using the full
      dimensional review prompt at gate-check time burns roughly three
      times the budget for no extra signal and is the load-bearing
      cause of mid-Phase-C session pauses.
    - **After collecting all gate-check returns, run them through
      §Synthesis** before composing the next iteration's implementer
-     input (per [`review-iteration.md`](review-iteration.md) §
-     "Synthesis routing for gate-check returns"). Treat
+     input (per [`review-iteration.md`](review-iteration.md)
+     §Gate-check synthesis routing). Treat
      `REGRESSION` verdicts as blocker-severity carry-forwards with
      `revert-or-repair` guidance; treat `REJECTED` and `MOOT`
      verdicts as cleared (identical to `VERIFIED`); carry
