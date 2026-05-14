@@ -523,7 +523,27 @@ finding ID prefixes, and gate format.
       `step_base_commit`.
    d. **Re-run only the dimension(s) with open findings** on each
       gate-check iteration. Repeat until approved OR **max 3
-      iterations** reached.
+      iterations** reached. **Spawn the gate-check sub-agents with
+      the compact prompt template at
+      [`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md),
+      not the dimensional review prompt from sub-step (a).**
+      Substitute `{dimension}` (the agent's review type),
+      `{findings_under_recheck}` (the open finding IDs and titles
+      for that dimension, copied verbatim from the synthesised
+      list), `{diff_path}` and `{files_path}` (the re-staged step
+      diff and changed-files list — regenerated per the staging
+      block in sub-step (a) because each `Review fix:` respawn
+      advanced `{commit}`), `{plan_slim_path}` (the slim plan
+      snapshot at `/tmp/claude-code-plan-slim-$PPID.md`),
+      `{step_file_path}` (`docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`),
+      and `{level}` (literal string `step`). The template enforces
+      a ≤ 60-line budget, a forbidden-sections list, and a
+      verdict-only output format — see
+      [`review-iteration.md`](review-iteration.md) §"Dimensional-review
+      gate-check budget" (YTDB-696). Step-level review only fires
+      for `risk: high` steps, so this path is rarer than Phase C
+      track-level review, but the burn rate is identical when it
+      does fire.
    e. If max iterations reached, note remaining findings in the
       `EPISODE_DRAFT` so they appear in the step episode.
    f. **Remove the staged temp files** for this step so they don't

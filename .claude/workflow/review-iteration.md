@@ -74,3 +74,56 @@ the gate check to catch cascading issues.
 For each previous finding: **VERIFIED**, **STILL OPEN** (with explanation),
 or **REJECTED** (no action needed). New findings (if any) with cumulative
 numbering. Summary: **PASS** or **FAIL**.
+
+### Dimensional-review gate-check budget
+
+Dimensional code-review gate-checks (the re-runs spawned at
+`step-implementation.md` §Per-Step Orchestration Loop sub-step 4(d) and
+`track-code-review.md` §Review loop step 3 — for the
+`review-code-quality`, `review-bugs-concurrency`, `review-test-behavior`,
+`review-test-completeness`, `review-crash-safety`, `review-security`,
+`review-performance`, `review-test-structure`, `review-test-concurrency`,
+`review-test-crash-safety` agents) **MUST** be spawned with the prompt
+template at
+[`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md).
+That template enforces:
+
+- **Total budget: ≤ 60 lines** of output per re-spawned agent.
+- One verdict line per open finding (`VERIFIED` / `STILL OPEN` /
+  `REGRESSION`), each ≤ 1 line of justification.
+- **≤ 3 new findings**, each ≤ 5 lines total — surface regressions or
+  obvious misses directly tied to the listed open findings; do not
+  re-survey the diff.
+- One-line `PASS` / `FAIL` summary.
+
+The following sections — present in every dimensional review agent's
+default Output Format — are **forbidden** at gate-check time:
+
+- `Reviewer notes`
+- `Files of interest`, `Scope`, `What I read`
+- `Reference-Accuracy Audit` (the PSI-vs-grep caveat rides on the
+  affected verdict line as `(grep-only)`)
+- `Methodology`, `Process`, `Hypothesis tracking`, `Observations`
+- Per-finding `Evidence:` / `Refutation considered:` / `Suggested fix:`
+  subsections beyond the single-line shapes in the template
+- Multi-paragraph `Summary` prose
+
+**Why this matters (YTDB-696).** A Phase C session that runs 8
+dimensional reviewers plus a 5-agent gate-check fan-out routinely
+pushes the orchestrator's context past the 30 % `warning` threshold
+before iter-2 begins, forcing a mid-Phase-C session pause. The dense
+100–300-line gate-check reports are the dominant burn; the verbose
+sections above carry almost no signal at gate-check time because
+the orchestrator already has the original finding text. Stripping
+them recovers ~70 % of the gate-check token budget.
+
+The other gate-verification flows — structural review
+([`prompts/structural-gate-verification.md`](prompts/structural-gate-verification.md)),
+Phase A review gate
+([`prompts/review-gate-verification.md`](prompts/review-gate-verification.md)),
+consistency gate
+([`prompts/consistency-gate-verification.md`](prompts/consistency-gate-verification.md))
+— are out of scope for this budget. Each has its own dedicated
+prompt file with a per-finding verification certificate format that
+is already terse; do not retrofit the dimensional-review template
+onto them.
