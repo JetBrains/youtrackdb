@@ -183,14 +183,15 @@ Rules (these are enforced by the discipline; listed here for orientation):
 `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
 `warning` (≥30%) or `critical` (≥40%), do NOT start `adr.md`. Save
 all work and ask the user for a session refresh (see
-`workflow.md` §Context Consumption Check). Because `design-final.md`
-is already on disk but `adr.md` is not, write a handoff file at
+`workflow.md` §Context Consumption Check). Write a handoff file at
 `docs/adr/<dir-name>/_workflow/handoff-phase4.md` per
-[`mid-phase-handoff.md`](../mid-phase-handoff.md) so the next session
-resumes at the ADR step without re-reading every episode or
-re-writing the final-design content. The same applies to mid-`adr.md`
-pauses — capture which sections of `adr.md` are already drafted in
-the handoff.
+[`mid-phase-handoff.md`](../mid-phase-handoff.md): `design-final.md`
+is on disk but `adr.md` is not, so the next session resumes at the
+ADR step without re-reading every episode or re-writing the
+final-design content. The same applies to mid-`adr.md` pauses;
+capture which sections of `adr.md` are already drafted in the
+handoff. If the file does not exist or the command fails, this is
+**not an error** — treat as `safe` and continue.
 
 ### Artifact 2: ADR (`adr.md`)
 

@@ -492,10 +492,10 @@ orchestrator never edits source files itself in Phase C.
      iteration. Save all work (update Progress section with current
      iteration count, commit) and ask the user for a session refresh
      (see workflow.md §Context Consumption Check). If the pause leaves
-     Phase C mid-flight — e.g., gate-checks already PASSed but
+     Phase C mid-flight (for example, gate-checks already PASSed but
      track-completion approval is still pending, or iteration N has
      committed `Review fix:` but iteration N+1's gate-check sub-agents
-     have not run — write a handoff file per
+     have not run), write a handoff file per
      [`mid-phase-handoff.md`](mid-phase-handoff.md). The handoff
      captures the iteration count, the gate-check outcomes, and the
      verbatim track-completion summary to re-present, so the next

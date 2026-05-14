@@ -411,9 +411,9 @@ output so the user does not re-issue them in this round's
      `warning` (≥30%) or `critical` (≥40%), do NOT start the next review
      or decomposition. Save all work and ask the user for a session
      refresh (see workflow.md §Context Consumption Check). If the pause
-     leaves Phase A mid-flight — for example, technical review PASSed
+     leaves Phase A mid-flight (for example, technical review PASSed
      but risk / adversarial reviews are still unrun, or all reviews
-     PASSed but decomposition has not yet been written — write a
+     PASSed but decomposition has not yet been written), write a
      handoff file per
      [`mid-phase-handoff.md`](mid-phase-handoff.md) so the next session
      does not re-spawn reviewers whose results already landed in the

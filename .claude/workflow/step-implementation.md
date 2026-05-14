@@ -618,6 +618,16 @@ captures state the next session cannot re-derive from the step file
 (for example, a partial cross-track-impact finding that needs to be
 re-presented before the next step starts).
 
+**Phase B can only pause at the episode-commit gate.** Mid-step
+pauses are not supported: the orchestrator MUST NOT pause while the
+implementer sub-agent is running, and MUST NOT pause between
+sub-steps 4–7 of step implementation. If a context-pressure signal
+arrives mid-step, wait for the implementer to return and complete
+sub-steps 4–8, then handle the pause here. The implementer's
+revert-on-failure logic and the orphan-commit recovery in
+`step-implementation-recovery.md` assume an episode boundary; pausing
+inside the step would leave both invariants undefined.
+
 **→ GATE: Step is now complete.** Do not spawn the next implementer
 until sub-steps 1–8 above are done.
 

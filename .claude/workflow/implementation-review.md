@@ -106,8 +106,16 @@ the orchestrator does after the flow completes:
 
 ### Precondition (both entry points)
 
-Before starting the flow, check that the plan-review files have no
-uncommitted changes:
+**Resolve active handoffs first.** If
+`docs/adr/<dir-name>/_workflow/handoff-state0.md` exists, complete
+[`mid-phase-handoff.md`](mid-phase-handoff.md) §Resume protocol
+(including the resolution commit) BEFORE running the clean-tree check
+below. The resolution commit deletes the handoff file and the PAUSED
+marker line in `implementation-plan.md`, so leaving it for after the
+check would dirty the very file the check is gating on.
+
+Once any handoff is resolved (or there was none), check that the
+plan-review files have no uncommitted changes:
 
 ```bash
 git status --porcelain \
@@ -218,10 +226,10 @@ gate-PASS commit): run `cat /tmp/claude-code-context-usage-$PPID.txt`.
 If the level is `warning` (≥30%) or `critical` (≥40%), do NOT start
 the next review or iteration. Save all work and ask the user for a
 session refresh (see `workflow.md` §Context Consumption Check). If the
-pause leaves State 0 mid-flight — for example, consistency review
+pause leaves State 0 mid-flight (for example, consistency review
 passed but structural review has not run, or an iteration's
 mechanical fixes are applied but the gate sub-agent has not yet been
-spawned — write a handoff file at
+spawned), write a handoff file at
 `docs/adr/<dir-name>/_workflow/handoff-state0.md` per
 [`mid-phase-handoff.md`](mid-phase-handoff.md). Capture the iteration
 count, which classifier passes are done, and the verbatim list of
