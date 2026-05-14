@@ -150,13 +150,18 @@ For any `EDIT_PLAN` item whose payload reorders the plan
 checklist (changes the position of one or more remaining `[ ]`
 tracks relative to each other), parse the `**Depends on:**` lines
 on every remaining `[ ]` track in the proposed order and verify
-each dependency target appears earlier in the new sequence.
+each dependency target **that is itself a remaining `[ ]` track**
+appears earlier in the new sequence. Dependency targets pointing
+at completed (`[x]`) or skipped (`[~]`) tracks are already
+satisfied and impose no ordering constraint on the remaining
+sequence — skip them.
 
-If a violation exists (Track N's `**Depends on:**` lists Track M
-but the proposed order places Track M at or after Track N), attach
-a `⚠ Reorder breaks dependencies: Track <N> requires Track <M>
-earlier` warning to the item. Multiple violations in one reorder
-produce multiple lines under the same header.
+If a violation exists (Track N's `**Depends on:**` lists Track M,
+Track M is still `[ ]`, but the proposed order places Track M at
+or after Track N), attach a `⚠ Reorder breaks dependencies: Track
+<N> requires Track <M> earlier` warning to the item. Multiple
+violations in one reorder produce multiple lines under the same
+header.
 
 User recourse in step 4 matches §3a: Refine to adjust the order,
 Cancel back to the approval panel, or Apply to accept the new
@@ -189,10 +194,17 @@ Protected sections per file:
     `### Invariants` / `### Integration Points` subsections)
 - **Step file (`tracks/track-<N>.md`)**:
   - Anything outside `## Description` — `## Progress`,
-    `## Reviews completed`, `## Steps`, `### Clarifications`.
-    `## Description` is the only light-amendment zone for review
-    mode; `## Steps` in particular is Phase A decomposition's
-    territory.
+    `## Reviews completed`, `## Steps`.
+  - The `### Clarifications` subsection inside `## Description`
+    (see `track-review.md` § Track Pre-Flight step 6 for the
+    write rule that places it there). It is the only `## Description`
+    subsection that is protected; the surrounding free-form
+    prose (intro, **What/How/Constraints/Interactions**, optional
+    `mermaid` diagram) remains the light-amendment zone.
+
+  `## Description` (minus the `### Clarifications` exception above)
+  is the only light-amendment zone for review mode; `## Steps` in
+  particular is Phase A decomposition's territory.
 
 If the anchor falls inside a protected section, **promote the
 item to `ESCALATE`** at translation time. The promotion replaces
