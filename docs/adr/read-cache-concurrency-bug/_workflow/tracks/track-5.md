@@ -369,7 +369,7 @@ front.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/6 complete)
+- [ ] Step implementation (2/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -434,22 +434,49 @@ front.
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/{AsyncReadCacheTestIT,LockFreeReadCacheBatchingTest,LockFreeReadCacheConcurrentTestIT,LockFreeReadCacheFileOpsTest,LockFreeReadCacheOptimisticTest}.java` (mock delegator additions)
 
-- [ ] Step 2: Migrate `DiskStorage.backupPagesWithChanges` to the Layer A helper
+- [x] Step 2: Migrate `DiskStorage.backupPagesWithChanges` to the Layer A helper
+  - [x] Context: safe
   > **Risk:** medium — single-file call-site swap, but on a critical-path
   > (incremental backup); no HIGH-risk category (the helper body is a thin
   > delegator with no behavioral change). Backup IT suites cover the
   > behavior.
   >
-  > Replace `writeCache.getFilledUpTo(fileId)` at `DiskStorage.java:1404`
-  > with `writeCache.physicalSizeForBackupSnapshot(fileId)`. Drop the
-  > existing rationale-comment marker if Track 4 left one; the new
-  > method name carries the audit-grep signature. Run backup IT suites:
-  > `DiskStorageBackupTest`, `LocalPaginatedStorageBackupTest`,
-  > `StorageBackup*MTStateTest` (PSI-enumerate the exact suite names
-  > during Phase B).
+  > **What was done:** Single-line call-site swap at `DiskStorage.java:1404` —
+  > `writeCache.getFilledUpTo(fileId)` → `writeCache.physicalSizeForBackupSnapshot(fileId)`.
+  > Post-edit PSI find-usages confirm the cache method's remaining production
+  > caller set is exactly the documented internal set
+  > (`LockFreeReadCache.doLoad:307`, `AtomicOperationBinaryTracking:565` and
+  > `:765`) plus the new helper body in both engines; the new helper itself
+  > has its single expected caller. `StorageBackupTest` ran 14/14 green;
+  > `StorageBackupMTStateTest` remains `@Ignore`d per the Track 4 deferral.
+  > No Track 4 rationale-comment marker was present at this site (markers
+  > were reserved for indirect Layer B sites), so nothing needed to be dropped.
   >
-  > **Files:**
-  > - `core/.../internal/core/storage/disk/DiskStorage.java`
+  > **What was discovered:** PSI enumeration of the `StorageBackup*` class
+  > set surfaced four candidates — `StorageBackupTest` (the actual functional
+  > backup suite exercising `backupPagesWithChanges`), `StorageBackupMTStateTest`
+  > (currently `@Ignore`d), `StorageBackupMTIT` (integration test, out of
+  > scope for unit runs), and `StorageBackupTestWithLuceneIndex` (its
+  > `@Test` annotations at `:64` and `:117` are commented out so the suite
+  > contributes no live cases). The plan's placeholder names
+  > `DiskStorageBackupTest` and `LocalPaginatedStorageBackupTest` do not
+  > exist verbatim — the canonical suite name is `StorageBackupTest`.
+  > Cross-track for Track 6: the commented-out `@Test` annotations in
+  > `StorageBackupTestWithLuceneIndex` are relevant to the
+  > `StorageBackupMTStateTest` `@Ignore`-resurrection bullet — if that
+  > test is being un-skipped to cover the collapsed
+  > `restoreFromIncrementalBackup` loop, the parallel Lucene-indexed case
+  > may need un-commenting too. Worth flagging during Track 6 Phase A.
+  >
+  > **Critical context:** A stray background Maven coverage build (a prior
+  > spawn's leftover) collided with the foreground coverage build on the
+  > `BTreeReadMethodsTest` target directory, poisoning the first JaCoCo run
+  > with 86 errors. After killing both processes and re-running clean,
+  > the gate passed. Future spawns on this branch must keep a single Maven
+  > cycle in flight per the project's same-worktree parallel-mvn rule.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorage.java`
 
 - [ ] Step 3: Introduce Layer B helper `StorageComponent.physicalSize` + `PhysicalReadIntent` enum
   > **Risk:** medium — adds a protected method + nested enum to
