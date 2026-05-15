@@ -62,13 +62,14 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (3/3 complete)
-- [ ] Track-level code review (1/3 iterations)
+- [x] Track-level code review
 
 ## Base commit
 1efc5831216eabb5b47952b6bf05bbfbbefbf420
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (5 findings, 5 accepted, 0 rejected; iter-1 surfaced T1+T2+T3 should-fix and T4+T5 suggestions; one orchestrator-applied fix on `review-workflow-context-budget` row; iter-2 gate VERIFIED all six)
+- [x] Track-level code review: PASS at iteration 2 (8 findings, all accepted, 0 rejected; 4 reviewers fired — WC + WI + WB + WS per workflow-only override case 1; WB returned no findings; iter-1 surfaced F1+F2+F3 should-fix (stale `Baseline agents (4) always run` prose in `track-code-review.md`/`code-review-protocol.md` + missing `WC/WP/WI/WH/WB/WS` rows in `review-iteration.md`), F6 should-fix (durable Maintenance contract for SKILL.md sync), F4+F5+F7+F8 suggestions; iter-2 gate VERIFIED all eight; 4 deferred findings routed to Track 2 (§2.1 wording) or self-improvement reflection (re-verification scope, pre-existing budget commentary, audit-anchor recipe codification))
 
 ## Steps
 - [x] Step: Rewrite `.claude/workflow/review-agent-selection.md` — add the Workflow-review agents tier (six entries with `subagent_type` and finding-prefix mapping `WC/WP/WI/WH/WB/WS`), the per-agent file-pattern trigger table mirroring `/code-review` SKILL.md Step 5b (lines 156-161) verbatim including the "always launched" rows for `review-workflow-consistency` and `review-workflow-context-budget`, the canonical workflow-machinery file-set definition from SKILL.md Step 5a (line 120) covering the full `docs/adr/<dir>/` tree, the three-case baseline-skip override mirroring SKILL.md Step 5d bullets 1-3 (workflow-only / `docs-only + workflow-machinery` mix / mixed with Java with `IN_SCOPE_FILES` filtering per SKILL.md Step 6), the updated Selection process step 4 wording, and three Examples covering all three override cases. Run Spotless N/A (markdown only). Single commit.
