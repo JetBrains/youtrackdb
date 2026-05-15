@@ -129,44 +129,49 @@ Then loop. For each user chat message:
    silently add an escalation to a non-empty buffer; the
    Mixed-set policy depends on the user making the call
    deliberately.
-6. **Buffer mutation via chat (supersession + explicit delete).**
-   A new observation can supersede or remove a prior buffered
-   item without going through the panel. Two paths:
-
-   - **Implicit supersession by target.** If the new observation
-     names the same target as a buffered item, the new one
-     replaces the old. "Same target" means:
-     - `FIX_FINDING` — same finding triple (file path, line
-       range, root issue).
-     - `EDIT_PLAN` / `EDIT_STEP_DESC` — same `old_string` anchor
-       in the same target file.
-     - `SKIP_TRACK` — same `track_index`.
-     - `QUESTION`, `CLARIFY`, and `ESCALATE` — never supersede
-       (they stack; escalations are deliberate).
-     Ack inline: *"Got it — replacing the earlier `Foo.bar` fix
-     with the `putLong` version."*
-   - **Explicit delete patterns.** Phrases that match an
-     enumerated set map to buffer-delete operations rather than
-     new items:
-     - *"drop the `<target>` fix"*, *"remove the `<target>` one"*
-     - *"drop item N"*, *"remove item N"* (1-indexed against the
-       ordered buffer)
-     - *"forget the reorder"*, *"never mind the skip"* (resolves
-       by item type when exactly one item of that type is
-       buffered)
-
-     Ambiguous match (multiple buffered items fit the referent)
-     → ask one inline clarifying line naming the candidates. No
-     match → fall through to standard classification (the phrase
-     becomes a new observation). Ack: *"Dropped — buffer is at N
-     items."*
-
-   Buffer mutations bypass PSI verify, the anchor-section gate,
-   and ESCALATE keyword detection — those fire on what's added,
-   not on what's removed.
 
 The buffer is in-conversation context only; no on-disk state.
-A crash drops it (see § State and resume).
+A crash drops it (see § State and resume). For how to modify
+items already in the buffer (during accumulation or after
+Refine), see § Buffer mutation grammar below.
+
+### Buffer mutation grammar
+
+A new observation can supersede or remove a prior buffered item
+without going through the panel. The rules apply uniformly
+during § 1's accumulation loop and after § 3's **Refine** drops
+back into it. Two paths:
+
+- **Implicit supersession by target.** If the new observation
+  names the same target as a buffered item, the new one
+  replaces the old. "Same target" means:
+  - `FIX_FINDING` — same finding triple (file path, line range,
+    root issue).
+  - `EDIT_PLAN` / `EDIT_STEP_DESC` — same `old_string` anchor in
+    the same target file.
+  - `SKIP_TRACK` — same `track_index`.
+  - `QUESTION`, `CLARIFY`, and `ESCALATE` — never supersede
+    (they stack; escalations are deliberate).
+
+  Ack inline: *"Got it — replacing the earlier `Foo.bar` fix
+  with the `putLong` version."*
+- **Explicit delete patterns.** Phrases that match an enumerated
+  set map to buffer-delete operations rather than new items:
+  - *"drop the `<target>` fix"*, *"remove the `<target>` one"*
+  - *"drop item N"*, *"remove item N"* (1-indexed against the
+    ordered buffer)
+  - *"forget the reorder"*, *"never mind the skip"* (resolves
+    by item type when exactly one item of that type is
+    buffered)
+
+  Ambiguous match (multiple buffered items fit the referent) →
+  ask one inline clarifying line naming the candidates. No match
+  → fall through to standard classification (the phrase becomes
+  a new observation). Ack: *"Dropped — buffer is at N items."*
+
+Buffer mutations bypass PSI verify, the anchor-section gate, and
+ESCALATE keyword detection — those fire on what's added, not on
+what's removed.
 
 ### 2. Detect the completion signal
 
@@ -262,8 +267,8 @@ Present `AskUserQuestion` with three one-step options:
   to § 1's accumulation loop. The user can now add, remove, or
   modify items via further chat ("drop the CDPB fix, keep just
   FSM", "rephrase the first one to …", "actually also …"). See
-  § 1 step 6 for the buffer-mutation grammar (supersession +
-  explicit delete). The prompt that re-opens the loop names the
+  § Buffer mutation grammar for the supersession + explicit
+  delete rules. The prompt that re-opens the loop names the
   buffer state in plain language ("You've got 3 items so far —
   what to change?").
 - **Cancel**: discard the buffer, return to the gate's approval
@@ -481,32 +486,17 @@ when a name fails to resolve, the orchestrator asks the user in
 chat for clarification before the item enters the buffer, instead
 of an autonomous hard-stop.
 
-**mcp-steroid state handling** (matches `track-review.md`
-§ Pre-write rule):
+### mcp-steroid state handling
 
-- **Reachable + cwd matches** → run PSI find-class as above.
-- **Reachable + cwd mismatch** (`steroid_list_projects` reports a
-  different project from the working tree) → pause and ask the
-  user via `AskUserQuestion` to switch the open project before
-  proceeding. Do NOT silently fall back to `find` on the first
-  encounter — a PSI query against the wrong project produces
-  false negatives identical to hallucinations. The pause fires
-  at most once per session (mcp-steroid state is session-wide).
-  After the user replies, re-run `steroid_list_projects` to
-  verify the switch actually happened:
-  - **Switch confirmed** (`steroid_list_projects` now reports
-    the matching project) → re-run PSI find-class silently and
-    continue accumulation.
-  - **Switch did not happen** (still a mismatch, or the user
-    dismissed without switching) → treat as **Unreachable** for
-    the remainder of the session: fall back to
-    `find . -name '<ClassName>.java'` with the `(grep-fallback)`
-    caveat tagged on every subsequent verification.
-- **Unreachable** → fall back to `find . -name '<ClassName>.java'`
-  and tag the item with a `(grep-fallback)` caveat that survives
-  to the approval panel render.
+Matches `track-review.md` § Pre-write rule.
 
-**Failure path:**
+| State | Action |
+|---|---|
+| **Reachable + cwd matches** | Run PSI find-class via `steroid_execute_code` as above. |
+| **Reachable + cwd mismatch** (`steroid_list_projects` reports a different project from the working tree) | Pause once per session (mcp-steroid state is session-wide) and ask the user via `AskUserQuestion` to switch the open project. Do NOT silently fall back to `find` on the first encounter — a PSI query against the wrong project produces false negatives identical to hallucinations. After the user replies, re-run `steroid_list_projects` to verify the switch happened. **Switch confirmed** → re-run PSI find-class silently and continue. **Switch did not happen** (still a mismatch, or the user dismissed without switching) → degrade to Unreachable for the rest of the session. |
+| **Unreachable** | Fall back to `find . -name '<ClassName>.java'` and tag the item with a `(grep-fallback)` caveat that survives to the approval panel render. |
+
+### PSI-verify failure path
 
 If PSI-verify reports a name does not resolve and the proposed
 payload does not explicitly mark it as a class the action creates:
@@ -839,11 +829,12 @@ not follow the implicit-Refine rule because chat content on them
 is most likely an answer to the specific prompt rather than a
 refinement of the buffer:
 
-- **cwd-mismatch pause** (§ Validation — PSI-verify): asks the
-  user to switch the IDE's open project. Off-panel chat such as
-  "I switched it" triggers a re-run of PSI-verify against the
-  now-correct project, not a re-translation. Re-render the panel
-  after the chat reply finishes its side effect.
+- **cwd-mismatch pause** (§ Validation — mcp-steroid state
+  handling): asks the user to switch the IDE's open project.
+  Off-panel chat such as "I switched it" triggers a re-run of
+  PSI-verify against the now-correct project, not a
+  re-translation. Re-render the panel after the chat reply
+  finishes its side effect.
 - **`FIX_FINDING RESULT_MISSING` recovery** (per
   `track-code-review.md` § Track Completion step 3): chat reply
   on the commit-as-is / re-spawn / discard sub-panel is not a
