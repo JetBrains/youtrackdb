@@ -369,7 +369,7 @@ front.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/6 complete)
+- [ ] Step implementation (3/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -478,7 +478,8 @@ front.
   > **Key files:**
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorage.java`
 
-- [ ] Step 3: Introduce Layer B helper `StorageComponent.physicalSize` + `PhysicalReadIntent` enum
+- [x] Step 3: Introduce Layer B helper `StorageComponent.physicalSize` + `PhysicalReadIntent` enum
+  - [x] Context: safe
   > **Risk:** medium — adds a protected method + nested enum to
   > `StorageComponent` (a load-bearing abstract base for storage
   > components). No HIGH-risk category triggers (the helper body
@@ -486,33 +487,41 @@ front.
   > existing `StorageComponent.getFilledUpTo` semantics; the new enum
   > is an audit-grep marker, not a behavioral input).
   >
-  > Add to `StorageComponent`:
-  > - `public enum PhysicalReadIntent { BOOTSTRAP_EMPTINESS_CHECK,
-  >   RECOVERY_REBUILD, DEFENSIVE_PRESENCE, EP_LESS_PURE_SIZING,
-  >   GROWTH_LOOP_PRE_READ }` — each constant carries a Javadoc
-  >   sentence naming the canonical call site shape.
-  > - `protected long physicalSize(AtomicOperation op, long fileId,
-  >   PhysicalReadIntent intent)` — body returns
-  >   `op.filledUpTo(fileId)`; preserves the AOBT placeholder
-  >   side-effect at `AOBT.filledUpTo:757-758`. The `intent` argument
-  >   is unused at runtime — it exists only to anchor the audit-grep
-  >   target.
-  > - Javadoc on `StorageComponent` documenting the cross-TX discovery
-  >   contract: cross-TX readers route through EP where available;
-  >   physical-size reads from inside a `StorageComponent` route through
-  >   `physicalSize(op, fileId, intent)`.
+  > **What was done:** Added the Layer B gated entry point on
+  > `StorageComponent`: a public nested enum `PhysicalReadIntent` with
+  > five Javadoc-named constants (`BOOTSTRAP_EMPTINESS_CHECK`,
+  > `RECOVERY_REBUILD`, `DEFENSIVE_PRESENCE`, `EP_LESS_PURE_SIZING`,
+  > `GROWTH_LOOP_PRE_READ`) and a protected helper
+  > `physicalSize(AtomicOperation, long, PhysicalReadIntent)` that
+  > delegates to `op.filledUpTo(fileId)`. The intent argument is unused
+  > at runtime and anchors audit-grep. Rewrote the class header Javadoc
+  > to spell out the cross-TX discovery contract (logical surface
+  > preferred via EntryPoint; physical surface via this helper otherwise)
+  > and pointed readers at the cache-layer
+  > `WriteCache.physicalSizeForBackupSnapshot` for the parallel
+  > non-`StorageComponent` caller. Added `StorageComponentPhysicalSizeTest`
+  > with two tests: a Mockito-based delegation pin that iterates every
+  > enum constant and asserts `AtomicOperation.filledUpTo` is called
+  > once with the right fileId, and a real-AOBT pin that verifies the
+  > `fileChanges` placeholder is registered on first call (reflection
+  > because AOBT is package-private to a different package). Targeted
+  > suites green (this test 2/2, `StorageComponentOptimisticReadTest`
+  > 21/21, `LoadOrAddPageForWriteTest` 22/22). Coverage on 232 changed
+  > lines: 94.0% line / 81.2% branch.
   >
-  > Add a unit test pinning: (a) the helper delegates to
-  > `op.filledUpTo(fileId)` (verify via Mockito); (b) the AOBT
-  > placeholder side-effect is registered on first call (use a real
-  > AOBT instance, not a Mockito mock, and assert `fileChanges.containsKey(fileId)`
-  > after the call).
+  > **What was discovered:** `AtomicOperationBinaryTracking` is
+  > package-private to `…paginated.atomicoperations` — the new test
+  > cannot reference it by type from `…paginated.base` and reaches the
+  > class through `Class.forName(...)` plus reflection on the private
+  > `fileChanges` field. Any future Layer B test that wants to exercise
+  > the real AOBT three-arm `filledUpTo` body from outside the
+  > atomic-operations package faces the same constraint — reflection
+  > is the door. Tests living inside the AOBT package (e.g.,
+  > `LoadOrAddPageForWriteTest`) avoid the reflection cost.
   >
-  > **Files:**
-  > - `core/.../storage/impl/local/paginated/base/StorageComponent.java`
-  > - One unit test file (likely a new
-  >   `StorageComponentPhysicalSizeTest` — Phase B picks the natural
-  >   home).
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponent.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponentPhysicalSizeTest.java` (new)
 
 - [ ] Step 4: Migrate Layer B consumer call sites (8 sites across 6 files)
   > **Risk:** medium — multi-file logic across 6 production files in the
