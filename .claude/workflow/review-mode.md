@@ -150,8 +150,9 @@ back into it. Two paths:
   - `EDIT_PLAN` / `EDIT_STEP_DESC` — same `old_string` anchor in
     the same target file.
   - `SKIP_TRACK` — same `track_index`.
-  - `QUESTION`, `CLARIFY`, and `ESCALATE` — never supersede
-    (they stack; escalations are deliberate).
+  - `QUESTION`, `CLARIFY`, and `ESCALATE` — never supersede by
+    target (they stack; escalations are deliberate). `QUESTION`
+    has an explicit reshape carve-out below.
 
   Ack inline: *"Got it — replacing the earlier `Foo.bar` fix
   with the `putLong` version."*
@@ -163,6 +164,14 @@ back into it. Two paths:
   - *"forget the reorder"*, *"never mind the skip"* (resolves
     by item type when exactly one item of that type is
     buffered)
+  - **Question reshape**: *"actually let me rephrase that"*,
+    *"never mind, I meant <new question>"*, *"scratch that —
+    <new question>"* → replace the most recent `QUESTION` item
+    with the new one. The orchestrator answers the new
+    question inline; the old question + answer pair leave the
+    buffer. This is the swap-not-delete carve-out for
+    `QUESTION`, which can't be reached by implicit
+    supersession because questions have no fixed target.
 
   Ambiguous match (multiple buffered items fit the referent) →
   ask one inline clarifying line naming the candidates. No match
@@ -210,6 +219,22 @@ panel renders only after the user clarifies or drops that item.
   request, or named target
 - Explicit "anything else", "wait", "actually also", "and another
   thing", "one more"
+
+**Conversational follow-up after a just-answered question** →
+keep accumulating, no clarifying line:
+
+- Short context-bound replies: "and Y?", "why?", "really?",
+  "wait what?", "ok and what about X?", "hmm".
+- These have no named target or action verb on their own, but
+  the prior orchestrator turn was an inline answer to a
+  `QUESTION` item, so the orchestrator resolves the referent
+  from conversation context and classifies the reply as a new
+  `QUESTION`.
+
+The Ambiguous check below still wins on bare approval-shaped
+text — "ok" alone, "yeah", "sure" route to Ambiguous regardless
+of what preceded them, because they could equally be a "yes
+please apply" reaction to the prior answer.
 
 **Ambiguous** ("ok", "yeah", "sure", short approval-shaped text
 with no action verb) → ask one inline clarifying line:
