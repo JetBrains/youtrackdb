@@ -40,9 +40,33 @@ import javax.annotation.Nonnull;
  * Base class for all storage-backed data structures that participate in the page cache lifecycle.
  * Durable components have their state restored from WAL after a crash; non-durable components are
  * deleted on crash recovery and recreated on next open.
- *
- * @since 8/27/13
- */
+     *
+     * <h2>Cross-transaction discovery contract</h2>
+     *
+     * <p>Storage components must answer "is this page already on disk?" without leaking the cache's
+     * in-flight allocation state across transactions. The convention enforced from this class:
+     *
+     * <ul>
+     *   <li><b>Logical surface (preferred).</b> A component that owns an {@code EntryPoint} metadata
+     *       page reads cross-transaction page-existence facts from {@code entryPoint.pagesSize} /
+     *       {@code entryPoint.fileSize}. These counters advance only inside the same WAL atomic unit
+     *       that performed the corresponding allocator call, so they are durably ordered with the
+     *       allocator's effect — no in-flight {@code pageIndex} can leak.</li>
+     *   <li><b>Physical surface (gated).</b> Where no {@code EntryPoint} exists or the call is a
+     *       bootstrap / recovery-rebuild / defensive-probe shape that pre-dates the logical surface,
+     *       physical-size reads from inside a {@code StorageComponent} route through
+     *       {@link #physicalSize(AtomicOperation, long, PhysicalReadIntent)}. The intent argument is
+     *       unused at runtime; it exists as an audit-grep anchor so the surviving consumer set stays
+     *       enumerable. Direct calls to {@code WriteCache.getFilledUpTo} from storage components are
+     *       not on the public discovery path.</li>
+     * </ul>
+     *
+     * <p>The backup-snapshot iterator on the cache layer has its own named entry point
+     * ({@code WriteCache.physicalSizeForBackupSnapshot}); it is a parallel gated surface for the one
+     * call site that reads physical size outside any {@code StorageComponent}.
+     *
+     * @since 8/27/13
+     */
 public abstract class StorageComponent extends SharedResourceAbstract {
   protected final AtomicOperationsManager atomicOperationsManager;
   protected final AbstractStorage storage;
@@ -133,6 +157,94 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   protected long getFilledUpTo(@Nonnull final AtomicOperation atomicOperation, final long fileId) {
     assert atomicOperation != null;
+    return atomicOperation.filledUpTo(fileId);
+  }
+
+  /**
+   * Names the canonical call-site shape for each cross-transaction physical-size read that routes
+   * through {@link #physicalSize(AtomicOperation, long, PhysicalReadIntent)}. The value is unused
+   * at runtime — its only job is to anchor audit-grep for the question "where does this storage
+   * component read physical size from, and why is the physical surface the right answer here?".
+   *
+   * <p>Each constant pins one of the five behavioural shapes enumerated by the surviving consumer
+   * set. A new consumer should pick the closest matching shape; a shape that does not fit any
+   * existing constant is a signal to revisit the cross-transaction discovery contract on the
+   * enclosing class rather than introduce a sixth flavour without review.
+   */
+  public enum PhysicalReadIntent {
+    /**
+     * Bootstrap-time emptiness check on first-time component initialisation. Pattern:
+     * {@code if physicalSize(...) == 0 then writeBootstrapPage() else readBootstrapPage()}. The
+     * logical surface does not exist yet because the {@code EntryPoint} page is what bootstrap
+     * is about to write.
+     */
+    BOOTSTRAP_EMPTINESS_CHECK,
+
+    /**
+     * Recovery-time linear scan over the committed pages of an {@code EntryPoint}-equipped
+     * component to rebuild an in-memory derived structure (e.g., a free-space map after a crash).
+     * Pattern: {@code for (pageIndex = 0; pageIndex < physicalSize(...); pageIndex++) load(pageIndex)}.
+     * The logical surface is unavailable until the rebuild completes.
+     */
+    RECOVERY_REBUILD,
+
+    /**
+     * Defensive presence probe before reading a fixed metadata page (typically page 1) on a file
+     * whose first physical page may or may not exist yet. Pattern:
+     * {@code if physicalSize(...) > metadataPageIndex then load(metadataPageIndex)}. The
+     * discriminator is on the physical surface because the metadata page IS the logical surface
+     * the component would otherwise consult.
+     */
+    DEFENSIVE_PRESENCE,
+
+    /**
+     * Pure-physical sizing read on an {@code EntryPoint}-less component. The component has no
+     * logical counter — physical size is the only size it tracks. Always read under the
+     * per-component exclusive lock so concurrent allocator activity is serialised.
+     */
+    EP_LESS_PURE_SIZING,
+
+    /**
+     * Pre-read before a growth loop that walks
+     * {@code for (i = physicalSize(...); i <= target; i++) allocate(i)}. The loop establishes
+     * the new logical extent under the per-component lock; the pre-read fixes the starting point
+     * against current physical state without racing concurrent allocators inside the same
+     * component (lock-held precondition).
+     */
+    GROWTH_LOOP_PRE_READ
+  }
+
+  /**
+   * Reads the physical (in-memory) file size, in pages, of the given file via the atomic
+   * operation. Routes through {@link AtomicOperation#filledUpTo(long)} so the per-fileId
+   * {@code FileChanges} placeholder side-effect on {@code AtomicOperationBinaryTracking} is
+   * preserved on first touch — bypassing the atomic-operation layer would change in-transaction
+   * semantics for callers that depend on the placeholder being registered before the next
+   * {@code filledUpTo} call sees the existing-entry arm.
+   *
+   * <p>This helper is the gated entry point for storage-component callers whose call-site shape
+   * matches one of the {@link PhysicalReadIntent} constants. The {@code intent} parameter is
+   * unused at runtime; it anchors the audit-grep target so "who reads physical size from inside
+   * a storage component, and which shape?" stays an enumerable question (the alternative — a
+   * free-form helper — would force every reviewer to re-derive the shape from the call site).
+   * Direct {@link AtomicOperation#filledUpTo(long)} access from a storage component is not on
+   * the public discovery path; the existing {@link #getFilledUpTo(AtomicOperation, long)} helper
+   * is retained for the documented internal callers and is not part of the gated surface.
+   *
+   * <p>Locking: this method does not acquire any lock of its own. Callers that need allocator
+   * serialisation must hold the relevant per-component lock when invoking the helper.
+   *
+   * @param atomicOperation the enclosing atomic operation
+   * @param fileId          external file id of the target file
+   * @param intent          audit-grep anchor naming the canonical call-site shape
+   * @return current physical file size in pages
+   */
+  protected long physicalSize(
+      @Nonnull final AtomicOperation atomicOperation,
+      final long fileId,
+      @Nonnull final PhysicalReadIntent intent) {
+    assert atomicOperation != null;
+    assert intent != null;
     return atomicOperation.filledUpTo(fileId);
   }
 
