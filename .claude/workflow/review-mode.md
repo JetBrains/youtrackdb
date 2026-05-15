@@ -11,24 +11,22 @@ on the gate's approval panel.
 
 Gives the user a conversational refinement channel after a gate
 presents its results. The user drops observations, questions, or
-requested edits across as many turns as they want. The orchestrator
-silently classifies and accumulates them. When the user signals
-they're done, **one** approval panel surfaces the full accumulated
-set for a single Apply / Refine / Cancel decision — and only then
-does any side effect run.
+requested edits across as many turns as they want; the
+orchestrator silently classifies and accumulates them. When the
+user signals they're done, **one** approval panel surfaces the
+full accumulated set for a single Apply / Refine / Cancel
+decision, and only then does any side effect run.
 
-The point is to let the user think out loud across several turns —
-"I noticed X, also Y, oh and Z" — instead of being interrupted by
-a propose-confirm panel after every chat message. The single
-end-of-conversation approval panel is the audit surface that
-preserves the user's ability to see everything that will happen
-before it happens.
+The single end-of-conversation panel (not one after every
+observation) is the audit surface that keeps the user able to
+see everything that will happen before it happens.
 
 ## Conversational tone (load-bearing)
 
-The user-facing voice of review mode is plain chat. The internal
-state machine in this file — types, validation steps, gate
-re-renders — is invisible to the user.
+The orchestrator never narrates the protocol's internal
+structure to the user. The user-facing voice is plain chat;
+type labels (`FIX_FINDING`, `QUESTION`, `ESCALATE`, etc.) and
+`⚠`-warnings appear only inside the final approval panel.
 
 - **No step labels in chat.** The orchestrator never says
   "Step 1 — free-form input", "translating to a typed action set",
@@ -66,14 +64,14 @@ gate itself makes for routine acceptance — review mode runs its
 own approval panel (§ Flow step 3 below) when entered and the
 user signals completion.
 
-- **Approve** — terminal accept. The gate runs its own post-approve
+- **Approve**: terminal accept. The gate runs its own post-approve
   writes (Pre-Flight: strategy-refresh line + `### Clarifications`
   subsection + amendments commit per `track-review.md` § Track
   Pre-Flight step 6; Completion: track episode + collapse + `[x]`
   per `track-code-review.md` § Track Completion step 4).
-- **Review mode** — enter the conversational refinement loop
+- **Review mode**: enter the conversational refinement loop
   below.
-- **ESCALATE** — route to
+- **ESCALATE**: route to
   [`inline-replanning.md`](inline-replanning.md).
 
 Pre-Flight's Panel 1 ESCALATE sub-panel (Accept escalation /
@@ -256,11 +254,11 @@ Render rules. Each item is shown with:
 
 Present `AskUserQuestion` with three one-step options:
 
-- **Apply** — execute every side-effecting item in declaration
+- **Apply**: execute every side-effecting item in declaration
   order per § Flow step 5. When the buffer contains only `QUESTION`
   items, the option label is **Done** instead — there is nothing
   to execute, but the user has read the answers.
-- **Refine** — keep the accumulated buffer intact and drop back
+- **Refine**: keep the accumulated buffer intact and drop back
   to § 1's accumulation loop. The user can now add, remove, or
   modify items via further chat ("drop the CDPB fix, keep just
   FSM", "rephrase the first one to …", "actually also …"). See
@@ -268,7 +266,7 @@ Present `AskUserQuestion` with three one-step options:
   explicit delete). The prompt that re-opens the loop names the
   buffer state in plain language ("You've got 3 items so far —
   what to change?").
-- **Cancel** — discard the buffer, return to the gate's approval
+- **Cancel**: discard the buffer, return to the gate's approval
   panel as if review mode had never been entered.
 
 Whole-set only. There is no per-item accept/reject in the panel
@@ -626,7 +624,7 @@ items (any `QUESTION` / `EDIT_*` / `SKIP_TRACK` / `CLARIFY` /
 `FIX_FINDING`), the approval panel **refuses Apply** and offers
 two one-step options in its place:
 
-- **Strip and apply light items** — drop the `ESCALATE` item,
+- **Strip and apply light items**: drop the `ESCALATE` item,
   apply the rest, return to the gate's approval panel. The user
   can pick ESCALATE there afterwards if the deep change is still
   needed. **Carry the dropped `ESCALATE` description forward** —
@@ -638,7 +636,7 @@ two one-step options in its place:
   instead of prompting cold. The slot clears on the gate's Approve
   (user moved on), on consumption by inline-replanning, or on
   session restart (conversation context loss — accepted).
-- **Escalate now** — discard the light items, route to
+- **Escalate now**: discard the light items, route to
   `inline-replanning.md` immediately. No stash needed; the
   description is fresh in conversation context and inline-replanning
   step 2 reads it directly.
