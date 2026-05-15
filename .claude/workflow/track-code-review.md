@@ -91,11 +91,14 @@ step is treated as the entire diff.
 
 Select review agents based on code characteristics (see
 [`review-agent-selection.md`](review-agent-selection.md)), then spawn them
-in parallel. Baseline agents (4) always run; conditional agents are added
-based on the track description and changed files across the full diff.
-See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
-protocol overview and [`review-iteration.md`](review-iteration.md) for
-iteration limits, finding ID prefixes, and gate format.
+in parallel. Baseline agents (4) run unless the diff is workflow-only or
+`docs-only`+workflow (see the baseline-skip override in
+`review-agent-selection.md`); conditional agents and workflow-review
+agents are added based on the track description and changed files across
+the full diff. See [`code-review-protocol.md`](code-review-protocol.md)
+for the two-tier protocol overview and
+[`review-iteration.md`](review-iteration.md) for iteration limits,
+finding ID prefixes, and gate format.
 
 All selected reviews run against the same diff
 (`git diff {base_commit}..HEAD`) and produce independent findings. Launching

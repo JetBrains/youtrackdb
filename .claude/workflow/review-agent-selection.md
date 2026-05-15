@@ -100,7 +100,10 @@ table verbatim. `review-workflow-consistency` and
 group — they decide internally whether the diff actually affects
 their dimension and emit an empty findings list otherwise. The other
 four agents fire only when the diff touches one of their listed
-patterns.
+patterns. `review-workflow-context-budget` checks three axes
+(always-loaded surface, load-on-demand discipline, instant
+per-operation consumption) and emits an empty findings list when none
+are affected.
 
 | Agent | Fires when changed files include |
 |---|---|
@@ -108,7 +111,7 @@ patterns.
 | `review-workflow-prompt-design` | `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, or `.claude/workflow/prompts/*.md` |
 | `review-workflow-instruction-completeness` | `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, `.claude/workflow/*.md`, or `.claude/workflow/prompts/*.md` |
 | `review-workflow-hook-safety` | `.claude/hooks/*.sh`, `.claude/scripts/**`, or `.claude/settings*.json` |
-| `review-workflow-context-budget` | `workflow-machinery` is present — **always launched** for this group. The agent decides whether the diff affects any of three axes (always-loaded surface, load-on-demand discipline, instant per-operation consumption) and emits an empty findings list when none are affected. |
+| `review-workflow-context-budget` | `workflow-machinery` is present — **always launched** for this group. |
 | `review-workflow-writing-style` | `.claude/**/*.md`, root `CLAUDE.md`, or `docs/adr/**/*.md` |
 
 ### Workflow-machinery override (baseline-skip)
@@ -135,7 +138,11 @@ present in the diff.
    and conditional agents see only Java / test files and the
    workflow-review group sees only workflow-machinery files. The
    filtered-dispatch shape mirrors `/code-review` SKILL.md Step 6 so
-   cross-contamination is bounded.
+   cross-contamination is bounded. Per-agent file-pattern triggers
+   from the table above are evaluated against the workflow-machinery
+   subset of the diff to determine which workflow-review agents fire;
+   `IN_SCOPE_FILES` is then narrowed to that subset per Step 6 of
+   `/code-review` SKILL.md.
 
 In every other case (no `workflow-machinery` at all in the diff) the
 override does not fire: baseline runs as usual, conditional agents
@@ -178,9 +185,28 @@ full track diff.
 - **Mixed Java + workflow.** Step changes `core/.../BTree.java`
   (Java production code) plus `.claude/workflow/step-implementation.md`
   (`workflow-machinery`) → case 3 fires; baseline + workflow-review
-  groups both launch, each filtered to its in-scope files. Any
-  matching conditional agents (e.g., `review-performance` for the
-  B-tree change) join the baseline group with the same Java-only
-  filter.
+  groups both launch, each filtered to its in-scope files. The
+  workflow-machinery subset (`.claude/workflow/*.md`) fires
+  `review-workflow-consistency` +
+  `review-workflow-instruction-completeness` +
+  `review-workflow-context-budget` + `review-workflow-writing-style`
+  (same four as the workflow-only example above; neither
+  `review-workflow-prompt-design` nor `review-workflow-hook-safety`
+  triggers, since no `.claude/skills/`, `.claude/agents/`,
+  `.claude/workflow/prompts/`, `.claude/hooks/`, `.claude/scripts/`,
+  or `.claude/settings*.json` file is touched). Any matching
+  conditional agents (e.g., `review-performance` for the B-tree
+  change) join the baseline group with the same Java-only filter.
+
+### Maintenance
+
+`.claude/workflow/review-agent-selection.md` §Workflow-review agents,
+§Workflow-machinery file set, §Per-agent file-pattern triggers, and
+§Workflow-machinery override mirror `/code-review` SKILL.md
+Step 5a/5b/5d/6 verbatim per implementation-plan.md D8. Any edit to
+either file's mirrored sections MUST update both files in the same
+commit and bump the date in the trailing `<!-- Last sync-checked … -->`
+comment below. Drift between the two files is a defect for
+`review-workflow-consistency`.
 
 <!-- Last sync-checked against .claude/skills/code-review/SKILL.md Step 5a/5b/5d/6 on 2026-05-15 (YTDB-817 Track 1 Step 3). Future drift sweeps update this date. -->
