@@ -433,7 +433,7 @@ flowchart LR
   > logical-size getter; `PaginatedCollectionV2.open:391` and
   > `CollectionPositionMapV2.create:136` semantics) is resolved inside Phase A.
 
-- [ ] Track 4: Write-side API collapse + residual read-side migration
+- [x] Track 4: Write-side API collapse + residual read-side migration
   > Delete the `addPage` API surface and migrate the 19 production
   > call sites to `loadOrAddPageForWrite(fileId, knownIndex)` on top
   > of Track 1's primitive. Collapse the `commitChanges` /
@@ -443,11 +443,159 @@ flowchart LR
   > read-side work from the retired Track 3 (one BTree pure-sizing
   > migration plus rationale comments at the stay-on-physical sites —
   > see `tracks/track-4.md` for the per-site list).
-  > **Scope:** ~6-7 steps covering `AtomicOperationBinaryTracking`
-  > cleanup, replay-loop collapse, per-component probe + `addPage`
-  > migration in three batches, the BTree pure-sizing migration, and
-  > rationale comments at the stay-on-physical sites.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Collapsed the legacy write-side allocator surface around Track 1's
+  > `loadOrAdd` primitive. All 19 production `addPage` call sites moved
+  > to `op.loadOrAddPageForWrite(fileId, knownIndex)` across BTree,
+  > SharedLinkBagBTree, CollectionPositionMapV2, PaginatedCollectionV2,
+  > FreeSpaceMap, IndexHistogramManager, and CollectionDirtyPageBitSet.
+  > The three replay/commit reconciliation loops (`AOBT.commitChanges`,
+  > `AbstractStorage.restoreAtomicUnit` both branches,
+  > `DiskStorage.restoreFromIncrementalBackup`) collapsed to single
+  > `readCache.loadOrAddForWrite` calls. `internalFilledUpTo` inlined
+  > into `filledUpTo`; `AtomicOperation.addPage`, `StorageComponent.addPage`,
+  > and `WriteCache/ReadCache.allocateNewPage` (all three engine impls)
+  > deleted. `BTree.doAssertFreePages` migrated to
+  > `entryPoint.getPagesSize() + 1`. Six stay-on-physical sizing sites
+  > gained rationale-bearing comments anchoring the helper contract
+  > Track 5 will introduce. Test fixtures across 8 AOBT/cache test files
+  > migrated; the cache-test `MockedWriteCache.allocateNewPage` stubs
+  > deleted with the interface.
+  >
+  > **Allocator-only contract narrowing.** Step 2's review-fix
+  > `48a83793cb` (Option D, design-decision escalation) narrowed
+  > `AtomicOperation.loadOrAddPageForWrite` from total to allocator-only —
+  > calling it with a non-new pageIndex now throws `IllegalStateException`
+  > with site-distinguishing messages. The cache-layer `WriteCache.loadOrAdd`
+  > remains total. The narrowing strengthened the design at the cost of an
+  > incorrect rationale trace; Step 5 [!] failed when the full `-P coverage`
+  > build NPE'd on fresh in-memory database creation because the in-memory
+  > engine's `loadOrAddForWrite` is deliberately non-total and the
+  > eager-install branch had been deleted. User picked Option A from the
+  > split-decision and Step 5 was split into Step 5a (re-introduce
+  > in-memory eager install + the `eagerlyInstalledInCache` commit-time-skip
+  > flag + eager `readCache.addFile` on the in-memory engine) and Step 5b
+  > (the originally-planned collapse, now safe). The `assert cacheEntry != null`
+  > at the in-memory-reachable `commitChanges` site was promoted to an
+  > unconditional `IllegalStateException` so future regressions surface
+  > loudly in production builds; the three disk-only sibling sites kept
+  > `assert` semantics — an asymmetric-safety pattern documented in the
+  > AOBT inline comment block.
+  >
+  > **IHM HLL-spill cross-TX regression caught at iter-2 of Step 2.** The
+  > original narrowing would have hard-crashed
+  > `IHM.writeSnapshotToPage` / `flushSnapshotToPage` on the second spill
+  > (those pre-existing callers relied on the old load-or-add fallback).
+  > Resolution: caller-side discriminator
+  > (`op.filledUpTo > 1 ? loadPageForWrite : loadOrAddPageForWrite`) at
+  > both IHM sites, under the IHM exclusive lock acquired upstream.
+  >
+  > **Phase C track-level review.** Ran the 9-reviewer fan-out for 3
+  > iterations against the cumulative track diff (~6.8K lines added, 67
+  > files). Iter-1 applied 11 findings, iter-2 applied 4, iter-2
+  > gate-check across 8 dimensions PASSed; iter-3 applied one user-surfaced
+  > finding (IHM workflow-label cleanup in `010f07e217`). After iter-3
+  > closed, a user-initiated Review-mode round at track completion landed
+  > one comment-only cleanup commit (`881b8025d3`) stripping a historical
+  > "do/while" reference from the four sibling `loadOrAddForWrite`
+  > comment blocks (DiskStorage incremental-backup restore + AbstractStorage
+  > UpdatePageRecord/PageOperation branches + AOBT.commitChanges) so
+  > fresh readers no longer have to reason about removed code. Reviewer
+  > fan-out plus per-step dim-review fan-outs produced six new strands
+  > of work documented below.
+  >
+  > **Cross-track impact.**
+  >
+  > - **Track 7 (newly added by inline replan, commit `0a003588f7`).** The
+  >   reviewer fan-out's CS1 finding identified that `addPage`'s deletion
+  >   converts the previously-silent partial-flush-orphan path into a noisy
+  >   `IllegalStateException` at the next allocator call on the four
+  >   EP-equipped components (BTree, SLBB, CollectionPositionMapV2,
+  >   PaginatedCollectionV2). User chose Option 3b (recovery-time truncate
+  >   at storage open) on 2026-05-14. The inline replan added Decision
+  >   Record D6, Invariant I6 (`logical == physical` after
+  >   `recoverIfNeeded`), a new `WriteCache.shrinkFile(fileId, targetBytes)`
+  >   SPI wrapping `AsyncFile.shrink`, and the Track 7 step file with the
+  >   per-EP-component `verifyAndTruncateOrphans` recipe wired into
+  >   `AbstractStorage.recoverIfNeeded()` between `restoreFromWAL()` and
+  >   `flushAllData()`. EP-less components and `IndexHistogramManager` are
+  >   deliberately out of scope per Non-Goals carve-outs.
+  >
+  > - **Track 5 scope expansion (plan correction commit `1e37a681eb`).**
+  >   Renamed Track 4's `op.loadOrAddPageForWrite` → `allocatePageForWrite`.
+  >   The rename touches the `AtomicOperation` SPI, the
+  >   `AtomicOperationBinaryTracking` impl, the `StorageComponent` wrapper,
+  >   19 production allocator call sites, and ~80 test references including
+  >   class rename `LoadOrAddPageForWriteTest` → `AllocatePageForWriteTest`.
+  >   Track 5 must use `mcp-steroid://ide/change-signature` so polymorphic
+  >   dispatch through the SPI plus Javadoc `{@link}` references update
+  >   atomically; raw `Edit` silently misses both. Track 5's existing
+  >   helper-set work (D4 — tightening `WriteCache.getFilledUpTo` to
+  >   non-public, gated `physicalSize`-shaped helpers) is unchanged.
+  >   Critical: the helper-set must keep `WriteCache.getFilledUpTo(fileId)`
+  >   callable from AOBT's `isNew` slow-path classification, and
+  >   `AtomicOperation.filledUpTo(fileId)` callable from the new IHM
+  >   HLL-spill discriminator — both reads happen inside the per-component
+  >   exclusive lock.
+  >
+  > - **Track 6 deferrals absorbed via the inline replan's plan corrections.**
+  >   CS1 multi-page partial-flush-orphan recovery test (now post-Track-7
+  >   invariant assertion — pin both the truncate-needed and
+  >   no-op-clean-shutdown branches across all four EP-equipped components);
+  >   HLL-spill crash-then-second-spill regression for the IHM page-1
+  >   discriminator (out of Track 7 scope because IHM uses page-1
+  >   discrimination, not EP-fileSize sizing); `StorageBackupMTStateTest`
+  >   `@Ignore` resurrection for the collapsed `restoreFromIncrementalBackup`
+  >   loop; I4 per-component MT pins at BTree.create, SLBB.splitRootBucket,
+  >   CPMV2.allocate, PCV2.allocateNewPage plus IHM
+  >   flushSnapshot/writeSnapshot lock-contract pin and
+  >   `inMemoryEagerInstallToleratesConcurrentOrphanReuse` contention-window
+  >   strengthening.
+  >
+  > - **Track 2-style follow-ups absorbed from Step 5b's 13 deferred items.**
+  >   Comment-block density / DRY across three sites,
+  >   `WOWCache.loadOrAddLoadBranch` `assert false` activation under a
+  >   `loadFileContent`-override seam (TY2/TX2), assert-message + comment +
+  >   Javadoc overlap on WOWCache, sibling-test helper extraction. None
+  >   blocker-grade; surfaced for a future cache-layer test-hardening pass.
+  >
+  > - **Non-Goals additions to the plan.** A larger "Track 4 Phase C
+  >   unit-level test-hardening backlog" block now lives under Non-Goals
+  >   (truncate-then-allocate same-TX scenario, `BTree.doAssertFreePages`
+  >   pure-logical-sizing test, `WOWCache.loadOrAddLoadBranch` `assert false`
+  >   activation, FSM `updatePageFreeSpace` growth-loop boundaries, AOBT
+  >   in-memory `loadOrAdd` non-null totality, BTree freelist branch test,
+  >   `eagerlyInstalledInCache` commit-time-skip unit pin, negative-pageIndex
+  >   overflow boundary, defensive asserts at SLBB.splitRootBucket / FSM /
+  >   CDPB, F14 probe comment imprecision around `IllegalStateException`
+  >   vs `AssertionError` under `-ea`).
+  >
+  > - **Other backlog items recorded outside the plan** (so the plan stays
+  >   lean): `ISSUE-recovery-log-perf-debt.md` (recovery probe perf debt),
+  >   `ISSUE-truncate-cache-purge-ordering.md` (truncate-cache purge
+  >   ordering), `ISSUE-vestigial-allocation-flag.md` (vestigial allocation
+  >   flag cleanup).
+  >
+  > - **TX-6 advisory.** The structurally-unreachable `else if (truncate)`
+  >   third arm of the inlined `AOBT.filledUpTo` is not load-bearing under
+  >   current `truncateFile` semantics (which set `maxNewPageIndex = -1`
+  >   before flagging `truncate=true`, so arm 2 catches first). Deferred
+  >   suggestion: either delete the dead branch or refit `truncateFile`
+  >   to make arm 3 reachable. Recorded in the Step 7 critical context.
+  >
+  > **What changed from the plan.** Step 5 [!] failure forced the 5a/5b
+  > split (the only Phase B failure across the track). The allocator-only
+  > contract narrowing in Step 2 (Option D, design-decision escalation)
+  > was a strengthening — D3 wording remained accurate, but the actual
+  > semantics now embed the stricter `IllegalStateException` contract.
+  > Step 3 absorbed two Mockito-stub migrations originally listed for
+  > Step 4 (natural-home rule). CS1 escalation added a brand-new Track 7
+  > and Invariant I6 to the plan via inline replan; the user-selected
+  > Option 3b was the only design decision that re-shaped the plan
+  > beyond what Phase A anticipated.
+  >
+  > **Step file:** `tracks/track-4.md` (9 steps, 1 failed)
 
 - [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers; rename `loadOrAddPageForWrite`
   > Make `WriteCache.getFilledUpTo` non-public and route the surviving
