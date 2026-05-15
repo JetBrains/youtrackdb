@@ -39,7 +39,7 @@ re-renders — is invisible to the user.
   `EDIT_STEP_DESC`, "translator", "typed action set", "PSI-verify"
   are valid terms in this protocol and in orchestrator reasoning,
   but they do not appear in messages to the user. The single
-  exception is the final approval panel (§ Approval panel), where
+  exception is the final approval panel (§ Flow step 3), where
   type labels appear because the panel is the explicit audit
   surface.
 - **One-line conversational acks per observation.** "Got it —
@@ -63,7 +63,7 @@ re-renders — is invisible to the user.
 Both gates render their initial approval with the same three
 one-step options. This is the only `AskUserQuestion` call the
 gate itself makes for routine acceptance — review mode runs its
-own approval panel (§ Approval panel below) when entered and the
+own approval panel (§ Flow step 3 below) when entered and the
 user signals completion.
 
 - **Approve** — terminal accept. The gate runs its own post-approve
@@ -125,14 +125,49 @@ Then loop. For each user chat message:
 5. **Pause on deep-change shapes.** If a message looks like an
    escalation candidate (keyword detection per § ESCALATE
    detection, or anchor inside a protected section per
-   § Anchor-section gate), pause inline and ask conversationally:
+   § Validation — Anchor-section gate), pause inline and ask conversationally:
    *"That looks like a deeper change to Decision Records — should
    I treat it as an escalation to inline replanning?"* Do not
    silently add an escalation to a non-empty buffer; the
    Mixed-set policy depends on the user making the call
    deliberately.
+6. **Buffer mutation via chat (supersession + explicit delete).**
+   A new observation can supersede or remove a prior buffered
+   item without going through the panel. Two paths:
 
-The buffer is in-conversation context only — no on-disk state.
+   - **Implicit supersession by target.** If the new observation
+     names the same target as a buffered item, the new one
+     replaces the old. "Same target" means:
+     - `FIX_FINDING` — same finding triple (file path, line
+       range, root issue).
+     - `EDIT_PLAN` / `EDIT_STEP_DESC` — same `old_string` anchor
+       in the same target file.
+     - `SKIP_TRACK` — same `track_index`.
+     - `QUESTION`, `CLARIFY`, and `ESCALATE` — never supersede
+       (they stack; escalations are deliberate).
+     Ack inline: *"Got it — replacing the earlier `Foo.bar` fix
+     with the `putLong` version."*
+   - **Explicit delete patterns.** Phrases that match an
+     enumerated set map to buffer-delete operations rather than
+     new items:
+     - *"drop the `<target>` fix"*, *"remove the `<target>` one"*
+     - *"drop item N"*, *"remove item N"* (1-indexed against the
+       ordered buffer)
+     - *"forget the reorder"*, *"never mind the skip"* (resolves
+       by item type when exactly one item of that type is
+       buffered)
+
+     Ambiguous match (multiple buffered items fit the referent)
+     → ask one inline clarifying line naming the candidates. No
+     match → fall through to standard classification (the phrase
+     becomes a new observation). Ack: *"Dropped — buffer is at N
+     items."*
+
+   Buffer mutations bypass PSI verify, the anchor-section gate,
+   and ESCALATE keyword detection — those fire on what's added,
+   not on what's removed.
+
+The buffer is in-conversation context only; no on-disk state.
 A crash drops it (see § State and resume).
 
 ### 2. Detect the completion signal
@@ -142,6 +177,19 @@ the user is done observing. The check runs after classification
 and accumulation, so observations packaged together with a
 completion signal ("fix X and apply") land in the buffer first
 and then trigger the approval panel.
+
+**Pending-inline-ask interaction.** If processing the current
+message yielded any pending inline ask — PSI failure
+(§ Validation PSI failure path), missing `SKIP_TRACK` reason
+(§ Action types), anchor-section pause
+(§ Validation — Anchor-section gate), or ESCALATE-keyword pause
+(§ ESCALATE detection) — buffer the completion signal and run
+the inline ask first. Recheck for a completion signal only
+after every pending ask has resolved (item accepted, dropped,
+or escalated). One side effect: a message like *"fix
+`FooBarMissing.baz` and apply"* where `FooBarMissing` fails
+PSI verify surfaces the class-name question first, and the
+panel renders only after the user clarifies or drops that item.
 
 **Clear completion signal** → render the approval panel (§ 3):
 
@@ -165,6 +213,17 @@ with no action verb) → ask one inline clarifying line:
 *"Anything else, or shall I apply what we've got?"* Do not render
 the panel yet.
 
+**Clear discard signal** → cancel the round:
+
+- "forget it", "forget this", "never mind", "cancel that"
+- "start over", "discard", "reset", "scrap it"
+
+Ask one inline line: *"Drop back to the approval panel? (this
+will discard your {N} buffered item(s))"* On confirmation,
+empty the buffer and return to the gate's approval panel
+(same effect as Cancel in § 3). On denial, stay in the
+accumulation loop with the buffer intact.
+
 ### 3. Render the approval panel
 
 This is the **only** approval panel review mode shows. It renders
@@ -183,6 +242,9 @@ Render rules. Each item is shown with:
     mcp-steroid was unreachable.
   - `⚠ Reorder breaks dependencies: Track <N> requires Track <M>
     earlier` — one line per violation from § Validation.
+  - `⚠ Light edit lands in protected section: <section name>
+    (user override)` — when the user pushed back against the
+    anchor-section gate (see § Validation — Anchor-section gate).
 - Type label (`QUESTION` / `EDIT_PLAN` / `SKIP_TRACK` /
   `EDIT_STEP_DESC` / `CLARIFY` / `FIX_FINDING` / `ESCALATE`).
 - One-line intent summary.
@@ -195,15 +257,17 @@ Render rules. Each item is shown with:
 Present `AskUserQuestion` with three one-step options:
 
 - **Apply** — execute every side-effecting item in declaration
-  order per § Execute. When the buffer contains only `QUESTION`
+  order per § Flow step 5. When the buffer contains only `QUESTION`
   items, the option label is **Done** instead — there is nothing
   to execute, but the user has read the answers.
 - **Refine** — keep the accumulated buffer intact and drop back
   to § 1's accumulation loop. The user can now add, remove, or
   modify items via further chat ("drop the CDPB fix, keep just
-  FSM", "rephrase the first one to …", "actually also …"). The
-  prompt that re-opens the loop names the buffer state in plain
-  language ("You've got 3 items so far — what to change?").
+  FSM", "rephrase the first one to …", "actually also …"). See
+  § 1 step 6 for the buffer-mutation grammar (supersession +
+  explicit delete). The prompt that re-opens the loop names the
+  buffer state in plain language ("You've got 3 items so far —
+  what to change?").
 - **Cancel** — discard the buffer, return to the gate's approval
   panel as if review mode had never been entered.
 
@@ -221,7 +285,13 @@ entered review mode and immediately said "apply" / "ok done" /
 similar), ask one inline line: *"Nothing observed yet — drop
 back to the approval panel?"* On confirmation, return to the
 gate's approval panel as if review mode had not been entered. On
-denial ("no, give me a moment"), stay in the accumulation loop.
+denial ("no, give me a moment"), stay in the accumulation loop
+and expand the clarifying line: *"Type any observation and I'll
+capture it; or say 'cancel' to drop back to the approval panel."*
+If the user immediately re-signals completion from an empty
+buffer ("apply" / "ok done" again with no observation in
+between), treat as confirmed drop-back without re-asking — one
+clarifying ask is the cap.
 
 If the buffer contains only `QUESTION` items at the completion
 signal, the panel still renders with the **Done / Refine /
@@ -264,7 +334,18 @@ used by `FIX_FINDING`'s `RESULT_MISSING` discard branch
 (`track-code-review.md` § Track Completion step 3) and as a safety
 net for rare real-write failures (disk full, file lock).
 
-**Execute side-effecting items in declaration order:**
+**Execute side-effecting items.** Within a type, items run in
+declaration order. Across types, ordering is fixed:
+
+1. `EDIT_PLAN` / `EDIT_STEP_DESC` / `CLARIFY` (these can
+   interleave freely; their writes do not conflict).
+2. `SKIP_TRACK` runs after all light edits — its plan-entry
+   rewrite and step-file deletion could invalidate an
+   `EDIT_PLAN`'s `old_string` anchor if it ran first.
+3. `FIX_FINDING` runs last (spawns a fresh implementer once
+   the rest of the buffer has settled).
+
+For each type:
 
 - `EDIT_PLAN` / `EDIT_STEP_DESC`: apply via `Edit` (single site)
   or `steroid_apply_patch` (>2 sites).
@@ -290,6 +371,33 @@ net for rare real-write failures (disk full, file lock).
   are refused before they reach this step.
 
 `QUESTION` items have no execution side effect.
+
+**Mid-Apply real-write failure.** Preflight catches most issues,
+but rare failures can land after the first item has written —
+`steroid_apply_patch` reporting a hunk that no longer applies
+because a prior item's edit moved lines, disk full, file lock
+contention, a `SKIP_TRACK` IO error after `EDIT_PLAN` already
+amended the plan file. On any such failure:
+
+- Stop after the failed item. Do NOT roll back already-applied
+  items: their working-tree edits persist for the gate's
+  re-render (`pre_apply_sha` captured above lets the user undo
+  manually if they want).
+- Surface a `**Partial Apply:**` chat message naming what
+  landed and what failed, e.g.:
+
+  ```
+  Partial Apply:
+  - applied: EDIT_PLAN reorder, EDIT_STEP_DESC track-3 What block
+  - failed: SKIP_TRACK track-5 (step file lock — retry?)
+  - unstarted: FIX_FINDING (3 findings)
+  ```
+
+- Drop back to § 1's accumulation loop with the failed item and
+  every unstarted item still in the buffer. Already-applied
+  items leave the buffer (their effect now lives on disk and
+  will surface in § 6's gate re-render). The user can rephrase,
+  drop, or retry on the next round.
 
 ### 6. Re-render the gate's approval panel
 
@@ -382,11 +490,20 @@ of an autonomous hard-stop.
 - **Reachable + cwd mismatch** (`steroid_list_projects` reports a
   different project from the working tree) → pause and ask the
   user via `AskUserQuestion` to switch the open project before
-  proceeding. Do NOT silently fall back to `find` — a PSI query
-  against the wrong project produces false negatives identical to
-  hallucinations. The pause fires at most once per session
-  (mcp-steroid state is session-wide); after the user switches,
-  re-run silently before continuing the accumulation.
+  proceeding. Do NOT silently fall back to `find` on the first
+  encounter — a PSI query against the wrong project produces
+  false negatives identical to hallucinations. The pause fires
+  at most once per session (mcp-steroid state is session-wide).
+  After the user replies, re-run `steroid_list_projects` to
+  verify the switch actually happened:
+  - **Switch confirmed** (`steroid_list_projects` now reports
+    the matching project) → re-run PSI find-class silently and
+    continue accumulation.
+  - **Switch did not happen** (still a mismatch, or the user
+    dismissed without switching) → treat as **Unreachable** for
+    the remainder of the session: fall back to
+    `find . -name '<ClassName>.java'` with the `(grep-fallback)`
+    caveat tagged on every subsequent verification.
 - **Unreachable** → fall back to `find . -name '<ClassName>.java'`
   and tag the item with a `(grep-fallback)` caveat that survives
   to the approval panel render.
@@ -410,8 +527,19 @@ inline: *"I couldn't find a class named `<name>` — did you mean
 - "Add it anyway" → keep the item in the buffer with a
   `⚠ Unverified production class name: <name>` warning that
   surfaces in the approval panel.
-- "Escalate" → promote to an `ESCALATE` item (subject to
-  § Mixed-set policy at panel time).
+- "Escalate" → promote to an `ESCALATE` item. If the buffer is
+  non-empty, pause inline first (symmetric with § 1 step 5):
+  *"That'll mix an escalation with the {N} item(s) already in
+  the buffer. Mixed sets refuse Apply — proceed anyway?"* On
+  confirmation, the ESCALATE enters the buffer subject to
+  § Mixed-set policy at panel time. On denial, leave the
+  original item out of the buffer (the user can re-raise it
+  later).
+- Anything else (off-topic chat, a new observation, a stack
+  trace, a question about something unrelated) → treat as a
+  new chat message and re-enter classification (§ 1 step 1).
+  The failed item stays out of the buffer (effectively a
+  "drop it" outcome).
 
 ### Dependency validity for `EDIT_PLAN` reorders
 
@@ -446,7 +574,7 @@ order of remaining tracks.
 
 ### Anchor-section gate for `EDIT_PLAN` / `EDIT_STEP_DESC`
 
-The translator's keyword-based ESCALATE detection
+The orchestrator's keyword-based ESCALATE detection
 (§ ESCALATE detection) catches deep amendments by what the user
 said. The anchor-section gate catches deep amendments by where the
 edit lands. The two are complementary; either is sufficient to
@@ -485,9 +613,11 @@ in the deep-change description, instead of the original light
 edit type.
 
 If the user pushes back ("no, just edit the line as-is"), the
-item stays light and the anchor gate logs the conflict but does
-not block — the user gets one chance to keep it light. Mixed-set
-policy at panel time is the final guard.
+item stays light and the anchor gate attaches a
+`⚠ Light edit lands in protected section: <section name>
+(user override)` warning that surfaces in the approval panel.
+The user gets one chance to keep it light, but the panel renders
+the override explicitly so it's visible at Apply time.
 
 ## Mixed-set policy
 

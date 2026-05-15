@@ -250,7 +250,7 @@ Amendments that name production classes in the
 §Pre-write rule above — PSI-verify every named class via
 `mcp-steroid` find-class **silently during accumulation, and
 inline-ask the user if a name does not resolve** (per review
-mode § Flow step 1 step 2), so the user can correct a
+mode § Flow step 1.2), so the user can correct a
 pattern-induced name during the same review-mode round rather
 than after commit:
 
