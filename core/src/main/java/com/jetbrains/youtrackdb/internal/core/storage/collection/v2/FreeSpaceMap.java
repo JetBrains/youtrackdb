@@ -231,10 +231,12 @@ public final class FreeSpaceMap extends StorageComponent {
     // the physical one, so physical orphans past filledUpTo are impossible
     // by definition (the filledUpTo read IS the physical extent). Per-component
     // lock (held transitively via PaginatedCollectionV2's component operation)
-    // serialises concurrent growers on the same fileId.
+    // serialises concurrent growers on the same fileId. The pre-read fixes the
+    // growth-loop starting point against current physical state.
     // The same growth-loop pattern appears in CollectionDirtyPageBitSet.ensureCapacity;
     // keep both sites in sync.
-    final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+    final var filledUpTo =
+        physicalSize(atomicOperation, fileId, PhysicalReadIntent.GROWTH_LOOP_PRE_READ);
     for (var i = filledUpTo; i <= secondLevelPageIndex; i++) {
       try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, i)) {
         final var page = new FreeSpaceMapPage(cacheEntry);

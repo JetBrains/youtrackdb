@@ -135,10 +135,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     // Bootstrap emptiness check on the EntryPoint page (chicken-and-egg): the page
     // being inspected IS the EntryPoint itself, so logical bookkeeping (MapEntryPoint
-    // fileSize) is not yet available. Physical extent is therefore the only source
-    // of truth here. Routes through the gated `physicalSize`-shaped helper introduced
-    // for stay-on-physical sites.
-    if (getFilledUpTo(atomicOperation, fileId) == 0) {
+    // fileSize) is not yet available -- physical extent is the only source of truth.
+    if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
+        == 0) {
       // Fresh file -- append the entry-point page (statically known-new at pageIndex 0).
       try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);

@@ -1835,12 +1835,11 @@ public class IndexHistogramManager extends StorageComponent {
     // are written in the same atomic op, so under normal operation `hllOnPage1()`
     // implies page 1 is present; this probe guards against a partial-crash window
     // between the page-0 and page-1 writes. Stays on physical extent (rather than a
-    // logical bookkeeping field) for tx-uniform behaviour with the rest of IHM, and
-    // routes through the gated `physicalSize`-shaped helper introduced for
-    // stay-on-physical sites. Option A (probe + skip) is pre-committed here -- do
-    // NOT migrate to a `loadIfPresent`-style helper.
+    // logical bookkeeping field) for tx-uniform behaviour with the rest of IHM.
+    // Option A (probe + skip) is pre-committed here -- do NOT migrate to a
+    // `loadIfPresent`-style helper.
     if (snapshot.hllOnPage1()) {
-      long filledUpTo = getFilledUpTo(op, fileId);
+      long filledUpTo = physicalSize(op, fileId, PhysicalReadIntent.DEFENSIVE_PRESENCE);
       if (filledUpTo > 1) {
         var page1Entry = loadPageForRead(op, fileId, 1);
         try {
