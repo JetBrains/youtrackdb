@@ -596,6 +596,16 @@ flowchart LR
   > beyond what Phase A anticipated.
   >
   > **Step file:** `tracks/track-4.md` (9 steps, 1 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 4 episode discoveries
+  > (CS1 → new Track 7 + DR D6 + Invariant I6, the `loadOrAddPageForWrite`
+  > → `allocatePageForWrite` rename absorbed into Track 5, the Track 6
+  > scope expansion for CS1 / HLL-spill / StorageBackupMTStateTest / I4
+  > MT pins, the Track 2-style unit-test backlog under Non-Goals) all
+  > landed on disk via prior inline-replan and plan-correction commits
+  > (`8d4360731a`, `04d67da67c`, `f6b4c404d2`, `dbdd097fb9`). Tracks 5-7
+  > are self-consistent with the post-Track-4 reality; no further plan
+  > amendments required before Track 5 Phase A.
 
 - [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers; rename `loadOrAddPageForWrite`
   > Make `WriteCache.getFilledUpTo` non-public and route the surviving
