@@ -369,7 +369,7 @@ front.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/6 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -637,7 +637,8 @@ front.
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java` (parallel)
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java` (`@SuppressWarnings` on `loadOrAddPageForWrite` and `filledUpTo`)
 
-- [ ] Step 6: IDE rename `AtomicOperation.loadOrAddPageForWrite` → `allocatePageForWrite`
+- [x] Step 6: IDE rename `AtomicOperation.loadOrAddPageForWrite` → `allocatePageForWrite`
+  - [x] Context: info
   > **Risk:** high — SPI surface change with ~100+ polymorphic references
   > across 18 files; the `AtomicOperation` interface dispatches to the
   > AOBT impl which is allocator-only on disk and total on in-memory.
@@ -647,39 +648,91 @@ front.
   > silently miss the direct SPI-typed call at
   > `PaginatedCollectionV2.java:2224` plus Javadoc cross-references.
   >
-  > Run via `mcp-steroid` change-signature recipe with the preflight
-  > discipline in `## Description` `**How**` Step 5: clean working
-  > tree, Maven re-import after any recent POM edit, capture the
-  > pre-rename PSI ref counts at all three declaration sites
-  > (`AtomicOperation` SPI, `AtomicOperationBinaryTracking` impl,
-  > `StorageComponent` wrapper) plus the direct SPI call at
-  > `PaginatedCollectionV2.java:2224`. Test class rename
-  > `LoadOrAddPageForWriteTest` → `AllocatePageForWriteTest` (file
-  > rename + class header + test-method narration).
+  > **What was done:** Renamed `AtomicOperation.loadOrAddPageForWrite` to
+  > `allocatePageForWrite` via the IntelliJ `RenameProcessor` driven through
+  > mcp-steroid. The SPI rename cascaded atomically to the AOBT `@Override`
+  > plus 6 SPI references and 43 AOBT impl references (including Javadoc
+  > `{@link}` cross-refs); a parallel rename pass on the unrelated-but-
+  > same-named `StorageComponent` wrapper cascaded to all 21 production
+  > allocator call sites in BTree, SLBB, CPMV2, PCV2, FSM, CDPB, and IHM
+  > (including the HLL-spill discriminator's allocate branches). Test
+  > class `LoadOrAddPageForWriteTest` renamed to `AllocatePageForWriteTest`
+  > (file + class header); the two test-method identifiers still carrying
+  > the old verb (`loadOrAddPageForWriteThrowsForExistingPage`,
+  > `loadOrAddPageForWriteThrowsAtBoundaryPageIndex`) were renamed in a
+  > second IDE pass. A single `steroid_apply_patch` (35 hunks across 14
+  > files) swept the remaining prose comments, Javadoc `{@code}` refs,
+  > error-message strings, and one test-fixture storage-name literal
+  > from the old name to the new name. A final 3-hunk patch rewrote the
+  > AOBT method's Javadoc lead to spell out the cross-engine asymmetry
+  > ("allocator-only on disk; eager-install total on in-memory") and
+  > carried the same headline into the renamed test class header.
+  > Step 5's `@SuppressWarnings({"CheckedExceptionNotThrown",
+  > "deprecation"})` on `AtomicOperationBinaryTracking.loadOrAddPageForWrite`
+  > carried forward atomically through the IDE rename to the new method
+  > name. Full core suite green: 18150/18150. Coverage on changed lines:
+  > 93.4% line / 81.9% branch. PSI verification: 6 SPI refs / 43 AOBT
+  > refs / 21 StorageComponent refs all match the preflight count;
+  > zero stragglers on the old name.
   >
-  > Add a Javadoc note on `AtomicOperationBinaryTracking.allocatePageForWrite`
-  > (post-rename) spelling out the cross-engine asymmetry: "allocator-only
-  > on disk; eager-install total on in-memory". Carry the same note on
-  > the renamed test class header so test-suite readers see the asymmetry
-  > up front.
+  > **Dimensional code review (high-risk gate, iter-2 PASS).** Iter-1
+  > spawned 4 baseline reviewers in parallel (code-quality,
+  > bugs-concurrency, test-behavior, test-completeness). Findings:
+  > 2 should-fix from code-quality (CQ1 — interface Javadoc still led
+  > with "Despite the historical name…"; CQ2 — two
+  > `LoadOrAddPageForWriteTest` prose mentions left in
+  > `CollectionPositionMapV2Test` at `:243` and `:1222`); 1 suggestion
+  > (CQ3 — minor `WriteCache` Javadoc phrasing); no findings from
+  > bugs-concurrency, test-behavior, or test-completeness. `Review fix:`
+  > commit `066176414e` applied CQ1 + CQ2; CQ3 deferred as
+  > documentation polish. Gate-check (iter-2, code-quality only) PASS:
+  > CQ1 VERIFIED, CQ2 VERIFIED, no new findings.
   >
-  > Build + run the full core test suite (`./mvnw -pl core clean test`).
-  > Post-rename PSI find-usages on `allocatePageForWrite` should match
-  > the captured pre-rename count from the preflight; PSI find-usages
-  > on `loadOrAddPageForWrite` should return zero (no stragglers).
+  > **What was discovered:** IntelliJ's `RenameProcessor` deliberately
+  > skips Javadoc `{@code}` and prose comments (over-eager rewriting
+  > would damage unrelated text). For SPI-name sweeps the operational
+  > discipline is: (1) run IDE Rename on every declaration site so
+  > symbol-bearing PSI refs and `{@link}` tags update atomically, then
+  > (2) sweep the comment / Javadoc / string-literal residue with a
+  > single `steroid_apply_patch` listing every prose mention. The
+  > Rename engine handled 87 PSI references atomically; the second
+  > sweep handled 35 prose mentions across 14 files. The "direct
+  > SPI-typed call at `PaginatedCollectionV2.java:2224`" called out by
+  > the step description resolved on inspection to a Javadoc `{@link}`
+  > at line 2223 — not a runtime call — and was caught by the SPI
+  > Rename automatically. The direct allocator call inside
+  > `PaginatedCollectionV2.allocateNewPage` at line 2251 routes through
+  > the `StorageComponent` wrapper and was caught by the second
+  > Rename pass. CQ1 + CQ2 from iter-1 surfaced the same pattern: even
+  > with the IDE engine, prose mentions of the renamed identifier in
+  > Javadoc / `//` comments in other source files need a textual sweep.
   >
-  > **Files:** ~18 via IDE rename, including:
-  > - `core/.../storage/impl/local/paginated/atomicoperations/AtomicOperation.java`
-  > - `core/.../storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
-  > - `core/.../storage/impl/local/paginated/base/StorageComponent.java`
-  > - 19 production allocator call sites (BTree, SLBB, CPMV2, PCV2,
-  >   FSM, CDPB, IHM) — the `StorageComponent` wrapper callers (21
-  >   PSI refs).
-  > - Direct SPI-typed caller at `PaginatedCollectionV2.java:2224`.
-  > - Test class rename + 40+ test method refs across
-  >   `LoadOrAddPageForWriteTest` (becomes `AllocatePageForWriteTest`),
-  >   `AtomicOperationBinaryTrackingWALSkipTest`,
-  >   `AtomicOperationSnapshotProxyTest`,
-  >   `FlushPendingOperationsTest`,
-  >   `PageOperationAccumulationLifecycleTest`,
-  >   `RegisterPageOperationTest`.
+  > **Critical context:** For future SPI renames on this branch — the
+  > IDE Rename engine on an interface declaration cascades through
+  > `@Override` implementers automatically, but non-override methods
+  > sharing the same name (e.g. the `StorageComponent` wrapper, which
+  > calls the SPI but is not an `@Override`) need a separate Rename
+  > pass — running it as a second target in the same script is cheap.
+  > Prose / Javadoc `{@code}` / string-literal mentions need a
+  > follow-up `steroid_apply_patch` (35 hunks fits comfortably in a
+  > single atomic call). The cross-engine asymmetry headline
+  > ("allocator-only on disk; eager-install total on in-memory") is
+  > now visible from both the AOBT method and the renamed test class
+  > header — Track 6 reviewers reading the AOBT layer for CS1 work
+  > will see the disk-vs-memory split up front. CQ3 (minor
+  > `WriteCache.java` Javadoc phrasing about "allocation-floor
+  > classifier for the `isNew` slow path" reading slightly oddly
+  > post-rename) is deferred as future polish — captured here so a
+  > later cleanup pass can pick it up.
+  >
+  > **Key files:** (20 files modified or renamed)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java` (SPI rename + Javadoc rewrite)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java` (impl rename + asymmetry Javadoc)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponent.java` (wrapper rename)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTree.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTree.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/{CollectionDirtyPageBitSet,CollectionPositionMapV2,FreeSpaceMap,PaginatedCollectionV2}.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/{WriteCache,local/WOWCache}.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/{AllocatePageForWriteTest (renamed from LoadOrAddPageForWriteTest),AtomicOperationBinaryTrackingWALSkipTest,AtomicOperationSnapshotProxyTest,FlushPendingOperationsTest,PageOperationAccumulationLifecycleTest,RegisterPageOperationTest}.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/{CollectionDirtyPageBitSetTest,CollectionPositionMapV2Test}.java`
