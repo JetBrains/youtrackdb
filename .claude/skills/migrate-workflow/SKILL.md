@@ -144,7 +144,7 @@ File-existence handling:
 
 - If the file does not exist, create it with the three header lines and an empty body. The file is a sentinel that the user removes after committing the migration. Do not modify `.gitignore`.
 - If the file exists, read its header and apply these checks in order:
-  - If `fork=<recorded-sha>` differs from the current `git merge-base develop $ARGUMENTS`, halt and ask the user to delete the stale progress file before re-running. The branch has been rebased since the migration started. Warn that the migration worktree may carry partial edits from the prior run; recommend `git -C <migration-worktree> stash` (or commit-then-revert) before deleting the progress file.
+  - If `fork=<recorded-sha>` differs from the current `git merge-base develop $ARGUMENTS`, halt and ask the user to delete the stale progress file before re-running. The branch has been rebased since the migration started. Warn that the migration worktree may carry partial edits from the prior run; recommend `git -C "<migration-worktree>" stash` (or commit-then-revert) before deleting the progress file.
   - If `head=<recorded-sha>` is not reachable from the current `develop` (check via `git merge-base --is-ancestor <head-sha> develop`), halt and ask the user to fetch or update develop before resuming. The local `develop` was reset to an older commit than the one the prior run recorded.
   - If `fork=` matches and `head=` is older than the current `$HEAD_DEVELOP`, append any new commits to the queue (the develop tip moved during the migration).
 - The commits already listed in the body are **done**. Skip them in Step 5.
@@ -219,7 +219,7 @@ A fifth classification value, `manual-review-needed`, may be set in Step 5.5 onl
 
 ### 5.4 Apply the migration in the migration worktree
 
-For **Format change** commits, identify which files in the migration worktree's `_workflow/**` (or `.claude/**` if the branch carries local workflow overrides) match the format being changed. Use `Read` and `Bash` (`git -C <migration-worktree> ls-files docs/adr/*/\_workflow/`) to find them.
+For **Format change** commits, identify which files in the migration worktree's `_workflow/**` (or `.claude/**` if the branch carries local workflow overrides) match the format being changed. Use `Read` and `Bash` (`git -C "<migration-worktree>" ls-files docs/adr/*/_workflow/`) to find them.
 
 When the develop-side diff references a path that may have been renamed earlier in the branch's history, consult the `# renames:` header block in `.migration-progress` and follow any `<old> -> <new>` mappings recorded by prior `rename`-classified commits.
 
@@ -242,7 +242,7 @@ Halt the loop and ask the user only if one of these three concrete conditions ho
 
 If none of these holds, apply the edit mechanically and continue.
 
-**Halt resume contract.** When the halt fires, include this warning in the question: *"If you `/clear` or interrupt before resolving, this commit will be replayed on resume. Run `git -C <migration-worktree> diff` first to detect duplicate edits."* (Same crash-window contract as Step 5.5.)
+**Halt resume contract.** When the halt fires, include this warning in the question: *"If you `/clear` or interrupt before resolving, this commit will be replayed on resume. Run `git -C "<migration-worktree>" diff` first to detect duplicate edits."* (Same crash-window contract as Step 5.5.)
 
 User outcomes:
 
@@ -263,7 +263,7 @@ For `rename`-classified commits, **also** insert one indented `#   <old-path> ->
 
 Mechanism: read the file with `Read`, mutate the contents in memory (append the body line and, for renames, insert the header line(s) under `# renames:`), then write the full file back with `Write`. Do not use `Edit` here; the initial file may have no trailing newline, so the `old_string`-based path is unreliable. Do not stage or commit the file; it lives outside git history.
 
-If the process is killed between applying edits in 5.4 and updating `.migration-progress` here, the next run will replay the same commit. After a crash, run `git -C <migration-worktree> diff` before resuming to detect duplicate edits.
+If the process is killed between applying edits in 5.4 and updating `.migration-progress` here, the next run will replay the same commit. After a crash, run `git -C "<migration-worktree>" diff` before resuming to detect duplicate edits.
 
 ### 5.6 Mark the per-commit task completed
 
@@ -275,7 +275,7 @@ When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migratio
 
 - Count of commits migrated, of each classification (`format`, `skill`, `rename`, `noop`, `manual-review-needed`). Compute by reading the body of `.migration-progress` and counting each value of column 2.
 - If any commits were recorded as `manual-review-needed`, list their short-SHA and subject so the user knows which to revisit manually.
-- Total files edited in the migration worktree, excluding the progress-file sentinel: `git -C <migration-worktree> status --porcelain | grep -v '^?? \.migration-progress$' | wc -l`.
+- Total files edited in the migration worktree, excluding the progress-file sentinel: `git -C "<migration-worktree>" status --porcelain | grep -v '^?? \.migration-progress$' | wc -l`.
 - One-line next-step prompt: "Review the diff in `<migration-worktree>`, then commit when satisfied. Delete `.migration-progress` after the commit."
 
 Then end the session.
