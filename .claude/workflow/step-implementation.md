@@ -370,8 +370,10 @@ finding ID prefixes, and gate format.
    a. **Select review agents** based on code characteristics (see
       [`review-agent-selection.md`](review-agent-selection.md)),
       then spawn them in parallel (fresh sub-agents each iteration).
-      Baseline agents (4) always run; conditional agents are added
-      based on the step description and changed files.
+      Baseline agents (4) run unless the diff is workflow-only (see
+      the baseline-skip override in `review-agent-selection.md`);
+      conditional agents and workflow-review agents are added based
+      on the step description and changed files.
 
       Before composing prompts, **pre-stage the step diff and the
       changed-files list** so the canonical context block references
