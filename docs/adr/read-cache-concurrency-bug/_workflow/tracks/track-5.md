@@ -369,7 +369,7 @@ front.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -387,28 +387,52 @@ front.
 
 ## Steps
 
-- [ ] Step 1: Introduce Layer A helper `WriteCache.physicalSizeForBackupSnapshot`
+- [x] Step 1: Introduce Layer A helper `WriteCache.physicalSizeForBackupSnapshot`
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic, modifies the `WriteCache` interface
   > contract that has two production implementers (`WOWCache`,
   > `DirectMemoryOnlyDiskCache`) plus test-mock impls; not on a HIGH-risk
   > category (no concurrency / durability / public-API / hot-path triggers).
   >
-  > Add the new method to the `WriteCache` interface with a Javadoc
-  > documenting the post-unfreeze backup-snapshot semantics and naming the
-  > one expected caller (DiskStorage backup). Body in `WOWCache`:
-  > `return getFilledUpTo(fileId);` (preserves the `filesLock` read-lock +
-  > null-file safety inside the wrapped call). Body in
-  > `DirectMemoryOnlyDiskCache`: parallel implementation. Add a unit test
-  > pinning the helper's contract on both engines (delegates to
-  > `getFilledUpTo`, returns the same value).
+  > **What was done:** Added `WriteCache.physicalSizeForBackupSnapshot(long fileId)` —
+  > a named, audit-grep-able alias for `getFilledUpTo` intended as the single
+  > cross-component entry point for the post-unfreeze incremental-backup snapshot
+  > reader. `WOWCache` and `DirectMemoryOnlyDiskCache` both implement it as thin
+  > delegators wrapping their existing `getFilledUpTo` bodies; the disk-engine
+  > wrapper re-enters the `filesLock` read-lock + null-file safety path through
+  > the inner call. The five in-tree test mocks of `WriteCache`
+  > (`LockFreeReadCacheOptimisticTest`, `LockFreeReadCacheConcurrentTestIT`,
+  > `AsyncReadCacheTestIT`, `LockFreeReadCacheFileOpsTest`,
+  > `LockFreeReadCacheBatchingTest`) gained matching delegator overrides so they
+  > continue to compile. Two new test classes
+  > (`WOWCachePhysicalSizeForBackupSnapshotTest`,
+  > `DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest`) pin "helper
+  > agrees with `getFilledUpTo` for the same `fileId`" across fresh-file,
+  > one-extend, multi-extend, and (disk-only) deleted-file branches; 7/7 pass.
+  > Spotless applied. Core tests: 171/172 (one pre-existing flaky MT test,
+  > `WOWCacheLoadOrAddConcurrentTest#bareLoadOrAddOnSameKeySurfacesI4Sentinel`,
+  > failed under the wider cache-layer set but passes in isolation — known
+  > race-window asymmetry unrelated to this delegator addition).
   >
-  > **Files:**
-  > - `core/.../internal/core/storage/cache/WriteCache.java`
-  > - `core/.../internal/core/storage/cache/local/WOWCache.java`
-  > - `core/.../internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
-  > - one or two test files under `core/src/test/java/.../storage/cache/`
-  >   (likely `WOWCacheLoadIfPresentTest`-style sibling — Phase B picks
-  >   the natural test home)
+  > **What was discovered:** `WriteCache` has five in-tree mock implementations
+  > in addition to the two production engines; adding any new abstract method to
+  > the interface forces parallel updates across all seven. The same surface
+  > will be touched by Step 6's rename refactor.
+  >
+  > **Critical context:** Pre-commit ephemeral-identifier gate caught a workflow-
+  > internal invariant label in the `WriteCache` Javadoc draft and required a
+  > rewrite that restates the discovery contract in repo-anchored prose. Future
+  > steps on this branch authoring Javadoc on the same helper set should expect
+  > to do the same — the durable-content rule applies to every Javadoc block this
+  > track writes.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/WriteCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCachePhysicalSizeForBackupSnapshotTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/{AsyncReadCacheTestIT,LockFreeReadCacheBatchingTest,LockFreeReadCacheConcurrentTestIT,LockFreeReadCacheFileOpsTest,LockFreeReadCacheOptimisticTest}.java` (mock delegator additions)
 
 - [ ] Step 2: Migrate `DiskStorage.backupPagesWithChanges` to the Layer A helper
   > **Risk:** medium — single-file call-site swap, but on a critical-path
