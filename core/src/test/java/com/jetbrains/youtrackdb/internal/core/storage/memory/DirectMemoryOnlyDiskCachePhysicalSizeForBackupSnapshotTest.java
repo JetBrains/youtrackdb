@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import org.junit.After;
 import org.junit.Before;
@@ -47,6 +49,10 @@ public class DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest {
    * Fresh, never-extended file: both surfaces must report zero pages. A divergence
    * would point at a helper that short-circuited around {@code MemoryFile.size()} (the
    * only correct source on the in-memory engine).
+   *
+   * <p>Pin both the literal expected value AND the parity to {@code getFilledUpTo}: the
+   * literal pin keeps the helper independently falsifiable, the parity pin guards against
+   * a future divergence between the two surfaces.
    */
   @Test
   public void freshFileBothSurfacesReportZero() {
@@ -54,6 +60,10 @@ public class DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest {
     final var viaHelper = cache.physicalSizeForBackupSnapshot(fileId);
 
     assertEquals("fresh in-memory file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must observe 0 pages on a fresh file",
+        0L,
+        viaHelper);
     assertEquals(
         "physicalSizeForBackupSnapshot must agree on a fresh file",
         viaLegacy,
@@ -76,6 +86,10 @@ public class DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest {
           "single extend must advance the in-memory high-watermark to 1",
           1L,
           viaLegacy);
+      assertEquals(
+          "physicalSizeForBackupSnapshot must observe 1 page after a single extend",
+          1L,
+          viaHelper);
       assertEquals(
           "physicalSizeForBackupSnapshot must observe the same one-page extend",
           viaLegacy,
@@ -101,8 +115,63 @@ public class DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest {
 
     assertEquals("five extends must advance getFilledUpTo to 5 pages", 5L, viaLegacy);
     assertEquals(
+        "physicalSizeForBackupSnapshot must observe 5 pages after five extends",
+        5L,
+        viaHelper);
+    assertEquals(
         "physicalSizeForBackupSnapshot must agree across multiple extends",
         viaLegacy,
         viaHelper);
+  }
+
+  /**
+   * Post-truncate: {@code DirectMemoryOnlyDiskCache.truncateFile} resets the in-memory
+   * file via {@code file.clear()} while keeping the file live. Both surfaces must
+   * observe the reset immediately. A future implementer that short-circuited the helper
+   * (e.g. cached the pre-truncate high-watermark) would surface here.
+   */
+  @Test
+  public void postTruncateBothSurfacesReportZero() {
+    for (int i = 0; i < 3; i++) {
+      cache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
+    }
+    cache.truncateFile(fileId);
+
+    final var viaLegacy = cache.getFilledUpTo(fileId);
+    final var viaHelper = cache.physicalSizeForBackupSnapshot(fileId);
+
+    assertEquals("post-truncate file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must observe the truncate immediately",
+        0L,
+        viaHelper);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must agree with getFilledUpTo post-truncate",
+        viaLegacy,
+        viaHelper);
+  }
+
+  /**
+   * Deleted-file engine asymmetry: the in-memory engine's {@code getFilledUpTo} throws
+   * {@code StorageException} on a missing/deleted file (the disk engine returns 0
+   * instead — see {@code WOWCachePhysicalSizeForBackupSnapshotTest#deletedFileBothSurfacesReportZero}).
+   * The Javadoc on {@code DirectMemoryOnlyDiskCache.physicalSizeForBackupSnapshot} claims
+   * "same semantics as getFilledUpTo"; this test pins that claim by asserting the helper
+   * propagates the same exception. If the implementation evolves to align with the disk
+   * engine (or vice versa), this test must be updated alongside.
+   */
+  @Test
+  public void deletedFileBehaviorIsDocumented() {
+    cache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    cache.deleteFile(fileId);
+
+    assertThrows(
+        "In-memory engine asymmetry: getFilledUpTo throws on a deleted file",
+        StorageException.class,
+        () -> cache.getFilledUpTo(fileId));
+    assertThrows(
+        "physicalSizeForBackupSnapshot must propagate the same exception on a deleted file",
+        StorageException.class,
+        () -> cache.physicalSizeForBackupSnapshot(fileId));
   }
 }

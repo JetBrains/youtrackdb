@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -77,6 +79,12 @@ public class StorageComponentPhysicalSizeTest {
    * every enum constant also rules out an accidental {@code switch} or {@code if} branch on
    * {@code intent} that would short-circuit one constant — a refactor that adds such branching
    * is a contract violation against the "intent is unused at runtime" rule and is caught here.
+   *
+   * <p>{@link org.mockito.Mockito#verifyNoInteractions} on the {@code WriteCache} mock + {@link
+   * org.mockito.Mockito#verifyNoMoreInteractions} on the {@code AtomicOperation} mock together
+   * guard the gated contract: a future bypass that called {@code WriteCache.getFilledUpTo}
+   * directly (or any other {@code op} method) alongside {@code filledUpTo} would silently pass
+   * the count-only assertion above but trip these two.
    */
   @Test
   public void physicalSizeDelegatesToFilledUpToForEveryIntent() {
@@ -89,6 +97,8 @@ public class StorageComponentPhysicalSizeTest {
 
       assertThat(observed).as("intent=%s", intent).isEqualTo(123L);
       verify(op, times(1)).filledUpTo(FILE_ID);
+      verifyNoMoreInteractions(op);
+      verifyNoInteractions(mockWriteCache);
     }
   }
 
@@ -118,6 +128,55 @@ public class StorageComponentPhysicalSizeTest {
     assertThat(fileChangesOf(op).containsKey(FILE_ID))
         .as("AOBT must register a FileChanges placeholder on first filledUpTo touch")
         .isTrue();
+  }
+
+  /**
+   * Second {@code physicalSize} call for the same {@code fileId} on a real AOBT must hit the
+   * existing-entry arm of {@code AtomicOperationBinaryTracking.filledUpTo} (the arm that returns
+   * {@code maxNewPageIndex + 1} when {@code isNew || maxNewPageIndex > -2}) and must preserve
+   * the placeholder identity rather than replacing it. Layer B sites that share a TX (e.g.,
+   * {@code CollectionPositionMapV2.create} + subsequent in-TX operations) depend on this arm:
+   * the second call must observe the in-TX horizon, not re-fall-through to the cache.
+   *
+   * <p>The first call exercises the missing-entry arm (registers a placeholder, returns the
+   * cache value via {@code WriteCache.getFilledUpTo}). Reflection mutates {@code maxNewPageIndex}
+   * on the registered placeholder so the existing-entry arm fires on the second call. The
+   * placeholder must NOT be replaced — placeholder identity is asserted via {@code isSameAs}.
+   * A regression that re-created the placeholder on the second call (or bypassed AOBT) would
+   * fail this test.
+   */
+  @Test
+  public void physicalSizeSecondCallHitsExistingEntryArm() throws Exception {
+    AtomicOperation op = newRealAobt();
+    when(mockWriteCache.getFilledUpTo(FILE_ID)).thenReturn(0L);
+
+    // First call: missing-entry arm — registers placeholder, falls through to cache (= 0).
+    long first = component.callPhysicalSize(
+        op, FILE_ID, StorageComponent.PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK);
+    assertThat(first)
+        .as("first call falls through to cache via missing-entry arm")
+        .isEqualTo(0L);
+
+    Map<Long, ?> fc = fileChangesOf(op);
+    Object placeholder = fc.get(FILE_ID);
+    assertThat(placeholder).as("placeholder registered on first call").isNotNull();
+
+    // Mutate maxNewPageIndex on the placeholder so the existing-entry arm fires next.
+    // AOBT.filledUpTo's middle arm returns (maxNewPageIndex + 1) when isNew || maxNewPageIndex > -2.
+    Field maxNewIdx = placeholder.getClass().getDeclaredField("maxNewPageIndex");
+    maxNewIdx.setAccessible(true);
+    maxNewIdx.setLong(placeholder, 4L);
+
+    // Second call: existing-entry arm — observes (4 + 1) = 5 from in-TX state, NOT a re-read
+    // of the cache (which still returns 0). The placeholder identity must be preserved.
+    long second = component.callPhysicalSize(
+        op, FILE_ID, StorageComponent.PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK);
+    assertThat(second)
+        .as("second call must hit existing-entry arm and observe maxNewPageIndex + 1")
+        .isEqualTo(5L);
+    assertThat(fileChangesOf(op).get(FILE_ID))
+        .as("placeholder identity preserved across calls")
+        .isSameAs(placeholder);
   }
 
   // ---------------------------------------------------------------------------

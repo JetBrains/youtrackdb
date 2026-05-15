@@ -168,6 +168,12 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
    * {@code physicalSizeForBackupSnapshot} must report zero pages. A divergence here would
    * indicate the helper short-circuited around the wrapped delegator (for example,
    * returned a cached pre-open value).
+   *
+   * <p>Pin both the literal expected value AND the parity to {@code getFilledUpTo}: the
+   * literal pin keeps the helper independently falsifiable (a defect that affects both
+   * surfaces equally would slip past a parity-only assertion since the helper body is a
+   * thin delegator); the parity pin is the regression sentinel guarding against a future
+   * divergence between the two surfaces.
    */
   @Test
   public void freshFileBothSurfacesReportZero() throws IOException {
@@ -177,6 +183,10 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
     final var viaHelper = wowCache.physicalSizeForBackupSnapshot(fileId);
 
     assertEquals("fresh file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must observe 0 pages on a fresh file",
+        0L,
+        viaHelper);
     assertEquals(
         "physicalSizeForBackupSnapshot must agree with getFilledUpTo on a fresh file",
         viaLegacy,
@@ -197,6 +207,10 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
     final var viaHelper = wowCache.physicalSizeForBackupSnapshot(fileId);
 
     assertEquals("single extend must advance getFilledUpTo to 1", 1L, viaLegacy);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must observe 1 page after a single extend",
+        1L,
+        viaHelper);
     assertEquals(
         "physicalSizeForBackupSnapshot must observe the same single-page extend",
         viaLegacy,
@@ -221,6 +235,10 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
     final var viaHelper = wowCache.physicalSizeForBackupSnapshot(fileId);
 
     assertEquals("five extends must advance getFilledUpTo to 5 pages", 5L, viaLegacy);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must observe 5 pages after five extends",
+        5L,
+        viaHelper);
     assertEquals(
         "physicalSizeForBackupSnapshot must agree across multiple extends",
         viaLegacy,
@@ -248,8 +266,42 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
         0L,
         viaLegacy);
     assertEquals(
+        "physicalSizeForBackupSnapshot must observe 0 on a deleted file (null-file safety:"
+            + " no NPE, no stale size)",
+        0L,
+        viaHelper);
+    assertEquals(
         "physicalSizeForBackupSnapshot must inherit the deleted-file safety: returns 0,"
             + " not an NPE or stale size",
+        viaLegacy,
+        viaHelper);
+  }
+
+  /**
+   * Post-truncate: {@code WOWCache.truncateFile} resets the file's physical extent via
+   * {@code shrink(0)} while keeping the file live. Both surfaces must observe the reset
+   * immediately under {@code filesLock}. A future implementer that elided the lock for
+   * a "fast path" or short-circuited the helper would surface here as a non-zero return
+   * after the truncate.
+   */
+  @Test
+  public void postTruncateBothSurfacesReportZero() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    for (int i = 0; i < 3; i++) {
+      wowCache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
+    }
+    wowCache.truncateFile(fileId);
+
+    final var viaLegacy = wowCache.getFilledUpTo(fileId);
+    final var viaHelper = wowCache.physicalSizeForBackupSnapshot(fileId);
+
+    assertEquals("post-truncate file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must observe the truncate immediately",
+        0L,
+        viaHelper);
+    assertEquals(
+        "physicalSizeForBackupSnapshot must agree with getFilledUpTo post-truncate",
         viaLegacy,
         viaHelper);
   }
