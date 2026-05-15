@@ -64,6 +64,9 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+1efc5831216eabb5b47952b6bf05bbfbbefbf420
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (5 findings, 5 accepted, 0 rejected; iter-1 surfaced T1+T2+T3 should-fix and T4+T5 suggestions; one orchestrator-applied fix on `review-workflow-context-budget` row; iter-2 gate VERIFIED all six)
 
