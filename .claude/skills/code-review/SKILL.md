@@ -157,7 +157,7 @@ Categories from **both** production and test code count for the test-review side
 | **review-workflow-prompt-design** | `workflow-machinery` AND any changed file matches `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, or `.claude/workflow/prompts/*.md` |
 | **review-workflow-instruction-completeness** | `workflow-machinery` AND any changed file matches `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, `.claude/workflow/*.md`, or `.claude/workflow/prompts/*.md` |
 | **review-workflow-hook-safety** | `workflow-machinery` AND any changed file matches `.claude/hooks/*.sh`, `.claude/scripts/**`, or `.claude/settings*.json` |
-| **review-workflow-context-budget** | `workflow-machinery` AND changes affect always-loaded surface — skill/agent `description:` fields, project root `CLAUDE.md`, or SessionStart hook stdout |
+| **review-workflow-context-budget** | `workflow-machinery` is present — always launched for this group. The agent itself decides whether the diff affects any of three axes — always-loaded surface (skill/agent `description:` fields, project root `CLAUDE.md`, SessionStart hook stdout), load-on-demand discipline (workflow rule files, workflow prompts, docs split), or instant per-operation consumption (orchestrator-side reads, sub-agent return surface, inlined recipes, multi-phase content reuse) — and emits an empty findings list when none are affected. |
 | **review-workflow-writing-style** | `workflow-machinery` AND any changed file matches `.claude/**/*.md`, root `CLAUDE.md`, or `docs/adr/**/*.md` |
 
 The workflow-review agents focus on `.claude/`, root `CLAUDE.md`, and plan artifacts under `docs/adr/<dir>/_workflow/`. They ignore Java code changes — the code-review and test-review agents handle those.
@@ -309,7 +309,7 @@ The 16 possible agents (launch only those selected in Step 5):
 12. **review-workflow-prompt-design** — prompts-as-prompts-to-an-LLM: description discriminability, deterministic decision rules, clean-context invocation, sub-agent delegation annotations
 13. **review-workflow-instruction-completeness** — branch coverage, gate resume paths, sub-agent input/output handshake, error recovery, loop termination
 14. **review-workflow-hook-safety** — shell hygiene, `/tmp` collision safety, hook performance, secret hygiene, JSON schema validity
-15. **review-workflow-context-budget** — always-loaded surface (descriptions, CLAUDE.md, MEMORY.md, SessionStart stdout), load-on-demand discipline
+15. **review-workflow-context-budget** — always-loaded surface (descriptions, CLAUDE.md, MEMORY.md, SessionStart stdout), load-on-demand discipline, instant per-operation consumption (sub-agent delegation, output caps, `/tmp` staging, targeted reads)
 16. **review-workflow-writing-style** — concise-doc style: banned vocabulary, em-dash cap, BLUF lead, 200-word section cap, repo-anchored voice
 
 Set `subagent_type` to the agent name. The agent's frontmatter declares its model; do not override it from the dispatch call unless the user explicitly asks for a different model.
@@ -341,7 +341,7 @@ After all selected agents complete, produce a unified review report. Do NOT simp
 ### Handling agent failures and empty output
 
 - If a sub-agent returns empty output, errors out, or times out, add it to a `### Failed reviewers` section at the top of the report with a one-line note and continue. Do not block the synthesis.
-- If a sub-agent emits agent-specific preface sections beyond `Critical / Recommended / Minor` (for example, `review-workflow-context-budget` emits an `Always-loaded delta` table), propagate them under a `### Reviewer notes` section after the severity blocks rather than dropping them silently.
+- If a sub-agent emits agent-specific preface sections beyond `Critical / Recommended / Minor` (for example, `review-workflow-context-budget` emits `Always-loaded delta` and `Instant-consumption delta` tables), propagate them under a `### Reviewer notes` section after the severity blocks rather than dropping them silently.
 - If all selected agents return zero findings, emit an explicit `### All clear` block under the overall assessment instead of an empty report.
 - After the synthesized report is produced (whether with findings or `### All clear`), remove the temp diff file from Step 3: `rm "$DIFF_FILE"`. The file is no longer needed once every sub-agent has returned.
 
