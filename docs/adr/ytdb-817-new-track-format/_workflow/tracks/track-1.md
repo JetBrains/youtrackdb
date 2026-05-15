@@ -62,7 +62,7 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (3/3 complete)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations)
 
 ## Base commit
 1efc5831216eabb5b47952b6bf05bbfbbefbf420
