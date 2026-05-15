@@ -1,6 +1,6 @@
 ---
 name: review-workflow-context-budget
-description: "Reviews workflow machinery for context-window budget on three axes: always-loaded surface (descriptions, CLAUDE.md, SessionStart stdout), load-on-demand discipline, and instant per-operation consumption (sub-agent delegation, output caps, /tmp staging, targeted reads). Dispatched by /code-review."
+description: "Reviews workflow machinery for context-window budget on three axes: always-loaded surface, load-on-demand discipline, and instant per-operation consumption. Always launched for workflow-machinery diffs; dispatched by /code-review."
 model: opus
 ---
 
@@ -37,33 +37,29 @@ You will receive:
 - The commit log
 - Optionally, a PR description
 
-You are launched on **every** workflow-machinery diff (the dispatcher does not pre-filter for budget-relevant paths). So your first job is to decide whether the diff touches the budget at all. The three ways it can:
-
-**Axis 1 — Always-loaded surface (every changed line costs tokens on every turn):**
-- `.claude/skills/*/SKILL.md` (description field only; body is on-demand)
-- `.claude/agents/*.md` (description field only; body is on-demand when agent is dispatched)
-- Project `CLAUDE.md` (full file is always loaded)
-- User-global `CLAUDE.md` references in the repo
-- SessionStart hook stdout (`.claude/hooks/*.sh` and `.claude/settings*.json` wiring — anything printed becomes additionalContext)
-
-**Axis 2 — Load-on-demand discipline (files are not always-loaded, but their organization affects when content leaks into always-loaded territory):**
-- `.claude/workflow/*.md` and `.claude/workflow/prompts/*.md` (workflow rules and prompts)
-- `.claude/docs/**/*.md` (load-on-demand docs)
-
-For load-on-demand files, flag only structural drift that would move content into always-loaded files later (e.g., a workflow rule that grows long enough it gets inlined into CLAUDE.md, or a CLAUDE.md pointer that lost its target).
-
-**Axis 3 — Instant per-operation consumption (peak tokens an orchestrator pulls into context when a workflow step fires):**
-- Workflow steps that read full plan / design / diff files when only a section is needed.
-- Sub-agent dispatches whose return surface is unbounded (no line cap, no summarization contract).
-- Inline blocks of recipe / table / code-listing content in workflow prompts that could point at a doc file or `mcp-steroid://` resource.
-- Repeated reads of the same file across phases instead of stashing parsed output to `/tmp/claude-code-*-$PPID.*`.
-- New long-running phases that skip the `Context Consumption Check` gate or the `mid-phase-handoff` protocol.
-
-The instant-consumption axis is what `CLAUDE.md` § Context Window Monitor measures at runtime via the `safe`/`info`/`warning`/`critical` levels. Workflow changes can push sessions toward those thresholds faster even when the always-loaded baseline is unchanged.
+You are launched on **every** workflow-machinery diff; the dispatcher does not pre-filter for budget-relevant paths. Decide first whether the diff touches the budget on any axis — see § Three axes for the taxonomy and § Review criteria for the deterministic per-axis checks. The early-exit predicate lives in Process step 2.
 
 `MEMORY.md` lives outside the repo, so it does not appear in diffs and is out of scope for this review. The diff-driven trigger excludes it.
 
-**Early exit.** If the diff is purely body edits to skill/agent files (no `description:` field touched), purely body edits to workflow rule files with no length-budget or instant-consumption implications, or pure docs-under-`.claude/docs/` reshuffling that stays load-on-demand: emit the "no budget impact" output (see Output format) and stop. Do not invent findings.
+## Three axes
+
+### Axis 1: always-loaded surface
+Every changed line costs tokens on every turn:
+- `.claude/skills/*/SKILL.md` (description field only; body is on-demand).
+- `.claude/agents/*.md` (description field only; body is on-demand when dispatched).
+- Project `CLAUDE.md` (full file is always loaded).
+- User-global `CLAUDE.md` references in the repo.
+- SessionStart hook stdout (`.claude/hooks/*.sh` and `.claude/settings*.json` wiring — anything printed becomes additionalContext).
+
+### Axis 2: load-on-demand discipline
+Files not always-loaded, but whose organization affects when content leaks into always-loaded territory:
+- `.claude/workflow/*.md` and `.claude/workflow/prompts/*.md`.
+- `.claude/docs/**/*.md`.
+
+Flag only **structural drift**, defined as: a load-on-demand file grew by >100 lines AND its added content reads like inline rules / recipes / examples that would normally live in CLAUDE.md, OR a known CLAUDE.md pointer to the changed file is now broken (grep the always-loaded files for the path). If both checks return false, Axis 2 is not affected.
+
+### Axis 3: instant per-operation consumption
+Peak tokens an orchestrator pulls into context when a workflow step fires. A diff that doesn't touch the always-loaded surface can still push sessions toward `warning`/`critical` faster by inflating each phase's working set. The detailed criteria and severity thresholds live in § Review criteria → Instant per-operation consumption.
 
 ## Review criteria
 
@@ -98,15 +94,25 @@ The instant-consumption axis is what `CLAUDE.md` § Context Window Monitor measu
 - Skill descriptions that repeat content from CLAUDE.md (e.g., re-listing project conventions) are duplicates — defer to CLAUDE.md.
 
 ### Instant per-operation consumption
-The previous criteria target the always-loaded baseline. These target the *peak* an orchestrator hits when a workflow step fires. A diff that does not touch the always-loaded surface can still pull sessions toward `warning`/`critical` faster by inflating each phase's working set.
+The previous criteria target the always-loaded baseline. These target the *peak* an orchestrator hits when a workflow step fires.
 
-- **Sub-agent delegation for heavy reads.** A new workflow step that reads many files, a long `git diff`, or a full plan/design doc directly into the orchestrator's context — instead of delegating to a sub-agent that returns a summary — is a peak hit. Flag steps that do load-bearing exploration without an Agent / Explore / Plan dispatch.
-- **Sub-agent output caps.** Every new sub-agent dispatched from a workflow needs an explicit return-surface bound (e.g., the 60-line cap for dimensional gate-check agents, or a "return only file paths" / "summary only, no quotes" contract). Flag new dispatches that return free-form prose without a cap or a structured-result contract.
-- **`/tmp` staging for large content.** Diffs, JSON dumps, surefire output, and similar artifacts should be written to `/tmp/claude-code-*-$PPID.*` (or a UUID) and read back with `Read offset/limit` or grep'd, not piped straight into the orchestrator. Flag new steps that capture multi-thousand-line output into context without staging.
+**Severity thresholds**, anchored to `CLAUDE.md` § Context Window Monitor (1M-context Opus, safe <20% / info 20% / warning 30% / critical 40%):
+- **Critical**: a single new step pulls >30K tokens (~3000 lines) into the orchestrator without staging or delegation. One fire alone can push a fresh session past `warning`.
+- **Recommended**: 5–30K tokens (~500–3000 lines). Two or three fires accumulate to `warning`.
+- **Minor**: <5K tokens. Visible only over many fires; flag the pattern, not the line.
+
+When a single step matches more than one criterion below, file **one** finding citing all matched criteria — the severity is the union, not a sum across separate findings.
+
+#### Read sizing
+- **Sub-agent delegation for heavy reads.** A new workflow step that reads many files, a long `git diff`, or a full plan/design doc directly into the orchestrator's context (instead of delegating to a sub-agent that returns a summary) is a peak hit. Flag steps that do load-bearing exploration without an Agent / Explore / Plan dispatch.
 - **Targeted reads over full-file reads.** Workflow steps should say "read § X of Y" or "read offset N limit M" when only a section matters. Flag new steps that read entire plan / design / step files when one section is the actual input.
 - **Pointer over inline.** A workflow prompt that inlines a 50+ line recipe / table / code listing that lives in `.claude/docs/`, `mcp-steroid://`, or another reachable file pays the inline cost on every invocation. Flag inlined content that could be a pointer.
 - **No repeated reads.** A workflow that reads the same file at multiple phases without stashing parsed output pays each time. Flag new phases that re-read content the previous phase already loaded.
-- **Context-gate respect.** New long-running phases (multi-step decompositions, multi-iteration review loops, mid-research pulls) must reference the `Context Consumption Check` gate in `workflow.md` and the `mid-phase-handoff` protocol. Flag new phases that omit the gate or define their own ad-hoc thresholds that drift from `CLAUDE.md` § Context Window Monitor (safe <20%, info 20%, warning 30%, critical 40%).
+
+#### Phase hygiene
+- **Sub-agent output caps.** Every new sub-agent dispatched from a workflow needs an explicit return-surface bound (e.g., the 60-line cap for dimensional gate-check agents, or a "return only file paths" / "summary only, no quotes" contract). Flag new dispatches that return free-form prose without a cap or a structured-result contract.
+- **`/tmp` staging for large content.** Diffs, JSON dumps, surefire output, and similar artifacts should be written to `/tmp/claude-code-*-$PPID.*` (or a UUID) and read back with `Read offset/limit` or grep'd, not piped straight into the orchestrator. Flag new steps that capture multi-thousand-line output into context without staging.
+- **Context-gate respect.** New long-running phases (multi-step decompositions, multi-iteration review loops, mid-research pulls) must reference the `Context Consumption Check` gate in `workflow.md` and the `mid-phase-handoff` protocol. Flag new phases that omit the gate or define their own ad-hoc thresholds that drift from the canonical levels in `CLAUDE.md` § Context Window Monitor.
 
 These checks apply to load-on-demand files (workflow rules, workflow prompts, agent bodies) just as much as to always-loaded files — the cost only materializes when the workflow runs, but it materializes on every run.
 
@@ -116,7 +122,7 @@ These checks apply to load-on-demand files (workflow rules, workflow prompts, ag
    - **Always-loaded**: project CLAUDE.md, skill `description:` field, agent `description:` field, SessionStart hook stdout (hooks + settings wiring).
    - **Load-on-demand**: skill body, agent body, workflow rules, workflow prompts, docs.
    - **Instant-consumption-relevant**: any workflow rule / prompt / agent body that introduces new orchestrator-side reads, sub-agent dispatches, inlined recipes, or multi-phase content reuse.
-2. If **no** file touches always-loaded surface AND no load-on-demand file has structural drift AND no change inflates instant per-operation consumption: emit the "no budget impact" output and stop.
+2. **Early exit.** If **no** file touches always-loaded surface AND no load-on-demand file has structural drift (per § Three axes → Axis 2) AND no change inflates instant per-operation consumption: emit the "no budget impact" output and stop. Do not invent findings.
 3. For always-loaded changes, measure line / character delta added.
 4. For each addition, ask: does this need to be always-loaded, or can it move to a load-on-demand location with a pointer?
 5. Sum the always-loaded delta across the diff. Flag if > 100 lines added (Critical) or > 30 lines (Recommended).
