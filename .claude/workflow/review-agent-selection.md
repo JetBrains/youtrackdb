@@ -182,3 +182,5 @@ full track diff.
   matching conditional agents (e.g., `review-performance` for the
   B-tree change) join the baseline group with the same Java-only
   filter.
+
+<!-- Last sync-checked against .claude/skills/code-review/SKILL.md Step 5a/5b/5d/6 on 2026-05-15 (YTDB-817 Track 1 Step 3). Future drift sweeps update this date. -->
