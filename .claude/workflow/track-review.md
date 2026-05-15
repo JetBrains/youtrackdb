@@ -112,13 +112,14 @@ plan write, Phase A decomposition writes, inline-replanning writes,
 autonomous strategy-refresh writes). Interactive writes through
 review mode (Track Pre-Flight and Track Completion) follow the same
 verify mechanism, the same one-retry rule, and the same mcp-steroid
-state handling, but substitute the action-set confirmation panel
-for this hard-stop `AskUserQuestion` — see
-[`review-mode.md`](review-mode.md) § Loop step 3 for the mapping.
-The action-set panel renders the same warning information; the
-user's Refine / Cancel paths cover Use-alternative / Drop /
-Escalate; Apply-with-warnings is the explicit user consent step
-that does not exist (and could not exist) in the non-interactive
+state handling, but surface failures conversationally inline as
+the user accumulates observations, and let the final approval
+panel carry any `⚠`-warnings that survived past the inline
+clarification — see [`review-mode.md`](review-mode.md)
+§ Validation for the mapping. The user's Refine / Cancel paths in
+review mode cover Use-alternative / Drop / Escalate; Apply with a
+warning still attached is the explicit user consent step that
+does not exist (and could not exist) in the non-interactive
 path.
 
 This rule is the orchestrator-side complement to the sub-agent-side
@@ -204,15 +205,19 @@ contract:
   and on-disk amendments the review-mode loop has accumulated
   (empty on the first render, populated if earlier rounds applied
   items).
-- **Review mode** — enter the free-form refinement loop per
-  [`review-mode.md`](review-mode.md) § Loop.
+- **Review mode** — enter the conversational refinement loop per
+  [`review-mode.md`](review-mode.md) § Flow.
 
-  On Apply, the orchestrator executes `EDIT_PLAN` /
-  `EDIT_STEP_DESC` items against the plan / step files, appends
-  `CLARIFY` items to the in-conversation clarifications buffer
-  (step 5 below), and answers `QUESTION` items inline (no side
-  effect). `FIX_FINDING` is not available on Pre-Flight (see
-  [`review-mode.md`](review-mode.md) § Loop step 2).
+  The user drops observations across as many chat turns as they
+  want; the orchestrator silently classifies and accumulates them.
+  When the user signals completion, one approval panel surfaces
+  the accumulated set. On Apply, the orchestrator executes
+  `EDIT_PLAN` / `EDIT_STEP_DESC` items against the plan / step
+  files, appends `CLARIFY` items to the in-conversation
+  clarifications buffer (step 5 below); `QUESTION` items were
+  already answered inline as they came in (no side effect at
+  Apply time). `FIX_FINDING` is not available on Pre-Flight (see
+  [`review-mode.md`](review-mode.md) § Action types).
 
   After Apply, return here: re-render Panel 1 (re-running the
   strategy assessment if any `EDIT_PLAN` item touched a remaining
@@ -223,9 +228,9 @@ contract:
 
 The three-option panel re-renders after every review-mode Apply
 until the user picks **Approve** or **ESCALATE**. Step 4 below
-defines the light-vs-deep boundary; review mode's translator and
-Mixed-set policy enforce it (see [`review-mode.md`](review-mode.md)
-§ Mixed-set policy).
+defines the light-vs-deep boundary; review mode's classification
+and Mixed-set policy enforce it (see
+[`review-mode.md`](review-mode.md) § Mixed-set policy).
 
 If an `EDIT_PLAN` reorder during review-mode Apply changes which
 track is "next", Panel 2 is rebuilt against the new upcoming track
@@ -235,7 +240,7 @@ contract.
 **4. Apply amendments — light vs deep boundary.**
 
 Light amendments are applied by review mode's Apply step per
-[`review-mode.md`](review-mode.md) § Loop step 5, via `Edit` for
+[`review-mode.md`](review-mode.md) § Flow step 5, via `Edit` for
 single-site changes or `steroid_apply_patch` when more than two
 sites are touched. These are markdown edits, so the project
 CLAUDE.md "always route file edits through MCP Steroid" rule is
@@ -243,9 +248,10 @@ satisfied with native `Edit` for single-site changes here.
 Amendments that name production classes in the
 `**What/How/Constraints/Interactions**` blocks are bound by the
 §Pre-write rule above — PSI-verify every named class via
-`mcp-steroid` find-class **before rendering the action-set
-confirmation panel** (review mode step 3), so the user can correct
-a pattern-induced name during the same review-mode round rather
+`mcp-steroid` find-class **silently during accumulation, and
+inline-ask the user if a name does not resolve** (per review
+mode § Flow step 1.2), so the user can correct a
+pattern-induced name during the same review-mode round rather
 than after commit:
 
 - Track title, intro paragraph
@@ -287,7 +293,7 @@ orchestrator's conversation context — a bullet list of the user's
 notes plus any orchestrator-stated interpretations the user
 confirmed. The buffer is non-empty only if at least one `CLARIFY`
 item was applied during a review-mode round (see
-[`review-mode.md`](review-mode.md) § Loop step 5). When the user
+[`review-mode.md`](review-mode.md) § Flow step 5). When the user
 picks **Approve**, the buffer flows verbatim into the step file's
 `## Description` in step 6 below.
 
@@ -349,7 +355,7 @@ this round:
 - **Plan/step-file amendments** (any `EDIT_PLAN` / `EDIT_STEP_DESC`
   / `SKIP_TRACK` items applied during review-mode rounds): the edits
   already landed in the working tree during review mode's Apply step
-  ([`review-mode.md`](review-mode.md) § Loop step 5), including any
+  ([`review-mode.md`](review-mode.md) § Flow step 5), including any
   step-file deletions produced by `SKIP_TRACK`. They are committed
   alongside the strategy-refresh line and any clarifications below.
 
