@@ -369,7 +369,7 @@ front.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/6 complete)
+- [ ] Step implementation (4/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -523,7 +523,8 @@ front.
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponent.java`
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponentPhysicalSizeTest.java` (new)
 
-- [ ] Step 4: Migrate Layer B consumer call sites (8 sites across 6 files)
+- [x] Step 4: Migrate Layer B consumer call sites (8 sites across 6 files)
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic across 6 production files in the
   > `core` module; each site is a 1-2 line call-site swap from
   > `getFilledUpTo(op, fileId)` to `physicalSize(op, fileId, intent)`
@@ -531,43 +532,56 @@ front.
   > (no behavioral change; existing test suites already pin the
   > behaviors).
   >
-  > Per-site migration (intent in parentheses):
-  > - `CollectionPositionMapV2.create:141` (`BOOTSTRAP_EMPTINESS_CHECK`)
-  > - `PaginatedCollectionV2.initCollectionState:2271` (`BOOTSTRAP_EMPTINESS_CHECK`)
-  > - `PaginatedCollectionV2.open:396` (`RECOVERY_REBUILD`)
-  > - `IndexHistogramManager.readSnapshotFromPage:1843` (`DEFENSIVE_PRESENCE`)
-  > - `FreeSpaceMap.updatePageFreeSpace:237` (`GROWTH_LOOP_PRE_READ`)
-  > - `CollectionDirtyPageBitSet.clear:146` (`EP_LESS_PURE_SIZING`)
-  > - `CollectionDirtyPageBitSet.nextSetBit:178` (`EP_LESS_PURE_SIZING`)
-  > - `CollectionDirtyPageBitSet.ensureCapacity:213` (`GROWTH_LOOP_PRE_READ`)
+  > **What was done:** Migrated all eight Layer B consumer call sites
+  > from `StorageComponent.getFilledUpTo(op, fileId)` to
+  > `physicalSize(op, fileId, PhysicalReadIntent.<INTENT>)` across
+  > `CollectionPositionMapV2.create:141` (BOOTSTRAP_EMPTINESS_CHECK),
+  > `PaginatedCollectionV2.initCollectionState:2271`
+  > (BOOTSTRAP_EMPTINESS_CHECK), `PaginatedCollectionV2.open:396`
+  > (RECOVERY_REBUILD), `IndexHistogramManager.readSnapshotFromPage:1843`
+  > (DEFENSIVE_PRESENCE), `FreeSpaceMap.updatePageFreeSpace:237`
+  > (GROWTH_LOOP_PRE_READ), and the three `CollectionDirtyPageBitSet`
+  > sites (`clear:146` + `nextSetBit:178` → EP_LESS_PURE_SIZING;
+  > `ensureCapacity:213` → GROWTH_LOOP_PRE_READ). Dropped the literal
+  > `gated 'physicalSize'-shaped helper` rationale-anchor phrase at the
+  > six sites that carried it (CPMV2, PCV2 ×2, CDPB ×2, IHM) and
+  > tightened the prose to a brief intent-anchored explanation. CDPB's
+  > `ensureCapacity` and `nextSetBit` kept their core-invariant
+  > comments with the marker phrase replaced. FSM gained an explicit
+  > "pre-read fixes starting point against current physical state"
+  > line mirroring the `GROWTH_LOOP_PRE_READ` Javadoc on the helper.
+  > PSI verification: 8 production callers on `physicalSize`,
+  > 0 remaining `StorageComponent.getFilledUpTo` callers in
+  > `core/src/main` (the only hit is the Javadoc `{@link}` inside
+  > `StorageComponent.java` itself). 293/293 targeted tests pass.
   >
-  > Drop the existing `gated 'physicalSize'-shaped helper` rationale-
-  > comment markers at the 5 Track-4-marked sites — the new method
-  > name + enum constant carry the audit-grep signature. Add a brief
-  > one-liner above each call site noting why this specific intent
-  > applies (e.g., `// FSM growth-loop pre-read — see PhysicalReadIntent`).
+  > **What was discovered:** `LocalPaginatedCollectionV2TestIT` carries
+  > a pre-existing 9-error cascade rooted in `testAddManyRecords` — an
+  > async flush task (`WOWCache.flushWriteCacheFromMinLSN` →
+  > `AsyncFile.getUnderlyingFileSize`) hits a `NoSuchFileException` on
+  > the `.fsm` file after a prior test's cleanup, poisons the storage
+  > error-state, and cascades into 8 downstream tests failing at
+  > `checkErrorState`. The cascade reproduces on the base commit
+  > without any Track 5 changes; it disappears when `testAddManyRecords`
+  > runs in isolation. **Cross-track impact for Track 6 (CS1 / I4
+  > MT pins):** the LPCV2 IT suite's async-flush vs test-cleanup race
+  > window should be factored into the new MT pin design — quiesce
+  > the flush worker before asserting file state, or isolate the new
+  > tests in their own class to avoid the shared-storage cleanup
+  > window. Worth flagging in Track 6 Phase A.
   >
-  > Verification: PSI find-usages on `StorageComponent.physicalSize`
-  > must show exactly 8 callers matching this set; PSI find-usages on
-  > `StorageComponent.getFilledUpTo` must show no remaining call sites
-  > inside `core/src/main` after this step (test-side callers, if any,
-  > stay for Step 5's `@Deprecated` round).
+  > **Critical context:** Step 5's `@Deprecated` round and Step 6's IDE
+  > rename are unaffected by this step's edits — the only remaining
+  > `StorageComponent.getFilledUpTo` hit in `core/src/main` is its own
+  > Javadoc `{@link}`, and its callers in tests are untouched by this
+  > step.
   >
-  > Run per-component test suites:
-  > `CollectionPositionMapV2Test`, `PaginatedCollectionV2Test`,
-  > `CollectionDirtyPageBitSetTest`, `FreeSpaceMapTest`, plus the
-  > FSM-rebuild reopen-after-crash IT (Phase B enumerates the concrete
-  > IT suite) and the IHM HLL-spill defensive-probe test.
-  >
-  > **Files:**
-  > - `core/.../storage/collection/v2/CollectionPositionMapV2.java`
-  > - `core/.../storage/collection/v2/PaginatedCollectionV2.java` (2 sites)
-  > - `core/.../storage/collection/v2/FreeSpaceMap.java`
-  > - `core/.../storage/collection/v2/CollectionDirtyPageBitSet.java` (3 sites)
-  > - `core/.../storage/index/IndexHistogramManager.java` (1 site —
-  >   the `:1843` defensive probe; the `:1929` and `:1998` HLL-spill
-  >   discriminator calls use `op.filledUpTo` directly and are out of
-  >   scope).
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2.java` (2 sites)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/FreeSpaceMap.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionDirtyPageBitSet.java` (3 sites)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java` (1 site — the defensive probe at `:1843`; the HLL-spill discriminator calls use `op.filledUpTo` directly and are out of scope)
 
 - [ ] Step 5: `@Deprecated` `WriteCache.getFilledUpTo` + `@SuppressWarnings` on documented internal callers
   > **Risk:** low — annotation + Javadoc changes with no behavioral
