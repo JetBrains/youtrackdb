@@ -1,0 +1,239 @@
+# YTDB-817 — Split `implementation-plan.md` into `_workflow/plan/track-N.md` with thin root index
+
+## Design Document
+[design.md](design.md)
+
+## High-level plan
+
+### Goals
+
+Replace the monolithic `implementation-plan.md` with a directory-of-tracks shape derived from OpenAI's ExecPlan template, so:
+- a fresh `/execute-tracks` session reads a thin root index plus the one per-track file it needs, instead of the whole plan;
+- a human reviewer can pick a track and see its full picture (purpose, scope, decisions, acceptance, progress) in one file without flipping between sections of a 500–2200-line document;
+- restart-from-cold works: any new session can resume work on a track from `_workflow/plan/track-N.md` alone.
+
+Move 4 is the structural anchor for the rest of YTDB-813 — Moves 1, 2, 3 land per-track after this defines what a track *is* as a file.
+
+### Constraints
+
+- **In-flight branches keep their current format.** Branches with active workflow state under `_workflow/tracks/` (rollback-log, pinless-disk-cache, read-cache-concurrency-bug, si-links-consistency, ytdb-614-property-map, …) are not migrated. The new shape applies only to plans created after this lands.
+- **This branch self-migrates atomically with the spec change.** The plan's own `_workflow/tracks/` directory and `track-1.md`…`track-4.md` files share the same commit history as the workflow they modify, so the "in-flight branches keep their current format" rule cannot apply here. Track 2's final step performs the atomic switch — `git mv` of this branch's `_workflow/tracks/` → `_workflow/plan/`, 5-section → 14-section shape migration of each track file (back-filling Track 1's already-written episode content from `## Steps` blockquotes to `## Episodes` blocks), and the episode-writer rewire (`step-implementation.md` sub-step 7 + `episode-format-reference.md` + adjacent Progress writers in `track-review.md` / `track-code-review.md`) all in one commit. See D13.
+- **No automated migration tooling.** Out of scope per YTDB-817.
+- **No substance changes to Phase A/B/C orchestration.** Only the file shape changes; phase model, episode discipline, risk-tag rules, gate semantics, review iteration limits, and the resume protocol all stay identical.
+- **Sibling Moves' slots are pre-allocated, not pre-filled.** Move 4 reserves the ADDED/MODIFIED/REMOVED slot (Move 2) and the EARS/Gherkin acceptance slot (Move 3); leaving them empty is fine — Moves 1–3 populate them.
+- **No new test infrastructure.** Workflow-machinery change. Validation is a manual `/create-plan` smoke test against a synthetic task plus a grep verification.
+
+### Architecture Notes
+
+#### Component Map
+
+```mermaid
+flowchart LR
+    subgraph spec ["Spec (single source of truth)"]
+        CN[conventions.md §1.2]
+        CE[conventions-execution.md §2.1]
+        PL[planning.md]
+        DR[design-document-rules.md]
+        RAS[review-agent-selection.md]
+    end
+
+    subgraph writers ["Writers"]
+        CP[skills/create-plan]
+        RP[skills/review-plan]
+        IR[inline-replanning.md]
+        TS[track-skip.md]
+    end
+
+    subgraph readers ["Readers — workflow docs"]
+        WF[workflow.md startup]
+        TR[track-review.md]
+        SI[step-implementation.md]
+        TCR[track-code-review.md]
+    end
+
+    subgraph prompts ["Readers — sub-agent prompts"]
+        CR[consistency-review.md]
+        SR[structural-review.md]
+        DSR[design-review.md]
+        TER[technical / risk / adversarial / gate-verification]
+        CFD[create-final-design.md]
+    end
+
+    subgraph artifact ["Plan artifacts on disk"]
+        ROOT[implementation-plan.md<br/>thin root index]
+        TRACK[_workflow/plan/track-N.md<br/>per-track ExecPlan]
+    end
+
+    spec -.defines.-> ROOT
+    spec -.defines.-> TRACK
+    writers -->|create / amend| ROOT
+    writers -->|create / amend| TRACK
+    readers -->|read| ROOT
+    readers -->|read| TRACK
+    prompts -->|read| ROOT
+    prompts -->|read| TRACK
+```
+
+- **`conventions.md` §1.2, `conventions-execution.md` §2.1, `planning.md`, `design-document-rules.md`** — single source of truth for the new directory layout, per-track template, lifecycle table, and section budgets. Update once; every reader and writer references them.
+- **`review-agent-selection.md`** — single source of truth for Phase B/C dimensional-review agent dispatch. Touched only by Track 1 to add the workflow-review agents group, per-agent file-pattern triggers, and the baseline-skip override for workflow-only diffs. Required before Tracks 2–4 so their Phase C reviews dispatch the workflow-review agents instead of the Java-focused baseline.
+- **`_workflow/plan/track-N.md` (was `_workflow/tracks/track-N.md`)** — per-track ExecPlan adopting OpenAI's 12-section template, plus a retained `## Base commit` housekeeping sibling. Restart-from-cold readable: a fresh session reading only this file can resume.
+- **`implementation-plan.md` (root)** — thin checklist index. Carries Goals / Constraints / Architecture Notes plus one line per track (intro + Scope + Depends-on + link to track file). Move 2 later adds the ADDED/MODIFIED/REMOVED triad per track.
+- **Writers** (`/create-plan`, `/review-plan`, inline-replanning, track-skip) — every code path that creates or amends the root or a per-track file. Templates point at the new shape.
+- **Readers** (`workflow.md` startup, Phase A/B/C docs, sub-agent prompts) — every doc that names a section heading or the `tracks/` path. Mechanical updates; old section names retire as their content folds into new sections.
+
+#### D1: One file per track, not a directory per track
+
+- **Alternatives considered**: a directory per track (`_workflow/plan/track-1/` containing `plan.md`, artifact subfiles); keep the current flat layout.
+- **Rationale**: the 12-section ExecPlan template fits comfortably in one Markdown file. A per-track directory adds navigation friction without an immediate artifact need — we have no binary artifacts or large companion files per track today. If a future use case needs per-track artifacts, a single track can graduate to a directory without re-shaping the whole format.
+- **Risks/Caveats**: if Move 3's EARS/Gherkin lines plus Move 1's inlined Decision Records bloat individual track files past the structural-review caps, we may revisit. Mitigation: per-section budgets already exist and structural review enforces them.
+- **Implemented in**: Track 2
+- **Full design**: design.md §"New per-track file shape"
+
+#### D2: Root `implementation-plan.md` is a thin index, not a 13th ExecPlan
+
+- **Alternatives considered**: apply the 12-section template to the root file too (every plan is a recursive ExecPlan); keep the current root shape unchanged.
+- **Rationale**: the root carries cross-track context (Goals, Constraints, Architecture Notes top-level Component Map, top-level Decision Records that span tracks) plus a checklist. OpenAI's PLANS.md is one ExecPlan per feature; we stack N per-track ExecPlans under one umbrella. Forcing the umbrella into ExecPlan shape would duplicate sections (Purpose, Progress) that already live per-track.
+- **Risks/Caveats**: root and per-track files use different shapes, so the reader must know which one they're looking at. Mitigated by file location (root is always `implementation-plan.md`; tracks are always `plan/track-N.md`) and by per-track files starting with `# Track N: <title>`.
+- **Implemented in**: Track 2
+- **Full design**: design.md §"Root index — `implementation-plan.md`" (see subsection *Distinct from per-track ExecPlan*)
+
+#### D3: Section order is OpenAI's verbatim — continuous-log sections near the top
+
+- **Alternatives considered**: reorder to put plan-at-start sections (Purpose / Context / Plan of Work / Concrete Steps) first, then continuous-log (Progress / Surprises / Decision Log) at the bottom — closer to today's `## Description` + `## Progress` + `## Steps` reading order.
+- **Rationale**: OpenAI puts Progress / Surprises / Decision Log / Outcomes right after Purpose so a resume reader sees current state before static plan. We adopt the same — restart-from-cold is the goal that distinguishes ExecPlan from a static plan.
+- **Risks/Caveats**: humans coming from our current shape will initially expect Steps near the top. Mitigated by leaving `## Concrete Steps` at section #8 (matching OpenAI) and surfacing the section ordering in the design doc.
+- **Implemented in**: Track 2
+- **Full design**: design.md §"Continuous-log discipline" (see subsection *Why continuous-log sections come first*)
+
+#### D4: Adopt all 12 section names verbatim; retain `## Base commit`; fold `## Reviews completed` into Outcomes & Retrospective
+
+- **Alternatives considered**: keep existing names (`## Description`, `## Steps`, `## Reviews completed`) to minimize rewire blast radius; rename everything to ExecPlan names including `## Base commit`; keep `## Reviews completed` as its own section in the new shape.
+- **Rationale**: section-name fidelity to OpenAI makes the format recognizable to anyone who has read the cookbook (Move 4's stated motivation). The rewire is mechanical (~85 references across ~30 files). `## Base commit` doesn't map to any of the 12 slots cleanly — it's workflow housekeeping (Phase B writes; Phase C reads). Keeping it as a separate sibling avoids forcing a parse-tree change on every workflow reader. `## Reviews completed` is genuinely a continuous log of review outcomes per phase, so it folds naturally into **Outcomes & Retrospective** with each entry timestamped. `## Episodes` (see D11) is similarly a workflow-specific addition alongside `## Base commit` — added on top of OpenAI's 12 rather than overloading one of them with per-step episode content.
+- **Risks/Caveats**: every reader that today greps for `## Description` or `## Reviews completed` needs the new section name. Tracks 3 and 4 sweep these.
+- **Implemented in**: Track 2 (spec) + Tracks 3 & 4 (rewire)
+- **Full design**: design.md §"Section mapping — old shape to new"
+
+#### D5: Continuous-log sections live at track-file level; per-step episodes live in `## Artifacts and Notes`, not nested under Concrete Steps
+
+- **Alternatives considered**: keep all discoveries inside per-step episodes only; duplicate every discovery in both a per-step episode and the track-level Surprises section; keep the per-step episode wedged inside each Concrete Steps item (status quo of today's `## Steps` blockquote).
+- **Rationale**: OpenAI's restart-from-cold invariant requires Surprises / Decision Log to be readable from the top of the file without scanning every step. Per-step episodes belong in `## Artifacts and Notes` (one block per step, identified by step number + commit SHA) — that's where OpenAI puts "focused transcripts and snippets," and it cleanly separates the plan-at-start (Concrete Steps roster, immutable after Phase A) from the continuous-log (Artifacts entries, written one per Phase B commit). Cross-cutting discoveries promote to `## Surprises & Discoveries` from the orchestrator's sub-step 7 episode write. Decision Log captures execution-time decisions (inline-replan choices, scope-downs, dependency reveals) that today are scattered across step blockquotes. See D9 for the per-step-episode separation.
+- **Risks/Caveats**: episode now lands in up to four sections (Progress timestamp + Artifacts entry + optional Surprises promotion + optional Decision Log entry) instead of one blockquote. Drift risk if a writer forgets a section. Mitigation: orchestrator sub-step 7 follows a deterministic write checklist; `episode-format-reference.md` codifies the multi-section write; Artifacts and Notes is authoritative for per-step content, Surprises is authoritative for cross-track facts.
+- **Implemented in**: Track 2 (spec) + Track 3 (orchestrator multi-section episode-write path in `step-implementation.md`)
+- **Full design**: design.md §"Continuous-log discipline" and §"Step episode storage"
+
+#### D6: Reserve pre-allocated slots for sibling Moves 1, 2, 3
+
+- **Alternatives considered**: leave Move 4 silent on the other Moves' content; merge the Moves into one larger change.
+- **Rationale**: Moves 1–3 are content additions, not structural changes. Reserving slots lets each Move land as a pure content addition with no structural rewire of the new format. Specifically: **Purpose / Big Picture** opens with a one-line BLUF; the line immediately below it carries the ADDED/MODIFIED/REMOVED triad (Move 2). **Decision Log** is the inlined-per-track Decision Records home (Move 1; the trailing one-line backlink Decision Log at the bottom of the root plan is what the *root* index carries). **Validation and Acceptance** is the EARS/Gherkin acceptance line location (Move 3).
+- **Risks/Caveats**: slots are empty until Moves 1–3 land. The `/create-plan` template seeds them with HTML-comment placeholders so a Phase 2 structural review doesn't treat the empty section as a defect.
+- **Implemented in**: Track 2 (spec — templates with placeholders) + Track 3 (writer templates)
+- **Full design**: design.md §"Slot reservation for Moves 1, 2, 3"
+
+#### D7: Rename `_workflow/tracks/` to `_workflow/plan/` and the "step file" glossary term to "track file"
+
+- **Alternatives considered**: keep the `tracks/` directory name and the "step file" term unchanged; rename the directory but keep "step file" as the prose term; rename the term but keep the directory; rename both.
+- **Rationale**: YTDB-817 names `/plan/<track>/` and the sibling Moves anchor on the new name. Paired with the directory rename, the prose term "step file" → "track file" aligns the vocabulary with the file basename (`track-N.md`), the design class name (`TrackFile`), and the new directory name (`plan/`). The "step file" term dates from when each step's inline blockquote carried most of the per-track content; with the new 12-section shape, steps are roster entries inside `## Concrete Steps`, not files. Treating both as one rename concept (file path + prose vocabulary) lands them in the same Track 2 commit pair and gives reviewers a single audit trail. Each rename is mechanical: directory rename ~85 references in ~30 files; term rename ~300 references in ~35 files.
+- **Risks/Caveats**: a single missed reference silently breaks `/create-plan` or `/execute-tracks` on the next plan, or leaves a confusing mixed-vocabulary doc. Mitigated by grep verification at end of Track 2 (both renames separately) and at end of Track 4 (full sweep). The term-rename blast radius is larger than the path-rename, so it lands as its own adjacent commit within Track 2 — splitting keeps each diff focused.
+- **Implemented in**: Track 2, step 1 (directory rename commit) and Track 2, step 2 (terminology rename commit)
+- **Full design**: design.md §"Directory and terminology rename mechanics"
+
+#### D8: Phase B/C dimensional review must dispatch workflow-review agents on workflow-machinery diffs
+
+- **Alternatives considered**: leave Phase B/C selection unchanged and rely on the `/code-review` standalone skill for ad-hoc workflow review; add the workflow-review agents to Phase B/C's baseline (always-on); fold a generic "workflow concerns" check into the existing `review-code-quality` agent.
+- **Rationale**: `.claude/workflow/review-agent-selection.md` today selects only Java-focused agents. A workflow-only diff (markdown / shell / JSON) gives them nothing to review; their findings are vacuous and they may falsely flag absence of tests, missing docstrings, etc. The six workflow-review agents (`review-workflow-consistency`, `review-workflow-prompt-design`, `review-workflow-instruction-completeness`, `review-workflow-hook-safety`, `review-workflow-context-budget`, `review-workflow-writing-style`) already exist with the right rubrics; the `/code-review` skill's triage already routes them on workflow-machinery files. Phase B/C must agree with that routing so the in-workflow review path and the standalone path dispatch the same agents on the same diff. Adding them as a conditional group (rather than baseline) preserves correctness for Java-only diffs.
+- **Risks/Caveats**: finding-prefix collisions if `W*` overlaps existing prefixes (verified non-colliding at Track 1 step 1). Possibly noisy `review-workflow-writing-style` findings on plan / design markdown updates — the agent already has writing-style rules calibrated for concise-doc; existing branches' Phase C runs of this rubric will confirm calibration.
+- **Implemented in**: Track 1
+- **Full design**: design.md §"Phase B/C dimensional review triage update"
+
+#### D9: Per-step episode is one block in a dedicated section, not a blockquote inside the Concrete Steps item
+
+- **Alternatives considered**: keep today's coupling (each Concrete Steps item carries its episode inline as a blockquote); split the episode across multiple targeted sections (What-was-done only in one section, What-was-discovered only in Surprises) without a per-step block; keep Concrete Steps items as the episode home and add a separate section only for cross-step artifacts.
+- **Rationale**: Concrete Steps is the plan-at-start (Phase A decomposition produces it, then it's immutable). Per-step episodes are continuous-log (one new write per Phase B commit). Wedging continuous-log content into a plan-at-start section makes the orchestrator's read/write paths ugly: episode-write modifies an existing item rather than appending a new entry; resume-readers and Phase 4 aggregators must parse nested blockquotes. Splitting them gives one section per semantic — Concrete Steps for "what we're going to do" (roster + risk tag, with `[x]`/`[!]`/`[ ]` status preserved on the roster line so resume-readers can still scan for "next step"), `## Episodes` (introduced by D11) for "what each step actually did" (one block per step, joined by step number + commit SHA). Cross-cutting discoveries still promote to Surprises; execution-time decisions still go to Decision Log; phase transitions + completions log to Progress with ISO timestamps.
+- **Risks/Caveats**: visual co-location of plan and outcome is lost — readers who want to see "what was Step 3 supposed to do, and what actually happened" must look at two sections. Mitigated by joining on step number (every Episodes block titled `### Step N — commit <SHA>, <ISO>`) so the visual lookup is mechanical, and by D11's ordering decision (`## Episodes` lands immediately after `## Concrete Steps` so the two are physically adjacent in the file).
+- **Implemented in**: Track 2 (spec — per-track template + section-mapping) + Track 3 (writer: `step-implementation.md` sub-step 7 multi-section write; `episode-format-reference.md`) + Track 4 (readers: every grep of a step blockquote becomes a section-join)
+- **Full design**: design.md §"Step episode storage"
+
+#### D10: Plan-at-start sections split into Phase 1 track-level tier and Phase A step-aware tier
+
+- **Alternatives considered**: treat every plan-at-start section as `/create-plan`'s responsibility at Phase 1 (forces `## Idempotence and Recovery` and step-referencing prose to invent fictional step structure before decomposition); move Idempotence and Recovery to a per-step roster annotation under `## Concrete Steps` (fights OpenAI's section template and scatters the concern across step entries); drop `## Idempotence and Recovery` entirely (loses a useful Phase A forcing function for retry / rollback thinking).
+- **Rationale**: `## Idempotence and Recovery` is defined as naming specific steps and per-step recovery paths — content that cannot exist before Phase A decomposes the track into a step roster. The step-referencing parts of `## Plan of Work` and the per-step EARS/Gherkin lines in `## Validation and Acceptance` (which Move 3 will populate) share the same constraint. The workflow's "details at latest possible point" principle is already codified for step decomposition (Concrete Steps is Phase A's output, not Phase 1's); extending the same principle to other step-aware sections keeps Phase 1 producing a well-formed track file from track-level understanding alone and defers step-aware content to Phase A. The split is captured in design.md §"Core Concepts" (two-tier vocabulary) and §"Lifecycle table" (per-section authoring phase).
+- **Risks/Caveats**: `/create-plan` template now writes placeholder bodies (`<!-- Populated at Phase A ... -->`) in `## Idempotence and Recovery` and `## Concrete Steps`. `structural-review.md` must treat a heading followed by a placeholder-only comment as a non-defect — same exemption shape that D6 introduces for sibling-Move reserved slots, just extended to cover Phase A placeholders too. Two placeholder kinds will coexist on a Phase-1-written track file: Phase A placeholders (cleared when Phase A runs) and sibling-Move placeholders (cleared when that Move lands); structural review treats both as non-defects until the relevant phase / Move lands.
+- **Implemented in**: Track 3 (writer changes — `/create-plan` SKILL.md template produces Phase A placeholders; `step-implementation.md` codifies the Phase A write path for `## Idempotence and Recovery` plus the step-references append to `## Plan of Work`) + Track 4 (`structural-review.md` placeholder-exemption extension covering Phase A placeholders alongside D6's sibling-Move reserved slots)
+- **Full design**: design.md §"Core Concepts" and §"Lifecycle table"
+
+#### D11: Add `## Episodes` as a separate section for per-step blocks; keep `## Artifacts and Notes` for cross-step content only
+
+- **Alternatives considered**: keep the original design (`## Artifacts and Notes` holds both per-step episode blocks and cross-step artifacts — overloaded section name where the dominant content doesn't match the section name); rename `## Artifacts and Notes` to `## Episodes` and find a different home for cross-step artifacts (loses cookbook fidelity on a section that doesn't need to be touched, and cross-step artifacts have no natural alternative home); internal subsection split inside `## Artifacts and Notes` (`### Per-step episodes` + `### Cross-step artifacts`; D4 honored verbatim but the split is visible only after entering the section, hurting discoverability).
+- **Rationale**: per-step episodes are the dominant content of the previously-overloaded `## Artifacts and Notes` section; naming a section for its dominant content matches the rest of the design (Progress / Decision Log / Outcomes are all named for their content). Cross-step artifacts (the rare use) retain their OpenAI-intended home in `## Artifacts and Notes`. D4 already permits workflow-specific section additions on top of OpenAI's 12 — `## Base commit` is the precedent; adding `## Episodes` follows the same pattern. Discoverability wins both for fresh human readers (the section name reveals its content from the table of contents) and for sub-agents (their prompts can name the section explicitly rather than referencing a sub-section inside an overloaded parent).
+- **Risks/Caveats**: section count in the per-track file grows from 13 (12 ExecPlan + `## Base commit`) to 14 (+ `## Episodes`). Section ordering decision: `## Episodes` lands between `## Concrete Steps` and `## Validation and Acceptance` to keep roster + result physically adjacent — a deviation from the "continuous-log at top" rule (Episodes IS continuous-log, but the reader-flow benefit of co-location with Concrete Steps outweighs the consistency cost; see the §"Why continuous-log sections come first" subsection in `design.md` §"Continuous-log discipline" for the rationale). Phase B sub-step 7's canonical episode-write target moves from `## Artifacts and Notes` to `## Episodes`; the four-section checklist shape (always-write to Episodes + always-write to Progress + conditional Surprises + conditional Decision Log) is unchanged in shape, only in destination.
+- **Implemented in**: Track 2 (spec — `/create-plan` template adds `## Episodes`; `conventions-execution.md` §2.1 lifecycle table adds the row; section-mapping table points Steps-blockquote rows to `## Episodes`) + Track 3 (writer — `step-implementation.md` sub-step 7 canonical write target changes from Artifacts and Notes to Episodes; `episode-format-reference.md` updates the templates) + Track 4 (readers — `structural-review.md` section-order check learns about Episodes; readers that today grep `## Artifacts and Notes` for step content now grep `## Episodes`)
+- **Full design**: design.md §"Step episode storage" and §"New per-track file shape"
+
+#### D12: Mandatory `[ctx=<level>]` field on every Progress entry and Episodes block
+
+- **Alternatives considered**: keep `Context: <level>` as an optional named field inside Episodes only (status quo for the pre-D12 shape); add the field to all five continuous-log sections including the conditional ones (Surprises, Decision Log, Outcomes); attach it to the Concrete Steps roster line instead of Progress; rely on a post-factum audit at Phase C track-code-review or structural-review to verify presence after the fact.
+- **Rationale**: a periodic forcing function for context-window monitoring is more reliable than gate-at-phase-boundary alone. Making the field mandatory on every Progress entry and every Episodes block header forces the orchestrator to read `/tmp/claude-code-context-usage-$PPID.txt` at every write, so a transition from `safe` to `warning` is observed at the very next continuous-log write rather than at the next explicit gate. Progress is the highest-cadence continuous-log section (per phase event + per step + per review iteration); Episodes is per step; together they give one `ctx` read per Phase B step and per Phase C iteration. Conditional sections (Surprises, Decision Log) add no periodicity benefit since they fire only on cross-cutting findings or execution-time decisions. The field reflects the **orchestrator's** window at write time, not the implementer sub-agent's — the orchestrator is the long-lived session the existing handoff gates care about. Writing `[ctx=warning]` or `[ctx=critical]` is not a passive audit-log entry — it triggers the existing mid-phase-handoff protocol (`mid-phase-handoff.md`) and the inline gates already codified in `workflow.md` §Context Consumption Check and the per-phase docs.
+- **Risks/Caveats**: enforcement is **write-time only**. The canonical sub-step 7 order in `step-implementation.md` — and the same order in every other Progress writer (Phase A decomposition-complete, Phase C iteration writes, Phase C track-completion, the failed-step `[!]` path) — reads the statusline file before the Progress / Episodes writes, so the field is present by construction. A post-factum audit at Phase C or structural-review was considered and **rejected**: backfilling the field after a missed write is fiction (the actual `ctx` at write time is unrecoverable), and the forcing-function failure (warning gate skipped) has already paid its cost by the time the audit fires. Fallback when `/tmp/claude-code-context-usage-$PPID.txt` is missing (right after `/clear`, race conditions): `[ctx=unknown]`. Per-section budget impact ~12 chars per Progress entry — negligible.
+- **Implemented in**: Track 2 (spec — `conventions-execution.md` §2.1 lifecycle table notes the mandatory field on Progress and Episodes rows; design.md §"Continuous-log discipline" carries the canonical subsection) + Track 3 (writer — `step-implementation.md` sub-step 7 codifies the canonical statusline-read-then-write order; same order applied to every other Progress writer; `episode-format-reference.md` updated)
+- **Full design**: design.md §"Continuous-log discipline" subsection *Mandatory `[ctx=<level>]` field*
+
+#### D13: Track 2's final step is an atomic shape switch, pulling the writer-rewrite forward from Track 3
+
+- **Alternatives considered**: (a) keep the original decomposition — directory rename in Track 2 step 1, shape rewrite spread across Track 2 steps 3-5, writer rewrite in Track 3 step 5 — and migrate this branch's own files in a separate later commit; (b) make the workflow tooling support both shapes during a transition window within this branch (dual-format reader fallbacks); (c) freeze the workflow snapshot for this branch and apply every spec change in one closing commit at end of Track 4.
+- **Rationale**: every commit on this branch must leave the workflow tooling under `.claude/workflow/` consistent with the on-disk track files under `docs/adr/ytdb-817-new-track-format/_workflow/`, because the same orchestrator that's executing the plan is the consumer of both. Splitting the path / shape / writer changes across multiple commits leaves at least one intermediate commit where Phase C of a just-completed track reads workflow docs naming section headings the on-disk file doesn't have, or where sub-step 7 writes the episode to a section the renamed file no longer carries. Dual-shape tooling violates the plan's "no transitional mechanism" stance (Non-Goals). Freezing the snapshot for the whole branch defers every spec change to one giant terminal commit, losing the per-track review boundaries. The pragmatic fix is the atomic-switch step: Track 2's last step rolls (i) the writer rewrite previously assigned to Track 3 step 5 (`step-implementation.md` sub-step 7 + `episode-format-reference.md` + the D12 canonical write order across every Progress writer), (ii) the on-disk directory rename of this branch's own `_workflow/tracks/`, and (iii) the shape migration of each of this branch's own track-N.md files into one commit. After this step the whole branch is on the new shape; Track 3 keeps only the writer-SKILL updates (`create-plan/SKILL.md`, `review-plan/SKILL.md`, `inline-replanning.md`, `track-skip.md`).
+- **Risks/Caveats**: the atomic step is large (~7 file edits + 4 track-file shape migrations + 1 `git mv`); Phase A's risk-tag heuristic should mark it `high`, which triggers full dimensional review at Phase B. The step's OWN episode-write target is the very section structure it just created — the orchestrator session running this step must end immediately after the commit and let Phase C start a fresh session that reads the new shape; the step's `**How**:` calls this out explicitly so the orchestrator writes the step's episode in the new shape directly (no mid-session fallback to old logic). Backfilled timestamps on migrated Track 1 / Track 2 (steps 1–5) episodes use `[ctx=unknown]` per the D12 fallback rule (the recorded levels at the original write time are unrecoverable).
+- **Implemented in**: Track 2 (final step) — also scopes-down Track 3 step 5 by removing its writer-rewrite portion.
+- **Full design**: design.md §"Self-modification handling" (to be added by the next `edit-design` pass)
+
+### Invariants
+
+- **Restart-from-cold:** a session reading only `_workflow/plan/track-N.md` can determine current phase, what's next, all cross-cutting discoveries, and all execution-time decisions. ASPIRATIONAL — Track 2 designs the section layout; Track 3 wires orchestrator writes; Track 4's manual smoke test validates.
+- **Section-name consistency:** every workflow-doc reference to a track-file section heading names a heading that `/create-plan` actually writes. ASPIRATIONAL — Tracks 3 and 4 sweep all references; the end-of-Track-4 grep verification confirms.
+- **Terminology consistency:** no workflow doc, sub-agent prompt, or skill file under `.claude/` references the legacy "step file" / "step-file" / `_workflow/tracks/` terms after Track 2 lands. ENFORCED by grep verification at end of Track 2 (immediately after the rename commits) and at end of Track 4 (full sweep). Quoted occurrences inside intentional historical references (e.g., explaining why the rename happened) are allowed and must live in fenced Markdown that the grep excludes.
+- **Phase B/C agent dispatch on workflow-machinery diffs:** Phase B (`risk: high` step-level) and Phase C (track-level) dimensional reviews dispatch the six workflow-review agents on workflow-machinery files, and skip the four Java-focused baseline agents when the diff is workflow-only. ASPIRATIONAL — Track 1 wires the selection rule; this track's own Phase C review and Tracks 2–4's Phase C reviews exercise it.
+- **No regression for in-flight branches:** branches with active `_workflow/tracks/` state continue to work under their old format. ENFORCED at the spec level by the no-retroactive-migration rule; Track 1's `review-agent-selection.md` edits are additive (new group + override; baseline + conditional logic unchanged) so in-flight branches' Phase C reviews on Java code keep dispatching the same agents.
+- **Mandatory `[ctx=<level>]` field on continuous-log writes:** every entry in `## Progress` and every block header in `## Episodes` carries `[ctx=<level>]` where `<level>` ∈ {safe, info, warning, critical, unknown}. ENFORCED by write-time discipline in `step-implementation.md` sub-step 7 and every other Progress writer (canonical order: read `/tmp/claude-code-context-usage-$PPID.txt`, then write). No post-factum audit — a missing field is unrecoverable. Provides the periodic forcing function for context-window monitoring; transitions from `safe` to `warning` are observed at the next continuous-log write rather than at the next explicit gate. See D12.
+
+### Integration Points
+
+- **`/create-plan` SKILL.md** writes the new per-track shape and the new root index shape. Step 1b's `mkdir -p ... tracks` updates to `mkdir -p ... plan`.
+- **`/execute-tracks` startup protocol** (`workflow.md` §Startup Protocol) reads the new root + per-track files.
+- **`/review-plan`** routes through the consistency + structural review prompts; those prompts are updated to read the new shape.
+- **Inline replanning** (`inline-replanning.md` § Updating plan and track files — section heading renamed in Track 2, case 1 "New track") writes the new per-track shape.
+- **Track-skip** (`track-skip.md` step 3) names the `_workflow/plan/` path for the terminal track-file delete.
+- **Phase 4** (`create-final-design.md`) aggregates per-track content from `_workflow/plan/track-N.md`.
+
+### Non-Goals
+
+- Retroactive split or migration of existing ADR plans (YTDB-817 out-of-scope).
+- Implementing Moves 1, 2, 3 themselves — separate sibling issues (YTDB-814, YTDB-815, YTDB-816).
+- Changing the substance of Phase A/B/C orchestration — episode discipline, risk tags, gate semantics, review iteration limits, and resume protocol are unchanged.
+- Adding automated workflow tests; validation is the manual `/create-plan` smoke test plus grep verification.
+- Tooling to detect format drift on existing branches.
+
+## Checklist
+
+- [ ] Track 1: Enrich Phase B/C review-agent-selection with workflow-machinery triage
+  > Extend `.claude/workflow/review-agent-selection.md` so Phase B and Phase C dimensional reviews dispatch the six workflow-review agents on workflow-machinery diffs, and skip the four baseline code/test agents when the diff is workflow-only. Without this, Phase C of Tracks 2–4 would dispatch only Java-focused agents and find nothing meaningful in our markdown-only diff. Lands first so every subsequent track's Phase C dispatches the right agents.
+  > **Scope:** ~3 steps covering the `review-agent-selection.md` rewrite (new group + per-agent triggers + baseline-skip override + updated Examples), verification reads of `track-code-review.md` / `step-implementation.md` (no edit unless they name agents explicitly), and the side-by-side sync check with `/code-review` SKILL.md.
+
+- [ ] Track 2: Define the new shape + atomic shape switch (spec + directory rename + terminology rename + writer rewire + self-migration)
+  > Update the single source of truth — `conventions.md` §1.2 + §1.1 glossary, `conventions-execution.md` §2.1, `planning.md`, and `design-document-rules.md`'s boundary table — to describe the new per-track ExecPlan shape, the new root-index shape, the per-section lifecycle, and the new section budgets. Includes two paired mechanical renames: the directory `_workflow/tracks/` → `_workflow/plan/` and the prose term "step file" → "track file" (per D7). Ends with an **atomic shape switch** (per D13) that rolls (i) the episode-writer rewire previously assigned to Track 3 step 5 (`step-implementation.md` sub-step 7 + `episode-format-reference.md` + adjacent Progress writers in `track-review.md` / `track-code-review.md`), (ii) the on-disk `git mv` of this branch's own `_workflow/tracks/` → `_workflow/plan/`, and (iii) the 5-section → 14-section shape migration of each of this branch's own track-N.md files (back-filling Track 1's already-written episodes) into one commit. After Track 2, every reader and writer in Tracks 3 and 4 references this spec under the new vocabulary AND this branch's own workflow state is on the new shape.
+  > **Scope:** ~6 steps covering the workflow-doc directory rename (mechanical), the terminology rename (mechanical, ~300 mentions), `conventions.md` §1.2 + §1.1 glossary + design-document-rules.md boundary table, `conventions-execution.md` §2.1 + lifecycle table (D12 `[ctx=<level>]` annotation on Progress and Episodes rows), `planning.md` track-description + Architecture-Notes adjustments, and the final atomic shape switch (D13) covering the writer rewire + this branch's directory rename + shape self-migration.
+  > **Depends on:** Track 1
+
+- [ ] Track 3: Update writer SKILLs (`/create-plan`, `/review-plan`, inline-replanning, track-skip)
+  > Update every writer SKILL that authors or amends a per-track file or the root index: `/create-plan` SKILL gets the new track-file template; `/review-plan` is a thin wrapper to verify; `inline-replanning.md` case 1 ("new track") writes the new template; `track-skip.md` picks up the new path. **The episode-writer rewire that originally lived here as step 5 (`step-implementation.md` sub-step 7, `episode-format-reference.md`, and the D12 canonical write order across every Progress writer) has moved into Track 2's atomic shape switch (D13)** so the writer logic, the on-disk shape, and this branch's own track files all change in one commit. Track 3 is now strictly the writer-SKILL update.
+  > **Scope:** ~4 steps covering `create-plan/SKILL.md`, `review-plan/SKILL.md`, `inline-replanning.md`, and `track-skip.md`. The writer-rewrite portion (formerly the 5th step) has moved to Track 2's atomic shape switch per D13.
+  > **Depends on:** Track 2
+
+- [ ] Track 4: Update readers (workflow docs, sub-agent prompts, remaining references)
+  > Update every code path that reads a per-track file by section heading: Phase A (`track-review.md`), Phase B readers (`step-implementation.md`, `implementer-rules.md`, `step-implementation-recovery.md`), Phase C (`track-code-review.md`), all sub-agent prompts, plus `workflow.md` startup and the remaining workflow docs. Readers that today grep a step's inline blockquote (risk tag, episode fields) now perform a section-join: risk tag from `## Concrete Steps` roster line, episode content from `## Artifacts and Notes ### Step N` block. Ends with a manual `/create-plan` smoke test and a final grep verification.
+  > **Scope:** ~5 steps covering Phase A/B/C reader docs (with section-join pattern), sub-agent prompts, `workflow.md` + remaining docs, the smoke test, and the final grep verification sweep.
+  > **Depends on:** Track 3
+
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
