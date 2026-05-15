@@ -240,7 +240,7 @@ public class CollectionPositionMapV2Test {
   // instead of adding a brand-new page. This test pins the cache-layer behavior
   // directly via the broadened Mockito stub above; the AOBT-layer wrapper would
   // reject this orphan-reuse shape with IllegalStateException under the
-  // allocator-only contract (LoadOrAddPageForWriteTest pins the rejection).
+  // allocator-only contract (AllocatePageForWriteTest pins the rejection).
   @Test
   public void allocationReusesExistingPageAfterBucketOverflow() throws IOException {
     var maxEntries = CollectionPositionMapBucket.MAX_ENTRIES;
@@ -1219,7 +1219,7 @@ public class CollectionPositionMapV2Test {
     // converted partial-replay-orphan recovery from silent reuse at the
     // AOBT-layer wrapper to a loud IllegalStateException — those two tests
     // exercise the orphan-reuse shape the cache layer still supports, while
-    // the AOBT-layer rejection is pinned in LoadOrAddPageForWriteTest.
+    // the AOBT-layer rejection is pinned in AllocatePageForWriteTest.
     when(op.allocatePageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
       int pIdx = ((Long) inv.getArgument(1)).intValue();
       var entry = getOrCreatePage(pIdx);

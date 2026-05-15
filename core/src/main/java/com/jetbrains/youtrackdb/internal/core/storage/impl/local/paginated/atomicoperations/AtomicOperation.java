@@ -46,11 +46,13 @@ public interface AtomicOperation {
   /**
    * Allocates a fresh page at the given {@code pageIndex} and registers an in-progress
    * overlay for it, returning a {@code CacheEntry} usable inside this atomic operation.
-   * <b>Despite the historical name, this method does NOT load existing pages on the disk
-   * engine</b> — disk-engine callers targeting a {@code pageIndex} below the committed file
-   * size raise {@link IllegalStateException}. Use {@link #loadPageForWrite} for existing
-   * pages. The in-memory engine deliberately bypasses the below-floor check to support
-   * rollback-orphan re-use; see "Per-engine behavior" below.
+   * <b>Cross-engine asymmetry: allocator-only on disk; eager-install total on in-memory.</b>
+   * On the disk engine the contract is strictly allocator-only — callers targeting a
+   * {@code pageIndex} below the committed file size raise {@link IllegalStateException};
+   * use {@link #loadPageForWrite} for existing pages. The in-memory engine eagerly installs
+   * the page in {@code MemoryFile} at allocation time and bypasses the below-floor check
+   * so a TX rollback's cache-resident orphans can be re-used by the next TX; see
+   * "Per-engine behavior" below.
    *
    * <p>The caller states the target pageIndex up front (typically computed from the
    * component's logical page count, e.g. {@code entryPoint.pagesSize + 1}). On the disk
