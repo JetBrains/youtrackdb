@@ -372,6 +372,9 @@ front.
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`15b6800f5a`
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 3 (9 iter-1 findings + 1 iter-2 blocker T10 + 1 iter-2 should-fix T11; all addressed by iter-3 step-file rewrite — JLS reframe, Layer A / Layer B consumer split with PSI-verified 8 Layer B sites, AOBT placeholder side-effect constraint, count language relaxed)
 - [x] Risk: PASS at iteration 3 (8 iter-1 findings + R10 mirror of T10; all addressed — `@Deprecated` mechanism, two-layer helper-shape, IDE rename preflight discipline, per-consumer test suites enumerated)
