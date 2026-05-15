@@ -277,10 +277,32 @@ Render rules. Each item is shown with:
   `EDIT_STEP_DESC` / `CLARIFY` / `FIX_FINDING` / `ESCALATE`).
 - One-line intent summary.
 - Full payload — the proposed text for `EDIT_*`, the
-  `{track_index, reason}` pair for `SKIP_TRACK`, the question and
-  the answer the orchestrator gave inline for `QUESTION`, the
-  finding triple for `FIX_FINDING`, the deep-change description
-  for `ESCALATE`.
+  `{track_index, reason}` pair for `SKIP_TRACK`, the question
+  text only for `QUESTION` (the answer was already shown inline
+  in chat; see compact-render note below), the finding triple
+  for `FIX_FINDING`, the deep-change description for `ESCALATE`.
+
+**QUESTION compact render.** `QUESTION` items render one line
+each — the question text only, no answer body. The user saw the
+answer at accumulation time in chat; the panel is the
+audit-trail commit point, not a read surface. For long Q&A
+chains, this collapses what would otherwise be a wall of text
+into a scannable list.
+
+Format: a single header line `QUESTION × N (answered inline
+above):` followed by one indented bullet per question with
+just the question text in quotes. Three questions become four
+lines (one header + three bullets), not the equivalent of
+three full answers. The chat history above the panel is the
+canonical transcript when the user wants to re-read an answer.
+
+This rule applies regardless of buffer composition: pure
+QUESTION-only buffers (Done label) and mixed buffers (Apply
+label with QUESTIONs alongside side-effecting items) both
+render QUESTIONs in compact form. Side-effecting items
+(`EDIT_*`, `SKIP_TRACK`, `FIX_FINDING`, `ESCALATE`) continue
+to render their full payloads — those are about to commit and
+need the audit detail.
 
 Present `AskUserQuestion` with three one-step options:
 
