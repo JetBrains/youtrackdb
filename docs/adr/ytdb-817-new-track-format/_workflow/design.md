@@ -538,6 +538,33 @@ Why Track 1 must land first: Tracks 2, 3, 4 each have workflow-only diffs. Their
 - Decisions: D8 (workflow-machinery triage).
 - Related sections: §"Sub-agent prompt updates" (other prompt-level work that lands later in Track 3 / Track 4).
 
+## Self-modification handling
+
+**TL;DR.** This plan modifies the very workflow tooling that executes it — `.claude/workflow/` and `.claude/skills/` are both the spec and the runtime. Every commit on the branch must leave the tooling consistent with the on-disk per-track shape; otherwise the next session reads contradictory rules. Track 2 step 6 collapses three changes (writer rewire, on-disk directory rename, per-track shape migration) into one atomic commit and ends the orchestrator session immediately after, so the next phase resumes against a fully self-consistent disk + tooling state.
+
+YTDB-817 is workflow-as-code: the orchestrator running `/execute-tracks` reads its rules from `.claude/workflow/`, and the per-track files it writes live at `_workflow/tracks/`. Both move under this plan. Every commit therefore satisfies a self-consistency invariant — the workflow-doc spec under `.claude/workflow/` matches the on-disk shape under `_workflow/` at every boundary the orchestrator might re-enter.
+
+Alternatives considered and rejected:
+
+- **Split path / shape / writer changes across separate commits.** At least one intermediate commit names section headings the on-disk file no longer carries, or writes an episode to a section the renamed file no longer has. Phase C of any just-completed track, or Phase A of any subsequent track, fails.
+- **Dual-shape tooling during a transition window.** Adds reader fallbacks for both `_workflow/tracks/` and `_workflow/plan/`, both `## Description` and `## Purpose / Big Picture`. Violates the plan's Non-Goals ("no transitional mechanism") and leaves dead-code reader paths that future maintenance would have to clean up.
+- **Freeze the snapshot for the whole branch.** Defers every spec change to one terminal commit at the end of Track 4, losing the per-track review boundaries Phase C provides.
+
+Track 2 step 6 is the pragmatic resolution. One commit rolls all four changes:
+
+1. **Writer rewire** (previously scoped to Track 3 step 5): `step-implementation.md` sub-step 7 follows the deterministic four-section checklist — append to `## Episodes`, append to `## Progress`, conditionally promote to `## Surprises & Discoveries`, conditionally promote to `## Decision Log` — with the D12 sub-step 0 statusline read prepended. `episode-format-reference.md` and every other Progress writer (Phase A decomposition-complete, Phase C iteration writes, Phase C track-completion, the failed-step `[!]` path) pick up the same canonical order.
+2. **On-disk directory rename for this branch only**: `git mv docs/adr/ytdb-817-new-track-format/_workflow/tracks docs/adr/ytdb-817-new-track-format/_workflow/plan`. Other in-flight branches are not touched — they keep operating under their own snapshot of the workflow docs, which still name `tracks/`.
+3. **Per-track shape migration** of `track-1.md` through `track-4.md` under the new `_workflow/plan/` directory: split `## Description` into the four Phase 1 sections (Purpose / Big Picture, Context and Orientation, Plan of Work, Interfaces and Dependencies); rename `## Reviews completed` → `## Outcomes & Retrospective`; rename `## Steps` → `## Concrete Steps` and convert each blockquote into a thin numbered roster line; relocate every step's episode content to a new `## Episodes` section as one `### Step N — commit <SHA>, <ISO> [ctx=unknown]` block (the `[ctx=unknown]` fallback per D12 applies because the recorded levels at the original write time are unrecoverable); add placeholder sections for Surprises & Discoveries, Decision Log, Validation and Acceptance, Idempotence and Recovery, and Artifacts and Notes.
+4. **Path-reference cleanup in `implementation-plan.md`**: update any per-track checklist entry, Component Map label, or Architecture-Notes prose that names `tracks/track-N.md` to `plan/track-N.md`, per §"Root index — `implementation-plan.md`".
+
+**Episode-write contingency.** Step 6 cannot use the orchestrator's standard Phase B sub-step 7 episode-write logic — that logic targets `## Steps` blockquotes in `_workflow/tracks/track-2.md`, a section structure and path that no longer exist after the commit. The orchestrator writes step 6's episode in the new shape directly: read `/tmp/claude-code-context-usage-$PPID.txt`, append a `### Step 6 — commit <SHA>, <ISO> [ctx=<level>]` block to the new `## Episodes` section of `plan/track-2.md`, and append `- [x] <ISO> [ctx=<level>] Step 6 complete (commit <SHA>)` to `## Progress`. Then end the session (the orchestrator returns control to the user, who re-invokes `/execute-tracks` to enter Phase C). Phase C of Track 2 starts a fresh session that re-reads the new workflow docs and the new on-disk shape; the self-consistency invariant holds at every session boundary, including this one.
+
+**Risk-tag implication.** Phase A decomposition should mark step 6 `high` — the step is the largest single edit in the plan (writer rewire across ~5 workflow docs + directory rename + four-file shape migration + path-reference cleanup in `implementation-plan.md`), and the full dimensional review at Phase B catches inconsistencies before the commit lands.
+
+### References
+- Decisions: D13 (atomic shape switch for this branch's self-modification).
+- Related sections: §"Directory and terminology rename mechanics" (the directory rename part of step 6), §"Step episode storage" (the shape migration's destination layout and the four-section episode-write checklist), §"Continuous-log discipline" subsection *Mandatory `[ctx=<level>]` field* (the `[ctx=unknown]` backfill rule for migrated episodes).
+
 ## References
 
 **TL;DR.** External resources cited across the design: the OpenAI ExecPlan cookbook article and PLANS.md template that motivate the new shape; the YouTrack issues for this Move and its siblings; and the workflow docs that Tracks 1–4 will update.
