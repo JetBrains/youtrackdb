@@ -428,7 +428,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // The IOException on the signature comes from the AtomicOperation interface, which
   // covers implementations that perform I/O (today's body does not, but the contract
   // must remain compatible). ErrorProne otherwise flags the unused throws clause.
-  @SuppressWarnings("CheckedExceptionNotThrown")
+  // The "deprecation" suppression covers the documented internal call to
+  // WriteCache.getFilledUpTo inside the isNew slow-path classifier below — the
+  // method is now @Deprecated for external callers but this allocation-floor read,
+  // taken under the per-component exclusive lock, is one of the retained internal
+  // sites listed on WriteCache.getFilledUpTo's Javadoc.
+  @SuppressWarnings({"CheckedExceptionNotThrown", "deprecation"})
   @Override
   public CacheEntry loadOrAddPageForWrite(long fileId, final long pageIndex)
       throws IOException {
@@ -737,6 +742,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     hasPendingOperations = false;
   }
 
+  // The committed-file fall-through below reads physical size via WriteCache.getFilledUpTo,
+  // one of the retained internal callers documented on that method's Javadoc. Layer B
+  // helpers (StorageComponent.physicalSize) intentionally route through this method so the
+  // FileChanges placeholder side-effect is registered on first in-TX touch — the read
+  // surface stays a single AOBT method even though the cache primitive is deprecated for
+  // external callers.
+  @SuppressWarnings("deprecation")
   @Override
   public long filledUpTo(long fileId) {
     checkIfActive();

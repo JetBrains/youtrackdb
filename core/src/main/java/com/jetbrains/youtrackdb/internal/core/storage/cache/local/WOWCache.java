@@ -1810,6 +1810,12 @@ public final class WOWCache extends AbstractWriteCache
         new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
   }
 
+  // Retained internal site: the WriteCache implementer must keep this override so the
+  // documented internal callers (LFRC.doLoad, AOBT.{loadOrAddPageForWrite, filledUpTo},
+  // the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
+  // suppression silences the deprecation warning the override would otherwise inherit
+  // from the @Deprecated interface declaration.
+  @SuppressWarnings("deprecation")
   @Override
   public long getFilledUpTo(long fileId) {
     final var intId = extractFileId(fileId);
@@ -1834,6 +1840,10 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  // Layer A helper body: this is the named gated entry point for the post-unfreeze
+  // backup snapshot reader and wraps the @Deprecated getFilledUpTo. Listed on the
+  // WriteCache.getFilledUpTo Javadoc as a retained internal caller.
+  @SuppressWarnings("deprecation")
   @Override
   public long physicalSizeForBackupSnapshot(long fileId) {
     // Thin delegator — the wrapped call re-acquires filesLock as a read lock and applies

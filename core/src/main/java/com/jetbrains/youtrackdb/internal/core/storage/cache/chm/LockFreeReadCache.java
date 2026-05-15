@@ -247,6 +247,11 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
+  // Documented internal caller of WriteCache.getFilledUpTo: the pre-call file-size snapshot
+  // at line 307 reads the physical extent under the data.compute segment write lock so the
+  // freshly-allocated branch can flag the resulting entry. See WriteCache.getFilledUpTo
+  // Javadoc for the full retained-caller list.
+  @SuppressWarnings("deprecation")
   private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,

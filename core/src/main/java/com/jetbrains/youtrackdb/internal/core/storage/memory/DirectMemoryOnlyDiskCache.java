@@ -368,6 +368,10 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  // Retained internal site (in-memory engine impl): the override is part of the documented
+  // internal-caller set on WriteCache.getFilledUpTo and must stay so the Layer A helper
+  // body just below has a concrete delegation target.
+  @SuppressWarnings("deprecation")
   @Override
   public long getFilledUpTo(final long fileId) {
     final var intId = extractFileId(fileId);
@@ -375,6 +379,9 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return memoryFile.size();
   }
 
+  // Layer A helper body (in-memory engine impl) — same retained-caller carve-out as the
+  // WOWCache delegator. Listed on WriteCache.getFilledUpTo's Javadoc.
+  @SuppressWarnings("deprecation")
   @Override
   public long physicalSizeForBackupSnapshot(final long fileId) {
     // Mirrors the WOWCache delegator: same semantics as getFilledUpTo, with the named

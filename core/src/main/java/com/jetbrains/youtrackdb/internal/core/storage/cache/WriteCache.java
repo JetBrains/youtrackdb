@@ -230,6 +230,45 @@ public interface WriteCache {
 
   void flush();
 
+  /**
+   * Reads the physical (in-memory) file size, in pages, of the given file.
+   *
+   * <p><b>Deprecated for external callers.</b> Cross-component callers must funnel physical-size
+   * reads through the gated helper set: {@link #physicalSizeForBackupSnapshot(long)} for the
+   * post-unfreeze incremental-backup snapshot reader (Layer A), and
+   * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} for every
+   * {@code StorageComponent}-anchored consumer (Layer B). The helper set is the audit-grep entry
+   * surface for "who reads physical size from outside the cache / atomic-operation core?" — a
+   * new direct call to this method anywhere outside the documented internal set below is a
+   * regression.
+   *
+   * <p><b>Documented internal callers (retained intentionally, suppress this deprecation
+   * warning at method scope):</b>
+   * <ul>
+   *   <li>{@code LockFreeReadCache.doLoad} — pre-call file-size snapshot for the
+   *       {@code markAllocated} flag computation; the snapshot is taken under the
+   *       {@code data.compute} segment write lock and feeds the freshly-allocated branch.
+   *   <li>{@code AtomicOperationBinaryTracking.loadOrAddPageForWrite} — allocation-floor
+   *       classifier for the {@code isNew} slow path, read under the per-component exclusive
+   *       lock.
+   *   <li>{@code AtomicOperationBinaryTracking.filledUpTo} — committed-file fall-through; the
+   *       method routes Layer B helpers through {@code AtomicOperation.filledUpTo} so the
+   *       in-TX {@code FileChanges} placeholder side-effect is preserved on first touch.
+   *   <li>{@link #physicalSizeForBackupSnapshot(long)} — the Layer A helper body delegates here
+   *       inside the {@link WriteCache} implementers ({@code WOWCache},
+   *       {@code DirectMemoryOnlyDiskCache}).
+   *   <li>The {@link WriteCache} implementers themselves carry the method on their override
+   *       lists; the override declarations are part of this internal set.
+   * </ul>
+   *
+   * @param fileId external file id of the target file
+   * @return current in-memory file size in pages
+   * @deprecated External / cross-component callers must use {@link
+   *     #physicalSizeForBackupSnapshot(long)} (Layer A) or {@code
+   *     StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} (Layer B).
+   *     The five sites enumerated above are the only retained internal callers.
+   */
+  @Deprecated(forRemoval = false)
   long getFilledUpTo(long fileId);
 
   /**
@@ -249,8 +288,9 @@ public interface WriteCache {
    * from outside the cache/AOBT internal core?" into an audit-grep-able question.
    * {@link #getFilledUpTo(long)} stays callable for the documented internal set
    * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
-   * loadOrAddPageForWrite}}, and the {@link WriteCache} implementers) and will pick up an
-   * {@code @Deprecated} marker in a follow-up commit on this branch.
+   * loadOrAddPageForWrite}}, and the {@link WriteCache} implementers) and now carries an
+   * {@code @Deprecated} marker so a new external caller trips a deprecation warning at
+   * compile time.
    *
    * <p><b>Sole expected caller.</b> {@code DiskStorage.backupPagesWithChanges} — the
    * incremental-backup snapshot iterator. The method runs <b>after</b> {@code
