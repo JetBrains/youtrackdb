@@ -460,6 +460,12 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
+    public long physicalSizeForBackupSnapshot(final long fileId) {
+      // Mock parallel: delegates to getFilledUpTo for the cache-layer test fixture.
+      return getFilledUpTo(fileId);
+    }
+
+    @Override
     public long getExclusiveWriteCachePagesSize() {
       return 0;
     }

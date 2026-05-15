@@ -2508,6 +2508,14 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
+    public long physicalSizeForBackupSnapshot(final long fileId) {
+      // Mock parallel: delegates to getFilledUpTo so tests that pre-seed
+      // filledUpToByFile (via setFilledUpTo) observe the same answer via the
+      // backup-snapshot helper.
+      return getFilledUpTo(fileId);
+    }
+
+    @Override
     public long getExclusiveWriteCachePagesSize() {
       return 0;
     }

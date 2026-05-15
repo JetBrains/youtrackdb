@@ -1835,6 +1835,15 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public long physicalSizeForBackupSnapshot(long fileId) {
+    // Thin delegator — the wrapped call re-acquires filesLock as a read lock and applies
+    // the null-file safety (returns 0 when the file was concurrently deleted). The
+    // semantic difference is the audit-grep contract documented on the WriteCache
+    // interface method, not the locking or branching shape.
+    return getFilledUpTo(fileId);
+  }
+
+  @Override
   public long getExclusiveWriteCachePagesSize() {
     return exclusiveWriteCacheSize.get();
   }

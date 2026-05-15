@@ -348,6 +348,13 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
+    public long physicalSizeForBackupSnapshot(long fileId) {
+      // Mock parallel to WOWCache.physicalSizeForBackupSnapshot: delegates to the
+      // existing getFilledUpTo mock value so wrapper tests see the same answer.
+      return getFilledUpTo(fileId);
+    }
+
+    @Override
     public long getExclusiveWriteCachePagesSize() {
       return 0;
     }

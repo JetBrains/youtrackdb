@@ -376,6 +376,14 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
+  public long physicalSizeForBackupSnapshot(final long fileId) {
+    // Mirrors the WOWCache delegator: same semantics as getFilledUpTo, with the named
+    // helper acting as the cross-component audit-grep target documented on the
+    // WriteCache interface method.
+    return getFilledUpTo(fileId);
+  }
+
+  @Override
   public void flush(final long fileId) {
   }
 

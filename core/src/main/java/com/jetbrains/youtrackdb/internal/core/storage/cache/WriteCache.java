@@ -232,6 +232,46 @@ public interface WriteCache {
 
   long getFilledUpTo(long fileId);
 
+  /**
+   * Reads the physical (in-memory) file size, in pages, of the given file for the
+   * post-unfreeze incremental-backup snapshot iteration.
+   *
+   * <p>Named alias for the gated read of {@link #getFilledUpTo(long)} that callers from
+   * outside the cache / atomic-operation core must funnel through. The cross-component
+   * discovery contract enforced by this helper set: cross-TX readers route through the
+   * logical surface (the component's {@code EntryPoint} {@code pagesSize} /
+   * {@code fileSize}) where one exists; physical-size reads from outside the documented
+   * internal set route through this helper (cache-layer entry point used by the backup
+   * snapshot) or through
+   * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)}
+   * (storage-component entry point used by every other surviving consumer). Tightening
+   * the discovery surface to this small named helper set turns "who reads physical size
+   * from outside the cache/AOBT internal core?" into an audit-grep-able question.
+   * {@link #getFilledUpTo(long)} stays callable for the documented internal set
+   * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
+   * loadOrAddPageForWrite}}, and the {@link WriteCache} implementers) and will pick up an
+   * {@code @Deprecated} marker in a follow-up commit on this branch.
+   *
+   * <p><b>Sole expected caller.</b> {@code DiskStorage.backupPagesWithChanges} — the
+   * incremental-backup snapshot iterator. The method runs <b>after</b> {@code
+   * freezeWriteOperations} has been unfrozen in the enclosing {@code
+   * storeBackupDataToStream} path: concurrent writes can extend the file during the
+   * snapshot read, and correctness is recovered by the subsequent WAL replay on restore.
+   * The method name calls out that this is a post-unfreeze read so future readers do not
+   * mistake it for a quiesced surface.
+   *
+   * <p>Behaviour and locking match {@link #getFilledUpTo(long)} bit-for-bit: the
+   * {@code WOWCache} impl re-acquires the existing {@code filesLock} read lock and the
+   * null-file safety (returning {@code 0} when the file was concurrently deleted) inside
+   * the wrapped call; the in-memory {@code DirectMemoryOnlyDiskCache} mirrors the same
+   * delegation.
+   *
+   * @param fileId external file id of the target file
+   * @return current in-memory file size in pages, or {@code 0} if the file was
+   *     concurrently deleted / was never registered
+   */
+  long physicalSizeForBackupSnapshot(long fileId);
+
   long getExclusiveWriteCachePagesSize();
 
   void deleteFile(long fileId) throws IOException;
