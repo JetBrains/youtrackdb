@@ -1401,7 +1401,7 @@ public class DiskStorage extends AbstractStorage {
       long fileId = entry.getValue();
       fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-      final var filledUpTo = writeCache.getFilledUpTo(fileId);
+      final var filledUpTo = writeCache.physicalSizeForBackupSnapshot(fileId);
       final var zipEntry = new ZipEntry(fileName);
 
       stream.putNextEntry(zipEntry);
