@@ -61,7 +61,7 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -81,8 +81,15 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
   >
   > **Critical context:** The implementer's `CROSS_TRACK_HINTS` notes this track's own Phase C review will exercise the new override on a workflow-only cumulative diff — per case 1 the baseline group is skipped and the four "always launched" workflow-review agents fire (`review-workflow-consistency` + `review-workflow-instruction-completeness` + `review-workflow-writing-style` + `review-workflow-context-budget`). This matches the agent-set §Interactions in this track's description predicted, confirming the rule is internally consistent with its first consumer.
 
-- [ ] Step: Update `.claude/workflow/step-implementation.md` sub-step 4(a) recap prose at lines 373-374 — replace *"Baseline agents (4) always run; conditional agents are added based on the step description and changed files."* with *"Baseline agents (4) run unless the diff is workflow-only (see the baseline-skip override in `review-agent-selection.md`); conditional agents and workflow-review agents are added based on the step description and changed files."*  Re-verify `.claude/workflow/track-code-review.md` §Agent selection and launching does not name agents explicitly (Phase A check confirmed clean; skip the edit if still clean). Single commit covering the `step-implementation.md` recap update.
+- [x] Step: Update `.claude/workflow/step-implementation.md` sub-step 4(a) recap prose at lines 373-374 — replace *"Baseline agents (4) always run; conditional agents are added based on the step description and changed files."* with *"Baseline agents (4) run unless the diff is workflow-only (see the baseline-skip override in `review-agent-selection.md`); conditional agents and workflow-review agents are added based on the step description and changed files."*  Re-verify `.claude/workflow/track-code-review.md` §Agent selection and launching does not name agents explicitly (Phase A check confirmed clean; skip the edit if still clean). Single commit covering the `step-implementation.md` recap update.
+  - [x] Context: safe
   > **Risk:** low — one-line prose edit to a recap sentence. Isolated scope, no behavior change in code, no semantic divergence from Step 1's `review-agent-selection.md` rule.
+  >
+  > **What was done:** Updated `.claude/workflow/step-implementation.md` sub-step 4(a) recap (commit `300693c835`) to read *"Baseline agents (4) run unless the diff is workflow-only (see the baseline-skip override in `review-agent-selection.md`); conditional agents and workflow-review agents are added based on the step description and changed files."* — replacing the stale *"Baseline agents (4) always run"* sentence that became inaccurate after Step 1 introduced the workflow-review tier and the three-case override. Recap defers override details to `review-agent-selection.md` rather than restating them.
+  >
+  > **What was discovered:** Re-verified `.claude/workflow/track-code-review.md` §Agent selection and launching (lines 362-378) — still clean (routes through `review-agent-selection.md` without naming any agent count or specific agent set). No edit needed there, as Phase A predicted.
+  >
+  > **Key files:** `.claude/workflow/step-implementation.md` (modified)
 
 - [ ] Step: Side-by-side sync check against `.claude/skills/code-review/SKILL.md` per the four canonical items — (1) workflow-machinery file-set matches SKILL.md Step 5a (line 120); (2) per-agent file-pattern triggers match Step 5b table (lines 156-161) verbatim, especially `review-workflow-context-budget` (always launched, not gated on a sub-pattern); (3) three override cases match Step 5d bullets 1-3 (lines 182-184); (4) filtered-dispatch shape on mixed diffs matches Step 6's `IN_SCOPE_FILES` per group (lines 196-198). Output is a deltas-or-all-clear note recorded in the step episode. If any item diverges, repair `review-agent-selection.md` in this step's commit; do not document disagreement (per D8 rationale).
   > **Risk:** low — verification gate. No new code path; any repair lands in the same file Step 1 already edited, with the same justification (mirror SKILL.md). Phase A's evidence certificates C2 / C6 already established the canonical anchors, so divergence at sync-check time is improbable.
