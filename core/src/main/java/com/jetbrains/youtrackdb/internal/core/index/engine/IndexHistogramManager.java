@@ -1802,7 +1802,7 @@ public class IndexHistogramManager extends StorageComponent {
     // pageIndex 0). createStatsFile / createStatsFileWithCounters are invoked
     // from AbstractStorage's index-creation path immediately after addFile, so
     // the file has no other writers when this allocation runs.
-    var cacheEntry = loadOrAddPageForWrite(op, fileId, 0);
+    var cacheEntry = allocatePageForWrite(op, fileId, 0);
     try {
       var page = new HistogramStatsPage(cacheEntry);
       page.writeEmpty(serializerId);
@@ -1919,7 +1919,7 @@ public class IndexHistogramManager extends StorageComponent {
     // Write HLL to page 1 when spilled. The .ixs file starts with only
     // page 0; the first spill allocates page 1, subsequent flushes
     // re-write the existing page 1. Discriminate at the caller because
-    // loadOrAddPageForWrite is allocator-only and would throw if asked
+    // allocatePageForWrite is allocator-only and would throw if asked
     // to load an already-committed page 1. The per-component exclusive
     // lock acquired above keeps the filledUpTo read consistent with the
     // subsequent allocate/load call.
@@ -1928,7 +1928,7 @@ public class IndexHistogramManager extends StorageComponent {
       if (op.filledUpTo(fileId) > 1) {
         page1Entry = loadPageForWrite(op, fileId, 1, true);
       } else {
-        page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+        page1Entry = allocatePageForWrite(op, fileId, 1);
       }
       try {
         HistogramStatsPage.writeHllToPage1(page1Entry, snapshot.hllSketch());
@@ -1997,7 +1997,7 @@ public class IndexHistogramManager extends StorageComponent {
             if (lockedOp.filledUpTo(fileId) > 1) {
               page1Entry = loadPageForWrite(lockedOp, fileId, 1, true);
             } else {
-              page1Entry = loadOrAddPageForWrite(lockedOp, fileId, 1);
+              page1Entry = allocatePageForWrite(lockedOp, fileId, 1);
             }
             try {
               HistogramStatsPage.writeHllToPage1(

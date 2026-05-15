@@ -194,7 +194,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
             // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
             try (final var entryPointCacheEntry =
-                loadOrAddPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+                allocatePageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
               final var entryPoint =
                   new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
               entryPoint.init();
@@ -203,7 +203,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             // Fresh file: root bucket lives at the well-known ROOT_INDEX (1),
             // immediately after the entry point page.
             try (final var rootCacheEntry =
-                loadOrAddPageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
+                allocatePageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
               @SuppressWarnings("unused")
               final var rootBucket =
                   new CellBTreeSingleValueBucketV3<K>(rootCacheEntry);
@@ -213,7 +213,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             // Null-bucket file is its own fresh file; the null bucket page lives at
             // pageIndex 0.
             try (final var nullCacheEntry =
-                loadOrAddPageForWrite(atomicOperation, nullBucketFileId, 0)) {
+                allocatePageForWrite(atomicOperation, nullBucketFileId, 0)) {
               @SuppressWarnings("unused")
               final var nullBucket =
                   new CellBTreeSingleValueV3NullBucket(nullCacheEntry);
@@ -2170,7 +2170,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             new CellBTreeSingleValueBucketV3<>(rightBucketEntry);
         entryPoint.setFreeListHead(bucket.getNextFreeListPage());
       } else {
-        // loadOrAddPageForWrite registers a fresh overlay for any new pageIndex at
+        // allocatePageForWrite registers a fresh overlay for any new pageIndex at
         // or above the in-progress allocation floor (the entry-point write lock
         // plus the monotonic pagesSize bookkeeping keep entryPoint.pagesSize + 1
         // above the floor here), so the per-component pre-probe that previously
@@ -2184,7 +2184,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         // the integration regression test.
         final var newPageIndex = entryPoint.getPagesSize() + 1;
         rightBucketEntry =
-            loadOrAddPageForWrite(atomicOperation, fileId, newPageIndex);
+            allocatePageForWrite(atomicOperation, fileId, newPageIndex);
         entryPoint.setPagesSize(newPageIndex);
       }
     }

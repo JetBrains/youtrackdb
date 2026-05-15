@@ -139,7 +139,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
         == 0) {
       // Fresh file -- append the entry-point page (statically known-new at pageIndex 0).
-      try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
+      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);
         mapEntryPoint.setFileSize(0);
       }
@@ -221,7 +221,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         // surfaces as a hard IllegalStateException from the AO allocator rather
         // than silent reuse; end-to-end coverage of that recovery flow lives in
         // the integration regression test.
-        cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);
+        cacheEntry = allocatePageForWrite(atomicOperation, fileId, lastPage + 1);
         mapEntryPoint.setFileSize(lastPage + 1);
 
         clear = true;
@@ -248,7 +248,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           // integration regression test.
           cacheEntry.close();
 
-          cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, lastPage + 1);
+          cacheEntry = allocatePageForWrite(atomicOperation, fileId, lastPage + 1);
 
           mapEntryPoint.setFileSize(lastPage + 1);
 

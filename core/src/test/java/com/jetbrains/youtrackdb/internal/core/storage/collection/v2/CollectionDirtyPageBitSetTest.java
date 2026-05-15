@@ -377,10 +377,10 @@ public class CollectionDirtyPageBitSetTest {
     // ensureCapacity's growth loop (each iteration is strictly past the physical
     // extent, so the allocator-only floor is trivially satisfied). The mock returns
     // a CacheEntry for each requested index and grows the simulated file to cover
-    // it; it mirrors the AtomicOperationBinaryTracking.loadOrAddPageForWrite
+    // it; it mirrors the AtomicOperationBinaryTracking.allocatePageForWrite
     // allocator-only contract but broadens it to tolerate any pageIndex because the
     // unit tests do not model the AOBT allocation-floor check.
-    when(op.loadOrAddPageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
+    when(op.allocatePageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
       int pIdx = ((Long) inv.getArgument(1)).intValue();
       var entry = getOrCreatePage(pIdx);
       if (pIdx >= pageCount) {

@@ -258,17 +258,17 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     return atomicOperation.loadPageForWrite(fileId, pageIndex, 1, verifyCheckSum);
   }
 
-  protected CacheEntry loadOrAddPageForWrite(
+  protected CacheEntry allocatePageForWrite(
       @Nonnull final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
     assert atomicOperation != null;
     // The caller states the target pageIndex up front. AtomicOperation's
-    // loadOrAddPageForWrite bottoms out on the cache-layer load-or-add primitive,
+    // allocatePageForWrite bottoms out on the cache-layer load-or-add primitive,
     // so we no longer fall back to the legacy pageIndex-by-allocateSpace addPage
     // path — the prior loadPageForWrite-then-addPage shape exposed an in-flight
     // pageIndex via the cache's allocator before the page was published, which is
     // the race vector this fix structurally removes.
-    return atomicOperation.loadOrAddPageForWrite(fileId, pageIndex);
+    return atomicOperation.allocatePageForWrite(fileId, pageIndex);
   }
 
   protected CacheEntry loadPageForRead(

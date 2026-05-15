@@ -1811,7 +1811,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   // Retained internal site: the WriteCache implementer must keep this override so the
-  // documented internal callers (LFRC.doLoad, AOBT.{loadOrAddPageForWrite, filledUpTo},
+  // documented internal callers (LFRC.doLoad, AOBT.{allocatePageForWrite, filledUpTo},
   // the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
   // suppression silences the deprecation warning the override would otherwise inherit
   // from the @Deprecated interface declaration.

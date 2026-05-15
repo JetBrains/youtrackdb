@@ -812,7 +812,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Add page 0 to the new file (fresh-file: allocator-only contract uses
     // allocationFloor=0).
-    var page = op.loadOrAddPageForWrite(fileId, 0);
+    var page = op.allocatePageForWrite(fileId, 0);
 
     // Make a change so hasChanges() returns true
     page.getChanges().setByteValue(null, (byte) 1, 100);

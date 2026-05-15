@@ -1308,7 +1308,7 @@ public class AtomicOperationSnapshotProxyTest {
     // but we keep the stub here as defensive scaffolding in case the AOBT internals
     // ever fall back to it.
     when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
-    op.loadOrAddPageForWrite(fid, 0);
+    op.allocatePageForWrite(fid, 0);
 
     // Page 0 exists in the new file
     assertThat(op.hasChangesForPage(fid, 0)).isTrue();
@@ -1396,9 +1396,9 @@ public class AtomicOperationSnapshotProxyTest {
     // contract uses allocationFloor=0 (and maxNewPageIndex+1 after the first
     // allocation); the getFilledUpTo stubs remain as defensive scaffolding only.
     when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
-    op.loadOrAddPageForWrite(fid, 0);
+    op.allocatePageForWrite(fid, 0);
     when(writeCache.getFilledUpTo(fid)).thenReturn(1L);
-    op.loadOrAddPageForWrite(fid, 1);
+    op.allocatePageForWrite(fid, 1);
 
     // Pages 0 and 1 have changes
     assertThat(op.hasChangesForPage(fid, 0)).isTrue();

@@ -58,7 +58,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
     fileId = addFile(atomicOperation, getFullName());
 
     // Fresh file -- append the first bit-set page (statically known-new at pageIndex 0).
-    try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
+    try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.init();
     }
@@ -200,7 +200,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   private void ensureCapacity(long requiredPageIndex, AtomicOperation atomicOperation)
       throws IOException {
     // Each loop iteration targets a strictly-new pageIndex (i >= filledUpTo),
-    // so loadOrAddPageForWrite's allocator-only contract is trivially satisfied --
+    // so allocatePageForWrite's allocator-only contract is trivially satisfied --
     // the dirty-page bit set has no entry-point page tracking a logical extent
     // separate from the physical one, so physical orphans past filledUpTo are
     // impossible by definition (the filledUpTo read IS the physical extent).
@@ -213,7 +213,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
         physicalSize(atomicOperation, fileId, PhysicalReadIntent.GROWTH_LOOP_PRE_READ);
 
     for (var i = filledUpTo; i <= requiredPageIndex; i++) {
-      try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, i)) {
+      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, i)) {
         final var page = new DirtyPageBitSetPage(cacheEntry);
         page.init();
       }

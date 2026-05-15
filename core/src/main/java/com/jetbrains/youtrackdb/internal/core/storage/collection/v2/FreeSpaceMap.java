@@ -110,7 +110,7 @@ public final class FreeSpaceMap extends StorageComponent {
 
   private void init(final AtomicOperation atomicOperation) throws IOException {
     // Fresh file -- append the first-level page (statically known-new at pageIndex 0).
-    try (final var firstLevelCacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, 0)) {
+    try (final var firstLevelCacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
       final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
       page.init();
     }
@@ -226,7 +226,7 @@ public final class FreeSpaceMap extends StorageComponent {
 
     // Ensure all required pages exist (the FSM file may need to grow). Each
     // loop iteration targets a strictly-new pageIndex (i >= filledUpTo), so
-    // loadOrAddPageForWrite's allocator-only contract is trivially satisfied --
+    // allocatePageForWrite's allocator-only contract is trivially satisfied --
     // the FSM has no entry-point page tracking a logical extent separate from
     // the physical one, so physical orphans past filledUpTo are impossible
     // by definition (the filledUpTo read IS the physical extent). Per-component
@@ -238,7 +238,7 @@ public final class FreeSpaceMap extends StorageComponent {
     final var filledUpTo =
         physicalSize(atomicOperation, fileId, PhysicalReadIntent.GROWTH_LOOP_PRE_READ);
     for (var i = filledUpTo; i <= secondLevelPageIndex; i++) {
-      try (final var cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, i)) {
+      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, i)) {
         final var page = new FreeSpaceMapPage(cacheEntry);
         page.init();
       }

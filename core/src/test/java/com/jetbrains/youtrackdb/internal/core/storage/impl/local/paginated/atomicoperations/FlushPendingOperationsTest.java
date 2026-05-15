@@ -102,7 +102,7 @@ public class FlushPendingOperationsTest {
     long fileId = op.addFile(fileName);
 
     // Fresh file: first allocation always targets pageIndex 0.
-    var page = op.loadOrAddPageForWrite(fileId, 0);
+    var page = op.allocatePageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
@@ -204,10 +204,10 @@ public class FlushPendingOperationsTest {
     long fileId = op.addFile("test.dat");
 
     // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
-    var page0 = op.loadOrAddPageForWrite(fileId, 0);
+    var page0 = op.allocatePageForWrite(fileId, 0);
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.loadOrAddPageForWrite(fileId, 1);
+    var page1 = op.allocatePageForWrite(fileId, 1);
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -279,7 +279,7 @@ public class FlushPendingOperationsTest {
   /**
    * Pins the totality contract enforced by {@code commitChanges}: when
    * {@code readCache.loadOrAddForWrite} returns null for a page that has registered
-   * changes (e.g., the in-memory eager-install in {@code loadOrAddPageForWrite} was
+   * changes (e.g., the in-memory eager-install in {@code allocatePageForWrite} was
    * bypassed, or the disk-engine {@code WriteCache.loadOrAdd} regressed), commit fails
    * fast with an {@link IllegalStateException} citing the contract. The exception is
    * thrown unconditionally (not behind a {@code -ea}-only assert) so the violation
@@ -297,7 +297,7 @@ public class FlushPendingOperationsTest {
 
     // Stub readCache.loadOrAddForWrite to return null for the page registered above.
     // This simulates a regression in either engine's totality contract:
-    //   - In-memory: AOBT.loadOrAddPageForWrite failed to eagerly install the page in
+    //   - In-memory: AOBT.allocatePageForWrite failed to eagerly install the page in
     //     MemoryFile, so MemoryFile.loadPage returns null.
     //   - Disk: WriteCache.loadOrAdd no longer gap-fills (hypothetical regression).
     when(readCache.loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any()))
@@ -334,7 +334,7 @@ public class FlushPendingOperationsTest {
     long fileId = op.addFile("nd-file.dat", true);
 
     // Fresh file: first allocation always targets pageIndex 0.
-    var page = op.loadOrAddPageForWrite(fileId, 0);
+    var page = op.allocatePageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 

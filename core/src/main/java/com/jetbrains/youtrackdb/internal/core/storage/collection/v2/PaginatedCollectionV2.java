@@ -2220,7 +2220,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * <p>The collection tracks its own "logical" file size in
    * {@link PaginatedCollectionStateV2#getFileSize()}. The per-component lock plus the state-page
    * write lock plus the monotonic logical fileSize bookkeeping below guarantee {@code fileSize + 1}
-   * is at or above the in-progress allocation floor when {@link AtomicOperation#loadOrAddPageForWrite}
+   * is at or above the in-progress allocation floor when {@link AtomicOperation#allocatePageForWrite}
    * is called, so its allocator-only contract is satisfied (it registers a fresh overlay for a
    * strictly-new pageIndex).
    *
@@ -2243,12 +2243,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
       // Per-component lock + state-page write lock + monotonic logical fileSize
       // bookkeeping keep fileSize + 1 at or above the in-progress allocation
-      // floor, satisfying loadOrAddPageForWrite's allocator-only contract: the
+      // floor, satisfying allocatePageForWrite's allocator-only contract: the
       // call registers a fresh overlay and throws IllegalStateException if the
       // target is below the floor (partial-replay-orphan recovery: physical
       // extent ahead of logical fileSize after a crash now surfaces as a hard
       // failure rather than silent reuse).
-      cacheEntry = loadOrAddPageForWrite(atomicOperation, fileId, fileSize + 1);
+      cacheEntry = allocatePageForWrite(atomicOperation, fileId, fileSize + 1);
 
       collectionState.setFileSize(fileSize + 1);
     }
@@ -2269,7 +2269,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
         == 0) {
       // Fresh file -- append the state page (statically known-new at STATE_ENTRY_INDEX).
-      stateEntry = loadOrAddPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);
+      stateEntry = allocatePageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);
     } else {
       stateEntry = loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, false);
     }

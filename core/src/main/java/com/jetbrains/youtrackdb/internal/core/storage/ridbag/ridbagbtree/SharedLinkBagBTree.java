@@ -58,7 +58,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
             // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
             try (final var entryPointCacheEntry =
-                loadOrAddPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+                allocatePageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
               final var entryPoint = new EntryPoint(entryPointCacheEntry);
               entryPoint.init();
             }
@@ -66,7 +66,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
             // Fresh file: root bucket lives at pageIndex ROOT_INDEX, immediately
             // after the entry point page.
             try (final var rootCacheEntry =
-                loadOrAddPageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
+                allocatePageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
               final var rootBucket = new Bucket(rootCacheEntry);
               rootBucket.init(true);
             }
@@ -922,7 +922,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     try (final var entryPointCacheEntry =
         loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      // loadOrAddPageForWrite registers a fresh overlay for any new pageIndex at or
+      // allocatePageForWrite registers a fresh overlay for any new pageIndex at or
       // above the in-progress allocation floor (the entry-point write lock plus the
       // monotonic pagesSize bookkeeping keep entryPoint.pagesSize + 1 above the
       // floor here), so the per-component pre-probe that previously discriminated
@@ -933,7 +933,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       // coverage lives in the integration regression test.
       final var newPageIndex = entryPoint.getPagesSize() + 1;
       rightBucketEntry =
-          loadOrAddPageForWrite(atomicOperation, fileId, newPageIndex);
+          allocatePageForWrite(atomicOperation, fileId, newPageIndex);
       entryPoint.setPagesSize(newPageIndex);
     }
 
@@ -1054,17 +1054,17 @@ public final class SharedLinkBagBTree extends StorageComponent {
       // Two-page allocation back-to-back. Each call must target a fresh
       // pageIndex; reusing one "pagesSize + 1" value would hit the
       // same-pageIndex early-return in
-      // AtomicOperationBinaryTracking#loadOrAddPageForWrite, returning the
+      // AtomicOperationBinaryTracking#allocatePageForWrite, returning the
       // SAME overlay to both bucket entries and silently corrupting the
       // left-bucket writes once the right-bucket init() ran. A single
       // setPagesSize at the end publishes the post-allocation horizon.
       final var leftPageIndex = entryPoint.getPagesSize() + 1;
       leftBucketEntry =
-          loadOrAddPageForWrite(atomicOperation, fileId, leftPageIndex);
+          allocatePageForWrite(atomicOperation, fileId, leftPageIndex);
 
       final var rightPageIndex = leftPageIndex + 1;
       rightBucketEntry =
-          loadOrAddPageForWrite(atomicOperation, fileId, rightPageIndex);
+          allocatePageForWrite(atomicOperation, fileId, rightPageIndex);
 
       entryPoint.setPagesSize(rightPageIndex);
     }

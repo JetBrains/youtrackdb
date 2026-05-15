@@ -248,7 +248,7 @@ public interface WriteCache {
    *   <li>{@code LockFreeReadCache.doLoad} — pre-call file-size snapshot for the
    *       {@code markAllocated} flag computation; the snapshot is taken under the
    *       {@code data.compute} segment write lock and feeds the freshly-allocated branch.
-   *   <li>{@code AtomicOperationBinaryTracking.loadOrAddPageForWrite} — allocation-floor
+   *   <li>{@code AtomicOperationBinaryTracking.allocatePageForWrite} — allocation-floor
    *       classifier for the {@code isNew} slow path, read under the per-component exclusive
    *       lock.
    *   <li>{@code AtomicOperationBinaryTracking.filledUpTo} — committed-file fall-through; the
@@ -288,7 +288,7 @@ public interface WriteCache {
    * from outside the cache/AOBT internal core?" into an audit-grep-able question.
    * {@link #getFilledUpTo(long)} stays callable for the documented internal set
    * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
-   * loadOrAddPageForWrite}}, and the {@link WriteCache} implementers) and now carries an
+   * allocatePageForWrite}}, and the {@link WriteCache} implementers) and now carries an
    * {@code @Deprecated} marker so a new external caller trips a deprecation warning at
    * compile time.
    *

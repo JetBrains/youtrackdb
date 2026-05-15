@@ -99,7 +99,7 @@ public interface AtomicOperation {
    *     committed file size and no prior overlay exists for it; the in-memory engine
    *     bypasses this check for rollback-orphan re-use
    */
-  CacheEntry loadOrAddPageForWrite(long fileId, long pageIndex) throws IOException;
+  CacheEntry allocatePageForWrite(long fileId, long pageIndex) throws IOException;
 
   void releasePageFromRead(CacheEntry cacheEntry);
 

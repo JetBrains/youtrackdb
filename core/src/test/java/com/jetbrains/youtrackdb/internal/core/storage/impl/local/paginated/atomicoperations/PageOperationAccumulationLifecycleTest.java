@@ -107,7 +107,7 @@ public class PageOperationAccumulationLifecycleTest {
 
     long fileId = op.addFile(fileName);
     // Fresh file: first allocation always targets pageIndex 0.
-    var page = op.loadOrAddPageForWrite(fileId, 0);
+    var page = op.allocatePageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
@@ -182,10 +182,10 @@ public class PageOperationAccumulationLifecycleTest {
     long fileId = op.addFile("test.dat");
 
     // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
-    var page0 = op.loadOrAddPageForWrite(fileId, 0);
+    var page0 = op.allocatePageForWrite(fileId, 0);
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.loadOrAddPageForWrite(fileId, 1);
+    var page1 = op.allocatePageForWrite(fileId, 1);
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -236,7 +236,7 @@ public class PageOperationAccumulationLifecycleTest {
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("test.dat");
     // Fresh file: first allocation always targets pageIndex 0.
-    var page = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 0);
+    var page = (CacheEntryChanges) op.allocatePageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 

@@ -55,7 +55,7 @@ public class RegisterPageOperationTest {
   }
 
   /**
-   * Creates a new file, adds pages via loadOrAddPageForWrite(), makes a small change, and sets
+   * Creates a new file, adds pages via allocatePageForWrite(), makes a small change, and sets
    * initialLSN. Returns the composite file ID.
    */
   private long setupNewFileWithPages(
@@ -69,7 +69,7 @@ public class RegisterPageOperationTest {
 
     for (int i = 0; i < pageCount; i++) {
       // Fresh file: the i-th allocation targets pageIndex i exactly.
-      var page = op.loadOrAddPageForWrite(fileId, i);
+      var page = op.allocatePageForWrite(fileId, i);
       // Make a change so hasChanges() returns true
       page.getChanges().setByteValue(null, (byte) 1, 100);
       page.setInitialLSN(new LogSequenceNumber(-1, -1));

@@ -1220,7 +1220,7 @@ public class CollectionPositionMapV2Test {
     // AOBT-layer wrapper to a loud IllegalStateException — those two tests
     // exercise the orphan-reuse shape the cache layer still supports, while
     // the AOBT-layer rejection is pinned in LoadOrAddPageForWriteTest.
-    when(op.loadOrAddPageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
+    when(op.allocatePageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
       int pIdx = ((Long) inv.getArgument(1)).intValue();
       var entry = getOrCreatePage(pIdx);
       if (pIdx >= pageCount) {

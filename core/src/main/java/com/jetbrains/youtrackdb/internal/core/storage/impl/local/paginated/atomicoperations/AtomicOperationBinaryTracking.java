@@ -341,12 +341,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
-   * Allocation-only write-side primitive. <b>Despite the historical name, this method does
-   * NOT load existing pages on the disk engine</b> — callers targeting a {@code pageIndex}
-   * below the committed file size raise {@link IllegalStateException} on that engine. Use
-   * {@link #loadPageForWrite} for existing pages. Returns a {@link CacheEntryChanges}
-   * overlay that the caller accumulates writes into via {@code CacheEntryChanges.changes};
-   * the underlying delegate shape differs by engine (see "Per-engine delegate shape" below).
+   * Write-side page allocator. <b>Cross-engine asymmetry: allocator-only on disk;
+   * eager-install total on in-memory.</b> On the disk engine the contract is strictly
+   * allocator-only — callers targeting a {@code pageIndex} below the committed file size
+   * raise {@link IllegalStateException}; use {@link #loadPageForWrite} for existing pages.
+   * On the in-memory engine the same call eagerly installs the page in {@code MemoryFile}
+   * (see "Per-engine delegate shape" below) and bypasses the strict allocator-only check
+   * so a TX rollback's cache-resident orphans can be re-used by the next TX. Returns a
+   * {@link CacheEntryChanges} overlay that the caller accumulates writes into via
+   * {@code CacheEntryChanges.changes}; the underlying delegate shape differs by engine
+   * (see "Per-engine delegate shape" below).
    *
    * <p>The caller must supply a target {@code pageIndex} that is genuinely new — either
    * the file was booked in this TX (everything past page -1 is new) or
@@ -401,7 +405,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    *       no real data and the new TX overwrites it via {@code CacheEntryChanges}.
    *       Fresh-booked files take this branch too: {@link #addFile} eagerly calls
    *       {@code readCache.addFile} on the in-memory engine so the underlying
-   *       {@code MemoryFile} is registered before {@code loadOrAddPageForWrite} fires,
+   *       {@code MemoryFile} is registered before {@code allocatePageForWrite} fires,
    *       and {@code commitChanges} skips its late {@code readCache.addFile} call via
    *       the {@code FileChanges.eagerlyInstalledInCache} flag.
    * </ul>
@@ -435,7 +439,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // sites listed on WriteCache.getFilledUpTo's Javadoc.
   @SuppressWarnings({"CheckedExceptionNotThrown", "deprecation"})
   @Override
-  public CacheEntry loadOrAddPageForWrite(long fileId, final long pageIndex)
+  public CacheEntry allocatePageForWrite(long fileId, final long pageIndex)
       throws IOException {
     checkIfActive();
     assert pageIndex >= 0 : "pageIndex out of range: " + pageIndex;
@@ -451,7 +455,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
 
     // Idempotency inside the same TX: if a prior loadPageForWrite or
-    // loadOrAddPageForWrite already wrapped this pageIndex, return the existing
+    // allocatePageForWrite already wrapped this pageIndex, return the existing
     // overlay so the WAL change buffer stays a single accumulator for the page.
     var existing = changesContainer.pageChangesMap.get(pageIndex);
     if (existing != null) {
@@ -571,7 +575,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       }
       if (!(fileIsNew || pageIndex >= allocationFloor)) {
         throw new IllegalStateException(
-            "loadOrAddPageForWrite is allocation-only; pageIndex " + pageIndex
+            "allocatePageForWrite is allocation-only; pageIndex " + pageIndex
                 + " is below allocationFloor " + allocationFloor
                 + " on file with id " + fileId
                 + ". Use loadPageForWrite for existing pages.");
@@ -603,7 +607,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     // idempotent-call shape is already covered by the early-return above.
     assert changesContainer.pageChangesMap.get(pageIndex) == null
         : "pageChangesMap already contains pageIndex=" + pageIndex
-            + " — concurrent loadOrAddPageForWrite for the same (fileId, pageIndex)"
+            + " — concurrent allocatePageForWrite for the same (fileId, pageIndex)"
             + " inside a single AtomicOperation; per-component lock contract violated";
     changesContainer.pageChangesMap.put(pageIndex, changes);
     if (pageIndex > changesContainer.maxNewPageIndex) {
@@ -825,13 +829,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     fileChanges.maxNewPageIndex = -1;
 
     // In-memory engine: eagerly register the file with the read cache so subsequent
-    // loadOrAddPageForWrite calls in this TX can take the eager-install branch even for
+    // allocatePageForWrite calls in this TX can take the eager-install branch even for
     // pages 0/1 of a freshly-booked file. The disk engine cannot do this — its
     // readCache.addFile creates physical state (WAL records, AsyncFile open) that would
     // need to be rolled back on TX failure. The in-memory engine has neither: addFile
     // just inserts a MemoryFile into the per-storage map, and a rolled-back TX leaves
     // the empty MemoryFile orphaned in the cache (bounded session-scoped leak, same
-    // shape as the rollback-orphan page leak documented in loadOrAddPageForWrite).
+    // shape as the rollback-orphan page leak documented in allocatePageForWrite).
     //
     // The eagerlyInstalledInCache flag tells commitChanges to skip the late
     // readCache.addFile call for this fileChanges entry (a second addFile would throw
@@ -1089,7 +1093,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         if (fileChanges.isNew) {
           // On the in-memory engine, addFile already eagerly registered this fileId with
           // readCache so that fresh-booked-file pages could take the eager-install branch
-          // in loadOrAddPageForWrite (see AtomicOperationBinaryTracking.addFile). A second
+          // in allocatePageForWrite (see AtomicOperationBinaryTracking.addFile). A second
           // readCache.addFile call would throw "File with id ... already exists" from
           // DirectMemoryOnlyDiskCache.addFile.
           if (!fileChanges.eagerlyInstalledInCache) {
@@ -1129,14 +1133,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             // loadOrAddForWrite is total on both engines at this point:
             //   - Disk engine (LockFreeReadCache + WOWCache): WriteCache.loadOrAdd gap-fills
             //     intermediate pages and returns a usable entry for the requested pageIndex.
-            //   - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddPageForWrite eagerly
+            //   - In-memory engine (DirectMemoryOnlyDiskCache): allocatePageForWrite eagerly
             //     installs the page in MemoryFile during the TX, so the commit-time
             //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
             // Of the four sibling loadOrAddForWrite sites, this one is the only reachable
             // site on the in-memory engine (the AbstractStorage WAL-replay branches and
             // DiskStorage incremental-backup restore are disk-only because
             // MemoryWriteAheadLog is a no-op). So an assertion is not sufficient here:
-            // any future extension or test caller that bypasses loadOrAddPageForWrite on
+            // any future extension or test caller that bypasses allocatePageForWrite on
             // the in-memory engine would surface a null return only in -ea test builds.
             // Throw unconditionally so the violation is visible in production builds too.
             if (cacheEntry == null) {
@@ -1144,7 +1148,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                   "readCache.loadOrAddForWrite returned null in commitChanges for fileId="
                       + fileId + " pageIndex=" + pageIndex
                       + " isNew=" + filePageChanges.isNew
-                      + " (in-memory engine: eager-install in loadOrAddPageForWrite must"
+                      + " (in-memory engine: eager-install in allocatePageForWrite must"
                       + " have run; disk engine: WriteCache.loadOrAdd is total);"
                       + " WriteCache.loadOrAdd totality contract violated");
             }
@@ -1557,7 +1561,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     /**
      * In-memory engine only: {@code true} when {@link AtomicOperationBinaryTracking#addFile}
      * already called {@code readCache.addFile} for this fileId so that fresh-booked-file
-     * pages can take the eager-install branch in {@code loadOrAddPageForWrite}. When set,
+     * pages can take the eager-install branch in {@code allocatePageForWrite}. When set,
      * {@code commitChanges} must skip its late {@code readCache.addFile} call to avoid a
      * duplicate-registration error from {@code DirectMemoryOnlyDiskCache}. Always
      * {@code false} on the disk engine.
