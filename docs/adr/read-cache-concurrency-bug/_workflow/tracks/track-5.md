@@ -369,7 +369,7 @@ front.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/6 complete)
+- [ ] Step implementation (5/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -583,32 +583,59 @@ front.
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionDirtyPageBitSet.java` (3 sites)
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java` (1 site — the defensive probe at `:1843`; the HLL-spill discriminator calls use `op.filledUpTo` directly and are out of scope)
 
-- [ ] Step 5: `@Deprecated` `WriteCache.getFilledUpTo` + `@SuppressWarnings` on documented internal callers
+- [x] Step 5: `@Deprecated` `WriteCache.getFilledUpTo` + `@SuppressWarnings` on documented internal callers
+  - [x] Context: safe
   > **Risk:** low — annotation + Javadoc changes with no behavioral
   > impact. No HIGH or MEDIUM triggers (per `risk-tagging.md` §"LOW-risk
   > default"). The intra-module audit-grep contract is convention-based;
   > this step makes the deprecation warning machine-checkable.
   >
-  > Mark `WriteCache.getFilledUpTo(long)` `@Deprecated(forRemoval = false)`
-  > with a Javadoc directing future callers to
-  > `WriteCache.physicalSizeForBackupSnapshot` (Layer A) or
-  > `StorageComponent.physicalSize(op, fileId, intent)` (Layer B). The
-  > Javadoc enumerates the documented internal callers (`LFRC.doLoad`,
-  > `AOBT.{loadOrAddPageForWrite, filledUpTo}`, the new Layer A helper
-  > body in `WOWCache` / `DirectMemoryOnlyDiskCache`) — these stay and
-  > carry `@SuppressWarnings("deprecation")` so the deprecation warning
-  > does not noise-up the build.
+  > **What was done:** Marked `WriteCache.getFilledUpTo(long)`
+  > `@Deprecated(forRemoval = false)` with a contract-stating Javadoc
+  > that enumerates the retained internal-caller set: `LFRC.doLoad`,
+  > `AOBT.loadOrAddPageForWrite`, `AOBT.filledUpTo`, the Layer A helper
+  > bodies in `WOWCache` / `DirectMemoryOnlyDiskCache`, and the two
+  > `WriteCache` implementer overrides themselves. Each retained caller
+  > gained `@SuppressWarnings("deprecation")` at method scope; on
+  > `AOBT.loadOrAddPageForWrite` the existing
+  > `@SuppressWarnings("CheckedExceptionNotThrown")` was extended to
+  > `{"CheckedExceptionNotThrown", "deprecation"}`. Tightened the
+  > Step 1 Javadoc on `physicalSizeForBackupSnapshot` to drop the
+  > "will pick up an `@Deprecated` marker in a follow-up commit"
+  > phrasing now that the marker is in place. 31/31 targeted tests
+  > pass (`LoadOrAddPageForWriteTest`, `StorageComponentPhysicalSizeTest`,
+  > `WOWCachePhysicalSizeForBackupSnapshotTest`,
+  > `DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest`); build
+  > green at the default Maven baseline and under `-Xlint:deprecation`.
   >
-  > Build with `-Xlint:deprecation` (or check the existing Maven
-  > warning baseline) and confirm only the documented internal-caller
-  > sites trigger the deprecation warning post-suppression.
+  > **What was discovered:** The Maven build sets
+  > `<showDeprecation>false</showDeprecation>` and the ErrorProne config
+  > does not enable `-Xlint:deprecation`, so deprecation warnings are
+  > silent by default — the `@Deprecated` marker is enforceable only
+  > when a downstream consumer or targeted lint run opts in. The
+  > contract-stating Javadoc therefore carries most of the audit-grep
+  > weight; the annotation is the secondary defense. Test-code mocks
+  > of `WriteCache` (5 in-tree LFRC fixtures plus Mockito-based mocks)
+  > call the deprecated method but are ErrorProne-exempt
+  > (`-XepExcludedPaths` excludes `src/test`) and silenced by the same
+  > `showDeprecation` flag — no test-side suppression needed, matching
+  > the precedent set by the existing `@Deprecated WriteCache.load(...)`
+  > pattern.
   >
-  > **Files:**
-  > - `core/.../internal/core/storage/cache/WriteCache.java` (Javadoc + annotation)
-  > - `core/.../internal/core/storage/cache/chm/LockFreeReadCache.java` (`@SuppressWarnings` on the `doLoad:307` caller)
-  > - `core/.../storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java` (`@SuppressWarnings` on `:565` and `:765` — both inside the existing method scope, so a single annotation at method level may suffice; Phase B picks the minimum scope)
-  > - `core/.../internal/core/storage/cache/local/WOWCache.java` (`@SuppressWarnings` on the Layer A helper body + the legacy `getFilledUpTo` impl)
-  > - `core/.../internal/core/storage/memory/DirectMemoryOnlyDiskCache.java` (parallel)
+  > **Critical context:** A future CI rule that enables
+  > `-Xlint:deprecation` (or a downstream module that consumes this jar
+  > with stricter lint) will see exactly the documented retained-caller
+  > set light up post-suppression — that is the audit-grep contract
+  > the Javadoc enumerates. To verify "no new external callers snuck
+  > in", PSI find-usages on `WriteCache.getFilledUpTo` cross-checked
+  > against the Javadoc's retained-caller list is the cleanest tool.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/WriteCache.java` (Javadoc + annotation)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCache.java` (`@SuppressWarnings` on `doLoad`)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java` (`@SuppressWarnings` on Layer A helper + legacy impl)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java` (parallel)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java` (`@SuppressWarnings` on `loadOrAddPageForWrite` and `filledUpTo`)
 
 - [ ] Step 6: IDE rename `AtomicOperation.loadOrAddPageForWrite` → `allocatePageForWrite`
   > **Risk:** high — SPI surface change with ~100+ polymorphic references
