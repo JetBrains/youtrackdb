@@ -61,7 +61,7 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -91,5 +91,14 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
   >
   > **Key files:** `.claude/workflow/step-implementation.md` (modified)
 
-- [ ] Step: Side-by-side sync check against `.claude/skills/code-review/SKILL.md` per the four canonical items — (1) workflow-machinery file-set matches SKILL.md Step 5a (line 120); (2) per-agent file-pattern triggers match Step 5b table (lines 156-161) verbatim, especially `review-workflow-context-budget` (always launched, not gated on a sub-pattern); (3) three override cases match Step 5d bullets 1-3 (lines 182-184); (4) filtered-dispatch shape on mixed diffs matches Step 6's `IN_SCOPE_FILES` per group (lines 196-198). Output is a deltas-or-all-clear note recorded in the step episode. If any item diverges, repair `review-agent-selection.md` in this step's commit; do not document disagreement (per D8 rationale).
+- [x] Step: Side-by-side sync check against `.claude/skills/code-review/SKILL.md` per the four canonical items — (1) workflow-machinery file-set matches SKILL.md Step 5a (line 120); (2) per-agent file-pattern triggers match Step 5b table (lines 156-161) verbatim, especially `review-workflow-context-budget` (always launched, not gated on a sub-pattern); (3) three override cases match Step 5d bullets 1-3 (lines 182-184); (4) filtered-dispatch shape on mixed diffs matches Step 6's `IN_SCOPE_FILES` per group (lines 196-198). Output is a deltas-or-all-clear note recorded in the step episode. If any item diverges, repair `review-agent-selection.md` in this step's commit; do not document disagreement (per D8 rationale).
+  - [x] Context: safe
   > **Risk:** low — verification gate. No new code path; any repair lands in the same file Step 1 already edited, with the same justification (mirror SKILL.md). Phase A's evidence certificates C2 / C6 already established the canonical anchors, so divergence at sync-check time is improbable.
+  >
+  > **What was done:** Re-performed the four-item side-by-side sync check between `.claude/workflow/review-agent-selection.md` (Step 1 output) and `.claude/skills/code-review/SKILL.md`. Independently re-verified each item: (1) workflow-machinery file-set + `docs-only` exclusivity at `review-agent-selection.md` lines 76-93 vs SKILL.md line 120 + line 124; (2) per-agent file-pattern triggers including always-launched `review-workflow-context-budget` and `review-workflow-consistency` with three-axes parenthetical intact at lines 105-112 vs SKILL.md lines 156-161; (3) three override cases at lines 121-138 vs SKILL.md Step 5d bullets 1-3 (lines 182-184); (4) filtered-dispatch `IN_SCOPE_FILES` shape at lines 134-138 + Selection-process step 4 (lines 154-157) vs SKILL.md Step 6 (lines 196-198). **All four items matched verbatim in content** — no divergences, no repairs needed. Appended a one-line durable audit-anchor at the bottom of `review-agent-selection.md` dated 2026-05-15 so future drift sweeps can update the date and surface as a single-line `git blame` (commit `9cd6cddd39`).
+  >
+  > **What was discovered:** The protocol-fit notice from the first spawn — verification-gate steps that produce no code change on the happy path don't cleanly satisfy the implementer SUCCESS contract (which requires a non-empty `COMMIT`). The orchestrator-side resolution adopted here is to mint a durable audit-anchor on all-clear so the step has a real commit and the audit trail is locally readable from `git blame` of the anchor line. Future verification-gate steps elsewhere in the workflow should adopt the same pattern.
+  >
+  > **Key files:** `.claude/workflow/review-agent-selection.md` (modified — audit anchor appended)
+  >
+  > **Critical context:** The audit-anchor is a **load-bearing artifact** of the SKILL.md ↔ `review-agent-selection.md` sync contract. Any future edit that changes either file's Step 5a / 5b / 5d / 6 content MUST update both files together and bump the anchor date. Worth flagging in later tracks that touch workflow-review agent selection rules.
