@@ -604,24 +604,66 @@ cat /tmp/claude-code-context-usage-$PPID.txt
 **Sub-step 7 — Episode finalisation and track-file write.** Merge
 `result.EPISODE_DRAFT` with any cross-track-impact-check
 observations from sub-step 5 (those go into the episode's
-**What was discovered** field). Write the episode to the track file
-under the step item, and write the context-check sub-item with the
-measured level:
+**What was discovered** field). The write is a deterministic
+four-section checklist per D9, D11, and D12 — one statusline read
+followed by up to four section writes (two always-run, two
+conditional). The same canonical order applies to every other
+Progress writer in the workflow (Phase A decomposition-complete,
+Phase C iteration writes, Phase C track-completion, the failed-step
+`[!]` path in `step-implementation-recovery.md`).
 
-```markdown
-- [x] Step: <description>
-  - [x] Context: safe
-  > **Risk:** ...
-  >
-  > **What was done:** ...
-```
+**Sub-step 7.0 — Read the statusline (always).** Read
+`/tmp/claude-code-context-usage-$PPID.txt` and parse the `level=`
+value. Sub-step 6 has already done this read and recorded the
+level; reuse the recorded level here. If the statusline file was
+missing or the parse failed, the recorded level is `unknown` —
+inline `[ctx=unknown]` on the writes below per the D12 fallback
+rule. Do not skip the write; the missing-file case is a known
+fallback, not a failure mode.
 
-If sub-step 6's measurement failed, write
-`- [x] Context: unavailable`.
+**Sub-step 7.1 — Append the Episodes block (always).** Append a
+`### Step N — commit <SHA>, <ISO> [ctx=<level>]` heading to the
+track file's `## Episodes` section with the four episode fields
+(`**What was done:**`, `**What was discovered:**`,
+`**What changed from the plan:**`, `**Key files:**`,
+`**Critical context:**` — fields with no content are omitted, not
+left as "N/A"). The `[ctx=<level>]` field on the header is
+mandatory per D12. Flip the matching `## Concrete Steps` roster
+line from `[ ]` to `[x]` and optionally append `commit: <SHA>` to
+that line. Detailed format and examples live in
+[`episode-format-reference.md`](episode-format-reference.md).
 
-Mark the step as `[x]`. Update the **Progress** section's `Step
-implementation` count (e.g., `(3/5 complete)`). If this is the last
-step, mark `Step implementation` as `[x]`.
+**Sub-step 7.2 — Append the Progress entry (always).** Append
+`- [x] <ISO> [ctx=<level>] Step N complete (commit <SHA>)` to the
+track file's `## Progress` section. The `[ctx=<level>]` field is
+mandatory per D12.
+
+**Sub-step 7.3 — Promote to Surprises & Discoveries (conditional).**
+If the episode's `What was discovered` field crosses the
+"cross-cutting" threshold — the discovery affects future steps in
+this track, future tracks, or the plan itself (heuristic: mentions
+a track number other than the current track, or names a
+class/file outside the track's in-scope list) — append a one-line
+entry to `## Surprises & Discoveries` summarising the finding and
+pointing back at the Episodes block:
+`- <ISO> Step N discovered: <summary>. See Episodes §Step N.` The
+Episodes block remains the authoritative copy for the full
+discovery; the Surprises entry is the high-level summary that
+survives a resume.
+
+**Sub-step 7.4 — Promote to Decision Log (conditional).** If the
+episode's `What changed from the plan` field names an
+execution-time decision — inline-replan choice, scope-down,
+dependency reveal, gate-override reason — append a one-line entry
+to `## Decision Log` with the decision-class tag and a back-
+reference to the Episodes block:
+`- <ISO> (inline-replan | scope-down | dependency-reveal | gate-override) <one-line decision>. See Episodes §Step N.`
+
+The mandatory `[ctx=<level>]` field is enforced at write time
+only — backfilling it after a missed write would be fiction, since
+the actual context level at write time is unrecoverable. See
+`design.md` §"Continuous-log discipline" subsection
+*Mandatory `[ctx=<level>]` field* for the rationale.
 
 **Sub-step 8 — Commit and push the episode.** The track file is
 tracked under `_workflow/`, so the episode write produces a dirty

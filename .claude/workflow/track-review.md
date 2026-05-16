@@ -470,21 +470,41 @@ review-mode rounds.
    in [`risk-tagging.md`](risk-tagging.md) — load that file at the
    start of decomposition. The tag controls whether Phase B runs
    step-level dimensional review for the step.
-5. **Write decomposed steps** to the track file's `## Steps` section as
-   `[ ]` items, each with its `**Risk:**` line in the description
-   blockquote. Mark `Review + decomposition` as `[x]` in the Progress
-   section. Before this atomic write, apply the §Pre-write rule above
-   to every production class named in a step body — PSI-verify each
-   via `mcp-steroid` find-class so a pattern-induced name (V1 → V2/V3
-   trap, generated-code package drift) does not slip into the step
-   file and force an iter-2 fix round. On unresolved-name failure,
-   follow the **Failure path** in §Pre-write rule (one retry, then
-   `AskUserQuestion`) — do NOT write the track file with an unresolved
-   reference.
+5. **Write decomposed steps** to the track file's `## Concrete Steps`
+   section as a numbered roster of thin lines — description + `risk:`
+   tag + `[ ]` checkbox per step (per D9; no nested blockquote). Per-
+   step episodes do not live here; they live in `## Episodes`, which
+   stays empty until Phase B writes its first step block. Before this
+   atomic write, apply the §Pre-write rule above to every production
+   class named in a step body — PSI-verify each via `mcp-steroid`
+   find-class so a pattern-induced name (V1 → V2/V3 trap, generated-
+   code package drift) does not slip into the track file and force an
+   iter-2 fix round. On unresolved-name failure, follow the **Failure
+   path** in §Pre-write rule (one retry, then `AskUserQuestion`) — do
+   NOT write the track file with an unresolved reference.
+
+   **Append the Phase A decomposition-complete Progress entry.**
+   Follow the D12 canonical statusline-read-then-write order:
+
+   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
+      `level=` value. If the file is missing or the parse fails,
+      use `unknown` per the D12 fallback rule — do not skip the
+      write.
+   2. Append a single entry to the track file's `## Progress`
+      section:
+      `- [x] <ISO> [ctx=<level>] Review + decomposition complete`.
+
+   The `[ctx=<level>]` field is mandatory per D12 — see
+   `design.md` §"Continuous-log discipline" subsection
+   *Mandatory `[ctx=<level>]` field* for the rationale. The same
+   read-then-write order applies to every other Progress writer
+   (Phase B per-step sub-step 7, Phase C iteration writes, Phase C
+   track-completion, the failed-step `[!]` path in
+   `step-implementation-recovery.md`).
 
 6. **Commit and push the Phase A workflow updates.** Phase A's on-disk
-   writes — the populated `## Steps` section and the `[x]` mark in
-   `## Progress` — must be committed before Phase B spawns the first
+   writes — the populated `## Concrete Steps` section and the new
+   Progress entry — must be committed before Phase B spawns the first
    implementer for this track. The implementer's revert path uses
    `git reset --hard HEAD`, which would otherwise discard the
    uncommitted decomposition.

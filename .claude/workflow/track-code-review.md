@@ -480,10 +480,22 @@ orchestrator never edits source files itself in Phase C.
      does **not** re-run tests or re-stage files; it proceeds to the
      gate check.
    - **Update the Progress section** on disk to record the completed
-     iteration (e.g., `- [ ] Track-level code review (1/3 iterations)`).
-     Commit and push the Progress update as a Workflow update commit
-     (per [`commit-conventions.md`](commit-conventions.md) § Commit
-     type prefixes — "Workflow update" row).
+     iteration. Follow the D12 canonical statusline-read-then-write
+     order:
+     1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
+        `level=` value. If the file is missing or the parse fails,
+        use `unknown` per the D12 fallback rule — do not skip the
+        write.
+     2. Append a single entry to the track file's `## Progress`
+        section:
+        `- [x] <ISO> [ctx=<level>] Track-level code review iteration N complete (N/3 iterations)`.
+
+     The `[ctx=<level>]` field is mandatory per D12 — see
+     `design.md` §"Continuous-log discipline" subsection
+     *Mandatory `[ctx=<level>]` field*. Commit and push the Progress
+     update as a Workflow update commit (per
+     [`commit-conventions.md`](commit-conventions.md) § Commit type
+     prefixes — "Workflow update" row).
    - Spawn **fresh sub-agents** to verify (gate check) — only re-run the
      review dimension(s) that had open findings. For example, if only
      crash-safety code findings and test-completeness findings remain,
@@ -563,8 +575,22 @@ orchestrator never edits source files itself in Phase C.
    in a non-`SUCCESS` return that exited the loop, note the unfixed
    findings — they'll be presented to the user during track completion
    (below).
-6. When all reviews pass (or max iterations reached), mark
-   `Track-level code review` as `[x]` in the track file's Progress section.
+6. When all reviews pass (or max iterations reached), append a
+   track-completion entry to the track file's `## Progress` section.
+   Follow the D12 canonical statusline-read-then-write order:
+   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
+      `level=` value. If the file is missing or the parse fails,
+      use `unknown` per the D12 fallback rule — do not skip the
+      write.
+   2. Append a single entry to the track file's `## Progress`
+      section:
+      `- [x] <ISO> [ctx=<level>] Track complete`.
+
+   The `[ctx=<level>]` field is mandatory per D12. The
+   track-completion summary itself (review outcomes, iteration
+   counts, deferred findings) lands in `## Outcomes & Retrospective`
+   per the track-completion flow below, not in Progress; Progress
+   carries only the one-line phase-state signal.
 
 ---
 
@@ -732,10 +758,18 @@ The implementer's `FILES_TOUCHED` and `FAILURE.why_it_failed` are
 authoritative inputs to the user's choice — do not discard them. If
 `git status` is clean, proceed with the steps below.
 
-1. **Record the failure** — update the track file's Progress section
-   to mark the track-level code review entry with the failure (e.g.,
-   `- [ ] Track-level code review (FAILED at iteration N/3)`) and
-   commit the Progress update as a Workflow update commit. Embed the
+1. **Record the failure** — append a failure entry to the track
+   file's `## Progress` section following the D12 canonical
+   statusline-read-then-write order:
+   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
+      `level=` value. If the file is missing or the parse fails,
+      use `unknown` per the D12 fallback rule — do not skip the
+      write.
+   2. Append a single entry to `## Progress`:
+      `- [!] <ISO> [ctx=<level>] Track-level code review FAILED at iteration N/3`.
+
+   The `[ctx=<level>]` field is mandatory per D12. Commit the
+   Progress update as a Workflow update commit and embed the
    `FAILURE` fields (`what_was_attempted`, `why_it_failed`,
    `impact_on_remaining_findings`, `recommended_action`) verbatim in
    the commit message body so the git history preserves the failure

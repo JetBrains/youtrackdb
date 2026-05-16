@@ -121,10 +121,18 @@ the track file on disk:
      = HEAD`.
    - If no `[!]` entry exists, write it now (reconstruct the
      `FAILURE` fields from the prose explanation in the revert body
-     plus the git log of the reverted commits), insert retry/split
-     rows per the implied `recommended_action` (default to `retry`
-     when the revert body does not name one), update Progress, then
-     respawn from the retry/split row with `mode=INITIAL`.
+     plus the git log of the reverted commits), append the failed-
+     step `### Step N — FAILED, <ISO> [ctx=<level>]` block to
+     `## Episodes` (`[ctx=<level>]` per the D12 statusline-read-then-
+     write order — read `/tmp/claude-code-context-usage-$PPID.txt`
+     and parse `level=` before the write; fall back to `unknown` if
+     the file is missing), insert retry/split rows in `## Concrete
+     Steps` per the implied `recommended_action` (default to `retry`
+     when the revert body does not name one), append the matching
+     `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`
+     entry to `## Progress` (same `[ctx=<level>]` from the read
+     above), then respawn from the retry/split row with
+     `mode=INITIAL`.
 
    **`reason: late-design-decision`** — the review-fix respawn
    returned `DESIGN_DECISION_NEEDED` and the user had not yet chosen
@@ -380,11 +388,26 @@ artefacts (the snapshot-and-diff revert sequence) before returning,
 so the working tree is clean at `step_base_commit`.
 
 1. **Write the failed episode** to the track file from
-   `result.FAILURE` (mark the step `[!]`).
-2. **Insert `[ ]` retry/split rows** per the existing protocol — see
-   §Step Failure below for the retry/split formats.
-3. **Update the Progress section's step count** to reflect any
-   inserted rows.
+   `result.FAILURE`. Append a `### Step N — FAILED, <ISO> [ctx=<level>]`
+   block to `## Episodes` with the failed-step field set (`**What was
+   attempted:**`, `**Why it failed:**`, `**Impact on remaining
+   steps:**`, `**Key files:**`), and flip the matching `## Concrete
+   Steps` roster line from `[ ]` to `[!]`.
+2. **Append a failed-step Progress entry** following the D12 canonical
+   statusline-read-then-write order:
+   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
+      `level=` value. If the file is missing or the parse fails,
+      use `unknown` per the D12 fallback rule — do not skip the
+      write.
+   2. Append a single entry to `## Progress`:
+      `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`.
+
+   The `[ctx=<level>]` field is mandatory per D12 on both the
+   Episodes block header and the Progress entry.
+3. **Insert `[ ]` retry/split rows** per the existing protocol — see
+   §Step Failure below for the retry/split formats. The new rows are
+   appended to `## Concrete Steps` as additional numbered roster
+   lines.
 4. **Two-failure rule.** If the new `[!]` makes two consecutive
    `[!]` entries for the same logical step, stop and present both
    failed episodes to the user — see §Two-Failure Rule below.
@@ -520,14 +543,27 @@ implementer already finished and validated.
    already marked `[!]`; Detection step 3 would then misattribute
    those orphan commits to the next `[ ]` step.
 2. **Write the failed episode** to the track file from
-   `fix_result.FAILURE` (mark the step `[!]`). The episode's
-   `what_was_attempted` should describe both the original
-   implementation and the review-fix attempt that failed; the
-   `why_it_failed` field captures the underlying reason.
-3. **Insert `[ ]` retry/split rows** per the existing protocol —
-   see §Step Failure for the formats.
-4. **Update the Progress section's step count** to reflect the
-   inserted rows.
+   `fix_result.FAILURE`. Append a `### Step N — FAILED, <ISO>
+   [ctx=<level>]` block to `## Episodes` with the failed-step field
+   set, and flip the matching `## Concrete Steps` roster line from
+   `[ ]` to `[!]`. The episode's `what_was_attempted` should
+   describe both the original implementation and the review-fix
+   attempt that failed; the `why_it_failed` field captures the
+   underlying reason.
+3. **Append a failed-step Progress entry** following the D12
+   canonical statusline-read-then-write order:
+   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
+      `level=` value. If the file is missing or the parse fails,
+      use `unknown` per the D12 fallback rule — do not skip the
+      write.
+   2. Append a single entry to `## Progress`:
+      `- [!] <ISO> [ctx=<level>] Step N failed (review-fix path) — see Episodes §Step N`.
+
+   The `[ctx=<level>]` field is mandatory per D12 on both the
+   Episodes block header and the Progress entry.
+4. **Insert `[ ]` retry/split rows** per the existing protocol —
+   see §Step Failure for the formats. The new rows are appended to
+   `## Concrete Steps` as additional numbered roster lines.
 5. **Two-failure rule.** If the new `[!]` makes two consecutive
    `[!]` entries for the same logical step, stop and present both
    failed episodes to the user — see §Two-Failure Rule.

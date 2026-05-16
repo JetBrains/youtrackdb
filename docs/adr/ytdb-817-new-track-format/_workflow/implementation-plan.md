@@ -223,7 +223,7 @@ flowchart LR
   >
   > Phase C ran one review-fix iteration on 8 in-scope findings (F1-F8) with iter-2 gate-check PASS across all three dimensions that had open findings (WC, WI, WS); WB had no findings. 4 findings deferred: WC#5 → Track 2; WC#6 (pre-existing budget commentary) → out of scope; WI#4 + WI#5 → self-improvement reflection.
   >
-  > **Step file:** `tracks/track-1.md` (3 steps, 0 failed)
+  > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected. WC#5 plan correction (Track 1 Phase C deferred finding) already folded into Track 2 description; no other Track 1 discoveries affect Track 2 scope.
 
