@@ -32,135 +32,235 @@ detection is used.
 
 ### Track file content (`plan/track-N.md`)
 
-````markdown
-# Track N: <title>
+Each track file uses the 12-section OpenAI ExecPlan template (verbatim
+section names and order) plus two workflow-specific siblings:
+`## Episodes` (per-step blocks) and `## Base commit` (Phase B → C
+housekeeping). 14 sections total. The continuous-log sections — Progress,
+Surprises & Discoveries, Decision Log, Outcomes & Retrospective — come
+first so a restart-from-cold reader sees current state before static
+plan; Episodes sits adjacent to its plan-at-start partner (Concrete
+Steps) so per-step roster and per-step result are physically co-located.
 
-## Description
-<written at Phase 1 by `create-plan` — intro paragraph from the plan
-entry plus `**What**:` / `**How**:` / `**Constraints**:` /
-`**Interactions**:` subsections plus any optional track-level Mermaid
-diagram. The Track Pre-Flight gate (see
-[`track-review.md`](track-review.md) §Track Pre-Flight) may amend this
-section and/or append a `### Clarifications` subsection (omitted when
-the gate captured no clarifications). See the "Description lifecycle"
-subsection at the end of §2.1 for authoritative-location rules across
-phases.>
+**Authoritative template:** the verbatim Markdown `/create-plan` writes
+at Phase 1 lives in `design.md` §"New per-track file shape". The block
+below is a section-by-section summary plus one realistic example body
+per section; consult the design doc for the full template with all
+placeholder comments. Each section's writer/reader split across phases
+is tabulated in the *Section lifecycle* subsection below.
 
-## Progress
-- [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
-- [ ] Track-level code review
+#### Sections in order
 
-## Base commit
-`abc1234`
+1. **`## Purpose / Big Picture`** — Phase 1 writes a one-line BLUF
+   stating the user-visible behavior gained after this track lands,
+   followed by the intro paragraph from the plan checklist entry. The
+   slot under the BLUF is reserved for Move 2's ADDED/MODIFIED/REMOVED
+   triad (empty `<!-- Reserved -->` placeholder until that Move lands).
 
-## Reviews completed
-- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)
-- [x] Risk: PASS at iteration 1 (1 finding, 1 accepted)
+2. **`## Progress`** — continuous-log of phase transitions. Highest
+   cadence of all continuous-log sections (per phase event + per step +
+   per review iteration + track completion). Every entry carries a
+   mandatory `[ctx=<level>]` field per D12 (orchestrator reads
+   `/tmp/claude-code-context-usage-$PPID.txt` immediately before each
+   write; `unknown` if the file is missing).
 
-## Steps
-- [x] Step: <description>
-  - [x] Context: safe
-  > **Risk:** high — concurrency (introduces lock acquisition)
-  >
-  > **What was done:** ...
-  > **What was discovered:** ...
-  > **Key files:** ...
+   ```markdown
+   ## Progress
+   - [x] 2026-05-15T11:50Z [ctx=safe] Review + decomposition done
+   - [x] 2026-05-15T12:30Z [ctx=safe] Step 3 complete (commit abc123)
+   - [ ] 2026-05-15T12:45Z [ctx=info] Step 4 in progress
+   ```
 
-- [x] Step: <description>
-  - [x] Context: info
-  > **Risk:** low — default (pure refactoring)
-  >
-  > **What was done:** ...
-  > **Key files:** ...
+3. **`## Surprises & Discoveries`** — continuous-log of cross-cutting
+   findings promoted by the orchestrator from per-step episodes when
+   the finding affects future steps or other tracks. Empty at Phase 1.
 
-- [ ] Step: <description>
-  > **Risk:** medium — multi-file logic in core (no HIGH triggers)
-- [ ] Step: <description>
-  > **Risk:** low — default (extract helper)
-- [ ] Step: <description>
-  > **Risk:** high — public API change
-````
+4. **`## Decision Log`** — continuous-log of execution-time decisions
+   (inline-replan choices, scope-downs, dependency reveals, gate
+   overrides). Move 1 (YTDB-814) will later land per-track inlined
+   Decision Records here. Slot below the running log is reserved for
+   Move 1 (empty placeholder until that Move lands).
 
-The **Description** section carries the track's full description —
-intro paragraph (mirroring the plan-file entry's intro), `**What**:` /
-`**How**:` / `**Constraints**:` / `**Interactions**:` subsections, and
-any track-level Mermaid diagram. Phase 1 writes this section directly
-when it creates the track file, so by the time `/execute-tracks` enters
-Phase A the description is already on disk. The Track Pre-Flight gate
-(see [`track-review.md`](track-review.md) §Track Pre-Flight) may amend
-the section in place and/or append a `### Clarifications` subsection
-populated from the gate's clarifications buffer (omitted when the buffer
-is empty). Inline replanning (see
-[`inline-replanning.md`](inline-replanning.md)) is the only other writer
-mid-execution. Phase B and Phase C sub-agents that already read the step
-file see the description here automatically — see the Description
-lifecycle subsection below for the authoritative-location rules across
-phases.
+5. **`## Outcomes & Retrospective`** — continuous-log absorbing today's
+   `## Reviews completed`. Each Phase A/B/C review iteration appends one
+   timestamped entry; Phase C track completion appends the final summary.
 
-The **Progress** section tracks which phase the track is in. The execution
-agent updates it at each phase transition:
-- Mark `Review + decomposition` as `[x]` when the track file is first written
-- Update `Step implementation` count as each step completes (e.g.,
-  `(3/5 complete)`); mark `[x]` when all steps are done
-- Update `Track-level code review` iteration count as each review
-  iteration completes (e.g., `(1/3 iterations)`); mark `[x]` when the
-  review passes or max iterations are reached
+6. **`## Context and Orientation`** — plan-at-start. Phase 1 writes
+   what state the codebase is in at the start of this track (files,
+   modules, non-obvious terminology). Folds in today's `**What**:`
+   subsection.
 
-The **Context check** sub-item under each step records the context window
-level measured at sub-step 6 of step-implementation.md and recorded when
-the episode is written in sub-step 7. The agent marks it `[x]` with the
-measured level (`safe`, `info`, `warning`, or `critical`). If measurement
-failed (file missing or command error), record `- [x] Context: unavailable`.
-This sub-item is written to the track file (under `_workflow/plan/`)
-alongside the episode and is committed and pushed with the episode
-commit. It must be marked before the step is considered complete — an
-unmarked context check means the agent skipped the check.
+7. **`## Plan of Work`** — plan-at-start. Phase 1 writes the prose
+   sequence of edits and additions (folds in today's `**How**:`
+   subsection); Phase A appends a per-step sequencing summary that
+   references the Concrete Steps roster below.
 
-The **Risk:** line in each step's description blockquote names the step's
-risk level (`low`, `medium`, or `high`) and the triggering category (or
-`default` / `override: <reason>`). It is written by the Phase A decomposer
-and reviewed by the user before the track file is approved. Phase B reads
-it to gate sub-step 4 — the dimensional review loop runs only when the
-tag is `high`; for `medium` and `low` steps Phase B skips directly to
-sub-step 5. If implementation reveals that a step is more invasive than
-tagged, Phase B may upgrade the tag in place (recording the upgrade in
-the risk note) but never downgrade. After the step is committed and the
-episode written, the risk tag is locked. Phase C reads the locked tags
-from the track file and treats `medium` and `high` step ranges as focal
-points when reviewing the cumulative track diff. Full criteria, override
-rules, and lifecycle live in [`risk-tagging.md`](risk-tagging.md), which
-is loaded only by Phase A (and rarely by Phase B on the upgrade path);
-sub-step 4's gating decision in normal Phase B execution reads the tag
-value from the track file alone.
+8. **`## Concrete Steps`** — plan-at-start. Phase A decomposition
+   writes a thin numbered roster: one entry per step with description,
+   `risk:` tag, and a status checkbox. **No nested blockquote** — per
+   D9 the per-step episode lives in `## Episodes` below, not here. The
+   roster is immutable after Phase A except for the status checkbox
+   flip (`[ ]` → `[x]` / `[!]`) and the optional `commit: <SHA>`
+   annotation Phase B appends.
 
-The **Base commit** section records the git SHA of `HEAD` at the start of
-Phase B, before the first implementation commit. Phase B writes this once
-at session start. Phase C reads it to compute `git diff {base_commit}..HEAD`
-for the track-level code review.
+   ```markdown
+   ## Concrete Steps
+   1. <Step description> — `risk: low`  [ ]
+   2. <Step description> — `risk: high`  [ ]
+   3. <Step description> — `risk: medium`  [ ]
+   ```
 
-**Readers must verify the recorded SHA is a HEAD-ancestor before using
-it.** A rebase between recording and reading rewrites every on-branch
-commit; the recorded SHA still resolves (kept in the reflog) but is no
-longer an ancestor of HEAD, and any `git diff` / `git log` computed
-against it returns commits from earlier tracks. The canonical
-preflight-and-recompute procedure lives at the two reader sites:
-[`step-implementation.md`](step-implementation.md) §Phase B Startup
-step 1 (resume case) and
-[`track-code-review.md`](track-code-review.md) §Phase C Startup
-step 2. On stale, both sites recompute the actual on-branch parent
-from the `Record Phase B base commit for` commit and append a
-discrepancy note to this section — they never overwrite the original
-SHA, so the audit trail records both values.
+9. **`## Episodes`** — continuous-log, workflow-specific sibling (D11).
+   Phase B sub-step 7 appends one block per completed step, identified
+   by step number + commit SHA. Never re-edited. The block header
+   carries the mandatory `[ctx=<level>]` field per D12. Fields:
+   What was done / What was discovered / What changed from the plan /
+   Key files / Critical context.
 
-The **Reviews completed** section records which pre-execution reviews
-finished. If a session is interrupted during Phase A, the next session
-can skip completed reviews and only re-run missing ones.
+   ```markdown
+   ## Episodes
 
-Track files are created during Phase A (review + decomposition) when steps
-are decomposed. They do not exist during Phase 1 (planning) or Phase 2
-(structural review) — only scope indicators in the plan file exist at
-that point.
+   ### Step 3 — commit abc1234, 2026-05-15T12:30Z [ctx=safe]
+   **What was done:** Renamed the `_workflow/tracks/` directory to
+   `_workflow/plan/` and swept ~85 references across `.claude/workflow/`
+   and `.claude/skills/`.
+
+   **What was discovered:** none
+
+   **What changed from the plan:** none
+
+   **Key files:**
+   - `.claude/workflow/step-implementation.md` (modified)
+   - `.claude/skills/create-plan/SKILL.md` (modified)
+
+   **Critical context:** none
+   ```
+
+   Failed steps follow the same shape with header `### Step N — FAILED,
+   <ISO> [ctx=<level>]` and field set `What was attempted / Why it
+   failed / Impact on remaining steps / Key files`.
+
+10. **`## Validation and Acceptance`** — plan-at-start. Phase 1 writes
+    track-level behavioral acceptance criteria; per-step EARS/Gherkin
+    lines are deferred to Phase A (placeholder until decomposition
+    runs). The trailing slot is reserved for Move 3's EARS/Gherkin
+    acceptance lines (empty placeholder until that Move lands).
+
+11. **`## Idempotence and Recovery`** — plan-at-start, **Phase A**
+    populated. Names specific steps and per-step recovery paths; cannot
+    be authored before decomposition. Phase 1 leaves a Phase A
+    placeholder comment per D10.
+
+12. **`## Artifacts and Notes`** — continuous-log (rare), cross-step
+    content only per D11. Focused transcripts, snippets, and artifact
+    references that don't belong to one specific step (e.g., a review
+    iteration log that spans multiple steps, captured terminal output
+    from a cross-cutting debug session, links to external dashboards or
+    PR threads). Per-step content lives in `## Episodes` above.
+
+13. **`## Interfaces and Dependencies`** — plan-at-start. Phase 1
+    writes file-scope and contract boundaries (in-scope / out-of-scope
+    file lists), inter-track dependencies (which tracks supply
+    prerequisites; which downstream tracks consume this one's output),
+    and library / function signatures relevant to this track. Folds in
+    today's `**Constraints**:` and `**Interactions**:` subsections.
+
+14. **`## Base commit`** — workflow housekeeping, not part of the
+    12-section ExecPlan. Phase B writes the SHA of `HEAD` once at
+    session start; Phase C reads it to compute the cumulative track
+    diff. Readers must verify the recorded SHA is a HEAD-ancestor
+    before use (the canonical preflight-and-recompute procedure lives
+    at the two reader sites — [`step-implementation.md`](step-implementation.md)
+    §Phase B Startup step 1 and [`track-code-review.md`](track-code-review.md)
+    §Phase C Startup step 2 — and a stale recompute appends a
+    discrepancy note without overwriting the original SHA).
+
+#### Two placeholder kinds coexist on a Phase-1-written track file
+
+Before Phase A runs, a freshly-written track file carries two distinct
+placeholder kinds. `structural-review.md` treats both as non-defects
+per D6 and D10:
+
+- **Phase A placeholders** in `## Idempotence and Recovery` (always),
+  in `## Concrete Steps` (the roster is empty until decomposition),
+  and in the step-referencing prose inside `## Plan of Work` and the
+  per-step lines in `## Validation and Acceptance`. Cleared when Phase
+  A runs.
+- **Sibling Move placeholders** in `## Purpose / Big Picture` (Move 2
+  ADDED/MODIFIED/REMOVED triad slot), in `## Decision Log` (Move 1
+  per-track inlined Decision Records slot), and in `## Validation and
+  Acceptance` (Move 3 EARS/Gherkin acceptance slot). Cleared when the
+  corresponding Move lands.
+
+#### Section lifecycle
+
+| Section | Phase 1 writer | Phase A writer | Phase B writer | Phase C writer | Readers |
+|---|---|---|---|---|---|
+| `## Purpose / Big Picture` | BLUF + intro paragraph + Move 2 placeholder | — | — | — | Phase 2 reviews; Phase A/B/C orchestration; Phase 4 aggregation |
+| `## Progress` | (empty) | decomposition-complete entry **(D12 statusline read → `[ctx=<level>]`; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | per-step entry **(sub-step 7; same D12 read)** | per-iteration entry + track-completion entry **(same D12 read)** | resume-readers (most-recent entry = current phase); Phase 4 |
+| `## Surprises & Discoveries` | (empty) | (rare — Pre-Flight clarification surfaces a cross-cutting fact) | promotion from per-step episode at sub-step 7 (when cross-cutting) | promotion from review iteration findings (when cross-cutting) | Phase A Pre-Flight Panel 1; Phase 4 |
+| `## Decision Log` | Move 1 placeholder | Pre-Flight clarifications (when decision-worthy) | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries | Phase A reviews; Phase 4 |
+| `## Outcomes & Retrospective` | (empty) | Phase A review iteration entries | (occasional — dimensional review iteration entries) | review iteration entries + track completion summary | Phase A reviews; Phase 4 |
+| `## Context and Orientation` | "what's there today" prose | — | — | — | Phase A/B/C orchestration; Phase 4 |
+| `## Plan of Work` | "what we'll change" prose | per-step sequencing summary referencing Concrete Steps | — | — | Phase A/B/C orchestration; Phase 4 |
+| `## Concrete Steps` | Phase A placeholder | thin numbered roster (description + `risk:` tag + `[ ]` checkbox per step) | status checkbox flip + optional `commit:` annotation | — | Phase A reviews; Phase B sub-step 4 (risk tag); Phase C track review; Phase 4 |
+| `## Episodes` | (empty) | (empty — Phase A does not populate) | one block per completed step at sub-step 7 **(D12 statusline read → `[ctx=<level>]` on block header; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | — | Phase A Pre-Flight Panel 1 strategy assessment; Phase C track-completion compile-episode; Phase 4 |
+| `## Validation and Acceptance` | track-level acceptance + Phase A placeholder for per-step lines + Move 3 placeholder | per-step EARS/Gherkin lines (when decomposition surfaces them) | — | — | Phase B implementer; Phase C track review; Phase 4 |
+| `## Idempotence and Recovery` | Phase A placeholder | per-step recovery paths | — | — | Phase B/C orchestration; Phase 4 |
+| `## Artifacts and Notes` | (empty) | (rare) | (rare — cross-step artifact reference) | review-iteration logs that span multiple steps | Phase C track review; Phase 4 |
+| `## Interfaces and Dependencies` | file boundaries + inter-track deps + signatures | — | — | — | Phase B implementer; Phase C track review; Phase 4 |
+| `## Base commit` | (empty) | (empty) | SHA at session start | discrepancy note on stale-recompute | Phase B implementer; Phase C track review |
+
+Phase B writes to `## Concrete Steps` (status flip), `## Episodes`
+(new block), and `## Progress` (new entry) in a single commit at
+sub-step 7; the canonical write order is statusline read → Episodes
+block → Concrete Steps checkbox flip → Progress entry. Inline
+replanning (see [`inline-replanning.md`](inline-replanning.md)) may
+rewrite `## Concrete Steps`, `## Plan of Work`, and `## Validation and
+Acceptance` mid-execution; otherwise plan-at-start sections are stable
+after Phase A.
+
+The Track Pre-Flight gate (see [`track-review.md`](track-review.md)
+§Track Pre-Flight) may amend `## Purpose / Big Picture`,
+`## Context and Orientation`, and `## Plan of Work` in place and append
+clarifications to `## Decision Log` when the gate captures any.
+
+**Track files live under `docs/adr/<dir-name>/_workflow/plan/`** —
+tracked in git during the branch lifetime so changes are pushed to the
+draft PR for team visibility and disk-loss backup, and removed
+alongside the rest of `_workflow/` in the Phase 4 cleanup commit before
+merge (see `conventions.md` §1.2 for the full lifecycle and
+`workflow.md` § Final Artifacts for the cleanup procedure).
+
+#### Risk tag, base commit, and the strategic-guide stance
+
+The **`risk:` tag** on each `## Concrete Steps` roster line names the
+step's risk level (`low`, `medium`, or `high`) and the triggering
+category (or `default` / `override: <reason>`). Phase A's decomposer
+writes it; the user reviews it before the track file is approved.
+Phase B reads it at sub-step 4 — the dimensional review loop runs only
+when the tag is `high`; for `medium` and `low` steps Phase B skips
+directly to sub-step 5. Phase B may upgrade the tag in place (recording
+the upgrade in the same line) but never downgrade. After the step is
+committed and the episode written, the risk tag is locked. Phase C
+reads the locked tags and treats `medium` and `high` step ranges as
+focal points for the cumulative track diff review. Full criteria,
+override rules, and lifecycle live in
+[`risk-tagging.md`](risk-tagging.md).
+
+The **`[ctx=<level>]` field** on every `## Progress` entry and every
+`## Episodes` block header (per D12) reflects the orchestrator's
+context-window state at write time, not the implementer sub-agent's.
+The orchestrator reads `/tmp/claude-code-context-usage-$PPID.txt`
+immediately before the write and inlines the parsed `level=` value
+(`safe` / `info` / `warning` / `critical`, or `unknown` if the file is
+missing). The field is mandatory — a write that omits it is a contract
+violation — and write-time only. No post-factum audit at Phase C or
+structural review backfills missing fields; the actual `ctx` at write
+time is unrecoverable. See `design.md` §"Continuous-log discipline"
+subsection *Mandatory `[ctx=<level>]` field*.
+
+Track files are created during Phase 1 (planning), one per planned
+track. They do not exist before Phase 1.
 
 **The plan is a strategic guide, not a rigid task graph.** Track
 descriptions, architecture notes, and inter-track dependencies are the
@@ -169,45 +269,6 @@ just-in-time during execution when the agent has maximum codebase
 context. Phase A always has freedom to adapt step-level decomposition
 without formal replanning — only track-level or decision-level changes
 require escalation.
-
-### Description lifecycle
-
-A track's detailed description (the `**What/How/Constraints/Interactions**`
-subsections plus any track-level Mermaid diagram, plus any
-`### Clarifications` captured by the Track Pre-Flight gate) lives in the
-track file from the moment Phase 1 creates it. The table below is the
-canonical reference for where that content lives at each phase for
-pending, active, and completed tracks. Phase A resume logic (see
-[`track-review.md`](track-review.md)) and inline replanning (see
-[`inline-replanning.md`](inline-replanning.md)) both read the same
-rules from here. Skipped tracks follow a separate retention rule —
-see [`track-skip.md`](track-skip.md) step 5 for the authoritative
-statement on the `[~]`-track plan entry (intro paragraph +
-`**Skipped:**` + `**Strategy refresh:**`; never collapsed). The
-`**Strategy refresh:**` line itself is written by the Track Pre-Flight
-gate per the rule above.
-
-| Phase | Authoritative location | Writer | Reader(s) |
-|---|---|---|---|
-| Pre-Phase-1 | (none) | — | — |
-| Phase 1 write | track file (`plan/track-N.md`) | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
-| Phase A | track file | (stable; Track Pre-Flight may amend `## Description` and/or append `### Clarifications`) | Phase A orchestration; Phase A review sub-agents |
-| Phase B / Phase C | track file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
-| Phase C after collapse | plan intro paragraph + plan-resident track episode (the track file remains on disk until Phase 4 cleanup but is no longer load-bearing strategic context) | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
-| Skipped | plan file entry (retained under `[~]`) + track file deleted | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
-| Inline replan | per authoritative-location rule in [`inline-replanning.md`](inline-replanning.md) | inline-replanning orchestration | — |
-
-Track-level Mermaid diagrams live inside the track file's `## Description`
-under the `**Interactions**:` blockquote (never rendered in the plan
-file). The writer and readers at each phase are the same as the
-corresponding description row above.
-
-**Track files live under `docs/adr/<dir-name>/_workflow/plan/`** —
-tracked in git during the branch lifetime so changes are pushed to the
-draft PR for team visibility and disk-loss backup, and removed alongside
-the rest of `_workflow/` in the Phase 4 cleanup commit before merge
-(see `conventions.md` §1.2 for the full lifecycle and `workflow.md`
-§ Final Artifacts for the cleanup procedure).
 
 ---
 
@@ -301,7 +362,8 @@ at session startup. Load on demand:
   rule in [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md))
   applies to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
-  sub-agent reviews, 4 baseline + up to 6 conditional, max 3 iterations):
+  sub-agent reviews, 4 baseline + up to 6 conditional + up to 6
+  workflow-review, max 3 iterations):
   [`code-review-protocol.md`](code-review-protocol.md).
 - **Complexity tiers** (which pre-execution reviews to run for Simple /
   Moderate / Complex tracks): covered in
