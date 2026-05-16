@@ -20,6 +20,7 @@ Update the single source of truth — `conventions.md` §1.2 + §1.1 glossary, `
 - [x] 2026-05-16T16:05Z [ctx=warning] Step implementation complete (6/6 steps)
 - [x] 2026-05-16T16:44Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-05-16T16:58Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
+- [x] 2026-05-16T17:01Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 
@@ -39,6 +40,8 @@ Update the single source of truth — `conventions.md` §1.2 + §1.1 glossary, `
 - [x] Technical: PASS at iteration 2 (8 findings, 7 accepted, 1 deferred to Track 4; T1+T2+T3 blockers, T4+T5+T6 should-fix, T7+T8 suggestions; iter-2 gate VERIFIED all 7 actionable, T8 explicitly deferred per disposition; no new findings introduced by iter-1 fixes)
 - [x] Risk: PASS at iteration 2 (10 findings; R3+R4+R6+R7 moderate applied, R8+R9+R10 low applied, R1+R2 major DEFERRED with transient acknowledgment in Interfaces and Dependencies, R5 moderate DEFERRED — verified that structural review is not in Phase A pipeline so the risk is N/A; iter-2 gate VERIFIED all 10; one new audit finding N1 confirmed sweep-scope expansion is safe — no false-positive risk)
 - [x] Adversarial: PASS at iteration 2 (10 findings; A1+A2+A7+A9+A10 should-fix applied, A5+A8 confirmed PASS at iter-1, A3+A4+A6 suggestions DEFERRED; iter-2 gate VERIFIED 8 of 10 plus 2 mechanical residuals (N1 step 2 How-block regex consistency + N2 Non-Goal parallel to Interfaces-and-Dependencies A7 fix) applied in same iter-2 cycle without iter-3 escalation since both were mechanical mirrors of already-verified fixes)
+- [x] Track-level code review iteration 1 complete (1/3 iterations) at 2026-05-16T16:44Z — 6 workflow-review agents (consistency, prompt-design, instruction-completeness, hook-safety, context-budget, writing-style; baseline skipped per case 1 workflow-only override); 33 raw findings synthesised; 11 applied (WC1+WC2 blocker consistency, WI1+WI3 blocker instruction-completeness, WP1+WP2 blocker prompt-design, WI2+WI4 should-fix instruction-completeness, WH1 should-fix hook-safety, WC4+WC7 should-fix consistency); 9 deferred to iter-2, 5 deferred to Track 4 reader-pass, 1 deferred to Phase 4 (WC3 design.md `Context:` migration row); gate-check PASS across all 4 dispatched dimensions with zero new findings; Review fix: commit `a01f1d9342`
+- [x] Track-level code review iteration 2 complete (2/3 iterations) at 2026-05-16T16:58Z — 4 dimension fan-out (prompt-design, context-budget, writing-style, instruction-completeness); 9 deferred findings applied (WP3+WP5+WP6 prompt-design, WB1 context-budget, WS1+WS4+WS5 writing-style, WI5+WI9 instruction-completeness); gate-check PASS across all 4 dispatched dimensions with zero new findings; Review fix: commit `3822b7f157`. Iteration 3 not needed — every in-scope finding cleared and the residual catalogue is exclusively Track 4 reader-pass (WP4/WB2, WC5, WC6, WI6) or Phase 4 design-final.md distillation (WC3).
 
 ## Context and Orientation
 
