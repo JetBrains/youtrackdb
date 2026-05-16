@@ -19,7 +19,7 @@ The YouTrackDB repository hosts a Claude Code workflow system. The pieces that t
 - **Settings**: `.claude/settings.json`, `.claude/settings.local.json` — hook wiring, permission rules, statusline binding.
 - **Output styles**: `.claude/output-styles/*.md`.
 - **Project root**: `CLAUDE.md` — always loaded; contains threshold tables, recipe tables, glossary aliases that mirror content in `.claude/workflow/` and `.claude/docs/`.
-- **Plan artifacts**: `docs/adr/<dir>/_workflow/{implementation-plan.md, design.md, plan/track-N.md, design-mutations.md}` — internal cross-references between plan, design, and per-track step files.
+- **Plan artifacts**: `docs/adr/<dir>/_workflow/{implementation-plan.md, design.md, plan/track-N.md, design-mutations.md}` — internal cross-references between plan, design, and per-track track files.
 
 ## Tooling
 
@@ -68,7 +68,7 @@ Focus only on changed files under `.claude/`, root `CLAUDE.md`, and `docs/adr/<d
 - A Mermaid diagram in `design.md`, `workflow.md`, or any plan file must agree with the prose around it. If the prose lists components A, B, C and the diagram shows A, B, D, that's an inconsistency.
 
 ### Glossary and term consistency
-- Terms defined in `.claude/workflow/conventions.md` § Glossary (Track, Step, Episode, Scope indicator, Risk tag, Research, Session, Sub-agent, Orchestrator, Implementer, Step file) must be used consistently across all workflow files. A renamed term must propagate everywhere.
+- Terms defined in `.claude/workflow/conventions.md` § Glossary (Track, Step, Episode, Scope indicator, Risk tag, Research, Session, Sub-agent, Orchestrator, Implementer, Track file) must be used consistently across all workflow files. A renamed term must propagate everywhere.
 - `CLAUDE.md` term shortcuts (e.g., "Concise Doc style") must match the canonical name in their source file (`.claude/output-styles/concise-doc.md`).
 
 ### Plan ↔ design ↔ track-file references

@@ -52,7 +52,7 @@ cleanup commit (only `design-final.md` and `adr.md` survive merge into
 `develop` as the durable lightweight ADR record). Claude may internally
 use plan mode during any phase — that's fine, but insights must be
 captured in the project's track episodes (plan file) and step episodes
-(step files), never left only in `~/.claude/plans/`.
+(track files), never left only in `~/.claude/plans/`.
 
 ---
 
@@ -115,7 +115,7 @@ only track-level or decision-level changes require escalation.
 Architecture notes document the structural context and design decisions for the plan.
 They live in the `## High-level plan > ### Architecture Notes` section of the plan file.
 
-### Boundary with `design.md` and step files
+### Boundary with `design.md` and track files
 
 Architecture Notes carry the **strategic** shape of the design — what
 components are touched, what decisions were made, what must remain true,
@@ -139,7 +139,7 @@ alongside its format rules.
 > how all the pieces fit together" walk-through inside a decision
 > record, an invariant, or an integration-point bullet, **stop and
 > move it to `design.md`** (or, if it is per-track edit detail, to the
-> step file's `## Description`). Replace the original location with a
+> track file's `## Description`). Replace the original location with a
 > one-line link.
 
 ### Per-section budget at a glance
@@ -214,7 +214,7 @@ Every plan must include these two sections:
   to its long-form design*. Worked examples, audit findings, edit-by-
   edit guidance, layered designs, and crash-scenario walk-throughs
   **do not belong here** — they belong in `design.md` (long-form
-  design) or the step file's `## Description` (per-track edit detail).
+  design) or the track file's `## Description` (per-track edit detail).
   The DR links to those rather than absorbing them.
 - **Superseded DRs are deleted, not retained.** When a decision is
   replaced (e.g., DN supersedes DM), remove DM from the plan entirely
@@ -249,7 +249,7 @@ result tables, edit-list bullets, crash-scenario walk-throughs. The
 fix is mechanical: **trim back to the four-bullet form** and move the
 long-form material to a new (or existing) `design.md` section, linked
 from `Full design`. If the displaced material is per-track edit detail
-(files to touch, methods to add), move it to that track's step file
+(files to touch, methods to add), move it to that track's track file
 `## Description` instead.
 
 ### Optional sections (include when applicable)
@@ -320,7 +320,7 @@ scope creep during execution.
    *Per-section budget at a glance* table above and each section's own
    rules for the rationale). Exceeding a budget is the signal that
    long-form material has leaked into the plan and should move to
-   `design.md` or the relevant track's step file `## Description`.
+   `design.md` or the relevant track's track file `## Description`.
 9. **No plan/design duplication.** If a decision record, invariant, or
    integration-point bullet starts to repeat prose that already exists
    in `design.md`, replace the duplicated body with a one-line link to
@@ -338,9 +338,9 @@ Each **track** in the checklist is described across two files:
   line and, when applicable, the `**Depends on:**` line. This is the
   content every `/execute-tracks` session loads at startup, so keep it
   compact.
-- **`plan/track-N.md` (detailed description):** the step file's
+- **`plan/track-N.md` (detailed description):** the track file's
   `## Description` section, written by `create-plan` at Phase 1. It
-  carries the same intro paragraph (so the step file is self-sufficient
+  carries the same intro paragraph (so the track file is self-sufficient
   context for Phase B/C sub-agents that don't read the plan) followed by
   the `**What/How/Constraints/Interactions**` subsections and any
   optional track-level Mermaid diagram. This content is read on demand
@@ -348,7 +348,7 @@ Each **track** in the checklist is described across two files:
   active track — so there is no length cap; make it as long as the
   execution agent needs.
 
-The detailed description in the step file should cover:
+The detailed description in the track file should cover:
 - **What** the track achieves (concrete deliverables — files to touch,
   APIs to add, behaviors to change)
 - **How** (high-level approach — sequencing, invariants to preserve,
@@ -359,7 +359,7 @@ The detailed description in the step file should cover:
   ordering, hand-off artifacts)
 
 The file format and template for both files are defined in
-`conventions.md` §1.2 and the step-file template in
+`conventions.md` §1.2 and the track-file template in
 `conventions-execution.md` §2.1; the authoritative location of the
 detailed description over time (Phase 1 → Phase A → Phase B/C) is given
 by the description-lifecycle table in `conventions-execution.md` §2.1.
@@ -377,10 +377,10 @@ Optional Mermaid diagrams that belong with a track's **detailed
 description**, for when the track has 3+ internal components with
 non-trivial interactions and the flow isn't obvious from the prose alone.
 
-Location: the diagram is written inside the step file's `## Description`
+Location: the diagram is written inside the track file's `## Description`
 as a separate fenced `mermaid` block immediately after the
 `**Interactions**:` blockquote (outside the blockquote — see the
-step-file template in `conventions-execution.md` §2.1). It is **never
+track-file template in `conventions-execution.md` §2.1). It is **never
 rendered in `implementation-plan.md`** — plan readers who want visual
 reasoning about a specific track open `plan/track-N.md`. Phase 1
 writes the diagram alongside the rest of the description; Track
@@ -391,7 +391,7 @@ Rules:
   track-level diagram starts to carry cross-track reasoning, that's a
   signal to elevate it into the plan's top-level Component Map instead.
 - Cap at ~10 nodes. Pair with an annotated bullet list.
-- Update when steps change interactions (the step file's `## Description`
+- Update when steps change interactions (the track file's `## Description`
   section is the authoritative copy during Phase B/C).
 
 ## Scope indicators

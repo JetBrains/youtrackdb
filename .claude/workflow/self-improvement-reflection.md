@@ -466,7 +466,7 @@ YouTrack `Type` field — pick one per issue:
   - Startup-protocol resume table fails to cover a real intermediate
     state, and the agent re-runs the step instead of routing to the
     recovery procedure.
-  - A hook misfires and silently corrupts the step file.
+  - A hook misfires and silently corrupts the track file.
   - A sub-agent prompt produces output the orchestrator cannot parse,
     causing the session to wedge.
 

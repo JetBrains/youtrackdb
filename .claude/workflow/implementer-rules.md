@@ -47,7 +47,7 @@ The implementer's environment auto-loads the user-global rules in
 agent file isolation, context-window monitor, etc.) and the project
 rules in the repo's `CLAUDE.md` (which owns the MCP Steroid / PSI /
 Maven / refactoring rules). Beyond those and this file, the
-implementer reads the step file, the slim plan snapshot, and
+implementer reads the track file, the slim plan snapshot, and
 `design.md` (only if the step requires it).
 
 ---
@@ -99,12 +99,12 @@ inputs**.
 
 - `step_index` — the integer N identifying which step in the file is
   being implemented.
-- `step_description` — copied inline from the step file's
+- `step_description` — copied inline from the track file's
   `- [ ] Step: …` line.
 - `risk_tag` — `low` | `medium` | `high`.
 
 At `level=track` these three fields are absent. The track-level
-implementer reads the step file for cross-step context (episodes,
+implementer reads the track file for cross-step context (episodes,
 risk tags, descriptions) but does not focus on a single step.
 
 **Mode/level validity matrix:**
@@ -122,7 +122,7 @@ The Phase B orchestrator's per-step workflow has seven sub-steps and
 the Phase C orchestrator's review iteration is a parallel three-step
 loop; the implementer owns sub-steps 1–3 at both levels — read the
 target, change/fix the code, run tests + spotless + coverage gate,
-commit. Reading the step file and the slim plan are **preconditions**
+commit. Reading the track file and the slim plan are **preconditions**
 to sub-step 1, not separate sub-steps. Run sub-steps 1–3 in order, to
 completion, then emit the return contract. Any detection rule in the
 next section may interrupt the flow with an early return — in that
@@ -131,7 +131,7 @@ instead of continuing.
 
 **Preconditions.**
 
-- Read the step file at `step_file_path`.
+- Read the track file at `step_file_path`.
   - At `level=step`: locate the step at `step_index`; confirm intent
     and check the `**Risk:**` line. If `mode == FIX_REVIEW_FINDINGS`,
     also locate the prior commit's diff so the fixes land on top of
@@ -294,13 +294,13 @@ implementer's good commit (see
 below). The orchestrator parses the block; everything else in the
 implementer's output is ignored.
 
-The implementer **MUST NOT** modify the step file or the plan file.
-At `level=step` all step-file
+The implementer **MUST NOT** modify the track file or the plan file.
+At `level=step` all track-file
 mutations — episode write, risk-line rewrite, `[x]` mark, Progress
 count update, retry/split row inserts — are the Phase B
-orchestrator's responsibility. At `level=track` all plan and step-file
+orchestrator's responsibility. At `level=track` all plan and track-file
 mutations — Progress section iteration count, plan corrections from
-deferred findings (which may add a new step file or update an
+deferred findings (which may add a new track file or update an
 existing one), track episode, `[x]` mark on the plan track entry —
 are the Phase C orchestrator's responsibility.
 
@@ -446,7 +446,7 @@ preserve any untracked files that pre-existed the spawn (test
 fixtures, scratch logs, anything outside the workflow's tracked
 state).
 
-The orchestrator's working state — step files, review reports,
+The orchestrator's working state — track files, review reports,
 design document, baselines — is **tracked under
 `docs/adr/<dir>/_workflow/`** and committed by the orchestrator
 on the appropriate cadence (see `commit-conventions.md` § Push every
@@ -462,7 +462,7 @@ decision, risk upgrade, fundamental failure):
 
 1. **Snapshot pre-existing untracked files at the start of every
    spawn**, before any code change. This is the first action of
-   sub-step 1, before reading the step file or making any edit:
+   sub-step 1, before reading the track file or making any edit:
 
    ```bash
    git -c core.quotepath=false ls-files --others --exclude-standard \
@@ -591,7 +591,7 @@ only files this spawn created), then return `RESULT: RISK_UPGRADE_REQUESTED` wit
 see [`risk-tagging.md`](risk-tagging.md) for the full criteria), and
 `evidence` (a short factual statement of what was discovered).
 
-The implementer **never writes to the step file** to apply the
+The implementer **never writes to the track file** to apply the
 upgrade. The orchestrator rewrites the `**Risk:**` line and
 respawns with `mode=INITIAL`. Downgrades mid-Phase B are not
 permitted — once a step has been planned at a given risk level, the
@@ -620,7 +620,7 @@ for `recommended_action` are level-conditional:
   contract violation; the orchestrator surfaces the return to the
   user instead of dispatching.
 
-The orchestrator writes the failed episode to the step file, inserts
+The orchestrator writes the failed episode to the track file, inserts
 retry/split rows, and runs the two-failure detection on its side
 (`level=step` only — Phase C does not insert retry/split rows).
 
@@ -855,7 +855,7 @@ FAILURE:                          # only if RESULT == FAILED
 - `EPISODE_DRAFT` is populated on `SUCCESS` only and only at
   `level=step`. The Phase B orchestrator finalises it (merging in
   cross-track-impact-check observations from sub-step 5) before
-  writing the episode to the step file. On `FAILED`, the
+  writing the episode to the track file. On `FAILED`, the
   orchestrator uses `FAILURE` instead of `EPISODE_DRAFT`. On
   `DESIGN_DECISION_NEEDED` and `RISK_UPGRADE_REQUESTED`, omit
   `EPISODE_DRAFT` — the eventual respawn produces the authoritative

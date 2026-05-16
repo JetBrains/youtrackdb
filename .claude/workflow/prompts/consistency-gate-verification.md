@@ -3,7 +3,7 @@ based on your previous consistency review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
-- Step files directory: {plan_dir} — every `plan/track-N.md` whose
+- Track files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending
   track's `## Description` for that track's
   `**What/How/Constraints/Interactions**` detail and any track-level
@@ -66,7 +66,7 @@ edge cases.
 ```markdown
 #### Verify CR<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
-- **Fix applied**: <what changed in the plan, step file, or design text>
+- **Fix applied**: <what changed in the plan, track file, or design text>
 - **Re-check**:
   - Search/trace performed: <PSI find-usages / find-implementations
     query when the IDE is reachable; Grep/Glob query or flow trace

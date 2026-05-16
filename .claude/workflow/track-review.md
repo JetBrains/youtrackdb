@@ -21,7 +21,7 @@ Phase C includes both the track-level code review and track completion
 > **In this phase, you are a reviewer and planner, not an implementer. You
 > NEVER edit source code, test files, or build files. You explore the
 > codebase (read-only) to validate the track's approach and decompose it
-> into steps. The only file you write is the step file
+> into steps. The only file you write is the track file
 > (`plan/track-N.md`).**
 
 ### Tooling — PSI is required for symbol audits in Phase A
@@ -58,7 +58,7 @@ instruction — keep it intact when customising.
 
 ### Pre-write rule — PSI-verify class names
 
-Before any write that names a production class in the step file's
+Before any write that names a production class in the track file's
 `## Description` (`**What/How/Constraints/Interactions**` blocks,
 including light amendments committed via the Track Pre-Flight gate's
 step 4) or in decomposed step bodies under `## Steps`, the orchestrator
@@ -81,7 +81,7 @@ that is wrapped twice from
 When the orchestrator infers a class name from sibling-version
 conventions, generated-code conventions, or package-naming precedent
 rather than reading existing tests or production callers, it MUST
-verify the name via PSI before committing it to the step file.
+verify the name via PSI before committing it to the track file.
 
 **mcp-steroid state handling.** The session-start hook surfaces one
 of three states per [`conventions.md`](conventions.md) §1.4:
@@ -94,7 +94,7 @@ of three states per [`conventions.md`](conventions.md) §1.4:
   project produces false negatives that look identical to a true
   hallucination.
 - **Unreachable** → fall back to `find . -name '<ClassName>.java'`
-  and add a reference-accuracy caveat to the step file's
+  and add a reference-accuracy caveat to the track file's
   `### Clarifications` subsection.
 
 **Failure path.** If PSI-verify reports a name does not resolve and
@@ -102,7 +102,7 @@ the track's `## Description` does not explicitly mark it as a class
 this track creates: try once — read the production code or existing
 tests for the named target, derive the canonical name, and re-verify.
 If after one retry the name still does not resolve, do NOT write or
-commit the step file. Surface the conflict via `AskUserQuestion` with
+commit the track file. Surface the conflict via `AskUserQuestion` with
 three options: **Use the verified alternative** (orchestrator proposes
 the closest matching name), **Drop the mention** (remove the reference
 from the step body), **Escalate to inline replanning**.
@@ -131,14 +131,14 @@ Before Phase A's reviews and decomposition begin, the orchestrator
 runs a single Pre-Flight gate that combines a backward-looking
 strategy assessment (when an earlier track has just completed or
 been skipped) with a forward-looking summary of the upcoming track.
-The gate is the user's chance to refine the plan / step file before
+The gate is the user's chance to refine the plan / track file before
 sub-agents start reading them — via free-form review mode (see
 [`review-mode.md`](review-mode.md)) for light edits, clarifications,
 questions, skipping a remaining track, and combinations thereof —
 or to escalate to inline replanning when the change is deep.
 
 The gate fires once per fresh Phase A entry. State C resume (the
-step file's `## Description` already carries the agreed-upon track
+track file's `## Description` already carries the agreed-upon track
 plan, including any prior clarifications) **skips** the gate; the
 user saw it in the original session and the description is already
 authoritative. The gate is also re-runnable on session resume (no
@@ -180,7 +180,7 @@ on-disk strategy-refresh line.
 **2. Build Panel 2 — track summary (look-forward).**
 
 Read the plan-file Track N entry (title, intro paragraph, scope
-indicators, any inline notes) and the upcoming track's step file
+indicators, any inline notes) and the upcoming track's track file
 `## Description` section
 (`**What/How/Constraints/Interactions**` plus any `mermaid`
 diagram, written by `create-plan` at Phase 1 and possibly amended
@@ -258,14 +258,14 @@ than after commit:
 - Scope indicators in the plan-file checklist entries
 - `**What/How/Constraints/Interactions**` subsections in the step
   file's `## Description`
-- Track-level `mermaid` diagrams in the step file's `## Description`
+- Track-level `mermaid` diagrams in the track file's `## Description`
 - Reordering of remaining `[ ]` tracks within the plan checklist
   (only if dependencies still hold; re-render Panel 2 if the
   reorder changes the upcoming track)
 - Skipping a remaining track (`SKIP_TRACK` action item — single
   user-initiated drop with a required reason; runs the full
   [`track-skip.md`](track-skip.md) § Process on Apply, including
-  the terminal step-file delete; re-render Panel 1 with the
+  the terminal track-file delete; re-render Panel 1 with the
   skipped track as the new look-back anchor)
 
 Deep amendments — route to inline replanning per
@@ -274,7 +274,7 @@ requests escalation during track pre-flight"):
 
 - Decision Records, Architecture Notes, Goals, or Constraints in
   the plan file
-- **Adding** a new track (requires authoring a fresh step file
+- **Adding** a new track (requires authoring a fresh track file
   `## Description`, dependency analysis, and design decisions).
   **Removing** a remaining track is light — it is the `SKIP_TRACK`
   action item above, not a deep amendment.
@@ -294,7 +294,7 @@ notes plus any orchestrator-stated interpretations the user
 confirmed. The buffer is non-empty only if at least one `CLARIFY`
 item was applied during a review-mode round (see
 [`review-mode.md`](review-mode.md) § Flow step 5). When the user
-picks **Approve**, the buffer flows verbatim into the step file's
+picks **Approve**, the buffer flows verbatim into the track file's
 `## Description` in step 6 below.
 
 **6. Persist amendments + clarifications + strategy-refresh line.**
@@ -315,7 +315,7 @@ this round:
     > **Track episode:**
     > <strategic summary>
     >
-    > **Step file:** `plan/track-2.md` (4 steps, 0 failed)
+    > **Track file:** `plan/track-2.md` (4 steps, 0 failed)
     >
     > **Strategy refresh:** CONTINUE — no downstream impact detected.
   ```
@@ -338,7 +338,7 @@ this round:
 
 - **Clarifications subsection** (buffer non-empty): write the
   buffer as a `### Clarifications` subsection at the end of the
-  upcoming track's step file's `## Description`. **If a
+  upcoming track's track file's `## Description`. **If a
   `### Clarifications` subsection already exists** (e.g., a prior
   gate session committed clarifications and was interrupted before
   any review ran, then re-fired on resume per §Phase A Resume),
@@ -352,11 +352,11 @@ this round:
   preserved as-is in this case (the user neither re-clarified nor
   asked for it to be removed).
 
-- **Plan/step-file amendments** (any `EDIT_PLAN` / `EDIT_STEP_DESC`
+- **Plan/track-file amendments** (any `EDIT_PLAN` / `EDIT_STEP_DESC`
   / `SKIP_TRACK` items applied during review-mode rounds): the edits
   already landed in the working tree during review mode's Apply step
   ([`review-mode.md`](review-mode.md) § Flow step 5), including any
-  step-file deletions produced by `SKIP_TRACK`. They are committed
+  track-file deletions produced by `SKIP_TRACK`. They are committed
   alongside the strategy-refresh line and any clarifications below.
 
 After all artifacts are in place, run a single Workflow update
@@ -384,7 +384,7 @@ completed` yet — see §Phase A Resume), the gate checks for a
 track's block before running Panel 1. If the line exists, Panel 1
 is **skipped** on resume — the earlier session's assessment is the
 historical record and is preserved. The Pre-Flight loop runs on
-Panel 2 only. Plan/step-file edits committed in the previous
+Panel 2 only. Plan/track-file edits committed in the previous
 session persist; clarifications captured in the previous session
 lived only in conversation context and are lost — the user must
 re-enter them if still relevant. (An on-disk `### Clarifications`
@@ -393,7 +393,7 @@ replace-then-write rule governs how it interacts with this
 session's buffer.)
 
 **Partial-commit asymmetry.** A prior session may have committed
-step 4 plan/step-file edits but died before step 6 wrote the
+step 4 plan/track-file edits but died before step 6 wrote the
 strategy-refresh line. On resume the line is missing, so the gate
 re-runs Panel 1; the committed edits are the new baseline (they
 do not appear as a diff against the original plan).
@@ -426,9 +426,9 @@ review-mode rounds.
 > production class — apply it before the atomic write in sub-step 5.
 
 1. **Read the plan file** for strategic context (Goals, Architecture
-   Notes, Decision Records, Component Map) and the **step file**
+   Notes, Decision Records, Component Map) and the **track file**
    (`docs/adr/<dir-name>/_workflow/plan/track-N.md`) for the track's
-   detailed description. The step file already exists from Phase 1
+   detailed description. The track file already exists from Phase 1
    and may carry pre-flight amendments and a `### Clarifications`
    subsection committed by the gate above; both phases of consumption
    route through the same file.
@@ -438,13 +438,13 @@ review-mode rounds.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
-   - Update the **Reviews completed** section in the step file with a
+   - Update the **Reviews completed** section in the track file with a
      one-line summary — review type, iteration count at PASS, and a
      brief tally of findings that drove plan/step edits (e.g.,
      `- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)`).
    - The findings themselves are not persisted to a separate file —
      they ride in the orchestrator's conversation context for the
-     iteration loop, and the durable trace is the resulting step-file
+     iteration loop, and the durable trace is the resulting track-file
      edits (decomposition, risk tags, description tweaks). Phase A
      resume gates on the **Reviews completed** checkboxes in the step
      file: a checkbox is `[x]` only after the gate for that review type
@@ -470,7 +470,7 @@ review-mode rounds.
    in [`risk-tagging.md`](risk-tagging.md) — load that file at the
    start of decomposition. The tag controls whether Phase B runs
    step-level dimensional review for the step.
-5. **Write decomposed steps** to the step file's `## Steps` section as
+5. **Write decomposed steps** to the track file's `## Steps` section as
    `[ ]` items, each with its `**Risk:**` line in the description
    blockquote. Mark `Review + decomposition` as `[x]` in the Progress
    section. Before this atomic write, apply the §Pre-write rule above
@@ -479,7 +479,7 @@ review-mode rounds.
    trap, generated-code package drift) does not slip into the step
    file and force an iter-2 fix round. On unresolved-name failure,
    follow the **Failure path** in §Pre-write rule (one retry, then
-   `AskUserQuestion`) — do NOT write the step file with an unresolved
+   `AskUserQuestion`) — do NOT write the track file with an unresolved
    reference.
 
 6. **Commit and push the Phase A workflow updates.** Phase A's on-disk
@@ -539,7 +539,7 @@ instead of restating them.
 | Input | Value |
 |---|---|
 | `plan_path` | Absolute path to `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
-| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the step file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the track file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
 | `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
@@ -548,7 +548,7 @@ instead of restating them.
 Phase A orchestration always passes both `plan_path` and
 `step_file_path` to each sub-agent. Prompts that read the track
 description from the plan-file entry use `plan_path`; prompts that
-read it from the step file's `## Description` section use
+read it from the track file's `## Description` section use
 `step_file_path`. The Inputs block and the per-review mini-sections
 below do not need to change when an individual prompt switches sources
 — only the prompt file itself is edited.
@@ -661,15 +661,15 @@ Once a step is implemented, the tag is locked.
 
 During decomposition, you may identify independent steps within the
 track — steps that don't depend on each other and don't modify the same
-files. Annotate them with `*(parallel with Step N.M)*` in the step file.
+files. Annotate them with `*(parallel with Step N.M)*` in the track file.
 Must not modify the same files.
 
 #### Output
 
-Write decomposed steps to the **step file**
+Write decomposed steps to the **track file**
 (`docs/adr/<dir-name>/_workflow/plan/track-N.md`), creating it if it doesn't exist.
 Scope indicators in the plan file are NOT replaced — step details live only
-in the step file.
+in the track file.
 
 The scope indicators serve as a starting point, not a binding contract. You
 may produce more or fewer steps than the indicator suggested, or cover
@@ -677,7 +677,7 @@ different aspects, based on what is actually needed.
 
 ### Phase A Resume
 
-The step file already exists from Phase 1 with `## Description`
+The track file already exists from Phase 1 with `## Description`
 populated, so Phase A resume's only concerns are (1) what state the
 Track Pre-Flight gate left behind and (2) which Phase A activities
 have completed. When `/execute-tracks` auto-resumes into Phase A
@@ -685,9 +685,9 @@ have completed. When `/execute-tracks` auto-resumes into Phase A
 routes here), the main agent applies the rules below.
 
 **Track Pre-Flight gate.** The gate re-fires on resume only when no
-review has been recorded in the step file's `## Reviews completed`
+review has been recorded in the track file's `## Reviews completed`
 section yet. Once any review has been recorded, the gate's outcome
-(amendments + clarifications) is baked into the step file the
+(amendments + clarifications) is baked into the track file the
 reviews ran against — re-firing would invalidate that work. The
 re-fired gate honours the resume idempotency rule in §Track
 Pre-Flight step 7: if a `**Strategy refresh:**` line is already on
@@ -717,11 +717,11 @@ reviews are already in progress):
 |---|---|---|
 | Empty | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
 | One or more reviews recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
-| All planned reviews recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed, otherwise the step file is already in steady state and `/execute-tracks` should route to Phase B on the next invocation. |
+| All planned reviews recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed, otherwise the track file is already in steady state and `/execute-tracks` should route to Phase B on the next invocation. |
 
 The non-re-copy rule (no operation re-derives `## Description` from
 external sources during Phase A) protects any amendments / inline-
-replan rewrites the step file may have accumulated since Phase 1 from
+replan rewrites the track file may have accumulated since Phase 1 from
 being silently overwritten on resume.
 
 ---
@@ -732,9 +732,9 @@ being silently overwritten on resume.
 > with a session boundary. The user clears context and re-runs
 > `/execute-tracks` to begin Phase B with fresh context.
 
-After writing the step file with all decomposed steps:
+After writing the track file with all decomposed steps:
 
-1. **Verify the step file** on disk has:
+1. **Verify the track file** on disk has:
    - `Review + decomposition` marked `[x]` in Progress
    - All reviews recorded in Reviews completed
    - All steps listed as `[ ]` items
@@ -755,7 +755,7 @@ After writing the step file with all decomposed steps:
    `.claude/workflow/self-improvement-reflection.md` on-demand and
    follow it. Phase A friction worth recording typically lives in
    the review-iteration loop, the technical/risk/adversarial sub-agent
-   prompts, the decomposition rules, or the step-file template. The
+   prompts, the decomposition rules, or the track-file template. The
    protocol creates approved proposals as YouTrack issues under
    `YTDB` with the `dev-workflow` tag (or skips with a notice if
    the YouTrack MCP server is unreachable); reflection produces no
@@ -764,5 +764,5 @@ After writing the step file with all decomposed steps:
 
 **Why:** Phase A is exploratory (reading code, validating assumptions).
 That "reviewer mindset" context is not helpful during implementation —
-it dilutes focus and carries stale exploratory context. The step file
+it dilutes focus and carries stale exploratory context. The track file
 bridges everything the implementation phase needs.

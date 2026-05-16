@@ -3,7 +3,7 @@ structural review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
-- Step files directory: {plan_dir} — every `plan/track-N.md` whose
+- Track files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending
   track's `## Description` for that track's
   `**What/How/Constraints/Interactions**` detail and any track-level
@@ -40,9 +40,9 @@ certificate** that re-checks the specific plan location:
 ```markdown
 #### Verify S<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
-- **Fix applied**: <what changed in the plan, step file, or design text>
+- **Fix applied**: <what changed in the plan, track file, or design text>
 - **Re-check**:
-  - Plan / step file / design location: <section and line where the fix was applied>
+  - Plan / track file / design location: <section and line where the fix was applied>
   - Current state: <what the document now says>
   - Criteria met: <which structural criteria from the review checklist
     are now satisfied>

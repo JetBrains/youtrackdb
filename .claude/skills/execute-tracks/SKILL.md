@@ -12,7 +12,7 @@ Read these workflow documents in order before starting:
    glossary, plan file structure, scope indicators, review iteration protocol
 2. `.claude/workflow/conventions-execution.md` — execution-specific:
    episode formats, commit format, code review, complexity tiers,
-   checklist decomposition rules, step file content
+   checklist decomposition rules, track file content
 3. `.claude/workflow/workflow.md` — session lifecycle,
    startup protocol (auto-resume), Track Pre-Flight gate, cross-track
    impact monitoring, session boundary rules, failure handling, inline
@@ -40,7 +40,7 @@ On-demand reference documents (load only when the situation arises):
 - `plan-slim-rendering.md` — load when assembling any step-level or track-level review sub-agent prompt
 - `episode-format-reference.md` — load when writing your first episode
 - `design-document-rules.md` — load when entering State D (Phase 4); not needed for Phase A/B/C
-- `risk-tagging.md` — load during Phase A decomposition (to assign per-step risk tags) and on the rare Phase B upgrade path (when implementation reveals a step is more invasive than tagged); **not** loaded by Phase B normal execution or Phase C — those phases read the per-step `**Risk:**` tag from the step file directly
+- `risk-tagging.md` — load during Phase A decomposition (to assign per-step risk tags) and on the rare Phase B upgrade path (when implementation reveals a step is more invasive than tagged); **not** loaded by Phase B normal execution or Phase C — those phases read the per-step `**Risk:**` tag from the track file directly
 - `self-improvement-reflection.md` — load at the **end** of every session (State 0, Phase A, Phase B, Phase C, Phase 4) before "End the session". Mandatory final step that captures workflow-process friction and creates approved proposals as YouTrack issues under `YTDB` with the `dev-workflow` tag (or skips with a notice when the YouTrack MCP server is unreachable). Each phase doc invokes it explicitly.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
@@ -74,13 +74,13 @@ Follow the startup protocol in `workflow.md`:
      `implementation-review.md` on-demand and run the autonomous plan
      review (consistency + structural). End session after the audit
      summary lands.
-   - **State A** (pre-Phase-A — next track is `[ ]`, no step file
+   - **State A** (pre-Phase-A — next track is `[ ]`, no track file
      exists): run the Track Pre-Flight gate per `track-review.md`
      § Track Pre-Flight (Panel 1 strategy assessment when an earlier
      track has just completed/skipped, plus Panel 2 upcoming-track
      summary), then proceed to Phase A of the next track in the same
      session.
-   - **State C** (mid-track resume): read step file Progress section,
+   - **State C** (mid-track resume): read track file Progress section,
      resume the next incomplete phase:
      - `Review + decomposition` incomplete → resume Phase A
      - Steps incomplete → run Phase B (check for orphan commits from

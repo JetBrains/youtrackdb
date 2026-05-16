@@ -7,7 +7,7 @@ Detailed episode format rules and examples. Referenced from
 
 ## Step completion episode
 
-Recorded in the step file under the completed step item:
+Recorded in the track file under the completed step item:
 
 ```markdown
 - [x] Step: <description>
@@ -82,7 +82,7 @@ When a step implementation phase cannot complete its work (tests won't pass,
 coverage can't be met, code reviewer finds fundamental issues, wrong API
 assumption), the implementer reverts uncommitted changes (`git reset --hard
 HEAD`) and returns `RESULT: FAILED` with a `FAILURE` block. The orchestrator
-writes the failed episode from `FAILURE` to the step file. If the failure
+writes the failed episode from `FAILURE` to the track file. If the failure
 arrived from a `mode=FIX_REVIEW_FINDINGS` respawn (post-commit), the
 orchestrator additionally runs the `Revert step:` rollback per
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
@@ -99,7 +99,7 @@ If the same step fails twice, stop and present the situation to the user
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Two-Failure Rule).
 
-Failed episodes are recorded in the step file with the `[!]` marker so
+Failed episodes are recorded in the track file with the `[!]` marker so
 future sessions and reviews can see what was attempted and why it didn't
 work.
 
@@ -109,7 +109,7 @@ work.
 
 Written to the plan file under the completed track's checklist entry.
 Contains: what was built, key discoveries, plan deviations with cross-track
-impact. Reference to step file with counts.
+impact. Reference to track file with counts.
 
 ---
 
@@ -121,7 +121,7 @@ architectural issues, changed assumptions, or deviated from the plan
 should include enough detail for downstream sessions (Phase B in
 later tracks, Phase C track review, the next session's Track
 Pre-Flight Panel 1 strategy assessment) to assess impact on
-remaining tracks without reading the step file. There is no hard
+remaining tracks without reading the track file. There is no hard
 line limit — clarity and completeness for downstream decision-making
 is the criterion.
 
@@ -134,7 +134,7 @@ line; a step that uncovered a concurrency bug needs a full explanation.
 
 Code changes are committed first (including any code review fix commits).
 After all code is committed, the orchestrator writes the episode to the
-step file (under `_workflow/plan/`) and commits the step-file change
+track file (under `_workflow/plan/`) and commits the track-file change
 in a follow-up commit (e.g., `Record episode for <step description>`),
 then pushes. Episodes live under `_workflow/` for the branch lifetime
 and are aggregated into the ADR during Phase 4; the entire `_workflow/`
@@ -144,7 +144,7 @@ directory is removed by the Phase 4 cleanup commit before merge.
 
 ## Where episodes live
 
-Step-level episodes: **step file** (`docs/adr/<dir-name>/_workflow/plan/track-N.md`)
+Step-level episodes: **track file** (`docs/adr/<dir-name>/_workflow/plan/track-N.md`)
 
 Track-level episodes: **plan file** (`implementation-plan.md`) under the
 track's checklist entry — a strategic summary synthesized from step episodes.

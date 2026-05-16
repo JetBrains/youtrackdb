@@ -45,27 +45,27 @@ A track can be skipped (`[~]`) in two situations:
 
    The plan entry holds only the intro paragraph; the
    `**What/How/Constraints/Interactions**` subsections and any
-   track-level diagram live in the step file (`plan/track-N.md`)
+   track-level diagram live in the track file (`plan/track-N.md`)
    and are removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
    step 4 below — this process step must not diverge from that rule.
 
-   The skip record replaces both the track episode and step file
+   The skip record replaces both the track episode and track file
    reference. It must include enough context for the next session's
    Track Pre-Flight Panel 1 (strategy assessment) to assess
    downstream impact.
 
-3. **Delete the step file** (`plan/track-N.md`) from disk if one
-   exists. The step file was created at Phase 1 with `## Description`
+3. **Delete the track file** (`plan/track-N.md`) from disk if one
+   exists. The track file was created at Phase 1 with `## Description`
    populated, so it is the only on-disk artifact carrying the
    per-track detail; the delete drops both the description and any
    reviews / decomposition / step episodes that may have accumulated
    during Phase A or B.
 
-   **Step-file deletion is terminal.** Un-skipping a track via inline
-   replanning requires re-authoring the step file's `## Description`
-   from scratch; once a track has been skipped, the step file is no
+   **Track-file deletion is terminal.** Un-skipping a track via inline
+   replanning requires re-authoring the track file's `## Description`
+   from scratch; once a track has been skipped, the track file is no
    longer a recovery source for it.
 
 4. **Track Pre-Flight (Panel 1 strategy assessment)** treats `[~]`
@@ -86,7 +86,7 @@ A track can be skipped (`[~]`) in two situations:
    [`track-code-review.md`](track-code-review.md) § Track Completion
    step 4); skipped tracks bypass that pass entirely. The
    `**What/How/Constraints/Interactions**` subsections and any
-   track-level diagram lived in the step file's `## Description` and
+   track-level diagram lived in the track file's `## Description` and
    were removed in step 3 above; they are not recoverable from the
    plan entry once a track has been skipped.
 
@@ -99,7 +99,7 @@ user confirms):
 
 - Write the `[~]` marker and skip record to the plan file on disk
 - Delete `plan/track-N.md` from disk (no-op if it has already been
-  removed; for tracks reaching this point the step file always exists
+  removed; for tracks reaching this point the track file always exists
   because Phase 1 created it)
 - The session continues: if Panel 1 of the Track Pre-Flight gate was
   already cleared in this session, proceed to the next `[ ]` track's

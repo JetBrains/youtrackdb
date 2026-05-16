@@ -57,7 +57,7 @@ the individual commit messages), and the underlying workflow files are
 present in the branch tree at the time those commits are made. The
 forbidden list above is what lives durably on `develop`.
 
-It does **not** apply to the working files themselves: step files
+It does **not** apply to the working files themselves: track files
 (`plan/track-N.md`) and the plan all cite tracks, steps, findings,
 and iterations freely — that's exactly what those identifiers are
 for inside the workflow. Review findings themselves no longer have a

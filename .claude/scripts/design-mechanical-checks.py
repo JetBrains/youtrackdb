@@ -1092,7 +1092,7 @@ def check_full_design_link_resolution(
     design_mechanics_lines: Optional[List[str]],
 ) -> List[Dict]:
     """Every `**Full design**: <design-basename> §"<name>"` in the plan and
-    in any step file (`plan/track-N.md`) must resolve to a heading in
+    in any track file (`plan/track-N.md`) must resolve to a heading in
     design.md (and any chained `<mechanics-basename> §"<name>"` must
     resolve in mechanics).
 
@@ -1132,7 +1132,7 @@ def check_full_design_link_resolution(
                 target_table = mech_norm
                 target_label = mech_basename
             elif fname in {"design-mechanics.md", "design-mechanics-final.md"}:
-                # Plan / step-file refs to a mechanics file but no mechanics path supplied.
+                # Plan / track-file refs to a mechanics file but no mechanics path supplied.
                 out.append(make_finding(
                     "blocker",
                     "full-design-link-resolution",
@@ -1179,7 +1179,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--design-path", required=True, help="Absolute path to design.md")
     p.add_argument("--design-mechanics-path", help="Absolute path to design-mechanics.md (optional)")
     p.add_argument("--plan-path", help="Absolute path to implementation-plan.md (optional)")
-    p.add_argument("--plan-dir", help="Absolute path to the tracks/ directory containing plan/track-N.md step files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
+    p.add_argument("--plan-dir", help="Absolute path to the tracks/ directory containing plan/track-N.md track files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
                    help=("Scope of the section-bounded checks (default: whole-doc). When "
@@ -1295,7 +1295,7 @@ def main() -> int:
                 args.plan_dir,
                 (f"--plan-dir was supplied but the directory does not exist at "
                  f"{args.plan_dir}. `**Full design**` ref resolution against the "
-                 "step files would be silently skipped, masking any broken refs."),
+                 "track files would be silently skipped, masking any broken refs."),
                 "Pass an existing directory or omit the flag.",
             ))
 

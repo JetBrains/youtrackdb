@@ -20,11 +20,11 @@ name. Otherwise, default to the current git branch name
 Read:
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
 - `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify)
-- `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all step files with step
-  episodes. Each step file begins with a `## Description` section
+- `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all track files with step
+  episodes. Each track file begins with a `## Description` section
   carrying the track's original description (written there by
   `create-plan` at Phase 1), so "what each track was supposed to do"
-  lives in the step file. Skipped tracks may have had their step
+  lives in the track file. Skipped tracks may have had their step
   files deleted by `track-skip` — for those tracks read the
   `[~] Track N`'s `**Skipped:**` line in the plan file instead.
 
@@ -156,7 +156,7 @@ with:
   script's `--target` flag verbatim)
 - `plan_path` / `plan_dir`: **omit**. Phase 4 produces a new
   committed artifact whose section structure may differ from the
-  original `design.md`; the plan and step-file `**Full design**` refs
+  original `design.md`; the plan and track-file `**Full design**` refs
   continue to point at the (frozen) original. The cross-file ref check
   is naturally skipped when these paths are absent.
 - `intended_edit`: full file content for both files. Section names match

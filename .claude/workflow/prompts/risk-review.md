@@ -18,7 +18,7 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
   decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track
   implementation. Track episodes (in the plan file under completed tracks)
-  summarize strategic outcomes; step episodes (in step files) contain
+  summarize strategic outcomes; step episodes (in track files) contain
   implementation details. Episodes from completed tracks are your evidence
   of what actually happened vs. what was planned.
 - **Scope indicator**: A rough sketch of expected work in a track
@@ -43,7 +43,7 @@ reordering, or (if severity is `skip`) a recommendation to skip the track.
 
 **Where things live during Phase A:** The track's detailed description
 (the `**What/How/Constraints/Interactions**` subsections plus any
-track-level component diagram) lives in the step file at
+track-level component diagram) lives in the track file at
 `docs/adr/<dir-name>/_workflow/plan/track-N.md` under a `## Description` section —
 copied there at Phase A start. The plan file carries strategic context
 (Architecture Notes, Decision Records, Component Map) and track-level
@@ -54,7 +54,7 @@ status + episodic memory.
 Inputs:
 - Plan file: {plan_path} (strategic context — Architecture Notes,
   Decision Records, Component Map)
-- Step file: {step_file_path} (the track's `## Description` section —
+- Track file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
   and any track-level diagram.)
 - Track to review: {track_name}
@@ -63,7 +63,7 @@ Inputs:
 - Previous findings: {previous_findings}
 
 Start by reading the track description and any track-level component
-diagram from the step file's `## Description` section. Read the
+diagram from the track file's `## Description` section. Read the
 relevant Decision Records from the plan. Then explore the parts of the
 codebase this track touches.
 

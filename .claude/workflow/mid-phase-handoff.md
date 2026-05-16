@@ -28,7 +28,7 @@ Trigger: a context-consumption check returns `warning` (≥30%) or
 
 If both conditions miss, no handoff file is needed: the gate is
 fired and the next session can re-derive everything from the plan /
-step file Progress section alone. The Progress section update plus
+track file Progress section alone. The Progress section update plus
 the end-of-session push are sufficient. Examples of the "no handoff
 needed" case:
 - a Phase B pause right after committing a step (the next session
@@ -122,7 +122,7 @@ inside the natural progress-tracking file for the phase:
 |---|---|
 | 0 / 1 | none — `implementation-plan.md` may not exist yet during early Phase 0, and the handoff file + MEMORY.md cross-reference are sufficient signals |
 | 2 (State 0) | beneath `## Plan Review` heading in `implementation-plan.md` |
-| A / B / C | step file Progress section (`plan/track-N.md`) |
+| A / B / C | track file Progress section (`plan/track-N.md`) |
 | 4 | beneath `## Final Artifacts` heading in `implementation-plan.md` |
 | Ad-hoc research | none — the handoff file is the sole signal |
 
@@ -254,7 +254,7 @@ case-specific items as needed.
 |---|---|
 | 0 / 1 | research paths in "Already ruled out"; sections already drafted in `design.md` or `implementation-plan.md` |
 | 2 (State 0) | classifier passes whose findings already landed in the plan file |
-| A | reviews already marked `[x]` in the step file's **Reviews completed** section |
+| A | reviews already marked `[x]` in the track file's **Reviews completed** section |
 | B | committed steps (Phase B orphan-commit recovery handles uncommitted ones; see `step-implementation-recovery.md`) |
 | C | iteration count already in **Progress**; gate-checks already PASSed; plan corrections already committed |
 | 4 | sections of `design-final.md` / `adr.md` already on disk |
@@ -397,7 +397,7 @@ The orchestrator MUST NOT, while a handoff is unresolved:
 | 0 | `/create-plan` | mid-research, after a deep dive that consumed context but before findings are captured |
 | 1 | `/create-plan` | mid-plan-drafting, after sections of `implementation-plan.md` / `design.md` are partly written |
 | 2 (State 0) | `/execute-tracks` | between consistency and structural reviews, or mid-classifier escalation |
-| A | `/execute-tracks` | between sequential reviews (technical / risk / adversarial); after decomposition but before the atomic step-file write |
+| A | `/execute-tracks` | between sequential reviews (technical / risk / adversarial); after decomposition but before the atomic track-file write |
 | B | `/execute-tracks` | after a committed step, before the next one starts (rare — usually no handoff needed) |
 | C | `/execute-tracks` | between iterations, between gate checks, before track-completion approval |
 | 4 | `/execute-tracks` (State D) | between sections of `design-final.md`, or between `design-final.md` and `adr.md` |

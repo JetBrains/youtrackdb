@@ -16,7 +16,7 @@ vs. current-state ambiguity, ASPIRATIONAL/VIOLATED invariants). Two steps run in
 sequence:
 
 1. **Consistency Review** — reads the design document, implementation plan,
-   step files (one per pending track), and actual codebase to find gaps and
+   track files (one per pending track), and actual codebase to find gaps and
    inconsistencies between them. Each finding carries a
    `Classification: mechanical | design-decision` tag emitted by the
    sub-agent. Mechanical fixes apply automatically; design decisions are
@@ -171,9 +171,9 @@ findings.
 
 Each pending track's detailed description
 (`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) lives in that track's step file (`plan/track-N.md`,
+Mermaid diagram) lives in that track's track file (`plan/track-N.md`,
 written by `create-plan` at Phase 1) rather than inline in the plan
-file; the consistency review reads the step files alongside the plan.
+file; the consistency review reads the track files alongside the plan.
 
 ### Sub-agent prompt
 
@@ -193,10 +193,10 @@ field, not on severity.
 
 ```
 Iteration 1 (full review):
-  1. Spawn the consistency sub-agent with plan, step files, design, codebase.
+  1. Spawn the consistency sub-agent with plan, track files, design, codebase.
   2. Receive findings, each tagged Classification: mechanical | design-decision.
   3. Apply ALL mechanical fixes immediately:
-     - Plan / step-file edits: native Edit.
+     - Plan / track-file edits: native Edit.
      - design.md edits: route through the edit-design skill (mutation
        discipline — see §Mutation discipline for design.md fixes below).
   4. If any design-decision findings remain: batch-present to the user
@@ -264,9 +264,9 @@ consistency, and plan-file bloat.
 
 Each pending track's detailed description (the subject of TRACK
 DESCRIPTIONS checks, plus several cross-file bullets in TRACK SIZING,
-SCOPE INDICATORS, and CONSISTENCY) lives in that track's step file
+SCOPE INDICATORS, and CONSISTENCY) lives in that track's track file
 (`plan/track-N.md`, written by `create-plan` at Phase 1) rather than
-inline in the plan file; the structural review reads the step files
+inline in the plan file; the structural review reads the track files
 alongside the plan.
 
 **Full details:** [`structural-review.md`](structural-review.md)
@@ -285,12 +285,12 @@ Same shape as the consistency review:
 
 ```
 Iteration 1 (full review):
-  1. Spawn the structural sub-agent with plan, step files, design.
+  1. Spawn the structural sub-agent with plan, track files, design.
   2. Receive findings, each tagged Classification: mechanical | design-decision.
      Per-prompt rule: ALL bloat findings classify as mechanical; track-ordering
      and contradiction findings classify as design-decision (see §Mechanical
      vs. design-decision classifier below).
-  3. Apply mechanical fixes immediately (Edit for plan / step files,
+  3. Apply mechanical fixes immediately (Edit for plan / track files,
      edit-design for design.md).
   4. Batch-escalate any design-decision findings to the user once. Apply
      user-approved fixes.
@@ -434,7 +434,7 @@ end. Pre-existing plans don't break.
 
 ### 2. The workflow-update commit
 
-After Phase 2 passes, the orchestrator stages the plan, step files, and
+After Phase 2 passes, the orchestrator stages the plan, track files, and
 design files, and commits with the message:
 
 ```
@@ -462,7 +462,7 @@ for narrative breakage. If the cold-read rejects the mutation, the
 orchestrator escalates that specific fix to the user (effectively
 re-classifying it from `mechanical` to `design-decision`).
 
-Plan-file and step-file edits use `Edit` directly — no mutation
+Plan-file and track-file edits use `Edit` directly — no mutation
 discipline applies to those files.
 
 ---
@@ -503,8 +503,8 @@ broken that incremental revision cannot fix it.
 When both reviews pass:
 
 1. Update `## Plan Review` with the audit summary (see §Audit trail).
-2. Stage and commit the plan / step-file / design changes. Stage every
-   step file the review actually touched (use `git status --porcelain
+2. Stage and commit the plan / track-file / design changes. Stage every
+   track file the review actually touched (use `git status --porcelain
    docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
    modified path explicitly rather than the whole `tracks/` directory
    so unrelated files don't sneak in). The `design*.md` glob picks up
@@ -515,7 +515,7 @@ When both reviews pass:
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
            docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
-           ... (one path per modified step file) \
+           ... (one path per modified track file) \
            docs/adr/<dir-name>/_workflow/design*.md
    git commit -m "Plan review autonomous fixes for <plan-name>
 

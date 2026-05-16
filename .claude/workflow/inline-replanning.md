@@ -92,7 +92,7 @@ Decision Record revisions follow this format:
 
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
-[§Updating plan and step files](#updating-plan-and-step-files) below
+[§Updating plan and track files](#updating-plan-and-track-files) below
 for the authoritative rule per case.
 
 **Design coherence.** When the revision invalidates a Decision
@@ -149,7 +149,7 @@ was structurally broken. The invocation passes `plan_path` +
 `plan_dir` per the path-passing rule in
 `.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
 full plan file including both completed track episodes and the
-proposed revisions, plus the step-file directory so pending-track
+proposed revisions, plus the track-file directory so pending-track
 details (each track's `## Description`) are reachable.
 
 **5. Iterate** — if the preview finds structural blockers, revise and
@@ -180,7 +180,7 @@ preview — they will appear in the next-session State 0 re-run.
 
   Stage only the paths that the revision actually touched (the
   enumeration in
-  [§Updating plan and step files](#updating-plan-and-step-files)
+  [§Updating plan and track files](#updating-plan-and-track-files)
   tells you which files apply per case). Any `design.md` /
   `design-mechanics.md` changes from step 3 land via the
   `edit-design` skill, which writes a separate
@@ -200,7 +200,7 @@ preview — they will appear in the next-session State 0 re-run.
 
 ---
 
-## Updating plan and step files
+## Updating plan and track files
 
 When a revision drafted during step 3 of [§Process](#process) lands —
 whether during the propose step itself or after review passes — each
@@ -217,22 +217,22 @@ revision and the file(s) that carry the new description:
 1. **New track.** Add a thin checklist entry (title + intro paragraph +
    `**Scope:**` + optional `**Depends on:**`) to
    `implementation-plan.md`, and create a new
-   `plan/track-N.md` step file whose `## Description` carries the
+   `plan/track-N.md` track file whose `## Description` carries the
    intro paragraph + the full `**What/How/Constraints/Interactions**`
    subsections + any track-level Mermaid diagram. Use the same
-   step-file shape `create-plan` produces at Phase 1 (see
+   track-file shape `create-plan` produces at Phase 1 (see
    [`conventions-execution.md`](conventions-execution.md) §2.1
-   *Step file content* for the template) — `## Progress`,
+   *Track file content* for the template) — `## Progress`,
    `## Reviews completed`, and `## Steps` start as `[ ]` placeholders.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
-   reviews recorded yet). Update the step file's `## Description`
+   reviews recorded yet). Update the track file's `## Description`
    section. The plan-file checklist entry keeps its intro paragraph
    + `**Scope:**` + `**Depends on:**` unchanged unless the intro
    itself is being revised.
 
 3. **Revising a mid-execution track** (status `[ ]` with Phase A
-   reviews recorded and/or steps decomposed in the step file — the
+   reviews recorded and/or steps decomposed in the track file — the
    execution workflow never sets `[>]` on a track). Update the step
    file's `## Description` section. If the revision changes the intro
    paragraph, update the plan-file checklist entry's intro paragraph
@@ -247,15 +247,15 @@ revision and the file(s) that carry the new description:
    scope becomes a new track (case 1).
 
 5. **Revising a skipped track** (status `[~]`). Update the plan entry.
-   Skipped tracks never retain a step file after the skip (see
+   Skipped tracks never retain a track file after the skip (see
    `track-skip.md` step 3), so the plan entry is the only
-   authoritative location. Per `track-skip.md`'s "Step-file deletion
+   authoritative location. Per `track-skip.md`'s "Track-file deletion
    is terminal" warning, a reader un-skipping a `[~]` track must
-   re-author the description from scratch — the deleted step file is
+   re-author the description from scratch — the deleted track file is
    not a recovery source after skip, and the revision here is the
    re-authoring.
 
 6. **Removing a track.** Remove the plan entry and delete the step
    file at `plan/track-N.md` if it still exists. (If the track had
-   already been skipped, its step file was deleted then; case 6
-   becomes a no-op for the step file.)
+   already been skipped, its track file was deleted then; case 6
+   becomes a no-op for the track file.)

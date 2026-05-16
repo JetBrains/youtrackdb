@@ -30,7 +30,7 @@ documents — they are not loaded by every Phase 3 session:
 Moved to `workflow.md` §Startup Protocol — the only place where state
 detection is used.
 
-### Step file content (`plan/track-N.md`)
+### Track file content (`plan/track-N.md`)
 
 ````markdown
 # Track N: <title>
@@ -86,7 +86,7 @@ The **Description** section carries the track's full description —
 intro paragraph (mirroring the plan-file entry's intro), `**What**:` /
 `**How**:` / `**Constraints**:` / `**Interactions**:` subsections, and
 any track-level Mermaid diagram. Phase 1 writes this section directly
-when it creates the step file, so by the time `/execute-tracks` enters
+when it creates the track file, so by the time `/execute-tracks` enters
 Phase A the description is already on disk. The Track Pre-Flight gate
 (see [`track-review.md`](track-review.md) §Track Pre-Flight) may amend
 the section in place and/or append a `### Clarifications` subsection
@@ -100,7 +100,7 @@ phases.
 
 The **Progress** section tracks which phase the track is in. The execution
 agent updates it at each phase transition:
-- Mark `Review + decomposition` as `[x]` when the step file is first written
+- Mark `Review + decomposition` as `[x]` when the track file is first written
 - Update `Step implementation` count as each step completes (e.g.,
   `(3/5 complete)`); mark `[x]` when all steps are done
 - Update `Track-level code review` iteration count as each review
@@ -112,7 +112,7 @@ level measured at sub-step 6 of step-implementation.md and recorded when
 the episode is written in sub-step 7. The agent marks it `[x]` with the
 measured level (`safe`, `info`, `warning`, or `critical`). If measurement
 failed (file missing or command error), record `- [x] Context: unavailable`.
-This sub-item is written to the step file (under `_workflow/plan/`)
+This sub-item is written to the track file (under `_workflow/plan/`)
 alongside the episode and is committed and pushed with the episode
 commit. It must be marked before the step is considered complete — an
 unmarked context check means the agent skipped the check.
@@ -120,19 +120,19 @@ unmarked context check means the agent skipped the check.
 The **Risk:** line in each step's description blockquote names the step's
 risk level (`low`, `medium`, or `high`) and the triggering category (or
 `default` / `override: <reason>`). It is written by the Phase A decomposer
-and reviewed by the user before the step file is approved. Phase B reads
+and reviewed by the user before the track file is approved. Phase B reads
 it to gate sub-step 4 — the dimensional review loop runs only when the
 tag is `high`; for `medium` and `low` steps Phase B skips directly to
 sub-step 5. If implementation reveals that a step is more invasive than
 tagged, Phase B may upgrade the tag in place (recording the upgrade in
 the risk note) but never downgrade. After the step is committed and the
 episode written, the risk tag is locked. Phase C reads the locked tags
-from the step file and treats `medium` and `high` step ranges as focal
+from the track file and treats `medium` and `high` step ranges as focal
 points when reviewing the cumulative track diff. Full criteria, override
 rules, and lifecycle live in [`risk-tagging.md`](risk-tagging.md), which
 is loaded only by Phase A (and rarely by Phase B on the upgrade path);
 sub-step 4's gating decision in normal Phase B execution reads the tag
-value from the step file alone.
+value from the track file alone.
 
 The **Base commit** section records the git SHA of `HEAD` at the start of
 Phase B, before the first implementation commit. Phase B writes this once
@@ -157,7 +157,7 @@ The **Reviews completed** section records which pre-execution reviews
 finished. If a session is interrupted during Phase A, the next session
 can skip completed reviews and only re-run missing ones.
 
-Step files are created during Phase A (review + decomposition) when steps
+Track files are created during Phase A (review + decomposition) when steps
 are decomposed. They do not exist during Phase 1 (planning) or Phase 2
 (structural review) — only scope indicators in the plan file exist at
 that point.
@@ -175,7 +175,7 @@ require escalation.
 A track's detailed description (the `**What/How/Constraints/Interactions**`
 subsections plus any track-level Mermaid diagram, plus any
 `### Clarifications` captured by the Track Pre-Flight gate) lives in the
-step file from the moment Phase 1 creates it. The table below is the
+track file from the moment Phase 1 creates it. The table below is the
 canonical reference for where that content lives at each phase for
 pending, active, and completed tracks. Phase A resume logic (see
 [`track-review.md`](track-review.md)) and inline replanning (see
@@ -190,19 +190,19 @@ gate per the rule above.
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
 | Pre-Phase-1 | (none) | — | — |
-| Phase 1 write | step file (`plan/track-N.md`) | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
-| Phase A | step file | (stable; Track Pre-Flight may amend `## Description` and/or append `### Clarifications`) | Phase A orchestration; Phase A review sub-agents |
-| Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
-| Phase C after collapse | plan intro paragraph + plan-resident track episode (the step file remains on disk until Phase 4 cleanup but is no longer load-bearing strategic context) | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
-| Skipped | plan file entry (retained under `[~]`) + step file deleted | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
+| Phase 1 write | track file (`plan/track-N.md`) | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
+| Phase A | track file | (stable; Track Pre-Flight may amend `## Description` and/or append `### Clarifications`) | Phase A orchestration; Phase A review sub-agents |
+| Phase B / Phase C | track file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
+| Phase C after collapse | plan intro paragraph + plan-resident track episode (the track file remains on disk until Phase 4 cleanup but is no longer load-bearing strategic context) | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
+| Skipped | plan file entry (retained under `[~]`) + track file deleted | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
 | Inline replan | per authoritative-location rule in [`inline-replanning.md`](inline-replanning.md) | inline-replanning orchestration | — |
 
-Track-level Mermaid diagrams live inside the step file's `## Description`
+Track-level Mermaid diagrams live inside the track file's `## Description`
 under the `**Interactions**:` blockquote (never rendered in the plan
 file). The writer and readers at each phase are the same as the
 corresponding description row above.
 
-**Step files live under `docs/adr/<dir-name>/_workflow/plan/`** —
+**Track files live under `docs/adr/<dir-name>/_workflow/plan/`** —
 tracked in git during the branch lifetime so changes are pushed to the
 draft PR for team visibility and disk-loss backup, and removed alongside
 the rest of `_workflow/` in the Phase 4 cleanup commit before merge
@@ -225,7 +225,7 @@ Step failed fields: **What was attempted**, **Why it failed**, **Impact on
 remaining steps**, **Key files**.
 
 Episodes are immutable once written. Code is committed first, then the
-episode is written to the step file on disk. Episode length is proportional
+episode is written to the track file on disk. Episode length is proportional
 to cross-track impact.
 
 **Full format, rules, and examples:**

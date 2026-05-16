@@ -59,7 +59,7 @@ This ensures the agent retains full context of which findings were fixed,
 which were deferred to other tracks, and what plan corrections were made —
 all of which feed into an accurate track episode.
 
-Between sessions, the step file's **Progress** section and step episodes
+Between sessions, the track file's **Progress** section and step episodes
 bridge context. The user clears the session and re-runs `/execute-tracks`
 at every phase boundary.
 
@@ -70,12 +70,12 @@ at every phase boundary.
 ```mermaid
 flowchart TD
     START["/execute-tracks"]
-    READ["Read plan file\n+ step file\nIdentify state"]
+    READ["Read plan file\n+ track file\nIdentify state"]
 
     START --> READ
 
     READ -->|"Plan review not yet done\n(## Plan Review is [ ])"| P2["State 0: Autonomous Plan Review\n(implementation-review.md)"]
-    READ -->|"Pre-Phase-A\n(next track is [ ], no step file)"| PREFLIGHT["Track Pre-Flight\nPanel 1: strategy assessment (look-back)\nPanel 2: track summary (look-forward)"]
+    READ -->|"Pre-Phase-A\n(next track is [ ], no track file)"| PREFLIGHT["Track Pre-Flight\nPanel 1: strategy assessment (look-back)\nPanel 2: track summary (look-forward)"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
     READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nArtifacts"]
@@ -122,7 +122,7 @@ cross-track impact.
 ## Startup Protocol (Auto-Resume)
 
 1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
-   (startup reads only the plan; per-track step files at
+   (startup reads only the plan; per-track track files at
    `plan/track-N.md` are loaded later, when a track enters Phase A
    or its description is being amended).
 
@@ -157,13 +157,13 @@ cross-track impact.
    MUST NOT spawn sub-agents, re-run gate-checks, or recompile
    episodes. See `mid-phase-handoff.md` for the full resume contract.
 
-5. **Determine session state** from the plan file and step files.
+5. **Determine session state** from the plan file and track files.
 
-   | Plan file state | Step file state | Session state |
+   | Plan file state | Track file state | Session state |
    |---|---|---|
    | `## Plan Review` checklist entry is `[ ]` (or section missing entirely) | — | **State 0**: autonomous plan review (load `implementation-review.md` and follow it) |
-   | `## Plan Review` is `[x]`; next track is `[ ]` | No step file | **State A**: pre-Phase-A — runs the Track Pre-Flight gate (`track-review.md` § Track Pre-Flight), then Phase A in the same session. Within the gate, Panel 1 (strategy assessment) is conditionally skipped via the `**Strategy refresh:**` idempotency check — see *State A internal branching* below. |
-   | `## Plan Review` is `[x]`; a track is `[ ]` | Step file exists | **State C**: mid-track resume |
+   | `## Plan Review` is `[x]`; next track is `[ ]` | No track file | **State A**: pre-Phase-A — runs the Track Pre-Flight gate (`track-review.md` § Track Pre-Flight), then Phase A in the same session. Within the gate, Panel 1 (strategy assessment) is conditionally skipped via the `**Strategy refresh:**` idempotency check — see *State A internal branching* below. |
+   | `## Plan Review` is `[x]`; a track is `[ ]` | Track file exists | **State C**: mid-track resume |
    | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final artifacts) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
 
@@ -181,11 +181,11 @@ cross-track impact.
    the same session state in either case — the panel skip is internal
    to the gate.
 
-   **State C sub-states** (from step file Progress section):
+   **State C sub-states** (from track file Progress section):
 
    | Progress section | Resume action |
    |---|---|
-   | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume (often a no-op since the step file already has its description from Phase 1), then re-run only missing reviews and decompose. |
+   | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume (often a no-op since the track file already has its description from Phase 1), then re-run only missing reviews and decompose. |
    | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
    | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
@@ -218,7 +218,7 @@ cross-track impact.
      §Track Pre-Flight. The gate combines a strategy assessment
      (look-back, when an earlier track has just completed/skipped)
      with the upcoming track's summary (look-forward). The gate is
-     **skipped** on State C resume because the step file's
+     **skipped** on State C resume because the track file's
      `## Description` is already authoritative.
 
    The user can override: reorder tracks, skip a track, or choose a different
@@ -262,18 +262,18 @@ Phase boundaries are **mandatory** session boundaries. Each session handles
 exactly one phase:
 
 - **After State 0 (autonomous plan review)** — both consistency and
-  structural reviews have passed, the plan / step files / design have
+  structural reviews have passed, the plan / track files / design have
   been fixed (mechanical fixes auto-applied; design decisions resolved
   by the user), `## Plan Review` is marked `[x]` with the audit summary,
   and the workflow-update commit has been pushed. Session ends. Next
   session starts Phase A of Track 1.
 
-- **After Phase A (review + decomposition)** — step file is written to disk
+- **After Phase A (review + decomposition)** — track file is written to disk
   with all steps as `[ ]` and `Review + decomposition` marked `[x]`. Session
   ends. Next session starts Phase B.
 
 - **After Phase B (step implementation)** — all steps are implemented,
-  tested, and committed. Episodes are written to the step file on disk.
+  tested, and committed. Episodes are written to the track file on disk.
   `Step implementation` is marked `[x]`. Session ends. Next session starts
   Phase C.
 
@@ -283,7 +283,7 @@ exactly one phase:
   Session ends. The next session's Track Pre-Flight gate runs Panel 1
   (strategy assessment) against this track's episode. If session is
   interrupted before user approval, the next session re-enters Phase C
-  at the track completion stage (all phases `[x]` in step file, track
+  at the track completion stage (all phases `[x]` in track file, track
   still `[ ]` in plan file).
 
 - **After ESCALATE resolution** — if inline replanning produces a revised
@@ -329,12 +329,12 @@ yet.
    next review iteration (Phase C), no further decomposition (Phase A).
 2. **Save all work:**
    - Ensure all code changes are committed
-   - Ensure all progress is written to the step file on disk
-   - Update the **Progress** section in the step file on disk
+   - Ensure all progress is written to the track file on disk
+   - Update the **Progress** section in the track file on disk
    - **Write a handoff file** per
      [`mid-phase-handoff.md`](mid-phase-handoff.md) if the pause
      leaves mid-phase state the next session cannot re-derive from
-     the plan / step files alone. Mandatory for:
+     the plan / track files alone. Mandatory for:
      - between-iteration pauses in Phase C;
      - post-decomposition / between-review pauses in Phase A;
      - mid-research pauses in Phase 0 / 1;
@@ -361,7 +361,7 @@ work when context consumption is at `warning` level or above.
 ### What to do before ending a session
 
 - Ensure all code changes are committed
-- Ensure all step episodes are written to the step file under
+- Ensure all step episodes are written to the track file under
   `_workflow/plan/`, the **Progress** section is up to date, and
   every workflow-file change has been committed (workflow files are
   tracked under `_workflow/` — see `commit-conventions.md`)
@@ -406,7 +406,7 @@ User interaction points:
 |---|---|---|
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
-| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the step file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; Apply executes `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK`, buffers `CLARIFY`, answers `QUESTION` inline); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
+| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + the track file's `## Description` (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; Apply executes `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK`, buffers `CLARIFY`, answers `QUESTION` inline); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write track episode + collapse + `[x]`); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`, `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
@@ -478,7 +478,7 @@ branch:
    § Step 4; push.
 2. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
-   (plan, design.md, design-mechanics.md, step files,
+   (plan, design.md, design-mechanics.md, track files,
    design-mutations log). Commit with a message such
    as `Remove workflow scaffolding`. Push.
 
@@ -513,7 +513,7 @@ For other workflow components, see:
 - **`conventions-execution.md`** — execution-specific: episodes, commit
   format, code review, complexity tiers, decomposition rules
 - **`commit-conventions.md`** — commit message type prefixes for session
-  resume (review fix, episode, step file updates)
+  resume (review fix, episode, track file updates)
 - **`track-review.md`** — Phase A: review + decomposition
 - **`step-implementation.md`** — Phase B: step implementation (happy path)
 - **`track-code-review.md`** — Phase C: code review + track completion
@@ -534,7 +534,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 3; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
-- **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
+- **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the track file directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
 - **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
 - **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the pre-commit gate regex are usually enough)

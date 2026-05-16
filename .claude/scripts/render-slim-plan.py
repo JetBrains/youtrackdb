@@ -48,7 +48,7 @@ SUBSECTION_KEYWORDS: Set[str] = {
     "Scope",
     "Depends on",
     "Track episode",
-    "Step file",
+    "Track file",
     "Skipped",
     "Strategy refresh",
 }

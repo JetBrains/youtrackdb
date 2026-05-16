@@ -9,7 +9,7 @@ Phase B is a **two-actor phase**:
   step `[x]`, and update the Progress count.
 - The **implementer** (a fresh sub-agent spawned per step, see
   [`implementer-rules.md`](implementer-rules.md)) performs sub-steps
-  1–3 of step implementation — read the step file, implement the
+  1–3 of step implementation — read the track file, implement the
   change with tests, stage and commit. The implementer's output is a
   structured handoff parsed by the orchestrator.
 
@@ -54,11 +54,11 @@ full procedure for the matching case.
 Before spawning the first implementer:
 
 1. **Record the base commit.** Run `git rev-parse HEAD` to get the
-   current SHA, then write it to the step file's `## Base commit`
+   current SHA, then write it to the track file's `## Base commit`
    section (creating the section if it doesn't exist). Skip if
    `## Base commit` already has a SHA (resume case).
 
-   The step file change must be committed before the first
+   The track file change must be committed before the first
    implementer spawn — the implementer's `git reset --hard HEAD`
    would otherwise discard the `## Base commit` write. Stage and
    commit:
@@ -105,7 +105,7 @@ Before spawning the first implementer:
    If `git log --grep` returns nothing, surface the discrepancy to
    the user before proceeding; do not invent a base.
 
-   On stale, **append** a discrepancy note to the step file's
+   On stale, **append** a discrepancy note to the track file's
    `## Base commit` section (do not overwrite the original SHA —
    keep both for the audit trail):
 
@@ -115,7 +115,7 @@ Before spawning the first implementer:
    for resume.
    ```
 
-   Commit the step-file edit as a Workflow update commit before
+   Commit the track-file edit as a Workflow update commit before
    spawning the first implementer (per
    [`commit-conventions.md`](commit-conventions.md) § Commit type
    prefixes — "Workflow update" row) so the draft PR records the
@@ -187,7 +187,7 @@ from git: it is the parent of the first orphan commit for the next
 
 **A step is not complete until all seven sub-steps of the per-step
 workflow are done.** Do NOT spawn the implementer for the next step
-until the current step's episode is written to the step file on disk
+until the current step's episode is written to the track file on disk
 and cross-track impact is assessed. This is a hard gate, not a
 guideline.
 
@@ -208,7 +208,7 @@ activities across steps loses all three benefits.
 
 ## Per-Step Orchestration Loop
 
-For each `[ ]` step in the step file, run sub-steps 1–8 to
+For each `[ ]` step in the track file, run sub-steps 1–8 to
 completion before moving to the next step. Sub-steps 1–3 run inside
 the implementer; sub-steps 4–7 run on the orchestrator side.
 
@@ -273,7 +273,7 @@ rulebook before starting any work:
 
 The rulebook defines what you do, the three early-return cases
 (design decision, risk upgrade, failure), and the return contract
-your output must end with. Do not modify the step file or the plan —
+your output must end with. Do not modify the track file or the plan —
 those are the orchestrator's responsibility.
 
 ## Stable inputs (static)
@@ -432,7 +432,7 @@ finding ID prefixes, and gate format.
       docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
       ## Track Steps (tactical context)
-      Read the step file at:
+      Read the track file at:
         docs/adr/{dir-name}/_workflow/plan/track-{N}.md
       The file begins with a `## Description` section carrying the
       track's original description — intro paragraph +
@@ -601,10 +601,10 @@ cat /tmp/claude-code-context-usage-$PPID.txt
 - If the file does not exist or the command fails: this is **not an
   error** — record `unavailable` and treat as `safe`.
 
-**Sub-step 7 — Episode finalisation and step-file write.** Merge
+**Sub-step 7 — Episode finalisation and track-file write.** Merge
 `result.EPISODE_DRAFT` with any cross-track-impact-check
 observations from sub-step 5 (those go into the episode's
-**What was discovered** field). Write the episode to the step file
+**What was discovered** field). Write the episode to the track file
 under the step item, and write the context-check sub-item with the
 measured level:
 
@@ -623,7 +623,7 @@ Mark the step as `[x]`. Update the **Progress** section's `Step
 implementation` count (e.g., `(3/5 complete)`). If this is the last
 step, mark `Step implementation` as `[x]`.
 
-**Sub-step 8 — Commit and push the episode.** The step file is
+**Sub-step 8 — Commit and push the episode.** The track file is
 tracked under `_workflow/`, so the episode write produces a dirty
 working tree. Commit and push it as a separate workflow-update
 commit so the draft PR reflects the new state and so `HEAD` is
@@ -656,10 +656,10 @@ level was `warning` or `critical`, do NOT spawn the implementer for
 the next step. Save all work and ask the user for a session refresh
 (see workflow.md §Context Consumption Check). The default Phase B
 case (just finished a step, next session resumes from the next `[ ]`
-step) does **not** require a handoff file — the step file's Progress
+step) does **not** require a handoff file — the track file's Progress
 section is sufficient. Write a handoff per
 [`mid-phase-handoff.md`](mid-phase-handoff.md) only if the pause
-captures state the next session cannot re-derive from the step file
+captures state the next session cannot re-derive from the track file
 (for example, a partial cross-track-impact finding that needs to be
 re-presented before the next step starts).
 
@@ -740,7 +740,7 @@ The episode includes:
 - **Critical context** — from `EPISODE_DRAFT.critical_context`. Use
   sparingly.
 
-Write the episode to the step file on disk. Detailed format and
+Write the episode to the track file on disk. Detailed format and
 examples live in
 [`episode-format-reference.md`](episode-format-reference.md).
 
@@ -754,13 +754,13 @@ Two-Failure Rule live in
 
 ## Phase B Completion
 
-After the last step's episode is written to the step file (and its
+After the last step's episode is written to the track file (and its
 code changes committed to git):
 
 1. **Mark `Step implementation` as `[x]`** in the Progress section.
 2. **Inform the user** that Phase B is complete:
    - How many steps were implemented (including any failed/retried;
-     count from `[!]` and retry rows in the step file if recovery
+     count from `[!]` and retry rows in the track file if recovery
      was used).
    - Key discoveries from step episodes.
    - Any unresolved code review findings.

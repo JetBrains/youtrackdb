@@ -4,8 +4,8 @@ checks plan-internal quality without reading code), this review reads the
 code to find gaps and inconsistencies between the four artifacts:
 
 1. **Implementation plan** (`implementation-plan.md`)
-2. **Step files** (`plan/track-N.md`, one per pending track) — each
-   step file's `## Description` section holds that track's
+2. **Track files** (`plan/track-N.md`, one per pending track) — each
+   track file's `## Description` section holds that track's
    `**What/How/Constraints/Interactions**` detail and any track-level
    Mermaid diagram. Written by `create-plan` at Phase 1.
 3. **Design document** (`design.md`)
@@ -60,11 +60,11 @@ incorrect code.
 
 Inputs:
 - Plan file: {plan_path}
-- Step files directory: {plan_dir} — every `plan/track-N.md` whose
+- Track files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending track's
-  step file `## Description` for that track's
+  track file `## Description` for that track's
   `**What/How/Constraints/Interactions**` detail and any track-level
-  Mermaid diagram. Skip step files for `[x]`/`[~]` tracks — those
+  Mermaid diagram. Skip track files for `[x]`/`[~]` tracks — those
   tracks' final descriptions live in the plan-file entry instead.
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
@@ -91,7 +91,7 @@ design claim along the **intent axis**:
   invariant tagged `ENFORCED`). Discrepancies with these become
   findings — emit normally.
 - **Target-state claim** — the plan/design says something about code a
-  `[ ]` track will create (`**What**:` bullets in the step file
+  `[ ]` track will create (`**What**:` bullets in the track file
   `## Description`, forward-looking Decision Records describing the
   post-implementation shape, design.md sections describing the
   post-implementation state, invariants tagged `ASPIRATIONAL`). The
@@ -105,7 +105,7 @@ The same rule already applies to invariants via the
 it to all design.md / Component Map / track-description claims.
 
 **How to determine intent for each claim:**
-- If the claim is inside a step-file `## Description`
+- If the claim is inside a track-file `## Description`
   `**What/How/Constraints/Interactions**` subsection for a `[ ]`
   track → target-state.
 - If the claim is in a Decision Record's "Implemented in: Track N" line
@@ -165,7 +165,7 @@ finding and the classification rules below will route it correctly.
 - Do the workflow diagrams align with the track descriptions? (e.g., if a
   track says "add snapshot reads for histograms", is there a corresponding
   flow in the design document?) *(For pending tracks, read track
-  descriptions from the step file `## Description`; for
+  descriptions from the track file `## Description`; for
   completed/skipped tracks, read from the plan-file entry. The Component
   Map/Decision Records bullet above and the Decision Records and
   scope-indicators bullets below remain plan-only.)*
@@ -181,7 +181,7 @@ finding and the classification rules below will route it correctly.
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior
   but the design document has no concurrency section) *(For pending
-  tracks, the "track describes …" text lives in the step file
+  tracks, the "track describes …" text lives in the track file
   `## Description`; for completed/skipped tracks, in the plan-file
   entry. The orphan-scope and orphan-codebase-construct bullets below
   remain plan-only.)*
@@ -221,11 +221,11 @@ real mismatch hidden)? When in doubt, route through PSI.
 - Run PSI queries (find-usages, find-implementations, type-hierarchy) via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
 - For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
 
-1. **Read the plan, every pending track's step file, and the design
+1. **Read the plan, every pending track's track file, and the design
    document** thoroughly.
 2. **Identify all code references** — every class, interface, method,
    SPI, configuration parameter, or file path mentioned in the plan,
-   the step files, or the design document.
+   the track files, or the design document.
 
    **Where track-description code references live:** For each
    **pending** track (`[ ]`), read the track's detailed description
@@ -234,9 +234,9 @@ real mismatch hidden)? When in doubt, route through PSI.
    For **completed** tracks (`[x]`) and **skipped** tracks (`[~]`),
    the plan-file entry already holds the track's final form (intro
    paragraph + track episode for completed; intro + `**Skipped:**`
-   reason for skipped) — there is no live step-file description to
+   reason for skipped) — there is no live track-file description to
    consult, so read code references directly from the plan-file entry.
-   Phantom references in a step file's description have the same
+   Phantom references in a track file's description have the same
    severity as phantom references in the plan file (see the severity
    guide below).
 3. **Verify each reference** against the actual codebase. For Java

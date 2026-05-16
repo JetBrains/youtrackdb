@@ -9,7 +9,7 @@ Inputs:
 - Cumulative diff at new HEAD: {diff_path}
 - Changed files list: {files_path}
 - Slim implementation plan: {plan_slim_path}
-- Step file: {step_file_path}
+- Track file: {step_file_path}
 
 The IDs in `{findings_under_recheck}` already carry the cumulative-
 numbering prefix for this dimension (e.g., `BC3`, `CQ7`, `TC4` —

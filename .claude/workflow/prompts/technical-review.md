@@ -18,7 +18,7 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
   decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track
   implementation. Track episodes (in the plan file under completed tracks)
-  summarize strategic outcomes; step episodes (in step files) contain
+  summarize strategic outcomes; step episodes (in track files) contain
   implementation details. Episodes from completed tracks are your evidence
   of what actually happened vs. what was planned.
 - **Scope indicator**: A rough sketch of expected work in a track
@@ -44,7 +44,7 @@ your review, the main agent decomposes the track into concrete steps.
 
 **Where things live during Phase A:** The track's detailed description
 (the `**What/How/Constraints/Interactions**` subsections plus any
-track-level component diagram) lives in the step file at
+track-level component diagram) lives in the track file at
 `docs/adr/<dir-name>/_workflow/plan/track-N.md` under a `## Description` section —
 copied there at Phase A start. The plan file carries strategic context
 (Architecture Notes, Decision Records, Component Map) and track-level
@@ -55,7 +55,7 @@ status + episodic memory.
 Inputs:
 - Plan file: {plan_path} (strategic context — Architecture Notes,
   Decision Records, Component Map)
-- Step file: {step_file_path} (the track's `## Description` section —
+- Track file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
   and any track-level diagram.)
 - Track to review: {track_name}
@@ -64,7 +64,7 @@ Inputs:
 - Previous findings: {previous_findings}
 
 Start by reading the track description and any track-level component
-diagram from the step file's `## Description` section. Read the
+diagram from the track file's `## Description` section. Read the
 relevant Decision Records from the plan. Then explore the parts of the
 codebase this track touches.
 
@@ -107,7 +107,7 @@ COMPONENT MAP ACCURACY (for this track)
 - Are there components this track misses that will be affected?
 
 NAMED REFERENCES IN STEP FILE
-- For every production class named in the step file's `## Description`
+- For every production class named in the track file's `## Description`
   (`**What/How/Constraints/Interactions**` blocks), verify the name
   resolves via PSI find-class (`steroid_execute_code` with
   `JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`).

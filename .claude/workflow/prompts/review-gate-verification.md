@@ -3,7 +3,7 @@ You are re-checking a track of the plan after fixes were applied.
 Inputs:
 - Plan file: {plan_path} (strategic context — Architecture Notes,
   Decision Records, Component Map)
-- Step file: {step_file_path} (the track's `## Description` section —
+- Track file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
   and any track-level diagram.)
 - Track reviewed: {track_name}
@@ -24,7 +24,7 @@ For each finding under re-check:
 
 Before verifying any finding whose fix touched the track description,
 re-read the track description and any track-level component diagram from
-the step file's `## Description` section. Read the relevant Decision
+the track file's `## Description` section. Read the relevant Decision
 Records from the plan.
 
 For each ACCEPTED finding being verified, produce a **verification
@@ -54,9 +54,9 @@ edge cases.
 ```markdown
 #### Verify <PREFIX><N>: <finding title>
 - **Original issue**: <what was wrong>
-- **Fix applied**: <what changed in the step file, plan file, or codebase>
+- **Fix applied**: <what changed in the track file, plan file, or codebase>
 - **Re-check**:
-  - Step-file/plan/codebase location: <where the fix was applied>
+  - Track-file/plan/codebase location: <where the fix was applied>
   - Current state: <what it now says vs. original issue>
   - Criteria met: <which review criteria are now satisfied>
 - **Regression check**: <did the fix introduce new issues?

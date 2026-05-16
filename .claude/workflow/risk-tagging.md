@@ -22,11 +22,11 @@ justified.
   the rare upgrade path, when implementation reveals a step is more
   invasive than the plan suggested. Normal Phase B execution does NOT
   load this file; it reads the per-step `**Risk:**` line from the
-  step file and gates sub-step 4 on the tag value alone. The recovery
+  track file and gates sub-step 4 on the tag value alone. The recovery
   file is itself loaded on demand and is where the upgrade handlers
   (`apply_upgrade_then_decide`, `rollback_and_upgrade`) live.
 - **Phase C (`track-code-review.md`)** — does NOT load this file. The
-  Phase C synthesizer reads the per-step risk tags from the step file
+  Phase C synthesizer reads the per-step risk tags from the track file
   and treats `medium` and `high` step ranges as focal points; no
   knowledge of the underlying criteria is needed.
 
@@ -173,7 +173,7 @@ with a written reason in the step's risk note. Two specific cases:
   class). Requires a written justification in the risk note.
 
 ### User override at Phase A end
-After the decomposer writes the step file, the user reviews the step
+After the decomposer writes the track file, the user reviews the step
 list and may change any risk tag before approving. This is the primary
 safety net for criteria-application errors.
 
@@ -216,7 +216,7 @@ is locked. Track-level review reads the locked risk tags and treats
 `medium` and `high` as focal points when reviewing the cumulative track
 diff.
 
-## Step-file format
+## Track-file format
 
 Each step entry in `plan/track-N.md` carries a `**Risk:**` line in
 its description blockquote, naming the level and the triggering

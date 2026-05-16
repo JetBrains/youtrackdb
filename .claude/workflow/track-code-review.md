@@ -71,11 +71,11 @@ feed into an accurate track episode.
 ## Single-Step Track: Skip Code Review, Proceed to Track Completion
 
 If the track has exactly **1 step** AND that step is tagged `risk: high`
-in the step file, the code review portion of Phase C is skipped — the
+in the track file, the code review portion of Phase C is skipped — the
 step-level review in Phase B already covered the identical diff and
 there is no cross-step interaction to catch.
 
-1. Mark `Track-level code review` as `[x]` in the step file's Progress
+1. Mark `Track-level code review` as `[x]` in the track file's Progress
    section with a note: `(skipped — single-step track, fully reviewed
    in Phase B)`.
 2. Skip directly to **Track Completion** (below) in the same session.
@@ -109,7 +109,7 @@ of the changes.
 
 ## Phase C Startup
 
-1. Read the step file's `## Base commit` section to get the SHA recorded
+1. Read the track file's `## Base commit` section to get the SHA recorded
    at the start of Phase B.
 2. **Verify the recorded base is reachable from HEAD.** A rebase
    between Phase B and Phase C rewrites every on-branch commit, so the
@@ -148,7 +148,7 @@ of the changes.
    workflow path — surface the discrepancy to the user before
    proceeding; do not invent a base.
 
-   On stale, **append** a discrepancy note to the step file's `## Base
+   On stale, **append** a discrepancy note to the track file's `## Base
    commit` section (do not overwrite the original SHA — keep both for
    the audit trail):
 
@@ -158,7 +158,7 @@ of the changes.
    for this Phase C.
    ```
 
-   Commit the step-file edit as a Workflow update commit before
+   Commit the track-file edit as a Workflow update commit before
    continuing (per
    [`commit-conventions.md`](commit-conventions.md) § Commit type
    prefixes — "Workflow update" row) so the draft PR records the
@@ -169,7 +169,7 @@ of the changes.
 3. Read the **implementation plan** (`docs/adr/<dir-name>/_workflow/implementation-plan.md`)
    — this provides strategic context (goals, architecture notes, decision
    records, track episodes from completed tracks).
-4. Read the **step file** (`docs/adr/<dir-name>/_workflow/plan/track-N.md`) — this
+4. Read the **track file** (`docs/adr/<dir-name>/_workflow/plan/track-N.md`) — this
    provides the step descriptions and episodes.
 5. **Generate the slim plan snapshot** at
    `/tmp/claude-code-plan-slim-$PPID.md` by running:
@@ -258,7 +258,7 @@ snapshot is missing, fall back to
 docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
 ## Track Steps (tactical context)
-Read the step file at:
+Read the track file at:
   docs/adr/{dir-name}/_workflow/plan/track-{N}.md
 The file begins with a `## Description` section carrying the track's
 original description — intro paragraph +
@@ -564,7 +564,7 @@ orchestrator never edits source files itself in Phase C.
    findings — they'll be presented to the user during track completion
    (below).
 6. When all reviews pass (or max iterations reached), mark
-   `Track-level code review` as `[x]` in the step file's Progress section.
+   `Track-level code review` as `[x]` in the track file's Progress section.
 
 ---
 
@@ -585,7 +585,7 @@ populates the variable section as follows:
 | Field | Value |
 |---|---|
 | `level` | `track` |
-| `base_commit` | SHA from the step file's `## Base commit` section. |
+| `base_commit` | SHA from the track file's `## Base commit` section. |
 | `mode` | `FIX_REVIEW_FINDINGS` (or `WITH_GUIDANCE` after a design-decision escalation per §Phase C Implementer Handlers below). |
 | `step_index` / `step_description` / `risk_tag` | **Omit** — the level-conditional fields are not populated at `level=track`. |
 | `findings` | The iteration's in-scope synthesised findings (only when `mode=FIX_REVIEW_FINDINGS`). |
@@ -732,7 +732,7 @@ The implementer's `FILES_TOUCHED` and `FAILURE.why_it_failed` are
 authoritative inputs to the user's choice — do not discard them. If
 `git status` is clean, proceed with the steps below.
 
-1. **Record the failure** — update the step file's Progress section
+1. **Record the failure** — update the track file's Progress section
    to mark the track-level code review entry with the failure (e.g.,
    `- [ ] Track-level code review (FAILED at iteration N/3)`) and
    commit the Progress update as a Workflow update commit. Embed the
@@ -741,7 +741,7 @@ authoritative inputs to the user's choice — do not discard them. If
    the commit message body so the git history preserves the failure
    context for the draft PR — review findings are not persisted to a
    separate file (per [`track-review.md`](track-review.md) §Phase A,
-   the durable trace is step-file edits plus the workflow-update
+   the durable trace is track-file edits plus the workflow-update
    commit).
 2. **Exit the iteration loop.** Do not respawn the implementer for
    the same findings. The remaining findings are now "unfixed" and
@@ -932,13 +932,13 @@ implementation plan:
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
            docs/adr/<dir-name>/_workflow/plan/track-<M>.md \
-           ... (one path per modified or newly created step file)
+           ... (one path per modified or newly created track file)
    git commit -m "Apply plan corrections from <track> review"
    git push
    ```
 
-   Stage explicit paths only. Drop step-file paths from the `git add`
-   if no step file was modified or created.
+   Stage explicit paths only. Drop track-file paths from the `git add`
+   if no track file was modified or created.
 
 If no findings were deferred, skip this section.
 
@@ -977,7 +977,7 @@ proceed directly to track completion **in the same session**.
 
 2. **Present track results to the user** (do NOT write to plan file yet):
    - Track episode (compiled but not yet persisted)
-   - All step episodes from the step file
+   - All step episodes from the track file
    - Git log of track commits
    - Any unresolved track-level code review findings
    - Plan corrections made (if any) — which findings were deferred and
@@ -1044,7 +1044,7 @@ proceed directly to track completion **in the same session**.
    (the first paragraph of the original description, before any
    `**What**:` / `**How**:` / `**Constraints**:` / `**Interactions**:`
    subsection), the `**Track episode:**` block (written at collapse
-   time), the `**Step file:**` pointer, and the `**Strategy refresh:**`
+   time), the `**Track file:**` pointer, and the `**Strategy refresh:**`
    line if present — though that line is never yet on disk at Phase C
    collapse time; the next session's Track Pre-Flight gate appends it
    when Panel 1 (strategy assessment) clears (see
@@ -1057,8 +1057,8 @@ proceed directly to track completion **in the same session**.
    during Phase 1, so there are no
    `**What**: / **How**: / **Constraints**: / **Interactions**:`
    subsections present in the plan-file entry to drop — the detailed
-   description has lived in the step file's `## Description` section
-   from Phase 1 onward. Phase C does not touch the step file's
+   description has lived in the track file's `## Description` section
+   from Phase 1 onward. Phase C does not touch the track file's
    description either; it only writes the track episode + collapse
    into the plan-file entry.
 
@@ -1069,10 +1069,10 @@ proceed directly to track completion **in the same session**.
      sentences, while a track with architectural surprises should
      include enough detail for the next session's Track Pre-Flight
      gate (Panel 1 strategy assessment) to assess downstream impact
-     without reading the step file.
-   - Reference to the step file with step count and failure count.
+     without reading the track file.
+   - Reference to the track file with step count and failure count.
    - This is what future track sessions read from the plan file — the
-     step file is available for deeper investigation if needed.
+     track file is available for deeper investigation if needed.
 
    Final on-disk form:
 
@@ -1083,7 +1083,7 @@ proceed directly to track completion **in the same session**.
      > **Track episode:**
      > <strategic summary — length proportional to cross-track impact>
      >
-     > **Step file:** `plan/track-N.md` (M steps, K failed)
+     > **Track file:** `plan/track-N.md` (M steps, K failed)
    ```
 
    This shrinks completed-track entries from 100+ lines to ~10–15
@@ -1101,7 +1101,7 @@ proceed directly to track completion **in the same session**.
 
 5. **Commit and push the track-completion changes** as a single
    Workflow update commit. The plan-file edit (track episode + `[x]`
-   + collapsed description) and any final step-file Progress updates
+   + collapsed description) and any final track-file Progress updates
    from Phase C land together so the draft PR shows a clean track
    boundary:
 
@@ -1161,7 +1161,7 @@ session ends between marking `[x]` and receiving approval, the next session
 detects the track as complete (State A: pre-Phase-A — Track Pre-Flight
 runs) and skips user review entirely. By deferring the write, an
 interrupted session simply re-enters track completion on resume (all
-phases `[x]` in the step file, track still `[ ]` in the plan file).
+phases `[x]` in the track file, track still `[ ]` in the plan file).
 
 **Why merge with code review:** Phase C's code review and track completion
 have no perspective conflict — unlike Phase B→C (where implementation

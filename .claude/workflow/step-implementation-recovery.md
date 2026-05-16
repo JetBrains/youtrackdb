@@ -50,12 +50,12 @@ termination.
 
 **Detection.** After identifying the next `[ ]` step, check for orphan
 commits — commits that exist but have no corresponding episode in
-the step file on disk:
+the track file on disk:
 
 1. Scan `git log --oneline {base_commit}..HEAD` and classify each
    commit by subject prefix and the paths it touches (per
    [`commit-conventions.md`](commit-conventions.md) § Commit type
-   prefixes). Each `[x]` step in the step file is expected to
+   prefixes). Each `[x]` step in the track file is expected to
    contribute exactly **three** kinds of commit, in order:
 
    - **Implementer code commit** — touches code (paths outside
@@ -93,12 +93,12 @@ the step file on disk:
    step.
 
    **Crash between sub-step 7 (episode write) and sub-step 8
-   (episode commit).** If the step file shows `[x]` for the most
+   (episode commit).** If the track file shows `[x]` for the most
    recent completed step but the corresponding episode commit is
    missing from the log, the previous session wrote the episode
    to disk but died before committing it. The working tree is
    dirty with the unwritten episode. Recovery: stage and commit
-   the step file now (using the standard episode commit subject
+   the track file now (using the standard episode commit subject
    `Record episode for <step description>`), push, then proceed
    with the rest of resume. This must happen **before** spawning
    the next implementer — the implementer's `git reset --hard
@@ -115,7 +115,7 @@ the step file on disk:
 
    **`reason: failed-review-fix`** — the review-fix respawn returned
    `FAILED`.
-   - If the step file already has an `[!]` entry for this step,
+   - If the track file already has an `[!]` entry for this step,
      the rollback was fully recorded; respawn the implementer for
      the next `[ ]` row from `mode=INITIAL` with `step_base_commit
      = HEAD`.
@@ -133,7 +133,7 @@ the step file on disk:
      recommendation, exploration_notes) is **not recoverable** from
      the revert body — it was held only in the prior session's
      orchestrator state.
-   - The step file is still `[ ]` (no `[!]` is written for this
+   - The track file is still `[ ]` (no `[!]` is written for this
      case). Respawn the implementer with `mode=INITIAL` and
      `step_base_commit = HEAD`. The new implementer either lands on
      the same design decision (and re-derives the alternatives via
@@ -244,7 +244,7 @@ prefixes):
    reflection produces no commit — its output goes directly to
    YouTrack.
 
-The step file on disk is the source of truth for which steps are
+The track file on disk is the source of truth for which steps are
 complete (have episodes). During Phase B Resume specifically, any
 implementer or Phase B `Review fix:` code commits beyond the last
 episode commit are orphans for the next `[ ]` step. A `Revert step:`
@@ -310,7 +310,7 @@ Verify `git status` is clean before continuing — a dirty tree at
 this point is a contract violation; surface the discrepancy to the
 user instead of proceeding.
 
-1. **Apply the upgrade in place** in the step file: rewrite the
+1. **Apply the upgrade in place** in the track file: rewrite the
    `**Risk:**` line to the new level and append an override note
    in the form `override: upgraded mid-Phase-B (<short reason from
    result.RISK_UPGRADE.evidence>)`. The decomposer-time category
@@ -318,7 +318,7 @@ user instead of proceeding.
    — see [`risk-tagging.md`](risk-tagging.md) §Override rules.
 2. **Approval flow:**
    - `medium → high`: auto-apply (no user prompt). Note the
-     auto-apply in the next step-file write.
+     auto-apply in the next track-file write.
    - `low → high`: pause and confirm with the user before
      respawning. The bigger jump is more likely a planning miss.
 3. After application/confirmation, respawn the implementer with
@@ -379,7 +379,7 @@ already reverted any uncommitted changes and removed any untracked
 artefacts (the snapshot-and-diff revert sequence) before returning,
 so the working tree is clean at `step_base_commit`.
 
-1. **Write the failed episode** to the step file from
+1. **Write the failed episode** to the track file from
    `result.FAILURE` (mark the step `[!]`).
 2. **Insert `[ ]` retry/split rows** per the existing protocol — see
    §Step Failure below for the retry/split formats.
@@ -510,7 +510,7 @@ its push collided with concurrent activity would destroy work the
 implementer already finished and validated.
 
 1. **Run the rollback** (revert + `Revert step:` commit) per the
-   common procedure above. The revert lands **before** any step-file
+   common procedure above. The revert lands **before** any track-file
    write so that the only crash-recoverable state is "Revert at tip
    with step still `[ ]`" — Phase B Resume's Detection step 2
    handles that exact state via the `failed-review-fix` slug branch
@@ -519,7 +519,7 @@ implementer already finished and validated.
    window where prior commits sit unreverted at HEAD with the step
    already marked `[!]`; Detection step 3 would then misattribute
    those orphan commits to the next `[ ]` step.
-2. **Write the failed episode** to the step file from
+2. **Write the failed episode** to the track file from
    `fix_result.FAILURE` (mark the step `[!]`). The episode's
    `what_was_attempted` should describe both the original
    implementation and the review-fix attempt that failed; the
@@ -579,7 +579,7 @@ revealed the step is more invasive than its tagged risk.
    dim-review pressure from the start** at the new risk level — not
    stacked on top of an implementation that was reviewed under the
    old risk level.
-2. **Apply the upgrade in place** in the step file: rewrite the
+2. **Apply the upgrade in place** in the track file: rewrite the
    `**Risk:**` line and append an override note in the form
    `override: upgraded mid-Phase-B during dim review (<short reason
    from fix_result.RISK_UPGRADE.evidence>)`. The decomposer-time
@@ -587,7 +587,7 @@ revealed the step is more invasive than its tagged risk.
    see [`risk-tagging.md`](risk-tagging.md) §Override rules.
 3. **Approval flow** (same as `apply_upgrade_then_decide`):
    - `medium → high`: auto-apply (no user prompt). Note the
-     auto-apply in the step-file write.
+     auto-apply in the track-file write.
    - `low → high`: pause and confirm with the user before respawning.
 4. After application/confirmation, capture the new HEAD as
    `step_base_commit` and respawn the implementer with `mode=INITIAL`.
@@ -630,13 +630,13 @@ below; the retry/split rows below apply to both.
 `failure_class: push_only` short-circuits this entire flow — the
 commit at HEAD is good content that only failed to push. The
 relevant handler (`handle_failure` or `rollback_and_handle_failure`)
-runs its push-only pre-step instead of the rollback / step-file
+runs its push-only pre-step instead of the rollback / track-file
 write, and on success routes back through `on_success` rather than
 the retry/split protocol below. See those handlers for the detail.
 
 For the `content` path the orchestrator handles the rest:
 
-1. **Write a failed episode** to the step file from
+1. **Write a failed episode** to the track file from
    `result.FAILURE` (see
    [`episode-format-reference.md`](episode-format-reference.md) for
    the failed-episode format).
@@ -652,7 +652,7 @@ For the `content` path the orchestrator handles the rest:
 3. **Update the Progress section's step count** to reflect inserted
    rows.
 
-### Retry representation in the step file
+### Retry representation in the track file
 
 ```markdown
 - [!] Step: Add histogram header to leaf page
@@ -664,7 +664,7 @@ For the `content` path the orchestrator handles the rest:
 - [ ] Step: Add histogram header to leaf page (retry: use page extension API)
 ```
 
-### Split representation in the step file
+### Split representation in the track file
 
 ```markdown
 - [!] Step: Add histogram header and serialization

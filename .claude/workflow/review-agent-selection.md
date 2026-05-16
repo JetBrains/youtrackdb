@@ -82,7 +82,7 @@ A file is **workflow-machinery** when it is any of:
   (`.claude/workflow/prompts/*.md`), output styles, docs.
 - The project root `CLAUDE.md`.
 - Any file under `docs/adr/<dir>/` — both the `_workflow/` working
-  files (implementation plan, step files, design draft, reviews,
+  files (implementation plan, track files, design draft, reviews,
   step episodes) and the durable post-merge top-level artifacts
   (`design-final.md`, `adr.md`).
 

@@ -31,7 +31,7 @@ warning, or pass.
   `implementation-plan.md`. Read **only** to verify
   `**Full design**` link resolution, never for context.
 - `plan_dir` (optional) — same: a directory of
-  `plan/track-N.md` step files, each potentially carrying
+  `plan/track-N.md` track files, each potentially carrying
   `**Full design**` references inside its `## Description`.
   Read **only** for link resolution, never for context.
 
@@ -192,9 +192,9 @@ absent audience framing is.
 - **Whole-doc scope**: read the entire `design.md`. Read
   `design-mechanics.md` only when verifying that a
   `Mechanics: design-mechanics.md §"…"` link resolves.
-- **Plan / step-file reads** are restricted to grepping for
+- **Plan / track-file reads** are restricted to grepping for
   `**Full design**` lines and verifying the targets exist.
-  Do not read plan or step-file content for context.
+  Do not read plan or track-file content for context.
 
 ## Comprehension questions
 
@@ -251,7 +251,7 @@ enough to answer, that itself is a finding.
   appears in Core Concepts; each entry has a `→ Part X §"…"`
   pointer; no concept entries name removed Parts.
 - (**Whole-doc scope only**) **`**Full design**` refs in plan
-  and step files all resolve** to real `design.md` sections.
+  and track files all resolve** to real `design.md` sections.
 
 ## Output format
 

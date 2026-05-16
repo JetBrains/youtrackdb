@@ -45,7 +45,7 @@ fills up before Step 4:
 mkdir -p docs/adr/<dir-name>/_workflow/tracks
 ```
 This is idempotent — safe to re-run on resume. The directory carries
-the plan, design, step files, and handoff files; the Phase 4 cleanup
+the plan, design, track files, and handoff files; the Phase 4 cleanup
 commit removes it before merge (see
 `.claude/workflow/conventions.md` §1.2).
 
@@ -56,7 +56,7 @@ After you have finished reading the workflow documents, ask the user to describe
 The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 (the `_workflow/` subdir holds every ephemeral working file — plan,
-design, step files, reviews — and is removed in the Phase 4
+design, track files, reviews — and is removed in the Phase 4
 cleanup commit before merge; see `conventions.md` §1.2 and
 `workflow.md` § Final Artifacts).
 The codebase is at the current working directory.
@@ -113,7 +113,7 @@ Help the user develop the plan:
    workflow rules:
    - Every track gets an **intro paragraph** in the plan checklist
      entry (a short paragraph of high-level context) and a matching
-     `plan/track-N.md` step file whose `## Description` section
+     `plan/track-N.md` track file whose `## Description` section
      carries the same intro paragraph followed by detailed `**What**:`
      / `**How**:` / `**Constraints**:` / `**Interactions**:`
      subsections (no length cap on the detail). See `planning.md`
@@ -160,13 +160,13 @@ file per planned track at
 `docs/adr/<dir-name>/_workflow/plan/track-N.md` using the two
 structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
-checklist; each step file carries that track's detailed
+checklist; each track file carries that track's detailed
 `**What/How/Constraints/Interactions**` subsections and any
 track-level Mermaid diagram in its `## Description` section. Keeping
 per-track detail out of the plan keeps `/execute-tracks` startup
 context small — see `.claude/workflow/conventions.md` §1.2 (directory
 layout under `_workflow/`) and `conventions-execution.md` §2.1
-(step-file shape and description lifecycle).
+(track-file shape and description lifecycle).
 
 ```
 # <Feature Name>
@@ -219,7 +219,7 @@ layout under `_workflow/`) and `conventions-execution.md` §2.1
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
 
-Each step file (`plan/track-N.md`) is created with `## Description`
+Each track file (`plan/track-N.md`) is created with `## Description`
 fully populated and the remaining sections as `[ ]` placeholders that
 Phase A → C will fill:
 
@@ -228,7 +228,7 @@ Phase A → C will fill:
 
 ## Description
 <intro paragraph — same as the plan checklist entry's intro, so the
-step file is self-sufficient context for Phase B/C sub-agents that
+track file is self-sufficient context for Phase B/C sub-agents that
 don't read the plan>
 
 > **What**:
@@ -258,7 +258,7 @@ don't read the plan>
 ````
 
 The `## Base commit` section is added by Phase B at session start and
-is omitted from the Phase 1 skeleton. The full step-file shape across
+is omitted from the Phase 1 skeleton. The full track-file shape across
 phases is documented in `conventions-execution.md` §2.1.
 
 Write the design document to
