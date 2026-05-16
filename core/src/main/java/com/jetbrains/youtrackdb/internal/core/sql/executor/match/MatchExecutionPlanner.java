@@ -1803,8 +1803,23 @@ public class MatchExecutionPlanner {
         }
       }
 
-      stampEdgeForecasts(sortedEdges, estimatedRootEntries,
-          context.getDatabaseSession());
+      // Forecast stamping only feeds the BUILD_EAGER amortization decision,
+      // which fires exclusively on edges carrying a RidFilterDescriptor
+      // .IndexLookup descriptor. optimizeScheduleWithIntersections above is
+      // the sole producer of IndexLookup descriptors, so by this point the
+      // attachment is final. When no edge in the schedule has one, every
+      // forecastN computed here would be unread — skip the pass entirely.
+      if (anyEdgeHasIndexLookup(sortedEdges)) {
+        // Cache class approximateCount lookups for the forecast pass:
+        // stampEdgeForecasts walks the schedule and calls approximateCount
+        // once per edge (via targetSelectivityFactor) for the same target
+        // class. The schema snapshot is immutable for the duration of
+        // planning, so a per-plan cache is safe and removes redundant
+        // SchemaImmutableClass.approximateCount hits.
+        Map<String, Long> classCountCache = new HashMap<>();
+        stampEdgeForecasts(sortedEdges, estimatedRootEntries, classCountCache,
+            context.getDatabaseSession());
+      }
 
       attachCollectionIdFilters(sortedEdges, context);
 
@@ -2471,7 +2486,7 @@ public class MatchExecutionPlanner {
       DatabaseSessionEmbedded session) {
     double factor = targetSelectivityFactor(
         targetAlias, edge, isOutbound,
-        aliasClasses, aliasFilters, estimatedRootEntries, session);
+        aliasClasses, aliasFilters, estimatedRootEntries, null, session);
     return baseCost * factor;
   }
 
@@ -2492,6 +2507,7 @@ public class MatchExecutionPlanner {
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, Long> estimatedRootEntries,
+      @Nullable Map<String, Long> classCountCache,
       DatabaseSessionEmbedded session) {
     var targetClass = resolveTargetClass(
         targetAlias, edge, isOutbound, aliasClasses, session);
@@ -2504,7 +2520,18 @@ public class MatchExecutionPlanner {
       return 1.0;
     }
 
-    long classCount = schema.getClassInternal(targetClass).approximateCount(session);
+    long classCount;
+    if (classCountCache != null) {
+      Long cached = classCountCache.get(targetClass);
+      if (cached != null) {
+        classCount = cached;
+      } else {
+        classCount = schema.getClassInternal(targetClass).approximateCount(session);
+        classCountCache.put(targetClass, classCount);
+      }
+    } else {
+      classCount = schema.getClassInternal(targetClass).approximateCount(session);
+    }
     if (classCount <= 0) {
       return 1.0;
     }
@@ -2524,6 +2551,27 @@ public class MatchExecutionPlanner {
       return 1.0;
     }
     return (double) targetEstimate / classCount;
+  }
+
+  /**
+   * Returns {@code true} when any edge in the schedule carries an
+   * {@link RidFilterDescriptor.IndexLookup} descriptor (either directly or
+   * inside a {@link RidFilterDescriptor.Composite}). Used to short-circuit
+   * {@link #stampEdgeForecasts} when no edge can ever be promoted to the
+   * BUILD_EAGER amortization path, making the forecast result unread.
+   */
+  private static boolean anyEdgeHasIndexLookup(List<EdgeTraversal> schedule) {
+    for (var et : schedule) {
+      var desc = et.getIntersectionDescriptor();
+      if (desc instanceof RidFilterDescriptor.IndexLookup) {
+        return true;
+      }
+      if (desc instanceof RidFilterDescriptor.Composite c
+          && c.findIndexLookup() != null) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -2553,6 +2601,7 @@ public class MatchExecutionPlanner {
   private void stampEdgeForecasts(
       List<EdgeTraversal> schedule,
       Map<String, Long> estimatedRootEntries,
+      Map<String, Long> classCountCache,
       DatabaseSessionEmbedded session) {
     // Strip the {@code Long.MAX_VALUE} sentinels that {@code main()} writes
     // into {@code estimatedRootEntries} for inferred-class aliases (see the
@@ -2633,7 +2682,7 @@ public class MatchExecutionPlanner {
       // forecasts to {@code DEFERRED_WITH_NET}.
       double targetSel = targetSelectivityFactor(
           targetAlias, et.edge, et.out,
-          aliasClasses, aliasFilters, aliasRowEstimate, session);
+          aliasClasses, aliasFilters, aliasRowEstimate, classCountCache, session);
       double targetDouble = forecastDouble * targetSel;
       if (Double.isFinite(targetDouble) && targetDouble > 0) {
         long targetRows = (long) Math.min(
