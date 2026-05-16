@@ -38,13 +38,13 @@ Plan file: `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 Track files directory: `docs/adr/<dir-name>/_workflow/plan/`
 Design document: `docs/adr/<dir-name>/_workflow/design.md`
 
-Each `plan/track-N.md` track file's `## Description` section holds
-that pending track's `**What/How/Constraints/Interactions**` detail and
-any track-level Mermaid diagram (see `conventions-execution.md` §2.1
-for the Description lifecycle). Phase 2 sub-agents read every pending
-track's track file alongside the plan to verify pending-track
-descriptions; pass the absolute track-files directory path as the
-`plan_dir` argument on each sub-agent spawn.
+Each `plan/track-N.md` track file's `## Purpose / Big Picture` section
+holds that pending track's `**What/How/Constraints/Interactions**`
+detail and any track-level Mermaid diagram (see
+`conventions-execution.md` §2.1 for the Description lifecycle). Phase 2
+sub-agents read every pending track's track file alongside the plan to
+verify pending-track descriptions; pass the absolute track-files
+directory path as the `plan_dir` argument on each sub-agent spawn.
 
 ---
 
@@ -54,7 +54,7 @@ descriptions; pass the absolute track-files directory path as the
    [`implementation-review.md`](../../workflow/implementation-review.md)
    § How to run > Precondition — path-scoped to the workflow files
    the audit-trail commit will touch (plan, every track file under
-   `tracks/`, design, design-mechanics, design-mutations). Halt and ask
+   `plan/`, design, design-mechanics, design-mutations). Halt and ask
    the user to commit or stash if any of those are dirty. Other dirty
    paths in the working tree are safe to ignore.
 2. Load `.claude/workflow/implementation-review.md` and follow its
