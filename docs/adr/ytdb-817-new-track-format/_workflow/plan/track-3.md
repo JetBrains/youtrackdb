@@ -9,6 +9,7 @@ Update every writer SKILL that authors or amends a per-track file or the root in
 ## Progress
 - [x] 2026-05-16T17:25Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-16T17:33Z [ctx=safe] Step 1 complete (commit 74d3571f91)
+- [x] 2026-05-16T17:37Z [ctx=safe] Step 2 complete (commit d2670c74c8)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -32,7 +33,7 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 ## Concrete Steps
 
 1. Update `inline-replanning.md` cases 2–6: sweep `## Description` refs on lines 153 (step 4 sub-agent prompt directive), 241 (case 2), 249 (case 3) to name the appropriate 14-section homes; fix the two line-broken "step file" residuals on lines 248–249 and 270–271 to "track file" per Track 2 step 2's terminology rename. Case 1 (line 217+) is already on the new shape (Track 2 step 6 + Phase C iter-1 WI3). — `risk: low (default — workflow-doc text sweep)`  [x] commit: 74d3571f91
-2. Update `track-skip.md`: sweep the three `## Description` refs on lines 60, 67, 89 to name the appropriate 14-section homes; rewrite the two legacy `**What/How/Constraints/Interactions**` blockquote-shape references on lines 47 and 88 to name the four 14-section homes (`## Purpose / Big Picture` for the intro; `## Context and Orientation` / `## Plan of Work` / `## Interfaces and Dependencies` for the detail subsections). — `risk: low (default — workflow-doc text sweep)`  [ ]
+2. Update `track-skip.md`: sweep the three `## Description` refs on lines 60, 67, 89 to name the appropriate 14-section homes; rewrite the two legacy `**What/How/Constraints/Interactions**` blockquote-shape references on lines 47 and 88 to name the four 14-section homes (`## Purpose / Big Picture` for the intro; `## Context and Orientation` / `## Plan of Work` / `## Interfaces and Dependencies` for the detail subsections). — `risk: low (default — workflow-doc text sweep)`  [x] commit: d2670c74c8
 3. Update `review-plan/SKILL.md`: sweep the one `## Description` ref on line 42 to name `## Purpose / Big Picture` (since the description-equivalent intro now lives there); fix the residual `tracks/` path-token on line 57 to `plan/` per Track 2 step 1's path rename invariant. — `risk: low (default — workflow-doc text sweep)`  [ ]
 4. Update `create-plan/SKILL.md`: rewrite Step 4's embedded track-file template body from the legacy 5-section shape (`## Description` / `## Progress` / `## Reviews completed` / `## Steps`, lines ~222–262) to the canonical 14-section shape — section list and lifecycle from `conventions-execution.md` §2.1, verbatim template body kept embedded here (durable); sweep all legacy `## Description` prose refs (lines 116, 122, 165, 222, 229, 255, 257) and `**What/How/Constraints/Interactions**` blockquote-shape references (lines 117–123, 163–164) to name the four 14-section homes. — `risk: low (default — workflow-doc template update)`  [ ]
 
@@ -43,6 +44,14 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 
 **Key files:**
 - `.claude/workflow/inline-replanning.md` (modified)
+
+### Step 2 — commit d2670c74c8, 2026-05-16T17:37Z [ctx=safe]
+**What was done:** Updated `.claude/workflow/track-skip.md` § Process — three atomic hunks sweeping legacy section-name references to the 14-section ExecPlan shape. (1) Step 2 (line 46–51): legacy `**What/How/Constraints/Interactions**` blockquote-shape rewritten to name the track file's `## Purpose / Big Picture` (intro paragraph) plus the detail sections `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`. (2) Step 3 (lines 59–76): the two `## Description` references (track-file-was-created and track-file-deletion-is-terminal) rewritten to the same four-home split. (3) Step 4 retention rule (lines 87–100): collapsed the second `**What/How/Constraints/Interactions**` reference with the trailing `## Description` reference into one four-home phrase, preserving the not-recoverable-from-plan-entry closing clause. Post-edit `grep -nE '## Description|**What/How/Constraints/Interactions**'` returns zero matches. Phrasing matches Step 1's convention so the writer SKILLs stay terminologically consistent.
+
+**What changed from the plan:** Plan named five separate line targets (lines 47, 60, 67, 88, 89); rewrite collapsed adjacent legacy refs into shared four-home phrases — same five legacy tokens removed, no scope drift.
+
+**Key files:**
+- `.claude/workflow/track-skip.md` (modified)
 
 ## Validation and Acceptance
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
