@@ -8,6 +8,7 @@ Update every writer SKILL that authors or amends a per-track file or the root in
 
 ## Progress
 - [x] 2026-05-16T17:25Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-16T17:33Z [ctx=safe] Step 1 complete (commit 74d3571f91)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -30,13 +31,18 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 
 ## Concrete Steps
 
-1. Update `inline-replanning.md` cases 2–6: sweep `## Description` refs on lines 153 (step 4 sub-agent prompt directive), 241 (case 2), 249 (case 3) to name the appropriate 14-section homes; fix the two line-broken "step file" residuals on lines 248–249 and 270–271 to "track file" per Track 2 step 2's terminology rename. Case 1 (line 217+) is already on the new shape (Track 2 step 6 + Phase C iter-1 WI3). — `risk: low (default — workflow-doc text sweep)`  [ ]
+1. Update `inline-replanning.md` cases 2–6: sweep `## Description` refs on lines 153 (step 4 sub-agent prompt directive), 241 (case 2), 249 (case 3) to name the appropriate 14-section homes; fix the two line-broken "step file" residuals on lines 248–249 and 270–271 to "track file" per Track 2 step 2's terminology rename. Case 1 (line 217+) is already on the new shape (Track 2 step 6 + Phase C iter-1 WI3). — `risk: low (default — workflow-doc text sweep)`  [x] commit: 74d3571f91
 2. Update `track-skip.md`: sweep the three `## Description` refs on lines 60, 67, 89 to name the appropriate 14-section homes; rewrite the two legacy `**What/How/Constraints/Interactions**` blockquote-shape references on lines 47 and 88 to name the four 14-section homes (`## Purpose / Big Picture` for the intro; `## Context and Orientation` / `## Plan of Work` / `## Interfaces and Dependencies` for the detail subsections). — `risk: low (default — workflow-doc text sweep)`  [ ]
 3. Update `review-plan/SKILL.md`: sweep the one `## Description` ref on line 42 to name `## Purpose / Big Picture` (since the description-equivalent intro now lives there); fix the residual `tracks/` path-token on line 57 to `plan/` per Track 2 step 1's path rename invariant. — `risk: low (default — workflow-doc text sweep)`  [ ]
 4. Update `create-plan/SKILL.md`: rewrite Step 4's embedded track-file template body from the legacy 5-section shape (`## Description` / `## Progress` / `## Reviews completed` / `## Steps`, lines ~222–262) to the canonical 14-section shape — section list and lifecycle from `conventions-execution.md` §2.1, verbatim template body kept embedded here (durable); sweep all legacy `## Description` prose refs (lines 116, 122, 165, 222, 229, 255, 257) and `**What/How/Constraints/Interactions**` blockquote-shape references (lines 117–123, 163–164) to name the four 14-section homes. — `risk: low (default — workflow-doc template update)`  [ ]
 
 ## Episodes
-<!-- Continuous-log. Empty until Phase B writes the first step block. -->
+
+### Step 1 — commit 74d3571f91, 2026-05-16T17:33Z [ctx=safe]
+**What was done:** Updated `.claude/workflow/inline-replanning.md` cases 2–6 plus the §Review sub-agent prompt directive on line 153. Four atomic hunks: (1) line 153 names the four 14-section homes (`## Purpose / Big Picture` + `## Context and Orientation` + `## Plan of Work` + `## Interfaces and Dependencies`) for pending-track details; (2) case 2 (not-yet-started track) and (3) case 3 (mid-execution track) both expanded to the same four-home split with parenthetical roles, closing on "the same four-home split as case 1"; case 3 also fixed the line-broken "step\nfile" → "track\nfile" residual that escaped Track 2 step 2's terminology rename; (4) case 6 (line 270–271) fixed the second line-broken "step\nfile" → "track\nfile" residual. Case 1 (already on the new shape via Track 2 step 6 + Phase C iter-1 WI3) was not touched. Post-edit grep on `## Description|step file|step$` returns zero matches outside canonical `## Plan of Work (step …)` parentheticals.
+
+**Key files:**
+- `.claude/workflow/inline-replanning.md` (modified)
 
 ## Validation and Acceptance
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
