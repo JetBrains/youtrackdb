@@ -123,7 +123,7 @@ cross-track impact.
 
 1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
    (startup reads only the plan; per-track step files at
-   `tracks/track-N.md` are loaded later, when a track enters Phase A
+   `plan/track-N.md` are loaded later, when a track enters Phase A
    or its description is being amended).
 
 2. **Identify all tracks** and their status:
@@ -362,7 +362,7 @@ work when context consumption is at `warning` level or above.
 
 - Ensure all code changes are committed
 - Ensure all step episodes are written to the step file under
-  `_workflow/tracks/`, the **Progress** section is up to date, and
+  `_workflow/plan/`, the **Progress** section is up to date, and
   every workflow-file change has been committed (workflow files are
   tracked under `_workflow/` — see `commit-conventions.md`)
 - Run **self-improvement reflection** per

@@ -122,7 +122,7 @@ inside the natural progress-tracking file for the phase:
 |---|---|
 | 0 / 1 | none — `implementation-plan.md` may not exist yet during early Phase 0, and the handoff file + MEMORY.md cross-reference are sufficient signals |
 | 2 (State 0) | beneath `## Plan Review` heading in `implementation-plan.md` |
-| A / B / C | step file Progress section (`tracks/track-N.md`) |
+| A / B / C | step file Progress section (`plan/track-N.md`) |
 | 4 | beneath `## Final Artifacts` heading in `implementation-plan.md` |
 | Ad-hoc research | none — the handoff file is the sole signal |
 

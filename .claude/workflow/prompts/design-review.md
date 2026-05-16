@@ -30,8 +30,8 @@ warning, or pass.
 - `plan_path` (optional) — absolute path to
   `implementation-plan.md`. Read **only** to verify
   `**Full design**` link resolution, never for context.
-- `tracks_dir` (optional) — same: a directory of
-  `tracks/track-N.md` step files, each potentially carrying
+- `plan_dir` (optional) — same: a directory of
+  `plan/track-N.md` step files, each potentially carrying
   `**Full design**` references inside its `## Description`.
   Read **only** for link resolution, never for context.
 

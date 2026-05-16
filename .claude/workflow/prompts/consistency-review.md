@@ -4,7 +4,7 @@ checks plan-internal quality without reading code), this review reads the
 code to find gaps and inconsistencies between the four artifacts:
 
 1. **Implementation plan** (`implementation-plan.md`)
-2. **Step files** (`tracks/track-N.md`, one per pending track) — each
+2. **Step files** (`plan/track-N.md`, one per pending track) — each
    step file's `## Description` section holds that track's
    `**What/How/Constraints/Interactions**` detail and any track-level
    Mermaid diagram. Written by `create-plan` at Phase 1.
@@ -60,7 +60,7 @@ incorrect code.
 
 Inputs:
 - Plan file: {plan_path}
-- Step files directory: {tracks_dir} — every `tracks/track-N.md` whose
+- Step files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending track's
   step file `## Description` for that track's
   `**What/How/Constraints/Interactions**` detail and any track-level
@@ -230,7 +230,7 @@ real mismatch hidden)? When in doubt, route through PSI.
    **Where track-description code references live:** For each
    **pending** track (`[ ]`), read the track's detailed description
    (`**What/How/Constraints/Interactions**` subsections and any
-   track-level Mermaid diagram) from `tracks/track-N.md` `## Description`.
+   track-level Mermaid diagram) from `plan/track-N.md` `## Description`.
    For **completed** tracks (`[x]`) and **skipped** tracks (`[~]`),
    the plan-file entry already holds the track's final form (intro
    paragraph + track episode for completed; intro + `**Skipped:**`

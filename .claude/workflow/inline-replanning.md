@@ -146,7 +146,7 @@ together (see [`implementation-review.md`](implementation-review.md)
 § Replanning). The preview exists so you don't end the session and
 clear context only to learn on the next invocation that the revision
 was structurally broken. The invocation passes `plan_path` +
-`tracks_dir` per the path-passing rule in
+`plan_dir` per the path-passing rule in
 `.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
 full plan file including both completed track episodes and the
 proposed revisions, plus the step-file directory so pending-track
@@ -173,7 +173,7 @@ preview — they will appear in the next-session State 0 re-run.
 
   ```bash
   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-          docs/adr/<dir-name>/_workflow/tracks/track-*.md
+          docs/adr/<dir-name>/_workflow/plan/track-*.md
   git commit -m "Inline replan after Track <N>"
   git push
   ```
@@ -217,7 +217,7 @@ revision and the file(s) that carry the new description:
 1. **New track.** Add a thin checklist entry (title + intro paragraph +
    `**Scope:**` + optional `**Depends on:**`) to
    `implementation-plan.md`, and create a new
-   `tracks/track-N.md` step file whose `## Description` carries the
+   `plan/track-N.md` step file whose `## Description` carries the
    intro paragraph + the full `**What/How/Constraints/Interactions**`
    subsections + any track-level Mermaid diagram. Use the same
    step-file shape `create-plan` produces at Phase 1 (see
@@ -256,6 +256,6 @@ revision and the file(s) that carry the new description:
    re-authoring.
 
 6. **Removing a track.** Remove the plan entry and delete the step
-   file at `tracks/track-N.md` if it still exists. (If the track had
+   file at `plan/track-N.md` if it still exists. (If the track had
    already been skipped, its step file was deleted then; case 6
    becomes a no-op for the step file.)

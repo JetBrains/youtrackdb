@@ -65,7 +65,7 @@ the step file on disk:
      `Review fix:`. **Zero or more** per `[x]` step (one per
      dim-review iteration that surfaced fixes).
    - **Episode commit** — Workflow update touching only
-     `_workflow/tracks/track-<N>.md`, subject `Record episode for
+     `_workflow/plan/track-<N>.md`, subject `Record episode for
      <step description>`. Exactly **one** per `[x]` step.
 
    Two other commit kinds appear in the log but **do not** count
@@ -200,7 +200,7 @@ prefixes):
    for `late-design-decision`; verify-or-apply-upgrade for
    `late-risk-upgrade`).
 2. **Episode commits** (`Record episode for …`, Workflow update
-   touching only `_workflow/tracks/track-<N>.md`) — mark the
+   touching only `_workflow/plan/track-<N>.md`) — mark the
    boundary between completed and in-progress steps. The most
    recent episode commit is the last fully-finished step.
 3. **`Review fix:` commits** — indicate that a review-fix

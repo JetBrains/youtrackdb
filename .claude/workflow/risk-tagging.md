@@ -218,7 +218,7 @@ diff.
 
 ## Step-file format
 
-Each step entry in `tracks/track-N.md` carries a `**Risk:**` line in
+Each step entry in `plan/track-N.md` carries a `**Risk:**` line in
 its description blockquote, naming the level and the triggering
 category (or `default` / `override: <reason>`).
 

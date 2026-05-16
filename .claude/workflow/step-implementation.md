@@ -64,7 +64,7 @@ Before spawning the first implementer:
    commit:
 
    ```bash
-   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+   git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md
    git commit -m "Record Phase B base commit for <track>"
    git push
    ```
@@ -280,7 +280,7 @@ those are the orchestrator's responsibility.
 
 repo_root: {repo_root}
 plan_slim_path: /tmp/claude-code-plan-slim-{PPID}.md
-step_file_path: docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
+step_file_path: docs/adr/{dir-name}/_workflow/plan/track-{N}.md
 design_path: docs/adr/{dir-name}/_workflow/design.md
 
 ## Per-spawn variable inputs
@@ -433,7 +433,7 @@ finding ID prefixes, and gate format.
 
       ## Track Steps (tactical context)
       Read the step file at:
-        docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
+        docs/adr/{dir-name}/_workflow/plan/track-{N}.md
       The file begins with a `## Description` section carrying the
       track's original description — intro paragraph +
       **What/How/Constraints/Interactions** subsections + any
@@ -549,7 +549,7 @@ finding ID prefixes, and gate format.
       - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
       - `{diff_path}`, `{files_path}` — the re-staged step diff and changed-files list (regenerated per the staging block in sub-step (a) because each `Review fix:` respawn advanced `{commit}`)
       - `{plan_slim_path}` — `/tmp/claude-code-plan-slim-$PPID.md`
-      - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`
+      - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/plan/track-{N}.md`
 
       The template enforces a ≤ 60-line budget, a forbidden-sections
       list, and a verdict-only output format. See
@@ -632,7 +632,7 @@ revert path uses `git reset --hard HEAD`, which would otherwise
 roll back the unwritten episode):
 
 ```bash
-git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md
 git commit -m "Record episode for <step description>"
 git push
 ```

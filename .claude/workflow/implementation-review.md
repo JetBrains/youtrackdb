@@ -120,7 +120,7 @@ plan-review files have no uncommitted changes:
 ```bash
 git status --porcelain \
   docs/adr/<dir-name>/_workflow/implementation-plan.md \
-  docs/adr/<dir-name>/_workflow/tracks/ \
+  docs/adr/<dir-name>/_workflow/plan/ \
   docs/adr/<dir-name>/_workflow/design.md \
   docs/adr/<dir-name>/_workflow/design-mechanics.md \
   docs/adr/<dir-name>/_workflow/design-mutations.md
@@ -171,7 +171,7 @@ findings.
 
 Each pending track's detailed description
 (`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) lives in that track's step file (`tracks/track-N.md`,
+Mermaid diagram) lives in that track's step file (`plan/track-N.md`,
 written by `create-plan` at Phase 1) rather than inline in the plan
 file; the consistency review reads the step files alongside the plan.
 
@@ -239,7 +239,7 @@ mechanical fixes that landed so the next session does not re-run them.
 
 Findings ride in the orchestrator's conversation context for the
 iteration loop; plan and design fixes are applied via Edit / edit-design
-to `implementation-plan.md`, the affected `tracks/track-N.md` files, and
+to `implementation-plan.md`, the affected `plan/track-N.md` files, and
 the design document. The review itself is not persisted to a separate
 file — once the gate passes, the conversation is the only in-flight
 record, and the durable trace is:
@@ -265,7 +265,7 @@ consistency, and plan-file bloat.
 Each pending track's detailed description (the subject of TRACK
 DESCRIPTIONS checks, plus several cross-file bullets in TRACK SIZING,
 SCOPE INDICATORS, and CONSISTENCY) lives in that track's step file
-(`tracks/track-N.md`, written by `create-plan` at Phase 1) rather than
+(`plan/track-N.md`, written by `create-plan` at Phase 1) rather than
 inline in the plan file; the structural review reads the step files
 alongside the plan.
 
@@ -505,7 +505,7 @@ When both reviews pass:
 1. Update `## Plan Review` with the audit summary (see §Audit trail).
 2. Stage and commit the plan / step-file / design changes. Stage every
    step file the review actually touched (use `git status --porcelain
-   docs/adr/<dir-name>/_workflow/tracks/` to find them; pass each
+   docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
    modified path explicitly rather than the whole `tracks/` directory
    so unrelated files don't sneak in). The `design*.md` glob picks up
    `design.md` plus `design-mechanics.md` and `design-mutations.md`
@@ -514,7 +514,7 @@ When both reviews pass:
    path):
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/tracks/track-<N>.md \
+           docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
            ... (one path per modified step file) \
            docs/adr/<dir-name>/_workflow/design*.md
    git commit -m "Plan review autonomous fixes for <plan-name>

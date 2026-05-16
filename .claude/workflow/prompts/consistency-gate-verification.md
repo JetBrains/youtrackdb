@@ -3,7 +3,7 @@ based on your previous consistency review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
-- Step files directory: {tracks_dir} — every `tracks/track-N.md` whose
+- Step files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending
   track's `## Description` for that track's
   `**What/How/Constraints/Interactions**` detail and any track-level
@@ -31,7 +31,7 @@ the design document but not updating the corresponding sequence diagram).
 Before verifying any finding whose fix touched a pending track's
 description, re-read that track's description (the
 `**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) from `tracks/track-N.md` `## Description`. For
+Mermaid diagram) from `plan/track-N.md` `## Description`. For
 **completed** (`[x]`) and **skipped** (`[~]`) tracks, read from the
 plan-file entry (intro paragraph + track episode for completed; intro +
 `**Skipped:**` reason for skipped). Read Architecture Notes, Decision

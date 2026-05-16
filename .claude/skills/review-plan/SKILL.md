@@ -35,16 +35,16 @@ directory name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Plan file: `docs/adr/<dir-name>/_workflow/implementation-plan.md`
-Step files directory: `docs/adr/<dir-name>/_workflow/tracks/`
+Step files directory: `docs/adr/<dir-name>/_workflow/plan/`
 Design document: `docs/adr/<dir-name>/_workflow/design.md`
 
-Each `tracks/track-N.md` step file's `## Description` section holds
+Each `plan/track-N.md` step file's `## Description` section holds
 that pending track's `**What/How/Constraints/Interactions**` detail and
 any track-level Mermaid diagram (see `conventions-execution.md` §2.1
 for the Description lifecycle). Phase 2 sub-agents read every pending
 track's step file alongside the plan to verify pending-track
 descriptions; pass the absolute step-files directory path as the
-`tracks_dir` argument on each sub-agent spawn.
+`plan_dir` argument on each sub-agent spawn.
 
 ---
 

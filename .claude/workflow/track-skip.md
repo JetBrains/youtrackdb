@@ -45,7 +45,7 @@ A track can be skipped (`[~]`) in two situations:
 
    The plan entry holds only the intro paragraph; the
    `**What/How/Constraints/Interactions**` subsections and any
-   track-level diagram live in the step file (`tracks/track-N.md`)
+   track-level diagram live in the step file (`plan/track-N.md`)
    and are removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
@@ -56,7 +56,7 @@ A track can be skipped (`[~]`) in two situations:
    Track Pre-Flight Panel 1 (strategy assessment) to assess
    downstream impact.
 
-3. **Delete the step file** (`tracks/track-N.md`) from disk if one
+3. **Delete the step file** (`plan/track-N.md`) from disk if one
    exists. The step file was created at Phase 1 with `## Description`
    populated, so it is the only on-disk artifact carrying the
    per-track detail; the delete drops both the description and any
@@ -98,7 +98,7 @@ If the skip is decided during Phase A (review sub-agent recommends it and
 user confirms):
 
 - Write the `[~]` marker and skip record to the plan file on disk
-- Delete `tracks/track-N.md` from disk (no-op if it has already been
+- Delete `plan/track-N.md` from disk (no-op if it has already been
   removed; for tracks reaching this point the step file always exists
   because Phase 1 created it)
 - The session continues: if Panel 1 of the Track Pre-Flight gate was
@@ -114,6 +114,6 @@ user confirms):
 If the user says "skip Track N" at session start:
 
 - Write the `[~]` marker and skip record on disk (user provides the reason)
-- Delete `tracks/track-N.md` from disk (no-op if it has already been
+- Delete `plan/track-N.md` from disk (no-op if it has already been
   removed)
 - Continue with normal startup protocol for the next track

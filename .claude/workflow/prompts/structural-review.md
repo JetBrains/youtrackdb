@@ -1,7 +1,7 @@
 You are reviewing an implementation plan for structural correctness.
 The plan lives in three sets of documents under review: the **plan
 file** (`implementation-plan.md`, strategic context + thin checklist +
-episodes), the **step files** (`tracks/track-N.md`, one per pending
+episodes), the **step files** (`plan/track-N.md`, one per pending
 track — each holds its track's `**What/How/Constraints/Interactions**`
 detail and any track-level Mermaid diagram in its `## Description`
 section), and the **design document** (`design.md`, class/workflow
@@ -60,7 +60,7 @@ descriptions, oversized tracks, contradictions — directly impair execution.
 
 Inputs:
 - Plan file: {plan_path}
-- Step files directory: {tracks_dir} — every `tracks/track-N.md` whose
+- Step files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Each pending track's
   step file `## Description` carries that track's
   `**What/How/Constraints/Interactions**` detail and any track-level
@@ -73,7 +73,7 @@ Inputs:
 **Where track descriptions live:** For each **pending** track (`[ ]`),
 read the track's detailed description
 (`**What/How/Constraints/Interactions**` subsections and any
-track-level Mermaid diagram) from `tracks/track-N.md` `## Description`.
+track-level Mermaid diagram) from `plan/track-N.md` `## Description`.
 For **completed** tracks (`[x]`) and **skipped** tracks (`[~]`), the
 plan-file entry already holds the track's final form (intro paragraph
 + track episode for completed; intro + `**Skipped:**` reason for

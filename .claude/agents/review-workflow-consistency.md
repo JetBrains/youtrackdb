@@ -19,7 +19,7 @@ The YouTrackDB repository hosts a Claude Code workflow system. The pieces that t
 - **Settings**: `.claude/settings.json`, `.claude/settings.local.json` — hook wiring, permission rules, statusline binding.
 - **Output styles**: `.claude/output-styles/*.md`.
 - **Project root**: `CLAUDE.md` — always loaded; contains threshold tables, recipe tables, glossary aliases that mirror content in `.claude/workflow/` and `.claude/docs/`.
-- **Plan artifacts**: `docs/adr/<dir>/_workflow/{implementation-plan.md, design.md, tracks/track-N.md, design-mutations.md}` — internal cross-references between plan, design, and per-track step files.
+- **Plan artifacts**: `docs/adr/<dir>/_workflow/{implementation-plan.md, design.md, plan/track-N.md, design-mutations.md}` — internal cross-references between plan, design, and per-track step files.
 
 ## Tooling
 
@@ -72,7 +72,7 @@ Focus only on changed files under `.claude/`, root `CLAUDE.md`, and `docs/adr/<d
 - `CLAUDE.md` term shortcuts (e.g., "Concise Doc style") must match the canonical name in their source file (`.claude/output-styles/concise-doc.md`).
 
 ### Plan ↔ design ↔ track-file references
-- `implementation-plan.md` track entries reference `tracks/track-N.md` files — each must exist for `[ ]` tracks.
+- `implementation-plan.md` track entries reference `plan/track-N.md` files — each must exist for `[ ]` tracks.
 - Decision Records in the plan name tracks via "Implemented in: Track N" — Track N must exist.
 - `design.md` sections referenced from the plan must exist in `design.md` (or `design-mechanics.md` if split).
 

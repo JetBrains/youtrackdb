@@ -373,7 +373,7 @@ mid-Apply interruption:
 
 If any preflight check fails, abort Apply with zero side effects.
 Drop back to § 1's accumulation loop with one conversational line
-per failed item: *"`Edit` on `tracks/track-3.md` would no longer
+per failed item: *"`Edit` on `plan/track-3.md` would no longer
 apply — the anchor text drifted. Want to rephrase that one?"* The
 rest of the buffer stays intact; the user can fix the broken
 item or remove it.

@@ -23,7 +23,7 @@ during Phase 3 execution.
 | **Sub-agent** | A spawned agent for self-contained tasks — review (technical/risk/adversarial, dimensional code review, test quality review) where fresh perspective matters, or implementation (Phase B per-step implementer) where context absorption matters. The orchestrator retains session-level state. |
 | **Orchestrator** | The session-level agent driving `/execute-tracks`. In Phase B owns sub-steps 4–7 of step implementation and all session-level decisions (cross-track impact, escalation, episode synthesis, context-level session-end gate). Distinct from the implementer. |
 | **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See [`implementer-rules.md`](implementer-rules.md). |
-| **Step file** | `tracks/track-N.md` — the per-track working file. Created during Phase 1 alongside `implementation-plan.md` with `## Description` already populated (intro paragraph + `**What/How/Constraints/Interactions**` + any track-level Mermaid diagram); other sections (`## Progress`, `## Reviews completed`, `## Steps`, `## Base commit`) start as `[ ]` placeholders and are filled by Phase A → C. Lives under `_workflow/tracks/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
+| **Step file** | `plan/track-N.md` — the per-track working file. Created during Phase 1 alongside `implementation-plan.md` with `## Description` already populated (intro paragraph + `**What/How/Constraints/Interactions**` + any track-level Mermaid diagram); other sections (`## Progress`, `## Reviews completed`, `## Steps`, `## Base commit`) start as `[ ]` placeholders and are filled by Phase A → C. Lives under `_workflow/plan/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
 | **Mid-phase handoff** | An on-disk file `_workflow/handoff-*.md` written when a session pauses with un-derivable mid-phase state (research notes, verbatim re-present text, partial reviews). Distinct from the implementer-return "handoff" — see [`mid-phase-handoff.md`](mid-phase-handoff.md) for the protocol. Resolved and deleted on resume; otherwise removed by the Phase 4 cleanup commit. |
 
 ---
@@ -42,7 +42,7 @@ docs/adr/<dir-name>/
     implementation-plan.md        <- strategic: goals, architecture, tracks,
                                      track-level episodic summaries (thin
                                      checklist — per-track detailed
-                                     description lives in tracks/track-N.md)
+                                     description lives in plan/track-N.md)
     design.md                     <- narrative: concept-first Overview
                                      (first content), Core Concepts vocabulary
                                      primer (when doc has Parts or ≥3 new
@@ -68,7 +68,7 @@ docs/adr/<dir-name>/
                                      count. Read by `edit-design`'s
                                      `design-sync` step to find the last
                                      sync point.
-    tracks/
+    plan/
       track-1.md                  <- per-track working file: ## Description
                                      (intro paragraph + What/How/Constraints/
                                      Interactions + any track-level Mermaid
@@ -123,10 +123,10 @@ durable artifacts survive the squash-merge into `develop`. See
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <intro paragraph — high-level context; detailed description in tracks/track-1.md>
+  > <intro paragraph — high-level context; detailed description in plan/track-1.md>
   > **Scope:** ~N steps covering X, Y, Z
 - [ ] Track 2: <title>
-  > <intro paragraph — high-level context; detailed description in tracks/track-2.md>
+  > <intro paragraph — high-level context; detailed description in plan/track-2.md>
   > **Scope:** ~N steps covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
 
@@ -166,7 +166,7 @@ per-section budgets and rationale, and
 [`structural-review.md`](structural-review.md) § Bloat checks for how
 the structural review enforces them.
 
-### Step file content (`tracks/track-N.md`)
+### Step file content (`plan/track-N.md`)
 
 Created during Phase 1 alongside `implementation-plan.md` — one file per
 planned track. The full file shape (every section, including

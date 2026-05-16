@@ -169,7 +169,7 @@ of the changes.
 3. Read the **implementation plan** (`docs/adr/<dir-name>/_workflow/implementation-plan.md`)
    — this provides strategic context (goals, architecture notes, decision
    records, track episodes from completed tracks).
-4. Read the **step file** (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) — this
+4. Read the **step file** (`docs/adr/<dir-name>/_workflow/plan/track-N.md`) — this
    provides the step descriptions and episodes.
 5. **Generate the slim plan snapshot** at
    `/tmp/claude-code-plan-slim-$PPID.md` by running:
@@ -259,7 +259,7 @@ docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
 ## Track Steps (tactical context)
 Read the step file at:
-  docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
+  docs/adr/{dir-name}/_workflow/plan/track-{N}.md
 The file begins with a `## Description` section carrying the track's
 original description — intro paragraph +
 **What/How/Constraints/Interactions** subsections + any track-level
@@ -504,7 +504,7 @@ orchestrator never edits source files itself in Phase C.
      - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
      - `{diff_path}`, `{files_path}` — the re-staged temp files from Phase C Startup step 7
      - `{plan_slim_path}` — `/tmp/claude-code-plan-slim-$PPID.md`
-     - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`
+     - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/plan/track-{N}.md`
 
      The template enforces the ≤ 60-line budget, the forbidden-section
      list, and the verdict-only output format. See
@@ -931,7 +931,7 @@ implementation plan:
 
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/tracks/track-<M>.md \
+           docs/adr/<dir-name>/_workflow/plan/track-<M>.md \
            ... (one path per modified or newly created step file)
    git commit -m "Apply plan corrections from <track> review"
    git push
@@ -1083,7 +1083,7 @@ proceed directly to track completion **in the same session**.
      > **Track episode:**
      > <strategic summary — length proportional to cross-track impact>
      >
-     > **Step file:** `tracks/track-N.md` (M steps, K failed)
+     > **Step file:** `plan/track-N.md` (M steps, K failed)
    ```
 
    This shrinks completed-track entries from 100+ lines to ~10–15
@@ -1107,7 +1107,7 @@ proceed directly to track completion **in the same session**.
 
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+           docs/adr/<dir-name>/_workflow/plan/track-<N>.md
    git commit -m "Mark <track> complete"
    git push
    ```

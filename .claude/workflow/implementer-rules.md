@@ -62,7 +62,7 @@ inputs**.
 
 - `repo_root` — absolute path to the working tree.
 - `plan_slim_path` — `/tmp/claude-code-plan-slim-$PPID.md`.
-- `step_file_path` — `docs/adr/<dir-name>/_workflow/tracks/track-<N>.md`.
+- `step_file_path` — `docs/adr/<dir-name>/_workflow/plan/track-<N>.md`.
 - `design_path` — `docs/adr/<dir-name>/_workflow/design.md` (read on demand only).
 
 **Variable inputs** (per spawn):

@@ -53,7 +53,7 @@ The invoking agent supplies these when calling the skill:
 | `design_path` | Absolute path to `design.md` (or `design-final.md` in Phase 4). |
 | `design_mechanics_path` | Absolute path to `design-mechanics.md` (or `null` if no companion). |
 | `plan_path` | Absolute path to `implementation-plan.md` (for `**Full design**` link resolution). |
-| `tracks_dir` | Absolute path to the `tracks/` directory containing every `tracks/track-N.md` step file (same purpose — each step file's `## Description` may carry `**Full design**` references that the cross-file ref check has to resolve). |
+| `plan_dir` | Absolute path to the `tracks/` directory containing every `plan/track-N.md` step file (same purpose — each step file's `## Description` may carry `**Full design**` references that the cross-file ref check has to resolve). |
 | `target` | `design`, `mechanics`, or `both` — the file(s) the edit touches. Threaded through to the script's `--target` flag verbatim. (No `.md` suffix — the script's argparse choices are `design`/`mechanics`/`both`.) |
 | `intended_edit` | Either `(old_string, new_string)` for a focused edit, or full new content for a section-add / section-rewrite / file creation. |
 | `mutation_kind` | One of the values listed in the mode table above. |
@@ -85,7 +85,7 @@ mechanics companion) or `both` if the mutation also propagates into
 | `section-move` | design.md | `design` | `whole-doc` |
 | `structural-rewrite` | design.md + (when mechanics exists and any rename or split propagates) the matching sections in `design-mechanics.md` | `design \| both` | `whole-doc` |
 | `length-trigger-crossing` | both files (split into design-mechanics) | `both` | `whole-doc` |
-| `phase4-creation` | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | `whole-doc` on `design-final.md` (mechanics-final is exempt — agent-targeted long-form). Skip plan / step-file ref propagation: omit `--plan-path` / `--tracks-dir` so the cross-file ref check is naturally skipped. |
+| `phase4-creation` | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | `whole-doc` on `design-final.md` (mechanics-final is exempt — agent-targeted long-form). Skip plan / step-file ref propagation: omit `--plan-path` / `--plan-dir` so the cross-file ref check is naturally skipped. |
 
 **Periodic whole-doc check.** Independent of mode: every Nth design-touching
 mutation (default `N=5`, counted from the review log) escalates the cold-read
@@ -139,7 +139,7 @@ content reflects what was *actually built* — not the planned design. The
 caller (`prompts/create-final-design.md`) is expected to have run the
 PSI-backed verification tables before invoking the skill, so each diagram
 element traces to a real code location. Do **not** pass `--plan-path` /
-`--tracks-dir` (the cross-file ref check is naturally skipped — see the
+`--plan-dir` (the cross-file ref check is naturally skipped — see the
 table above).
 
 For `design-sync`: see Step 1.5 below — sync has a distillation sub-step
@@ -194,7 +194,7 @@ python3 .claude/scripts/design-mechanical-checks.py \
     --design-path <design_path> \
     --design-mechanics-path <design_mechanics_path or omit> \
     --plan-path <plan_path or omit> \
-    --tracks-dir <tracks_dir or omit> \
+    --plan-dir <plan_dir or omit> \
     --changed-section "<title>" \
     --target <design|mechanics|both> \
     --scope <bounded|whole-doc>
@@ -259,7 +259,7 @@ sub-agent via the `Agent` tool:
 - bounded_scope: <changed_section name + surrounding section names, when bounded>
 - mutation_kind: <kind>
 - plan_path: <abs path or "(none)">
-- tracks_dir: <abs path or "(none)">
+- plan_dir: <abs path or "(none)">
 ```
 
 For `design-sync`, also include in the prompt body: *"This sync re-distills
@@ -509,7 +509,7 @@ companion, so the rename has to propagate. The skill:
    `design-document-rules.md` § Length-triggered split into
    `design-mechanics.md`.
 3. Updates every `**Full design**: design.md §"DPB (D33)"` line in
-   `implementation-plan.md` and in every `tracks/track-N.md` step file
+   `implementation-plan.md` and in every `plan/track-N.md` step file
    to use the new name.
 4. Runs mechanical checks with `--target=both`, `--scope=whole-doc` —
    confirms zero broken refs. (`both` because mechanics was touched;

@@ -22,7 +22,7 @@ Phase C includes both the track-level code review and track completion
 > NEVER edit source code, test files, or build files. You explore the
 > codebase (read-only) to validate the track's approach and decompose it
 > into steps. The only file you write is the step file
-> (`tracks/track-N.md`).**
+> (`plan/track-N.md`).**
 
 ### Tooling — PSI is required for symbol audits in Phase A
 
@@ -315,7 +315,7 @@ this round:
     > **Track episode:**
     > <strategic summary>
     >
-    > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
+    > **Step file:** `plan/track-2.md` (4 steps, 0 failed)
     >
     > **Strategy refresh:** CONTINUE — no downstream impact detected.
   ```
@@ -364,7 +364,7 @@ commit:
 
 ```bash
 git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-        docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+        docs/adr/<dir-name>/_workflow/plan/track-<N>.md
 git commit -m "Apply pre-flight amendments before Track <N>"
 git push
 ```
@@ -404,7 +404,7 @@ recorded yet):
 
 ```bash
 git log --oneline -10 -- docs/adr/<dir-name>/_workflow/implementation-plan.md \
-                          docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+                          docs/adr/<dir-name>/_workflow/plan/track-<N>.md
 ```
 
 If the output contains a recent `Apply pre-flight amendments
@@ -427,7 +427,7 @@ review-mode rounds.
 
 1. **Read the plan file** for strategic context (Goals, Architecture
    Notes, Decision Records, Component Map) and the **step file**
-   (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) for the track's
+   (`docs/adr/<dir-name>/_workflow/plan/track-N.md`) for the track's
    detailed description. The step file already exists from Phase 1
    and may carry pre-flight amendments and a `### Clarifications`
    subsection committed by the gate above; both phases of consumption
@@ -490,7 +490,7 @@ review-mode rounds.
    uncommitted decomposition.
 
    ```bash
-   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+   git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md
    git commit -m "Phase A review and decomposition for <track>"
    git push
    ```
@@ -539,7 +539,7 @@ instead of restating them.
 | Input | Value |
 |---|---|
 | `plan_path` | Absolute path to `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
-| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/tracks/track-N.md` — once Phase A has written the step file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the step file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
 | `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
@@ -667,7 +667,7 @@ Must not modify the same files.
 #### Output
 
 Write decomposed steps to the **step file**
-(`docs/adr/<dir-name>/_workflow/tracks/track-N.md`), creating it if it doesn't exist.
+(`docs/adr/<dir-name>/_workflow/plan/track-N.md`), creating it if it doesn't exist.
 Scope indicators in the plan file are NOT replaced — step details live only
 in the step file.
 
@@ -702,7 +702,7 @@ clarifications they had given previously.
 
 **Uncommitted gate state.** Before re-firing the gate, run
 `git status --porcelain docs/adr/<dir-name>/_workflow/implementation-plan.md
-docs/adr/<dir-name>/_workflow/tracks/track-<N>.md`. If either path is
+docs/adr/<dir-name>/_workflow/plan/track-<N>.md`. If either path is
 dirty, the previous session was interrupted between applying
 amendments and committing them. Surface the diff to the user and ask
 whether to keep or revert the uncommitted changes before continuing —

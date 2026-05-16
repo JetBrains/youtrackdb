@@ -113,7 +113,7 @@ Help the user develop the plan:
    workflow rules:
    - Every track gets an **intro paragraph** in the plan checklist
      entry (a short paragraph of high-level context) and a matching
-     `tracks/track-N.md` step file whose `## Description` section
+     `plan/track-N.md` step file whose `## Description` section
      carries the same intro paragraph followed by detailed `**What**:`
      / `**How**:` / `**Constraints**:` / `**Interactions**:`
      subsections (no length cap on the detail). See `planning.md`
@@ -157,7 +157,7 @@ Do NOT implement anything. Only research and plan.
 Write the implementation plan to
 `docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one step
 file per planned track at
-`docs/adr/<dir-name>/_workflow/tracks/track-N.md` using the two
+`docs/adr/<dir-name>/_workflow/plan/track-N.md` using the two
 structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
 checklist; each step file carries that track's detailed
@@ -204,11 +204,11 @@ layout under `_workflow/`) and `conventions-execution.md` §2.1
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <intro paragraph — high-level context; detailed description in tracks/track-1.md>
+  > <intro paragraph — high-level context; detailed description in plan/track-1.md>
   > **Scope:** ~N steps covering X, Y, Z
 
 - [ ] Track 2: <title>
-  > <intro paragraph — high-level context; detailed description in tracks/track-2.md>
+  > <intro paragraph — high-level context; detailed description in plan/track-2.md>
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
 
@@ -219,7 +219,7 @@ layout under `_workflow/`) and `conventions-execution.md` §2.1
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
 
-Each step file (`tracks/track-N.md`) is created with `## Description`
+Each step file (`plan/track-N.md`) is created with `## Description`
 fully populated and the remaining sections as `[ ]` placeholders that
 Phase A → C will fill:
 

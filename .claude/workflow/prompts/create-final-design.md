@@ -20,7 +20,7 @@ name. Otherwise, default to the current git branch name
 Read:
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
 - `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify)
-- `docs/adr/<dir-name>/_workflow/tracks/track-*.md` — all step files with step
+- `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all step files with step
   episodes. Each step file begins with a `## Description` section
   carrying the track's original description (written there by
   `create-plan` at Phase 1), so "what each track was supposed to do"
@@ -64,7 +64,7 @@ authoritative source for edge cases.
 
 `design-final.md` and `adr.md` are the **only** workflow files that
 survive merge into `develop`. Every other workflow file —
-`implementation-plan.md`, `tracks/track-N.md`, `design.md`,
+`implementation-plan.md`, `plan/track-N.md`, `design.md`,
 `design-mechanics.md`, `design-mutations.md` — lives under
 `docs/adr/<dir-name>/_workflow/` and is removed in the cleanup commit
 at the end of Phase 4 (Step 5 below) before the PR is merged. Anything
@@ -154,7 +154,7 @@ with:
 - `target`: `both` when a mechanics-final companion exists, else
   `design` (no `.md` suffix — these values pass through to the
   script's `--target` flag verbatim)
-- `plan_path` / `tracks_dir`: **omit**. Phase 4 produces a new
+- `plan_path` / `plan_dir`: **omit**. Phase 4 produces a new
   committed artifact whose section structure may differ from the
   original `design.md`; the plan and step-file `**Full design**` refs
   continue to point at the (frozen) original. The cross-file ref check

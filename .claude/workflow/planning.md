@@ -87,7 +87,7 @@ points:
   tracks, track-level episodic summaries
 - `docs/adr/<dir-name>/_workflow/design.md` — design-level: class diagrams, workflow
   diagrams, dedicated sections for complex/opaque parts
-- `docs/adr/<dir-name>/_workflow/tracks/track-N.md` — tactical: decomposed steps, step
+- `docs/adr/<dir-name>/_workflow/plan/track-N.md` — tactical: decomposed steps, step
   episodes (created during Phase 3)
 - `docs/adr/<dir-name>/_workflow/design-mutations.md` — append-only mutation log
   for `design.md` / `design-mechanics.md`; read by `edit-design`'s
@@ -123,7 +123,7 @@ where new code plugs in. Long-form material — worked examples, layered
 design diagrams, audit findings, edit-by-edit walk-throughs, crash
 scenarios, multi-paragraph rationale derivations — **does not belong
 here**. It belongs in `design.md` (long-form architectural and
-behavioral design) or `tracks/track-N.md` `## Description` (per-track
+behavioral design) or `plan/track-N.md` `## Description` (per-track
 edit detail). Architecture Notes link to those longer documents rather
 than duplicating them.
 
@@ -164,7 +164,7 @@ Each section below restates its own budget alongside its format rules.
 Where a plan would exceed a budget, the long-form material almost
 always belongs in `design.md` (worked examples, layered diagrams,
 complex-topic walk-throughs, multi-paragraph rationale) or
-`tracks/track-N.md` `## Description` (per-track edit detail — files,
+`plan/track-N.md` `## Description` (per-track edit detail — files,
 classes, methods, edit ordering). The structural review (Phase 2)
 enforces the budgets as first-class findings — see
 [`structural-review.md`](structural-review.md) § Bloat checks.
@@ -338,7 +338,7 @@ Each **track** in the checklist is described across two files:
   line and, when applicable, the `**Depends on:**` line. This is the
   content every `/execute-tracks` session loads at startup, so keep it
   compact.
-- **`tracks/track-N.md` (detailed description):** the step file's
+- **`plan/track-N.md` (detailed description):** the step file's
   `## Description` section, written by `create-plan` at Phase 1. It
   carries the same intro paragraph (so the step file is self-sufficient
   context for Phase B/C sub-agents that don't read the plan) followed by
@@ -382,7 +382,7 @@ as a separate fenced `mermaid` block immediately after the
 `**Interactions**:` blockquote (outside the blockquote — see the
 step-file template in `conventions-execution.md` §2.1). It is **never
 rendered in `implementation-plan.md`** — plan readers who want visual
-reasoning about a specific track open `tracks/track-N.md`. Phase 1
+reasoning about a specific track open `plan/track-N.md`. Phase 1
 writes the diagram alongside the rest of the description; Track
 Pre-Flight may amend it; inline replanning may rewrite it.
 

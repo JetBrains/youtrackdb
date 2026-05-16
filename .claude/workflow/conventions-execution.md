@@ -30,7 +30,7 @@ documents — they are not loaded by every Phase 3 session:
 Moved to `workflow.md` §Startup Protocol — the only place where state
 detection is used.
 
-### Step file content (`tracks/track-N.md`)
+### Step file content (`plan/track-N.md`)
 
 ````markdown
 # Track N: <title>
@@ -112,7 +112,7 @@ level measured at sub-step 6 of step-implementation.md and recorded when
 the episode is written in sub-step 7. The agent marks it `[x]` with the
 measured level (`safe`, `info`, `warning`, or `critical`). If measurement
 failed (file missing or command error), record `- [x] Context: unavailable`.
-This sub-item is written to the step file (under `_workflow/tracks/`)
+This sub-item is written to the step file (under `_workflow/plan/`)
 alongside the episode and is committed and pushed with the episode
 commit. It must be marked before the step is considered complete — an
 unmarked context check means the agent skipped the check.
@@ -190,7 +190,7 @@ gate per the rule above.
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
 | Pre-Phase-1 | (none) | — | — |
-| Phase 1 write | step file (`tracks/track-N.md`) | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
+| Phase 1 write | step file (`plan/track-N.md`) | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
 | Phase A | step file | (stable; Track Pre-Flight may amend `## Description` and/or append `### Clarifications`) | Phase A orchestration; Phase A review sub-agents |
 | Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
 | Phase C after collapse | plan intro paragraph + plan-resident track episode (the step file remains on disk until Phase 4 cleanup but is no longer load-bearing strategic context) | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
@@ -202,7 +202,7 @@ under the `**Interactions**:` blockquote (never rendered in the plan
 file). The writer and readers at each phase are the same as the
 corresponding description row above.
 
-**Step files live under `docs/adr/<dir-name>/_workflow/tracks/`** —
+**Step files live under `docs/adr/<dir-name>/_workflow/plan/`** —
 tracked in git during the branch lifetime so changes are pushed to the
 draft PR for team visibility and disk-loss backup, and removed alongside
 the rest of `_workflow/` in the Phase 4 cleanup commit before merge
