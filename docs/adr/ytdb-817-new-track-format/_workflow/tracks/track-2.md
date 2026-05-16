@@ -78,7 +78,7 @@ Update the single source of truth — `conventions.md` §1.2 + §1.1 glossary, `
 - [x] Adversarial: PASS at iteration 2 (10 findings; A1+A2+A7+A9+A10 should-fix applied, A5+A8 confirmed PASS at iter-1, A3+A4+A6 suggestions DEFERRED; iter-2 gate VERIFIED 8 of 10 plus 2 mechanical residuals (N1 step 2 How-block regex consistency + N2 Non-Goal parallel to Constraints A7 fix) applied in same iter-2 cycle without iter-3 escalation since both were mechanical mirrors of already-verified fixes)
 
 ## Base commit
-1efc5831216eabb5b47952b6bf05bbfbbefbf420
+c73ef90c4b55f515bbee5516f4805759e5ca9585
 
 ## Steps
 - [ ] Step: Mechanical directory rename `_workflow/tracks/` → `_workflow/plan/` across `.claude/workflow/`, `.claude/skills/`, `.claude/agents/`, and `.claude/scripts/`. Sweep literal occurrences of `_workflow/tracks/`, `tracks/track-N.md`, `--tracks-dir`, and `tracks_dir` only — no semantic edits. Use `steroid_apply_patch` (or `Edit` if mcp-steroid is unreachable at implementation time). End-of-step verification: `grep -rnE '_workflow/tracks/|tracks/track-N\.md|--tracks-dir|tracks_dir' .claude/workflow/ .claude/skills/ .claude/agents/ .claude/scripts/` returns zero matches. This branch's own `docs/adr/ytdb-817-new-track-format/_workflow/tracks/` directory does NOT move in this step — deferred to step 6 (atomic switch).
