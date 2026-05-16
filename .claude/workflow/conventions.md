@@ -72,15 +72,15 @@ docs/adr/<dir-name>/
     plan/
       track-1.md                  <- per-track ExecPlan: 12 OpenAI-style
                                      sections (Purpose / Big Picture +
-                                     Context and Orientation + Plan of Work
-                                     + Interfaces and Dependencies +
-                                     Risks and Mitigations + Progress +
-                                     Decision Log + Surprises & Discoveries
+                                     Progress + Surprises & Discoveries +
+                                     Decision Log + Outcomes & Retrospective
+                                     + Context and Orientation + Plan of Work
                                      + Concrete Steps + Validation and
                                      Acceptance + Idempotence and Recovery
-                                     + Outcomes & Retrospective) + Episodes
-                                     + Artifacts and Notes + Base commit
-                                     housekeeping sibling. See
+                                     + Artifacts and Notes +
+                                     Interfaces and Dependencies) +
+                                     Episodes (workflow-specific D11) +
+                                     Base commit housekeeping sibling. See
                                      conventions-execution.md §2.1
                                      *Track file content* for the full
                                      template.
@@ -179,16 +179,16 @@ the structural review enforces them.
 
 Created during Phase 1 alongside `implementation-plan.md` — one file per
 planned track. The full file shape — the 12 OpenAI-style ExecPlan
-sections (`## Purpose / Big Picture`, `## Context and Orientation`,
-`## Plan of Work`, `## Interfaces and Dependencies`, `## Risks and
-Mitigations`, `## Progress`, `## Decision Log`, `## Surprises &
-Discoveries`, `## Concrete Steps`, `## Validation and Acceptance`,
-`## Idempotence and Recovery`, `## Outcomes & Retrospective`) plus the
-workflow-specific siblings `## Episodes`, `## Artifacts and Notes`, and
-`## Base commit`, together with any optional track-level Mermaid
-diagram — is defined in `conventions-execution.md` §2.1 *Track file
-content*. That doc is also where Phase A → C subsequent population is
-documented.
+sections (`## Purpose / Big Picture`, `## Progress`,
+`## Surprises & Discoveries`, `## Decision Log`,
+`## Outcomes & Retrospective`, `## Context and Orientation`,
+`## Plan of Work`, `## Concrete Steps`, `## Validation and Acceptance`,
+`## Idempotence and Recovery`, `## Artifacts and Notes`,
+`## Interfaces and Dependencies`) plus the workflow-specific siblings
+`## Episodes` and `## Base commit`, together with any optional
+track-level Mermaid diagram — is defined in `conventions-execution.md`
+§2.1 *Track file content*. That doc is also where Phase A → C
+subsequent population is documented.
 
 `/execute-tracks` startup loads only `implementation-plan.md` — track
 files are read on demand: by Phase 2 reviews (which read the track files
