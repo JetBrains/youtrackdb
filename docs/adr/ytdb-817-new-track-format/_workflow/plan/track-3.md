@@ -73,4 +73,4 @@ Cross-step recovery: a failure mid-track (e.g., step 2 fails after step 1 lands)
 - `inline-replanning.md` is a writer (it authors per-track files during replans), so cases 2–6 stay in Track 3 alongside the other writer SKILLs. Track 4's reader-pass does not include `inline-replanning.md` per Track 4's In-scope list (track file `## Interfaces and Dependencies`).
 
 ## Base commit
-<!-- Phase B writes this once at session start. Empty at Phase 1. -->
+a7b3b8d96a51e6023177cb25a4bc10bbaa6ba422
