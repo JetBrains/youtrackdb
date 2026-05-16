@@ -11,6 +11,8 @@ Update every writer SKILL that authors or amends a per-track file or the root in
 - [x] 2026-05-16T17:33Z [ctx=safe] Step 1 complete (commit 74d3571f91)
 - [x] 2026-05-16T17:37Z [ctx=safe] Step 2 complete (commit d2670c74c8)
 - [x] 2026-05-16T17:40Z [ctx=safe] Step 3 complete (commit 6bc010c44f)
+- [x] 2026-05-16T17:46Z [ctx=safe] Step 4 complete (commit e0f8c71788)
+- [x] 2026-05-16T17:46Z [ctx=safe] Step implementation complete (4/4 steps)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -36,7 +38,7 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 1. Update `inline-replanning.md` cases 2–6: sweep `## Description` refs on lines 153 (step 4 sub-agent prompt directive), 241 (case 2), 249 (case 3) to name the appropriate 14-section homes; fix the two line-broken "step file" residuals on lines 248–249 and 270–271 to "track file" per Track 2 step 2's terminology rename. Case 1 (line 217+) is already on the new shape (Track 2 step 6 + Phase C iter-1 WI3). — `risk: low (default — workflow-doc text sweep)`  [x] commit: 74d3571f91
 2. Update `track-skip.md`: sweep the three `## Description` refs on lines 60, 67, 89 to name the appropriate 14-section homes; rewrite the two legacy `**What/How/Constraints/Interactions**` blockquote-shape references on lines 47 and 88 to name the four 14-section homes (`## Purpose / Big Picture` for the intro; `## Context and Orientation` / `## Plan of Work` / `## Interfaces and Dependencies` for the detail subsections). — `risk: low (default — workflow-doc text sweep)`  [x] commit: d2670c74c8
 3. Update `review-plan/SKILL.md`: sweep the one `## Description` ref on line 42 to name `## Purpose / Big Picture` (since the description-equivalent intro now lives there); fix the residual `tracks/` path-token on line 57 to `plan/` per Track 2 step 1's path rename invariant. — `risk: low (default — workflow-doc text sweep)`  [x] commit: 6bc010c44f
-4. Update `create-plan/SKILL.md`: rewrite Step 4's embedded track-file template body from the legacy 5-section shape (`## Description` / `## Progress` / `## Reviews completed` / `## Steps`, lines ~222–262) to the canonical 14-section shape — section list and lifecycle from `conventions-execution.md` §2.1, verbatim template body kept embedded here (durable); sweep all legacy `## Description` prose refs (lines 116, 122, 165, 222, 229, 255, 257) and `**What/How/Constraints/Interactions**` blockquote-shape references (lines 117–123, 163–164) to name the four 14-section homes. — `risk: low (default — workflow-doc template update)`  [ ]
+4. Update `create-plan/SKILL.md`: rewrite Step 4's embedded track-file template body from the legacy 5-section shape (`## Description` / `## Progress` / `## Reviews completed` / `## Steps`, lines ~222–262) to the canonical 14-section shape — section list and lifecycle from `conventions-execution.md` §2.1, verbatim template body kept embedded here (durable); sweep all legacy `## Description` prose refs (lines 116, 122, 165, 222, 229, 255, 257) and `**What/How/Constraints/Interactions**` blockquote-shape references (lines 117–123, 163–164) to name the four 14-section homes. — `risk: low (default — workflow-doc template update)`  [x] commit: e0f8c71788
 
 ## Episodes
 
@@ -61,6 +63,14 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 
 **Key files:**
 - `.claude/skills/review-plan/SKILL.md` (modified)
+
+### Step 4 — commit e0f8c71788, 2026-05-16T17:46Z [ctx=safe]
+**What was done:** Rewrote `.claude/skills/create-plan/SKILL.md` to author the canonical 14-section track-file template in place of the legacy 5-section shape. Three hunks: (1) decompose-tracks bullet (~lines 114–128) — `**What/How/Constraints/Interactions**` blockquote-shape + diagram-location ref rewritten to the four 14-section homes (`## Purpose / Big Picture` for the intro; `## Context and Orientation` for codebase state + optional Mermaid diagram; `## Plan of Work` for the prose sequence; `## Interfaces and Dependencies` for scope / dependency / signature detail); (2) write-the-plan paragraph (~lines 157–170) — same four-home rename plus `step file` → `track file` correction; (3) embedded track-file template body (~lines 232–329) — replaced wholesale with the verbatim 14-section ExecPlan template matching `conventions-execution.md` §2.1 and `design.md` §"New per-track file shape", with no historical references back to legacy section names. Post-edit `grep -nE '## Description|## Reviews completed|## Steps$|\*\*What\*\*|\*\*How\*\*|\*\*Constraints\*\*|\*\*Interactions\*\*'` returns zero matches across the file. Template body stays embedded in the SKILL (durable) rather than pointing at `design.md` (ephemeral, removed by the Phase 4 cleanup commit), matching the plan's "verbatim template body kept embedded here (durable)" directive.
+
+**What changed from the plan:** Plan named seven `## Description` line targets (116, 122, 165, 222, 229, 255, 257) and two `**What/How/Constraints/Interactions**` blockquote ranges (117–123, 163–164); rewrite collapsed the seven into three hunks — same legacy tokens removed, no scope drift. **Scope expansion beyond the plan's letter:** the plan's Idempotence section budgeted "legacy refs inside surrounding prose context may remain if they describe historical state"; the implementer judged that three "Folds in the legacy `**What**:` / `**How**:` / `**Constraints**:` / `**Interactions**:` subsections" bridge phrases inside the new template body added long-term drift surface without semantic value (readers six months from now do not need the migration history) and stripped them. Outcome: SKILL prose is forward-looking throughout. Decision consistent with the plan's spirit ("forward-looking prose must be clean") even though it goes beyond the plan's letter.
+
+**Key files:**
+- `.claude/skills/create-plan/SKILL.md` (modified)
 
 ## Validation and Acceptance
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
