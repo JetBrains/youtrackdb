@@ -921,7 +921,7 @@ implementation plan:
 2. **Save plan changes** — update `implementation-plan.md` and, if a
    new track was added or an existing track's
    `**What/How/Constraints/Interactions**` subsections need
-   somewhere to live, the corresponding `tracks/track-<M>.md` step
+   somewhere to live, the corresponding `plan/track-<M>.md` step
    file. Note the finding IDs that motivated each plan correction.
 
 3. **Commit and push the plan corrections** as a separate Workflow

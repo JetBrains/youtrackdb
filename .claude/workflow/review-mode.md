@@ -361,7 +361,7 @@ mid-Apply interruption:
   file; locate `old_string` exactly once in the file (zero or
   multiple matches both fail). For multi-site `steroid_apply_patch`,
   parse and validate the patch against the current file contents.
-- `SKIP_TRACK`: resolve `tracks/track-<index>.md` on disk and
+- `SKIP_TRACK`: resolve `plan/track-<index>.md` on disk and
   confirm the plan-file entry for that track exists in
   `implementation-plan.md` with status `[ ]`.
 - `FIX_FINDING`: re-resolve any production-class FQNs in the
@@ -402,7 +402,7 @@ For each type:
 - `SKIP_TRACK`: run the full [`track-skip.md`](track-skip.md)
   § Process for `track_index` — write the `[~]` marker plus
   `**Skipped:** <reason>` line in the plan entry, then delete
-  `tracks/track-<index>.md`. Track-file deletion is terminal per
+  `plan/track-<index>.md`. Track-file deletion is terminal per
   `track-skip.md` step 3.
 - `CLARIFY`: append to the in-conversation clarifications buffer.
   The buffer flows to the track file's `### Clarifications`
@@ -500,7 +500,7 @@ never in mid-conversation messages.
 |---|---|---|---|
 | `QUESTION` | Question text + orchestrator's answer (resolved at accumulation time by reading conversation context, git log, step / track episodes, plan file, and source code as needed; surfaced inline as plain chat) | None — already answered inline | Both gates |
 | `EDIT_PLAN` | Path + anchor + new text. Light edits to a remaining track's plan-file entry: title, intro paragraph, scope indicators, or reorder of remaining `[ ]` tracks | Apply via `Edit` for single-site text changes (title, intro, scope) or via `steroid_apply_patch` for >2 sites **and for any reorder** (a move is a remove + insert pair and must land atomically — two chained `Edit` calls are not atomic). See `track-review.md` § Track Pre-Flight step 4 | Pre-Flight only |
-| `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full [`track-skip.md`](track-skip.md) § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `tracks/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
+| `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full [`track-skip.md`](track-skip.md) § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `plan/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
 | `EDIT_STEP_DESC` | Path + anchor + new text. Light edits to the upcoming track's track file `## Description` (`**What/How/Constraints/Interactions**` blocks, `mermaid` diagram) | Apply via `Edit` / `steroid_apply_patch` as above | Pre-Flight only |
 | `CLARIFY` | Note text targeting the upcoming track | Appended to the in-conversation clarifications buffer; persisted to the track file's `### Clarifications` subsection on the gate's final Approve per `track-review.md` § Track Pre-Flight step 6 | Pre-Flight only |
 | `FIX_FINDING` | `{location, issue, proposed fix}` triple | Collected into a synthesised findings list; on Apply completion, a fresh implementer is spawned with `level=track`, `mode=FIX_REVIEW_FINDINGS` per `track-code-review.md` § Track Completion step 3 | Completion only |
@@ -625,7 +625,7 @@ Protected sections per file:
   - `## Architecture Notes` (entire section, including the
     `### Component Map` / `### Decision Records` /
     `### Invariants` / `### Integration Points` subsections)
-- **Track file (`tracks/track-<N>.md`)**:
+- **Track file (`plan/track-<N>.md`)**:
   - Anything outside `## Description` — `## Progress`,
     `## Reviews completed`, `## Steps`.
   - The `### Clarifications` subsection inside `## Description`
