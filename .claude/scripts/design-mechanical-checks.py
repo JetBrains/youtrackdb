@@ -1179,7 +1179,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--design-path", required=True, help="Absolute path to design.md")
     p.add_argument("--design-mechanics-path", help="Absolute path to design-mechanics.md (optional)")
     p.add_argument("--plan-path", help="Absolute path to implementation-plan.md (optional)")
-    p.add_argument("--plan-dir", help="Absolute path to the tracks/ directory containing plan/track-N.md track files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
+    p.add_argument("--plan-dir", help="Absolute path to the plan/ directory containing plan/track-N.md track files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
                    help=("Scope of the section-bounded checks (default: whole-doc). When "

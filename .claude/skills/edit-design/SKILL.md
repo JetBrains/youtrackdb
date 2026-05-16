@@ -53,7 +53,7 @@ The invoking agent supplies these when calling the skill:
 | `design_path` | Absolute path to `design.md` (or `design-final.md` in Phase 4). |
 | `design_mechanics_path` | Absolute path to `design-mechanics.md` (or `null` if no companion). |
 | `plan_path` | Absolute path to `implementation-plan.md` (for `**Full design**` link resolution). |
-| `plan_dir` | Absolute path to the `tracks/` directory containing every `plan/track-N.md` track file (same purpose — each track file's `## Description` may carry `**Full design**` references that the cross-file ref check has to resolve). |
+| `plan_dir` | Absolute path to the `plan/` directory containing every `plan/track-N.md` track file (same purpose — each track file's `## Description` may carry `**Full design**` references that the cross-file ref check has to resolve). |
 | `target` | `design`, `mechanics`, or `both` — the file(s) the edit touches. Threaded through to the script's `--target` flag verbatim. (No `.md` suffix — the script's argparse choices are `design`/`mechanics`/`both`.) |
 | `intended_edit` | Either `(old_string, new_string)` for a focused edit, or full new content for a section-add / section-rewrite / file creation. |
 | `mutation_kind` | One of the values listed in the mode table above. |
@@ -447,7 +447,7 @@ the meaning of the request.
 ## When NOT to use this skill
 
 - Edits to `implementation-plan.md`, the per-track track files under
-  `tracks/`, or any other workflow file. Those have their own gates
+  `plan/`, or any other workflow file. Those have their own gates
   (Phase 2 structural review). The `**Full design**` ref-propagation
   that lands in the plan and the track files during a `section-rename`
   or `design-sync` is part of this skill's scope, but isolated plan-only

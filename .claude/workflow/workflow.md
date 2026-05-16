@@ -193,6 +193,18 @@ cross-track impact.
 
    Each resume handles exactly **one phase** — end session after that phase.
 
+   **Section-discrepancy edge (roster `[x]` without matching Progress
+   entry).** Sub-step 7's four-section writer may be interrupted
+   between the roster `[ ]`→`[x]` flip (sub-step 7.1) and the
+   Progress append (sub-step 7.2), leaving the on-disk track file in
+   a partially-written state. Per the invariant in
+   `step-implementation.md` sub-step 7.1, the roster `[x]` flip is
+   the primary marker for "episode written"; resume-side
+   reconciliation derives the missing Progress entry from the
+   Episodes block before continuing. See
+   `step-implementation-recovery.md` §Phase B Resume → "Crash
+   between sub-step 7 and sub-step 8" for the procedure.
+
    **State D** (Phase 4 — final artifacts):
 
    | Phase 4 marker | Resume action |

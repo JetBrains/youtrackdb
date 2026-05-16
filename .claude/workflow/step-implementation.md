@@ -219,13 +219,20 @@ match result.RESULT:
     DESIGN_DECISION_NEEDED   -> [load recovery] escalate_to_user_then_respawn(step, result)
     RISK_UPGRADE_REQUESTED   -> [load recovery] apply_upgrade_then_decide(step, result)
     FAILED                   -> [load recovery] handle_failure(step, result)
+    <no parsable RESULT block> -> [load recovery] handle_result_missing(step, result_text)
 ```
 
-Only `on_success` is in this document. The other three handlers are
+Only `on_success` is in this document. The other four handlers are
 in
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Non-`SUCCESS` orchestrator handlers — load it before entering any
-of those branches. The implementer prompt template is in
+of those branches. The `handle_result_missing` path covers the
+contract-violation case where the implementer exited without emitting
+a `RESULT` block (typically due to message-budget exhaustion or a
+tool-call crash); per
+[`implementer-rules.md`](implementer-rules.md) §Return contract,
+silent exit is forbidden, but the orchestrator must still be able to
+recover when it happens. The implementer prompt template is in
 §Implementer Prompt Template below.
 
 ---
@@ -526,6 +533,9 @@ finding ID prefixes, and gate format.
                                           step, fix_result,
                                           step_base_commit)
                                       # exits the dim-review loop
+          <no parsable RESULT block> -> [load recovery] handle_result_missing(
+                                          step, fix_result_text)
+                                      # exits the dim-review loop
       ```
 
       On `SUCCESS`, the implementer's new commit follows
@@ -597,11 +607,24 @@ after the last step). Always run it:
 cat /tmp/claude-code-context-usage-$PPID.txt
 ```
 
-- Record the result: `safe`, `info`, `warning`, `critical`.
-- If the file does not exist or the command fails: this is **not an
-  error** — record `unknown` (mirroring the D12 fallback sentinel
-  used by sub-step 7.0 and every other Progress writer) and treat as
-  `safe` for continue-versus-pause purposes.
+Record the result: one of `safe`, `info`, `warning`, `critical`, or
+`unknown` (the fallback sentinel when the statusline file is missing
+or unparseable, mirroring D12 and every other Progress writer).
+
+The recorded value has two downstream uses, which are deliberately
+kept separate:
+
+- **Verbatim into `[ctx=<level>]`.** Sub-step 7's writes inline the
+  recorded value literally into every `[ctx=<level>]` field. If the
+  recorded value is `unknown`, the field MUST be written as
+  `[ctx=unknown]` — do NOT silently rewrite it to `[ctx=safe]` or
+  any other level. The audit trail depends on the on-disk record
+  reflecting what the orchestrator actually observed.
+- **Continue-versus-pause gate.** For the session-end gate at the
+  end of this sub-step block (and for any continue-versus-pause
+  decision in this sub-step alone), treat `unknown` as `safe` — a
+  missing statusline file is not in itself an error condition that
+  forces a pause.
 
 **Sub-step 7 — Episode finalisation and track-file write.** Merge
 `result.EPISODE_DRAFT` with cross-track-impact observations from
@@ -611,15 +634,38 @@ step writer below — the per-step write shape per
 documents the heading template, field-omission rule, promotion
 heuristic, back-reference shape, and `[ctx=unknown]` fallback.
 
-**Sub-step 7.0 — Read the statusline.** Reuse the level recorded by
-sub-step 6 (`safe` / `info` / `warning` / `critical`, or `unknown`
-on missing-file). Do not skip the write.
+**Sub-step 7.0 — Read the statusline and capture the wall-clock
+timestamp.** Reuse the level recorded by sub-step 6 (`safe` / `info`
+/ `warning` / `critical`, or `unknown` on missing-file). Do not skip
+the write. Also capture the current UTC time as `<ISO>` (format
+`YYYY-MM-DDTHH:MMZ`) by running:
+
+```bash
+date -u +%Y-%m-%dT%H:%MZ
+```
+
+Use this same `<ISO>` for both the Episodes block header in sub-step
+7.1 and the Progress entry in sub-step 7.2 — both writes refer to
+the same logical "episode written" moment.
 
 **Sub-step 7.1 — Append Episodes block + flip roster (always).**
 Append `### Step N — commit <SHA>, <ISO> [ctx=<level>]` to
 `## Episodes` with the four episode fields, and flip the matching
 `## Concrete Steps` roster line from `[ ]` to `[x]` (optionally
 appending `commit: <SHA>`) in the same edit.
+
+**Invariant.** The `[ ]`→`[x]` roster checkbox flip in this sub-step
+is the **primary marker for "episode written"**. Sub-steps 7.2–7.4
+write across additional sections (Progress, Surprises, Decision Log)
+and may be interrupted by a crash between 7.1 and the next write; if
+that happens, the roster `[x]` plus the Episodes block on disk are
+sufficient to drive resume-side reconciliation. The Phase B Resume
+detection in
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Phase B Resume runs that reconciliation before the next implementer
+is spawned — Progress entries missing for a roster `[x]` row are
+derived from the Episodes block; Surprises and Decision Log
+promotions are conditional anyway and do not require reconciliation.
 
 **Sub-step 7.2 — Append Progress entry (always).** Append
 `- [x] <ISO> [ctx=<level>] Step N complete (commit <SHA>)` to

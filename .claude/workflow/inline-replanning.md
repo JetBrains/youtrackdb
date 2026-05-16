@@ -216,14 +216,26 @@ revision and the file(s) that carry the new description:
 
 1. **New track.** Add a thin checklist entry (title + intro paragraph +
    `**Scope:**` + optional `**Depends on:**`) to
-   `implementation-plan.md`, and create a new
-   `plan/track-N.md` track file whose `## Description` carries the
-   intro paragraph + the full `**What/How/Constraints/Interactions**`
-   subsections + any track-level Mermaid diagram. Use the same
-   track-file shape `create-plan` produces at Phase 1 (see
-   [`conventions-execution.md`](conventions-execution.md) §2.1
-   *Track file content* for the template) — `## Progress`,
-   `## Reviews completed`, and `## Steps` start as `[ ]` placeholders.
+   `implementation-plan.md`, and create a new `plan/track-N.md` track
+   file in the canonical 14-section ExecPlan shape — see
+   [`conventions-execution.md`](conventions-execution.md) §2.1 *Track
+   file content* for the full template (12 OpenAI sections +
+   `## Episodes` + `## Base commit`). The intro paragraph lands in
+   `## Purpose / Big Picture`; the prose that pre-Track-2 plans
+   carried in the `**What/How/Constraints/Interactions**` subsections
+   maps to `## Context and Orientation` (current state and the
+   pre-revision baseline), `## Plan of Work` (step sequencing,
+   constraints, ordering rationale), and `## Interfaces and
+   Dependencies` (interactions with other tracks and files). Any
+   track-level Mermaid diagram lands in `## Interfaces and
+   Dependencies`. The continuous-log sections (`## Progress`,
+   `## Surprises & Discoveries`, `## Decision Log`, `## Outcomes &
+   Retrospective`, `## Episodes`) start empty (HTML-comment
+   placeholders are fine); the deferred-sibling-Move sections start
+   with the standard reserved-slot HTML comments per D6/D10.
+   `## Base commit` records the SHA at which the new track will start
+   executing — typically `HEAD` at the time of the inline-replan
+   commit.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
    reviews recorded yet). Update the track file's `## Description`

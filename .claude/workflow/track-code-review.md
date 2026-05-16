@@ -485,7 +485,9 @@ orchestrator never edits source files itself in Phase C.
      1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
         `level=` value. If the file is missing or the parse fails,
         use `unknown` per the D12 fallback rule — do not skip the
-        write.
+        write. Capture the current UTC time as `<ISO>` (format
+        `YYYY-MM-DDTHH:MMZ`) by running
+        `date -u +%Y-%m-%dT%H:%MZ`.
      2. Append a single entry to the track file's `## Progress`
         section:
         `- [x] <ISO> [ctx=<level>] Track-level code review iteration N complete (N/3 iterations)`.
@@ -581,7 +583,9 @@ orchestrator never edits source files itself in Phase C.
    1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
       `level=` value. If the file is missing or the parse fails,
       use `unknown` per the D12 fallback rule — do not skip the
-      write.
+      write. Capture the current UTC time as `<ISO>` (format
+      `YYYY-MM-DDTHH:MMZ`) by running
+      `date -u +%Y-%m-%dT%H:%MZ`.
    2. Append a single entry to the track file's `## Progress`
       section:
       `- [x] <ISO> [ctx=<level>] Track complete`.
@@ -764,7 +768,9 @@ authoritative inputs to the user's choice — do not discard them. If
    1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
       `level=` value. If the file is missing or the parse fails,
       use `unknown` per the D12 fallback rule — do not skip the
-      write.
+      write. Capture the current UTC time as `<ISO>` (format
+      `YYYY-MM-DDTHH:MMZ`) by running
+      `date -u +%Y-%m-%dT%H:%MZ`.
    2. Append a single entry to `## Progress`:
       `- [!] <ISO> [ctx=<level>] Track-level code review FAILED at iteration N/3`.
 

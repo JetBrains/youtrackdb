@@ -97,12 +97,35 @@ the track file on disk:
    recent completed step but the corresponding episode commit is
    missing from the log, the previous session wrote the episode
    to disk but died before committing it. The working tree is
-   dirty with the unwritten episode. Recovery: stage and commit
-   the track file now (using the standard episode commit subject
-   `Record episode for <step description>`), push, then proceed
-   with the rest of resume. This must happen **before** spawning
-   the next implementer — the implementer's `git reset --hard
-   HEAD` would otherwise discard the episode write.
+   dirty with the unwritten episode.
+
+   **Episode-write reconciliation pass.** Sub-step 7 writes across
+   up to four sections (Episodes block + roster flip in 7.1,
+   Progress entry in 7.2, optional Surprises in 7.3, optional
+   Decision Log in 7.4) and may be interrupted partway through. Per
+   the invariant in
+   [`step-implementation.md`](step-implementation.md) sub-step 7.1,
+   the roster `[ ]`→`[x]` flip is the primary marker for "episode
+   written"; missing Progress entries can be reconstructed from the
+   Episodes block. Before staging the dirty tree, run this check:
+   for every `## Concrete Steps` roster line marked `[x]` carrying a
+   `commit: <SHA>` annotation, verify that
+   (a) an `## Episodes` block with header
+   `### Step N — commit <SHA>, <ISO> [ctx=<level>]` exists, and
+   (b) a matching `## Progress` entry
+   `- [x] <ISO> [ctx=<level>] Step N complete (commit <SHA>)`
+   exists. If the Progress entry is missing, derive `<ISO>` and
+   `<level>` from the Episodes block header (both are present
+   there) and append the missing Progress entry to `## Progress`
+   before staging the file for commit. Surprises and Decision Log
+   promotions are optional — no reconciliation required.
+
+   Then stage and commit the track file (using the standard
+   episode commit subject `Record episode for <step description>`),
+   push, then proceed with the rest of resume. This must happen
+   **before** spawning the next implementer — the implementer's
+   `git reset --hard HEAD` would otherwise discard the episode
+   write.
 2. If a `Revert step:` commit is present at the tip (or near the
    tip with no implementer commits after it), the previous session
    rolled the next `[ ]` step back via §Post-Commit Handlers but may
@@ -115,10 +138,26 @@ the track file on disk:
 
    **`reason: failed-review-fix`** — the review-fix respawn returned
    `FAILED`.
-   - If the track file already has an `[!]` entry for this step,
-     the rollback was fully recorded; respawn the implementer for
-     the next `[ ]` row from `mode=INITIAL` with `step_base_commit
-     = HEAD`.
+   - **Verify all four bookkeeping writes landed** before declaring
+     the rollback fully recorded. The failed-step path writes four
+     artifacts in sequence: (1) `### Step N — FAILED, …` block in
+     `## Episodes`, (2) roster `[ ]`→`[!]` flip on the matching
+     `## Concrete Steps` line, (3) `- [!] <ISO> [ctx=<level>] Step N
+     failed …` entry in `## Progress`, and (4) one or more inserted
+     retry/split `[ ]` rows (`(retry: …)` or `(split from failed
+     step above)`). Roster `[!]` alone is not sufficient — a crash
+     between writes 2 and 4 leaves `[!]` on the roster with no
+     retry row to respawn from. If all four artifacts are present,
+     respawn the implementer for the next `[ ]` row from
+     `mode=INITIAL` with `step_base_commit = HEAD`. If any
+     artifact is missing, run the same Episodes-derived
+     reconciliation as the success-path crash branch above: derive
+     `<ISO>` and `<level>` from the failed-step Episodes block
+     header to fill in a missing Progress entry; for a missing
+     retry/split row, surface the situation to the user (the
+     `recommended_action` choice is not derivable from the
+     Episodes block alone) and let the user pick `retry` /
+     `split` / `escalate` before respawning.
    - If no `[!]` entry exists, write it now (reconstruct the
      `FAILURE` fields from the prose explanation in the revert body
      plus the git log of the reverted commits), append the failed-
@@ -126,12 +165,16 @@ the track file on disk:
      `## Episodes` (`[ctx=<level>]` per the D12 statusline-read-then-
      write order — read `/tmp/claude-code-context-usage-$PPID.txt`
      and parse `level=` before the write; fall back to `unknown` if
-     the file is missing), insert retry/split rows in `## Concrete
-     Steps` per the implied `recommended_action` (default to `retry`
-     when the revert body does not name one), append the matching
+     the file is missing). Capture the current UTC time as `<ISO>`
+     (format `YYYY-MM-DDTHH:MMZ`) by running
+     `date -u +%Y-%m-%dT%H:%MZ`, and use this same `<ISO>` for both
+     the Episodes block header and the Progress entry. Insert
+     retry/split rows in `## Concrete Steps` per the implied
+     `recommended_action` (default to `retry` when the revert body
+     does not name one), append the matching
      `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`
-     entry to `## Progress` (same `[ctx=<level>]` from the read
-     above), then respawn from the retry/split row with
+     entry to `## Progress` (same `[ctx=<level>]` and `<ISO>` from
+     the captures above), then respawn from the retry/split row with
      `mode=INITIAL`.
 
    **`reason: late-design-decision`** — the review-fix respawn
@@ -402,7 +445,11 @@ so the working tree is clean at `step_base_commit`.
    1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
       `level=` value. If the file is missing or the parse fails,
       use `unknown` per the D12 fallback rule — do not skip the
-      write.
+      write. Capture the current UTC time as `<ISO>` (format
+      `YYYY-MM-DDTHH:MMZ`) by running
+      `date -u +%Y-%m-%dT%H:%MZ`. Use this same `<ISO>` for both
+      the Episodes block header in step 1 and the Progress entry
+      below.
    2. Append a single entry to `## Progress`:
       `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`.
 
@@ -419,6 +466,122 @@ so the working tree is clean at `step_base_commit`.
 The implementer never escalates directly; it returns `FAILED` with
 `recommended_action: escalate`, and the orchestrator decides whether
 to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
+
+### `handle_result_missing(step, result_text)` (contract violation, recovery required)
+
+Triggered when the implementer's return text contains **no parsable
+`RESULT:` block** (or the block is truncated mid-field). This is a
+contract violation per
+[`implementer-rules.md`](implementer-rules.md) §Return contract — the
+implementer is required to emit a `RESULT` block before any exit,
+including context/budget exhaustion. The same handler covers both the
+top-level dispatch from `step-implementation.md` §Per-Step
+Orchestration Loop (the implementer's first spawn never produced a
+return block) and the inner `match fix_result.RESULT` dispatch inside
+the dim-review loop (a `FIX_REVIEW_FINDINGS` respawn exited without a
+block). This procedure mirrors
+[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+Handlers → `handle_result_missing`, adapted for the step level.
+
+The most common causes are message-budget exhaustion mid-iteration, a
+runtime crash or timeout in a tool call, or a runaway poll loop /
+background task that the system terminated externally.
+
+The orchestrator cannot dispatch on missing data and the
+implementer's last actions are by definition uncommitted (a
+successful commit always emits `RESULT: SUCCESS`). Recovery is
+manual and requires user approval — do not auto-respawn.
+
+1. **Kill any background tasks the implementer may have left
+   alive.** Run
+
+   ```bash
+   ps -o pid,ppid,cmd -e \
+     | grep -E 'mvnw|surefire|java.*test|pgrep -f' \
+     | grep -v ' grep '
+   ```
+
+   and terminate orphaned PIDs with `kill -TERM <pid>`. Wait a few
+   seconds for graceful cleanup, then escalate to `kill -KILL <pid>`
+   only if they survive. See
+   [`implementer-rules.md`](implementer-rules.md) §Pacing long-running
+   tasks → forbidden self-referential pgrep for the runaway-loop
+   shape.
+
+2. **Inspect the tree.** Run `git status --short` and
+   `git diff --stat`. Three states are possible:
+
+   - **Clean tree** — implementer reverted before exiting (or never
+     began applying changes). Skip to step 3 with the **discard**
+     option pre-selected; the spawn is effectively a no-op.
+   - **Dirty tree, edits look correct on inspection** — the implementer
+     applied changes but never committed. The **commit-as-is** option
+     is viable if the orchestrator can verify the edits independently.
+   - **Dirty tree, edits look incomplete or wrong** — the implementer
+     was mid-edit when its budget ran out. Recovery is most likely
+     **re-spawn from a clean state**.
+
+3. **Present the situation to the user with three options.** Include
+   the inspection output (a `git status --short` excerpt and the
+   implementer's last visible message, truncated to a few hundred
+   characters) so the user can choose informedly.
+
+   The three options behave differently depending on the originating
+   mode of the spawn that left the tree dirty:
+
+   - **Re-spawn finalizer.** Clean the tree on the implementer's
+     behalf (run the snapshot-and-diff revert sequence per
+     [`implementer-rules.md`](implementer-rules.md) §Detection rules
+     — the implementer never reached its own revert path, so the
+     orchestrator owns the cleanup this once), then re-spawn a fresh
+     implementer with the original inputs. For a `mode=INITIAL` /
+     `mode=WITH_GUIDANCE` step spawn this is the next attempt of the
+     same step from `step_base_commit`. For a
+     `mode=FIX_REVIEW_FINDINGS` respawn inside the dim-review loop,
+     re-issue the same fix iteration with the same findings; **if the
+     findings list was large** (≥ ~15 items or ≥ ~10 files), halve
+     the in-scope subset on the respawn so the new spawn doesn't
+     repeat the budget exhaustion. The halved-off findings re-surface
+     in the next gate-check fan-out.
+   - **Commit-as-is.** Only when the dirty tree's edits look complete
+     and correct on inspection, and when the orchestrator is in a
+     position to verify them itself. The orchestrator stages explicit
+     paths (no `git add -A`), runs Spotless + targeted tests of the
+     touched test classes + the coverage gate, and commits. The
+     commit subject follows
+     [`commit-conventions.md`](commit-conventions.md): the implementer
+     commit subject for `mode=INITIAL` / `mode=WITH_GUIDANCE` spawns,
+     or `Review fix: <subject>` for `mode=FIX_REVIEW_FINDINGS` respawns.
+     Then proceed to the next sub-step that would have fired on a
+     `SUCCESS` return — for a step-level top-level dispatch this is
+     sub-step 4 (dimensional review) onward; for an inner
+     dim-review-loop respawn this is the gate-check fan-out. **Apply
+     the test-additive carve-out** when
+     `git diff origin/develop -- '**/src/main/**'` is empty for the
+     spawn's diff. Record the gate as `n/a (test-additive)` and skip
+     the coverage profile build. This is the only Phase B case where
+     the orchestrator commits source-file changes directly — note the
+     deviation in the eventual step episode so the audit trail is
+     preserved.
+   - **Discard.** Run the snapshot-and-diff revert on the
+     implementer's behalf. For a `mode=INITIAL` / `mode=WITH_GUIDANCE`
+     step spawn, treat the spawn as `FAILED` with
+     `recommended_action: retry` and route through `handle_failure`
+     (no commit landed, so no rollback is needed). For a
+     `mode=FIX_REVIEW_FINDINGS` respawn, treat the iteration as
+     `FAILED` and route through `rollback_and_handle_failure` — the
+     prior step commits still need rollback.
+
+4. **Iteration / step-counter accounting.** A `RESULT_MISSING`
+   recovery consumes one iteration counter (inside the dim-review
+   loop) or one step-implementation attempt (at the top-level
+   dispatch) regardless of which option the user picks — the
+   implementer was spawned, ran, and produced a commit's worth of
+   state on disk; that has the same impact on the budget as a
+   `FAILED` return. Update the Progress section with the new counter
+   and a note (e.g., `- [ ] Step N attempt 2 (recovered from
+   RESULT_MISSING via commit-as-is)`) and commit it as a Workflow
+   update commit before the next action.
 
 ---
 
@@ -540,12 +703,17 @@ implementer already finished and validated.
    common procedure above. The revert lands **before** any track-file
    write so that the only crash-recoverable state is "Revert at tip
    with step still `[ ]`" — Phase B Resume's Detection step 2
-   handles that exact state via the `failed-review-fix` slug branch
-   (which already covers "if no `[!]` entry exists, write it now").
-   Reversing this order — writing `[!]` first — would leave a
-   window where prior commits sit unreverted at HEAD with the step
-   already marked `[!]`; Detection step 3 would then misattribute
-   those orphan commits to the next `[ ]` step.
+   handles that exact state via the `failed-review-fix` slug branch.
+   That branch verifies all four failed-step bookkeeping artifacts
+   (Episodes `### Step N — FAILED` block, roster `[!]`, Progress
+   `[!]` entry, retry/split row) and reconciles any missing
+   artifacts from the Episodes block; if the retry/split row
+   cannot be derived (the `recommended_action` is not encoded in
+   the Episodes block), the user is surfaced the situation before
+   respawn. Reversing this order — writing `[!]` first — would
+   leave a window where prior commits sit unreverted at HEAD with
+   the step already marked `[!]`; Detection step 3 would then
+   misattribute those orphan commits to the next `[ ]` step.
 2. **Write the failed episode** to the track file from
    `fix_result.FAILURE`. Append a `### Step N — FAILED, <ISO>
    [ctx=<level>]` block to `## Episodes` with the failed-step field
@@ -559,7 +727,11 @@ implementer already finished and validated.
    1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
       `level=` value. If the file is missing or the parse fails,
       use `unknown` per the D12 fallback rule — do not skip the
-      write.
+      write. Capture the current UTC time as `<ISO>` (format
+      `YYYY-MM-DDTHH:MMZ`) by running
+      `date -u +%Y-%m-%dT%H:%MZ`. Use this same `<ISO>` for both
+      the Episodes block header in step 2 and the Progress entry
+      below.
    2. Append a single entry to `## Progress`:
       `- [!] <ISO> [ctx=<level>] Step N failed (review-fix path) — see Episodes §Step N`.
 
@@ -685,7 +857,10 @@ four-section write checklist):
 1. **Write the failed episode** to the track file from
    `result.FAILURE`. Read `/tmp/claude-code-context-usage-$PPID.txt`
    first and parse the `level=` value (use `unknown` per the D12
-   fallback rule if the file is missing). Append a
+   fallback rule if the file is missing). Capture the current UTC
+   time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by running
+   `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for both the
+   Episodes block header and the Progress entry. Append a
    `### Step N — FAILED, <ISO> [ctx=<level>]` block to `## Episodes`
    with the failed-step fields (`**What was attempted:**`,
    `**Why it failed:**`, `**Impact on remaining steps:**`,
@@ -694,9 +869,9 @@ four-section write checklist):
    §Failed-step Episodes block for the full template. Then append a
    continuous-log Progress entry
    `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`
-   to `## Progress` (reusing the level from the read above). Finally
-   flip the matching `## Concrete Steps` roster line from `[ ]` to
-   `[!]`.
+   to `## Progress` (reusing the level and `<ISO>` from above).
+   Finally flip the matching `## Concrete Steps` roster line from
+   `[ ]` to `[!]`.
 2. **Decide retry vs split** based on
    `result.FAILURE.recommended_action`:
    - `retry` — keep the `[!]` roster line and append one new

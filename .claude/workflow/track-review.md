@@ -494,7 +494,9 @@ review-mode rounds.
    1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
       `level=` value. If the file is missing or the parse fails,
       use `unknown` per the D12 fallback rule — do not skip the
-      write.
+      write. Capture the current UTC time as `<ISO>` (format
+      `YYYY-MM-DDTHH:MMZ`) by running
+      `date -u +%Y-%m-%dT%H:%MZ`.
    2. Append a single entry to the track file's `## Progress`
       section:
       `- [x] <ISO> [ctx=<level>] Review + decomposition complete`.
@@ -670,11 +672,11 @@ default for refactoring / new tests / docs / isolated bug fixes. When
 in doubt, mark `high` — over-tagging costs an extra review, but
 missing a real high-risk step ships bugs.
 
-Write the tag inline in each step's description blockquote:
+Write the tag inline on each step's `## Concrete Steps` roster line
+(per D9 — thin numbered lines, no nested blockquote):
 
 ```markdown
-- [ ] Step: <description>
-  > **Risk:** <level> — <category, "default", or "override: <reason>">
+1. <description> — risk: <level> (<category, "default", or "override: <reason>">)  [ ]
 ```
 
 The tag stays in place through Phase B (where it gates

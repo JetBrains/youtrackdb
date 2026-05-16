@@ -49,6 +49,9 @@ SUBSECTION_KEYWORDS: Set[str] = {
     "Depends on",
     "Track episode",
     "Track file",
+    "Step file",  # Legacy alias for in-flight branches predating the
+                  # YTDB-817 track-file rename; safe to remove once no
+                  # in-flight plan uses **Step file:**.
     "Skipped",
     "Strategy refresh",
 }

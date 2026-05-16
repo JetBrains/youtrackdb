@@ -42,7 +42,7 @@ As the first durable action of `/create-plan`, ensure the workflow
 directory exists so research handoff files have a home if context
 fills up before Step 4:
 ```bash
-mkdir -p docs/adr/<dir-name>/_workflow/tracks
+mkdir -p docs/adr/<dir-name>/_workflow/plan
 ```
 This is idempotent — safe to re-run on resume. The directory carries
 the plan, design, track files, and handoff files; the Phase 4 cleanup
