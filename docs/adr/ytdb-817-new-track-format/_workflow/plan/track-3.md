@@ -10,6 +10,7 @@ Update every writer SKILL that authors or amends a per-track file or the root in
 - [x] 2026-05-16T17:25Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-16T17:33Z [ctx=safe] Step 1 complete (commit 74d3571f91)
 - [x] 2026-05-16T17:37Z [ctx=safe] Step 2 complete (commit d2670c74c8)
+- [x] 2026-05-16T17:40Z [ctx=safe] Step 3 complete (commit 6bc010c44f)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -34,7 +35,7 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 
 1. Update `inline-replanning.md` cases 2–6: sweep `## Description` refs on lines 153 (step 4 sub-agent prompt directive), 241 (case 2), 249 (case 3) to name the appropriate 14-section homes; fix the two line-broken "step file" residuals on lines 248–249 and 270–271 to "track file" per Track 2 step 2's terminology rename. Case 1 (line 217+) is already on the new shape (Track 2 step 6 + Phase C iter-1 WI3). — `risk: low (default — workflow-doc text sweep)`  [x] commit: 74d3571f91
 2. Update `track-skip.md`: sweep the three `## Description` refs on lines 60, 67, 89 to name the appropriate 14-section homes; rewrite the two legacy `**What/How/Constraints/Interactions**` blockquote-shape references on lines 47 and 88 to name the four 14-section homes (`## Purpose / Big Picture` for the intro; `## Context and Orientation` / `## Plan of Work` / `## Interfaces and Dependencies` for the detail subsections). — `risk: low (default — workflow-doc text sweep)`  [x] commit: d2670c74c8
-3. Update `review-plan/SKILL.md`: sweep the one `## Description` ref on line 42 to name `## Purpose / Big Picture` (since the description-equivalent intro now lives there); fix the residual `tracks/` path-token on line 57 to `plan/` per Track 2 step 1's path rename invariant. — `risk: low (default — workflow-doc text sweep)`  [ ]
+3. Update `review-plan/SKILL.md`: sweep the one `## Description` ref on line 42 to name `## Purpose / Big Picture` (since the description-equivalent intro now lives there); fix the residual `tracks/` path-token on line 57 to `plan/` per Track 2 step 1's path rename invariant. — `risk: low (default — workflow-doc text sweep)`  [x] commit: 6bc010c44f
 4. Update `create-plan/SKILL.md`: rewrite Step 4's embedded track-file template body from the legacy 5-section shape (`## Description` / `## Progress` / `## Reviews completed` / `## Steps`, lines ~222–262) to the canonical 14-section shape — section list and lifecycle from `conventions-execution.md` §2.1, verbatim template body kept embedded here (durable); sweep all legacy `## Description` prose refs (lines 116, 122, 165, 222, 229, 255, 257) and `**What/How/Constraints/Interactions**` blockquote-shape references (lines 117–123, 163–164) to name the four 14-section homes. — `risk: low (default — workflow-doc template update)`  [ ]
 
 ## Episodes
@@ -52,6 +53,14 @@ Update each writer SKILL in turn. `/create-plan` SKILL is the largest edit — S
 
 **Key files:**
 - `.claude/workflow/track-skip.md` (modified)
+
+### Step 3 — commit 6bc010c44f, 2026-05-16T17:40Z [ctx=safe]
+**What was done:** Updated `.claude/skills/review-plan/SKILL.md` with two atomic substitutions matching the plan's "smallest step, two-line fix" scope. (1) Line 41 per-track section reference rewritten from `## Description` to `## Purpose / Big Picture` (the description-equivalent intro home in the new 14-section shape); trailing parenthetical "for the Description lifecycle" preserved verbatim per the plan's narrow scope. (2) Line 57 path-token `tracks/` → `plan/`, closing the residual that escaped Track 2 step 1's path-token sweep. Post-edit `grep -nE '## Description|tracks/'` over the file returns zero matches.
+
+**What was discovered:** Line 44 parenthetical "Description lifecycle" points at `conventions-execution.md` §2.1, but that file's subsection is actually named "Section lifecycle". Stale-token observation, deliberately left untouched per the plan's tight two-line scope. Candidate for a future sweep if `review-plan/SKILL.md` is revisited; not in scope for Track 3 or Track 4 (reader-only).
+
+**Key files:**
+- `.claude/skills/review-plan/SKILL.md` (modified)
 
 ## Validation and Acceptance
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
