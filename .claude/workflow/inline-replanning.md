@@ -150,7 +150,9 @@ was structurally broken. The invocation passes `plan_path` +
 `.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
 full plan file including both completed track episodes and the
 proposed revisions, plus the track-file directory so pending-track
-details (each track's `## Description`) are reachable.
+details (each track's `## Purpose / Big Picture` plus the
+detail sections — `## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) are reachable.
 
 **5. Iterate** — if the preview finds structural blockers, revise and
 re-preview. Maximum 3 iterations. Consistency findings (phantom
@@ -238,17 +240,25 @@ revision and the file(s) that carry the new description:
    commit.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
-   reviews recorded yet). Update the track file's `## Description`
-   section. The plan-file checklist entry keeps its intro paragraph
-   + `**Scope:**` + `**Depends on:**` unchanged unless the intro
-   itself is being revised.
+   reviews recorded yet). Update the track file's `## Purpose / Big
+   Picture` (intro paragraph), `## Context and Orientation` (current
+   state and pre-revision baseline), `## Plan of Work` (step
+   sequencing, constraints, ordering rationale), and `## Interfaces
+   and Dependencies` (interactions with other tracks and files) —
+   the same four-home split as case 1. The plan-file checklist entry
+   keeps its intro paragraph + `**Scope:**` + `**Depends on:**`
+   unchanged unless the intro itself is being revised.
 
 3. **Revising a mid-execution track** (status `[ ]` with Phase A
    reviews recorded and/or steps decomposed in the track file — the
-   execution workflow never sets `[>]` on a track). Update the step
-   file's `## Description` section. If the revision changes the intro
-   paragraph, update the plan-file checklist entry's intro paragraph
-   to match.
+   execution workflow never sets `[>]` on a track). Update the track
+   file's `## Purpose / Big Picture` (intro paragraph), `## Context
+   and Orientation` (current state and pre-revision baseline),
+   `## Plan of Work` (step sequencing, constraints, ordering
+   rationale), and `## Interfaces and Dependencies` (interactions
+   with other tracks and files) — the same four-home split as case 1.
+   If the revision changes the intro paragraph, update the plan-file
+   checklist entry's intro paragraph to match.
 
 4. **Revising a completed track** (status `[x]`). This is rare — code
    for `[x]` tracks is already merged, so a revision typically means
@@ -267,7 +277,7 @@ revision and the file(s) that carry the new description:
    not a recovery source after skip, and the revision here is the
    re-authoring.
 
-6. **Removing a track.** Remove the plan entry and delete the step
+6. **Removing a track.** Remove the plan entry and delete the track
    file at `plan/track-N.md` if it still exists. (If the track had
    already been skipped, its track file was deleted then; case 6
    becomes a no-op for the track file.)
