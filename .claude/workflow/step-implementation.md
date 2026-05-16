@@ -672,9 +672,13 @@ promotions are conditional anyway and do not require reconciliation.
 `## Progress`.
 
 **Sub-step 7.3 — Promote to Surprises & Discoveries (conditional).**
-Fires when **What was discovered** crosses the cross-cutting
-threshold (see the reference). Back-reference shape: `See Episodes
-§Step N`.
+Fires when **What was discovered** (a) mentions a track number other
+than the current track, (b) names a class/file outside the track's
+in-scope list, or (c) identifies a fact future sessions need without
+reading the full episode. Back-reference shape: `See Episodes §Step N`.
+Full criteria:
+[`episode-format-reference.md`](episode-format-reference.md)
+§Minimum-write contract.
 
 **Sub-step 7.4 — Promote to Decision Log (conditional).** Fires
 when **What changed from the plan** names an inline-replan / scope-

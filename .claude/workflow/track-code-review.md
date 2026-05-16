@@ -480,17 +480,13 @@ orchestrator never edits source files itself in Phase C.
      does **not** re-run tests or re-stage files; it proceeds to the
      gate check.
    - **Update the Progress section** on disk to record the completed
-     iteration. Follow the D12 canonical statusline-read-then-write
-     order:
-     1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
-        `level=` value. If the file is missing or the parse fails,
-        use `unknown` per the D12 fallback rule — do not skip the
-        write. Capture the current UTC time as `<ISO>` (format
-        `YYYY-MM-DDTHH:MMZ`) by running
-        `date -u +%Y-%m-%dT%H:%MZ`.
-     2. Append a single entry to the track file's `## Progress`
-        section:
-        `- [x] <ISO> [ctx=<level>] Track-level code review iteration N complete (N/3 iterations)`.
+     iteration. Read the statusline per
+     [`episode-format-reference.md`](episode-format-reference.md)
+     §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+     current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+     running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to the
+     track file's `## Progress` section:
+     `- [x] <ISO> [ctx=<level>] Track-level code review iteration N complete (N/3 iterations)`.
 
      The `[ctx=<level>]` field is mandatory per D12 — see
      `design.md` §"Continuous-log discipline" subsection
@@ -579,16 +575,13 @@ orchestrator never edits source files itself in Phase C.
    (below).
 6. When all reviews pass (or max iterations reached), append a
    track-completion entry to the track file's `## Progress` section.
-   Follow the D12 canonical statusline-read-then-write order:
-   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
-      `level=` value. If the file is missing or the parse fails,
-      use `unknown` per the D12 fallback rule — do not skip the
-      write. Capture the current UTC time as `<ISO>` (format
-      `YYYY-MM-DDTHH:MMZ`) by running
-      `date -u +%Y-%m-%dT%H:%MZ`.
-   2. Append a single entry to the track file's `## Progress`
-      section:
-      `- [x] <ISO> [ctx=<level>] Track complete`.
+   Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to the
+   track file's `## Progress` section:
+   `- [x] <ISO> [ctx=<level>] Track complete`.
 
    The `[ctx=<level>]` field is mandatory per D12. The
    track-completion summary itself (review outcomes, iteration
@@ -763,16 +756,13 @@ authoritative inputs to the user's choice — do not discard them. If
 `git status` is clean, proceed with the steps below.
 
 1. **Record the failure** — append a failure entry to the track
-   file's `## Progress` section following the D12 canonical
-   statusline-read-then-write order:
-   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
-      `level=` value. If the file is missing or the parse fails,
-      use `unknown` per the D12 fallback rule — do not skip the
-      write. Capture the current UTC time as `<ISO>` (format
-      `YYYY-MM-DDTHH:MMZ`) by running
-      `date -u +%Y-%m-%dT%H:%MZ`.
-   2. Append a single entry to `## Progress`:
-      `- [!] <ISO> [ctx=<level>] Track-level code review FAILED at iteration N/3`.
+   file's `## Progress` section. Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to
+   `## Progress`:
+   `- [!] <ISO> [ctx=<level>] Track-level code review FAILED at iteration N/3`.
 
    The `[ctx=<level>]` field is mandatory per D12. Commit the
    Progress update as a Workflow update commit and embed the

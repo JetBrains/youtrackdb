@@ -440,8 +440,16 @@ review-mode rounds.
    as warranted). After each review completes:
    - Update the **Outcomes & Retrospective** section in the track file
      with a one-line summary — review type, iteration count at PASS,
-     and a brief tally of findings that drove plan/step edits (e.g.,
-     `- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)`).
+     and a brief tally of findings that drove plan/step edits. Prefix
+     the entry with the review type so Phase A Resume (and Phase 4
+     aggregation) can distinguish Phase A review entries from Phase C
+     iteration entries that share the same section:
+     `- [x] Technical: PASS at iteration N (M findings, K accepted)`
+     (substitute `Risk:` or `Adversarial:` for the other Phase A
+     review types). Phase C entries use a distinct prefix
+     (`Track-level code review iteration N…` or `Track complete`)
+     per the track-completion flow in
+     [`track-code-review.md`](track-code-review.md) §Review loop.
      The Phase A review-iteration row in §2.1's lifecycle table names
      `## Outcomes & Retrospective` as the canonical home for these
      entries; the legacy `## Reviews completed` section no longer
@@ -742,9 +750,14 @@ reviews are already in progress):
 
 | `## Outcomes & Retrospective` state | `## Concrete Steps` state | Action |
 |---|---|---|
-| Empty | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
-| One or more reviews recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
-| All planned reviews recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed, otherwise the track file is already in steady state and `/execute-tracks` should route to Phase B on the next invocation. |
+| Empty (no `Technical:` / `Risk:` / `Adversarial:` prefixed entries) | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
+| One or more `Technical:` / `Risk:` / `Adversarial:` entries recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
+| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed, otherwise the track file is already in steady state and `/execute-tracks` should route to Phase B on the next invocation. |
+
+Pattern-match on the entry prefix (`Technical:` / `Risk:` /
+`Adversarial:`) to filter out Phase C iteration entries
+(`Track-level code review iteration…` / `Track complete`) that share
+the same section. Phase A only inspects its own review-type entries.
 
 The non-re-copy rule (no operation re-derives `## Description` from
 external sources during Phase A) protects any amendments / inline-

@@ -19,6 +19,13 @@ episode content lives in `## Episodes`.
 The workflow has two write shapes that share the statusline-read-
 first prefix:
 
+| Writer | Shape |
+|---|---|
+| Phase B sub-step 7 (per-step success) | per-step (sub-steps 0, 1, 2, 3, 4) |
+| Phase B failed-step `[!]` writer | per-step (sub-steps 0, 1, 2, 3, 4) — Surprises / Decision Log promotion still applies when the failure surfaces a cross-cutting fact or a tagged decision |
+| Phase A decomposition-complete | Progress-only (sub-steps 0, 2) |
+| Phase C iteration / track-completion / iteration-failure | Progress-only (sub-steps 0, 2) |
+
 - **Per-step write shape** — used by Phase B sub-step 7 (the
   `on_success` writer in
   [`step-implementation.md`](step-implementation.md)) and the
@@ -185,7 +192,10 @@ a `FAILURE` block. The orchestrator writes the failed Episodes
 block from `FAILURE` to the track file, flips the matching
 `## Concrete Steps` roster line to `[!]`, and appends a Progress
 entry: `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes
-§Step N`. If the failure arrived from a `mode=FIX_REVIEW_FINDINGS`
+§Step N (FAILED)`. The `(FAILED)` suffix disambiguates the
+failure entry from the eventual retry's success entry; see
+§Back-reference convention below. If the failure arrived from a
+`mode=FIX_REVIEW_FINDINGS`
 respawn (post-commit), the orchestrator additionally runs the
 `Revert step:` rollback per
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
@@ -237,6 +247,17 @@ promotion) always include a back-reference of the form
 log sections can drop into the per-step detail in one navigation
 step. The Surprises / Decision Log entries are summaries, not
 full episode copies — keep them to one line each.
+
+**Failed-step disambiguator.** Two Episodes blocks may share the
+same `### Step N — …` heading prefix when a step failed and was
+later retried (one block ends in `… FAILED, <ISO> …`, the other in
+`… commit <SHA>, <ISO> …`). For references that target the failed
+attempt, append `(FAILED)` to the back-reference: `See Episodes
+§Step N (FAILED)`. References to the completed retry use the plain
+`See Episodes §Step N` form. The Progress entry written by the
+failed-step writer uses the `(FAILED)` form; the Surprises /
+Decision Log promotions follow the same rule when they point at a
+failed-attempt episode.
 
 Example Surprises promotion:
 

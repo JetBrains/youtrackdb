@@ -160,21 +160,19 @@ the track file on disk:
      `split` / `escalate` before respawning.
    - If no `[!]` entry exists, write it now (reconstruct the
      `FAILURE` fields from the prose explanation in the revert body
-     plus the git log of the reverted commits), append the failed-
-     step `### Step N — FAILED, <ISO> [ctx=<level>]` block to
-     `## Episodes` (`[ctx=<level>]` per the D12 statusline-read-then-
-     write order — read `/tmp/claude-code-context-usage-$PPID.txt`
-     and parse `level=` before the write; fall back to `unknown` if
-     the file is missing). Capture the current UTC time as `<ISO>`
-     (format `YYYY-MM-DDTHH:MMZ`) by running
-     `date -u +%Y-%m-%dT%H:%MZ`, and use this same `<ISO>` for both
-     the Episodes block header and the Progress entry. Insert
-     retry/split rows in `## Concrete Steps` per the implied
-     `recommended_action` (default to `retry` when the revert body
-     does not name one), append the matching
-     `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`
-     entry to `## Progress` (same `[ctx=<level>]` and `<ISO>` from
-     the captures above), then respawn from the retry/split row with
+     plus the git log of the reverted commits). Read the statusline
+     per [`episode-format-reference.md`](episode-format-reference.md)
+     §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+     current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+     running `date -u +%Y-%m-%dT%H:%MZ`, and use this same `<ISO>` for
+     both the Episodes block header and the Progress entry. Append the
+     failed-step `### Step N — FAILED, <ISO> [ctx=<level>]` block to
+     `## Episodes`. Insert retry/split rows in `## Concrete Steps` per
+     the implied `recommended_action` (default to `retry` when the
+     revert body does not name one), append the matching
+     `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`
+     entry to `## Progress` (same `[ctx=<level>]` and `<ISO>` from the
+     captures above), then respawn from the retry/split row with
      `mode=INITIAL`.
 
    **`reason: late-design-decision`** — the review-fix respawn
@@ -440,18 +438,14 @@ so the working tree is clean at `step_base_commit`.
    attempted:**`, `**Why it failed:**`, `**Impact on remaining
    steps:**`, `**Key files:**`), and flip the matching `## Concrete
    Steps` roster line from `[ ]` to `[!]`.
-2. **Append a failed-step Progress entry** following the D12 canonical
-   statusline-read-then-write order:
-   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
-      `level=` value. If the file is missing or the parse fails,
-      use `unknown` per the D12 fallback rule — do not skip the
-      write. Capture the current UTC time as `<ISO>` (format
-      `YYYY-MM-DDTHH:MMZ`) by running
-      `date -u +%Y-%m-%dT%H:%MZ`. Use this same `<ISO>` for both
-      the Episodes block header in step 1 and the Progress entry
-      below.
-   2. Append a single entry to `## Progress`:
-      `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`.
+2. **Append a failed-step Progress entry.** Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for
+   both the Episodes block header in step 1 and the Progress entry.
+   Append a single entry to `## Progress`:
+   `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`.
 
    The `[ctx=<level>]` field is mandatory per D12 on both the
    Episodes block header and the Progress entry.
@@ -722,18 +716,14 @@ implementer already finished and validated.
    describe both the original implementation and the review-fix
    attempt that failed; the `why_it_failed` field captures the
    underlying reason.
-3. **Append a failed-step Progress entry** following the D12
-   canonical statusline-read-then-write order:
-   1. Read `/tmp/claude-code-context-usage-$PPID.txt` and parse the
-      `level=` value. If the file is missing or the parse fails,
-      use `unknown` per the D12 fallback rule — do not skip the
-      write. Capture the current UTC time as `<ISO>` (format
-      `YYYY-MM-DDTHH:MMZ`) by running
-      `date -u +%Y-%m-%dT%H:%MZ`. Use this same `<ISO>` for both
-      the Episodes block header in step 2 and the Progress entry
-      below.
-   2. Append a single entry to `## Progress`:
-      `- [!] <ISO> [ctx=<level>] Step N failed (review-fix path) — see Episodes §Step N`.
+3. **Append a failed-step Progress entry.** Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for
+   both the Episodes block header in step 2 and the Progress entry.
+   Append a single entry to `## Progress`:
+   `- [!] <ISO> [ctx=<level>] Step N failed (review-fix path) — see Episodes §Step N (FAILED)`.
 
    The `[ctx=<level>]` field is mandatory per D12 on both the
    Episodes block header and the Progress entry.
@@ -855,12 +845,12 @@ the success path (see
 four-section write checklist):
 
 1. **Write the failed episode** to the track file from
-   `result.FAILURE`. Read `/tmp/claude-code-context-usage-$PPID.txt`
-   first and parse the `level=` value (use `unknown` per the D12
-   fallback rule if the file is missing). Capture the current UTC
-   time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by running
-   `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for both the
-   Episodes block header and the Progress entry. Append a
+   `result.FAILURE`. Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for both
+   the Episodes block header and the Progress entry. Append a
    `### Step N — FAILED, <ISO> [ctx=<level>]` block to `## Episodes`
    with the failed-step fields (`**What was attempted:**`,
    `**Why it failed:**`, `**Impact on remaining steps:**`,
@@ -868,7 +858,7 @@ four-section write checklist):
    [`episode-format-reference.md`](episode-format-reference.md)
    §Failed-step Episodes block for the full template. Then append a
    continuous-log Progress entry
-   `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`
+   `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`
    to `## Progress` (reusing the level and `<ISO>` from above).
    Finally flip the matching `## Concrete Steps` roster line from
    `[ ]` to `[!]`.
@@ -972,9 +962,11 @@ When this happens — whether during a session or detected on resume:
   approach, skip the step, or escalate.
 
 **On resume.** When scanning the step list and encountering a `[!]`
-entry followed by another `[!]` for the same step (with `(retry:`
-in the description), this is a two-failure situation. Present both
-failed episodes to the user before proceeding.
+entry followed by another `[!]` for the same step — the second
+entry's description carries either `(retry: …)` or `(split from
+failed step above)` as the disambiguator — this is a two-failure
+situation. Present both failed episodes to the user before
+proceeding.
 
 ---
 

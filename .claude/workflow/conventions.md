@@ -70,20 +70,8 @@ docs/adr/<dir-name>/
                                      `design-sync` step to find the last
                                      sync point.
     plan/
-      track-1.md                  <- per-track ExecPlan: 12 OpenAI-style
-                                     sections (Purpose / Big Picture +
-                                     Progress + Surprises & Discoveries +
-                                     Decision Log + Outcomes & Retrospective
-                                     + Context and Orientation + Plan of Work
-                                     + Concrete Steps + Validation and
-                                     Acceptance + Idempotence and Recovery
-                                     + Artifacts and Notes +
-                                     Interfaces and Dependencies) +
-                                     Episodes (workflow-specific D11) +
-                                     Base commit housekeeping sibling. See
+      track-1.md                  <- per-track ExecPlan; 14 sections per
                                      conventions-execution.md §2.1
-                                     *Track file content* for the full
-                                     template.
       track-2.md
       ...
     handoff-*.md                  <- (optional, transient) mid-phase handoff
