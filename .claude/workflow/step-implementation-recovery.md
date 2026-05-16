@@ -151,14 +151,16 @@ the track file on disk:
 
    **`reason: late-risk-upgrade`** — the review-fix respawn returned
    `RISK_UPGRADE_REQUESTED`.
-   - Read the step's `**Risk:**` line. If it already names the
+   - Read the step's inline `risk: <tag>` token on its
+     `## Concrete Steps` roster line. If it already names the
      upgraded level (the prior session wrote it before dying), no
      further bookkeeping is needed.
-   - If the line still names the original level, apply the upgrade
-     now: rewrite to the new level (auto-applied for `medium → high`,
-     paused for user confirmation on `low → high`) and append an
-     override note (`override: upgraded mid-Phase-B during dim review
-     (<reason from revert body>)`).
+   - If the token still names the original level, apply the upgrade
+     now: rewrite the inline `risk: <tag>` on the roster line to the
+     new level (auto-applied for `medium → high`, paused for user
+     confirmation on `low → high`) and append an override note to
+     the same roster line (`override: upgraded mid-Phase-B during
+     dim review (<reason from revert body>)`).
    - Respawn the implementer from `mode=INITIAL` with
      `step_base_commit = HEAD`.
 
@@ -319,11 +321,13 @@ this point is a contract violation; surface the discrepancy to the
 user instead of proceeding.
 
 1. **Apply the upgrade in place** in the track file: rewrite the
-   `**Risk:**` line to the new level and append an override note
-   in the form `override: upgraded mid-Phase-B (<short reason from
-   result.RISK_UPGRADE.evidence>)`. The decomposer-time category
-   stays in the line for traceability. Downgrades are not permitted
-   — see [`risk-tagging.md`](risk-tagging.md) §Override rules.
+   inline `risk: <tag>` token on the step's `## Concrete Steps`
+   roster line to the new level and append an override note to the
+   same line in the form `override: upgraded mid-Phase-B (<short
+   reason from result.RISK_UPGRADE.evidence>)`. The decomposer-time
+   category stays on the line for traceability. Downgrades are not
+   permitted — see [`risk-tagging.md`](risk-tagging.md) §Override
+   rules.
 2. **Approval flow:**
    - `medium → high`: auto-apply (no user prompt). Note the
      auto-apply in the next track-file write.
@@ -337,8 +341,8 @@ user instead of proceeding.
    exploration, so re-derivation is cheap and `mode=INITIAL` keeps
    the respawn contract simple. If the prior implementer's
    `RISK_UPGRADE.evidence` already names what was discovered, that
-   text plus the rewritten `**Risk:**` line is enough context for
-   the next implementer.
+   text plus the rewritten inline `risk: <tag>` token on the
+   roster line is enough context for the next implementer.
 
 ### `handle_failure(step, result)`
 
@@ -616,11 +620,13 @@ revealed the step is more invasive than its tagged risk.
    stacked on top of an implementation that was reviewed under the
    old risk level.
 2. **Apply the upgrade in place** in the track file: rewrite the
-   `**Risk:**` line and append an override note in the form
-   `override: upgraded mid-Phase-B during dim review (<short reason
-   from fix_result.RISK_UPGRADE.evidence>)`. The decomposer-time
-   category stays for traceability. Downgrades are not permitted —
-   see [`risk-tagging.md`](risk-tagging.md) §Override rules.
+   inline `risk: <tag>` token on the step's `## Concrete Steps`
+   roster line and append an override note to the same line in the
+   form `override: upgraded mid-Phase-B during dim review (<short
+   reason from fix_result.RISK_UPGRADE.evidence>)`. The
+   decomposer-time category stays for traceability. Downgrades are
+   not permitted — see [`risk-tagging.md`](risk-tagging.md) §Override
+   rules.
 3. **Approval flow** (same as `apply_upgrade_then_decide`):
    - `medium → high`: auto-apply (no user prompt). Note the
      auto-apply in the track-file write.
@@ -670,50 +676,88 @@ runs its push-only pre-step instead of the rollback / track-file
 write, and on success routes back through `on_success` rather than
 the retry/split protocol below. See those handlers for the detail.
 
-For the `content` path the orchestrator handles the rest:
+For the `content` path the orchestrator handles the rest. The writes
+follow the same D12 canonical statusline-read-then-write order as
+the success path (see
+[`episode-format-reference.md`](episode-format-reference.md) §The
+four-section write checklist):
 
-1. **Write a failed episode** to the track file from
-   `result.FAILURE` (see
-   [`episode-format-reference.md`](episode-format-reference.md) for
-   the failed-episode format).
+1. **Write the failed episode** to the track file from
+   `result.FAILURE`. Read `/tmp/claude-code-context-usage-$PPID.txt`
+   first and parse the `level=` value (use `unknown` per the D12
+   fallback rule if the file is missing). Append a
+   `### Step N — FAILED, <ISO> [ctx=<level>]` block to `## Episodes`
+   with the failed-step fields (`**What was attempted:**`,
+   `**Why it failed:**`, `**Impact on remaining steps:**`,
+   `**Key files:**`) — see
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Failed-step Episodes block for the full template. Then append a
+   continuous-log Progress entry
+   `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N`
+   to `## Progress` (reusing the level from the read above). Finally
+   flip the matching `## Concrete Steps` roster line from `[ ]` to
+   `[!]`.
 2. **Decide retry vs split** based on
    `result.FAILURE.recommended_action`:
-   - `retry` — keep the `[!]` entry and insert one new `[ ]` step
-     immediately after it with a modified description indicating
-     the different approach.
-   - `split` — keep the `[!]` entry and insert multiple new `[ ]`
-     steps immediately after it.
+   - `retry` — keep the `[!]` roster line and append one new
+     numbered `[ ]` roster line to `## Concrete Steps` immediately
+     after it, with a modified description indicating the different
+     approach and a fresh inline `risk: <tag>`.
+   - `split` — keep the `[!]` roster line and append multiple new
+     numbered `[ ]` roster lines to `## Concrete Steps` immediately
+     after it, each carrying an inline `risk: <tag>`.
    - `escalate` — present the situation to the user and consider
      entering ESCALATE per [`inline-replanning.md`](inline-replanning.md).
-3. **Update the Progress section's step count** to reflect inserted
-   rows.
+3. **Append a continuous-log Progress entry naming the inserted
+   rows** so a resume reader can reconstruct the retry / split
+   without re-deriving from the Concrete Steps diff. The continuous-
+   log shape carries no `(N/M complete)` count to update — the
+   roster line count in `## Concrete Steps` is the single source of
+   truth.
 
 ### Retry representation in the track file
 
 ```markdown
-- [!] Step: Add histogram header to leaf page
-  > **What was attempted:** ...
-  > **Why it failed:** ...
-  > **Impact on remaining steps:** ...
-  > **Key files:** ...
+## Concrete Steps
 
-- [ ] Step: Add histogram header to leaf page (retry: use page extension API)
+1. Add histogram header to leaf page — risk: medium [!] commit: (failed)
+2. Add histogram header to leaf page (retry: use page extension API) — risk: medium [ ]
+
+## Episodes
+
+### Step 1 — FAILED, 2026-05-16T15:10Z [ctx=info]
+**What was attempted:** ...
+
+**Why it failed:** ...
+
+**Impact on remaining steps:** ...
+
+**Key files:**
+- `path/to/file.java` (modified before revert)
 ```
 
 ### Split representation in the track file
 
 ```markdown
-- [!] Step: Add histogram header and serialization
-  > **What was attempted:** ...
-  > **Why it failed:** ...
+## Concrete Steps
 
-- [ ] Step: Add histogram header struct (split from failed step above)
-- [ ] Step: Add histogram serialization (split from failed step above)
+1. Add histogram header and serialization — risk: medium [!] commit: (failed)
+2. Add histogram header struct (split from failed step above) — risk: low [ ]
+3. Add histogram serialization (split from failed step above) — risk: medium [ ]
+
+## Episodes
+
+### Step 1 — FAILED, 2026-05-16T15:10Z [ctx=info]
+**What was attempted:** ...
+
+**Why it failed:** ...
 ```
 
-Update the **Progress** section's step count to reflect the new
-total (e.g., `(2/6 complete)` if a 5-step track gained one retry
-step).
+The Progress entry above (step 3 of this section) records the
+retry / split fan-out alongside the failure entry — e.g.,
+`- 2026-05-16T15:12Z [ctx=info] Inserted retry row for Step 1 (use
+page extension API)`. No `(N/M complete)` count is written; the
+continuous-log shape replaces the prior step-count idiom.
 
 ---
 
@@ -723,11 +767,22 @@ The two-failure rule triggers when two consecutive `[!]` entries
 exist for the same logical step (the retry also failed):
 
 ```markdown
-- [!] Step: Add histogram header to leaf page
-  > **What was attempted:** ... (first attempt)
+## Concrete Steps
 
-- [!] Step: Add histogram header to leaf page (retry: use page extension API)
-  > **What was attempted:** ... (second attempt)
+1. Add histogram header to leaf page — risk: medium [!] commit: (failed)
+2. Add histogram header to leaf page (retry: use page extension API) — risk: medium [!] commit: (failed)
+
+## Episodes
+
+### Step 1 — FAILED, 2026-05-16T15:10Z [ctx=info]
+**What was attempted:** ... (first attempt)
+
+**Why it failed:** ...
+
+### Step 2 — FAILED, 2026-05-16T15:45Z [ctx=info]
+**What was attempted:** ... (second attempt)
+
+**Why it failed:** ...
 ```
 
 When this happens — whether during a session or detected on resume:

@@ -16,18 +16,30 @@ episode content lives in `## Episodes`.
 
 ## The four-section write checklist
 
-Sub-step 7 of step implementation (see
-[`step-implementation.md`](step-implementation.md) § Orchestrator
-Handlers → `on_success`) performs the writes below. The same
-canonical order applies to every other Progress writer in the
-workflow: Phase A decomposition-complete (see
-[`track-review.md`](track-review.md) §Phase A: Review +
-Decomposition step 5), Phase C iteration writes and Phase C
-track-completion (see
-[`track-code-review.md`](track-code-review.md) §Review loop), and
-the failed-step `[!]` path (see
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
-§Step Failure and §`rollback_and_handle_failure`).
+The workflow has two write shapes that share the statusline-read-
+first prefix:
+
+- **Per-step write shape** — used by Phase B sub-step 7 (the
+  `on_success` writer in
+  [`step-implementation.md`](step-implementation.md)) and the
+  failed-step `[!]` writers in
+  [`step-implementation-recovery.md`](step-implementation-recovery.md)
+  §Step Failure and §`rollback_and_handle_failure`. Episodes block
+  (with roster checkbox flip) + Progress entry are always written;
+  Surprises and Decision Log promotions are conditional. The full
+  four-sub-step checklist below applies verbatim.
+- **Progress-only write shape** — used by Phase A decomposition-
+  complete (see [`track-review.md`](track-review.md) §Phase A:
+  Review + Decomposition step 5), Phase C iteration writes, Phase C
+  track-completion, and Phase C iteration-failure (see
+  [`track-code-review.md`](track-code-review.md) §Review loop).
+  These writers do **not** append an Episodes block, do **not** flip
+  a `## Concrete Steps` checkbox, and do **not** consider Surprises
+  / Decision Log promotion. Only sub-step 0 (statusline read) and
+  sub-step 2 (Progress append) fire; sub-steps 1, 3, and 4 are
+  skipped. The Phase C `## Outcomes & Retrospective` write that
+  records review-iteration entries is performed alongside sub-step 2
+  by the Phase C writer in `track-code-review.md`.
 
 **Sub-step 0 — Read the statusline (always).** Read
 `/tmp/claude-code-context-usage-$PPID.txt` and parse the `level=`
@@ -36,23 +48,27 @@ file is missing or the parse fails, use `unknown` per the D12
 fallback rule — do not skip the write. The parsed `<level>` is
 inlined into the writes below.
 
-**Sub-step 1 — Append the Episodes block (always).** Append a
-heading + four episode fields to the track file's `## Episodes`
-section, and flip the matching `## Concrete Steps` roster line from
-`[ ]` to `[x]`.
+**Sub-step 1 — Append the Episodes block (per-step shape only).**
+Append a heading + four episode fields to the track file's
+`## Episodes` section, and flip the matching `## Concrete Steps`
+roster line from `[ ]` to `[x]`. Skipped under the Progress-only
+write shape.
 
 **Sub-step 2 — Append the Progress entry (always).** Append a
 one-line entry to the track file's `## Progress` section.
 
-**Sub-step 3 — Promote to Surprises & Discoveries (conditional).**
-If the discovery is cross-cutting, append a one-line summary to
-`## Surprises & Discoveries` with a back-reference to the Episodes
-block.
+**Sub-step 3 — Promote to Surprises & Discoveries (per-step shape,
+conditional).** If the discovery is cross-cutting, append a
+one-line summary to `## Surprises & Discoveries` with a
+back-reference to the Episodes block. Skipped under the Progress-
+only write shape (Phase A / Phase C writers do not produce per-step
+episodes).
 
-**Sub-step 4 — Promote to Decision Log (conditional).** If the
-plan-deviation names an execution-time decision, append a one-line
-entry to `## Decision Log` with a back-reference to the Episodes
-block.
+**Sub-step 4 — Promote to Decision Log (per-step shape,
+conditional).** If the plan-deviation names an execution-time
+decision, append a one-line entry to `## Decision Log` with a
+back-reference to the Episodes block. Skipped under the Progress-
+only write shape.
 
 ---
 

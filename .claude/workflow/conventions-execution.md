@@ -213,8 +213,12 @@ per D6 and D10:
 Phase B writes to `## Concrete Steps` (status flip), `## Episodes`
 (new block), and `## Progress` (new entry) in a single commit at
 sub-step 7; the canonical write order is statusline read → Episodes
-block → Concrete Steps checkbox flip → Progress entry. Inline
-replanning (see [`inline-replanning.md`](inline-replanning.md)) may
+block + Concrete Steps roster checkbox flip (one atomic edit per
+[`step-implementation.md`](step-implementation.md) sub-step 7.1 and
+[`episode-format-reference.md`](episode-format-reference.md)
+sub-step 1) → Progress entry → optional Surprises promotion →
+optional Decision Log promotion. Inline replanning (see
+[`inline-replanning.md`](inline-replanning.md)) may
 rewrite `## Concrete Steps`, `## Plan of Work`, and `## Validation and
 Acceptance` mid-execution; otherwise plan-at-start sections are stable
 after Phase A.

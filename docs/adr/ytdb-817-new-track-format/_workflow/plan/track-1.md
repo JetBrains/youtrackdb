@@ -8,9 +8,9 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 
 ## Progress
 - [x] 2026-05-15T17:28Z [ctx=unknown] Review + decomposition complete
-- [x] 2026-05-15T17:45Z [ctx=unknown] Step 1 complete (commit ecd885f883)
-- [x] 2026-05-15T17:48Z [ctx=unknown] Step 2 complete (commit 300693c835)
-- [x] 2026-05-15T17:53Z [ctx=unknown] Step 3 complete (commit 9cd6cddd39)
+- [x] 2026-05-15T17:45Z [ctx=safe] Step 1 complete (commit ecd885f883)
+- [x] 2026-05-15T17:48Z [ctx=safe] Step 2 complete (commit 300693c835)
+- [x] 2026-05-15T17:53Z [ctx=safe] Step 3 complete (commit 9cd6cddd39)
 - [x] 2026-05-15T18:09Z [ctx=unknown] Review fix complete (commit 36d7a62201)
 - [x] 2026-05-15T18:13Z [ctx=unknown] Track complete
 
@@ -26,6 +26,7 @@ Extend `.claude/workflow/review-agent-selection.md` so Phase B (step-level, `ris
 
 - [x] Technical: PASS at iteration 2 (5 findings, 5 accepted, 0 rejected; iter-1 surfaced T1+T2+T3 should-fix and T4+T5 suggestions; one orchestrator-applied fix on `review-workflow-context-budget` row; iter-2 gate VERIFIED all six)
 - [x] Track-level code review: PASS at iteration 2 (8 findings, all accepted, 0 rejected; 4 reviewers fired — WC + WI + WB + WS per workflow-only override case 1; WB returned no findings; iter-1 surfaced F1+F2+F3 should-fix (stale `Baseline agents (4) always run` prose in `track-code-review.md`/`code-review-protocol.md` + missing `WC/WP/WI/WH/WB/WS` rows in `review-iteration.md`), F6 should-fix (durable Maintenance contract for SKILL.md sync), F4+F5+F7+F8 suggestions; iter-2 gate VERIFIED all eight; 4 deferred findings routed to Track 2 (§2.1 wording) or self-improvement reflection (re-verification scope, pre-existing budget commentary, audit-anchor recipe codification))
+- Phase C Review fix (commit 36d7a62201, 2026-05-15T18:09Z [ctx=unknown]): synced workflow-doc references to the new workflow-review agent tier across `track-code-review.md`, `code-review-protocol.md`, and `review-iteration.md`'s finding-prefix registry to add `WC/WP/WI/WH/WB/WS` rows, plus a Maintenance contract subsection for the SKILL.md sync. Eight findings (F1-F8) accepted; iter-2 gate VERIFIED all eight. Touched files: `.claude/workflow/track-code-review.md`, `.claude/workflow/code-review-protocol.md`, `.claude/workflow/review-iteration.md`.
 
 ## Context and Orientation
 
@@ -65,11 +66,6 @@ Import the `/code-review` Step 5a-5d + Step 6 triage logic into `review-agent-se
 **Key files:** `.claude/workflow/review-agent-selection.md` (modified — audit anchor appended)
 
 **Critical context:** The audit-anchor is a **load-bearing artifact** of the SKILL.md ↔ `review-agent-selection.md` sync contract. Any future edit that changes either file's Step 5a / 5b / 5d / 6 content MUST update both files together and bump the anchor date. Worth flagging in later tracks that touch workflow-review agent selection rules.
-
-### Phase C Review fix — commit 36d7a62201, 2026-05-15T18:09Z [ctx=unknown]
-**What was done:** Applied dimensional-review fix iteration on Phase C track-level review findings — synced workflow-doc references to the new workflow-review agent tier across `track-code-review.md`, `code-review-protocol.md`, and `review-iteration.md`'s finding-prefix registry to add `WC/WP/WI/WH/WB/WS` rows, plus a Maintenance contract subsection for the SKILL.md sync. Eight findings (F1-F8) were accepted; iter-2 gate VERIFIED all eight.
-
-**Key files:** `.claude/workflow/track-code-review.md`, `.claude/workflow/code-review-protocol.md`, `.claude/workflow/review-iteration.md` (modified)
 
 ## Validation and Acceptance
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->

@@ -61,7 +61,7 @@ instruction — keep it intact when customising.
 Before any write that names a production class in the track file's
 `## Description` (`**What/How/Constraints/Interactions**` blocks,
 including light amendments committed via the Track Pre-Flight gate's
-step 4) or in decomposed step bodies under `## Steps`, the orchestrator
+step 4) or in decomposed step bodies under `## Concrete Steps`, the orchestrator
 MUST PSI-verify every named class via `mcp-steroid` find-class. Use
 `steroid_execute_code` with
 `JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`.
@@ -142,7 +142,7 @@ track file's `## Description` already carries the agreed-upon track
 plan, including any prior clarifications) **skips** the gate; the
 user saw it in the original session and the description is already
 authoritative. The gate is also re-runnable on session resume (no
-review has yet been recorded in `## Reviews completed` — see
+review has yet been recorded in `## Outcomes & Retrospective` — see
 §Phase A Resume) — the resume idempotency rule at the end of this
 section governs that case.
 
@@ -438,18 +438,23 @@ review-mode rounds.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
-   - Update the **Reviews completed** section in the track file with a
-     one-line summary — review type, iteration count at PASS, and a
-     brief tally of findings that drove plan/step edits (e.g.,
+   - Update the **Outcomes & Retrospective** section in the track file
+     with a one-line summary — review type, iteration count at PASS,
+     and a brief tally of findings that drove plan/step edits (e.g.,
      `- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)`).
+     The Phase A review-iteration row in §2.1's lifecycle table names
+     `## Outcomes & Retrospective` as the canonical home for these
+     entries; the legacy `## Reviews completed` section no longer
+     exists in the 14-section per-track shape.
    - The findings themselves are not persisted to a separate file —
      they ride in the orchestrator's conversation context for the
      iteration loop, and the durable trace is the resulting track-file
      edits (decomposition, risk tags, description tweaks). Phase A
-     resume gates on the **Reviews completed** checkboxes in the step
-     file: a checkbox is `[x]` only after the gate for that review type
-     has passed, so an interrupted iteration leaves the entry `[ ]` and
-     the next session re-runs that review type from iteration 1.
+     resume gates on the **Outcomes & Retrospective** checkboxes in the
+     track file: a checkbox is `[x]` only after the gate for that
+     review type has passed, so an interrupted iteration leaves the
+     entry `[ ]` and the next session re-runs that review type from
+     iteration 1.
    - **Context consumption check** (mandatory after each review, except
      after the last action of the phase): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
@@ -462,7 +467,7 @@ review-mode rounds.
      handoff file per
      [`mid-phase-handoff.md`](mid-phase-handoff.md) so the next session
      does not re-spawn reviewers whose results already landed in the
-     **Reviews completed** section. If the level is `safe`/`info`,
+     **Outcomes & Retrospective** section. If the level is `safe`/`info`,
      continue. If the file does not exist or the command fails, this
      is **not an error** — treat as `safe` and continue.
 4. **Decompose scope indicators** into concrete steps. For each step,
@@ -705,7 +710,7 @@ have completed. When `/execute-tracks` auto-resumes into Phase A
 routes here), the main agent applies the rules below.
 
 **Track Pre-Flight gate.** The gate re-fires on resume only when no
-review has been recorded in the track file's `## Reviews completed`
+review has been recorded in the track file's `## Outcomes & Retrospective`
 section yet. Once any review has been recorded, the gate's outcome
 (amendments + clarifications) is baked into the track file the
 reviews ran against — re-firing would invalidate that work. The
@@ -733,7 +738,7 @@ approved amendments.
 **Resume actions** (after the gate has cleared, or skipped because
 reviews are already in progress):
 
-| `## Reviews completed` state | `## Steps` state | Action |
+| `## Outcomes & Retrospective` state | `## Concrete Steps` state | Action |
 |---|---|---|
 | Empty | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
 | One or more reviews recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
@@ -756,7 +761,7 @@ After writing the track file with all decomposed steps:
 
 1. **Verify the track file** on disk has:
    - `Review + decomposition` marked `[x]` in Progress
-   - All reviews recorded in Reviews completed
+   - All reviews recorded in Outcomes & Retrospective
    - All steps listed as `[ ]` items
 2. **Verify the Phase A commit landed.** Run `git status --porcelain`;
    the working tree must be clean. Run `git log -1 --oneline` and
