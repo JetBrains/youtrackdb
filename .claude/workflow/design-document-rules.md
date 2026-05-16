@@ -34,15 +34,20 @@ design document.
 | `implementation-plan.md` | Goals, constraints, the **decisions themselves** (alternatives / rationale / risks / where-implemented / link-to-design), the Component Map (topology + short intent bullets), short invariant statements, short integration-point bullets, the track checklist. **Strategic, scannable, loaded every session.** |
 | `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; references footer. **Loaded only when referenced; serves both human reviewers and execution agents.** |
 | `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in design.md's mechanism overview. **Created only when design.md exceeds the length trigger; cross-referenced from design.md's References footer.** |
-| `plan/track-N.md` `## Description` | Per-track concrete deliverables — files, classes, methods, edit lists, ordering constraints, track-level diagrams. **Per-track edit detail; written by `create-plan` at Phase 1; loaded only in Phase A of one track per session (and by Phase 2 reviews of pending tracks).** |
+| `plan/track-N.md` `## Purpose / Big Picture` | Per-track intro paragraph that names the track, its BLUF outcome, and the ADDED/MODIFIED/REMOVED triad (sibling Move 2 reserved slot). Track-level concrete deliverables and edit detail belong here together with the three sections below. **Per-track edit detail; written by `create-plan` at Phase 1; loaded only in Phase A of one track per session (and by Phase 2 reviews of pending tracks).** |
+| `plan/track-N.md` `## Context and Orientation` | Per-track static context: the files, classes, methods, and subsystems the track touches; ordering constraints relative to other tracks; pre-existing invariants the track must respect. **Per-track edit detail; written by `create-plan` at Phase 1; loaded only in Phase A of one track per session (and by Phase 2 reviews of pending tracks).** |
+| `plan/track-N.md` `## Plan of Work` | Per-track approach prose: how the track delivers its outcome at a step-shape level (not per-step detail — that lives under `## Concrete Steps`). Any track-level Mermaid diagram lives here. **Per-track edit detail; written by `create-plan` at Phase 1; loaded only in Phase A of one track per session (and by Phase 2 reviews of pending tracks).** |
+| `plan/track-N.md` `## Interfaces and Dependencies` | Per-track cross-track interactions: which other tracks this track depends on or unblocks, which shared interfaces it touches, and any sibling-Move slot reservations. **Per-track edit detail; written by `create-plan` at Phase 1; loaded only in Phase A of one track per session (and by Phase 2 reviews of pending tracks).** |
 
 > **The rule, succinctly:** if you find yourself writing a worked
 > example, a multi-paragraph derivation, a code-change inventory, or
 > a "here is how all the pieces fit together" walk-through inside a
 > decision record, an invariant, or an integration-point bullet,
 > **stop and move it to `design.md`** (or, if it is per-track edit
-> detail, to that track's `plan/track-N.md` `## Description`).
-> Replace the original location with a one-line link.
+> detail, to that track's `plan/track-N.md` under whichever of
+> `## Purpose / Big Picture`, `## Context and Orientation`,
+> `## Plan of Work`, or `## Interfaces and Dependencies` best fits
+> the content). Replace the original location with a one-line link.
 
 The reciprocal pointer is the `**Full design**: design.md §<section>`
 line in the Decision Record template (see `planning.md` § Decision
@@ -210,7 +215,7 @@ context to disambiguate.
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% Jaccard overlap on custom sub-headings → flag for consolidation. Pairs above the threshold are merged via union-find so a near-duplicate cluster (e.g. 5 sections sharing `### Inputs / ### Algorithm / ### Outputs` plus one with an extra `### Edge Cases`) flags as a single same-shape group. |
 | `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the References footer, but the script flags any unresolved reference regardless of how the line is prefixed. |
-| `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and in every track file under `tracks/` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
+| `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and in every track file under `plan/` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
 
 ### Findings and severities
 
@@ -354,7 +359,7 @@ current state of `design-mechanics.md`:
 - Sections **removed** in mechanics are removed from `design.md`.
 - Sections **renamed** in mechanics propagate the rename to
   `design.md` and to every `**Full design**` ref in the plan and
-  in every track file under `tracks/`.
+  in every track file under `plan/`.
 
 The sync's cold-read sub-agent gets an extended instruction:
 *"Verify that every TL;DR and mechanism overview in design.md
@@ -793,7 +798,7 @@ that warrant dedicated sections:
 12. **D/S codes follow the discipline** — no parenthetical
     asides; allowed when subject; collected in References footer.
 13. **Section renames update all `**Full design**` refs in the plan
-    and in every track file under `tracks/` in the same commit.**
+    and in every track file under `plan/` in the same commit.**
 14. **Complex parts are mandatory** — if any part of the design involves concurrency,
     crash recovery, performance-critical paths, or non-obvious invariants, it MUST
     have a dedicated section. Omitting these is a structural review finding.
