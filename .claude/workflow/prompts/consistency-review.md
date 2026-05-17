@@ -112,8 +112,12 @@ it to all design.md / Component Map / track-description claims.
 
 **How to determine intent for each claim:**
 - If the claim is inside a track file's `## Purpose / Big Picture`,
-  `## Context and Orientation`, `## Plan of Work`, or `## Interfaces
-  and Dependencies` section for a `[ ]` track → target-state.
+  `## Plan of Work`, or `## Interfaces and Dependencies` section for a
+  `[ ]` track → target-state. `## Context and Orientation` is the
+  exception: it describes the codebase state at the start of the
+  track (pre-existing code, not the post-implementation shape), so
+  claims inside it are always current-state regardless of track
+  status — emit findings normally.
 - If the claim is in a Decision Record's "Implemented in: Track N" line
   for a `[ ]` track → target-state.
 - If the claim is in design.md and a `[ ]` track's description names

@@ -125,7 +125,9 @@ TRACK DESCRIPTIONS *(track file's `## Purpose / Big Picture` + `## Context and O
   sentences (the prose paragraph that precedes `**Scope:**` and, if
   present, `**Depends on:**`)? An intro that runs 4+ sentences or
   spans multiple paragraphs has expanded into territory that belongs
-  in the track file's W/H/C/I subsections or in `design.md`; the plan
+  in the track file's `## Purpose / Big Picture` + `## Context and
+  Orientation` + `## Plan of Work` + `## Interfaces and Dependencies`
+  sections or in `design.md`; the plan
   checklist is loaded at every `/execute-tracks` session startup, so
   every extra intro sentence is paid by every Phase A/B/C session for
   the rest of the plan's life. *(plan-file only — the intro paragraph
