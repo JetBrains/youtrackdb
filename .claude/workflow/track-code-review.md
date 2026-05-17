@@ -243,8 +243,9 @@ blocks in the track file's `## Episodes` section — one
 step, carrying `**What was done:**`, `**What was discovered:**`,
 `**What changed from the plan:**`, `**Key files:**`, and
 `**Critical context:**` fields. Use episodes to understand intent
-and check whether the combined result matches the plan's goals. Severities: **blocker** (must fix),
-**should-fix** (should fix before merge), **suggestion** (optional improvement).
+and check whether the combined result matches the plan's goals.
+
+Severities: **blocker** (must fix), **should-fix** (should fix before merge), **suggestion** (optional improvement).
 
 ## Review Target
 Track {N}: {track title}

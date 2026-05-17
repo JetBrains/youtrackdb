@@ -231,10 +231,10 @@ episode lives separately in `## Episodes` once Phase B writes it
 ```markdown
 ## Concrete Steps
 
-1. Add StampedLock acquisition path for histogram updates — risk: high (concurrency — introduces optimistic-read-then-upgrade pattern in PageFrame)  [ ]
-2. Extract HistogramHeader struct from BTreePage — risk: low (default — pure refactoring; no semantic change)  [ ]
+1. Add StampedLock acquisition path for histogram updates — risk: high (concurrency: introduces optimistic-read-then-upgrade pattern in PageFrame)  [x] commit: 1a2b3c4d5e
+2. Extract HistogramHeader struct from BTreePage — risk: low (default: pure refactoring; no semantic change)  [ ]
 3. Wire histogram counter through tx-finalization path — risk: medium (multi-file logic in core; no HIGH triggers)  [ ]
-4. Update Javadoc on AtomicLongFieldUpdater usage — risk: low (override — touches a HIGH category file but the change is Javadoc-only with no behavioral impact)  [ ]
+4. Update Javadoc on AtomicLongFieldUpdater usage — risk: low (override: touches a HIGH category file but the change is Javadoc-only with no behavioral impact)  [ ]
 ```
 
 The checkbox flips to `[x]` once the step is committed (or `[!]` if

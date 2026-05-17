@@ -46,9 +46,9 @@ your review, the main agent decomposes the track into concrete steps.
 lives in the track file at
 `docs/adr/<dir-name>/_workflow/plan/track-N.md`, split across four
 sections: `## Purpose / Big Picture` (intro paragraph + BLUF),
-`## Context and Orientation` (what's there today),
-`## Plan of Work` (what we'll change, plus any track-level component
-diagram), and `## Interfaces and Dependencies` (file boundaries,
+`## Context and Orientation` (what's there today, plus any track-level
+component diagram), `## Plan of Work` (what we'll change), and
+`## Interfaces and Dependencies` (file boundaries,
 inter-track deps). All four are seeded at Phase 1 by `/create-plan`
 and read (and optionally amended via the Track Pre-Flight gate) by
 Phase A. The plan

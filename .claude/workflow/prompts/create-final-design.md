@@ -25,9 +25,11 @@ Read:
   across its `## Purpose / Big Picture`, `## Context and Orientation`,
   `## Plan of Work`, and `## Interfaces and Dependencies` sections
   (written there by `create-plan` at Phase 1), so "what each track was
-  supposed to do" lives in the track file. Skipped tracks may have had
-  their track files deleted by `track-skip` — for those tracks read the
-  `[~] Track N`'s `**Skipped:**` line in the plan file instead.
+  supposed to do" lives in the track file. Per-step content (one block
+  per completed step) lives in each track file's `## Episodes`
+  section. Skipped tracks may have had their track files deleted by
+  `track-skip` — for those tracks read the `[~] Track N`'s
+  `**Skipped:**` line in the plan file instead.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the
 actual implemented code: all classes, interfaces, and components mentioned
@@ -299,8 +301,8 @@ git commit -m "Remove workflow scaffolding"
 git push
 ```
 
-This deletes the plan, design.md, design-mechanics.md, every step
-file under `tracks/`, and the design-mutations log in one commit.
+This deletes the plan, design.md, design-mechanics.md, every track
+file under `plan/`, and the design-mutations log in one commit.
 The squash-merge folds this deletion together with the rest of the
 branch's history; on `develop`, the final state is the two (or three)
 durable artifacts plus the implemented code.
