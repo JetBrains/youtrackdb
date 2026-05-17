@@ -2603,16 +2603,16 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries,
       Map<String, Long> classCountCache,
       DatabaseSessionEmbedded session) {
-    // Strip the {@code Long.MAX_VALUE} sentinels that {@code main()} writes
-    // into {@code estimatedRootEntries} for inferred-class aliases (see the
-    // inflation loop in the top-level execute()). The inflation is a
-    // scheduler-priority hack — it must never propagate into the row-count
-    // forecast, where it triggers cascading multiplications that drive
-    // {@code forecastN} to {@code Long.MAX_VALUE} and force every IndexLookup
-    // edge into BUILD_EAGER regardless of the real cost-model verdict.
-    // Inferred aliases instead enter {@code aliasRowEstimate} only via
-    // downstream propagation from earlier edges (which uses the real
-    // {@code targetSelectivityFactor}).
+    // Strip the {@code Long.MAX_VALUE} sentinels that
+    // {@link #createExecutionPlan} writes into {@code estimatedRootEntries}
+    // for inferred-class aliases (the {@code inferredWhileExprAliases}
+    // loop). The inflation is a scheduler-priority hack — it must never
+    // propagate into the row-count forecast, where it triggers cascading
+    // multiplications that drive {@code forecastN} to {@code Long.MAX_VALUE}
+    // and force every IndexLookup edge into BUILD_EAGER regardless of the
+    // real cost-model verdict. Inferred aliases instead enter
+    // {@code aliasRowEstimate} only via downstream propagation from earlier
+    // edges (which uses the real {@code targetSelectivityFactor}).
     Map<String, Long> aliasRowEstimate = new HashMap<>(estimatedRootEntries.size());
     for (var entry : estimatedRootEntries.entrySet()) {
       if (entry.getValue() != null && entry.getValue() != Long.MAX_VALUE) {

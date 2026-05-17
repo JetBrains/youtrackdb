@@ -86,7 +86,7 @@ public class EdgeTraversal {
   /**
    * Plan-time forecast of total neighbors this edge will process across all
    * source vertices reaching it during a single query execution. Stamped by
-   * {@code MatchExecutionPlanner} from {@code sourceRows × estimateFanOut(…)}
+   * {@code MatchExecutionPlanner} from {@code sourceRows × estimateMethodFanOut(…)}
    * and reused at runtime in {@code resolveWithCache} to choose between
    * {@link Mode#BUILD_EAGER} and {@link Mode#DEFERRED_WITH_NET}. Sentinel
    * {@code -1} means the forecast is absent (planner could not produce a
@@ -153,9 +153,6 @@ public class EdgeTraversal {
    * heavy-tail distributions (LDBC SNB) {@code 30} samples is borderline,
    * but in combination with the {@link Mode#DEFERRED_WITH_NET} safety net
    * {@code T = max(2·forecastN, m)} the cost of being wrong is bounded.
-   *
-   * <p>Configurable in the future if benchmarks reveal heavy-tail
-   * distributions require a higher threshold.
    */
   static final long MIN_FOR_CLT = 30L;
 
@@ -794,11 +791,7 @@ public class EdgeTraversal {
     /** Build not yet amortized — return null without caching. */
     DEFER,
     /**
-     * Caller should materialize. Returned when the amortization threshold
-     * has been met, or when selectivity is unknown ({@code < 0}) — in the
-     * latter case PROCEED is optimistic, relying on downstream guards
-     * ({@code maxRidSetSize} cap, per-vertex ratio for EdgeRidLookup) to
-     * bound the worst case.
+     * Amortization threshold met — caller should materialize.
      */
     PROCEED
   }
@@ -832,19 +825,10 @@ public class EdgeTraversal {
       double selectivity,
       long accumulatedLinkBagTotal,
       double loadToScanRatio) {
-    // Unknown selectivity (negative sentinel) → REJECT. Stateless callers
-    // cannot bound the build cost B without a valid s; the design's
-    // bounded-loss contract requires a known B before committing to a
-    // BUILD_EAGER decision or a meaningful safety-net trigger T. The
-    // previous "PROCEED optimistically" branch worked only while
-    // maxRidSetSize was a fixed 100K cap that aborted runaway scans;
-    // the auto-scaled cap (up to 10M) no longer provides that bound,
-    // making PROCEED on unknown stats unbounded.
-    //
-    // Stateful callers (checkIndexLookupAmortization) record
-    // STATS_UNAVAILABLE for PROFILE diagnostics; this stateless variant
-    // returns REJECT and lets the caller (BackRefHashJoinStep) attach
-    // its own reason if it has one.
+    // Unknown selectivity → REJECT. See
+    // {@link PreFilterSkipReason#STATS_UNAVAILABLE} for the bounded-loss
+    // rationale. This stateless variant has no place to record a skip
+    // reason; the caller (e.g. BackRefHashJoinStep) attaches its own.
     if (selectivity < 0) {
       return AmortizationDecision.REJECT;
     }
@@ -900,17 +884,12 @@ public class EdgeTraversal {
     }
 
     // Unknown selectivity → REJECT permanently, record STATS_UNAVAILABLE.
-    // The cost-model formula m = estimatedSize / (ratio · (1 − s)) cannot
-    // be evaluated without a valid s, so the bounded-loss contract that
-    // backs BUILD_EAGER / DEFERRED_WITH_NET does not hold. Acting on
-    // unknown stats was safe when maxRidSetSize was a fixed 100K cap that
-    // aborted runaway scans; the auto-scaled cap (up to 10M on a 4 GB
-    // heap) no longer provides that bound. Class-level selectivity is
-    // constant per query — caching null with the reason lets every
-    // subsequent vertex restore the diagnostic via cachedSkipReasons.
-    // REJECT (rather than DEFER) also lets the Composite rescue path in
-    // resolveWithCache try a non-IndexLookup child (e.g. EdgeRidLookup)
-    // that has its own per-vertex bound and does not depend on histogram.
+    // See {@link PreFilterSkipReason#STATS_UNAVAILABLE} for the bounded-loss
+    // rationale. Caching the null with its reason lets every subsequent
+    // vertex restore the diagnostic via cachedSkipReasons. REJECT (rather
+    // than DEFER) also lets the Composite rescue path in resolveWithCache
+    // try a non-IndexLookup child (e.g. EdgeRidLookup) that has its own
+    // per-vertex bound and does not depend on histogram.
     if (indexLookupSelectivity < 0) {
       recordPreFilterSkip(PreFilterSkipReason.STATS_UNAVAILABLE);
       if (key != null && cache != null && canCache(key)) {

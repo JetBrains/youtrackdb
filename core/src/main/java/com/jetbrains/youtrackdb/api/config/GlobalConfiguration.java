@@ -1330,8 +1330,7 @@ public enum GlobalConfiguration {
       "Cost ratio of random record load vs. RidSet scan entry, used in"
           + " the IndexLookup build amortization formula. Calibrated for"
           + " cold SSD storage; override with a positive value to tune for"
-          + " specific hardware (non-positive values fall back to the"
-          + " default)",
+          + " specific hardware",
       Double.class,
       100.0,
       true),
