@@ -248,8 +248,10 @@ real mismatch hidden)? When in doubt, route through PSI.
    **pending** track (`[ ]`), read the track's detailed description
    (what/how/constraints/interactions detail and any track-level
    Mermaid diagram) from `plan/track-N.md`'s `## Purpose / Big Picture`,
-   `## Context and Orientation`, `## Plan of Work`, and `## Interfaces
-   and Dependencies` sections.
+   `## Context and Orientation`, `## Plan of Work`, `## Decision Log`,
+   and `## Interfaces and Dependencies` sections (`## Decision Log`
+   may carry `**Full design**` references per the `edit-design` skill,
+   especially once Move 1 inlines per-track Decision Records).
    For **completed** tracks (`[x]`) and **skipped** tracks (`[~]`),
    the plan-file entry already holds the track's final form (intro
    paragraph + track episode for completed; intro + `**Skipped:**`

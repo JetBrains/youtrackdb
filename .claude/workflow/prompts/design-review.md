@@ -33,9 +33,9 @@ warning, or pass.
 - `plan_dir` (optional) — same: a directory of
   `plan/track-N.md` track files, each potentially carrying
   `**Full design**` references inside its `## Purpose / Big Picture`,
-  `## Context and Orientation`, `## Plan of Work`, or `## Interfaces
-  and Dependencies` sections. Read **only** for link resolution,
-  never for context.
+  `## Context and Orientation`, `## Plan of Work`, `## Decision Log`,
+  or `## Interfaces and Dependencies` sections. Read **only** for link
+  resolution, never for context.
 
 ### Mutation-kind specific instructions
 

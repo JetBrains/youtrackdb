@@ -356,8 +356,8 @@ this round:
   buffer as a `### Clarifications` subsection at the end of the
   upcoming track's track file's `## Context and Orientation`
   section (per the Track Pre-Flight design — clarifications are
-  current-state user notes that belong with C&O;
-  `conventions-execution.md` §2.1 will be reconciled in Phase 4).
+  current-state user notes that belong with C&O; see
+  `conventions-execution.md` §"Section lifecycle").
   **If a `### Clarifications` subsection already exists** (e.g., a prior
   gate session committed clarifications and was interrupted before
   any review ran, then re-fired on resume per §Phase A Resume),

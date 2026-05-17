@@ -198,9 +198,9 @@ per D6 and D10:
 | `## Purpose / Big Picture` | BLUF + intro paragraph + Move 2 placeholder | — | — | — | Phase 2 reviews; Phase A/B/C orchestration; Phase 4 aggregation |
 | `## Progress` | four pre-seeded phase-checkpoint entries (`- [ ] Review + decomposition`, `- [ ] Step implementation`, `- [ ] Track-level code review`, `- [ ] Track completion`) — State C resume reads these as phase markers | decomposition-complete entry **(D12 statusline read → `[ctx=<level>]`; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | per-step entry **(sub-step 7; same D12 read)** | per-iteration entry + track-completion entry **(same D12 read)** | resume-readers (most-recent entry = current phase); Phase 4 |
 | `## Surprises & Discoveries` | (empty) | (rare — Pre-Flight clarification surfaces a cross-cutting fact) | promotion from per-step episode at sub-step 7 (when cross-cutting) | promotion from review iteration findings (when cross-cutting) | Phase A Pre-Flight Panel 1; Phase 4 |
-| `## Decision Log` | Move 1 placeholder | Pre-Flight clarifications (when decision-worthy) | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries | Phase A reviews; Phase 4 |
+| `## Decision Log` | Move 1 placeholder | — | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries | Phase A reviews; Phase 4 |
 | `## Outcomes & Retrospective` | (empty) | Phase A review iteration entries (prefix: `Technical:` / `Risk:` / `Adversarial:`) | (occasional — dimensional review iteration entries) | review iteration entries + track completion summary (prefix: `Track-level code review iteration N…` / `Track complete`) | Phase A reviews; Phase 4 |
-| `## Context and Orientation` | "what's there today" prose | — | — | — | Phase A/B/C orchestration; Phase 4 |
+| `## Context and Orientation` | "what's there today" prose | Pre-Flight clarifications (appended as `### Clarifications` subsection) | — | — | Phase A/B/C orchestration; Phase 4 |
 | `## Plan of Work` | "what we'll change" prose | per-step sequencing summary referencing Concrete Steps | — | — | Phase A/B/C orchestration; Phase 4 |
 | `## Concrete Steps` | Phase A placeholder | thin numbered roster (description + `risk:` tag + `[ ]` checkbox per step) | status checkbox flip + optional `commit:` annotation | — | Phase A reviews; Phase B sub-step 4 (risk tag); Phase C track review; Phase 4 |
 | `## Episodes` | (empty) | (empty — Phase A does not populate) | one block per completed step at sub-step 7 **(D12 statusline read → `[ctx=<level>]` on block header; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | — | Phase A Pre-Flight Panel 1 strategy assessment; Phase C track-completion compile-episode; Phase 4 |
@@ -226,7 +226,12 @@ after Phase A.
 The Track Pre-Flight gate (see [`track-review.md`](track-review.md)
 §Track Pre-Flight) may amend `## Purpose / Big Picture`,
 `## Context and Orientation`, and `## Plan of Work` in place and append
-clarifications to `## Decision Log` when the gate captures any.
+clarifications as a `### Clarifications` subsection to
+`## Context and Orientation` when the gate captures any
+(clarifications are user-supplied current-state notes — the
+C&O-as-current-state idiom from `design-final.md` §"Section mapping —
+old shape to new" keeps them with the rest of the current-state
+framing).
 
 **Track files live under `docs/adr/<dir-name>/_workflow/plan/`** —
 tracked in git during the branch lifetime so changes are pushed to the

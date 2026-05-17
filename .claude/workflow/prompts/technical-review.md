@@ -44,12 +44,13 @@ your review, the main agent decomposes the track into concrete steps.
 
 **Where things live during Phase A:** The track's detailed description
 lives in the track file at
-`docs/adr/<dir-name>/_workflow/plan/track-N.md`, split across four
+`docs/adr/<dir-name>/_workflow/plan/track-N.md`, split across five
 sections: `## Purpose / Big Picture` (intro paragraph + BLUF),
 `## Context and Orientation` (what's there today, plus any track-level
-component diagram), `## Plan of Work` (what we'll change), and
-`## Interfaces and Dependencies` (file boundaries,
-inter-track deps). All four are seeded at Phase 1 by `/create-plan`
+component diagram), `## Plan of Work` (what we'll change),
+`## Decision Log` (any track-scoped Decision Records, once Move 1
+inlines them), and `## Interfaces and Dependencies` (file boundaries,
+inter-track deps). All five are seeded at Phase 1 by `/create-plan`
 and read (and optionally amended via the Track Pre-Flight gate) by
 Phase A. The plan
 file carries strategic context (Architecture Notes, Decision Records,
@@ -63,17 +64,20 @@ Inputs:
 - Track file: {step_file_path} — authoritative source for the track's
   what/how/constraints/interactions and any track-level diagram, split
   across `## Purpose / Big Picture`, `## Context and Orientation`,
-  `## Plan of Work`, and `## Interfaces and Dependencies`.
+  `## Plan of Work`, `## Decision Log`, and `## Interfaces and
+  Dependencies`.
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
 Start by reading the track file's `## Purpose / Big Picture`,
-`## Context and Orientation`, `## Plan of Work`, and `## Interfaces
-and Dependencies` sections (plus any track-level component diagram
-those sections carry). Read the relevant Decision Records from the
-plan. Then explore the parts of the codebase this track touches.
+`## Context and Orientation`, `## Plan of Work`, `## Decision Log`,
+and `## Interfaces and Dependencies` sections (plus any track-level
+component diagram those sections carry). Read the relevant Decision
+Records from the plan (and from the track file's `## Decision Log`
+when Move 1 has inlined them). Then explore the parts of the codebase
+this track touches.
 
 **Tooling — PSI is required for symbol audits.** Reference-accuracy
 questions about Java symbols in this codebase (callers/overrides/usages
@@ -116,8 +120,8 @@ COMPONENT MAP ACCURACY (for this track)
 NAMED REFERENCES IN STEP FILE
 - For every production class named in the track file's
   `## Purpose / Big Picture`, `## Context and Orientation`,
-  `## Plan of Work`, or `## Interfaces and Dependencies` sections,
-  verify the name resolves via PSI find-class
+  `## Plan of Work`, `## Decision Log`, or `## Interfaces and
+  Dependencies` sections, verify the name resolves via PSI find-class
   (`steroid_execute_code` with
   `JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`).
   Pattern-inducing class names from precedent (V1 → V2/V3) is a known
@@ -130,8 +134,9 @@ NAMED REFERENCES IN STEP FILE
 - Each verified name produces a Premise certificate (see §Certificate
   requirements). A name that does NOT resolve is a `blocker` finding
   UNLESS the track's `## Purpose / Big Picture` / `## Context and
-  Orientation` / `## Plan of Work` / `## Interfaces and Dependencies`
-  sections explicitly mark it as a class this track creates (e.g.,
+  Orientation` / `## Plan of Work` / `## Decision Log` / `## Interfaces
+  and Dependencies` sections explicitly mark it as a class this track
+  creates (e.g.,
   "we will introduce `Foo`"). In the
   planned-class case, log the Premise with verdict CONFIRMED and note
   "planned by this track" in `Detail`. Read the description carefully
