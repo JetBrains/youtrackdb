@@ -26,7 +26,7 @@ Read:
   `## Plan of Work`, and `## Interfaces and Dependencies` sections
   (written there by `create-plan` at Phase 1), so "what each track was
   supposed to do" lives in the track file. Skipped tracks may have had
-  their step files deleted by `track-skip` — for those tracks read the
+  their track files deleted by `track-skip` — for those tracks read the
   `[~] Track N`'s `**Skipped:**` line in the plan file instead.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the
