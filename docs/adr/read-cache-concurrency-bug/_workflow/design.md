@@ -692,12 +692,27 @@ durable post-eviction.
   `open()` after `openCollections` / `openIndexes` /
   `linkCollectionsBTreeManager::load` populate the iteration targets
   (around `AbstractStorage.java:801`), and from
-  `DiskStorage.postProcessIncrementalRestore` between `:1671` (after
-  `openIndexes`) and `:1673` (before `flushAllData()`). The pass
-  compares the entry-point logical page count to
-  `AsyncFile.getFileSize() / pageSize` and truncates physical orphans
-  via the new `WriteCache.shrinkFile(fileId, targetBytes)` primitive
-  (I6). EP-less components (`FreeSpaceMap`,
+  `DiskStorage.postProcessIncrementalRestore` AFTER `:1673`
+  (`flushAllData()`) — so WAL-replay-buffered dirty pages settle
+  before truncation on both entry points, eliminating the
+  flush-after-truncate orphan re-creation hazard. The pass compares
+  the entry-point logical page count to `AsyncFile.getFileSize() /
+  pageSize` and truncates physical orphans through a layered shrink:
+  `LockFreeReadCache.shrinkFile(fileId, targetBytes, writeCache)`
+  orchestrates a new `WriteCache.shrinkFile(fileId, targetBytes)`
+  (WOWCache: `removeCachedPages` writeCachePages purge +
+  `AsyncFile.shrink(targetBytes)`; in-memory: no-op) then a new
+  range-scoped `clearFileRange(fileId, minPageIndex, writeCache)`
+  on the LFRC segment map — mirroring the existing
+  `LockFreeReadCache.truncateFile` / `deleteFile` two-phase pattern.
+  Per-component `verifyAndTruncateOrphans` floors `targetBytes` at
+  `pageSize` (preserving the EP page even on
+  `EP.pagesSize == 0`) and skips-with-WARN when
+  `EP.pagesSize == 0 && AsyncFile.getFileSize() > pageSize` (a
+  `logical > physical`-like signature WAL replay is designed to
+  prevent — the recovery pass does not silently mask the divergence).
+  I6 holds as `logical <= physical`, with equality after a successful
+  truncate. EP-less components (`FreeSpaceMap`,
   `CollectionDirtyPageBitSet`) and `IndexHistogramManager` are
   deliberately out of scope per the Non-Goals — their growth-loops
   are `getFilledUpTo`-anchored or use a page-1 discriminator pattern.

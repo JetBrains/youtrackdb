@@ -22,16 +22,20 @@
 ### Constraints
 
 - Edits stay inside `core`'s `internal/core/storage/cache/**` (disk-engine
-  cache primitives — `chm/LockFreeReadCache`, `local/WOWCache`,
+  cache primitives — `chm/LockFreeReadCache` including the Track 7
+  layered `shrinkFile` + private `clearFileRange`, `local/WOWCache`,
   `WriteCache` interface), `internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
   (in-memory engine parallel implementation), the storage components
   that own logical page counts (`paginated/base/StorageComponent` and
   subclasses, `storage/impl/local/AbstractStorage`,
   `storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking`,
   `storage/disk/DiskStorage`), `storage/ridbag/LinkCollectionsBTreeManagerShared.java`
-  (Track 7 SLBB iteration accessor), and `storage/fs/AsyncFile.java`
+  (Track 7 SLBB iteration accessor), `storage/fs/AsyncFile.java`
   (Track 7 in-place semantics fix for the existing `shrink(size)`
-  primitive). No public-API changes.
+  primitive), and `internal/common/collection/ConcurrentLongIntHashMap.java`
+  (Track 7 range-scoped purge primitive backing `clearFileRange`,
+  if the range filter is pushed into the segment map rather than
+  iterated inside `LockFreeReadCache`). No public-API changes.
 - WAL format and replay-record schema unchanged. Page allocation remains
   implicit (no new `AddPage*` record).
 - `DoubleWriteLog` (anti-tear) and `EnsurePageIsValidInFileTask`
@@ -203,40 +207,64 @@ flowchart LR
   both; the discovery-channel removal originally split across the
   retired Track 3 and Track 4 is now wholly inside Track 4).
 
-#### D6: Recovery-time orphan truncation pass for EP-equipped components
+#### D6: Recovery-time orphan truncation pass for EP-equipped components (revised after Track 7 Phase A iter-1 v2 — LFRC purge layering + restore-path wiring)
 
 - **Alternatives considered**: marker-bit + adopt-on-existing at the
   cache layer (rejected by D5; symptom-not-cause); `reuseOrphanPageForWrite`
   SPI allowing below-allocation-floor pageIndex (rejected — re-exposes the
   discovery channel D4 closes); accept-and-document-only (rejected —
   silent self-healing pre-fix becomes noisy manual-recovery post-fix);
-  file-name iteration via `WriteCache.nameIdMap` (rejected at iter-1 —
-  doubles the test surface vs. iterating component instances); lazy
-  self-heal in AOBT's allocator path (rejected at iter-1 — pushes
-  recovery cost into the steady-state allocator hot path and complicates
-  AOBT's allocator-only contract).
+  file-name iteration via `WriteCache.nameIdMap` (rejected — per-component
+  helper placement colocates EP arithmetic with each component's other
+  recovery code, iterates a typed component list rather than a
+  file-extension dispatcher, and keeps the discovery seam owned by the
+  component rather than the cache); lazy self-heal in AOBT's allocator
+  path (rejected — pushes recovery cost into the steady-state allocator
+  hot path and complicates AOBT's allocator-only contract).
 - **Rationale**: Track 4's `addPage` deletion converts the previously-
   silent partial-flush-orphan path into a noisy `IllegalStateException`
   at the next allocator call on the four EP-equipped components. A new
   private `AbstractStorage.truncateOrphansAfterRecovery()` (invoked from
-  `open()` and `DiskStorage.postProcessIncrementalRestore` after each
-  entry-point's catalogue load) reads logical pages from each EP and
-  calls a new `WriteCache.shrinkFile(fileId, targetBytes)` when physical
-  exceeds logical. EP-only reads keep D2 and D4 intact. Placement
-  correction at Phase A iter-1 moved the pass out of `recoverIfNeeded()`
-  (which iterates empty catalogue lists at `:764`) to a post-catalogue-
-  load site — see design.md §"Crash safety" for the wiring trace.
+  `open()` after the catalogue load, and from
+  `DiskStorage.postProcessIncrementalRestore` AFTER `flushAllData()` so
+  WAL-replay-buffered dirty pages are flushed before truncation) reads
+  logical pages from each EP and calls a new
+  `LockFreeReadCache.shrinkFile(fileId, targetBytes, writeCache)` —
+  the read-cache layer is the orchestrator, mirroring the existing
+  `LockFreeReadCache.truncateFile` / `deleteFile` two-phase pattern.
+  Inside, LFRC delegates to a new `WriteCache.shrinkFile(fileId,
+  targetBytes)` (WOWCache: filesLock.writeLock + `removeCachedPages`
+  for the writeCachePages range + `AsyncFile.shrink(targetBytes)`;
+  DirectMemoryOnlyDiskCache: no-op), then runs a new range-scoped
+  `clearFileRange(fileId, minPageIndex, writeCache)` on the LFRC
+  segment map to purge read-cache entries at `pageIndex >=
+  targetBytes / pageSize`. EP-only reads keep D2 and D4 intact.
 - **Risks/Caveats**: in-scope is the four EP-equipped components (BTree,
   SLBB, CPMV2, PCV2); EP-less components and IndexHistogramManager are
   out of scope per Non-Goals (the carve-out acknowledges the
   `checksumMode=StoreAndThrow` exposure). Track 7 also (a) fixes a
   latent `AsyncFile.shrink(size)` in-memory-size reset bug as a
-  separable commit, (b) requires `WriteCache.shrinkFile` to purge LFRC
-  entries for the truncated range before delegating to `AsyncFile.shrink`
-  (mirrors `WOWCache.truncateFile`'s `removeCachedPages` ordering), (c)
-  adds a `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
-  internal-iteration delegate, and (d) adds the missing
-  `v3.BTree.getFileId()` accessor.
+  separable commit, (b) the LFRC orchestration in `shrinkFile` mirrors
+  `LockFreeReadCache.truncateFile`'s `writeCache.truncateFile` → bulk
+  `clearFile` ordering — the new path runs `writeCache.shrinkFile` →
+  range-scoped `clearFileRange` so the LFRC range purge happens AFTER
+  the AsyncFile truncation and writeCachePages range purge (eliminating
+  the previously-spec'd-but-wrong "WOWCache purges LFRC" placement),
+  (c) `verifyAndTruncateOrphans` floors `targetBytes` at `pageSize`
+  (preserving the EP page) and skips-with-warn when
+  `EP.pagesSize == 0 && getFileSize() > pageSize` (signals data
+  corruption that the recovery pass intentionally does not silently
+  mask), (d) the pass adds ~100-300 in-cache EP page reads per storage
+  open (after `openIndexes` warms the cache) — bounded one-shot cost
+  vs. the runbook-only alternative whose blast radius is naive-
+  operator triage of a `StorageException` at first write,
+  (e) adds a `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
+  internal-iteration delegate, (f) adds the missing
+  `v3.BTree.getFileId()` accessor, and (g) for
+  `BTreeMultiValueIndexEngine` the pass iterates BOTH `svTree` AND
+  `nullTree` (Phase A iter-2 PSI-confirms both can grow under
+  multi-page null-key load; if `nullTree` is single-page-by-construction
+  the iter-2 audit downgrades to `svTree`-only).
 - **Implemented in**: Track 7.
 - **Full design**: design.md §"Crash safety" → "Post-WAL-replay file truncation"
 
@@ -262,8 +290,13 @@ flowchart LR
 - **I6**: After `AbstractStorage.open()` and
   `DiskStorage.postProcessIncrementalRestore` return, every EP-equipped
   component (BTree, SLBB, CollectionPositionMapV2, PaginatedCollectionV2)
-  satisfies `entryPoint.logicalPages == AsyncFile.getFileSize() / pageSize`.
-  Established by Track 7; maintained by I5.
+  satisfies `entryPoint.logicalPages <= AsyncFile.getFileSize() / pageSize`,
+  and the recovery-time pass restores equality whenever it observes
+  `logical < physical` by truncating the orphan extent. The pass does NOT
+  auto-repair `logical > physical` (a data-corruption signature WAL replay
+  is designed to prevent) — it skips-with-warn so an operator can
+  triage rather than silently masking the divergence. Established by
+  Track 7; maintained by I5.
 
 ### Integration Points
 
@@ -278,10 +311,16 @@ flowchart LR
   parallel implementation of the new primitive.
 - `DiskStorage.backupPagesWithChanges` reads file-physical size during
   storage quiesce via the gated path introduced in Track 5.
-- `AbstractStorage.open()` and `DiskStorage.postProcessIncrementalRestore`
-  invoke Track 7's new `truncateOrphansAfterRecovery()` pass after
-  the catalogue load — see design.md §"Crash safety" → "Post-WAL-replay
-  file truncation" for the iteration + `shrinkFile` mechanics.
+- `AbstractStorage.open()` invokes Track 7's new
+  `truncateOrphansAfterRecovery()` pass after the catalogue load
+  (`recoverIfNeeded()` has already drained the flush executor);
+  `DiskStorage.postProcessIncrementalRestore` invokes the same pass
+  AFTER `flushAllData()` runs at `:1673` (so WAL-replay-buffered dirty
+  pages settle before truncation, avoiding the
+  flush-after-truncate orphan re-creation hazard). The orchestrator
+  routes through `LockFreeReadCache.shrinkFile(fileId, targetBytes,
+  writeCache)` — see design.md §"Crash safety" → "Post-WAL-replay file
+  truncation" for the iteration + layered `shrinkFile` mechanics.
 
 ### Non-Goals
 
@@ -778,28 +817,43 @@ flowchart LR
   > `open()` after the catalogue load (`openCollections` /
   > `openIndexes` / `linkCollectionsBTreeManager::load` populate the
   > iteration targets) and from
-  > `DiskStorage.postProcessIncrementalRestore` after its catalogue
-  > load. The pass walks each EP-equipped storage component, reads
-  > its entry-point logical page count, and truncates physical
-  > orphans via a new `WriteCache.shrinkFile(fileId, targetBytes)`
-  > primitive backed by `AsyncFile.shrink`.
+  > `DiskStorage.postProcessIncrementalRestore` AFTER `flushAllData()`
+  > (so WAL-replay-buffered dirty pages settle before truncation).
+  > The pass walks each EP-equipped storage component, reads its
+  > entry-point logical page count, and truncates physical orphans
+  > through a layered shrink: `LockFreeReadCache.shrinkFile(fileId,
+  > targetBytes, writeCache)` orchestrates a new
+  > `WriteCache.shrinkFile(fileId, targetBytes)` (WOWCache:
+  > `removeCachedPages` writeCachePages range purge +
+  > `AsyncFile.shrink(targetBytes)`; in-memory: no-op), then a new
+  > range-scoped `clearFileRange(fileId, minPageIndex, writeCache)`
+  > on the LFRC segment map to purge read-cache entries at
+  > `pageIndex >= targetBytes / pageSize` — mirroring the existing
+  > `LockFreeReadCache.truncateFile` two-phase pattern.
   >
-  > **Scope:** ~3-4 steps covering: (a) `WriteCache.shrinkFile` SPI
-  > addition + `WOWCache` impl wrapping `AsyncFile.shrink` +
-  > `DirectMemoryOnlyDiskCache` no-op impl + unit tests; (b)
+  > **Scope:** ~5 steps covering: (a) `AsyncFile.shrink(size)`
+  > in-place semantics fix as a separable commit; (b) layered shrink
+  > primitive — `WriteCache.shrinkFile` SPI + WOWCache impl + in-memory
+  > no-op + 5 test-mock UOE overrides; `LockFreeReadCache.shrinkFile`
+  > orchestrator + range-scoped `clearFileRange` private helper;
+  > range-purge backing on `ConcurrentLongIntHashMap` (or LFRC-side
+  > filter — Phase A iter-2 picks the placement); (c)
   > per-EP-equipped-component `verifyAndTruncateOrphans(AtomicOperation,
-  > WriteCache)` helper that loads its EP page (read-only), compares
-  > logical to `AsyncFile.getFileSize() / pageSize`, and calls
-  > `shrinkFile` when physical exceeds logical; (c)
-  > `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator +
-  > `open()` wiring (after `:800`) + `DiskStorage.postProcessIncrementalRestore`
-  > wiring (between `:1671` and `:1673`) + iteration over the four
-  > component classes via the existing `collections` /
-  > `indexEngines` / `linkCollectionsBTreeManager` fields; (d)
-  > integration tests pinning the post-replay `physical == logical`
-  > invariant for each EP-equipped component, including a positive
-  > test (orphan present → truncated) and a negative test (clean
-  > shutdown → no-op).
+  > LockFreeReadCache, WriteCache)` helper with `targetBytes >= pageSize`
+  > floor and `EP.pagesSize == 0 && fileSize > pageSize` skip-with-warn
+  > guard + `v3.BTree.getFileId()` accessor; (d)
+  > `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
+  > iteration delegate; (e) `AbstractStorage.truncateOrphansAfterRecovery()`
+  > orchestrator + `open()` wiring (after `:800`) +
+  > `DiskStorage.postProcessIncrementalRestore` wiring (AFTER `:1673`
+  > `flushAllData()`) + iteration over `collections` / `indexEngines`
+  > / `linkCollectionsBTreeManager` (BTreeMultiValueIndexEngine
+  > iterates both `svTree` and `nullTree` pending iter-2 nullTree
+  > multi-page audit); integration tests with deterministic
+  > orphan-fabrication via `AsyncFile.write` helper as the primary
+  > positive test (sub-JVM crash test demoted to a longer-running
+  > confirmation) plus negative (clean shutdown) and incremental-
+  > restore entry-point coverage.
   > **Depends on:** Track 4
 
 - [ ] Track 6: Integration regression test
@@ -843,7 +897,11 @@ flowchart LR
   > **Depends on:** Track 1, Track 4, Track 7
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed 2026-05-17 at consistency iter 3 / structural iter 3 (post-inline-replan re-validation after commit `fc9b448e02` reset to `[ ]`)
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+<!-- Prior pass: passed 2026-05-17 at consistency iter 3 / structural iter 3 (post-inline-replan re-validation after commit `fc9b448e02` reset to `[ ]`). Reset to `[ ]` after Track 7 Phase A iter-1 v2 ESCALATE — D6 LFRC purge layering + I6 tightening + Integration Points wiring + Constraints scope-list expansion + Track 7 step-file rewrite. Next session re-enters State 0 to validate the revision. -->
+
+<!-- Auto-fix audit trail from the prior pass (preserved for traceability):
 
 **Auto-fixed (mechanical)**:
 - **CR1** (blocker): rewrote design.md "Edge cases / Gotchas" → Post-WAL-replay-truncation bullet from pre-iter-1 `recoverIfNeeded()` wiring to the corrected `AbstractStorage.truncateOrphansAfterRecovery()` + two-entry-point wiring. (design.md mutation 6.)
@@ -868,6 +926,8 @@ flowchart LR
 - **CR8**: track-7.md:189-190 risk-description for Step 5 says `flushAllData() has already run inside recoverIfNeeded() by the time the pass fires` — true for the `open()` entry point but inaccurate for `postProcessIncrementalRestore` (where the pass fires BEFORE the file's local `flushAllData`). Track 7 Phase A iter-2 / Phase B implementer should refine.
 - **S8 + S9**: ambition-narrative sites that survived alongside the binding Track 5 retrospective — D2 Rationale (line 129 "removing public access"), D3 Rationale (line 150 referring to `StorageComponent.loadOrAddPageForWrite`'s fallback), D4 heading + Rationale (line 159, 165), Track 5 checklist intro (line 651 "Make `WriteCache.getFilledUpTo` non-public"). These read as historical-ambition prose paired with the authoritative implementation account in the Track 5 retrospective; rewording is style-preference, not contradiction-blocker.
 - Two design.md formatting suggestions from Mutation 6's cold-read (parenthetical-anchor density at design.md:691-693; bold-period-bold-period style at design.md:484) — non-rule violations.
+
+-->
 
 ## Final Artifacts
 

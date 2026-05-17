@@ -270,3 +270,42 @@ TL;DR line 329, self-contradictory with the freshly-rewritten line
   "named, audit-gated helpers" (one-word swap, no other prose change).
 
 **Iterations**: 2 of 3 (PASS).
+
+
+## Mutation 8 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: rewrote the "Edge cases / Gotchas" → Post-WAL-replay
+file truncation bullet inside §Crash safety to reflect the Track 7
+Phase A iter-1 v2 ESCALATE inline-replanning revision: (1)
+`DiskStorage.postProcessIncrementalRestore` wiring corrected from
+"between `:1671` and `:1673` (before `flushAllData()`)" to "AFTER
+`:1673` (`flushAllData()`)" — eliminates the flush-after-truncate
+orphan re-creation hazard; (2) replaced the prior incorrect "purges
+LFRC entries via `WriteCache.shrinkFile`" claim (factually wrong —
+`WOWCache.removeCachedPages` only purges `writeCachePages`) with the
+layered shrink architecture: `LockFreeReadCache.shrinkFile` orchestrates
+`WriteCache.shrinkFile` + range-scoped `clearFileRange`, mirroring the
+existing `LockFreeReadCache.truncateFile` two-phase pattern; (3) added
+per-component EP-page floor (`targetBytes = max(pageSize, …)`) and
+corruption-skip guard (`EP.pagesSize == 0 && fileSize > pageSize` →
+WARN-and-skip); (4) tightened I6 wording from `==` to `<=` (with
+equality after a successful truncate; pass does not auto-repair
+`logical > physical`).
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Crash safety + Concurrency model +
+Overview): PASS — 3 suggestions (no blockers, no should-fix).
+
+**Findings**:
+- suggestion: the truncation bullet is now ~30 lines — at the upper
+  end for an Edge-cases bullet but well below the section budget.
+  Consider promoting to a dedicated `### Recovery-time orphan
+  truncation` sub-section if it grows further.
+- suggestion: line anchors (`AbstractStorage.java:801`, `:1673`) will
+  drift; phrase anchors (`flushAllData()` already in place) are more
+  durable. Consider trimming line numbers at Phase 4 sync.
+- suggestion: the Crash safety References footer could expand the D6
+  entry to name the three sub-pieces (layered shrink, EP-floor,
+  corruption-skip) so a footer skim conveys the full mechanism.
+
+**Iterations**: 1 of 3 (PASS).
