@@ -31,3 +31,27 @@
 - Broadened Overview ¶1 to "contributors who maintain or read the project's writing-style infrastructure… plus anyone whose drafting workflow runs against the consolidated `house-style.md`"
 
 **Iterations**: 3 of 3 (PASS — verdict after iteration 2 was already PASS; iteration 3 applied the single remaining should-fix as a courtesy)
+
+## Mutation 2 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: Rewrote the TL;DR paragraph of `§ Rename: every reference site across the repo` to fix Phase 2 consistency-review finding CR3 (off-by-counting). The prior text said "Twelve string references" but the per-file breakdown sums to 14 (CLAUDE.md ×2 + code-review ×1 + review-workflow-consistency ×1 + review-workflow-writing-style ×9 + concise-doc.md frontmatter ×1). Also removed a confusing "Plus a `/output-style concise-doc` slash-command reference" sentence that double-counted a CLAUDE.md line already enumerated in the per-file count. The new TL;DR explicitly reconciles the 14 grep-matchable references against the 15-row table (the 15th row is the line-3 `description:` content rewrite, not a grep match).
+
+**Mechanical checks** (target=design, scope=bounded): PASS (0 findings)
+**Cold-read** (scope: bounded — § Overview, § Core Concepts, § dsc-ai-tell calibration, § Rename: every reference site across the repo): PASS (0 blockers, 0 should-fix, 2 suggestions)
+
+**Findings** (suggestions only — not iterated):
+- suggestion: TL;DR runs 4 sentences; could split the table-row-count caveat into a sentence above the table rather than inside the TL;DR. Not a rule violation.
+- suggestion: The phrase "including the `/output-style concise-doc` slash-command line" is parenthetical inside the CLAUDE.md count; minor rewording would read more smoothly. Not a rule violation.
+
+**Iterations**: 1 of 3 (PASS)
+
+## Mutation 3 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: Rewrote the middle sentence of the closing § Overview paragraph (around line 13) to fix Phase 2 consistency-gate finding CR6 (off-by-counting regression that mutation #2's CR3 fix missed at line 13). The prior text said "Twelve string references ... across [four files]"; the new text says "Fourteen string references ... across [the same four files plus the renamed source file's own frontmatter] — see § Rename: every reference site across the repo for the full table." Brings the Overview into agreement with the § Rename TL;DR at line 232 (mutation #2).
+
+**Mechanical checks** (target=design, scope=bounded): PASS (0 findings)
+**Cold-read** (scope: bounded — § Overview, § Core Concepts, § Class Design, § Rename: every reference site across the repo): PASS (0 findings)
+
+**Findings**: none
+
+**Iterations**: 1 of 3 (PASS)

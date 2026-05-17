@@ -51,7 +51,7 @@ flowchart LR
 #### D1: Full rename to `house-style.md` (vs minimal rename or sibling file)
 
 - **Alternatives considered**: (a) keep `concise-doc.md`, just broaden the frontmatter description; (b) add `house-style.md` as a sibling file pointing back to `concise-doc.md` for the legacy rules; (c) full rename + find-and-replace across the repo (chosen).
-- **Rationale**: (a) leaves a misleading filename ("only documents", "only conciseness") that mismatches the actual scope (vocabulary, tone, structure, document shape across every authored surface). (b) doubles the lookup surface and creates two sources of truth, which is exactly the problem the refactor exists to solve. (c) gives one authoritative file name that matches the editorial term writers use ("the house style"). The rename surface is bounded (12 string references in 5 files, all internal `.claude/` infrastructure).
+- **Rationale**: (a) leaves a misleading filename ("only documents", "only conciseness") that mismatches the actual scope (vocabulary, tone, structure, document shape across every authored surface). (b) doubles the lookup surface and creates two sources of truth, which is exactly the problem the refactor exists to solve. (c) gives one authoritative file name that matches the editorial term writers use ("the house style"). The rename surface is bounded (14 string references in 5 files, all internal `.claude/` infrastructure).
 - **Risks/Caveats**: missed string references would violate the acceptance criterion. Mitigation: run `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` after every FRR step and require zero matches before commit. The `git mv` preserves history.
 - **Implemented in**: Track 1 (step references added during execution).
 - **Full design**: design.md §"Rename: every reference site across the repo"
@@ -90,7 +90,7 @@ flowchart LR
 ### Invariants
 
 - **Invariant 1 — Zero grep matches.** `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returns zero results after Track 1 completes. Test: end-of-track shell check.
-- **Invariant 2 — Single declarative source.** `house-style.md` is the only declarative source. `ai-tells/SKILL.md` and `prompts/design-review.md` cross-reference by section name; neither restates rules. Test: grep each file for declarative-rule patterns ("Banned vocabulary", "Em-dash discipline", "Title Case forbidden") and confirm only `house-style.md` carries them outside of cross-reference contexts.
+- **Invariant 2 — Single declarative source.** `house-style.md` is the only declarative source. `ai-tells/SKILL.md` and `prompts/design-review.md` cross-reference by section name; neither restates rules. Test: in each of `ai-tells/SKILL.md` and `prompts/design-review.md`, every occurrence of a declarative-rule phrase ("Banned vocabulary", "Em-dash discipline", "Title Case headings forbidden", etc.) must appear inside a `house-style.md § <Section>` cross-reference token. A free-standing heading or paragraph titled `## Banned vocabulary` (or equivalent declarative restatement) outside `house-style.md` is a violation. Mechanical form: `grep -nE "^#+\s+(Banned vocabulary|Em-dash discipline|Title Case headings forbidden)" .claude/skills/ai-tells/SKILL.md .claude/workflow/prompts/design-review.md` must return zero matches.
 - **Invariant 3 — Zero false positives on three known-good ADRs.** `dsc-ai-tell` produces zero findings on `docs/adr/persist-visible-count/adr.md`, `docs/adr/index-gc/adr.md`, `docs/adr/non-durable-wow/adr.md`. Test: Track 4's runner script invokes `design-mechanical-checks.py` against each ADR and asserts the JSON output contains zero findings with `rule == "dsc-ai-tell"`.
 - **Invariant 4 — Length caps.** `ai-tells/SKILL.md` ≤ 80 lines; `prompts/design-review.md` ≤ 200 lines. Test: `wc -l` at end of Tracks 2 and 3.
 
@@ -113,7 +113,7 @@ flowchart LR
 ## Checklist
 
 - [ ] Track 1: Rename `concise-doc.md` → `house-style.md` and consolidate declarative rules
-  > Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per `design.md § Internal layout of house-style.md` (absorbing ai-tells Tier-3 vocab + extra rules, design-review.md's Human-reader cold-read additions, design-review.md's Structural findings, and the 12 humanizer-gap patterns with inline before/after examples), update the frontmatter `name:` and `description:` to name the broader scope, and find-and-replace the 12 string references to `concise-doc` / `Concise Doc` across `CLAUDE.md`, `.claude/skills/code-review/SKILL.md`, `.claude/agents/review-workflow-consistency.md`, and `.claude/agents/review-workflow-writing-style.md`. The acceptance check is `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returning zero matches.
+  > Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per `design.md § Internal layout of house-style.md` (absorbing ai-tells Tier-3 vocab + extra rules, design-review.md's Human-reader cold-read additions, design-review.md's Structural findings, and the 12 humanizer-gap patterns with inline before/after examples), update the frontmatter `name:` and `description:` to name the broader scope, and find-and-replace the 14 string references to `concise-doc` / `Concise Doc` across `CLAUDE.md`, `.claude/skills/code-review/SKILL.md`, `.claude/agents/review-workflow-consistency.md`, `.claude/agents/review-workflow-writing-style.md`, and the renamed source file's own frontmatter. The acceptance check is `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returning zero matches.
   > **Scope:** ~4 steps covering `git mv` + frontmatter, content rewrite with humanizer gaps, find-and-replace sweep, end-of-track grep verification
 
 - [ ] Track 2: Trim `ai-tells/SKILL.md` to procedural overlay
@@ -132,7 +132,20 @@ flowchart LR
   > **Depends on:** Track 1 (descriptions cite house-style.md by section name)
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2 (consistency); iteration 1 (structural)
+
+**Auto-fixed (mechanical)**:
+- CR2: added `STOP_WORDS: frozenset[str]` constant to Track 4's constants checklist (required by the fragmented-header content-word-overlap rule).
+- CR3: corrected "Twelve / 12 string references" → "Fourteen / 14 string references" across six sites (`implementation-plan.md:54,116`, `plan/track-1.md:8,35,43`, plus the design.md § Rename TL;DR via `edit-design` mutation 2). The actual count is 14 (CLAUDE.md ×2 + code-review ×1 + review-workflow-consistency ×1 + review-workflow-writing-style ×9 + concise-doc.md frontmatter ×1) across five files.
+- CR4: Track 4's `main()` placement pointer corrected from the structural-shape block (`if run_design_shape_checks:`) to the content-scan block (`if args.target in ("design", "both"):` next to `check_dsc_parenthetical_asides`).
+- CR5: Invariant 2's test tightened with a concrete mechanical grep form so every declarative-rule phrase outside `house-style.md` is detectable in CI.
+- CR6: Overview off-by-counting regression at design.md:13 (the CR3 iteration-1 sweep missed this seventh location) — fixed via `edit-design` mutation 3.
+- CR7: Invariant 2's grep example "Title Case forbidden" updated to "Title Case headings forbidden" to match the actual planned `house-style.md` section name at design.md:157.
+
+**Escalated (design decisions)**:
+- CR1: Track 4's `check_dsc_ai_tell` signature scope. User chose **match the 5-arg bounded-aware sibling** — signature updated to `(file_path, lines, sections=None, changed_section=None, scope="whole-doc") -> List[Dict]` so bounded-mode mutations restrict findings to the changed section, consistent with `check_dsc_parenthetical_asides`.
+
+**Structural review**: PASS iteration 1 with zero findings.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

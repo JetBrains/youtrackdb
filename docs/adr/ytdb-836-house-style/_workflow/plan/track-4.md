@@ -26,12 +26,12 @@ Add a new `check_dsc_ai_tell` function to `design-mechanical-checks.py` that emi
 Starting state of `.claude/scripts/design-mechanical-checks.py` (1375 lines, surveyed during research):
 
 - **Lines 1-32 — Module header, imports, usage.** Add a brief mention of `dsc-ai-tell` to the docstring after the existing rules are listed.
-- **Lines 34-75 — Constants.** Add new constants: `TIER1_BANNED_VOCAB` (list of 26 words from `house-style.md § Tier 1 — hard ban`), `NEGATIVE_PARALLELISM_RE`, `SIGNPOSTING_OPENERS_RE`, `COPULA_AVOIDANCE_RE`, `AUTHORITY_TROPE_RE`, `HYPHENATED_PAIR_CLUSTER_THRESHOLD = 3`, `FRAGMENTED_HEADER_LEMMA_OVERLAP_THRESHOLD = 0.5`.
+- **Lines 34-75 — Constants.** Add new constants: `TIER1_BANNED_VOCAB` (list of 26 words from `house-style.md § Tier 1 — hard ban`), `NEGATIVE_PARALLELISM_RE`, `SIGNPOSTING_OPENERS_RE`, `COPULA_AVOIDANCE_RE`, `AUTHORITY_TROPE_RE`, `HYPHENATED_PAIR_CLUSTER_THRESHOLD = 3`, `FRAGMENTED_HEADER_LEMMA_OVERLAP_THRESHOLD = 0.5`, and `STOP_WORDS: frozenset[str]` (English stop-list — `the`, `a`, `an`, `is`, `are`, `was`, `were`, `be`, `been`, `being`, `of`, `for`, `to`, `in`, `on`, `at`, `by`, `from`, `with`, `as`, `and`, `or`, `but`, `if`, `then`, `that`, `this`, `these`, `those`, `it`, `its`) used by the fragmented-header rule to strip stop words before measuring content-word overlap.
 - **Lines 77-265 — Existing parsing helpers** (`read_lines`, `parse_code_fence`, `is_code_fence_line`, `fence_closes`, `parse_sections`, `collect_all_headings`, `normalize_heading`). Reuse: `parse_code_fence` / `fence_closes` for paragraph detection inside the new check.
 - **Lines 297-315 — `make_finding` helper.** Reuse verbatim for all `dsc-ai-tell` findings; the schema fits.
 - **Lines 318-1170 — Existing check functions** (`check_overview_first`, `check_per_section_shape`, `check_top_level_cap`, `check_per_section_length`, `check_dsc_parenthetical_asides`, `check_length_trigger_compliance`, `check_same_shape_siblings`, `check_mechanics_link_resolution`, `check_reverse_direction_refs`, `check_full_design_link_resolution`). The new `check_dsc_ai_tell` function sits alongside these.
 - **Lines 1177-1218 — `parse_args`.** No new CLI flags needed — `dsc-ai-tell` runs whenever `target` includes `design` (same gating as `check_dsc_parenthetical_asides`).
-- **Lines 1221-1372 — `main` driver.** Add one call into the `if run_design_shape_checks:` block (around line 1316) wiring up the new check.
+- **Lines 1221-1372 — `main` driver.** Add one call alongside `check_dsc_parenthetical_asides` (around line 1330, inside the `if args.target in ("design", "both"):` block) — `dsc-ai-tell` is a content-scan rule, not a structural-shape rule, so it belongs in the content-scan conditional, not in the `if run_design_shape_checks:` block above it. The two conditions evaluate equivalently today (`run_design_shape_checks = args.target in ("design", "both")`), so runtime behavior is identical; the placement preserves the existing structural-vs-content split.
 
 New file to create:
 - `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` — a seeded markdown file containing one paragraph per banned pattern. Roughly 60-80 lines total, exercising every regex with a clear failure trigger.
@@ -49,7 +49,7 @@ The four calibration refinements from `design.md § dsc-ai-tell calibration`:
 
 The approach implements the check function with explicit per-refinement compliance, then exercises it against the fixture and the three known-good ADRs. Order:
 
-1. **Implement `check_dsc_ai_tell` function.** Add the constants and the check function below `check_full_design_link_resolution` (around line 1170). The function takes `design_path: str`, `lines: List[str]`, `sections: List[Dict]` as inputs (same signature as `check_dsc_parenthetical_asides`). It walks the file once, tracks code-fence state via the existing `parse_code_fence` / `fence_closes` helpers, and emits findings per pattern. Each finding's `description` cites `house-style.md § <Section>` and the `rule` is `dsc-ai-tell`. `auto_applicable=False`. Wire the call into `main()` inside the `if run_design_shape_checks:` block. Per-pattern implementation notes:
+1. **Implement `check_dsc_ai_tell` function.** Add the constants and the check function below `check_full_design_link_resolution` (around line 1170). The function signature matches the bounded-aware sibling `check_dsc_parenthetical_asides`: `check_dsc_ai_tell(file_path: str, lines: List[str], sections: Optional[List[Dict]] = None, changed_section: Optional[str] = None, scope: str = "whole-doc") -> List[Dict]`. When `scope == "bounded"` and `changed_section` is supplied, findings are restricted to the section whose title matches `changed_section` — every other section is skipped. When `scope == "whole-doc"` (default), the function walks the entire file. It tracks code-fence state via the existing `parse_code_fence` / `fence_closes` helpers and emits findings per pattern. Each finding's `description` cites `house-style.md § <Section>` and the `rule` is `dsc-ai-tell`. `auto_applicable=False`. Wire the call alongside `check_dsc_parenthetical_asides` (see § Context and Orientation entry for `main` driver). Per-pattern implementation notes:
    - **Tier-1 vocab:** word-boundary regex per word, case-insensitive, walked once.
    - **Negative parallelism:** the issue's regex `\bit'?s not\b.*\bit'?s\b`, but constrained to a single paragraph (not greedy across blank lines).
    - **Em-dash density:** segment file into paragraphs (blank-line-bounded, outside fenced code); count `—` per paragraph; fire if count >1.
@@ -100,7 +100,7 @@ Track-level acceptance: `dsc-ai-tell` fires ≥1 finding per banned pattern on t
 - Independent of Tracks 2 and 3 — Track 4 can run in parallel with them once Track 1 is done.
 
 **Library / function signatures (within the script):**
-- `check_dsc_ai_tell(design_path: str, lines: List[str], sections: List[Dict]) -> List[Dict]` — signature matches the existing check functions.
+- `check_dsc_ai_tell(file_path: str, lines: List[str], sections: Optional[List[Dict]] = None, changed_section: Optional[str] = None, scope: str = "whole-doc") -> List[Dict]` — signature matches the bounded-aware sibling `check_dsc_parenthetical_asides`. `scope="bounded"` + `changed_section` restricts findings to the named section; `scope="whole-doc"` walks the entire file.
 - Reuses `parse_code_fence`, `fence_closes`, `collect_all_headings`, `make_finding` from elsewhere in the file.
 
 **External contracts:**
