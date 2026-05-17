@@ -43,12 +43,12 @@ A track can be skipped (`[~]`) in two situations:
      > histogram reader; this track's scope is fully covered.">
    ```
 
-   The plan entry holds only the intro paragraph; the track file's
-   `## Purpose / Big Picture` (intro paragraph) plus the detail
-   sections — `## Context and Orientation`, `## Plan of Work`, and
-   `## Interfaces and Dependencies` — and any track-level diagram
-   live in the track file (`plan/track-N.md`) and are removed in
-   step 3 below.
+   The plan entry holds only the intro paragraph. The track file's
+   `## Purpose / Big Picture` (intro paragraph), `## Context and
+   Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`,
+   and any track-level Mermaid diagram (which lives in `## Context
+   and Orientation`) live in the track file (`plan/track-N.md`) and
+   are removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
    step 4 below — this process step must not diverge from that rule.
@@ -60,20 +60,19 @@ A track can be skipped (`[~]`) in two situations:
 
 3. **Delete the track file** (`plan/track-N.md`) from disk if one
    exists. The track file was created at Phase 1 with its
-   `## Purpose / Big Picture` (intro paragraph) plus the detail
-   sections — `## Context and Orientation`, `## Plan of Work`, and
-   `## Interfaces and Dependencies` — populated, so it is the only
-   on-disk artifact carrying the per-track detail; the delete drops
-   both that detail and any reviews / decomposition / step episodes
-   that may have accumulated during Phase A or B.
+   `## Purpose / Big Picture` (intro paragraph), `## Context and
+   Orientation`, `## Plan of Work`, and `## Interfaces and
+   Dependencies` populated, so it is the only on-disk artifact
+   carrying the per-track detail; the delete drops both that detail
+   and any reviews / decomposition / step episodes that may have
+   accumulated during Phase A or B.
 
    **Track-file deletion is terminal.** Un-skipping a track via inline
    replanning requires re-authoring the track file's `## Purpose /
-   Big Picture` (intro paragraph) plus the detail sections —
-   `## Context and Orientation`, `## Plan of Work`, and
-   `## Interfaces and Dependencies` — from scratch; once a track has
-   been skipped, the track file is no longer a recovery source for
-   it.
+   Big Picture` (intro paragraph), `## Context and Orientation`,
+   `## Plan of Work`, and `## Interfaces and Dependencies` from
+   scratch; once a track has been skipped, the track file is no
+   longer a recovery source for it.
 
 4. **Track Pre-Flight (Panel 1 strategy assessment)** treats `[~]`
    tracks the same as `[x]` tracks. A skipped track's `**Skipped:**`
@@ -88,16 +87,16 @@ A track can be skipped (`[~]`) in two situations:
    **Retention rule for `[~]` entries.** The plan entry retains the
    intro paragraph, the `**Skipped:**` line, and the
    `**Strategy refresh:**` line indefinitely. It is **never trimmed
-   by the Phase C collapse pass** — Phase C collapse only runs against
+   by the Phase C collapse pass**: Phase C collapse only runs against
    `[x]` tracks at track completion (see
    [`track-code-review.md`](track-code-review.md) § Track Completion
    step 4); skipped tracks bypass that pass entirely. The track
-   file's `## Purpose / Big Picture` (intro paragraph) plus the
-   detail sections — `## Context and Orientation`, `## Plan of
-   Work`, and `## Interfaces and Dependencies` — and any track-level
-   diagram lived in the track file and were removed in step 3 above;
-   they are not recoverable from the plan entry once a track has
-   been skipped.
+   file's `## Purpose / Big Picture` (intro paragraph), `## Context
+   and Orientation`, `## Plan of Work`, `## Interfaces and
+   Dependencies`, and any track-level Mermaid diagram (which lived
+   in `## Context and Orientation`) lived in the track file and were
+   removed in step 3 above; they are not recoverable from the plan
+   entry once a track has been skipped.
 
 ---
 

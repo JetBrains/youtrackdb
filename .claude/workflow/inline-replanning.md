@@ -207,7 +207,7 @@ preview — they will appear in the next-session State 0 re-run.
 When a revision drafted during step 3 of [§Process](#process) lands —
 whether during the propose step itself or after review passes — each
 affected track must be written to its authoritative file location. The
-"Description lifecycle" table in `conventions-execution.md` §2.1 is the
+"Section lifecycle" table in `conventions-execution.md` §2.1 is the
 authority for non-inline-replan phases (Phase 1 write, Phase A,
 Phase C after collapse, Skipped at or before Phase A); this section is
 the authority for inline-replan revisions. If the two ever diverge, a
@@ -219,44 +219,54 @@ revision and the file(s) that carry the new description:
 1. **New track.** Add a thin checklist entry (title + intro paragraph +
    `**Scope:**` + optional `**Depends on:**`) to
    `implementation-plan.md`, and create a new `plan/track-N.md` track
-   file in the canonical 14-section ExecPlan shape — see
+   file in the canonical 14-section ExecPlan shape (see
    [`conventions-execution.md`](conventions-execution.md) §2.1 *Track
-   file content* for the full template (12 OpenAI sections +
-   `## Episodes` + `## Base commit`). The intro paragraph lands in
+   file content* for the full template: 12 OpenAI sections,
+   `## Episodes`, `## Base commit`). The intro paragraph lands in
    `## Purpose / Big Picture`; the prose that pre-Track-2 plans
    carried in the `**What/How/Constraints/Interactions**` subsections
    maps to `## Context and Orientation` (current state and the
    pre-revision baseline), `## Plan of Work` (step sequencing,
    constraints, ordering rationale), and `## Interfaces and
-   Dependencies` (interactions with other tracks and files). Any
-   track-level Mermaid diagram lands in `## Interfaces and
-   Dependencies`. The continuous-log sections (`## Progress`,
-   `## Surprises & Discoveries`, `## Decision Log`, `## Outcomes &
-   Retrospective`, `## Episodes`) start empty (HTML-comment
-   placeholders are fine); the deferred-sibling-Move sections start
-   with the standard reserved-slot HTML comments per D6/D10.
-   `## Base commit` records the SHA at which the new track will start
-   executing — typically `HEAD` at the time of the inline-replan
-   commit.
+   Dependencies` (interactions with other tracks and files). The
+   track-level acceptance criteria land in `## Validation and
+   Acceptance` (per-step EARS/Gherkin lines start as Phase A
+   placeholders). Any track-level Mermaid diagram lands in
+   `## Context and Orientation`. `## Progress` starts with the four
+   pre-seeded phase checkpoints (`- [ ] Review + decomposition`,
+   `- [ ] Step implementation`, `- [ ] Track-level code review`,
+   `- [ ] Track completion`) so the State C resume protocol in
+   `workflow.md` can read them as phase markers; the other
+   continuous-log sections (`## Surprises & Discoveries`,
+   `## Decision Log`, `## Outcomes & Retrospective`, `## Episodes`)
+   start empty (HTML-comment placeholders are fine); the
+   deferred-sibling-Move sections start with the standard
+   reserved-slot HTML comments per D6/D10. `## Base commit` records
+   the SHA at which the new track will start executing, typically
+   `HEAD` at the time of the inline-replan commit.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
    reviews recorded yet). Update the track file's `## Purpose / Big
    Picture` (intro paragraph), `## Context and Orientation` (current
-   state and pre-revision baseline), `## Plan of Work` (step
-   sequencing, constraints, ordering rationale), and `## Interfaces
-   and Dependencies` (interactions with other tracks and files) —
-   the same four-home split as case 1. The plan-file checklist entry
-   keeps its intro paragraph + `**Scope:**` + `**Depends on:**`
+   state and pre-revision baseline, plus any track-level Mermaid
+   diagram), `## Plan of Work` (step sequencing, constraints,
+   ordering rationale), `## Interfaces and Dependencies`
+   (interactions with other tracks and files), and `## Validation and
+   Acceptance` (track-level acceptance criteria; per-step EARS/Gherkin
+   lines remain Phase A placeholders). The plan-file checklist entry
+   keeps its intro paragraph, `**Scope:**`, and `**Depends on:**`
    unchanged unless the intro itself is being revised.
 
 3. **Revising a mid-execution track** (status `[ ]` with Phase A
-   reviews recorded and/or steps decomposed in the track file — the
+   reviews recorded and/or steps decomposed in the track file; the
    execution workflow never sets `[>]` on a track). Update the track
    file's `## Purpose / Big Picture` (intro paragraph), `## Context
-   and Orientation` (current state and pre-revision baseline),
-   `## Plan of Work` (step sequencing, constraints, ordering
-   rationale), and `## Interfaces and Dependencies` (interactions
-   with other tracks and files) — the same four-home split as case 1.
+   and Orientation` (current state and pre-revision baseline, plus
+   any track-level Mermaid diagram), `## Plan of Work` (step
+   sequencing, constraints, ordering rationale), `## Interfaces and
+   Dependencies` (interactions with other tracks and files), and
+   `## Validation and Acceptance` (track-level acceptance criteria;
+   per-step EARS/Gherkin lines remain Phase A placeholders).
    If the revision changes the intro paragraph, update the plan-file
    checklist entry's intro paragraph to match.
 

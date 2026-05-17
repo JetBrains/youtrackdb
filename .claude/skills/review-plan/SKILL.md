@@ -1,6 +1,6 @@
 ---
 name: review-plan
-description: "Manually re-run the autonomous plan review (Phase 2 — consistency + structural). The same review runs automatically as the first phase of /execute-tracks; this command is for re-runs after inline replanning or whenever the plan needs explicit re-validation."
+description: "Manually re-run the autonomous plan review (Phase 2 — consistency + structural). The same review runs automatically as the first phase of /execute-tracks; this command is for re-runs after inline replanning or whenever the plan needs explicit re-validation. TRIGGER when: user asks to re-validate the plan after inline replanning; user requests explicit plan review outside /execute-tracks. SKIP: /execute-tracks already running State 0 in this session (autonomous Phase 2 path will fire) — do not double-run."
 argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
@@ -38,13 +38,18 @@ Plan file: `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 Track files directory: `docs/adr/<dir-name>/_workflow/plan/`
 Design document: `docs/adr/<dir-name>/_workflow/design.md`
 
-Each `plan/track-N.md` track file's `## Purpose / Big Picture` section
-holds that pending track's `**What/How/Constraints/Interactions**`
-detail and any track-level Mermaid diagram (see
-`conventions-execution.md` §2.1 for the Description lifecycle). Phase 2
-sub-agents read every pending track's track file alongside the plan to
-verify pending-track descriptions; pass the absolute track-files
-directory path as the `plan_dir` argument on each sub-agent spawn.
+Each `plan/track-N.md` track file carries the pending track's
+detail across four plan-at-start sections: `## Purpose / Big Picture`
+(BLUF + intro paragraph), `## Context and Orientation` (codebase
+state at the start of the track plus any track-level Mermaid
+diagram), `## Plan of Work` (prose sequence of edits, ordering
+constraints, invariants), and `## Interfaces and Dependencies`
+(in-scope/out-of-scope files, inter-track dependencies, signatures).
+See `conventions-execution.md` §2.1 *Section lifecycle* for the
+per-section writer/reader matrix. Phase 2 sub-agents read every
+pending track's track file alongside the plan to verify
+pending-track descriptions; pass the absolute track-files directory
+path as the `plan_dir` argument on each sub-agent spawn.
 
 ---
 

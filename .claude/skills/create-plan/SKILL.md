@@ -167,16 +167,16 @@ file per planned track at
 structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
 checklist; each track file carries that track's detail spread
-across the four 14-section homes — `## Purpose / Big Picture`
+across the four 14-section homes: `## Purpose / Big Picture`
 (intro paragraph), `## Context and Orientation` (codebase state and
 any track-level Mermaid diagram), `## Plan of Work` (prose sequence
 of edits and additions), and `## Interfaces and Dependencies`
 (in-scope/out-of-scope file boundaries, inter-track dependencies,
 library/function signatures). Keeping per-track detail out of the
-plan keeps `/execute-tracks` startup context small — see
-`.claude/workflow/conventions.md` §1.2 (directory layout under
-`_workflow/`) and `conventions-execution.md` §2.1 (track-file shape
-and section lifecycle).
+plan keeps `/execute-tracks` startup context small (see
+`.claude/workflow/conventions.md` §1.2 for the directory layout
+under `_workflow/` and `conventions-execution.md` §2.1 for the
+track-file shape and section lifecycle).
 
 ```
 # <Feature Name>
@@ -232,11 +232,12 @@ and section lifecycle).
 Each track file (`plan/track-N.md`) is created with the four
 plan-at-start homes (`## Purpose / Big Picture`,
 `## Context and Orientation`, `## Plan of Work`,
-`## Interfaces and Dependencies`) and `## Validation and Acceptance`
-fully populated, the continuous-log sections empty, and the
-Phase-A-populated sections (`## Concrete Steps`,
-`## Idempotence and Recovery`) left as Phase A placeholders that
-decomposition will fill. The canonical section list and lifecycle
+`## Interfaces and Dependencies`) populated and the track-level
+prose in `## Validation and Acceptance` populated (per-step
+EARS/Gherkin lines are Phase A placeholders), the continuous-log
+sections empty, and the Phase-A-populated sections
+(`## Concrete Steps`, `## Idempotence and Recovery`) left as Phase A
+placeholders that decomposition will fill. The canonical section list and lifecycle
 table — which writer touches which section in which phase — live in
 `conventions-execution.md` §2.1; the verbatim ready-to-paste
 template body is reproduced below so this SKILL stays
