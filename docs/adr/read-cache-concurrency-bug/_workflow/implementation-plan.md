@@ -607,7 +607,7 @@ flowchart LR
   > are self-consistent with the post-Track-4 reality; no further plan
   > amendments required before Track 5 Phase A.
 
-- [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers; rename `loadOrAddPageForWrite`
+- [x] Track 5: Tighten `getFilledUpTo` access via gated helpers; rename `loadOrAddPageForWrite`
   > Make `WriteCache.getFilledUpTo` non-public and route the surviving
   > external consumers (≥ 5 — see `tracks/track-5.md` for the per-site set)
   > through narrowly-scoped helpers with rationale-bearing names.
@@ -615,27 +615,110 @@ flowchart LR
   > named helpers). Add javadoc to `WriteCache` and `StorageComponent`
   > documenting the discovery contract.
   >
-  > **Also absorbs from Track 4 Phase C review:** rename
-  > `AtomicOperation.loadOrAddPageForWrite` →
-  > `allocatePageForWrite` (plus the `StorageComponent` wrapper,
-  > the `AtomicOperationBinaryTracking` impl, 19 production allocator
-  > call sites, and ~80 test references including the test class
-  > `LoadOrAddPageForWriteTest` → `AllocatePageForWriteTest`). The
-  > current name is misleading: Track 4's Step 2 narrowed the
-  > AOBT-layer contract from "load or add" (total) to allocator-only
-  > on the disk engine; the AOBT Javadoc itself admits *"Despite the
-  > historical name, this method does NOT load existing pages on the
-  > disk engine"*. The rename must use the IDE Rename refactoring
-  > engine via `mcp-steroid://ide/change-signature` so polymorphic
-  > dispatch through the `AtomicOperation` SPI + Javadoc `{@link}`
-  > references update atomically (raw `Edit` silently misses these).
+  > **Track episode:**
+  > Routed the cross-component physical-size discovery channel through a
+  > named, audit-grep-able helper set per D4 and absorbed the Track 4
+  > Phase C `loadOrAddPageForWrite` → `allocatePageForWrite` rename in
+  > the same track. Two layers landed: Layer A's
+  > `WriteCache.physicalSizeForBackupSnapshot(fileId)` covers the one
+  > direct-`getFilledUpTo` caller (`DiskStorage.backupPagesWithChanges`,
+  > a post-unfreeze snapshot read whose Javadoc now spells out the
+  > not-quiesced semantics); Layer B's
+  > `StorageComponent.physicalSize(op, fileId, PhysicalReadIntent)` +
+  > 5-constant `PhysicalReadIntent` enum covers the 8 indirect callers
+  > (`CPMV2:141`, `PCV2:{2271,396}`, `IHM:1843`, `FSM:237`,
+  > `CDPB:{146,178,213}`). The Layer B helper routes through
+  > `op.filledUpTo` so the AOBT `FileChanges` placeholder side-effect
+  > is preserved on first touch. `WriteCache.getFilledUpTo` is
+  > `@Deprecated(forRemoval=false)` with a Javadoc enumerating the
+  > retained internal-caller set (LFRC.doLoad + AOBT.{allocatePageForWrite,
+  > filledUpTo} + the two `WriteCache` implementer overrides); every
+  > retained caller carries `@SuppressWarnings("deprecation")`. JLS §9.4
+  > forbids a literal package-private downgrade on an interface abstract
+  > method, so the audit-grep contract is enforced by `@Deprecated` +
+  > Javadoc + helper-set naming rather than access modifier. The IDE
+  > Rename renamed `loadOrAddPageForWrite` → `allocatePageForWrite`
+  > atomically across the SPI interface, the
+  > `AtomicOperationBinaryTracking` impl, the `StorageComponent` wrapper,
+  > 21 production allocator call sites, the test class
+  > `LoadOrAddPageForWriteTest` → `AllocatePageForWriteTest`, and ~80
+  > test references; a follow-up `steroid_apply_patch` (35 hunks ×
+  > 14 files) swept the prose / Javadoc-`{@code}` / string-literal
+  > residue the Rename engine deliberately leaves untouched. The AOBT
+  > method's Javadoc now leads with the cross-engine asymmetry headline
+  > "allocator-only on disk; eager-install total on in-memory" and the
+  > same headline is mirrored in the renamed test class header.
   >
-  > **Scope:** ~4-5 steps covering: the helper-shape decision and
-  > introduction; per-consumer migration to the helpers; the access
-  > downgrade on `WriteCache.getFilledUpTo`; the `loadOrAddPageForWrite`
-  > → `allocatePageForWrite` rename via the IDE refactoring engine;
-  > the javadoc + PSI-find-usages verification pass.
-  > **Depends on:** Track 4
+  > **Phase C track-level review.** Iteration 1 spawned 7 dimensional
+  > reviewers in parallel (CQ, BC, TB, TC, CS, TY, PF) against the
+  > cumulative diff. After dedup and synthesis: 9 in-scope findings
+  > (3 doc/quality + 2 test-mutation + 3 test-completeness + 1 minor-doc),
+  > 7 deferred (5 style polish; 2 minor test-hardening that fold cleanly
+  > into Track 2's MT-hardening backlog and Track 6's
+  > `StorageBackupMTStateTest` resurrection bullet — no new plan
+  > corrections required). Iter-1 implementer commit `fe31279c57`
+  > applied 8 fixes: (CQ1) re-indented the new `StorageComponent` class
+  > header Javadoc from `     *` to ` *`; (CQ2) deleted the orphaned
+  > 2-arg `StorageComponent.getFilledUpTo` (PSI-verified zero callers —
+  > only ref was a self-`{@link}` in the `physicalSize` Javadoc, also
+  > removed) so the audit-grep surface has no unnamed bypass;
+  > (CQ5) dropped a redundant `assert intent != null;` already covered
+  > by `@Nonnull`; (TB1) added literal-expected-value asserts to all 7
+  > Layer A parity tests so each helper is independently falsifiable;
+  > (TB2) added `verifyNoInteractions(mockWriteCache)` +
+  > `verifyNoMoreInteractions(op)` to `StorageComponentPhysicalSizeTest`
+  > to catch the bypass route the Javadoc names; (TC1) post-truncate
+  > corner test on both Layer A engines; (TC2) deleted-file behavior
+  > documenting the cross-engine asymmetry (in-memory throws
+  > `StorageException`, disk returns 0); (TC3) AOBT existing-entry arm
+  > exercised through `physicalSize` with reflection-mutated
+  > `maxNewPageIndex` and `isSameAs` placeholder-identity pin so a
+  > future regression that re-creates the placeholder on the second
+  > call would fail. TB4 verified clean (the `{@link WOWCacheLoadOrAddTest}`
+  > cross-reference resolved — class exists). Gate-check fan-out across
+  > CQ/TB/TC: PASS at iteration 1, zero new findings.
+  >
+  > **Cross-track impact.**
+  >
+  > - **Track 6 (Integration regression test).** TC2's in-memory
+  >   deleted-file asymmetry test now documents a divergence that may
+  >   matter to recovery / backup scenarios that exercise both engines.
+  >   If any downstream test invokes
+  >   `WriteCache.physicalSizeForBackupSnapshot` on a fileId that may
+  >   have been deleted, the engine choice changes behavior. Worth
+  >   flagging during Track 6 Phase A. The
+  >   `StorageBackupTestWithLuceneIndex` commented-out `@Test`
+  >   annotations at `:64`/`:117` remain relevant if Track 6 un-skips
+  >   `StorageBackupMTStateTest` for the `restoreFromIncrementalBackup`
+  >   Lucene-indexed parallel.
+  > - **Track 6 (continued).** The pre-existing
+  >   `LocalPaginatedCollectionV2TestIT` 9-error cascade rooted in
+  >   `testAddManyRecords` (async flush vs `.fsm` file cleanup,
+  >   reproduces on the base commit) still applies — Track 6's
+  >   CS1 / I4 MT pin work should factor this flake into
+  >   regression-detection design.
+  > - **Track 7 (Recovery-time orphan truncation).** TC3's
+  >   reflection-based pin on
+  >   `AtomicOperationBinaryTracking.fileChanges` + `maxNewPageIndex`
+  >   is a reusable pattern for any Track 7 test that needs to
+  >   exercise AOBT in-TX state from a test home outside the
+  >   `…paginated.atomicoperations` package. The cross-engine asymmetry
+  >   headline is now load-bearing in both AOBT impl Javadoc and the
+  >   renamed test class header — Track 7 readers entering the AOBT
+  >   layer for the recovery-time `verifyAndTruncateOrphans` recipe
+  >   see the disk-vs-memory split up front.
+  > - **Deferred items not requiring plan corrections** (affected
+  >   backlogs already absorb the categories): CQ4 (WriteCache Javadoc
+  >   ~30% trim), CQ6 (Layer A delegator comment density), TB3
+  >   (placeholder default-state shape), TC4 (Layer A read-lock
+  >   contention pin → Track 2 MT-hardening backlog), TC5 (backup
+  >   mid-iteration extension pin → Track 6 `StorageBackupMTStateTest`
+  >   resurrection), TY3 (`physicalSize` lock-held assert — no cheap
+  >   lock probe).
+  >
+  > **Step file:** `tracks/track-5.md` (6 steps, 0 failed; iter-2
+  > step-6 review fix `066176414e`; Phase C iter-1 review fix
+  > `fe31279c57`)
 
 - [ ] Track 6: Integration regression test
   > End-to-end concurrent-insert workload that reproduces the original
