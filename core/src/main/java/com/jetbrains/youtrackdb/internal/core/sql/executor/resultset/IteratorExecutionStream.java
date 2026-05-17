@@ -42,9 +42,14 @@ public class IteratorExecutionStream implements ExecutionStream {
       try {
         closeable.close();
       } catch (Exception e) {
+        // Pass the iterator class name inline (not as a vararg) so Java's
+        // overload resolution unambiguously selects
+        // {@code warn(Object, String, Throwable)} — without this, the
+        // {@code warn(Object, String dbName, String message, Object...)}
+        // overload wins instead and treats the message as a database name.
         LogManager.instance().warn(this,
-            "Failed to close wrapped iterator %s: %s",
-            iterator.getClass().getSimpleName(), e);
+            "Failed to close wrapped iterator " + iterator.getClass().getSimpleName(),
+            e);
       }
     }
   }

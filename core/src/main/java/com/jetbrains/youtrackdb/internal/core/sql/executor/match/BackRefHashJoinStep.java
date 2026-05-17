@@ -581,6 +581,108 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     return new CachedBuild(result, targetEntity);
   }
 
+  /**
+   * Evaluates the IndexLookup amortization guard for the current back-ref
+   * build of a {@link ChainSemiJoin} and updates {@link #cachedIndexRidSet},
+   * {@link #indexRidSetResolved}, {@link #indexLookupRejected}, and
+   * {@link #accumulatedLinkBagTotal} accordingly.
+   *
+   * <p>Extracted from {@link #buildChainHashTable} so that the three switch
+   * branches (REJECT / DEFER / PROCEED) can be exercised in isolation by
+   * unit tests without standing up the full query pipeline. Reads the
+   * effective load-to-scan ratio and class-level selectivity lazily and
+   * caches them on the step instance — repeated calls within one query
+   * reuse the cached values.
+   *
+   * @param chain        the ChainSemiJoin descriptor whose {@code indexFilter}
+   *                     drives the guard
+   * @param backRefRid   the current back-ref RID; used to deduplicate the
+   *                     accumulator contribution when an entry is evicted
+   *                     and later re-enters via a cache miss
+   * @param linkBagSize  reverse link-bag size of the current back-ref
+   *                     (added to the accumulator on first observation)
+   * @param ctx          command context (for index statistics lookup)
+   */
+  void applyIndexLookupAmortizationGuard(
+      ChainSemiJoin chain, RID backRefRid, long linkBagSize,
+      CommandContext ctx) {
+    if (Double.isNaN(cachedIndexLookupSelectivity)) {
+      cachedIndexLookupSelectivity =
+          chain.indexFilter().estimateSelectivity(ctx);
+    }
+    if (Double.isNaN(cachedLoadToScanRatio)) {
+      cachedLoadToScanRatio = EdgeTraversal.currentLoadToScanRatio();
+    }
+    long estimatedHits = chain.indexFilter().estimateHits(ctx);
+    int estimatedSize =
+        estimatedHits < 0 ? -1
+            : (int) Math.min(estimatedHits, Integer.MAX_VALUE);
+    // Accumulate the current back-ref's reverse-link-bag size before
+    // the guard check — mirrors EdgeTraversal's accumulator semantics.
+    // Only count each back-ref once: an entry evicted from the LRU
+    // cache and later re-entering must not be added twice.
+    if (backRefsContributedToAccumulator == null) {
+      backRefsContributedToAccumulator = new HashSet<>();
+    }
+    if (backRefsContributedToAccumulator.add(backRefRid)) {
+      accumulatedLinkBagTotal += linkBagSize;
+    }
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        estimatedSize, cachedIndexLookupSelectivity,
+        accumulatedLinkBagTotal, cachedLoadToScanRatio);
+    switch (decision) {
+      case REJECT -> {
+        // Class-level selectivity above threshold — a later back-ref
+        // won't change this verdict; short-circuit for the rest of
+        // the query.
+        indexLookupRejected = true;
+        cachedIndexRidSet = null;
+        indexRidSetResolved = true;
+        // Accumulator will no longer be read; release the dedup set.
+        backRefsContributedToAccumulator = null;
+      }
+      case DEFER -> {
+        // Accumulator not yet over the break-even threshold. Leave
+        // indexRidSet null for this build; a later back-ref with a
+        // bigger link bag may push the total over.
+        cachedIndexRidSet = null;
+        // indexRidSetResolved stays false — re-evaluate next call.
+      }
+      case PROCEED -> {
+        cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
+            chain.indexFilter(), ctx);
+        indexRidSetResolved = true;
+        // Accumulator will no longer be read; release the dedup set.
+        backRefsContributedToAccumulator = null;
+      }
+    }
+  }
+
+  // =========================================================================
+  // Test-only accessors (package-private) — let unit tests verify the
+  // amortization guard's side effects without reflection.
+  // =========================================================================
+
+  /** Returns {@code true} when the IndexLookup guard recorded a REJECT verdict. */
+  boolean isIndexLookupRejected() {
+    return indexLookupRejected;
+  }
+
+  /** Returns the cached index RidSet after the guard resolved, or {@code null}. */
+  @Nullable RidSet getCachedIndexRidSet() {
+    return cachedIndexRidSet;
+  }
+
+  /** Returns {@code true} after the guard committed (PROCEED or REJECT). */
+  boolean isIndexRidSetResolved() {
+    return indexRidSetResolved;
+  }
+
+  /** Returns the running accumulator of link-bag sizes observed by the guard. */
+  long getAccumulatedLinkBagTotal() {
+    return accumulatedLinkBagTotal;
+  }
+
   @Nullable private CachedBuild buildChainHashTable(
       RID backRefRid, ChainSemiJoin chain, CommandContext ctx) {
     var targetEntity = loadEntity(backRefRid, ctx);
@@ -612,56 +714,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       // large-but-not-huge indexes, imposing a per-query build cost that
       // outweighed the filtering benefit (IC5 regression).
       if (!indexRidSetResolved) {
-        if (Double.isNaN(cachedIndexLookupSelectivity)) {
-          cachedIndexLookupSelectivity =
-              chain.indexFilter().estimateSelectivity(ctx);
-        }
-        if (Double.isNaN(cachedLoadToScanRatio)) {
-          cachedLoadToScanRatio = EdgeTraversal.currentLoadToScanRatio();
-        }
-        long estimatedHits = chain.indexFilter().estimateHits(ctx);
-        int estimatedSize =
-            estimatedHits < 0 ? -1
-                : (int) Math.min(estimatedHits, Integer.MAX_VALUE);
-        // Accumulate the current back-ref's reverse-link-bag size before
-        // the guard check — mirrors EdgeTraversal's accumulator semantics.
-        // Only count each back-ref once: an entry evicted from the LRU
-        // cache and later re-entering must not be added twice.
-        if (backRefsContributedToAccumulator == null) {
-          backRefsContributedToAccumulator = new HashSet<>();
-        }
-        if (backRefsContributedToAccumulator.add(backRefRid)) {
-          accumulatedLinkBagTotal += linkBag.size();
-        }
-        var decision = EdgeTraversal.evaluateIndexLookupAmortization(
-            estimatedSize, cachedIndexLookupSelectivity,
-            accumulatedLinkBagTotal, cachedLoadToScanRatio);
-        switch (decision) {
-          case REJECT -> {
-            // Class-level selectivity above threshold — a later back-ref
-            // won't change this verdict; short-circuit for the rest of
-            // the query.
-            indexLookupRejected = true;
-            cachedIndexRidSet = null;
-            indexRidSetResolved = true;
-            // Accumulator will no longer be read; release the dedup set.
-            backRefsContributedToAccumulator = null;
-          }
-          case DEFER -> {
-            // Accumulator not yet over the break-even threshold. Leave
-            // indexRidSet null for this build; a later back-ref with a
-            // bigger link bag may push the total over.
-            cachedIndexRidSet = null;
-            // indexRidSetResolved stays false — re-evaluate next call.
-          }
-          case PROCEED -> {
-            cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
-                chain.indexFilter(), ctx);
-            indexRidSetResolved = true;
-            // Accumulator will no longer be read; release the dedup set.
-            backRefsContributedToAccumulator = null;
-          }
-        }
+        applyIndexLookupAmortizationGuard(
+            chain, backRefRid, linkBag.size(), ctx);
       }
       indexRidSet = cachedIndexRidSet;
     }

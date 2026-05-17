@@ -622,29 +622,9 @@ public class EdgeTraversal {
 
     // 1. Cache hit — return immediately.
     //    Caller does per-vertex ratio check in applyPreFilter().
-    if (key != null) {
-      if (cache == null) {
-        cache = new HashMap<>();
-      }
-      if (cache.containsKey(key)) {
-        var cached = cache.get(key);
-        if (cached == null) {
-          // Previously rejected descriptor (e.g., CAP_EXCEEDED,
-          // SELECTIVITY_TOO_LOW) — count each vertex that hits the
-          // cached-null entry as a skip for accurate PROFILE output, and
-          // restore the original rejection reason so that an interleaved
-          // external recordPreFilterSkip(LINKBAG_TOO_SMALL) cannot mask
-          // the real cause in NEVER-APPLIED diagnostics.
-          var reason =
-              cachedSkipReasons != null ? cachedSkipReasons.get(key) : null;
-          if (reason != null) {
-            recordPreFilterSkip(reason);
-          } else {
-            preFilterSkippedCount++;
-          }
-        }
-        return cached;
-      }
+    var hit = lookupCache(key);
+    if (hit != null) {
+      return hit.ridSet();
     }
 
     // 2. Cheap size estimate — no full materialization.
@@ -653,30 +633,111 @@ public class EdgeTraversal {
     int estimatedSize = desc.estimatedSize(ctx, key);
 
     // 3. Absolute cap exceeded — safe to cache null permanently.
-    //    No vertex of any link bag size would benefit from a RidSet
-    //    this large (exceeds maxRidSetSize).
-    if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
-      recordPreFilterSkip(PreFilterSkipReason.CAP_EXCEEDED);
-      if (key != null && cache != null && canCache(key)) {
-        cache.put(key, null);
-        rememberCachedSkipReason(key, PreFilterSkipReason.CAP_EXCEEDED);
-      }
+    if (rejectIfCapExceeded(estimatedSize, key)) {
       return null;
     }
 
     // 4. Descriptor-specific selectivity check against estimate.
-    //    Standalone IndexLookup: use checkIndexLookupAmortization().
-    //    Composite containing IndexLookup: run the amortization check.
-    //      - On REJECT (selectivity too high): ask the Composite whether
-    //        any non-IndexLookup child (e.g. EdgeRidLookup for a
-    //        back-reference) still justifies the pre-filter, via
-    //        anyChildPassesExcluding(IndexLookup.class, …). The
-    //        just-rejected IndexLookup is excluded explicitly from this
-    //        re-check, to avoid implicitly relying on its threshold
-    //        agreeing with the amortization threshold.
-    //      - On DEFER (amortization not met): respect it — the build cost
-    //        applies to the entire Composite.
-    //    EdgeRidLookup / DirectRid: delegate to passesSelectivityCheck().
+    if (!evaluateDescriptorSelectivity(desc, estimatedSize, linkBagSize, key, ctx)) {
+      return null;
+    }
+
+    // 5. First big-enough hit — resolve (materialize) and cache.
+    return materializeAndCache(desc, key, ctx);
+  }
+
+  /**
+   * Outcome of a cache lookup. {@code present == true} signals the caller
+   * should short-circuit {@code resolveWithCache} and return {@link #ridSet}
+   * (which may be {@code null} when the previous attempt at this key was
+   * rejected). Used by {@link #lookupCache} so the caller can distinguish
+   * "no entry" (compute) from "entry == null" (cached rejection).
+   */
+  private record CacheHit(@Nullable RidSet ridSet) {
+  }
+
+  /**
+   * Returns a {@link CacheHit} on cache hit (success or cached null), or
+   * {@code null} when there is no entry yet. Lazily allocates the cache map
+   * on first miss so edges without an intersection descriptor pay nothing.
+   *
+   * <p>On a cached-null hit, records a skip reason: prefers the stored
+   * reason from {@link #cachedSkipReasons} (so the original rejection
+   * cause survives an interleaved external skip), falling back to a
+   * bare counter bump.
+   */
+  @Nullable private CacheHit lookupCache(@Nullable Object key) {
+    if (key == null) {
+      return null;
+    }
+    if (cache == null) {
+      cache = new HashMap<>();
+    }
+    if (!cache.containsKey(key)) {
+      return null;
+    }
+    var cached = cache.get(key);
+    if (cached == null) {
+      var reason =
+          cachedSkipReasons != null ? cachedSkipReasons.get(key) : null;
+      if (reason != null) {
+        recordPreFilterSkip(reason);
+      } else {
+        preFilterSkippedCount++;
+      }
+    }
+    return new CacheHit(cached);
+  }
+
+  /**
+   * Records {@link PreFilterSkipReason#CAP_EXCEEDED} and caches {@code null}
+   * permanently when {@code estimatedSize} exceeds the absolute RidSet cap.
+   * Returns {@code true} when the cap was exceeded (caller must return
+   * {@code null} from {@code resolveWithCache}).
+   *
+   * <p>No vertex of any link bag size would benefit from a RidSet larger
+   * than the cap, so caching the null is safe and saves the repeated
+   * estimate call on later vertices with the same key.
+   */
+  private boolean rejectIfCapExceeded(int estimatedSize, @Nullable Object key) {
+    if (estimatedSize <= TraversalPreFilterHelper.maxRidSetSize()) {
+      return false;
+    }
+    recordPreFilterSkip(PreFilterSkipReason.CAP_EXCEEDED);
+    if (key != null && cache != null && canCache(key)) {
+      cache.put(key, null);
+      rememberCachedSkipReason(key, PreFilterSkipReason.CAP_EXCEEDED);
+    }
+    return true;
+  }
+
+  /**
+   * Routes the selectivity decision to the right strategy for {@code desc}:
+   *
+   * <ul>
+   *   <li>Standalone {@code IndexLookup}: {@link #checkIndexLookupAmortization}.
+   *       REJECT (selectivity too high or stats unknown) → return false.
+   *       DEFER → return false (no cache; later vertex may trigger).
+   *       PROCEED → return true.</li>
+   *   <li>{@code Composite} containing an {@code IndexLookup} child:
+   *       run the amortization check on the IndexLookup child. On REJECT,
+   *       ask the Composite whether any NON-IndexLookup child still
+   *       justifies the pre-filter (via {@code anyChildPassesExcluding}).
+   *       The just-rejected IndexLookup is deliberately excluded from this
+   *       re-check to avoid implicitly relying on its threshold agreeing
+   *       with the amortization threshold.</li>
+   *   <li>Any other descriptor ({@code EdgeRidLookup} / {@code DirectRid}
+   *       / {@code Composite} without IndexLookup): delegate to
+   *       {@link RidFilterDescriptor#passesSelectivityCheck}.</li>
+   * </ul>
+   *
+   * @return {@code true} if the caller should fall through to materialise,
+   *         {@code false} if the descriptor was rejected/deferred (and the
+   *         appropriate skip reason already recorded).
+   */
+  private boolean evaluateDescriptorSelectivity(
+      RidFilterDescriptor desc, int estimatedSize, int linkBagSize,
+      @Nullable Object key, CommandContext ctx) {
     RidFilterDescriptor.IndexLookup indexLookup = null;
     boolean isComposite = false;
     if (desc instanceof RidFilterDescriptor.IndexLookup il) {
@@ -690,45 +751,49 @@ public class EdgeTraversal {
       var decision = checkIndexLookupAmortization(
           indexLookup, estimatedSize, linkBagSize, key, ctx);
       if (decision == AmortizationDecision.REJECT && isComposite) {
-        // Composite: the IndexLookup child's selectivity is too high,
-        // but other children (e.g. EdgeRidLookup for a back-reference)
-        // may still justify the pre-filter. Ask the Composite whether
-        // any NON-IndexLookup child passes — using the regular
-        // passesSelectivityCheck (any-child anyMatch) would re-include
-        // the just-rejected IndexLookup, which is at best redundant and
-        // at worst incorrect if its threshold ever diverges from the
-        // amortization threshold.
+        // Composite rescue: the IndexLookup child failed, but a sibling
+        // (e.g. EdgeRidLookup back-reference) may still justify the build.
         var composite = (RidFilterDescriptor.Composite) desc;
         if (estimatedSize >= 0
             && !composite.anyChildPassesExcluding(
                 RidFilterDescriptor.IndexLookup.class,
                 estimatedSize, linkBagSize, ctx)) {
           recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
-          return null;
+          return false;
         }
-        // At least one non-IndexLookup child passes → materialize.
-      } else if (decision != AmortizationDecision.PROCEED) {
-        // Standalone REJECT, or DEFER (accumulation not met yet).
-        return null;
+        // Non-IndexLookup child passes → fall through to materialise.
+        return true;
       }
-      // PROCEED (or Composite fallback passed) → fall through to materialize.
-    } else if (estimatedSize >= 0
-        && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
-      // EdgeRidLookup / DirectRid: delegate to the descriptor.
-      recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
-      return null;
+      return decision == AmortizationDecision.PROCEED;
     }
 
-    // 5. First big-enough hit — resolve (materialize) and cache.
-    //    Pass the cache key so EdgeRidLookup reuses the target RID.
-    //    Record build time unconditionally on this cold path (T7).
+    if (estimatedSize >= 0
+        && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
+      recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Cold-path materialisation: resolves the descriptor, records build time,
+   * captures the RidSet size for PROFILE output, and caches the result
+   * (success or BUILD_FAILED null) under {@code key}.
+   *
+   * <p>{@code canCache} permits overwriting an existing entry, so a
+   * Composite REJECT-then-rescue path (where the IndexLookup amortisation
+   * guard inserted a null at near-capacity) can replace that null with the
+   * freshly-materialised RidSet rather than silently dropping it.
+   */
+  @Nullable private RidSet materializeAndCache(
+      RidFilterDescriptor desc, @Nullable Object key, CommandContext ctx) {
     long buildStart = System.nanoTime();
     var ridSet = desc.resolve(ctx, key);
     preFilterBuildTimeNanos += System.nanoTime() - buildStart;
     if (ridSet != null) {
       // Set once: an empty RidSet (size==0) does not "claim" the slot,
-      // so the next non-empty materialization overwrites it.  This is
-      // intentional — reporting ridSetSize=0 in PROFILE is meaningless.
+      // so the next non-empty materialization overwrites it. Reporting
+      // ridSetSize=0 in PROFILE is meaningless.
       if (preFilterRidSetSize == 0) {
         preFilterRidSetSize = ridSet.size();
       }
@@ -737,20 +802,15 @@ public class EdgeTraversal {
       // resolve() returned null after passing all up-front guards — e.g.
       // resolveIndexToRidSet aborted on its runtime checkpoint guard, or
       // resolveReverseEdgeLookup hit RecordNotFoundException on the
-      // target vertex. Record a dedicated skip reason so a subsequent
-      // cached-null hit on this key restores a meaningful cause onto
-      // lastSkipReason instead of leaving it stale.
+      // target vertex. Cache the failure under BUILD_FAILED so a later
+      // cached-null hit restores a meaningful cause onto lastSkipReason.
       recordPreFilterSkip(PreFilterSkipReason.BUILD_FAILED);
     }
     if (key != null && cache != null && canCache(key)) {
-      // canCache allows overwriting an existing entry, so a Composite
-      // REJECT-then-rescue path (where checkIndexLookupAmortization
-      // inserted a null at near-capacity) can replace that null with the
-      // freshly-materialized RidSet rather than silently dropping it.
       cache.put(key, ridSet);
       if (ridSet != null) {
-        // Real RidSet now lives at this key — drop any stale rejection
-        // reason from a prior REJECT before the rescue path materialized.
+        // Drop any stale rejection reason from a prior REJECT before this
+        // rescue path materialised a real RidSet at the same key.
         if (cachedSkipReasons != null) {
           cachedSkipReasons.remove(key);
         }
@@ -829,7 +889,13 @@ public class EdgeTraversal {
     // {@link PreFilterSkipReason#STATS_UNAVAILABLE} for the bounded-loss
     // rationale. This stateless variant has no place to record a skip
     // reason; the caller (e.g. BackRefHashJoinStep) attaches its own.
-    if (selectivity < 0) {
+    // NaN check is explicit because {@code NaN < 0} is {@code false} in
+    // Java's IEEE-754 semantics, so a {@code Double.NaN} sentinel from an
+    // index whose statistics produce a not-a-number would slip past the
+    // negative-sentinel guard and reach the downstream arithmetic. No
+    // current caller passes NaN, but the cost of the extra branch is
+    // negligible and keeps the contract aligned with the javadoc.
+    if (Double.isNaN(selectivity) || selectivity < 0) {
       return AmortizationDecision.REJECT;
     }
     if (estimatedSize >= 0

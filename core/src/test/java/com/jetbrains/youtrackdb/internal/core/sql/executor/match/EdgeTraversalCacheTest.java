@@ -952,15 +952,35 @@ public class EdgeTraversalCacheTest {
     assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isFalse();
   }
 
-  /** Unknown selectivity (-1.0) passes conservatively. */
+  /**
+   * Unknown selectivity ({@code -1.0}) rejects — without a known {@code s}
+   * the build cost {@code B} cannot be bounded, so the design's bounded-loss
+   * contract requires REJECT. Mirrors the MATCH runtime path
+   * ({@link EdgeTraversal#evaluateIndexLookupAmortization}).
+   */
   @Test
-  public void indexLookup_passesSelectivityCheck_unknownSelectivity_passes() {
+  public void indexLookup_passesSelectivityCheck_unknownSelectivity_rejects() {
     var indexDesc = mock(IndexSearchDescriptor.class);
     when(indexDesc.estimateSelectivity(any())).thenReturn(-1.0);
     var desc = new IndexLookup(indexDesc);
     var ctx = new BasicCommandContext();
 
-    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isTrue();
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isFalse();
+  }
+
+  /**
+   * NaN selectivity also rejects — same rationale as the negative-sentinel
+   * case. The implementation must guard explicitly because
+   * {@code NaN < 0} is {@code false} in Java's IEEE-754 semantics.
+   */
+  @Test
+  public void indexLookup_passesSelectivityCheck_nanSelectivity_rejects() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(Double.NaN);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isFalse();
   }
 
   /** Zero selectivity (perfect filter) passes. */
@@ -2705,6 +2725,25 @@ public class EdgeTraversalCacheTest {
     var decision = EdgeTraversal.evaluateIndexLookupAmortization(
         /* estimatedSize */ 100_000,
         /* selectivity   */ -1.0,
+        /* accumulated   */ 0L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.REJECT);
+  }
+
+  /**
+   * NaN selectivity also REJECTs. {@code Double.NaN < 0} evaluates to
+   * {@code false} under IEEE-754, so a plain {@code selectivity < 0} guard
+   * would have let a NaN sentinel slip through into the downstream
+   * {@code 1 - selectivity} arithmetic (which would itself yield NaN). The
+   * implementation guards explicitly with {@link Double#isNaN(double)}
+   * even though no current caller produces NaN — the cost of the extra
+   * branch is negligible and keeps the contract aligned with the javadoc.
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_nanSelectivity_rejects() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 100_000,
+        /* selectivity   */ Double.NaN,
         /* accumulated   */ 0L,
         /* loadToScan    */ 100.0);
     assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.REJECT);

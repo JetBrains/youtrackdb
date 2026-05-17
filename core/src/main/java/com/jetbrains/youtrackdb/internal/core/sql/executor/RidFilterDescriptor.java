@@ -263,16 +263,23 @@ public sealed interface RidFilterDescriptor {
      * {@code linkBagSize} — the selectivity is a property of the index
      * condition and the class, not of any specific vertex's link bag.
      *
-     * <p>Returns {@code true} (conservative: apply the filter) when
-     * statistics are unavailable ({@code estimateSelectivity} returns
-     * {@code -1.0}).
+     * <p>Returns {@code false} (REJECT) when statistics are unavailable
+     * ({@code estimateSelectivity} returns {@code < 0} or {@link Double#NaN}).
+     * Without a known selectivity we cannot bound the build cost {@code B},
+     * which the design's bounded-loss contract requires before committing to
+     * materialise — same rationale as the MATCH runtime path
+     * ({@code EdgeTraversal.checkIndexLookupAmortization} and
+     * {@code EdgeTraversal.evaluateIndexLookupAmortization}), which also
+     * short-circuits to REJECT on unknown selectivity. Keeping the two
+     * paths semantically aligned avoids a silent contract divergence one
+     * planner change away.
      */
     @Override
     public boolean passesSelectivityCheck(
         int resolvedSize, int linkBagSize, CommandContext ctx) {
       double selectivity = indexDescriptor.estimateSelectivity(ctx);
-      if (selectivity < 0) {
-        return true; // unknown selectivity — optimistic
+      if (Double.isNaN(selectivity) || selectivity < 0) {
+        return false; // unknown selectivity — reject, see javadoc above.
       }
       return selectivity <= TraversalPreFilterHelper.indexLookupMaxSelectivity();
     }
