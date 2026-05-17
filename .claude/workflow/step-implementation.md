@@ -415,15 +415,16 @@ finding ID prefixes, and gate format.
       reviewing one step's diff. The implementation plan below
       provides strategic context: goals, architecture decisions
       (Decision Records), constraints, and component topology
-      (Component Map). The track steps file provides tactical
+      (Component Map). The track file provides tactical
       context: what each step does and what was discovered.
-      **Episodes** are the blockquoted sections under completed
-      steps (starting with `**What was done:**`) — they are
-      structured records of implementation outcomes. Use episodes
-      to understand intent behind prior steps and check for
-      cross-step consistency issues. Severities: **blocker** (must
-      fix), **should-fix** (should fix before merge),
-      **suggestion** (optional improvement).
+      **Episodes** are the blocks in the track file's `## Episodes`
+      section — one `### Step N — commit <SHA>, <ISO> [ctx=<level>]`
+      block per completed step, carrying `**What was done:**`,
+      `**What was discovered:**`, `**What changed from the plan:**`,
+      and `**Key files:**` fields. Use episodes to understand intent
+      behind prior steps and check for cross-step consistency issues.
+      Severities: **blocker** (must fix), **should-fix** (should fix
+      before merge), **suggestion** (optional improvement).
 
       ## Review Target
       Track {N}, Step {M}: {step description}
@@ -438,14 +439,23 @@ finding ID prefixes, and gate format.
       shown in full. If the snapshot is missing, fall back to
       docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
-      ## Track Steps (tactical context)
+      ## Track File (tactical context)
       Read the track file at:
         docs/adr/{dir-name}/_workflow/plan/track-{N}.md
-      The file begins with a `## Description` section carrying the
-      track's original description — intro paragraph +
-      **What/How/Constraints/Interactions** subsections + any
-      track-level diagram — copied there at Phase A start. Below
-      that, all steps for this track appear with their episodes.
+      The file follows the 14-section per-track ExecPlan shape. The
+      four Phase 1 track-level sections — `## Purpose / Big Picture`
+      (BLUF + ADDED/MODIFIED/REMOVED triad), `## Context and
+      Orientation` (current-state framing), `## Plan of Work`
+      (strategy + step-references appended at Phase A), and
+      `## Interfaces and Dependencies` (in-scope / out-of-scope,
+      inter-track dependencies) — carry the track's intent and any
+      track-level diagram. `## Concrete Steps` carries the per-step
+      roster (one `N. <description> — risk: <tag> [x|!| ]` line per
+      step, optionally with `commit: <SHA>` appended once the step
+      lands). `## Episodes` carries one block per completed step
+      (`### Step N — commit <SHA>, <ISO> [ctx=<level>]`); join
+      roster to episode by step number, with the roster's optional
+      `commit: <SHA>` as a disambiguator.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL

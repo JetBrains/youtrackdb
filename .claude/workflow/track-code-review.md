@@ -236,11 +236,13 @@ inconsistent error handling across steps, missing integration between
 components introduced in different steps, architectural drift from the
 plan). The implementation plan below provides strategic context: goals,
 architecture decisions (Decision Records), constraints, and component
-topology (Component Map). The track steps file provides tactical context:
+topology (Component Map). The track file provides tactical context:
 what each step does and what was discovered. **Episodes** are the
-blockquoted sections under completed steps (starting with
-`**What was done:**`) — structured records of implementation outcomes.
-Use episodes to understand intent and check whether the combined result
+blocks in the track file's `## Episodes` section — one
+`### Step N — commit <SHA>, <ISO> [ctx=<level>]` block per completed
+step, carrying `**What was done:**`, `**What was discovered:**`,
+`**What changed from the plan:**`, and `**Key files:**` fields. Use
+episodes to understand intent and check whether the combined result
 matches the plan's goals. Severities: **blocker** (must fix),
 **should-fix** (should fix before merge), **suggestion** (optional improvement).
 
@@ -257,19 +259,27 @@ current track and other not-started tracks are shown in full. If the
 snapshot is missing, fall back to
 docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
-## Track Steps (tactical context)
+## Track File (tactical context)
 Read the track file at:
   docs/adr/{dir-name}/_workflow/plan/track-{N}.md
-The file begins with a `## Description` section carrying the track's
-original description — intro paragraph +
-**What/How/Constraints/Interactions** subsections + any track-level
-diagram — copied there at Phase A start. Below that, all steps for
-this track appear with their episodes. Each step also carries a
-`**Risk:**` line tagging it as `low`, `medium`, or `high` — treat
-`medium` and `high` step ranges as **focal points** within the diff
-(weight your attention toward those changes; the tag identifies where
-tests + the workflow's own gating could not easily catch issues, so
-this review carries more of the load there).
+The file follows the 14-section per-track ExecPlan shape. The four
+Phase 1 track-level sections — `## Purpose / Big Picture` (BLUF +
+ADDED/MODIFIED/REMOVED triad), `## Context and Orientation`
+(current-state framing), `## Plan of Work` (strategy + step-references
+appended at Phase A), and `## Interfaces and Dependencies` (in-scope /
+out-of-scope, inter-track dependencies) — carry the track's intent
+and any track-level diagram. `## Concrete Steps` carries the per-step
+roster (one `N. <description> — risk: <tag> [x|!| ]` line per step,
+optionally with `commit: <SHA>` appended once the step lands); the
+inline `risk: <tag>` token tags each step as `low`, `medium`, or
+`high` — treat `medium` and `high` step ranges as **focal points**
+within the diff (weight your attention toward those changes; the tag
+identifies where tests + the workflow's own gating could not easily
+catch issues, so this review carries more of the load there).
+`## Episodes` carries one block per completed step
+(`### Step N — commit <SHA>, <ISO> [ctx=<level>]`); join roster to
+episode by step number, with the roster's optional `commit: <SHA>`
+as a disambiguator.
 
 ## Changed Files
 The changed-files list is at:
@@ -949,10 +959,12 @@ implementation plan:
      track). Follow the same format as other tracks in the plan.
 
 2. **Save plan changes** — update `implementation-plan.md` and, if a
-   new track was added or an existing track's
-   `**What/How/Constraints/Interactions**` subsections need
-   somewhere to live, the corresponding `plan/track-<M>.md` step
-   file. Note the finding IDs that motivated each plan correction.
+   new track was added or an existing track's four Phase 1
+   track-level sections (`## Purpose / Big Picture`,
+   `## Context and Orientation`, `## Plan of Work`,
+   `## Interfaces and Dependencies`) need additional content, the
+   corresponding `plan/track-<M>.md` track file. Note the finding
+   IDs that motivated each plan correction.
 
 3. **Commit and push the plan corrections** as a separate Workflow
    update commit (per `commit-conventions.md` § Commit type
@@ -1071,26 +1083,26 @@ proceed directly to track completion **in the same session**.
    and step episodes.
 
    **Always keep** (regardless of plan shape): the **intro paragraph**
-   (the first paragraph of the original description, before any
-   `**What**:` / `**How**:` / `**Constraints**:` / `**Interactions**:`
-   subsection), the `**Track episode:**` block (written at collapse
-   time), the `**Track file:**` pointer, and the `**Strategy refresh:**`
-   line if present — though that line is never yet on disk at Phase C
-   collapse time; the next session's Track Pre-Flight gate appends it
-   when Panel 1 (strategy assessment) clears (see
+   (the first paragraph of the original plan-checklist description),
+   the `**Track episode:**` block (written at collapse time), the
+   `**Track file:**` pointer, and the `**Strategy refresh:**` line if
+   present — though that line is never yet on disk at Phase C collapse
+   time; the next session's Track Pre-Flight gate appends it when
+   Panel 1 (strategy assessment) clears (see
    [`track-review.md`](track-review.md) § Track Pre-Flight step 6).
 
    **Always drop**: the `**Scope:**` line and the `**Depends on:**`
    line.
 
    Pending-track entries in the plan are written in the thin form
-   during Phase 1, so there are no
-   `**What**: / **How**: / **Constraints**: / **Interactions**:`
-   subsections present in the plan-file entry to drop — the detailed
-   description has lived in the track file's `## Description` section
-   from Phase 1 onward. Phase C does not touch the track file's
-   description either; it only writes the track episode + collapse
-   into the plan-file entry.
+   during Phase 1 (intro paragraph + `**Scope:**` + `**Depends on:**`
+   only); the track's detailed intent, plan, and dependency content
+   live in the track file's four Phase 1 track-level sections
+   (`## Purpose / Big Picture`, `## Context and Orientation`,
+   `## Plan of Work`, `## Interfaces and Dependencies`) from Phase 1
+   onward, not inline in the plan checklist. Phase C does not touch
+   those track-file sections either; it only writes the track episode +
+   collapse into the plan-file entry.
 
    **Track episode fields:**
    - Strategic summary covering: what was built, key discoveries, plan
