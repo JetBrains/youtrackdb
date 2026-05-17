@@ -975,12 +975,11 @@ public class EdgeTraversal {
    *
    * <p>{@code m = estimatedSize / (loadToScanRatio · (1 − s))}
    *
-   * <p>This is a pure cost-model break-even — callers add their own safety
-   * margin on top before triggering BUILD_EAGER (see
-   * {@link #FORECAST_SAFETY_MARGIN}). The cushion lives at the call site so
-   * the formula stays a single-purpose break-even and remains reusable for
-   * the {@code DEFERRED_WITH_NET} safety-net trigger
-   * {@code T = max(2·forecastN, m)} unchanged.
+   * <p>This is a pure cost-model break-even. It is reused unchanged by
+   * both decision sites in {@link #checkIndexLookupAmortization}: the
+   * BUILD_EAGER gate ({@code forecastN > ceil(m)}) and the
+   * {@code DEFERRED_WITH_NET} safety-net trigger
+   * ({@code T = max(2·forecastN, m)}).
    *
    * <p>Boundary handling:
    * <ul>
