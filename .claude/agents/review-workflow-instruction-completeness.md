@@ -25,7 +25,7 @@ Each is a place where missing a complement, a fallback, or a recovery silently s
 
 Use **`Read`** on the changed files and on referenced files they orchestrate. Use **`Grep`** to find other workflow phases that consume a given phase's output (catches "Phase B writes X; does anything actually read X?"). PSI does not apply.
 
-When a phase produces a structured artifact (e.g., a step file, an episode, an audit summary), search for the consumers to confirm the artifact's shape is fully specified.
+When a phase produces a structured artifact (e.g., a track file, an episode, an audit summary), search for the consumers to confirm the artifact's shape is fully specified.
 
 ## Your mission
 

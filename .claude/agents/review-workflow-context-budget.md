@@ -105,7 +105,7 @@ When a single step matches more than one criterion below, file **one** finding c
 
 #### Read sizing
 - **Sub-agent delegation for heavy reads.** A new workflow step that reads many files, a long `git diff`, or a full plan/design doc directly into the orchestrator's context (instead of delegating to a sub-agent that returns a summary) is a peak hit. Flag steps that do load-bearing exploration without an Agent / Explore / Plan dispatch.
-- **Targeted reads over full-file reads.** Workflow steps should say "read § X of Y" or "read offset N limit M" when only a section matters. Flag new steps that read entire plan / design / step files when one section is the actual input.
+- **Targeted reads over full-file reads.** Workflow steps should say "read § X of Y" or "read offset N limit M" when only a section matters. Flag new steps that read entire plan / design / track files when one section is the actual input.
 - **Pointer over inline.** A workflow prompt that inlines a 50+ line recipe / table / code listing that lives in `.claude/docs/`, `mcp-steroid://`, or another reachable file pays the inline cost on every invocation. Flag inlined content that could be a pointer.
 - **No repeated reads.** A workflow that reads the same file at multiple phases without stashing parsed output pays each time. Flag new phases that re-read content the previous phase already loaded.
 

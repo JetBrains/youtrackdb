@@ -20,13 +20,16 @@ name. Otherwise, default to the current git branch name
 Read:
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
 - `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify)
-- `docs/adr/<dir-name>/_workflow/tracks/track-*.md` — all step files with step
-  episodes. Each step file begins with a `## Description` section
-  carrying the track's original description (written there by
-  `create-plan` at Phase 1), so "what each track was supposed to do"
-  lives in the step file. Skipped tracks may have had their step
-  files deleted by `track-skip` — for those tracks read the
-  `[~] Track N`'s `**Skipped:**` line in the plan file instead.
+- `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all track files with step
+  episodes. Each track file carries the track's original description
+  across its `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies` sections
+  (written there by `create-plan` at Phase 1), so "what each track was
+  supposed to do" lives in the track file. Per-step content (one block
+  per completed step) lives in each track file's `## Episodes`
+  section. Skipped tracks may have had their track files deleted by
+  `track-skip` — for those tracks read the `[~] Track N`'s
+  `**Skipped:**` line in the plan file instead.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the
 actual implemented code: all classes, interfaces, and components mentioned
@@ -64,7 +67,7 @@ authoritative source for edge cases.
 
 `design-final.md` and `adr.md` are the **only** workflow files that
 survive merge into `develop`. Every other workflow file —
-`implementation-plan.md`, `tracks/track-N.md`, `design.md`,
+`implementation-plan.md`, `plan/track-N.md`, `design.md`,
 `design-mechanics.md`, `design-mutations.md` — lives under
 `docs/adr/<dir-name>/_workflow/` and is removed in the cleanup commit
 at the end of Phase 4 (Step 5 below) before the PR is merged. Anything
@@ -154,9 +157,9 @@ with:
 - `target`: `both` when a mechanics-final companion exists, else
   `design` (no `.md` suffix — these values pass through to the
   script's `--target` flag verbatim)
-- `plan_path` / `tracks_dir`: **omit**. Phase 4 produces a new
+- `plan_path` / `plan_dir`: **omit**. Phase 4 produces a new
   committed artifact whose section structure may differ from the
-  original `design.md`; the plan and step-file `**Full design**` refs
+  original `design.md`; the plan and track-file `**Full design**` refs
   continue to point at the (frozen) original. The cross-file ref check
   is naturally skipped when these paths are absent.
 - `intended_edit`: full file content for both files. Section names match
@@ -298,8 +301,8 @@ git commit -m "Remove workflow scaffolding"
 git push
 ```
 
-This deletes the plan, design.md, design-mechanics.md, every step
-file under `tracks/`, and the design-mutations log in one commit.
+This deletes the plan, design.md, design-mechanics.md, every track
+file under `plan/`, and the design-mutations log in one commit.
 The squash-merge folds this deletion together with the rest of the
 branch's history; on `develop`, the final state is the two (or three)
 durable artifacts plus the implemented code.

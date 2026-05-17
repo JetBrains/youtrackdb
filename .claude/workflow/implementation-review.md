@@ -16,7 +16,7 @@ vs. current-state ambiguity, ASPIRATIONAL/VIOLATED invariants). Two steps run in
 sequence:
 
 1. **Consistency Review** — reads the design document, implementation plan,
-   step files (one per pending track), and actual codebase to find gaps and
+   track files (one per pending track), and actual codebase to find gaps and
    inconsistencies between them. Each finding carries a
    `Classification: mechanical | design-decision` tag emitted by the
    sub-agent. Mechanical fixes apply automatically; design decisions are
@@ -120,7 +120,7 @@ plan-review files have no uncommitted changes:
 ```bash
 git status --porcelain \
   docs/adr/<dir-name>/_workflow/implementation-plan.md \
-  docs/adr/<dir-name>/_workflow/tracks/ \
+  docs/adr/<dir-name>/_workflow/plan/ \
   docs/adr/<dir-name>/_workflow/design.md \
   docs/adr/<dir-name>/_workflow/design-mechanics.md \
   docs/adr/<dir-name>/_workflow/design-mutations.md
@@ -169,11 +169,14 @@ findings.
 - **Gaps**: plan elements without design coverage, design elements no track
   covers, codebase constructs the documents should reference but don't
 
-Each pending track's detailed description
-(`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) lives in that track's step file (`tracks/track-N.md`,
-written by `create-plan` at Phase 1) rather than inline in the plan
-file; the consistency review reads the step files alongside the plan.
+Each pending track's detailed description lives in that track's
+track file (`plan/track-N.md`, written by `create-plan` at Phase 1)
+rather than inline in the plan file — split across the four
+track-level sections (`## Purpose / Big Picture`, `## Context and
+Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`),
+with any track-level Mermaid diagram landing under `## Context and
+Orientation`. The consistency review reads the track files alongside
+the plan.
 
 ### Sub-agent prompt
 
@@ -193,10 +196,10 @@ field, not on severity.
 
 ```
 Iteration 1 (full review):
-  1. Spawn the consistency sub-agent with plan, step files, design, codebase.
+  1. Spawn the consistency sub-agent with plan, track files, design, codebase.
   2. Receive findings, each tagged Classification: mechanical | design-decision.
   3. Apply ALL mechanical fixes immediately:
-     - Plan / step-file edits: native Edit.
+     - Plan / track-file edits: native Edit.
      - design.md edits: route through the edit-design skill (mutation
        discipline — see §Mutation discipline for design.md fixes below).
   4. If any design-decision findings remain: batch-present to the user
@@ -239,7 +242,7 @@ mechanical fixes that landed so the next session does not re-run them.
 
 Findings ride in the orchestrator's conversation context for the
 iteration loop; plan and design fixes are applied via Edit / edit-design
-to `implementation-plan.md`, the affected `tracks/track-N.md` files, and
+to `implementation-plan.md`, the affected `plan/track-N.md` files, and
 the design document. The review itself is not persisted to a separate
 file — once the gate passes, the conversation is the only in-flight
 record, and the durable trace is:
@@ -264,9 +267,9 @@ consistency, and plan-file bloat.
 
 Each pending track's detailed description (the subject of TRACK
 DESCRIPTIONS checks, plus several cross-file bullets in TRACK SIZING,
-SCOPE INDICATORS, and CONSISTENCY) lives in that track's step file
-(`tracks/track-N.md`, written by `create-plan` at Phase 1) rather than
-inline in the plan file; the structural review reads the step files
+SCOPE INDICATORS, and CONSISTENCY) lives in that track's track file
+(`plan/track-N.md`, written by `create-plan` at Phase 1) rather than
+inline in the plan file; the structural review reads the track files
 alongside the plan.
 
 **Full details:** [`structural-review.md`](structural-review.md)
@@ -285,12 +288,12 @@ Same shape as the consistency review:
 
 ```
 Iteration 1 (full review):
-  1. Spawn the structural sub-agent with plan, step files, design.
+  1. Spawn the structural sub-agent with plan, track files, design.
   2. Receive findings, each tagged Classification: mechanical | design-decision.
      Per-prompt rule: ALL bloat findings classify as mechanical; track-ordering
      and contradiction findings classify as design-decision (see §Mechanical
      vs. design-decision classifier below).
-  3. Apply mechanical fixes immediately (Edit for plan / step files,
+  3. Apply mechanical fixes immediately (Edit for plan / track files,
      edit-design for design.md).
   4. Batch-escalate any design-decision findings to the user once. Apply
      user-approved fixes.
@@ -434,7 +437,7 @@ end. Pre-existing plans don't break.
 
 ### 2. The workflow-update commit
 
-After Phase 2 passes, the orchestrator stages the plan, step files, and
+After Phase 2 passes, the orchestrator stages the plan, track files, and
 design files, and commits with the message:
 
 ```
@@ -462,7 +465,7 @@ for narrative breakage. If the cold-read rejects the mutation, the
 orchestrator escalates that specific fix to the user (effectively
 re-classifying it from `mechanical` to `design-decision`).
 
-Plan-file and step-file edits use `Edit` directly — no mutation
+Plan-file and track-file edits use `Edit` directly — no mutation
 discipline applies to those files.
 
 ---
@@ -503,10 +506,10 @@ broken that incremental revision cannot fix it.
 When both reviews pass:
 
 1. Update `## Plan Review` with the audit summary (see §Audit trail).
-2. Stage and commit the plan / step-file / design changes. Stage every
-   step file the review actually touched (use `git status --porcelain
-   docs/adr/<dir-name>/_workflow/tracks/` to find them; pass each
-   modified path explicitly rather than the whole `tracks/` directory
+2. Stage and commit the plan / track-file / design changes. Stage every
+   track file the review actually touched (use `git status --porcelain
+   docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
+   modified path explicitly rather than the whole `plan/` directory
    so unrelated files don't sneak in). The `design*.md` glob picks up
    `design.md` plus `design-mechanics.md` and `design-mutations.md`
    when `edit-design` touched them during the review (`design.md`
@@ -514,8 +517,8 @@ When both reviews pass:
    path):
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/tracks/track-<N>.md \
-           ... (one path per modified step file) \
+           docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
+           ... (one path per modified track file) \
            docs/adr/<dir-name>/_workflow/design*.md
    git commit -m "Plan review autonomous fixes for <plan-name>
 

@@ -42,10 +42,10 @@ As the first durable action of `/create-plan`, ensure the workflow
 directory exists so research handoff files have a home if context
 fills up before Step 4:
 ```bash
-mkdir -p docs/adr/<dir-name>/_workflow/tracks
+mkdir -p docs/adr/<dir-name>/_workflow/plan
 ```
 This is idempotent — safe to re-run on resume. The directory carries
-the plan, design, step files, and handoff files; the Phase 4 cleanup
+the plan, design, track files, and handoff files; the Phase 4 cleanup
 commit removes it before merge (see
 `.claude/workflow/conventions.md` §1.2).
 
@@ -56,7 +56,7 @@ After you have finished reading the workflow documents, ask the user to describe
 The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 (the `_workflow/` subdir holds every ephemeral working file — plan,
-design, step files, reviews — and is removed in the Phase 4
+design, track files, reviews — and is removed in the Phase 4
 cleanup commit before merge; see `conventions.md` §1.2 and
 `workflow.md` § Final Artifacts).
 The codebase is at the current working directory.
@@ -113,16 +113,22 @@ Help the user develop the plan:
    workflow rules:
    - Every track gets an **intro paragraph** in the plan checklist
      entry (a short paragraph of high-level context) and a matching
-     `tracks/track-N.md` step file whose `## Description` section
-     carries the same intro paragraph followed by detailed `**What**:`
-     / `**How**:` / `**Constraints**:` / `**Interactions**:`
-     subsections (no length cap on the detail). See `planning.md`
-     §Track descriptions for what each subsection should cover.
-   - Include a track-level Mermaid component diagram in the step
-     file's `## Description` (immediately after the
-     `**Interactions**:` blockquote) when the track has 3+ internal
-     components with non-trivial interactions. Track-level diagrams
-     are **never rendered in the plan file**.
+     `plan/track-N.md` track file whose `## Purpose / Big Picture`
+     section carries a one-line BLUF followed by the same intro
+     paragraph. The track's detailed content spreads across three
+     other plan-at-start homes (no length cap on any of them):
+     `## Context and Orientation` carries the codebase state at the
+     start of the track and the concrete deliverables it produces;
+     `## Plan of Work` carries the prose sequence of edits and
+     additions plus ordering constraints and invariants to preserve;
+     `## Interfaces and Dependencies` carries in-scope/out-of-scope
+     file boundaries, inter-track dependencies, and library/function
+     signatures. See `conventions-execution.md` §2.1 for the
+     canonical section list and lifecycle.
+   - Include a track-level Mermaid component diagram inside the
+     track file's `## Context and Orientation` section when the
+     track has 3+ internal components with non-trivial interactions.
+     Track-level diagrams are **never rendered in the plan file**.
    - Track sizing rule: if a track would need more than ~5-7 steps, split
      it into separate dependent tracks. The execution agent handles
      sequencing and episode propagation between dependent tracks.
@@ -155,18 +161,22 @@ Help the user develop the plan:
 Do NOT implement anything. Only research and plan.
 
 Write the implementation plan to
-`docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one step
+`docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one track
 file per planned track at
-`docs/adr/<dir-name>/_workflow/tracks/track-N.md` using the two
+`docs/adr/<dir-name>/_workflow/plan/track-N.md` using the two
 structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
-checklist; each step file carries that track's detailed
-`**What/How/Constraints/Interactions**` subsections and any
-track-level Mermaid diagram in its `## Description` section. Keeping
-per-track detail out of the plan keeps `/execute-tracks` startup
-context small — see `.claude/workflow/conventions.md` §1.2 (directory
-layout under `_workflow/`) and `conventions-execution.md` §2.1
-(step-file shape and description lifecycle).
+checklist; each track file carries that track's detail spread
+across the four 14-section homes: `## Purpose / Big Picture`
+(intro paragraph), `## Context and Orientation` (codebase state and
+any track-level Mermaid diagram), `## Plan of Work` (prose sequence
+of edits and additions), and `## Interfaces and Dependencies`
+(in-scope/out-of-scope file boundaries, inter-track dependencies,
+library/function signatures). Keeping per-track detail out of the
+plan keeps `/execute-tracks` startup context small (see
+`.claude/workflow/conventions.md` §1.2 for the directory layout
+under `_workflow/` and `conventions-execution.md` §2.1 for the
+track-file shape and section lifecycle).
 
 ```
 # <Feature Name>
@@ -204,11 +214,11 @@ layout under `_workflow/`) and `conventions-execution.md` §2.1
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <intro paragraph — high-level context; detailed description in tracks/track-1.md>
+  > <intro paragraph — high-level context; detailed description in plan/track-1.md>
   > **Scope:** ~N steps covering X, Y, Z
 
 - [ ] Track 2: <title>
-  > <intro paragraph — high-level context; detailed description in tracks/track-2.md>
+  > <intro paragraph — high-level context; detailed description in plan/track-2.md>
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
 
@@ -219,47 +229,109 @@ layout under `_workflow/`) and `conventions-execution.md` §2.1
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
 
-Each step file (`tracks/track-N.md`) is created with `## Description`
-fully populated and the remaining sections as `[ ]` placeholders that
-Phase A → C will fill:
+Each track file (`plan/track-N.md`) is created with the four
+plan-at-start homes (`## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) populated and the track-level
+prose in `## Validation and Acceptance` populated (per-step
+EARS/Gherkin lines are Phase A placeholders), the continuous-log
+sections empty, and the Phase-A-populated sections
+(`## Concrete Steps`, `## Idempotence and Recovery`) left as Phase A
+placeholders that decomposition will fill. The canonical section list and lifecycle
+table — which writer touches which section in which phase — live in
+`conventions-execution.md` §2.1; the verbatim ready-to-paste
+template body is reproduced below so this SKILL stays
+self-sufficient (the lifecycle source is durable; the design-doc
+copy is ephemeral and removed in the Phase 4 cleanup commit, so it
+cannot be a durable pointer target).
 
 ````markdown
 # Track N: <title>
 
-## Description
-<intro paragraph — same as the plan checklist entry's intro, so the
-step file is self-sufficient context for Phase B/C sub-agents that
-don't read the plan>
+## Purpose / Big Picture
+<One-line BLUF stating the user-visible behavior gained after this track lands.>
 
-> **What**:
-> - <bullet list of concrete deliverables>
->
-> **How**:
-> - <approach notes, ordering constraints, invariants to preserve>
->
-> **Constraints**:
-> - <in-scope/out-of-scope files, compatibility requirements>
->
-> **Interactions**:
-> - <how this track depends on or enables other tracks>
+<!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-```mermaid
-<optional track-level component diagram (≤10 nodes); see planning.md>
-```
+<Intro paragraph from the plan checklist entry, restated here so the file
+is self-sufficient — Phase B/C sub-agents that don't read the root plan
+see it.>
 
 ## Progress
 - [ ] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
+- [ ] Track completion
 
-## Reviews completed
+## Surprises & Discoveries
+<!-- Continuous-log. Promoted by the orchestrator from per-step "What was
+discovered" when the finding affects future steps or other tracks. Empty
+at Phase 1. -->
 
-## Steps
+## Decision Log
+<!-- Continuous-log. Execution-time decisions: inline-replan choices,
+scope-downs, dependency reveals, gate-override reasons. -->
+
+<!-- Reserved for Move 1 — per-track inlined Decision Records. -->
+
+## Outcomes & Retrospective
+<!-- Continuous-log. Review iteration outcomes and the track-completion
+summary at Phase C. -->
+
+## Context and Orientation
+<What state the codebase is in at the start of this track — files,
+modules, non-obvious terminology, concrete deliverables this track
+produces. Place any optional track-level Mermaid component diagram
+(≤10 nodes) inside this section when the track has 3+ internal
+components with non-trivial interactions.>
+
+## Plan of Work
+<Prose sequence of edits and additions — the approach, ordering
+constraints, invariants to preserve, references to the Concrete
+Steps roster below. Phase 1 writes the approach prose; Phase A
+appends a per-step sequencing summary that references the Concrete
+Steps roster.>
+
+## Concrete Steps
+<!-- Phase A placeholder — decomposition writes a thin numbered
+roster here: one entry per step with description, `risk:` tag, and a
+`[ ]` status checkbox. Per-step episodes do NOT live here; they live
+in `## Episodes` below. The roster is immutable after Phase A except
+for the status checkbox flip and the optional `commit:` annotation
+Phase B appends. -->
+
+## Episodes
+<!-- Continuous-log. Phase B sub-step 7 appends one block per
+completed step, identified by step number + commit SHA. Empty at
+Phase 1; Phase A does not populate. -->
+
+## Validation and Acceptance
+<Track-level behavioral acceptance criteria.>
+
+<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+
+<!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used
+verbatim as test method names. Empty until Move 3 lands. -->
+
+## Idempotence and Recovery
+<!-- Phase A placeholder — names per-step idempotence and recovery
+paths once steps are decomposed. -->
+
+## Artifacts and Notes
+<!-- Continuous-log (rare). Cross-step artifact references that don't
+belong to one specific step. Per-step episode content lives in
+`## Episodes` above. Often empty. -->
+
+## Interfaces and Dependencies
+<In-scope and out-of-scope file boundaries, compatibility
+requirements, inter-track dependencies (which other tracks supply
+prerequisites; which downstream tracks consume this one's output),
+and library/function signatures relevant to this track.>
 ````
 
-The `## Base commit` section is added by Phase B at session start and
-is omitted from the Phase 1 skeleton. The full step-file shape across
-phases is documented in `conventions-execution.md` §2.1.
+The `## Base commit` section is added by Phase B at session start
+and is omitted from the Phase 1 skeleton. Full lifecycle for every
+section above is tabulated in `conventions-execution.md` §2.1.
 
 Write the design document to
 `docs/adr/<dir-name>/_workflow/design.md` using this structure:

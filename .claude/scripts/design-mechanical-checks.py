@@ -11,7 +11,7 @@ Usage:
         --design-path docs/adr/<dir>/_workflow/design.md \
         [--design-mechanics-path docs/adr/<dir>/_workflow/design-mechanics.md] \
         [--plan-path docs/adr/<dir>/_workflow/implementation-plan.md] \
-        [--tracks-dir docs/adr/<dir>/_workflow/tracks/] \
+        [--plan-dir docs/adr/<dir>/_workflow/plan/] \
         [--changed-section "Section Title"] \
         [--target design|mechanics|both] \
         [--scope bounded|whole-doc]
@@ -1092,7 +1092,7 @@ def check_full_design_link_resolution(
     design_mechanics_lines: Optional[List[str]],
 ) -> List[Dict]:
     """Every `**Full design**: <design-basename> §"<name>"` in the plan and
-    in any step file (`tracks/track-N.md`) must resolve to a heading in
+    in any track file (`plan/track-N.md`) must resolve to a heading in
     design.md (and any chained `<mechanics-basename> §"<name>"` must
     resolve in mechanics).
 
@@ -1132,7 +1132,7 @@ def check_full_design_link_resolution(
                 target_table = mech_norm
                 target_label = mech_basename
             elif fname in {"design-mechanics.md", "design-mechanics-final.md"}:
-                # Plan / step-file refs to a mechanics file but no mechanics path supplied.
+                # Plan / track-file refs to a mechanics file but no mechanics path supplied.
                 out.append(make_finding(
                     "blocker",
                     "full-design-link-resolution",
@@ -1179,7 +1179,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--design-path", required=True, help="Absolute path to design.md")
     p.add_argument("--design-mechanics-path", help="Absolute path to design-mechanics.md (optional)")
     p.add_argument("--plan-path", help="Absolute path to implementation-plan.md (optional)")
-    p.add_argument("--tracks-dir", help="Absolute path to the tracks/ directory containing tracks/track-N.md step files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
+    p.add_argument("--plan-dir", help="Absolute path to the plan/ directory containing plan/track-N.md track files (optional). Every *.md file in this directory is scanned for `**Full design**` refs.")
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
                    help=("Scope of the section-bounded checks (default: whole-doc). When "
@@ -1203,7 +1203,7 @@ def parse_args() -> argparse.Namespace:
                          "use for phase1-creation, design-sync, length-trigger-crossing, and "
                          "phase4-creation mutations that touch both files. (For phase4-creation, "
                          "the --design-path and --design-mechanics-path point at the *-final.md "
-                         "variants; omit --plan-path and --tracks-dir so the cross-file ref "
+                         "variants; omit --plan-path and --plan-dir so the cross-file ref "
                          "check is naturally skipped — Phase 4 produces a new artifact, not a "
                          "modification of the original design.md.)"))
     args = p.parse_args()
@@ -1280,11 +1280,11 @@ def main() -> int:
             ))
 
     track_files: Optional[List[Tuple[str, List[str]]]] = None
-    if args.tracks_dir:
-        if os.path.isdir(args.tracks_dir):
+    if args.plan_dir:
+        if os.path.isdir(args.plan_dir):
             track_paths = sorted(
-                os.path.join(args.tracks_dir, name)
-                for name in os.listdir(args.tracks_dir)
+                os.path.join(args.plan_dir, name)
+                for name in os.listdir(args.plan_dir)
                 if name.endswith(".md")
             )
             track_files = [(p, read_lines(p)) for p in track_paths]
@@ -1292,10 +1292,10 @@ def main() -> int:
             findings.append(make_finding(
                 "blocker",
                 "companion-path-missing",
-                args.tracks_dir,
-                (f"--tracks-dir was supplied but the directory does not exist at "
-                 f"{args.tracks_dir}. `**Full design**` ref resolution against the "
-                 "step files would be silently skipped, masking any broken refs."),
+                args.plan_dir,
+                (f"--plan-dir was supplied but the directory does not exist at "
+                 f"{args.plan_dir}. `**Full design**` ref resolution against the "
+                 "track files would be silently skipped, masking any broken refs."),
                 "Pass an existing directory or omit the flag.",
             ))
 

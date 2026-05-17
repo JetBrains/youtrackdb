@@ -18,7 +18,7 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
   decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track
   implementation. Track episodes (in the plan file under completed tracks)
-  summarize strategic outcomes; step episodes (in step files) contain
+  summarize strategic outcomes; step episodes (in track files) contain
   implementation details. Episodes from completed tracks are your evidence
   of what actually happened vs. what was planned.
 - **Scope indicator**: A rough sketch of expected work in a track
@@ -43,30 +43,41 @@ Your findings may lead to plan adjustments, decomposition guidance, or
 your review, the main agent decomposes the track into concrete steps.
 
 **Where things live during Phase A:** The track's detailed description
-(the `**What/How/Constraints/Interactions**` subsections plus any
-track-level component diagram) lives in the step file at
-`docs/adr/<dir-name>/_workflow/tracks/track-N.md` under a `## Description` section —
-copied there at Phase A start. The plan file carries strategic context
-(Architecture Notes, Decision Records, Component Map) and track-level
-status + episodic memory.
+lives in the track file at
+`docs/adr/<dir-name>/_workflow/plan/track-N.md`, split across five
+sections: `## Purpose / Big Picture` (intro paragraph + BLUF),
+`## Context and Orientation` (what's there today, plus any track-level
+component diagram), `## Plan of Work` (what we'll change),
+`## Decision Log` (any track-scoped Decision Records, once Move 1
+inlines them), and `## Interfaces and Dependencies` (file boundaries,
+inter-track deps). All five are seeded at Phase 1 by `/create-plan`
+and read (and optionally amended via the Track Pre-Flight gate) by
+Phase A. The plan
+file carries strategic context (Architecture Notes, Decision Records,
+Component Map) and track-level status + episodic memory.
 
 ---
 
 Inputs:
 - Plan file: {plan_path} (strategic context — Architecture Notes,
   Decision Records, Component Map)
-- Step file: {step_file_path} (the track's `## Description` section —
-  authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram.)
+- Track file: {step_file_path} — authoritative source for the track's
+  what/how/constraints/interactions and any track-level diagram, split
+  across `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, `## Decision Log`, and `## Interfaces and
+  Dependencies`.
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
-Start by reading the track description and any track-level component
-diagram from the step file's `## Description` section. Read the
-relevant Decision Records from the plan. Then explore the parts of the
-codebase this track touches.
+Start by reading the track file's `## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`, `## Decision Log`,
+and `## Interfaces and Dependencies` sections (plus any track-level
+component diagram those sections carry). Read the relevant Decision
+Records from the plan (and from the track file's `## Decision Log`
+when Move 1 has inlined them). Then explore the parts of the codebase
+this track touches.
 
 **Tooling — PSI is required for symbol audits.** Reference-accuracy
 questions about Java symbols in this codebase (callers/overrides/usages
@@ -107,9 +118,11 @@ COMPONENT MAP ACCURACY (for this track)
 - Are there components this track misses that will be affected?
 
 NAMED REFERENCES IN STEP FILE
-- For every production class named in the step file's `## Description`
-  (`**What/How/Constraints/Interactions**` blocks), verify the name
-  resolves via PSI find-class (`steroid_execute_code` with
+- For every production class named in the track file's
+  `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, `## Decision Log`, or `## Interfaces and
+  Dependencies` sections, verify the name resolves via PSI find-class
+  (`steroid_execute_code` with
   `JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`).
   Pattern-inducing class names from precedent (V1 → V2/V3) is a known
   trap: generic-extraction refactors often collapse version-suffixed
@@ -120,8 +133,11 @@ NAMED REFERENCES IN STEP FILE
   classes.
 - Each verified name produces a Premise certificate (see §Certificate
   requirements). A name that does NOT resolve is a `blocker` finding
-  UNLESS the track's `## Description` explicitly marks it as a class
-  this track creates (e.g., "we will introduce `Foo`"). In the
+  UNLESS the track's `## Purpose / Big Picture` / `## Context and
+  Orientation` / `## Plan of Work` / `## Decision Log` / `## Interfaces
+  and Dependencies` sections explicitly mark it as a class this track
+  creates (e.g.,
+  "we will introduce `Foo`"). In the
   planned-class case, log the Premise with verdict CONFIRMED and note
   "planned by this track" in `Detail`. Read the description carefully
   before flagging — references to existing code and references to

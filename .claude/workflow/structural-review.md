@@ -3,12 +3,13 @@
 ## Goal
 
 Validate the plan's internal structure and completeness across the plan
-file and the step files. This is a lightweight check that does NOT read
+file and the track files. This is a lightweight check that does NOT read
 the codebase — it catches plan-level defects (dependency cycles, missing
-descriptions, contradictions, **bloat**) cheaply. Pending-track
-`**What/How/Constraints/Interactions**` detail lives in each track's
-`tracks/track-N.md` `## Description`; the review reads the plan file
-plus every pending track's step file.
+descriptions, contradictions, **bloat**) cheaply. Pending-track detail
+lives in each track's `plan/track-N.md` across the four track-level
+sections (`## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, `## Interfaces and Dependencies`); the review reads
+the plan file plus every pending track's track file.
 
 The review also enforces the per-section budgets defined in
 `planning.md` § Architecture Notes format. Plan-file bloat is paid by
@@ -113,7 +114,7 @@ issues.
 
 The structural review is not persisted to disk. Mechanical fixes are
 applied autonomously to `implementation-plan.md` (and the relevant
-`tracks/track-N.md` files when track descriptions need updates);
+`plan/track-N.md` files when track descriptions need updates);
 design-decision findings ride in the orchestrator's conversation
 context until escalated and resolved. The durable trace is the
 gate-PASS state, the resulting commit, and the audit-summary entry in

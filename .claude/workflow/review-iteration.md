@@ -38,6 +38,12 @@ reset between iterations).
 | `TS` | Test structure review |
 | `TX` | Test concurrency review |
 | `TY` | Test crash safety review |
+| `WC` | Workflow consistency review |
+| `WP` | Workflow prompt design review |
+| `WI` | Workflow instruction completeness review |
+| `WH` | Workflow hook safety review |
+| `WB` | Workflow context budget review |
+| `WS` | Workflow writing style review |
 
 ## Severity levels
 

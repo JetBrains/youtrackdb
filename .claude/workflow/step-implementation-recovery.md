@@ -50,12 +50,12 @@ termination.
 
 **Detection.** After identifying the next `[ ]` step, check for orphan
 commits — commits that exist but have no corresponding episode in
-the step file on disk:
+the track file on disk:
 
 1. Scan `git log --oneline {base_commit}..HEAD` and classify each
    commit by subject prefix and the paths it touches (per
    [`commit-conventions.md`](commit-conventions.md) § Commit type
-   prefixes). Each `[x]` step in the step file is expected to
+   prefixes). Each `[x]` step in the track file is expected to
    contribute exactly **three** kinds of commit, in order:
 
    - **Implementer code commit** — touches code (paths outside
@@ -65,7 +65,7 @@ the step file on disk:
      `Review fix:`. **Zero or more** per `[x]` step (one per
      dim-review iteration that surfaced fixes).
    - **Episode commit** — Workflow update touching only
-     `_workflow/tracks/track-<N>.md`, subject `Record episode for
+     `_workflow/plan/track-<N>.md`, subject `Record episode for
      <step description>`. Exactly **one** per `[x]` step.
 
    Two other commit kinds appear in the log but **do not** count
@@ -93,16 +93,39 @@ the step file on disk:
    step.
 
    **Crash between sub-step 7 (episode write) and sub-step 8
-   (episode commit).** If the step file shows `[x]` for the most
+   (episode commit).** If the track file shows `[x]` for the most
    recent completed step but the corresponding episode commit is
    missing from the log, the previous session wrote the episode
    to disk but died before committing it. The working tree is
-   dirty with the unwritten episode. Recovery: stage and commit
-   the step file now (using the standard episode commit subject
-   `Record episode for <step description>`), push, then proceed
-   with the rest of resume. This must happen **before** spawning
-   the next implementer — the implementer's `git reset --hard
-   HEAD` would otherwise discard the episode write.
+   dirty with the unwritten episode.
+
+   **Episode-write reconciliation pass.** Sub-step 7 writes across
+   up to four sections (Episodes block + roster flip in 7.1,
+   Progress entry in 7.2, optional Surprises in 7.3, optional
+   Decision Log in 7.4) and may be interrupted partway through. Per
+   the invariant in
+   [`step-implementation.md`](step-implementation.md) sub-step 7.1,
+   the roster `[ ]`→`[x]` flip is the primary marker for "episode
+   written"; missing Progress entries can be reconstructed from the
+   Episodes block. Before staging the dirty tree, run this check:
+   for every `## Concrete Steps` roster line marked `[x]` carrying a
+   `commit: <SHA>` annotation, verify that
+   (a) an `## Episodes` block with header
+   `### Step N — commit <SHA>, <ISO> [ctx=<level>]` exists, and
+   (b) a matching `## Progress` entry
+   `- [x] <ISO> [ctx=<level>] Step N complete (commit <SHA>)`
+   exists. If the Progress entry is missing, derive `<ISO>` and
+   `<level>` from the Episodes block header (both are present
+   there) and append the missing Progress entry to `## Progress`
+   before staging the file for commit. Surprises and Decision Log
+   promotions are optional — no reconciliation required.
+
+   Then stage and commit the track file (using the standard
+   episode commit subject `Record episode for <step description>`),
+   push, then proceed with the rest of resume. This must happen
+   **before** spawning the next implementer — the implementer's
+   `git reset --hard HEAD` would otherwise discard the episode
+   write.
 2. If a `Revert step:` commit is present at the tip (or near the
    tip with no implementer commits after it), the previous session
    rolled the next `[ ]` step back via §Post-Commit Handlers but may
@@ -115,16 +138,42 @@ the step file on disk:
 
    **`reason: failed-review-fix`** — the review-fix respawn returned
    `FAILED`.
-   - If the step file already has an `[!]` entry for this step,
-     the rollback was fully recorded; respawn the implementer for
-     the next `[ ]` row from `mode=INITIAL` with `step_base_commit
-     = HEAD`.
+   - **Verify all four bookkeeping writes landed** before declaring
+     the rollback fully recorded. The failed-step path writes four
+     artifacts in sequence: (1) `### Step N — FAILED, …` block in
+     `## Episodes`, (2) roster `[ ]`→`[!]` flip on the matching
+     `## Concrete Steps` line, (3) `- [!] <ISO> [ctx=<level>] Step N
+     failed …` entry in `## Progress`, and (4) one or more inserted
+     retry/split `[ ]` rows (`(retry: …)` or `(split from failed
+     step above)`). Roster `[!]` alone is not sufficient — a crash
+     between writes 2 and 4 leaves `[!]` on the roster with no
+     retry row to respawn from. If all four artifacts are present,
+     respawn the implementer for the next `[ ]` row from
+     `mode=INITIAL` with `step_base_commit = HEAD`. If any
+     artifact is missing, run the same Episodes-derived
+     reconciliation as the success-path crash branch above: derive
+     `<ISO>` and `<level>` from the failed-step Episodes block
+     header to fill in a missing Progress entry; for a missing
+     retry/split row, surface the situation to the user (the
+     `recommended_action` choice is not derivable from the
+     Episodes block alone) and let the user pick `retry` /
+     `split` / `escalate` before respawning.
    - If no `[!]` entry exists, write it now (reconstruct the
      `FAILURE` fields from the prose explanation in the revert body
-     plus the git log of the reverted commits), insert retry/split
-     rows per the implied `recommended_action` (default to `retry`
-     when the revert body does not name one), update Progress, then
-     respawn from the retry/split row with `mode=INITIAL`.
+     plus the git log of the reverted commits). Read the statusline
+     per [`episode-format-reference.md`](episode-format-reference.md)
+     §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+     current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+     running `date -u +%Y-%m-%dT%H:%MZ`, and use this same `<ISO>` for
+     both the Episodes block header and the Progress entry. Append the
+     failed-step `### Step N — FAILED, <ISO> [ctx=<level>]` block to
+     `## Episodes`. Insert retry/split rows in `## Concrete Steps` per
+     the implied `recommended_action` (default to `retry` when the
+     revert body does not name one), append the matching
+     `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`
+     entry to `## Progress` (same `[ctx=<level>]` and `<ISO>` from the
+     captures above), then respawn from the retry/split row with
+     `mode=INITIAL`.
 
    **`reason: late-design-decision`** — the review-fix respawn
    returned `DESIGN_DECISION_NEEDED` and the user had not yet chosen
@@ -133,7 +182,7 @@ the step file on disk:
      recommendation, exploration_notes) is **not recoverable** from
      the revert body — it was held only in the prior session's
      orchestrator state.
-   - The step file is still `[ ]` (no `[!]` is written for this
+   - The track file is still `[ ]` (no `[!]` is written for this
      case). Respawn the implementer with `mode=INITIAL` and
      `step_base_commit = HEAD`. The new implementer either lands on
      the same design decision (and re-derives the alternatives via
@@ -143,14 +192,16 @@ the step file on disk:
 
    **`reason: late-risk-upgrade`** — the review-fix respawn returned
    `RISK_UPGRADE_REQUESTED`.
-   - Read the step's `**Risk:**` line. If it already names the
+   - Read the step's inline `risk: <tag>` token on its
+     `## Concrete Steps` roster line. If it already names the
      upgraded level (the prior session wrote it before dying), no
      further bookkeeping is needed.
-   - If the line still names the original level, apply the upgrade
-     now: rewrite to the new level (auto-applied for `medium → high`,
-     paused for user confirmation on `low → high`) and append an
-     override note (`override: upgraded mid-Phase-B during dim review
-     (<reason from revert body>)`).
+   - If the token still names the original level, apply the upgrade
+     now: rewrite the inline `risk: <tag>` on the roster line to the
+     new level (auto-applied for `medium → high`, paused for user
+     confirmation on `low → high`) and append an override note to
+     the same roster line (`override: upgraded mid-Phase-B during
+     dim review (<reason from revert body>)`).
    - Respawn the implementer from `mode=INITIAL` with
      `step_base_commit = HEAD`.
 
@@ -200,7 +251,7 @@ prefixes):
    for `late-design-decision`; verify-or-apply-upgrade for
    `late-risk-upgrade`).
 2. **Episode commits** (`Record episode for …`, Workflow update
-   touching only `_workflow/tracks/track-<N>.md`) — mark the
+   touching only `_workflow/plan/track-<N>.md`) — mark the
    boundary between completed and in-progress steps. The most
    recent episode commit is the last fully-finished step.
 3. **`Review fix:` commits** — indicate that a review-fix
@@ -244,7 +295,7 @@ prefixes):
    reflection produces no commit — its output goes directly to
    YouTrack.
 
-The step file on disk is the source of truth for which steps are
+The track file on disk is the source of truth for which steps are
 complete (have episodes). During Phase B Resume specifically, any
 implementer or Phase B `Review fix:` code commits beyond the last
 episode commit are orphans for the next `[ ]` step. A `Revert step:`
@@ -310,15 +361,17 @@ Verify `git status` is clean before continuing — a dirty tree at
 this point is a contract violation; surface the discrepancy to the
 user instead of proceeding.
 
-1. **Apply the upgrade in place** in the step file: rewrite the
-   `**Risk:**` line to the new level and append an override note
-   in the form `override: upgraded mid-Phase-B (<short reason from
-   result.RISK_UPGRADE.evidence>)`. The decomposer-time category
-   stays in the line for traceability. Downgrades are not permitted
-   — see [`risk-tagging.md`](risk-tagging.md) §Override rules.
+1. **Apply the upgrade in place** in the track file: rewrite the
+   inline `risk: <tag>` token on the step's `## Concrete Steps`
+   roster line to the new level and append an override note to the
+   same line in the form `override: upgraded mid-Phase-B (<short
+   reason from result.RISK_UPGRADE.evidence>)`. The decomposer-time
+   category stays on the line for traceability. Downgrades are not
+   permitted — see [`risk-tagging.md`](risk-tagging.md) §Override
+   rules.
 2. **Approval flow:**
    - `medium → high`: auto-apply (no user prompt). Note the
-     auto-apply in the next step-file write.
+     auto-apply in the next track-file write.
    - `low → high`: pause and confirm with the user before
      respawning. The bigger jump is more likely a planning miss.
 3. After application/confirmation, respawn the implementer with
@@ -329,8 +382,8 @@ user instead of proceeding.
    exploration, so re-derivation is cheap and `mode=INITIAL` keeps
    the respawn contract simple. If the prior implementer's
    `RISK_UPGRADE.evidence` already names what was discovered, that
-   text plus the rewritten `**Risk:**` line is enough context for
-   the next implementer.
+   text plus the rewritten inline `risk: <tag>` token on the
+   roster line is enough context for the next implementer.
 
 ### `handle_failure(step, result)`
 
@@ -379,12 +432,27 @@ already reverted any uncommitted changes and removed any untracked
 artefacts (the snapshot-and-diff revert sequence) before returning,
 so the working tree is clean at `step_base_commit`.
 
-1. **Write the failed episode** to the step file from
-   `result.FAILURE` (mark the step `[!]`).
-2. **Insert `[ ]` retry/split rows** per the existing protocol — see
-   §Step Failure below for the retry/split formats.
-3. **Update the Progress section's step count** to reflect any
-   inserted rows.
+1. **Write the failed episode** to the track file from
+   `result.FAILURE`. Append a `### Step N — FAILED, <ISO> [ctx=<level>]`
+   block to `## Episodes` with the failed-step field set (`**What was
+   attempted:**`, `**Why it failed:**`, `**Impact on remaining
+   steps:**`, `**Key files:**`), and flip the matching `## Concrete
+   Steps` roster line from `[ ]` to `[!]`.
+2. **Append a failed-step Progress entry.** Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for
+   both the Episodes block header in step 1 and the Progress entry.
+   Append a single entry to `## Progress`:
+   `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`.
+
+   The `[ctx=<level>]` field is mandatory per D12 on both the
+   Episodes block header and the Progress entry.
+3. **Insert `[ ]` retry/split rows** per the existing protocol — see
+   §Step Failure below for the retry/split formats. The new rows are
+   appended to `## Concrete Steps` as additional numbered roster
+   lines.
 4. **Two-failure rule.** If the new `[!]` makes two consecutive
    `[!]` entries for the same logical step, stop and present both
    failed episodes to the user — see §Two-Failure Rule below.
@@ -392,6 +460,122 @@ so the working tree is clean at `step_base_commit`.
 The implementer never escalates directly; it returns `FAILED` with
 `recommended_action: escalate`, and the orchestrator decides whether
 to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
+
+### `handle_result_missing(step, result_text)` (contract violation, recovery required)
+
+Triggered when the implementer's return text contains **no parsable
+`RESULT:` block** (or the block is truncated mid-field). This is a
+contract violation per
+[`implementer-rules.md`](implementer-rules.md) §Return contract — the
+implementer is required to emit a `RESULT` block before any exit,
+including context/budget exhaustion. The same handler covers both the
+top-level dispatch from `step-implementation.md` §Per-Step
+Orchestration Loop (the implementer's first spawn never produced a
+return block) and the inner `match fix_result.RESULT` dispatch inside
+the dim-review loop (a `FIX_REVIEW_FINDINGS` respawn exited without a
+block). This procedure mirrors
+[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+Handlers → `handle_result_missing`, adapted for the step level.
+
+The most common causes are message-budget exhaustion mid-iteration, a
+runtime crash or timeout in a tool call, or a runaway poll loop /
+background task that the system terminated externally.
+
+The orchestrator cannot dispatch on missing data and the
+implementer's last actions are by definition uncommitted (a
+successful commit always emits `RESULT: SUCCESS`). Recovery is
+manual and requires user approval — do not auto-respawn.
+
+1. **Kill any background tasks the implementer may have left
+   alive.** Run
+
+   ```bash
+   ps -o pid,ppid,cmd -e \
+     | grep -E 'mvnw|surefire|java.*test|pgrep -f' \
+     | grep -v ' grep '
+   ```
+
+   and terminate orphaned PIDs with `kill -TERM <pid>`. Wait a few
+   seconds for graceful cleanup, then escalate to `kill -KILL <pid>`
+   only if they survive. See
+   [`implementer-rules.md`](implementer-rules.md) §Pacing long-running
+   tasks → forbidden self-referential pgrep for the runaway-loop
+   shape.
+
+2. **Inspect the tree.** Run `git status --short` and
+   `git diff --stat`. Three states are possible:
+
+   - **Clean tree** — implementer reverted before exiting (or never
+     began applying changes). Skip to step 3 with the **discard**
+     option pre-selected; the spawn is effectively a no-op.
+   - **Dirty tree, edits look correct on inspection** — the implementer
+     applied changes but never committed. The **commit-as-is** option
+     is viable if the orchestrator can verify the edits independently.
+   - **Dirty tree, edits look incomplete or wrong** — the implementer
+     was mid-edit when its budget ran out. Recovery is most likely
+     **re-spawn from a clean state**.
+
+3. **Present the situation to the user with three options.** Include
+   the inspection output (a `git status --short` excerpt and the
+   implementer's last visible message, truncated to a few hundred
+   characters) so the user can choose informedly.
+
+   The three options behave differently depending on the originating
+   mode of the spawn that left the tree dirty:
+
+   - **Re-spawn finalizer.** Clean the tree on the implementer's
+     behalf (run the snapshot-and-diff revert sequence per
+     [`implementer-rules.md`](implementer-rules.md) §Detection rules
+     — the implementer never reached its own revert path, so the
+     orchestrator owns the cleanup this once), then re-spawn a fresh
+     implementer with the original inputs. For a `mode=INITIAL` /
+     `mode=WITH_GUIDANCE` step spawn this is the next attempt of the
+     same step from `step_base_commit`. For a
+     `mode=FIX_REVIEW_FINDINGS` respawn inside the dim-review loop,
+     re-issue the same fix iteration with the same findings; **if the
+     findings list was large** (≥ ~15 items or ≥ ~10 files), halve
+     the in-scope subset on the respawn so the new spawn doesn't
+     repeat the budget exhaustion. The halved-off findings re-surface
+     in the next gate-check fan-out.
+   - **Commit-as-is.** Only when the dirty tree's edits look complete
+     and correct on inspection, and when the orchestrator is in a
+     position to verify them itself. The orchestrator stages explicit
+     paths (no `git add -A`), runs Spotless + targeted tests of the
+     touched test classes + the coverage gate, and commits. The
+     commit subject follows
+     [`commit-conventions.md`](commit-conventions.md): the implementer
+     commit subject for `mode=INITIAL` / `mode=WITH_GUIDANCE` spawns,
+     or `Review fix: <subject>` for `mode=FIX_REVIEW_FINDINGS` respawns.
+     Then proceed to the next sub-step that would have fired on a
+     `SUCCESS` return — for a step-level top-level dispatch this is
+     sub-step 4 (dimensional review) onward; for an inner
+     dim-review-loop respawn this is the gate-check fan-out. **Apply
+     the test-additive carve-out** when
+     `git diff origin/develop -- '**/src/main/**'` is empty for the
+     spawn's diff. Record the gate as `n/a (test-additive)` and skip
+     the coverage profile build. This is the only Phase B case where
+     the orchestrator commits source-file changes directly — note the
+     deviation in the eventual step episode so the audit trail is
+     preserved.
+   - **Discard.** Run the snapshot-and-diff revert on the
+     implementer's behalf. For a `mode=INITIAL` / `mode=WITH_GUIDANCE`
+     step spawn, treat the spawn as `FAILED` with
+     `recommended_action: retry` and route through `handle_failure`
+     (no commit landed, so no rollback is needed). For a
+     `mode=FIX_REVIEW_FINDINGS` respawn, treat the iteration as
+     `FAILED` and route through `rollback_and_handle_failure` — the
+     prior step commits still need rollback.
+
+4. **Iteration / step-counter accounting.** A `RESULT_MISSING`
+   recovery consumes one iteration counter (inside the dim-review
+   loop) or one step-implementation attempt (at the top-level
+   dispatch) regardless of which option the user picks — the
+   implementer was spawned, ran, and produced a commit's worth of
+   state on disk; that has the same impact on the budget as a
+   `FAILED` return. Update the Progress section with the new counter
+   and a note (e.g., `- [ ] Step N attempt 2 (recovered from
+   RESULT_MISSING via commit-as-is)`) and commit it as a Workflow
+   update commit before the next action.
 
 ---
 
@@ -437,7 +621,7 @@ is exactly one of three values, used by Phase B Resume to dispatch:
 |---|---|---|
 | `failed-review-fix` | `rollback_and_handle_failure` | Write `[!]` if missing, insert retry/split rows, respawn `INITIAL` |
 | `late-design-decision` | `rollback_and_escalate` | Respawn `INITIAL`; new implementer re-derives — if it returns `DESIGN_DECISION_NEEDED` again, escalate then |
-| `late-risk-upgrade` | `rollback_and_upgrade` | Verify Risk line; apply upgrade if not yet rewritten; respawn `INITIAL` |
+| `late-risk-upgrade` | `rollback_and_upgrade` | Verify roster-line `risk:` token; apply upgrade if not yet rewritten; respawn `INITIAL` |
 
 A blank line separates the slug line from the prose explanation.
 Resume parses the body by reading the first body line and matching
@@ -510,24 +694,42 @@ its push collided with concurrent activity would destroy work the
 implementer already finished and validated.
 
 1. **Run the rollback** (revert + `Revert step:` commit) per the
-   common procedure above. The revert lands **before** any step-file
+   common procedure above. The revert lands **before** any track-file
    write so that the only crash-recoverable state is "Revert at tip
    with step still `[ ]`" — Phase B Resume's Detection step 2
-   handles that exact state via the `failed-review-fix` slug branch
-   (which already covers "if no `[!]` entry exists, write it now").
-   Reversing this order — writing `[!]` first — would leave a
-   window where prior commits sit unreverted at HEAD with the step
-   already marked `[!]`; Detection step 3 would then misattribute
-   those orphan commits to the next `[ ]` step.
-2. **Write the failed episode** to the step file from
-   `fix_result.FAILURE` (mark the step `[!]`). The episode's
-   `what_was_attempted` should describe both the original
-   implementation and the review-fix attempt that failed; the
-   `why_it_failed` field captures the underlying reason.
-3. **Insert `[ ]` retry/split rows** per the existing protocol —
-   see §Step Failure for the formats.
-4. **Update the Progress section's step count** to reflect the
-   inserted rows.
+   handles that exact state via the `failed-review-fix` slug branch.
+   That branch verifies all four failed-step bookkeeping artifacts
+   (Episodes `### Step N — FAILED` block, roster `[!]`, Progress
+   `[!]` entry, retry/split row) and reconciles any missing
+   artifacts from the Episodes block; if the retry/split row
+   cannot be derived (the `recommended_action` is not encoded in
+   the Episodes block), the user is surfaced the situation before
+   respawn. Reversing this order — writing `[!]` first — would
+   leave a window where prior commits sit unreverted at HEAD with
+   the step already marked `[!]`; Detection step 3 would then
+   misattribute those orphan commits to the next `[ ]` step.
+2. **Write the failed episode** to the track file from
+   `fix_result.FAILURE`. Append a `### Step N — FAILED, <ISO>
+   [ctx=<level>]` block to `## Episodes` with the failed-step field
+   set, and flip the matching `## Concrete Steps` roster line from
+   `[ ]` to `[!]`. The episode's `what_was_attempted` should
+   describe both the original implementation and the review-fix
+   attempt that failed; the `why_it_failed` field captures the
+   underlying reason.
+3. **Append a failed-step Progress entry.** Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for
+   both the Episodes block header in step 2 and the Progress entry.
+   Append a single entry to `## Progress`:
+   `- [!] <ISO> [ctx=<level>] Step N failed (review-fix path) — see Episodes §Step N (FAILED)`.
+
+   The `[ctx=<level>]` field is mandatory per D12 on both the
+   Episodes block header and the Progress entry.
+4. **Insert `[ ]` retry/split rows** per the existing protocol —
+   see §Step Failure for the formats. The new rows are appended to
+   `## Concrete Steps` as additional numbered roster lines.
 5. **Two-failure rule.** If the new `[!]` makes two consecutive
    `[!]` entries for the same logical step, stop and present both
    failed episodes to the user — see §Two-Failure Rule.
@@ -579,15 +781,17 @@ revealed the step is more invasive than its tagged risk.
    dim-review pressure from the start** at the new risk level — not
    stacked on top of an implementation that was reviewed under the
    old risk level.
-2. **Apply the upgrade in place** in the step file: rewrite the
-   `**Risk:**` line and append an override note in the form
-   `override: upgraded mid-Phase-B during dim review (<short reason
-   from fix_result.RISK_UPGRADE.evidence>)`. The decomposer-time
-   category stays for traceability. Downgrades are not permitted —
-   see [`risk-tagging.md`](risk-tagging.md) §Override rules.
+2. **Apply the upgrade in place** in the track file: rewrite the
+   inline `risk: <tag>` token on the step's `## Concrete Steps`
+   roster line and append an override note to the same line in the
+   form `override: upgraded mid-Phase-B during dim review (<short
+   reason from fix_result.RISK_UPGRADE.evidence>)`. The
+   decomposer-time category stays for traceability. Downgrades are
+   not permitted — see [`risk-tagging.md`](risk-tagging.md) §Override
+   rules.
 3. **Approval flow** (same as `apply_upgrade_then_decide`):
    - `medium → high`: auto-apply (no user prompt). Note the
-     auto-apply in the step-file write.
+     auto-apply in the track-file write.
    - `low → high`: pause and confirm with the user before respawning.
 4. After application/confirmation, capture the new HEAD as
    `step_base_commit` and respawn the implementer with `mode=INITIAL`.
@@ -630,54 +834,95 @@ below; the retry/split rows below apply to both.
 `failure_class: push_only` short-circuits this entire flow — the
 commit at HEAD is good content that only failed to push. The
 relevant handler (`handle_failure` or `rollback_and_handle_failure`)
-runs its push-only pre-step instead of the rollback / step-file
+runs its push-only pre-step instead of the rollback / track-file
 write, and on success routes back through `on_success` rather than
 the retry/split protocol below. See those handlers for the detail.
 
-For the `content` path the orchestrator handles the rest:
+For the `content` path the orchestrator handles the rest. The writes
+follow the same D12 canonical statusline-read-then-write order as
+the success path (see
+[`episode-format-reference.md`](episode-format-reference.md) §The
+four-section write checklist):
 
-1. **Write a failed episode** to the step file from
-   `result.FAILURE` (see
-   [`episode-format-reference.md`](episode-format-reference.md) for
-   the failed-episode format).
+1. **Write the failed episode** to the track file from
+   `result.FAILURE`. Read the statusline per
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Sub-step 0 — fall back to `unknown` on missing file. Capture the
+   current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
+   running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for both
+   the Episodes block header and the Progress entry. Append a
+   `### Step N — FAILED, <ISO> [ctx=<level>]` block to `## Episodes`
+   with the failed-step fields (`**What was attempted:**`,
+   `**Why it failed:**`, `**Impact on remaining steps:**`,
+   `**Key files:**`) — see
+   [`episode-format-reference.md`](episode-format-reference.md)
+   §Failed-step Episodes block for the full template. Then append a
+   continuous-log Progress entry
+   `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`
+   to `## Progress` (reusing the level and `<ISO>` from above).
+   Finally flip the matching `## Concrete Steps` roster line from
+   `[ ]` to `[!]`.
 2. **Decide retry vs split** based on
    `result.FAILURE.recommended_action`:
-   - `retry` — keep the `[!]` entry and insert one new `[ ]` step
-     immediately after it with a modified description indicating
-     the different approach.
-   - `split` — keep the `[!]` entry and insert multiple new `[ ]`
-     steps immediately after it.
+   - `retry` — keep the `[!]` roster line and append one new
+     numbered `[ ]` roster line to `## Concrete Steps` immediately
+     after it, with a modified description indicating the different
+     approach and a fresh inline `risk: <tag>`.
+   - `split` — keep the `[!]` roster line and append multiple new
+     numbered `[ ]` roster lines to `## Concrete Steps` immediately
+     after it, each carrying an inline `risk: <tag>`.
    - `escalate` — present the situation to the user and consider
      entering ESCALATE per [`inline-replanning.md`](inline-replanning.md).
-3. **Update the Progress section's step count** to reflect inserted
-   rows.
+3. **Append a continuous-log Progress entry naming the inserted
+   rows** so a resume reader can reconstruct the retry / split
+   without re-deriving from the Concrete Steps diff. The continuous-
+   log shape carries no `(N/M complete)` count to update — the
+   roster line count in `## Concrete Steps` is the single source of
+   truth.
 
-### Retry representation in the step file
-
-```markdown
-- [!] Step: Add histogram header to leaf page
-  > **What was attempted:** ...
-  > **Why it failed:** ...
-  > **Impact on remaining steps:** ...
-  > **Key files:** ...
-
-- [ ] Step: Add histogram header to leaf page (retry: use page extension API)
-```
-
-### Split representation in the step file
+### Retry representation in the track file
 
 ```markdown
-- [!] Step: Add histogram header and serialization
-  > **What was attempted:** ...
-  > **Why it failed:** ...
+## Concrete Steps
 
-- [ ] Step: Add histogram header struct (split from failed step above)
-- [ ] Step: Add histogram serialization (split from failed step above)
+1. Add histogram header to leaf page — risk: medium [!] commit: (failed)
+2. Add histogram header to leaf page (retry: use page extension API) — risk: medium [ ]
+
+## Episodes
+
+### Step 1 — FAILED, 2026-05-16T15:10Z [ctx=info]
+**What was attempted:** ...
+
+**Why it failed:** ...
+
+**Impact on remaining steps:** ...
+
+**Key files:**
+- `path/to/file.java` (modified before revert)
 ```
 
-Update the **Progress** section's step count to reflect the new
-total (e.g., `(2/6 complete)` if a 5-step track gained one retry
-step).
+### Split representation in the track file
+
+```markdown
+## Concrete Steps
+
+1. Add histogram header and serialization — risk: medium [!] commit: (failed)
+2. Add histogram header struct (split from failed step above) — risk: low [ ]
+3. Add histogram serialization (split from failed step above) — risk: medium [ ]
+
+## Episodes
+
+### Step 1 — FAILED, 2026-05-16T15:10Z [ctx=info]
+**What was attempted:** ...
+
+**Why it failed:** ...
+```
+
+The Progress entry above (step 3 of this section) records the
+retry / split fan-out alongside the failure entry — e.g.,
+`- 2026-05-16T15:12Z [ctx=info] Inserted retry row for Step 1 (use
+page extension API)`. No `(N/M complete)` count is written; the
+continuous-log shape replaces the prior step-count idiom.
 
 ---
 
@@ -687,11 +932,22 @@ The two-failure rule triggers when two consecutive `[!]` entries
 exist for the same logical step (the retry also failed):
 
 ```markdown
-- [!] Step: Add histogram header to leaf page
-  > **What was attempted:** ... (first attempt)
+## Concrete Steps
 
-- [!] Step: Add histogram header to leaf page (retry: use page extension API)
-  > **What was attempted:** ... (second attempt)
+1. Add histogram header to leaf page — risk: medium [!] commit: (failed)
+2. Add histogram header to leaf page (retry: use page extension API) — risk: medium [!] commit: (failed)
+
+## Episodes
+
+### Step 1 — FAILED, 2026-05-16T15:10Z [ctx=info]
+**What was attempted:** ... (first attempt)
+
+**Why it failed:** ...
+
+### Step 2 — FAILED, 2026-05-16T15:45Z [ctx=info]
+**What was attempted:** ... (second attempt)
+
+**Why it failed:** ...
 ```
 
 When this happens — whether during a session or detected on resume:
@@ -706,9 +962,11 @@ When this happens — whether during a session or detected on resume:
   approach, skip the step, or escalate.
 
 **On resume.** When scanning the step list and encountering a `[!]`
-entry followed by another `[!]` for the same step (with `(retry:`
-in the description), this is a two-failure situation. Present both
-failed episodes to the user before proceeding.
+entry followed by another `[!]` for the same step — the second
+entry's description carries either `(retry: …)` or `(split from
+failed step above)` as the disambiguator — this is a two-failure
+situation. Present both failed episodes to the user before
+proceeding.
 
 ---
 

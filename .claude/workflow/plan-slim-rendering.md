@@ -65,8 +65,11 @@ on stderr — surface that to the user rather than continuing with a
 half-rendered snapshot.
 
 Pending-track entries (`[ ]`) are already thin on disk (their detail
-lives in `tracks/track-N.md` `## Description`), so the transform for
-that row is a no-op — the script passes them through verbatim.
+lives in the track file's four track-level sections under
+`plan/track-N.md` — `## Purpose / Big Picture`, `## Context and
+Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`),
+so the transform for that row is a no-op — the script passes them
+through verbatim.
 
 ### How sub-agents use it
 
@@ -111,8 +114,8 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
    | Status | Keep | Drop |
    |---|---|---|
-   | `[ ]` (not started or in-progress current track) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. The detailed `**What/How/Constraints/Interactions**` content lives in `tracks/track-N.md` `## Description`, not in the plan-file entry; the transform is a no-op. | Nothing |
-   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line, **Step file** pointer line |
+   | `[ ]` (not started or in-progress current track) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. The detailed track-level content lives in the track file's four track-level sections under `plan/track-N.md` (`## Purpose / Big Picture` BLUF + ADDED/MODIFIED/REMOVED triad, `## Context and Orientation` current-state framing, `## Plan of Work` step sequencing, `## Interfaces and Dependencies` in-scope / out-of-scope and inter-track dependencies), not in the plan-file entry; the transform is a no-op. | Nothing |
+   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line, **Track file** pointer line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line |
 
    **Current track exception:** The track currently being executed is
@@ -128,7 +131,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
 ## Example — before and after
 
-### Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**`, `**Depends on:**`, and `**Step file:**` lines)
+### Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**`, `**Depends on:**`, and `**Track file:**` lines)
 
 ```markdown
 - [x] Track 2: Direct Buffer Write Infrastructure
@@ -146,7 +149,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
   > Discovered CachePointer lock lifecycle needed extension for
   > cross-component-op undo ordering — see Step 5 episode.
   >
-  > **Step file:** `tracks/track-2.md` (8 steps, 0 failed)
+  > **Track file:** `plan/track-2.md` (8 steps, 0 failed)
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 ```
@@ -174,7 +177,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
 The intro paragraph is everything in the blockquote **before** the first
 line matching `> **<Keyword>**:` where `<Keyword>` is one of `What`,
 `How`, `Constraints`, `Interactions`, `Scope`, `Depends on`, `Track
-episode`, `Step file`, `Skipped`, `Strategy refresh`.
+episode`, `Track file`, `Skipped`, `Strategy refresh`.
 
 If there is no such marker line, the entire description is the intro
 paragraph — keep it as-is.

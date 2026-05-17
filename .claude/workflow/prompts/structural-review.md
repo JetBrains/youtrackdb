@@ -1,10 +1,12 @@
 You are reviewing an implementation plan for structural correctness.
 The plan lives in three sets of documents under review: the **plan
 file** (`implementation-plan.md`, strategic context + thin checklist +
-episodes), the **step files** (`tracks/track-N.md`, one per pending
-track — each holds its track's `**What/How/Constraints/Interactions**`
-detail and any track-level Mermaid diagram in its `## Description`
-section), and the **design document** (`design.md`, class/workflow
+episodes), the **track files** (`plan/track-N.md`, one per pending
+track — each holds its track's what/how/constraints/interactions
+detail and any track-level Mermaid diagram across its
+`## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, and `## Interfaces and Dependencies` sections),
+and the **design document** (`design.md`, class/workflow
 diagrams and dedicated sections for complex parts). The workflow rules
 file listed in `Inputs:` is procedural input (reviewer guidance), not
 a review target. You do NOT need to read the codebase — this review is
@@ -60,28 +62,31 @@ descriptions, oversized tracks, contradictions — directly impair execution.
 
 Inputs:
 - Plan file: {plan_path}
-- Step files directory: {tracks_dir} — every `tracks/track-N.md` whose
+- Track files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Each pending track's
-  step file `## Description` carries that track's
-  `**What/How/Constraints/Interactions**` detail and any track-level
-  Mermaid diagram. Skip step files for `[x]`/`[~]` tracks — those
-  tracks' final descriptions live in the plan-file entry instead.
+  track file carries that track's what/how/constraints/interactions
+  detail and any track-level Mermaid diagram across its
+  `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies` sections.
+  Skip track files for `[x]`/`[~]` tracks — those tracks' final
+  descriptions live in the plan-file entry instead.
 - Design document: {design_path}
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
 **Where track descriptions live:** For each **pending** track (`[ ]`),
-read the track's detailed description
-(`**What/How/Constraints/Interactions**` subsections and any
-track-level Mermaid diagram) from `tracks/track-N.md` `## Description`.
+read the track's detailed description (what/how/constraints/interactions
+detail and any track-level Mermaid diagram) from `plan/track-N.md`'s
+`## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, and `## Interfaces and Dependencies` sections.
 For **completed** tracks (`[x]`) and **skipped** tracks (`[~]`), the
 plan-file entry already holds the track's final form (intro paragraph
 + track episode for completed; intro + `**Skipped:**` reason for
 skipped) — read directly from the plan-file entry. Phantom references
-or structural defects in a step file's description have the same
+or structural defects in a track file's description have the same
 severity as defects in the plan file. Per-entry annotations on
 individual criterion bullets below (tagged `*(cross-file: …)*` or
-`*(step file for pending, plan-file for completed/skipped)*`) route
+`*(track file for pending, plan-file for completed/skipped)*`) route
 each check to the right source.
 
 Review the plan against these criteria:
@@ -93,7 +98,9 @@ SCOPE INDICATORS
 - Are scope indicators plausible given the track description? (e.g., a
   track describing 8 distinct changes but claiming ~2 steps is suspect)
   *(cross-file: the scope indicator is in the plan-file entry; the track
-  description is in the step file `## Description` for pending tracks,
+  description is in the track file's `## Purpose / Big Picture` +
+  `## Context and Orientation` + `## Plan of Work` + `## Interfaces
+  and Dependencies` sections for pending tracks,
   in the plan-file entry for completed/skipped tracks. Compare both
   halves.)*
 - Are there any full `- [ ] Step:` items or *(provisional)* markers?
@@ -108,7 +115,7 @@ annotations, and track ordering all live in the plan checklist)*
 - Are cross-cutting concerns ordered before the tracks that depend on them?
 - Are dependent tracks properly annotated with `**Depends on:** Track N`?
 
-TRACK DESCRIPTIONS *(step file `## Description` for pending, plan-file for completed/skipped)*
+TRACK DESCRIPTIONS *(track file's `## Purpose / Big Picture` + `## Context and Orientation` + `## Plan of Work` + `## Interfaces and Dependencies` sections for pending, plan-file for completed/skipped)*
 - Does every track have a description covering what/how/constraints/interactions?
 - Are track-level component diagrams present where needed (3+ internal
   components with non-trivial interactions)?
@@ -118,7 +125,9 @@ TRACK DESCRIPTIONS *(step file `## Description` for pending, plan-file for compl
   sentences (the prose paragraph that precedes `**Scope:**` and, if
   present, `**Depends on:**`)? An intro that runs 4+ sentences or
   spans multiple paragraphs has expanded into territory that belongs
-  in the step file's W/H/C/I subsections or in `design.md`; the plan
+  in the track file's `## Purpose / Big Picture` + `## Context and
+  Orientation` + `## Plan of Work` + `## Interfaces and Dependencies`
+  sections or in `design.md`; the plan
   checklist is loaded at every `/execute-tracks` session startup, so
   every extra intro sentence is paid by every Phase A/B/C session for
   the rest of the plan's life. *(plan-file only — the intro paragraph
@@ -131,9 +140,11 @@ TRACK SIZING
 - Does any track's description cover work that would naturally split into
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
-  *(cross-file: Scope line in plan, description in the step file
-  `## Description` for pending tracks / plan-file entry for
-  completed/skipped tracks — read both halves before concluding.)*
+  *(cross-file: Scope line in plan, description in the track file
+  `## Purpose / Big Picture` + `## Context and Orientation` +
+  `## Plan of Work` + `## Interfaces and Dependencies` sections for
+  pending tracks / plan-file entry for completed/skipped tracks —
+  read both halves before concluding.)*
 
 ARCHITECTURE NOTES *(plan-file only — Component Map, Decision Records,
 Invariants, Integration Points, and Non-Goals all live in the plan per
@@ -150,9 +161,11 @@ Invariants, Integration Points, and Non-Goals all live in the plan per
 
 DESIGN DOCUMENT *(design-file for diagram/prose checks; plan-file for
 the Architecture-Notes/Decision-Records cross-reference. The final
-bullet's "track descriptions" half is sourced from the step file
-`## Description` for pending tracks, from the plan-file entry for
-completed/skipped tracks.)*
+bullet's "track descriptions" half is sourced from the track file
+`## Purpose / Big Picture` + `## Context and Orientation` +
+`## Plan of Work` + `## Interfaces and Dependencies` sections for
+pending tracks, from the plan-file entry for completed/skipped
+tracks.)*
 - Does the design document exist at `docs/adr/<dir-name>/_workflow/design.md`?
 - Does it include an Overview section summarizing the design approach?
 - Does it include class diagrams (Mermaid `classDiagram`) when the plan
@@ -180,14 +193,18 @@ track references live in the plan's Architecture Notes)*
 CONSISTENCY
 - Do track descriptions, decision records, component maps, and scope
   indicators tell the same story? *(cross-file: track descriptions are
-  sourced from the step file `## Description` for pending tracks, from
-  the plan-file entry for completed/skipped tracks. Decision records,
+  sourced from the track file's `## Purpose / Big Picture` +
+  `## Context and Orientation` + `## Plan of Work` + `## Interfaces
+  and Dependencies` sections for pending tracks, from the plan-file
+  entry for completed/skipped tracks. Decision records,
   component maps, and scope indicators are plan-file only. Verify the
   story is coherent across all sources.)*
 - Are there contradictions between tracks (e.g., Track 1 says X, Track 3
   assumes not-X)? *(cross-file: read each track's description from its
-  current authoritative location — step file `## Description` for
-  pending, plan-file for completed/skipped.)*
+  current authoritative location — track file's `## Purpose / Big
+  Picture` + `## Context and Orientation` + `## Plan of Work` +
+  `## Interfaces and Dependencies` sections for pending, plan-file
+  for completed/skipped.)*
 
 BLOAT *(plan-file only for the per-section checks; plan/design
 duplication is cross-file between the plan and `design.md`)* — these

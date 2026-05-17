@@ -1,6 +1,6 @@
 ---
 name: review-plan
-description: "Manually re-run the autonomous plan review (Phase 2 — consistency + structural). The same review runs automatically as the first phase of /execute-tracks; this command is for re-runs after inline replanning or whenever the plan needs explicit re-validation."
+description: "Manually re-run the autonomous plan review (Phase 2 — consistency + structural). The same review runs automatically as the first phase of /execute-tracks; this command is for re-runs after inline replanning or whenever the plan needs explicit re-validation. TRIGGER when: user asks to re-validate the plan after inline replanning; user requests explicit plan review outside /execute-tracks. SKIP: /execute-tracks already running State 0 in this session (autonomous Phase 2 path will fire) — do not double-run."
 argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
@@ -35,16 +35,21 @@ directory name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Plan file: `docs/adr/<dir-name>/_workflow/implementation-plan.md`
-Step files directory: `docs/adr/<dir-name>/_workflow/tracks/`
+Track files directory: `docs/adr/<dir-name>/_workflow/plan/`
 Design document: `docs/adr/<dir-name>/_workflow/design.md`
 
-Each `tracks/track-N.md` step file's `## Description` section holds
-that pending track's `**What/How/Constraints/Interactions**` detail and
-any track-level Mermaid diagram (see `conventions-execution.md` §2.1
-for the Description lifecycle). Phase 2 sub-agents read every pending
-track's step file alongside the plan to verify pending-track
-descriptions; pass the absolute step-files directory path as the
-`tracks_dir` argument on each sub-agent spawn.
+Each `plan/track-N.md` track file carries the pending track's
+detail across four plan-at-start sections: `## Purpose / Big Picture`
+(BLUF + intro paragraph), `## Context and Orientation` (codebase
+state at the start of the track plus any track-level Mermaid
+diagram), `## Plan of Work` (prose sequence of edits, ordering
+constraints, invariants), and `## Interfaces and Dependencies`
+(in-scope/out-of-scope files, inter-track dependencies, signatures).
+See `conventions-execution.md` §2.1 *Section lifecycle* for the
+per-section writer/reader matrix. Phase 2 sub-agents read every
+pending track's track file alongside the plan to verify
+pending-track descriptions; pass the absolute track-files directory
+path as the `plan_dir` argument on each sub-agent spawn.
 
 ---
 
@@ -53,22 +58,22 @@ descriptions; pass the absolute step-files directory path as the
 1. Run the clean-tree precondition from
    [`implementation-review.md`](../../workflow/implementation-review.md)
    § How to run > Precondition — path-scoped to the workflow files
-   the audit-trail commit will touch (plan, every step file under
-   `tracks/`, design, design-mechanics, design-mutations). Halt and ask
+   the audit-trail commit will touch (plan, every track file under
+   `plan/`, design, design-mechanics, design-mutations). Halt and ask
    the user to commit or stash if any of those are dirty. Other dirty
    paths in the working tree are safe to ignore.
 2. Load `.claude/workflow/implementation-review.md` and follow its
    §"Step 1: Consistency Review" → §"Step 2: Structural Review" → §
    "Completion" sections in order. The orchestration is identical to
    the autonomous State 0 path inside `/execute-tracks`.
-3. Apply mechanical fixes via `Edit` (plan / step files) or the
+3. Apply mechanical fixes via `Edit` (plan / track files) or the
    `edit-design` skill (design.md — mutation discipline).
 4. Batch-escalate any `design-decision` findings to the user once per
    step. Apply user-resolved fixes the same way.
 5. After both reviews pass, overwrite the plan file's `## Plan Review`
    section with the audit summary (`[x]` + auto-fixed/escalated
    listings) per `implementation-review.md` § Audit trail.
-6. Commit the plan / step-file / design updates with the message
+6. Commit the plan / track-file / design updates with the message
    `Plan review autonomous fixes for <plan-name>` and push.
 7. End the session.
 

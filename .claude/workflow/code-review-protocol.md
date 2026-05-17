@@ -19,9 +19,15 @@ review sub-agents selected based on code characteristics (see
 
 For both levels:
 
-- **Baseline agents (4)** always run.
+- **Baseline agents (4)** run unless the diff is workflow-only or
+  `docs-only`+workflow (see the baseline-skip override in
+  `review-agent-selection.md`).
 - **Conditional agents (up to 6)** are added based on the step/track
   description and changed files.
+- **Workflow-review agents (up to 6)** are added when changed files
+  include workflow-machinery (`.claude/`, root `CLAUDE.md`, or
+  `docs/adr/<dir>/`); see `review-agent-selection.md` §Workflow-review
+  agents.
 
 After all selected agents complete, findings are synthesised per
 [`finding-synthesis-recipe.md`](finding-synthesis-recipe.md):

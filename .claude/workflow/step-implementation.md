@@ -9,7 +9,7 @@ Phase B is a **two-actor phase**:
   step `[x]`, and update the Progress count.
 - The **implementer** (a fresh sub-agent spawned per step, see
   [`implementer-rules.md`](implementer-rules.md)) performs sub-steps
-  1–3 of step implementation — read the step file, implement the
+  1–3 of step implementation — read the track file, implement the
   change with tests, stage and commit. The implementer's output is a
   structured handoff parsed by the orchestrator.
 
@@ -54,17 +54,17 @@ full procedure for the matching case.
 Before spawning the first implementer:
 
 1. **Record the base commit.** Run `git rev-parse HEAD` to get the
-   current SHA, then write it to the step file's `## Base commit`
+   current SHA, then write it to the track file's `## Base commit`
    section (creating the section if it doesn't exist). Skip if
    `## Base commit` already has a SHA (resume case).
 
-   The step file change must be committed before the first
+   The track file change must be committed before the first
    implementer spawn — the implementer's `git reset --hard HEAD`
    would otherwise discard the `## Base commit` write. Stage and
    commit:
 
    ```bash
-   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+   git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md
    git commit -m "Record Phase B base commit for <track>"
    git push
    ```
@@ -105,7 +105,7 @@ Before spawning the first implementer:
    If `git log --grep` returns nothing, surface the discrepancy to
    the user before proceeding; do not invent a base.
 
-   On stale, **append** a discrepancy note to the step file's
+   On stale, **append** a discrepancy note to the track file's
    `## Base commit` section (do not overwrite the original SHA —
    keep both for the audit trail):
 
@@ -115,7 +115,7 @@ Before spawning the first implementer:
    for resume.
    ```
 
-   Commit the step-file edit as a Workflow update commit before
+   Commit the track-file edit as a Workflow update commit before
    spawning the first implementer (per
    [`commit-conventions.md`](commit-conventions.md) § Commit type
    prefixes — "Workflow update" row) so the draft PR records the
@@ -187,7 +187,7 @@ from git: it is the parent of the first orphan commit for the next
 
 **A step is not complete until all seven sub-steps of the per-step
 workflow are done.** Do NOT spawn the implementer for the next step
-until the current step's episode is written to the step file on disk
+until the current step's episode is written to the track file on disk
 and cross-track impact is assessed. This is a hard gate, not a
 guideline.
 
@@ -208,7 +208,7 @@ activities across steps loses all three benefits.
 
 ## Per-Step Orchestration Loop
 
-For each `[ ]` step in the step file, run sub-steps 1–8 to
+For each `[ ]` step in the track file, run sub-steps 1–8 to
 completion before moving to the next step. Sub-steps 1–3 run inside
 the implementer; sub-steps 4–7 run on the orchestrator side.
 
@@ -219,13 +219,20 @@ match result.RESULT:
     DESIGN_DECISION_NEEDED   -> [load recovery] escalate_to_user_then_respawn(step, result)
     RISK_UPGRADE_REQUESTED   -> [load recovery] apply_upgrade_then_decide(step, result)
     FAILED                   -> [load recovery] handle_failure(step, result)
+    <no parsable RESULT block> -> [load recovery] handle_result_missing(step, result_text)
 ```
 
-Only `on_success` is in this document. The other three handlers are
+Only `on_success` is in this document. The other four handlers are
 in
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Non-`SUCCESS` orchestrator handlers — load it before entering any
-of those branches. The implementer prompt template is in
+of those branches. The `handle_result_missing` path covers the
+contract-violation case where the implementer exited without emitting
+a `RESULT` block (typically due to message-budget exhaustion or a
+tool-call crash); per
+[`implementer-rules.md`](implementer-rules.md) §Return contract,
+silent exit is forbidden, but the orchestrator must still be able to
+recover when it happens. The implementer prompt template is in
 §Implementer Prompt Template below.
 
 ---
@@ -273,14 +280,14 @@ rulebook before starting any work:
 
 The rulebook defines what you do, the three early-return cases
 (design decision, risk upgrade, failure), and the return contract
-your output must end with. Do not modify the step file or the plan —
+your output must end with. Do not modify the track file or the plan —
 those are the orchestrator's responsibility.
 
 ## Stable inputs (static)
 
 repo_root: {repo_root}
 plan_slim_path: /tmp/claude-code-plan-slim-{PPID}.md
-step_file_path: docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
+step_file_path: docs/adr/{dir-name}/_workflow/plan/track-{N}.md
 design_path: docs/adr/{dir-name}/_workflow/design.md
 
 ## Per-spawn variable inputs
@@ -370,8 +377,10 @@ finding ID prefixes, and gate format.
    a. **Select review agents** based on code characteristics (see
       [`review-agent-selection.md`](review-agent-selection.md)),
       then spawn them in parallel (fresh sub-agents each iteration).
-      Baseline agents (4) always run; conditional agents are added
-      based on the step description and changed files.
+      Baseline agents (4) run unless the diff is workflow-only (see
+      the baseline-skip override in `review-agent-selection.md`);
+      conditional agents and workflow-review agents are added based
+      on the step description and changed files.
 
       Before composing prompts, **pre-stage the step diff and the
       changed-files list** so the canonical context block references
@@ -406,15 +415,17 @@ finding ID prefixes, and gate format.
       reviewing one step's diff. The implementation plan below
       provides strategic context: goals, architecture decisions
       (Decision Records), constraints, and component topology
-      (Component Map). The track steps file provides tactical
+      (Component Map). The track file provides tactical
       context: what each step does and what was discovered.
-      **Episodes** are the blockquoted sections under completed
-      steps (starting with `**What was done:**`) — they are
-      structured records of implementation outcomes. Use episodes
-      to understand intent behind prior steps and check for
-      cross-step consistency issues. Severities: **blocker** (must
-      fix), **should-fix** (should fix before merge),
-      **suggestion** (optional improvement).
+      **Episodes** are the blocks in the track file's `## Episodes`
+      section — one `### Step N — commit <SHA>, <ISO> [ctx=<level>]`
+      block per completed step, carrying `**What was done:**`,
+      `**What was discovered:**`, `**What changed from the plan:**`,
+      `**Key files:**`, and `**Critical context:**` fields. Use
+      episodes to understand intent behind prior steps and check for
+      cross-step consistency issues.
+      Severities: **blocker** (must fix), **should-fix** (should fix
+      before merge), **suggestion** (optional improvement).
 
       ## Review Target
       Track {N}, Step {M}: {step description}
@@ -429,14 +440,25 @@ finding ID prefixes, and gate format.
       shown in full. If the snapshot is missing, fall back to
       docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
-      ## Track Steps (tactical context)
-      Read the step file at:
-        docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
-      The file begins with a `## Description` section carrying the
-      track's original description — intro paragraph +
-      **What/How/Constraints/Interactions** subsections + any
-      track-level diagram — copied there at Phase A start. Below
-      that, all steps for this track appear with their episodes.
+      ## Track File (tactical context)
+      Read the track file at:
+        docs/adr/{dir-name}/_workflow/plan/track-{N}.md
+      The file follows the 14-section per-track ExecPlan shape. Four
+      Phase 1 track-level sections carry the track's intent and any
+      track-level diagram: `## Purpose / Big Picture` (BLUF +
+      ADDED/MODIFIED/REMOVED triad), `## Context and Orientation`
+      (current-state framing), `## Plan of Work` (strategy +
+      step-references appended at Phase A), and `## Interfaces and
+      Dependencies` (in-scope / out-of-scope, inter-track
+      dependencies). `## Concrete Steps` carries the per-step roster:
+      one `N. <description> — risk: <tag>  [x|!| ]` line per step
+      (`[x]` = complete with episode block; `[!]` = failed-and-retried
+      with episode block; `[ ]` = pending, no episode block yet),
+      optionally with `commit: <SHA>` appended once the step lands.
+      `## Episodes` carries one block per completed step, headed
+      `### Step N — commit <SHA>, <ISO> [ctx=<level>]`; join roster
+      to episode by step number, using the roster's optional
+      `commit: <SHA>` as a disambiguator.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
@@ -524,6 +546,9 @@ finding ID prefixes, and gate format.
                                           step, fix_result,
                                           step_base_commit)
                                       # exits the dim-review loop
+          <no parsable RESULT block> -> [load recovery] handle_result_missing(
+                                          step, fix_result_text)
+                                      # exits the dim-review loop
       ```
 
       On `SUCCESS`, the implementer's new commit follows
@@ -547,7 +572,7 @@ finding ID prefixes, and gate format.
       - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
       - `{diff_path}`, `{files_path}` — the re-staged step diff and changed-files list (regenerated per the staging block in sub-step (a) because each `Review fix:` respawn advanced `{commit}`)
       - `{plan_slim_path}` — `/tmp/claude-code-plan-slim-$PPID.md`
-      - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/tracks/track-{N}.md`
+      - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/plan/track-{N}.md`
 
       The template enforces a ≤ 60-line budget, a forbidden-sections
       list, and a verdict-only output format. See
@@ -595,33 +620,85 @@ after the last step). Always run it:
 cat /tmp/claude-code-context-usage-$PPID.txt
 ```
 
-- Record the result: `safe`, `info`, `warning`, `critical`.
-- If the file does not exist or the command fails: this is **not an
-  error** — record `unavailable` and treat as `safe`.
+Record the result: one of `safe`, `info`, `warning`, `critical`, or
+`unknown` (the fallback sentinel when the statusline file is missing
+or unparseable, mirroring D12 and every other Progress writer).
 
-**Sub-step 7 — Episode finalisation and step-file write.** Merge
-`result.EPISODE_DRAFT` with any cross-track-impact-check
-observations from sub-step 5 (those go into the episode's
-**What was discovered** field). Write the episode to the step file
-under the step item, and write the context-check sub-item with the
-measured level:
+The recorded value has two downstream uses, which are deliberately
+kept separate:
 
-```markdown
-- [x] Step: <description>
-  - [x] Context: safe
-  > **Risk:** ...
-  >
-  > **What was done:** ...
+- **Verbatim into `[ctx=<level>]`.** Sub-step 7's writes inline the
+  recorded value literally into every `[ctx=<level>]` field. If the
+  recorded value is `unknown`, the field MUST be written as
+  `[ctx=unknown]` — do NOT silently rewrite it to `[ctx=safe]` or
+  any other level. The audit trail depends on the on-disk record
+  reflecting what the orchestrator actually observed.
+- **Continue-versus-pause gate.** For the session-end gate at the
+  end of this sub-step block (and for any continue-versus-pause
+  decision in this sub-step alone), treat `unknown` as `safe` — a
+  missing statusline file is not in itself an error condition that
+  forces a pause.
+
+**Sub-step 7 — Episode finalisation and track-file write.** Merge
+`result.EPISODE_DRAFT` with cross-track-impact observations from
+sub-step 5 (into **What was discovered**), then run the four-sub-
+step writer below — the per-step write shape per
+[`episode-format-reference.md`](episode-format-reference.md), which
+documents the heading template, field-omission rule, promotion
+heuristic, back-reference shape, and `[ctx=unknown]` fallback.
+
+**Sub-step 7.0 — Read the statusline and capture the wall-clock
+timestamp.** Reuse the level recorded by sub-step 6 (`safe` / `info`
+/ `warning` / `critical`, or `unknown` on missing-file). Do not skip
+the write. Also capture the current UTC time as `<ISO>` (format
+`YYYY-MM-DDTHH:MMZ`) by running:
+
+```bash
+date -u +%Y-%m-%dT%H:%MZ
 ```
 
-If sub-step 6's measurement failed, write
-`- [x] Context: unavailable`.
+Use this same `<ISO>` for both the Episodes block header in sub-step
+7.1 and the Progress entry in sub-step 7.2 — both writes refer to
+the same logical "episode written" moment.
 
-Mark the step as `[x]`. Update the **Progress** section's `Step
-implementation` count (e.g., `(3/5 complete)`). If this is the last
-step, mark `Step implementation` as `[x]`.
+**Sub-step 7.1 — Append Episodes block + flip roster (always).**
+Append `### Step N — commit <SHA>, <ISO> [ctx=<level>]` to
+`## Episodes` with the four episode fields, and flip the matching
+`## Concrete Steps` roster line from `[ ]` to `[x]` (optionally
+appending `commit: <SHA>`) in the same edit.
 
-**Sub-step 8 — Commit and push the episode.** The step file is
+**Invariant.** The `[ ]`→`[x]` roster checkbox flip in this sub-step
+is the **primary marker for "episode written"**. Sub-steps 7.2–7.4
+write across additional sections (Progress, Surprises, Decision Log)
+and may be interrupted by a crash between 7.1 and the next write; if
+that happens, the roster `[x]` plus the Episodes block on disk are
+sufficient to drive resume-side reconciliation. The Phase B Resume
+detection in
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Phase B Resume runs that reconciliation before the next implementer
+is spawned — Progress entries missing for a roster `[x]` row are
+derived from the Episodes block; Surprises and Decision Log
+promotions are conditional anyway and do not require reconciliation.
+
+**Sub-step 7.2 — Append Progress entry (always).** Append
+`- [x] <ISO> [ctx=<level>] Step N complete (commit <SHA>)` to
+`## Progress`.
+
+**Sub-step 7.3 — Promote to Surprises & Discoveries (conditional).**
+Fires when **What was discovered** (a) mentions a track number other
+than the current track, (b) names a class/file outside the track's
+in-scope list, or (c) identifies a fact future sessions need without
+reading the full episode. Back-reference shape: `See Episodes §Step N`.
+Full criteria:
+[`episode-format-reference.md`](episode-format-reference.md)
+§Minimum-write contract.
+
+**Sub-step 7.4 — Promote to Decision Log (conditional).** Fires
+when **What changed from the plan** names an inline-replan / scope-
+down / dependency-reveal / gate-override decision. Same back-
+reference shape.
+
+**Sub-step 8 — Commit and push the episode.** The track file is
 tracked under `_workflow/`, so the episode write produces a dirty
 working tree. Commit and push it as a separate workflow-update
 commit so the draft PR reflects the new state and so `HEAD` is
@@ -630,7 +707,7 @@ revert path uses `git reset --hard HEAD`, which would otherwise
 roll back the unwritten episode):
 
 ```bash
-git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md
 git commit -m "Record episode for <step description>"
 git push
 ```
@@ -654,10 +731,10 @@ level was `warning` or `critical`, do NOT spawn the implementer for
 the next step. Save all work and ask the user for a session refresh
 (see workflow.md §Context Consumption Check). The default Phase B
 case (just finished a step, next session resumes from the next `[ ]`
-step) does **not** require a handoff file — the step file's Progress
+step) does **not** require a handoff file — the track file's Progress
 section is sufficient. Write a handoff per
 [`mid-phase-handoff.md`](mid-phase-handoff.md) only if the pause
-captures state the next session cannot re-derive from the step file
+captures state the next session cannot re-derive from the track file
 (for example, a partial cross-track-impact finding that needs to be
 re-presented before the next step starts).
 
@@ -738,7 +815,7 @@ The episode includes:
 - **Critical context** — from `EPISODE_DRAFT.critical_context`. Use
   sparingly.
 
-Write the episode to the step file on disk. Detailed format and
+Write the episode to the track file on disk. Detailed format and
 examples live in
 [`episode-format-reference.md`](episode-format-reference.md).
 
@@ -752,13 +829,13 @@ Two-Failure Rule live in
 
 ## Phase B Completion
 
-After the last step's episode is written to the step file (and its
+After the last step's episode is written to the track file (and its
 code changes committed to git):
 
 1. **Mark `Step implementation` as `[x]`** in the Progress section.
 2. **Inform the user** that Phase B is complete:
    - How many steps were implemented (including any failed/retried;
-     count from `[!]` and retry rows in the step file if recovery
+     count from `[!]` and retry rows in the track file if recovery
      was used).
    - Key discoveries from step episodes.
    - Any unresolved code review findings.

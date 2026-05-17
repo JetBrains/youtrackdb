@@ -92,7 +92,7 @@ Decision Record revisions follow this format:
 
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
-[§Updating plan and step files](#updating-plan-and-step-files) below
+[§Updating plan and track files](#updating-plan-and-track-files) below
 for the authoritative rule per case.
 
 **Design coherence.** When the revision invalidates a Decision
@@ -146,11 +146,13 @@ together (see [`implementation-review.md`](implementation-review.md)
 § Replanning). The preview exists so you don't end the session and
 clear context only to learn on the next invocation that the revision
 was structurally broken. The invocation passes `plan_path` +
-`tracks_dir` per the path-passing rule in
+`plan_dir` per the path-passing rule in
 `.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
 full plan file including both completed track episodes and the
-proposed revisions, plus the step-file directory so pending-track
-details (each track's `## Description`) are reachable.
+proposed revisions, plus the track-file directory so pending-track
+details (each track's `## Purpose / Big Picture` plus the
+detail sections — `## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) are reachable.
 
 **5. Iterate** — if the preview finds structural blockers, revise and
 re-preview. Maximum 3 iterations. Consistency findings (phantom
@@ -173,14 +175,14 @@ preview — they will appear in the next-session State 0 re-run.
 
   ```bash
   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-          docs/adr/<dir-name>/_workflow/tracks/track-*.md
+          docs/adr/<dir-name>/_workflow/plan/track-*.md
   git commit -m "Inline replan after Track <N>"
   git push
   ```
 
   Stage only the paths that the revision actually touched (the
   enumeration in
-  [§Updating plan and step files](#updating-plan-and-step-files)
+  [§Updating plan and track files](#updating-plan-and-track-files)
   tells you which files apply per case). Any `design.md` /
   `design-mechanics.md` changes from step 3 land via the
   `edit-design` skill, which writes a separate
@@ -200,12 +202,12 @@ preview — they will appear in the next-session State 0 re-run.
 
 ---
 
-## Updating plan and step files
+## Updating plan and track files
 
 When a revision drafted during step 3 of [§Process](#process) lands —
 whether during the propose step itself or after review passes — each
 affected track must be written to its authoritative file location. The
-"Description lifecycle" table in `conventions-execution.md` §2.1 is the
+"Section lifecycle" table in `conventions-execution.md` §2.1 is the
 authority for non-inline-replan phases (Phase 1 write, Phase A,
 Phase C after collapse, Skipped at or before Phase A); this section is
 the authority for inline-replan revisions. If the two ever diverge, a
@@ -216,27 +218,56 @@ revision and the file(s) that carry the new description:
 
 1. **New track.** Add a thin checklist entry (title + intro paragraph +
    `**Scope:**` + optional `**Depends on:**`) to
-   `implementation-plan.md`, and create a new
-   `tracks/track-N.md` step file whose `## Description` carries the
-   intro paragraph + the full `**What/How/Constraints/Interactions**`
-   subsections + any track-level Mermaid diagram. Use the same
-   step-file shape `create-plan` produces at Phase 1 (see
-   [`conventions-execution.md`](conventions-execution.md) §2.1
-   *Step file content* for the template) — `## Progress`,
-   `## Reviews completed`, and `## Steps` start as `[ ]` placeholders.
+   `implementation-plan.md`, and create a new `plan/track-N.md` track
+   file in the canonical 14-section ExecPlan shape (see
+   [`conventions-execution.md`](conventions-execution.md) §2.1 *Track
+   file content* for the full template: 12 OpenAI sections,
+   `## Episodes`, `## Base commit`). The intro paragraph lands in
+   `## Purpose / Big Picture`; the track-level detail prose splits
+   across `## Context and Orientation` (current state and the
+   pre-revision baseline), `## Plan of Work` (step sequencing,
+   constraints, ordering rationale), and `## Interfaces and
+   Dependencies` (interactions with other tracks and files). The
+   track-level acceptance criteria land in `## Validation and
+   Acceptance` (per-step EARS/Gherkin lines start as Phase A
+   placeholders). Any track-level Mermaid diagram lands in
+   `## Context and Orientation`. `## Progress` starts with the four
+   pre-seeded phase checkpoints (`- [ ] Review + decomposition`,
+   `- [ ] Step implementation`, `- [ ] Track-level code review`,
+   `- [ ] Track completion`) so the State C resume protocol in
+   `workflow.md` can read them as phase markers; the other
+   continuous-log sections (`## Surprises & Discoveries`,
+   `## Decision Log`, `## Outcomes & Retrospective`, `## Episodes`)
+   start empty (HTML-comment placeholders are fine); the
+   deferred-sibling-Move sections start with the standard
+   reserved-slot HTML comments per D6/D10. `## Base commit` records
+   the SHA at which the new track will start executing, typically
+   `HEAD` at the time of the inline-replan commit.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
-   reviews recorded yet). Update the step file's `## Description`
-   section. The plan-file checklist entry keeps its intro paragraph
-   + `**Scope:**` + `**Depends on:**` unchanged unless the intro
-   itself is being revised.
+   reviews recorded yet). Update the track file's `## Purpose / Big
+   Picture` (intro paragraph), `## Context and Orientation` (current
+   state and pre-revision baseline, plus any track-level Mermaid
+   diagram), `## Plan of Work` (step sequencing, constraints,
+   ordering rationale), `## Interfaces and Dependencies`
+   (interactions with other tracks and files), and `## Validation and
+   Acceptance` (track-level acceptance criteria; per-step EARS/Gherkin
+   lines remain Phase A placeholders). The plan-file checklist entry
+   keeps its intro paragraph, `**Scope:**`, and `**Depends on:**`
+   unchanged unless the intro itself is being revised.
 
 3. **Revising a mid-execution track** (status `[ ]` with Phase A
-   reviews recorded and/or steps decomposed in the step file — the
-   execution workflow never sets `[>]` on a track). Update the step
-   file's `## Description` section. If the revision changes the intro
-   paragraph, update the plan-file checklist entry's intro paragraph
-   to match.
+   reviews recorded and/or steps decomposed in the track file; the
+   execution workflow never sets `[>]` on a track). Update the track
+   file's `## Purpose / Big Picture` (intro paragraph), `## Context
+   and Orientation` (current state and pre-revision baseline, plus
+   any track-level Mermaid diagram), `## Plan of Work` (step
+   sequencing, constraints, ordering rationale), `## Interfaces and
+   Dependencies` (interactions with other tracks and files), and
+   `## Validation and Acceptance` (track-level acceptance criteria;
+   per-step EARS/Gherkin lines remain Phase A placeholders).
+   If the revision changes the intro paragraph, update the plan-file
+   checklist entry's intro paragraph to match.
 
 4. **Revising a completed track** (status `[x]`). This is rare — code
    for `[x]` tracks is already merged, so a revision typically means
@@ -247,15 +278,15 @@ revision and the file(s) that carry the new description:
    scope becomes a new track (case 1).
 
 5. **Revising a skipped track** (status `[~]`). Update the plan entry.
-   Skipped tracks never retain a step file after the skip (see
+   Skipped tracks never retain a track file after the skip (see
    `track-skip.md` step 3), so the plan entry is the only
-   authoritative location. Per `track-skip.md`'s "Step-file deletion
+   authoritative location. Per `track-skip.md`'s "Track-file deletion
    is terminal" warning, a reader un-skipping a `[~]` track must
-   re-author the description from scratch — the deleted step file is
+   re-author the description from scratch — the deleted track file is
    not a recovery source after skip, and the revision here is the
    re-authoring.
 
-6. **Removing a track.** Remove the plan entry and delete the step
-   file at `tracks/track-N.md` if it still exists. (If the track had
-   already been skipped, its step file was deleted then; case 6
-   becomes a no-op for the step file.)
+6. **Removing a track.** Remove the plan entry and delete the track
+   file at `plan/track-N.md` if it still exists. (If the track had
+   already been skipped, its track file was deleted then; case 6
+   becomes a no-op for the track file.)

@@ -57,8 +57,9 @@ propose the same fix shape (await the condition instead of polling).
 ### Pivot order
 
 Each level breaks ties for the level above. Walk the raw findings
-once in dimension order (baseline first, then conditional), inserting
-each into the running merged list at this key:
+once in dimension order (baseline first, then conditional, then
+workflow-review), inserting each into the running merged list at this
+key:
 
 Some findings have no single `file:line` — missing-test flags
 (`review-test-completeness`), missing-invariant flags
