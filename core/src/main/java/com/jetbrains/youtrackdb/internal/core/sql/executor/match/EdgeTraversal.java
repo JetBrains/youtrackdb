@@ -99,13 +99,65 @@ public class EdgeTraversal {
   private long forecastN = -1L;
 
   /**
+   * Effective sample size at the root of the alias-lineage that feeds this
+   * edge's source. Determines whether the central-limit theorem (CLT) lets
+   * us trust {@link #forecastN} for the BUILD_EAGER decision.
+   *
+   * <p>{@code forecastN = sourceRows × fanOut_mean} treats the source as a
+   * sample from the fan-out distribution. Its relative error scales with
+   * {@code CV_fanOut / sqrt(N)} where {@code N} is the effective sample
+   * size of the source. For LDBC SNB heavy-tail distributions (e.g.
+   * messages-per-person), {@code CV_fanOut} is large, so small {@code N}
+   * produces unbounded relative error and BUILD_EAGER commits the build
+   * cost on an essentially-random forecast.
+   *
+   * <p>Stamped by {@link MatchExecutionPlanner#stampEdgeForecasts}:
+   * <ul>
+   *   <li>For an edge whose source alias is a root (its row count comes
+   *       directly from {@code estimatedRootEntries}, not from upstream
+   *       propagation), {@code rootSourceRows = sourceRows}.</li>
+   *   <li>For an edge whose source alias was populated via propagation
+   *       through an earlier edge, {@code rootSourceRows} inherits the
+   *       upstream edge's {@code rootSourceRows} — the CLT sample-size
+   *       at the original root of the lineage, not the propagated
+   *       expected count along the way.</li>
+   * </ul>
+   *
+   * <p>Bind-independent and propagated by {@link #copy()} — depends only on
+   * schedule structure and per-class statistics, not on per-execution bind
+   * values.
+   *
+   * <p>Sentinel {@code -1} means absent (planner could not compute, e.g.
+   * unbound source alias). BUILD_EAGER requires a known value at or above
+   * {@link #MIN_FOR_CLT}.
+   */
+  private long rootSourceRows = -1L;
+
+  /**
    * Load-to-scan cost ratio used in the build amortization formula.
    * Represents how many times more expensive a random record load is compared
-   * to scanning one entry in a pre-built RidSet. The value 100 is a reasonable
-   * default for cold SSD storage; operators can override via
-   * {@code youtrackdb.query.prefilter.loadToScanRatio}.
+   * to scanning one entry in a pre-built RidSet (in-memory membership probe).
+   * The value 100 is a reasonable default for cold SSD storage; operators
+   * can override via {@code youtrackdb.query.prefilter.loadToScanRatio}.
    */
   static final double DEFAULT_LOAD_TO_SCAN_RATIO = 100.0;
+
+  /**
+   * Minimum {@link #rootSourceRows} required before BUILD_EAGER trusts the
+   * plan-time {@link #forecastN}. Below this the CLT does not yet give a
+   * reliable mean for skewed distributions, so the build-vs-defer decision
+   * falls back to {@link Mode#DEFERRED_WITH_NET}, which inspects observed
+   * per-vertex link bag sizes at runtime instead.
+   *
+   * <p>{@code 30} is the classical CLT rule-of-thumb threshold. For
+   * heavy-tail distributions (LDBC SNB) {@code 30} samples is borderline,
+   * but in combination with the {@link Mode#DEFERRED_WITH_NET} safety net
+   * {@code T = max(2·forecastN, m)} the cost of being wrong is bounded.
+   *
+   * <p>Configurable in the future if benchmarks reveal heavy-tail
+   * distributions require a higher threshold.
+   */
+  static final long MIN_FOR_CLT = 30L;
 
   /**
    * Cached reference to the {@link CoreMetrics#PREFILTER_EFFECTIVENESS}
@@ -362,6 +414,22 @@ public class EdgeTraversal {
   /** Returns the plan-time forecast, or {@code -1} when absent. */
   public long getForecastN() {
     return forecastN;
+  }
+
+  /**
+   * Sets the effective root-lineage sample size for this edge. Called by
+   * {@code MatchExecutionPlanner.stampEdgeForecasts}. Pass {@code -1} when
+   * the planner cannot determine a sample size (the BUILD_EAGER gate then
+   * routes to DEFERRED_WITH_NET, which is the safe fallback). Negative
+   * non-sentinel values are normalised to {@code -1}.
+   */
+  public void setRootSourceRows(long rootSourceRows) {
+    this.rootSourceRows = rootSourceRows < 0 ? -1L : rootSourceRows;
+  }
+
+  /** Returns the root-lineage sample size, or {@code -1} when absent. */
+  public long getRootSourceRows() {
+    return rootSourceRows;
   }
 
   /** Returns the memoized amortization mode (test/PROFILE visibility). */
@@ -871,10 +939,27 @@ public class EdgeTraversal {
     double m = computeMinNeighborsForBuild(
         estimatedSize, loadToScanRatio, indexLookupSelectivity);
 
-    // Decide mode on first call. forecastN > ceil(m) → BUILD_EAGER, else
-    // DEFERRED_WITH_NET. Absent forecast (-1) falls through to DEFERRED_WITH_NET.
+    // Decide mode on first call. BUILD_EAGER requires both:
+    //   1. rootSourceRows >= MIN_FOR_CLT — CLT confidence in forecastN
+    //   2. forecastN > ceil(m) — the cost-model break-even
+    //
+    // The first condition gates against forecast unreliability. When the
+    // root-lineage sample size is small (RID-bound source, n=1; or a tiny
+    // filter narrowing) the forecast is essentially {@code mean × const}
+    // with full mean-variance exposure. For skewed fan-out distributions
+    // (LDBC SNB messages-per-person is power-law) this produces an
+    // essentially-random forecast — BUILD_EAGER on such a forecast commits
+    // the one-time build cost without statistical justification.
+    //
+    // The second condition is the cost-model itself: forecast must exceed
+    // the break-even between build cost and per-entry scan savings.
+    //
+    // Absent forecast (-1) or absent rootSourceRows (-1) fall through to
+    // DEFERRED_WITH_NET, which inspects observed per-vertex link bag at
+    // runtime instead of trusting the plan.
     if (mode == Mode.UNDETERMINED) {
-      mode = forecastN > (long) Math.ceil(m)
+      boolean hasStatisticalConfidence = rootSourceRows >= MIN_FOR_CLT;
+      mode = (hasStatisticalConfidence && forecastN > (long) Math.ceil(m))
           ? Mode.BUILD_EAGER
           : Mode.DEFERRED_WITH_NET;
     }
@@ -908,7 +993,15 @@ public class EdgeTraversal {
    *
    * <p>The formula models the break-even point where the total scan savings
    * from the pre-filter equal the one-time build cost:
-   * {@code estimatedSize / (loadToScanRatio * (1 - selectivity))}.
+   *
+   * <p>{@code m = estimatedSize / (loadToScanRatio · (1 − s))}
+   *
+   * <p>This is a pure cost-model break-even — callers add their own safety
+   * margin on top before triggering BUILD_EAGER (see
+   * {@link #FORECAST_SAFETY_MARGIN}). The cushion lives at the call site so
+   * the formula stays a single-purpose break-even and remains reusable for
+   * the {@code DEFERRED_WITH_NET} safety-net trigger
+   * {@code T = max(2·forecastN, m)} unchanged.
    *
    * <p>Boundary handling:
    * <ul>
@@ -928,12 +1021,12 @@ public class EdgeTraversal {
    *       to.)</li>
    *   <li>{@code selectivity >= 1.0} → {@link Double#MAX_VALUE} (never
    *       build — no filtering benefit when all records match)</li>
-   *   <li>Normal case → {@code estimatedSize / (loadToScanRatio *
+   *   <li>Normal case → {@code estimatedSize / (loadToScanRatio ·
    *       (1 - selectivity))}</li>
    * </ul>
    *
    * @param estimatedSize    estimated RidSet size (index hits)
-   * @param loadToScanRatio  cost ratio of random load vs. RidSet scan
+   * @param loadToScanRatio  cost ratio of random load vs. build scan
    * @param selectivity      fraction of records matching (0.0–1.0)
    * @return minimum accumulated link bag total to justify building
    */
@@ -1018,9 +1111,11 @@ public class EdgeTraversal {
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;
     copy.consumedPredecessor = consumedPredecessor;
-    // forecastN is bind-independent (depends only on schema/schedule), so the
-    // plan cache reuses it across executions.
+    // forecastN and rootSourceRows are bind-independent (depend only on
+    // schema/schedule + per-class statistics), so the plan cache reuses
+    // them across executions.
     copy.forecastN = forecastN;
+    copy.rootSourceRows = rootSourceRows;
     // Cache, cachedSkipReasons, accumulatedLinkBagTotal,
     // indexLookupSelectivity, mode, metric references, and pre-filter
     // counters are intentionally not copied — stale data from a previous

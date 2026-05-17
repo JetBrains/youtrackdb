@@ -2554,17 +2554,46 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> schedule,
       Map<String, Long> estimatedRootEntries,
       DatabaseSessionEmbedded session) {
-    Map<String, Long> aliasRowEstimate = new HashMap<>(estimatedRootEntries);
+    // Strip the {@code Long.MAX_VALUE} sentinels that {@code main()} writes
+    // into {@code estimatedRootEntries} for inferred-class aliases (see the
+    // inflation loop in the top-level execute()). The inflation is a
+    // scheduler-priority hack — it must never propagate into the row-count
+    // forecast, where it triggers cascading multiplications that drive
+    // {@code forecastN} to {@code Long.MAX_VALUE} and force every IndexLookup
+    // edge into BUILD_EAGER regardless of the real cost-model verdict.
+    // Inferred aliases instead enter {@code aliasRowEstimate} only via
+    // downstream propagation from earlier edges (which uses the real
+    // {@code targetSelectivityFactor}).
+    Map<String, Long> aliasRowEstimate = new HashMap<>(estimatedRootEntries.size());
+    for (var entry : estimatedRootEntries.entrySet()) {
+      if (entry.getValue() != null && entry.getValue() != Long.MAX_VALUE) {
+        aliasRowEstimate.put(entry.getKey(), entry.getValue());
+      }
+    }
+
+    // Tracks the effective root-lineage sample size for each alias. An alias
+    // present in {@code estimatedRootEntries} starts as its own root with
+    // its row count as the sample size. Targets populated by downstream
+    // propagation inherit the upstream edge's root-lineage size (the
+    // CLT-relevant n is the original root, not the propagated expected
+    // count along the way — see EdgeTraversal#rootSourceRows).
+    Map<String, Long> aliasRootSampleSize = new HashMap<>(aliasRowEstimate);
 
     for (var et : schedule) {
       String sourceAlias = et.out ? et.edge.out.alias : et.edge.in.alias;
       String targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
       if (sourceAlias == null || targetAlias == null) {
         et.setForecastN(-1L);
+        et.setRootSourceRows(-1L);
         continue;
       }
 
       Long sourceRows = aliasRowEstimate.get(sourceAlias);
+      Long sourceRootSize = aliasRootSampleSize.get(sourceAlias);
+      // Stamp the root-lineage sample size on every scheduled edge,
+      // independent of whether the forecast itself ends up usable.
+      et.setRootSourceRows(sourceRootSize == null ? -1L : sourceRootSize);
+
       if (sourceRows == null || sourceRows <= 0) {
         et.setForecastN(-1L);
         continue;
@@ -2583,14 +2612,25 @@ public class MatchExecutionPlanner {
         et.setForecastN(-1L);
         continue;
       }
-      long forecastNLong = (long) Math.min(
-          (double) Long.MAX_VALUE, Math.ceil(forecastDouble));
+      // Saturated forecast (clamp to Long.MAX_VALUE) is treated as absent.
+      // Otherwise the cost-model break-even is trivially satisfied by a
+      // saturated value, which re-introduces the inflation-driven
+      // BUILD_EAGER bug that the MAX_VALUE input strip closes at the
+      // entry boundary. Saturation here is rare in practice (it requires
+      // sourceRows × fanOut > 9.2e18 in double arithmetic) but the
+      // defensive {@code -1} mirrors the input strip's intent.
+      long forecastNLong = forecastDouble >= (double) Long.MAX_VALUE
+          ? -1L : (long) Math.ceil(forecastDouble);
       et.setForecastN(forecastNLong);
 
       // Propagate to the target alias for downstream edges. Skip propagation
       // when the existing entry is already at least as constraining as our
-      // forecast — fresh estimates from estimateRootEntries should not be
-      // overwritten by a looser-derived value.
+      // forecast — fresh estimates from {@code estimateRootEntries} should
+      // not be overwritten by a looser-derived value. Inflation of the
+      // propagated row count is bounded by the {@code Long.MAX_VALUE}
+      // saturation guard above and by the CLT gate downstream
+      // ({@link EdgeTraversal#MIN_FOR_CLT}) which routes low-confidence
+      // forecasts to {@code DEFERRED_WITH_NET}.
       double targetSel = targetSelectivityFactor(
           targetAlias, et.edge, et.out,
           aliasClasses, aliasFilters, aliasRowEstimate, session);
@@ -2601,6 +2641,15 @@ public class MatchExecutionPlanner {
         Long existing = aliasRowEstimate.get(targetAlias);
         if (existing == null || targetRows < existing) {
           aliasRowEstimate.put(targetAlias, targetRows);
+          // Propagate the source's root sample size. If the target already
+          // had a fresher root sample size from {@code estimatedRootEntries}
+          // (e.g. it's itself a class-rooted alias), keep that — fresh
+          // class-based statistics outrank inherited lineage from a tiny
+          // upstream sample.
+          Long existingRoot = aliasRootSampleSize.get(targetAlias);
+          if (existingRoot == null && sourceRootSize != null) {
+            aliasRootSampleSize.put(targetAlias, sourceRootSize);
+          }
         }
       }
     }

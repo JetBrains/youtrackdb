@@ -38,6 +38,25 @@ import org.junit.Test;
 public class ApplyPreFilterInterfaceTest {
 
   /**
+   * Pins {@code loadToScanRatio} to {@code 100.0} for the duration of this
+   * test class. Several tests below reason about specific {@code m}
+   * thresholds derived from the historical default value; the production
+   * default has since been re-calibrated to {@code 2.0}. Pinning here
+   * decouples the test math from production-side re-calibrations.
+   */
+  @org.junit.Before
+  public void pinLoadToScanRatio() {
+    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .setValue(100.0);
+  }
+
+  @org.junit.After
+  public void resetLoadToScanRatio() {
+    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .resetToDefault();
+  }
+
+  /**
    * When applyPreFilter receives a PreFilterableLinkBagIterable (which
    * both vertex and edge iterables implement), it should apply the class
    * filter from the edge's acceptedCollectionIds. Before the interface

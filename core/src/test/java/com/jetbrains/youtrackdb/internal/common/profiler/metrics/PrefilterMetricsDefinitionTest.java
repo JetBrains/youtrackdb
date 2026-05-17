@@ -49,21 +49,21 @@ public class PrefilterMetricsDefinitionTest {
 
   // ---- Config entry assertions ----
 
-  /** Default value of LOAD_TO_SCAN_RATIO is -1.0 (sentinel for "not set"). */
+  /** Default value of LOAD_TO_SCAN_RATIO is 100.0 (SSD-calibrated). */
   @Test
-  public void loadToScanRatioDefaultIsSentinel() {
+  public void loadToScanRatioDefaultIsOneHundred() {
     assertThat(GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
-        .getValueAsDouble()).isEqualTo(-1.0);
+        .getValueAsDouble()).isEqualTo(100.0);
   }
 
   /**
    * When not explicitly set, {@code configuredLoadToScanRatio()} returns
-   * -1.0 (callers fall back to {@code DEFAULT_LOAD_TO_SCAN_RATIO}).
+   * the positive default value verbatim (no sentinel fallback).
    */
   @Test
-  public void configuredLoadToScanRatioDefaultReturnsNegative() {
+  public void configuredLoadToScanRatioDefaultReturnsHundred() {
     assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
-        .isEqualTo(-1.0);
+        .isEqualTo(100.0);
   }
 
   /**

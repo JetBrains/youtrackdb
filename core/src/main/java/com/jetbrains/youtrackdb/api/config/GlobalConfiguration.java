@@ -1328,11 +1328,12 @@ public enum GlobalConfiguration {
   QUERY_PREFILTER_LOAD_TO_SCAN_RATIO(
       "youtrackdb.query.prefilter.loadToScanRatio",
       "Cost ratio of random record load vs. RidSet scan entry, used in"
-          + " the IndexLookup build amortization formula. Default -1 falls"
-          + " back to the static 100x estimate; override with a positive"
-          + " value to tune for specific hardware",
+          + " the IndexLookup build amortization formula. Calibrated for"
+          + " cold SSD storage; override with a positive value to tune for"
+          + " specific hardware (non-positive values fall back to the"
+          + " default)",
       Double.class,
-      -1.0,
+      100.0,
       true),
       ;
 

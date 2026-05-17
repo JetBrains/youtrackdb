@@ -45,6 +45,25 @@ public class EdgeTraversalCacheTest {
    */
   private static final int LARGE_LINKBAG = 1_000_000;
 
+  /**
+   * Pins {@code loadToScanRatio} to {@code 100.0} for the duration of this
+   * test class to decouple test math from the production default. The
+   * amortization-formula tests reason about specific {@code m} thresholds
+   * (e.g. {@code 100K/(100·0.5) = 2000}); pinning at {@code 100.0} keeps
+   * those constants stable across config re-calibrations.
+   */
+  @org.junit.Before
+  public void pinLoadToScanRatio() {
+    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .setValue(100.0);
+  }
+
+  @org.junit.After
+  public void resetLoadToScanRatio() {
+    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .resetToDefault();
+  }
+
   private EdgeTraversal createEdgeTraversal() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
@@ -1298,10 +1317,16 @@ public class EdgeTraversalCacheTest {
     assertThat(Double.isFinite(result)).isTrue();
   }
 
-  /** Change detector — the default SSD-calibrated ratio must be 100. */
+  /** Change detector — the SSD-calibrated default is 100. */
   @Test
   public void defaultLoadToScanRatio_isOneHundred() {
     assertThat(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO).isEqualTo(100.0);
+  }
+
+  /** Change detector — CLT confidence threshold for BUILD_EAGER is 30. */
+  @Test
+  public void minForClt_isThirty() {
+    assertThat(EdgeTraversal.MIN_FOR_CLT).isEqualTo(30L);
   }
 
   // =========================================================================
@@ -2756,15 +2781,47 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * BUILD_EAGER fires when forecastN > ceil(m). With estimatedSize=100K,
-   * selectivity=0.5, loadToScan=100 → m=2000. Setting forecastN=5000
-   * (> 2000) makes the first resolveWithCache call materialise immediately
-   * even when linkBagSize is small (no accumulator climb needed).
+   * Small root-lineage sample size (RID-bind pattern, n=1) forbids
+   * BUILD_EAGER regardless of how high {@code forecastN} sits above
+   * {@code m}. Regression guard for LDBC IC2: a single {@code :personId}
+   * binding gives a forecast that is essentially {@code mean × const}
+   * with full mean-variance exposure to heavy-tail distributions; BUILD_EAGER
+   * on such a forecast commits the one-time build cost without statistical
+   * justification.
    */
   @Test
-  public void resolveWithCache_forecastAboveM_buildsEagerly() {
+  public void resolveWithCache_smallRootSourceRows_deniesEagerEvenWithLargeForecast() {
     var et = createEdgeTraversal();
-    et.setForecastN(5000L);
+    // m=2000 (100K / (100·0.5)); forecastN=50K >> m would normally BUILD_EAGER.
+    et.setForecastN(50_000L);
+    // RID-bound source: only 1 sample at the root of the lineage. CLT
+    // cannot justify trusting forecastN here.
+    et.setRootSourceRows(1L);
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    var result = et.resolveWithCache(ctx, 100);
+
+    assertThat(result).isNull();
+    assertThat(et.getMode()).isEqualTo(EdgeTraversal.Mode.DEFERRED_WITH_NET);
+    verify(desc, never()).resolve(any(), any());
+  }
+
+  /**
+   * BUILD_EAGER fires when CLT confidence holds
+   * ({@code rootSourceRows >= MIN_FOR_CLT}) AND the cost-model break-even
+   * is satisfied ({@code forecastN > ceil(m)}). With estimatedSize=100K,
+   * selectivity=0.5, loadToScan=100 → m=2000; forecastN=5000 > 2000 and
+   * rootSourceRows=100 >> 30 → materialise on the first vertex regardless
+   * of linkBagSize.
+   */
+  @Test
+  public void resolveWithCache_largeSampleAndForecastAboveM_buildsEagerly() {
+    var et = createEdgeTraversal();
+    et.setForecastN(5000L); // > m=2000
+    et.setRootSourceRows(100L); // >= 30 → CLT confidence
     var ridSet = singletonRidSet(10, 1);
     var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
     et.setIntersectionDescriptor(desc);
@@ -2851,7 +2908,8 @@ public class EdgeTraversalCacheTest {
   @Test
   public void resolveWithCache_modeMemoizedAcrossCalls() {
     var et = createEdgeTraversal();
-    et.setForecastN(5000L); // > m=2000 → BUILD_EAGER
+    et.setForecastN(5000L); // > m=2000
+    et.setRootSourceRows(100L); // >= 30 → BUILD_EAGER fires
     var ridSet1 = singletonRidSet(10, 1);
     var ridSet2 = singletonRidSet(10, 2);
     // Different cache keys so the second call exercises mode logic again
@@ -2892,7 +2950,8 @@ public class EdgeTraversalCacheTest {
   @Test
   public void copy_preservesForecastN_resetsMode() {
     var et = createEdgeTraversal();
-    et.setForecastN(7777L);
+    et.setForecastN(7777L); // > m=2000
+    et.setRootSourceRows(100L); // >= 30 → BUILD_EAGER fires
     var ridSet = singletonRidSet(10, 1);
     var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
     et.setIntersectionDescriptor(desc);
