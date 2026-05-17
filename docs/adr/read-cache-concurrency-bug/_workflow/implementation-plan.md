@@ -719,6 +719,42 @@ flowchart LR
   > **Step file:** `tracks/track-5.md` (6 steps, 0 failed; iter-2
   > step-6 review fix `066176414e`; Phase C iter-1 review fix
   > `fe31279c57`)
+  >
+  > **Strategy refresh:** CONTINUE — Track 5's helper-set (Layer A
+  > `physicalSizeForBackupSnapshot`, Layer B `physicalSize` +
+  > `PhysicalReadIntent`) and the `loadOrAddPageForWrite` →
+  > `allocatePageForWrite` rename target the cache/API-hygiene plane;
+  > Track 7's recovery path reads EP logical state directly and uses
+  > `AsyncFile.getFileSize() / pageSize` for the physical compare, so
+  > the two don't intersect. TC3's reflection pin on
+  > `AOBT.fileChanges` / `maxNewPageIndex` plus the AOBT cross-engine
+  > asymmetry headline are reusable Track 7 reading material. Plan-
+  > checklist reorder applied this session (Track 7 ahead of Track 6)
+  > to satisfy Track 6's `**Depends on:** Track 7`.
+
+- [ ] Track 7: Recovery-time orphan-truncation pass
+  > Add a recovery-time pass to `AbstractStorage.recoverIfNeeded()`
+  > (after `restoreFromWAL()`, before `flushAllData()`) that walks
+  > each EP-equipped storage component and reads its entry-point
+  > logical page count. The pass truncates physical orphans via a new
+  > `WriteCache.shrinkFile(fileId, targetBytes)` primitive backed by
+  > `AsyncFile.shrink`.
+  >
+  > **Scope:** ~3-4 steps covering: (a) `WriteCache.shrinkFile` SPI
+  > addition + `WOWCache` impl wrapping `AsyncFile.shrink` +
+  > `DirectMemoryOnlyDiskCache` no-op impl + unit tests; (b)
+  > per-EP-equipped-component `verifyAndTruncateOrphans(AtomicOperation,
+  > WriteCache)` helper that loads its EP page (read-only), compares
+  > logical to `AsyncFile.getFileSize() / pageSize`, and calls
+  > `shrinkFile` when physical exceeds logical; (c)
+  > `AbstractStorage.recoverIfNeeded()` wiring + iteration over the
+  > four component classes via the existing `collections` /
+  > `indexEngines` / `linkCollectionsBTreeManager` fields; (d)
+  > integration tests pinning the post-replay `physical == logical`
+  > invariant for each EP-equipped component, including a positive
+  > test (orphan present → truncated) and a negative test (clean
+  > shutdown → no-op).
+  > **Depends on:** Track 4
 
 - [ ] Track 6: Integration regression test
   > End-to-end concurrent-insert workload that reproduces the original
@@ -759,30 +795,6 @@ flowchart LR
   > resurrection; (e) I4 per-component MT pins across the four
   > allocator sites + in-memory contention strengthening.
   > **Depends on:** Track 1, Track 4, Track 7
-
-- [ ] Track 7: Recovery-time orphan-truncation pass
-  > Add a recovery-time pass to `AbstractStorage.recoverIfNeeded()`
-  > (after `restoreFromWAL()`, before `flushAllData()`) that walks
-  > each EP-equipped storage component and reads its entry-point
-  > logical page count. The pass truncates physical orphans via a new
-  > `WriteCache.shrinkFile(fileId, targetBytes)` primitive backed by
-  > `AsyncFile.shrink`.
-  >
-  > **Scope:** ~3-4 steps covering: (a) `WriteCache.shrinkFile` SPI
-  > addition + `WOWCache` impl wrapping `AsyncFile.shrink` +
-  > `DirectMemoryOnlyDiskCache` no-op impl + unit tests; (b)
-  > per-EP-equipped-component `verifyAndTruncateOrphans(AtomicOperation,
-  > WriteCache)` helper that loads its EP page (read-only), compares
-  > logical to `AsyncFile.getFileSize() / pageSize`, and calls
-  > `shrinkFile` when physical exceeds logical; (c)
-  > `AbstractStorage.recoverIfNeeded()` wiring + iteration over the
-  > four component classes via the existing `collections` /
-  > `indexEngines` / `linkCollectionsBTreeManager` fields; (d)
-  > integration tests pinning the post-replay `physical == logical`
-  > invariant for each EP-equipped component, including a positive
-  > test (orphan present → truncated) and a negative test (clean
-  > shutdown → no-op).
-  > **Depends on:** Track 4
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 3 (post-replan re-validation, 2026-05-14)
