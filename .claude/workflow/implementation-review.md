@@ -169,11 +169,14 @@ findings.
 - **Gaps**: plan elements without design coverage, design elements no track
   covers, codebase constructs the documents should reference but don't
 
-Each pending track's detailed description
-(`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) lives in that track's track file (`plan/track-N.md`,
-written by `create-plan` at Phase 1) rather than inline in the plan
-file; the consistency review reads the track files alongside the plan.
+Each pending track's detailed description lives in that track's
+track file (`plan/track-N.md`, written by `create-plan` at Phase 1)
+rather than inline in the plan file — split across the four
+track-level sections (`## Purpose / Big Picture`, `## Context and
+Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`),
+with any track-level Mermaid diagram landing under `## Context and
+Orientation`. The consistency review reads the track files alongside
+the plan.
 
 ### Sub-agent prompt
 
@@ -506,7 +509,7 @@ When both reviews pass:
 2. Stage and commit the plan / track-file / design changes. Stage every
    track file the review actually touched (use `git status --porcelain
    docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
-   modified path explicitly rather than the whole `tracks/` directory
+   modified path explicitly rather than the whole `plan/` directory
    so unrelated files don't sneak in). The `design*.md` glob picks up
    `design.md` plus `design-mechanics.md` and `design-mutations.md`
    when `edit-design` touched them during the review (`design.md`

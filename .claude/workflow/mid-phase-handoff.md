@@ -254,7 +254,7 @@ case-specific items as needed.
 |---|---|
 | 0 / 1 | research paths in "Already ruled out"; sections already drafted in `design.md` or `implementation-plan.md` |
 | 2 (State 0) | classifier passes whose findings already landed in the plan file |
-| A | reviews already marked `[x]` in the track file's **Reviews completed** section |
+| A | reviews already marked `[x]` in the track file's **Outcomes & Retrospective** section |
 | B | committed steps (Phase B orphan-commit recovery handles uncommitted ones; see `step-implementation-recovery.md`) |
 | C | iteration count already in **Progress**; gate-checks already PASSed; plan corrections already committed |
 | 4 | sections of `design-final.md` / `adr.md` already on disk |

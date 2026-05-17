@@ -53,7 +53,7 @@ The invoking agent supplies these when calling the skill:
 | `design_path` | Absolute path to `design.md` (or `design-final.md` in Phase 4). |
 | `design_mechanics_path` | Absolute path to `design-mechanics.md` (or `null` if no companion). |
 | `plan_path` | Absolute path to `implementation-plan.md` (for `**Full design**` link resolution). |
-| `plan_dir` | Absolute path to the `plan/` directory containing every `plan/track-N.md` track file (same purpose — each track file's `## Description` may carry `**Full design**` references that the cross-file ref check has to resolve). |
+| `plan_dir` | Absolute path to the `plan/` directory containing every `plan/track-N.md` track file (same purpose — each track file's `## Decision Log` may carry `**Full design**` references that the cross-file ref check has to resolve). |
 | `target` | `design`, `mechanics`, or `both` — the file(s) the edit touches. Threaded through to the script's `--target` flag verbatim. (No `.md` suffix — the script's argparse choices are `design`/`mechanics`/`both`.) |
 | `intended_edit` | Either `(old_string, new_string)` for a focused edit, or full new content for a section-add / section-rewrite / file creation. |
 | `mutation_kind` | One of the values listed in the mode table above. |
@@ -172,8 +172,8 @@ Sync re-distills `design.md` from the current state of
    `Mechanics:` link).
 6. **Update plan / track-file `**Full design**` refs** for any section
    that was added/removed/renamed in this sync — the plan-file checklist
-   entries' Decision Records and every track file's `## Description` may
-   carry references to the affected section.
+   entries' Decision Records and every track file's `## Decision Log`
+   may carry references to the affected section.
 
 Apply the distilled `design.md` to disk via `Edit`/`Write`.
 

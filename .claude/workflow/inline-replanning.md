@@ -223,9 +223,8 @@ revision and the file(s) that carry the new description:
    [`conventions-execution.md`](conventions-execution.md) §2.1 *Track
    file content* for the full template: 12 OpenAI sections,
    `## Episodes`, `## Base commit`). The intro paragraph lands in
-   `## Purpose / Big Picture`; the prose that pre-Track-2 plans
-   carried in the `**What/How/Constraints/Interactions**` subsections
-   maps to `## Context and Orientation` (current state and the
+   `## Purpose / Big Picture`; the track-level detail prose splits
+   across `## Context and Orientation` (current state and the
    pre-revision baseline), `## Plan of Work` (step sequencing,
    constraints, ordering rationale), and `## Interfaces and
    Dependencies` (interactions with other tracks and files). The
