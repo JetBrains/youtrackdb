@@ -96,15 +96,16 @@ design claim along the **intent axis**:
   findings — emit normally.
 - **Target-state claim** — the plan/design says something about code a
   `[ ]` track will create (target-state prose in the track file's
-  `## Purpose / Big Picture` + `## Context and Orientation` +
-  `## Plan of Work` + `## Interfaces and Dependencies` sections,
-  forward-looking Decision Records describing the
-  post-implementation shape, design.md sections describing the
-  post-implementation state, invariants tagged `ASPIRATIONAL`). The
-  current code naturally won't match — **do NOT emit a finding**
-  unless the target is unreachable from the current code (in which
-  case emit a `design-decision` finding so the user can resolve the
-  gap).
+  `## Purpose / Big Picture` + `## Plan of Work` +
+  `## Interfaces and Dependencies` sections, forward-looking
+  Decision Records describing the post-implementation shape,
+  design.md sections describing the post-implementation state,
+  invariants tagged `ASPIRATIONAL`). The current code naturally
+  won't match — **do NOT emit a finding** unless the target is
+  unreachable from the current code (in which case emit a
+  `design-decision` finding so the user can resolve the gap).
+  `## Context and Orientation` is the carve-out exception — see the
+  per-section rules below.
 
 The same rule already applies to invariants via the
 `ENFORCED / ASPIRATIONAL / VIOLATED` tagging. The pre-screen extends
