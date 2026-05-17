@@ -21,9 +21,10 @@ justified.
 - **Phase B (`step-implementation-recovery.md`)** — loaded only on
   the rare upgrade path, when implementation reveals a step is more
   invasive than the plan suggested. Normal Phase B execution does NOT
-  load this file; it reads the per-step `**Risk:**` line from the
-  track file and gates sub-step 4 on the tag value alone. The recovery
-  file is itself loaded on demand and is where the upgrade handlers
+  load this file; it reads the per-step inline `risk:` field from the
+  `## Concrete Steps` roster line in the track file and gates sub-step
+  4 on the tag value alone. The recovery file is itself loaded on
+  demand and is where the upgrade handlers
   (`apply_upgrade_then_decide`, `rollback_and_upgrade`) live.
 - **Phase C (`track-code-review.md`)** — does NOT load this file. The
   Phase C synthesizer reads the per-step risk tags from the track file
@@ -188,18 +189,20 @@ The orchestrator's response depends on **when** the upgrade surfaces:
 
 - **Pre-commit** (during the implementer's first attempt at the
   step, `mode=INITIAL` or `mode=WITH_GUIDANCE`) — the orchestrator
-  rewrites the `**Risk:**` line and respawns from `mode=INITIAL`
-  BEFORE running the dimensional review for that step. See
+  rewrites the inline `risk:` field on the `## Concrete Steps`
+  roster line and respawns from `mode=INITIAL` BEFORE running the
+  dimensional review for that step. See
   [`step-implementation-recovery.md`](step-implementation-recovery.md)
   §`apply_upgrade_then_decide`.
 - **Post-commit** (during a `mode=FIX_REVIEW_FINDINGS` respawn — the
   upgrade surfaces only when applying review findings) — the
   orchestrator rolls back the original implementer commit and any
-  prior `Review fix:` commits via `git revert`, rewrites the
-  `**Risk:**` line, and respawns from `mode=INITIAL`. The next
-  attempt re-runs implementation with full dim-review pressure from
-  the start at the new risk level — not stacked on top of an
-  implementation that was already reviewed under the old tag. See
+  prior `Review fix:` commits via `git revert`, rewrites the inline
+  `risk:` field on the `## Concrete Steps` roster line, and respawns
+  from `mode=INITIAL`. The next attempt re-runs implementation with
+  full dim-review pressure from the start at the new risk level — not
+  stacked on top of an implementation that was already reviewed under
+  the old tag. See
   [`step-implementation-recovery.md`](step-implementation-recovery.md)
   §`rollback_and_upgrade`.
 
@@ -218,25 +221,25 @@ diff.
 
 ## Track-file format
 
-Each step entry in `plan/track-N.md` carries a `**Risk:**` line in
-its description blockquote, naming the level and the triggering
-category (or `default` / `override: <reason>`).
+Each step in `plan/track-N.md` is a thin numbered roster line in
+the `## Concrete Steps` section (per D9 — no nested blockquote). The
+risk tag rides inline on the same line, naming the level and the
+triggering category (or `default` / `override: <reason>`). The step's
+episode lives separately in `## Episodes` once Phase B writes it
+(per D11).
 
 ```markdown
-- [ ] Step: Add StampedLock acquisition path for histogram updates
-  > **Risk:** high — concurrency (introduces optimistic-read-then-upgrade
-  > pattern in PageFrame)
+## Concrete Steps
 
-- [ ] Step: Extract HistogramHeader struct from BTreePage
-  > **Risk:** low — default (pure refactoring; no semantic change)
-
-- [ ] Step: Wire histogram counter through tx-finalization path
-  > **Risk:** medium — multi-file logic in core (no HIGH triggers)
-
-- [ ] Step: Update Javadoc on AtomicLongFieldUpdater usage
-  > **Risk:** low — override (touches a HIGH category file but the
-  > change is Javadoc-only with no behavioral impact)
+1. Add StampedLock acquisition path for histogram updates — risk: high (concurrency — introduces optimistic-read-then-upgrade pattern in PageFrame)  [ ]
+2. Extract HistogramHeader struct from BTreePage — risk: low (default — pure refactoring; no semantic change)  [ ]
+3. Wire histogram counter through tx-finalization path — risk: medium (multi-file logic in core; no HIGH triggers)  [ ]
+4. Update Javadoc on AtomicLongFieldUpdater usage — risk: low (override — touches a HIGH category file but the change is Javadoc-only with no behavioral impact)  [ ]
 ```
 
-After implementation the risk line stays in place; the episode appends
-below it as today.
+The checkbox flips to `[x]` once the step is committed (or `[!]` if
+the step failed); the inline `risk:` field stays in place and is
+locked once implementation lands. Per-step episode content lives in
+`## Episodes ### Step N — commit <SHA>, <ISO> [ctx=<level>]` blocks,
+joined to the roster line by step number (see
+[`episode-format-reference.md`](episode-format-reference.md)).

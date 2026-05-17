@@ -3,14 +3,16 @@
 Detailed episode format rules and examples. Referenced from
 `conventions-execution.md` §2.1 and §2.2.
 
-The per-step episode is no longer a nested blockquote under the
-`## Steps` roster item. Per D9, D11, and D12, the writer (the Phase B
-orchestrator's sub-step 7) lands the episode across up to four
-sections in a deterministic order — one statusline read followed by
-two always-run writes and two conditional promotions. The Concrete
-Steps roster carries only the plan fields (description, `risk:`
-tag, status checkbox, optional `commit:` annotation); the full
-episode content lives in `## Episodes`.
+The per-step episode is no longer a nested blockquote under a legacy
+`## Steps` roster item (that section name retired with the move to
+the 14-section per-track shape; the canonical home for the step
+roster is now `## Concrete Steps`). Per D9, D11, and D12, the writer
+(the Phase B orchestrator's sub-step 7) lands the episode across up
+to four sections in a deterministic order — one statusline read
+followed by two always-run writes and two conditional promotions.
+The Concrete Steps roster carries only the plan fields (description,
+`risk:` tag, status checkbox, optional `commit:` annotation); the
+full episode content lives in `## Episodes`.
 
 ---
 

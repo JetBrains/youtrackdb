@@ -59,10 +59,12 @@ instruction — keep it intact when customising.
 ### Pre-write rule — PSI-verify class names
 
 Before any write that names a production class in the track file's
-`## Description` (`**What/How/Constraints/Interactions**` blocks,
-including light amendments committed via the Track Pre-Flight gate's
-step 4) or in decomposed step bodies under `## Concrete Steps`, the orchestrator
-MUST PSI-verify every named class via `mcp-steroid` find-class. Use
+four Phase 1 track-level sections (`## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies` — including light amendments
+committed via the Track Pre-Flight gate's step 4) or in decomposed
+step bodies under `## Concrete Steps`, the orchestrator MUST
+PSI-verify every named class via `mcp-steroid` find-class. Use
 `steroid_execute_code` with
 `JavaPsiFacade.findClass(fqn, GlobalSearchScope.allScope(project))`.
 If the orchestrator only has a short name (e.g., `BTree`), construct
@@ -98,8 +100,11 @@ of three states per [`conventions.md`](conventions.md) §1.4:
   `### Clarifications` subsection.
 
 **Failure path.** If PSI-verify reports a name does not resolve and
-the track's `## Description` does not explicitly mark it as a class
-this track creates: try once — read the production code or existing
+the track file's four Phase 1 track-level sections
+(`## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, `## Interfaces and Dependencies`) do not
+explicitly mark it as a class this track creates: try once — read the
+production code or existing
 tests for the named target, derive the canonical name, and re-verify.
 If after one retry the name still does not resolve, do NOT write or
 commit the track file. Surface the conflict via `AskUserQuestion` with
@@ -138,10 +143,13 @@ questions, skipping a remaining track, and combinations thereof —
 or to escalate to inline replanning when the change is deep.
 
 The gate fires once per fresh Phase A entry. State C resume (the
-track file's `## Description` already carries the agreed-upon track
-plan, including any prior clarifications) **skips** the gate; the
-user saw it in the original session and the description is already
-authoritative. The gate is also re-runnable on session resume (no
+track file's four Phase 1 track-level sections
+(`## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, `## Interfaces and Dependencies`) already carry
+the agreed-upon track plan, including any prior clarifications)
+**skips** the gate; the user saw it in the original session and the
+four sections are already authoritative. The gate is also re-runnable
+on session resume (no
 review has yet been recorded in `## Outcomes & Retrospective` — see
 §Phase A Resume) — the resume idempotency rule at the end of this
 section governs that case.
@@ -180,13 +188,13 @@ on-disk strategy-refresh line.
 **2. Build Panel 2 — track summary (look-forward).**
 
 Read the plan-file Track N entry (title, intro paragraph, scope
-indicators, any inline notes) and the upcoming track's track file
-`## Description` section
-(`**What/How/Constraints/Interactions**` plus any `mermaid`
-diagram, written by `create-plan` at Phase 1 and possibly amended
-by prior Pre-Flight rounds or inline replanning, including any
-`### Clarifications` subsection from a prior gate session).
-Render the summary inline.
+indicators, any inline notes) and the upcoming track's track file's
+four Phase 1 track-level sections (`## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) plus any `mermaid` diagram, written
+by `create-plan` at Phase 1 and possibly amended by prior Pre-Flight
+rounds or inline replanning, including any `### Clarifications`
+subsection from a prior gate session. Render the summary inline.
 
 **3. Ask the user.** This step runs only if step 1 did not exit
 the gate — i.e., Panel 1 was skipped (no anchor track), Panel 1's
@@ -245,20 +253,22 @@ single-site changes or `steroid_apply_patch` when more than two
 sites are touched. These are markdown edits, so the project
 CLAUDE.md "always route file edits through MCP Steroid" rule is
 satisfied with native `Edit` for single-site changes here.
-Amendments that name production classes in the
-`**What/How/Constraints/Interactions**` blocks are bound by the
-§Pre-write rule above — PSI-verify every named class via
-`mcp-steroid` find-class **silently during accumulation, and
-inline-ask the user if a name does not resolve** (per review
-mode § Flow step 1.2), so the user can correct a
-pattern-induced name during the same review-mode round rather
-than after commit:
+Amendments that name production classes in the four Phase 1
+track-level sections (`## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) are bound by the §Pre-write rule
+above — PSI-verify every named class via `mcp-steroid` find-class
+**silently during accumulation, and inline-ask the user if a name
+does not resolve** (per review mode § Flow step 1.2), so the user
+can correct a pattern-induced name during the same review-mode round
+rather than after commit:
 
 - Track title, intro paragraph
 - Scope indicators in the plan-file checklist entries
-- `**What/How/Constraints/Interactions**` subsections in the step
-  file's `## Description`
-- Track-level `mermaid` diagrams in the track file's `## Description`
+- The four Phase 1 track-level sections (`## Purpose / Big Picture`,
+  `## Context and Orientation`, `## Plan of Work`,
+  `## Interfaces and Dependencies`) in the track file
+- Track-level `mermaid` diagrams in the track file
 - Reordering of remaining `[ ]` tracks within the plan checklist
   (only if dependencies still hold; re-render Panel 2 if the
   reorder changes the upcoming track)
@@ -274,9 +284,12 @@ requests escalation during track pre-flight"):
 
 - Decision Records, Architecture Notes, Goals, or Constraints in
   the plan file
-- **Adding** a new track (requires authoring a fresh track file
-  `## Description`, dependency analysis, and design decisions).
-  **Removing** a remaining track is light — it is the `SKIP_TRACK`
+- **Adding** a new track (requires authoring a fresh track file's
+  four Phase 1 track-level sections — `## Purpose / Big Picture`,
+  `## Context and Orientation`, `## Plan of Work`,
+  `## Interfaces and Dependencies` — plus dependency analysis and
+  design decisions). **Removing** a remaining track is light — it is
+  the `SKIP_TRACK`
   action item above, not a deep amendment.
 - Cross-track interaction surfaces (i.e., the change would affect
   another track's scope beyond pure reordering)
@@ -294,8 +307,11 @@ notes plus any orchestrator-stated interpretations the user
 confirmed. The buffer is non-empty only if at least one `CLARIFY`
 item was applied during a review-mode round (see
 [`review-mode.md`](review-mode.md) § Flow step 5). When the user
-picks **Approve**, the buffer flows verbatim into the track file's
-`## Description` in step 6 below.
+picks **Approve**, the buffer flows verbatim into a
+`### Clarifications` subsection appended to the track file's
+`## Context and Orientation` section in step 6 below (the four
+Phase 1 track-level sections' canonical home for user-supplied
+current-state notes per the C&O-as-current-state idiom).
 
 **6. Persist amendments + clarifications + strategy-refresh line.**
 
@@ -338,7 +354,10 @@ this round:
 
 - **Clarifications subsection** (buffer non-empty): write the
   buffer as a `### Clarifications` subsection at the end of the
-  upcoming track's track file's `## Description`. **If a
+  upcoming track's track file's `## Context and Orientation`
+  section (per the four Phase 1 track-level sections' lifecycle
+  table in `conventions-execution.md` §2.1 — Clarifications are
+  current-state user notes that belong with C&O). **If a
   `### Clarifications` subsection already exists** (e.g., a prior
   gate session committed clarifications and was interrupted before
   any review ran, then re-fired on resume per §Phase A Resume),
@@ -574,7 +593,7 @@ instead of restating them.
 | Input | Value |
 |---|---|
 | `plan_path` | Absolute path to `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
-| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the track file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the track file, its four Phase 1 track-level sections (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) are the authoritative source for the track's intent / current-state / step-aware-plan / inter-track-boundary content and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
 | `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
@@ -583,7 +602,9 @@ instead of restating them.
 Phase A orchestration always passes both `plan_path` and
 `step_file_path` to each sub-agent. Prompts that read the track
 description from the plan-file entry use `plan_path`; prompts that
-read it from the track file's `## Description` section use
+read it from the track file's four Phase 1 track-level sections
+(`## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, `## Interfaces and Dependencies`) use
 `step_file_path`. The Inputs block and the per-review mini-sections
 below do not need to change when an individual prompt switches sources
 — only the prompt file itself is edited.
@@ -712,8 +733,11 @@ different aspects, based on what is actually needed.
 
 ### Phase A Resume
 
-The track file already exists from Phase 1 with `## Description`
-populated, so Phase A resume's only concerns are (1) what state the
+The track file already exists from Phase 1 with the four Phase 1
+track-level sections (`## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) populated, so Phase A resume's
+only concerns are (1) what state the
 Track Pre-Flight gate left behind and (2) which Phase A activities
 have completed. When `/execute-tracks` auto-resumes into Phase A
 (the Startup Protocol's State C `Review + decomposition is [ ]` row
@@ -759,10 +783,13 @@ Pattern-match on the entry prefix (`Technical:` / `Risk:` /
 (`Track-level code review iteration…` / `Track complete`) that share
 the same section. Phase A only inspects its own review-type entries.
 
-The non-re-copy rule (no operation re-derives `## Description` from
-external sources during Phase A) protects any amendments / inline-
-replan rewrites the track file may have accumulated since Phase 1 from
-being silently overwritten on resume.
+The non-re-copy rule (no operation re-derives the four Phase 1
+track-level sections — `## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies` — from external sources during
+Phase A) protects any amendments / inline-replan rewrites the track
+file may have accumulated since Phase 1 from being silently
+overwritten on resume.
 
 ---
 

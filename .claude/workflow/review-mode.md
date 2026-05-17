@@ -460,8 +460,11 @@ or ESCALATE.
 
 Per-gate re-render rules:
 
-- **Pre-Flight.** Rebuild Panel 2 from disk (plan-file entry + step
-  file `## Description`). If any `EDIT_PLAN` item touched a
+- **Pre-Flight.** Rebuild Panel 2 from disk (plan-file entry +
+  track file's four Phase 1 track-level sections —
+  `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, `## Interfaces and Dependencies`). If any
+  `EDIT_PLAN` item touched a
   remaining track, re-run Panel 1's strategy assessment before
   re-rendering, since the touched track may have changed the
   look-back picture. If an `EDIT_PLAN` reorder changed which track
@@ -501,7 +504,7 @@ never in mid-conversation messages.
 | `QUESTION` | Question text + orchestrator's answer (resolved at accumulation time by reading conversation context, git log, step / track episodes, plan file, and source code as needed; surfaced inline as plain chat) | None — already answered inline | Both gates |
 | `EDIT_PLAN` | Path + anchor + new text. Light edits to a remaining track's plan-file entry: title, intro paragraph, scope indicators, or reorder of remaining `[ ]` tracks | Apply via `Edit` for single-site text changes (title, intro, scope) or via `steroid_apply_patch` for >2 sites **and for any reorder** (a move is a remove + insert pair and must land atomically — two chained `Edit` calls are not atomic). See `track-review.md` § Track Pre-Flight step 4 | Pre-Flight only |
 | `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full [`track-skip.md`](track-skip.md) § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `plan/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
-| `EDIT_STEP_DESC` | Path + anchor + new text. Light edits to the upcoming track's track file `## Description` (`**What/How/Constraints/Interactions**` blocks, `mermaid` diagram) | Apply via `Edit` / `steroid_apply_patch` as above | Pre-Flight only |
+| `EDIT_STEP_DESC` | Path + anchor + new text. Light edits to the upcoming track's track file's four Phase 1 track-level sections (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) including any embedded `mermaid` diagram | Apply via `Edit` / `steroid_apply_patch` as above | Pre-Flight only |
 | `CLARIFY` | Note text targeting the upcoming track | Appended to the in-conversation clarifications buffer; persisted to the track file's `### Clarifications` subsection on the gate's final Approve per `track-review.md` § Track Pre-Flight step 6 | Pre-Flight only |
 | `FIX_FINDING` | `{location, issue, proposed fix}` triple | Collected into a synthesised findings list; on Apply completion, a fresh implementer is spawned with `level=track`, `mode=FIX_REVIEW_FINDINGS` per `track-code-review.md` § Track Completion step 3 | Completion only |
 | `ESCALATE` | Deep-change description | Routes to `inline-replanning.md`; see § Mixed-set policy | Both gates |
@@ -626,18 +629,28 @@ Protected sections per file:
     `### Component Map` / `### Decision Records` /
     `### Invariants` / `### Integration Points` subsections)
 - **Track file (`plan/track-<N>.md`)**:
-  - Anything outside `## Description` — `## Progress`,
-    `## Reviews completed`, `## Steps`.
-  - The `### Clarifications` subsection inside `## Description`
-    (see `track-review.md` § Track Pre-Flight step 6 for the
-    write rule that places it there). It is the only `## Description`
-    subsection that is protected; the surrounding free-form
-    prose (intro, **What/How/Constraints/Interactions**, optional
-    `mermaid` diagram) remains the light-amendment zone.
+  - Anything outside the four Phase 1 track-level sections — the
+    other ten sections of the 14-section per-track shape, including
+    `## Progress`, `## Surprises & Discoveries`, `## Decision Log`,
+    `## Outcomes & Retrospective`, `## Concrete Steps`,
+    `## Episodes`, `## Validation and Acceptance`,
+    `## Idempotence and Recovery`, `## Artifacts and Notes`, and
+    `## Base commit`.
+  - The `### Clarifications` subsection inside
+    `## Context and Orientation` (see `track-review.md` § Track
+    Pre-Flight step 6 for the write rule that places it there).
+    It is the only sub-section of the four Phase 1 track-level
+    sections that is protected; the surrounding free-form prose
+    in the four sections (intro / current-state / step-aware-plan
+    / inter-track-boundary, plus any embedded `mermaid` diagram)
+    remains the light-amendment zone.
 
-  `## Description` (minus the `### Clarifications` exception above)
-  is the only light-amendment zone for review mode; `## Steps` in
-  particular is Phase A decomposition's territory.
+  The four Phase 1 track-level sections (`## Purpose / Big Picture`,
+  `## Context and Orientation`, `## Plan of Work`,
+  `## Interfaces and Dependencies`) minus the `### Clarifications`
+  exception above are the only light-amendment zone for review mode;
+  `## Concrete Steps` in particular is Phase A decomposition's
+  territory.
 
 If the anchor falls inside a protected section, pause the
 accumulation per § 1 step 5 and ask the user conversationally
@@ -692,9 +705,12 @@ input names any of the deep-amendment categories from
 
 - Decision Records, Architecture Notes, Goals, or Constraints in
   the plan file
-- **Adding** a new track (requires authoring a fresh track file
-  `## Description`, dependency analysis, and design decisions —
-  none of which review mode can do in a single round). **Removing**
+- **Adding** a new track (requires authoring a fresh track file's
+  four Phase 1 track-level sections — `## Purpose / Big Picture`,
+  `## Context and Orientation`, `## Plan of Work`,
+  `## Interfaces and Dependencies` — plus dependency analysis and
+  design decisions, none of which review mode can do in a single
+  round). **Removing**
   a remaining track is `SKIP_TRACK`, not ESCALATE — see
   § Action types; it is a single user-initiated action with a
   reason, terminal track-file delete, no design work.
