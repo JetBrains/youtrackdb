@@ -14,9 +14,10 @@ Update every writer SKILL that authors or amends a per-track file or the root in
 - [x] 2026-05-16T17:46Z [ctx=safe] Step 4 complete (commit e0f8c71788)
 - [x] 2026-05-16T17:46Z [ctx=safe] Step implementation complete (4/4 steps)
 - [x] 2026-05-17T05:05Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-17T05:08Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+- 2026-05-17T05:05Z [ctx=info] **Phase C iter-1 (F4):** `inline-replanning.md` case 1 had claimed `## Progress` starts empty, but `create-plan/SKILL.md` template prepopulates four `- [ ]` phase checkpoints (Review + decomposition / Step implementation / Track-level code review / Track completion) that the State C resume protocol in `workflow.md` reads as phase markers. The two writers had drifted — a track authored via inline-replan would have lacked the markers the resume protocol depends on. Track 3 reconciled inline-replanning to the SKILL's shape. Cross-track impact: Track 4's reader-pass should also sync `conventions-execution.md` §2.1 lifecycle table `## Progress` row (Phase 1 writer is currently `(empty)` in that table; should be the four pre-seeded checkpoints).
 
 ## Decision Log
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -25,6 +26,8 @@ Update every writer SKILL that authors or amends a per-track file or the root in
 
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (5 findings — T1/T2/T3 should-fix applied; T4/T5 suggestions deferred to decomposition step-ordering and step-description annotation; T6 suggestion applied as Interfaces and Dependencies clarification)
+- [x] 2026-05-17T05:05Z [ctx=info] Track-level code review iteration 1 — PASS across 5 dispatched dimensions (WC / WP / WI / WB / WS); WH not dispatched (no `.claude/hooks/`, `.claude/scripts/`, or `.claude/settings*.json` in the diff). 9 in-scope findings applied (1 blocker WC1/WP1/WI3; 5 should-fix WC2+WP2/WC3+WI4/WI1/WI2/WS1; 3 suggestion WP3/WP4/WP5+WB2). 4 findings deferred (WC4 → Phase 4 design.md sync; WI5/WS2 → track-3.md ephemeral; WS3 → borderline). 1 finding out of scope (WI6: pre-existing `create-plan/SKILL.md` Step 5 commit path). 1 plan correction routed to Track 4 (conventions-execution.md §2.1 `## Progress` lifecycle row). Review fix: `fe8e45c279`.
+- [x] 2026-05-17T05:08Z [ctx=info] Track complete
 
 ## Context and Orientation
 
