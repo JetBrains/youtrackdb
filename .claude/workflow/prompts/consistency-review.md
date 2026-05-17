@@ -5,9 +5,11 @@ code to find gaps and inconsistencies between the four artifacts:
 
 1. **Implementation plan** (`implementation-plan.md`)
 2. **Track files** (`plan/track-N.md`, one per pending track) — each
-   track file's `## Description` section holds that track's
-   `**What/How/Constraints/Interactions**` detail and any track-level
-   Mermaid diagram. Written by `create-plan` at Phase 1.
+   track file holds that track's what/how/constraints/interactions
+   detail and any track-level Mermaid diagram across its
+   `## Purpose / Big Picture`, `## Context and Orientation`,
+   `## Plan of Work`, and `## Interfaces and Dependencies` sections.
+   Written by `create-plan` at Phase 1.
 3. **Design document** (`design.md`)
 4. **Actual codebase**
 
@@ -62,10 +64,12 @@ Inputs:
 - Plan file: {plan_path}
 - Track files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending track's
-  track file `## Description` for that track's
-  `**What/How/Constraints/Interactions**` detail and any track-level
-  Mermaid diagram. Skip track files for `[x]`/`[~]` tracks — those
-  tracks' final descriptions live in the plan-file entry instead.
+  `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies` sections for
+  that track's what/how/constraints/interactions detail and any
+  track-level Mermaid diagram. Skip track files for `[x]`/`[~]` tracks
+  — those tracks' final descriptions live in the plan-file entry
+  instead.
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
@@ -91,8 +95,10 @@ design claim along the **intent axis**:
   invariant tagged `ENFORCED`). Discrepancies with these become
   findings — emit normally.
 - **Target-state claim** — the plan/design says something about code a
-  `[ ]` track will create (`**What**:` bullets in the track file
-  `## Description`, forward-looking Decision Records describing the
+  `[ ]` track will create (target-state prose in the track file's
+  `## Purpose / Big Picture` + `## Context and Orientation` +
+  `## Plan of Work` + `## Interfaces and Dependencies` sections,
+  forward-looking Decision Records describing the
   post-implementation shape, design.md sections describing the
   post-implementation state, invariants tagged `ASPIRATIONAL`). The
   current code naturally won't match — **do NOT emit a finding**
@@ -105,9 +111,9 @@ The same rule already applies to invariants via the
 it to all design.md / Component Map / track-description claims.
 
 **How to determine intent for each claim:**
-- If the claim is inside a track-file `## Description`
-  `**What/How/Constraints/Interactions**` subsection for a `[ ]`
-  track → target-state.
+- If the claim is inside a track file's `## Purpose / Big Picture`,
+  `## Context and Orientation`, `## Plan of Work`, or `## Interfaces
+  and Dependencies` section for a `[ ]` track → target-state.
 - If the claim is in a Decision Record's "Implemented in: Track N" line
   for a `[ ]` track → target-state.
 - If the claim is in design.md and a `[ ]` track's description names
@@ -148,11 +154,13 @@ finding and the classification rules below will route it correctly.
   (e.g., if the plan says "Query optimizer reads histograms via
   `IndexStatistics.getHistogram()`", does that method exist?)
 - Do track descriptions reference code constructs (classes, methods, SPIs)
-  that actually exist? Flag phantom references. *(Applies to the step
-  file `## Description` for pending tracks; to the plan-file entry for
-  completed/skipped tracks. Architecture Notes, Component Map, Decision
-  Records, Invariants, and Integration Points bullets in this section
-  remain plan-only per `conventions.md` §1.2.)*
+  that actually exist? Flag phantom references. *(Applies to the
+  track file's `## Purpose / Big Picture` + `## Context and Orientation`
+  + `## Plan of Work` + `## Interfaces and Dependencies` sections for
+  pending tracks; to the plan-file entry for completed/skipped tracks.
+  Architecture Notes, Component Map, Decision Records, Invariants, and
+  Integration Points bullets in this section remain plan-only per
+  `conventions.md` §1.2.)*
 - Are Invariants listed in the plan consistent with the current code
   behavior? (e.g., if the plan says "histogram updates occur inside WAL
   atomic operations", is that how the current code works, or is that an
@@ -165,8 +173,10 @@ finding and the classification rules below will route it correctly.
 - Do the workflow diagrams align with the track descriptions? (e.g., if a
   track says "add snapshot reads for histograms", is there a corresponding
   flow in the design document?) *(For pending tracks, read track
-  descriptions from the track file `## Description`; for
-  completed/skipped tracks, read from the plan-file entry. The Component
+  descriptions from the track file's `## Purpose / Big Picture` +
+  `## Context and Orientation` + `## Plan of Work` + `## Interfaces
+  and Dependencies` sections; for completed/skipped tracks, read from
+  the plan-file entry. The Component
   Map/Decision Records bullet above and the Decision Records and
   scope-indicators bullets below remain plan-only.)*
 - Do Decision Records in the plan correspond to design choices visible in
@@ -181,10 +191,12 @@ finding and the classification rules below will route it correctly.
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior
   but the design document has no concurrency section) *(For pending
-  tracks, the "track describes …" text lives in the track file
-  `## Description`; for completed/skipped tracks, in the plan-file
-  entry. The orphan-scope and orphan-codebase-construct bullets below
-  remain plan-only.)*
+  tracks, the "track describes …" text lives in the track file's
+  `## Purpose / Big Picture` + `## Context and Orientation` +
+  `## Plan of Work` + `## Interfaces and Dependencies` sections; for
+  completed/skipped tracks, in the plan-file entry. The
+  orphan-scope and orphan-codebase-construct bullets below remain
+  plan-only.)*
 - Are there parts of the design document that no track covers? (e.g., the
   design shows a class that isn't mentioned in any track's scope)
 - Are there codebase constructs (existing classes, interfaces, SPIs) that
@@ -229,8 +241,10 @@ real mismatch hidden)? When in doubt, route through PSI.
 
    **Where track-description code references live:** For each
    **pending** track (`[ ]`), read the track's detailed description
-   (`**What/How/Constraints/Interactions**` subsections and any
-   track-level Mermaid diagram) from `plan/track-N.md` `## Description`.
+   (what/how/constraints/interactions detail and any track-level
+   Mermaid diagram) from `plan/track-N.md`'s `## Purpose / Big Picture`,
+   `## Context and Orientation`, `## Plan of Work`, and `## Interfaces
+   and Dependencies` sections.
    For **completed** tracks (`[x]`) and **skipped** tracks (`[~]`),
    the plan-file entry already holds the track's final form (intro
    paragraph + track episode for completed; intro + `**Skipped:**`

@@ -5,9 +5,10 @@ Inputs:
 - Updated plan file: {plan_path}
 - Track files directory: {plan_dir} — every `plan/track-N.md` whose
   matching plan-file entry is `[ ]` (pending). Read each pending
-  track's `## Description` for that track's
-  `**What/How/Constraints/Interactions**` detail and any track-level
-  Mermaid diagram.
+  track's `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies` sections for
+  that track's what/how/constraints/interactions detail and any
+  track-level Mermaid diagram.
 - Updated design document: {design_path}
 - Previous findings (context only, finalized in earlier iterations):
   {previous_findings}
@@ -29,9 +30,10 @@ the design document but not updating the corresponding sequence diagram).
 ## Semi-Formal Verification Protocol
 
 Before verifying any finding whose fix touched a pending track's
-description, re-read that track's description (the
-`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) from `plan/track-N.md` `## Description`. For
+description, re-read that track's `## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`, and `## Interfaces
+and Dependencies` sections (and any track-level Mermaid diagram those
+sections carry) from `plan/track-N.md`. For
 **completed** (`[x]`) and **skipped** (`[~]`) tracks, read from the
 plan-file entry (intro paragraph + track episode for completed; intro +
 `**Skipped:**` reason for skipped). Read Architecture Notes, Decision

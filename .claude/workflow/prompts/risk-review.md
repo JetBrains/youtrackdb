@@ -42,30 +42,35 @@ implementation begins. Your findings may lead to risk mitigation steps,
 reordering, or (if severity is `skip`) a recommendation to skip the track.
 
 **Where things live during Phase A:** The track's detailed description
-(the `**What/How/Constraints/Interactions**` subsections plus any
-track-level component diagram) lives in the track file at
-`docs/adr/<dir-name>/_workflow/plan/track-N.md` under a `## Description` section —
-copied there at Phase A start. The plan file carries strategic context
-(Architecture Notes, Decision Records, Component Map) and track-level
-status + episodic memory.
+lives in the track file at
+`docs/adr/<dir-name>/_workflow/plan/track-N.md`, split across four
+sections: `## Purpose / Big Picture` (intro paragraph + BLUF),
+`## Context and Orientation` (what's there today),
+`## Plan of Work` (what we'll change, plus any track-level component
+diagram), and `## Interfaces and Dependencies` (file boundaries,
+inter-track deps). All four are seeded at Phase A start. The plan
+file carries strategic context (Architecture Notes, Decision Records,
+Component Map) and track-level status + episodic memory.
 
 ---
 
 Inputs:
 - Plan file: {plan_path} (strategic context — Architecture Notes,
   Decision Records, Component Map)
-- Track file: {step_file_path} (the track's `## Description` section —
-  authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram.)
+- Track file: {step_file_path} — authoritative source for the track's
+  what/how/constraints/interactions and any track-level diagram, split
+  across `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies`.
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
-Start by reading the track description and any track-level component
-diagram from the track file's `## Description` section. Read the
-relevant Decision Records from the plan. Then explore the parts of the
-codebase this track touches.
+Start by reading the track file's `## Purpose / Big Picture`,
+`## Context and Orientation`, `## Plan of Work`, and `## Interfaces
+and Dependencies` sections (plus any track-level component diagram
+those sections carry). Read the relevant Decision Records from the
+plan. Then explore the parts of the codebase this track touches.
 
 **Tooling — PSI is required for symbol audits.** Critical-path
 exposure analysis ("who calls this hot method", "which subclasses

@@ -3,9 +3,10 @@ You are re-checking a track of the plan after fixes were applied.
 Inputs:
 - Plan file: {plan_path} (strategic context — Architecture Notes,
   Decision Records, Component Map)
-- Track file: {step_file_path} (the track's `## Description` section —
-  authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram.)
+- Track file: {step_file_path} — authoritative source for the track's
+  what/how/constraints/interactions and any track-level diagram, split
+  across `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies`.
 - Track reviewed: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
@@ -23,9 +24,10 @@ For each finding under re-check:
 ## Semi-Formal Verification Protocol
 
 Before verifying any finding whose fix touched the track description,
-re-read the track description and any track-level component diagram from
-the track file's `## Description` section. Read the relevant Decision
-Records from the plan.
+re-read the track file's `## Purpose / Big Picture`, `## Context and
+Orientation`, `## Plan of Work`, and `## Interfaces and Dependencies`
+sections (plus any track-level component diagram those sections
+carry). Read the relevant Decision Records from the plan.
 
 For each ACCEPTED finding being verified, produce a **verification
 certificate** that re-checks the specific location.

@@ -21,11 +21,12 @@ Read:
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
 - `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify)
 - `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all track files with step
-  episodes. Each track file begins with a `## Description` section
-  carrying the track's original description (written there by
-  `create-plan` at Phase 1), so "what each track was supposed to do"
-  lives in the track file. Skipped tracks may have had their step
-  files deleted by `track-skip` — for those tracks read the
+  episodes. Each track file carries the track's original description
+  across its `## Purpose / Big Picture`, `## Context and Orientation`,
+  `## Plan of Work`, and `## Interfaces and Dependencies` sections
+  (written there by `create-plan` at Phase 1), so "what each track was
+  supposed to do" lives in the track file. Skipped tracks may have had
+  their step files deleted by `track-skip` — for those tracks read the
   `[~] Track N`'s `**Skipped:**` line in the plan file instead.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the

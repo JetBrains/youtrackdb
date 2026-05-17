@@ -32,8 +32,10 @@ warning, or pass.
   `**Full design**` link resolution, never for context.
 - `plan_dir` (optional) — same: a directory of
   `plan/track-N.md` track files, each potentially carrying
-  `**Full design**` references inside its `## Description`.
-  Read **only** for link resolution, never for context.
+  `**Full design**` references inside its `## Purpose / Big Picture`,
+  `## Context and Orientation`, `## Plan of Work`, or `## Interfaces
+  and Dependencies` sections. Read **only** for link resolution,
+  never for context.
 
 ### Mutation-kind specific instructions
 
