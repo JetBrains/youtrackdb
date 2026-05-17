@@ -241,9 +241,9 @@ what each step does and what was discovered. **Episodes** are the
 blocks in the track file's `## Episodes` section — one
 `### Step N — commit <SHA>, <ISO> [ctx=<level>]` block per completed
 step, carrying `**What was done:**`, `**What was discovered:**`,
-`**What changed from the plan:**`, and `**Key files:**` fields. Use
-episodes to understand intent and check whether the combined result
-matches the plan's goals. Severities: **blocker** (must fix),
+`**What changed from the plan:**`, `**Key files:**`, and
+`**Critical context:**` fields. Use episodes to understand intent
+and check whether the combined result matches the plan's goals. Severities: **blocker** (must fix),
 **should-fix** (should fix before merge), **suggestion** (optional improvement).
 
 ## Review Target
@@ -262,23 +262,25 @@ docs/adr/{dir-name}/_workflow/implementation-plan.md.
 ## Track File (tactical context)
 Read the track file at:
   docs/adr/{dir-name}/_workflow/plan/track-{N}.md
-The file follows the 14-section per-track ExecPlan shape. The four
-Phase 1 track-level sections — `## Purpose / Big Picture` (BLUF +
-ADDED/MODIFIED/REMOVED triad), `## Context and Orientation`
-(current-state framing), `## Plan of Work` (strategy + step-references
-appended at Phase A), and `## Interfaces and Dependencies` (in-scope /
-out-of-scope, inter-track dependencies) — carry the track's intent
-and any track-level diagram. `## Concrete Steps` carries the per-step
-roster (one `N. <description> — risk: <tag> [x|!| ]` line per step,
-optionally with `commit: <SHA>` appended once the step lands); the
+The file follows the 14-section per-track ExecPlan shape. Four Phase
+1 track-level sections carry the track's intent and any track-level
+diagram: `## Purpose / Big Picture` (BLUF + ADDED/MODIFIED/REMOVED
+triad), `## Context and Orientation` (current-state framing),
+`## Plan of Work` (strategy + step-references appended at Phase A),
+and `## Interfaces and Dependencies` (in-scope / out-of-scope,
+inter-track dependencies). `## Concrete Steps` carries the per-step
+roster: one `N. <description> — risk: <tag>  [x|!| ]` line per step
+(`[x]` = complete with episode block; `[!]` = failed-and-retried
+with episode block; `[ ]` = pending, no episode block yet),
+optionally with `commit: <SHA>` appended once the step lands. The
 inline `risk: <tag>` token tags each step as `low`, `medium`, or
-`high` — treat `medium` and `high` step ranges as **focal points**
+`high`; treat `medium` and `high` step ranges as **focal points**
 within the diff (weight your attention toward those changes; the tag
 identifies where tests + the workflow's own gating could not easily
 catch issues, so this review carries more of the load there).
-`## Episodes` carries one block per completed step
-(`### Step N — commit <SHA>, <ISO> [ctx=<level>]`); join roster to
-episode by step number, with the roster's optional `commit: <SHA>`
+`## Episodes` carries one block per completed step, headed
+`### Step N — commit <SHA>, <ISO> [ctx=<level>]`; join roster to
+episode by step number, using the roster's optional `commit: <SHA>`
 as a disambiguator.
 
 ## Changed Files

@@ -421,8 +421,9 @@ finding ID prefixes, and gate format.
       section — one `### Step N — commit <SHA>, <ISO> [ctx=<level>]`
       block per completed step, carrying `**What was done:**`,
       `**What was discovered:**`, `**What changed from the plan:**`,
-      and `**Key files:**` fields. Use episodes to understand intent
-      behind prior steps and check for cross-step consistency issues.
+      `**Key files:**`, and `**Critical context:**` fields. Use
+      episodes to understand intent behind prior steps and check for
+      cross-step consistency issues.
       Severities: **blocker** (must fix), **should-fix** (should fix
       before merge), **suggestion** (optional improvement).
 
@@ -442,19 +443,21 @@ finding ID prefixes, and gate format.
       ## Track File (tactical context)
       Read the track file at:
         docs/adr/{dir-name}/_workflow/plan/track-{N}.md
-      The file follows the 14-section per-track ExecPlan shape. The
-      four Phase 1 track-level sections — `## Purpose / Big Picture`
-      (BLUF + ADDED/MODIFIED/REMOVED triad), `## Context and
-      Orientation` (current-state framing), `## Plan of Work`
-      (strategy + step-references appended at Phase A), and
-      `## Interfaces and Dependencies` (in-scope / out-of-scope,
-      inter-track dependencies) — carry the track's intent and any
-      track-level diagram. `## Concrete Steps` carries the per-step
-      roster (one `N. <description> — risk: <tag> [x|!| ]` line per
-      step, optionally with `commit: <SHA>` appended once the step
-      lands). `## Episodes` carries one block per completed step
-      (`### Step N — commit <SHA>, <ISO> [ctx=<level>]`); join
-      roster to episode by step number, with the roster's optional
+      The file follows the 14-section per-track ExecPlan shape. Four
+      Phase 1 track-level sections carry the track's intent and any
+      track-level diagram: `## Purpose / Big Picture` (BLUF +
+      ADDED/MODIFIED/REMOVED triad), `## Context and Orientation`
+      (current-state framing), `## Plan of Work` (strategy +
+      step-references appended at Phase A), and `## Interfaces and
+      Dependencies` (in-scope / out-of-scope, inter-track
+      dependencies). `## Concrete Steps` carries the per-step roster:
+      one `N. <description> — risk: <tag>  [x|!| ]` line per step
+      (`[x]` = complete with episode block; `[!]` = failed-and-retried
+      with episode block; `[ ]` = pending, no episode block yet),
+      optionally with `commit: <SHA>` appended once the step lands.
+      `## Episodes` carries one block per completed step, headed
+      `### Step N — commit <SHA>, <ISO> [ctx=<level>]`; join roster
+      to episode by step number, using the roster's optional
       `commit: <SHA>` as a disambiguator.
 
       ## Skip These Files (generated code)
