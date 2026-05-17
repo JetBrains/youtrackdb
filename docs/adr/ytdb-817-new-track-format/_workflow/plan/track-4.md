@@ -75,4 +75,4 @@ Update each reader in turn. Phase A reader (`track-review.md`) is the largest si
 - The smoke test exercises the writer-plus-reader chain via `/create-plan` then `/review-plan` (Phase 2 sub-agent dispatch against the sentinel) — the closest thing this plan has to an integration test. If it fails, the failure is almost certainly a missed section-name reference in a `prompts/*.md` file or a Phase A/B/C reader doc; rerun the grep verification narrowed to the surfaced section name.
 
 ## Base commit
-<!-- Phase B writes this once at session start. Empty at Phase 1. -->
+c59f2c2cab4765d11b460a20b9be78b047bf6364
