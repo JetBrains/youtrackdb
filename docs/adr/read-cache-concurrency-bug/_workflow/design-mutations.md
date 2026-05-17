@@ -181,3 +181,92 @@ findings; iteration 2 verification PASS, 0 findings.
   carve-out in the gotcha bullet)`.
 
 **Iterations**: 2 of 3 (PASS).
+
+
+
+
+## Mutation 6 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: two mechanical fixes from State 0 consistency
+review (iteration 1) of the post-replan plan — both classified
+`mechanical` (current-state claim, single unambiguous correct
+rendering, no design-intent change). (a) §"Crash safety" §"Edge cases
+/ Gotchas" — rewrote the Post-WAL-replay file truncation bullet to
+match the inline-replan placement correction (commit `fc9b448e02`):
+previously the bullet said the recovery-time pass "wires into
+`AbstractStorage.recoverIfNeeded()` between `restoreFromWAL()` and
+`flushAllData()`"; that placement was PSI-audited to iterate empty
+`collections` / `indexEngines` / `linkCollectionsBTreeManager` lists,
+since the catalogue load happens at `AbstractStorage.java:797-800`,
+AFTER `recoverIfNeeded` returns at `:764`. New text names the new
+`AbstractStorage.truncateOrphansAfterRecovery()` invoked from `open()`
+after the catalogue load (around `:801`) and from
+`DiskStorage.postProcessIncrementalRestore` between `:1671` (after
+`openIndexes`) and `:1673` (before `flushAllData()`). (b) IHM line-
+number drift at two sites — `IndexHistogramManager.readSnapshotFromPage:1833`
+→ `:1819` (method declaration line) with `discriminator at :1843`
+parenthetical added. Both sites at line ~396 and line ~483.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: whole-doc): PASS — 0 blockers, 0 should-fix, 2
+suggestions (both formatting polish; not retried per skill rules).
+
+**Findings**:
+- suggestion: Crash-safety Edge-cases bullet uses two side-by-side
+  parenthetical line-anchors ("`:1671` (after `openIndexes`) and
+  `:1673` (before `flushAllData()`)") — reads slightly dense. Could be
+  tightened in a follow-up polish pass.
+- suggestion: bullet-label at line ~484 has `**bold-close**.` followed
+  by parenthetical addendum styled `(discriminator at :1843)` — the
+  bold-close-period-bold-period reads slightly awkwardly. Could be
+  smoothed for sibling consistency.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+
+
+## Mutation 7 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: two batched mechanical fixes from State 0 structural
+review iter-1 — both classified `mechanical`, no design-intent change.
+(a) **S3e (rename propagation)** — Track 5's IDE Rename renamed the
+allocator helper from `loadOrAddPageForWrite` → `allocatePageForWrite`
+across all production code; design.md still carried the pre-rename
+name at 8 active sites (Overview narrative line 32; Class Design
+diagram lines 67, 73; Workflow sequence diagram line 135; Allocation
+discovery surface lines 386, 441, 444; Cache primitive recovery
+section line 637). All 8 sites renamed. Line 441's call-site narrative
+gained a clarifying parenthetical noting the rename history. (b) **S4
+(visibility framing)** — `WriteCache.getFilledUpTo` was framed as
+package-private at 5 sites total; Track 5 episode records that JLS
+§9.4 forbids a literal package-private downgrade on an interface
+abstract method, so the audit-grep contract is enforced by `@Deprecated`
++ Javadoc + helper-set naming rather than the access modifier. Five
+sites updated: Class Design diagram member (line 49: `~` package-
+private sigil → `+` public sigil); Class Design narrative bullet
+(lines 93-99) fully rewritten to state `@Deprecated(forRemoval=false)`
++ JLS §9.4 reason + helper-set naming + storage-quiesced caller;
+Allocation discovery surface TL;DR (line 336) replaced "non-public"
+with the JLS §9.4 + helper-set framing; plus iter-2 fix at Overview
+line 25 and Allocation TL;DR line 329 (both said "Track 5's package-
+private gated helpers" → "Track 5's named, audit-gated helpers" —
+caught by cold-read at iter-1 as self-contradictory with line 336).
+
+**Mechanical checks** (target=design): PASS — 0 findings (both
+iterations).
+**Cold-read** (scope: whole-doc): iter-1 found 2 blockers (stale
+"package-private gated helpers" at Overview line 25 and Allocation
+TL;DR line 329, self-contradictory with the freshly-rewritten line
+336). Iter-2 PASS — 0 findings.
+
+**Findings**:
+- iter-1 blocker (resolved): Overview line 25 carried "Track 5's
+  package-private gated helpers" contradicting the same-mutation
+  rewrite of line 336.
+- iter-1 blocker (resolved): Allocation discovery surface TL;DR line
+  329 carried the same stale phrasing.
+- Both fixed in iter-2 by replacing "package-private gated helpers" →
+  "named, audit-gated helpers" (one-word swap, no other prose change).
+
+**Iterations**: 2 of 3 (PASS).

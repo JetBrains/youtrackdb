@@ -46,7 +46,7 @@ exposure pattern.
 >   first non-zero caller. Step 1 fixes the body to `this.size.set(size)`
 >   and adds a top-line `if (size >= this.size.get()) return;` no-op
 >   guard. The existing `AsyncFileTest.testShrink` (zero-target path,
->   `AsyncFileTest.java:387`) stays unchanged; a new
+>   `AsyncFileTest.java:376`) stays unchanged; a new
 >   `testShrinkPartial` allocates K pages, calls `shrink(M*pageSize)`
 >   with `0 < M < K`, and asserts `getFileSize() == M*pageSize` plus
 >   `fileChannel.size() == M*pageSize + HEADER_SIZE`.
@@ -89,15 +89,19 @@ exposure pattern.
 >     `verifyAndTruncateOrphans` on the PCV2 instance AND on its
 >     embedded `collectionPositionMap` field (`CollectionPositionMapV2`).
 >   - `indexEngines : List<BaseIndexEngine>` — filter by
->     `instanceof BTreeSingleValueIndexEngine` (`sbTree` field) ||
->     `instanceof BTreeMultiValueIndexEngine` (`svTree` + `nullTree`
->     fields, both separately-managed BTree instances). The actual
->     impl is the generic
->     `com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`.
->     The accessor shape (cast to `BTree`, `instanceof BTree` filter on
->     the field value, or a new getter on the engine) is locked at
->     Phase A iter-1; with the new `BTree.getFileId()` accessor in
->     place, the cast-to-BTree variant suffices.
+>     `instanceof BTreeSingleValueIndexEngine` (holds an `sbTree` field
+>     typed `CellBTreeSingleValue<CompositeKey>`) || `instanceof
+>     BTreeMultiValueIndexEngine` (holds `svTree` + `nullTree` fields,
+>     both `CellBTreeSingleValue<CompositeKey>`; both are
+>     separately-managed BTree instances). The field type is the
+>     `CellBTreeSingleValue` interface, but the sole production
+>     inheritor is the generic
+>     `com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`,
+>     so each field value is downcastable to `v3.BTree`. After the
+>     engine-class `instanceof` check, cast the field value to
+>     `v3.BTree` and call `verifyAndTruncateOrphans` on it. With the
+>     new `BTree.getFileId()` accessor in place, the cast is the
+>     simplest shape and no engine-side getter is required.
 >   - `linkCollectionsBTreeManager` — call
 >     `verifyAndTruncateAllOrphans(op, writeCache)` (iteration is
 >     internal to the manager).
@@ -116,8 +120,9 @@ exposure pattern.
 >     a subsequent open with `isDirty() == false` still needs the
 >     pass).
 >   - `DiskStorage.postProcessIncrementalRestore`: insert a call
->     after the existing catalogue load (around `:1676`). Same
->     orchestrator method.
+>     between `:1671` (after `openIndexes`) and `:1673` (before
+>     `flushAllData()`) — i.e., after the catalogue load is populated
+>     but before the data flush. Same orchestrator method.
 > - **Unit + integration tests.** Cumulative test surface:
 >   - `AsyncFileTest.testShrinkPartial` — partial-shrink semantics
 >     regression for the AsyncFile fix.
@@ -214,7 +219,7 @@ exposure pattern.
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java` (no-op impl)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTree.java` (new helper + getFileId getter)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTree.java` (new helper)
->   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/LinkCollectionsBTreeManagerShared.java` (new iteration delegate)
+>   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/LinkCollectionsBTreeManagerShared.java` (new iteration delegate)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2.java` (new helper)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2.java` (new helper)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (new orchestrator + open() wiring)

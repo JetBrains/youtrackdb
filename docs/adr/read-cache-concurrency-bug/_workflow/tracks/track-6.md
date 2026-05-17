@@ -111,7 +111,7 @@ beyond the original poison-cascade test:
   recovery pass fails loudly.
 - **HLL-spill crash-then-second-spill recovery**. The IHM page-1
   discriminator introduced in Track 4 Step 2 routes the first spill
-  through `loadOrAddPageForWrite` and subsequent spills through
+  through `allocatePageForWrite` and subsequent spills through
   `loadPageForWrite` based on `op.filledUpTo(fileId) > 1`. A crash
   between the first spill's WAL flush and the next session must
   replay the page-1 allocation, then a follow-up mutation must hit
@@ -129,14 +129,14 @@ beyond the original poison-cascade test:
   entirely on code inspection — the Phase A audit verified each
   production allocator enters under `executeInsideComponentOperation`
   / `calculateInsideComponentOperation`. A per-component MT test
-  (two TXes concurrently calling `op.loadOrAddPageForWrite(fileId,
+  (two TXes concurrently calling `op.allocatePageForWrite(fileId,
   sameKnownIndex)` on the same component instance) pins the audit's
   conclusion: passes today; fails loudly if a future change drops
   the lock. Five sites: `IHM.flushSnapshotToPage` vs
   `IHM.writeSnapshotToPage`; `BTree.create`; `SLBB.splitRootBucket`
   (two-page recipe is the original bug's trigger); `CPMV2.allocate`;
   `PCV2.allocateNewPage`. Plus: strengthen
-  `LoadOrAddPageForWriteTest.inMemoryEagerInstallToleratesConcurrent
+  `AllocatePageForWriteTest.inMemoryEagerInstallToleratesConcurrent
   OrphanReuse` contention window (the existing single-release
   `CountDownLatch(1)` start gate often lets one thread complete
   before the other reaches the cache primitive — a `CyclicBarrier`

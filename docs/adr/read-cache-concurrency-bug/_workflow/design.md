@@ -22,14 +22,14 @@ The enabling primitive on the read side is a pre-existing structural
 fact: most storage components maintain a logical page count
 (`entryPoint.pagesSize` / `fileSize`) on a metadata page. Three
 components without an EntryPoint plus a handful of chicken-and-egg /
-recovery-rebuild sites route through Track 5's package-private gated
+recovery-rebuild sites route through Track 5's named, audit-gated
 helpers instead (see §"Allocation discovery surface" for the per-site
 breakdown). Together these two surfaces eliminate the only path by
 which a reader could learn about an in-flight pageIndex.
 
 The change cascades into the storage components: `addPage` and its 19
 external call sites are replaced by
-`loadOrAddPageForWrite(fileId, pagesSize + 1)`; the reuse-or-extend
+`allocatePageForWrite(fileId, pagesSize + 1)`; the reuse-or-extend
 probes disappear (the cache absorbs orphans uniformly); the do/while
 reconciliation loops in `commitChanges`, `restoreAtomicUnit`, and
 `restoreFromIncrementalBackup` collapse into single calls; the
@@ -46,7 +46,7 @@ classDiagram
     class WriteCache {
         <<interface>>
         +loadOrAdd(fileId, pageIndex, verify) CachePointer
-        ~getFilledUpTo(fileId) long
+        +getFilledUpTo(fileId) long
         ~forEachPageDuringQuiesce(fileId, visitor) void
     }
     class WOWCache {
@@ -64,13 +64,13 @@ classDiagram
     }
     class StorageComponent {
         +loadForRead(fileId, pageIndex) CacheEntry
-        +loadOrAddPageForWrite(fileId, pageIndex) CacheEntry
+        +allocatePageForWrite(fileId, pageIndex) CacheEntry
         ~entryPoint: EntryPoint
     }
     class AtomicOperation {
         <<interface>>
         +loadPageForWrite(fileId, pageIndex, ...) CacheEntry
-        +loadOrAddPageForWrite(fileId, pageIndex) CacheEntry
+        +allocatePageForWrite(fileId, pageIndex) CacheEntry
     }
     class EntryPoint {
         +getPagesSize() int
@@ -90,10 +90,13 @@ The diagram shows the post-fix shape. Three changes are non-obvious:
 - `WriteCache.allocateNewPage`, `WriteCache.load`, and the
   `AtomicOperation.addPage` / `StorageComponent.addPage` methods are
   **deleted** — they appear in today's code but not on this diagram.
-- `WriteCache.getFilledUpTo` is package-private (shown with `~`) — the
-  only external caller is `DiskStorage.backupPagesWithChanges`, which
-  reaches for the storage-quiesced iteration helper
-  `forEachPageDuringQuiesce` instead.
+- `WriteCache.getFilledUpTo` is `@Deprecated(forRemoval=false)` post-
+  Track-5 — JLS §9.4 forbids a literal package-private downgrade on
+  an interface abstract method, so the audit-grep contract is enforced
+  by the deprecation marker + Javadoc enumerating the retained internal
+  callers + helper-set naming. The only external caller route is the
+  Track 5 helper `WriteCache.physicalSizeForBackupSnapshot` from
+  `DiskStorage.backupPagesWithChanges` (storage-quiesced).
 - `LockFreeReadCache` no longer has an `allocateNewPage` method;
   `loadForRead` and `loadOrAddForWrite` differ only in the lock
   semantics they install on the returned `CacheEntry`.
@@ -132,7 +135,7 @@ sequenceDiagram
     participant AF as AsyncFile
 
     SC->>SC: targetIdx = entryPoint.pagesSize + 1
-    SC->>AO: loadOrAddPageForWrite(fileId, targetIdx)
+    SC->>AO: allocatePageForWrite(fileId, targetIdx)
     AO->>RC: loadOrAddForWrite(fileId, targetIdx)
     RC->>RC: data.compute(key, λ) [segment write lock held]
     Note over RC: entry not in data
@@ -323,14 +326,14 @@ not a corruption, just a leaked page.
 
 **TL;DR.** Cross-TX readers learn page existence from
 `entryPoint.pagesSize` / `entryPoint.fileSize` where the component has
-an EntryPoint, and through Track 5's package-private gated helpers
+an EntryPoint, and through Track 5's named, audit-gated helpers
 otherwise. Both branches close the discovery channel that exposes
 in-flight pageIndices: the logical surface is preferred where one
 exists, and per-component-lock + Track 1's `loadOrAdd` totality + the
 gated helpers cover the components without one. Per-component
 reuse-or-extend probes disappear, the no-pageIndex `addPage` API
 disappears, the `commitChanges` / `restoreAtomicUnit` reconciliation
-loops collapse, and `WriteCache.getFilledUpTo` becomes non-public.
+loops collapse, and `WriteCache.getFilledUpTo` becomes `@Deprecated` + audit-gated (JLS §9.4 forbids package-private on an interface abstract method; the contract is enforced via the deprecation marker, Javadoc enumerating retained internal callers, and Track 5's named helpers `WriteCache.physicalSizeForBackupSnapshot` + `StorageComponent.physicalSize(op, fileId, PhysicalReadIntent)`).
 
 ### Logical-size surface per component
 
@@ -383,7 +386,7 @@ Track 3:
   `FreeSpaceMap.updatePageFreeSpace:227` and
   `CollectionDirtyPageBitSet.ensureCapacity:194`. Both growth-loops
   have the shape `for (i = filledUpTo; i ≤ required; i++) addPage(...)`
-  and collapse to `loadOrAddPageForWrite(fileId, knownIndex)` per the
+  and collapse to `allocatePageForWrite(fileId, knownIndex)` per the
   same pattern. All collapse work lands in Track 4.
 - **Stay-on-physical via Track 5 gated helpers (3 EP-equipped sites +
   3 EP-less sites = 6 sites).** EP-equipped: bootstrap emptiness checks
@@ -393,7 +396,8 @@ Track 3:
   recovery scan at `PaginatedCollectionV2.open:391` (logical
   bookkeeping was lost — physical-by-design). EP-less: defensive
   physical-presence probe at
-  `IndexHistogramManager.readSnapshotFromPage:1833` (guards against
+  `IndexHistogramManager.readSnapshotFromPage:1819` (discriminator at
+  `:1843`; guards against
   partial crash between page-0 and page-1 writes in the same atomic
   op; IHM has no EntryPoint per the §"Logical-size surface per
   component" footer); and the 2 pure-sizing reads in
@@ -437,10 +441,10 @@ that compute `pagesSize + 1`; 2 sites at
 `CollectionDirtyPageBitSet.ensureCapacity:197` sit inside growth-loops
 absorbed from the retired Track 3, whose `getFilledUpTo` reads at
 `FSM:227` / `CDPB:194` collapse alongside the `addPage` deletion under
-the same `loadOrAddPageForWrite` migration; Phase A confirms the
+the same `allocatePageForWrite` migration (introduced under the original name `loadOrAddPageForWrite` in Track 4 and renamed by Track 5); Phase A confirms the
 exact split). The 20th PSI reference
 to `addPage` is the recursive call inside
-`StorageComponent.loadOrAddPageForWrite` (today a `loadPageForWrite`-
+`StorageComponent.allocatePageForWrite` (today a `loadPageForWrite`-
 then-`addPage` fallback) — Track 4 rewires that body to delegate to
 the new cache primitive rather than calling `addPage`. Migration is
 mechanical.
@@ -480,7 +484,7 @@ already track logical-size advances continue to do so.
   checks "does page 0 exist physically?" before instantiating
   `PaginatedCollectionStateV2` over page 0. Stays on physical via
   Track 5's gated helper; rationale recorded inline in Track 4.
-- **`IndexHistogramManager.readSnapshotFromPage:1833`.** Defensive
+- **`IndexHistogramManager.readSnapshotFromPage:1819`** (discriminator at `:1843`)**.** Defensive
   physical-presence probe guarding against a partial crash between
   page-0 and page-1 writes in the same atomic op (the in-line comment
   documents the intent). Track 4 Phase A picks between (a) staying on
@@ -633,7 +637,7 @@ physical extension that survived is an orphan (disk has the page,
 component doesn't count it).
 
 Next TX: reads `entryPoint.pagesSize`, computes `pagesSize + 1`, calls
-`loadOrAddPageForWrite`. Inside `loadOrAdd`:
+`allocatePageForWrite`. Inside `loadOrAdd`:
 
 - If the orphan exists on disk: it is magic-stamped (FIFO + monotonic
   submission guarantees that every disk-resident orphan completed its
@@ -683,15 +687,20 @@ durable post-eviction.
 - **Post-WAL-replay file truncation** — for EP-equipped components
   (`BTree`, `SharedLinkBagBTree`, `CollectionPositionMapV2`,
   `PaginatedCollectionV2`), the recovery-time pass introduced by
-  D6 / Track 7 wires into `AbstractStorage.recoverIfNeeded()` between
-  `restoreFromWAL()` and `flushAllData()`; it compares the entry-point
-  logical page count to `AsyncFile.getFileSize() / pageSize` and
-  truncates physical orphans via the new
-  `WriteCache.shrinkFile(fileId, targetBytes)` primitive (I6). EP-less
-  components (`FreeSpaceMap`, `CollectionDirtyPageBitSet`) and
-  `IndexHistogramManager` are deliberately out of scope per the
-  Non-Goals — their growth-loops are `getFilledUpTo`-anchored or use
-  a page-1 discriminator pattern.
+  D6 / Track 7 runs from a new
+  `AbstractStorage.truncateOrphansAfterRecovery()` invoked from
+  `open()` after `openCollections` / `openIndexes` /
+  `linkCollectionsBTreeManager::load` populate the iteration targets
+  (around `AbstractStorage.java:801`), and from
+  `DiskStorage.postProcessIncrementalRestore` between `:1671` (after
+  `openIndexes`) and `:1673` (before `flushAllData()`). The pass
+  compares the entry-point logical page count to
+  `AsyncFile.getFileSize() / pageSize` and truncates physical orphans
+  via the new `WriteCache.shrinkFile(fileId, targetBytes)` primitive
+  (I6). EP-less components (`FreeSpaceMap`,
+  `CollectionDirtyPageBitSet`) and `IndexHistogramManager` are
+  deliberately out of scope per the Non-Goals — their growth-loops
+  are `getFilledUpTo`-anchored or use a page-1 discriminator pattern.
 - **`DoubleWriteLog` interaction** — anti-tear protection for
   partially-written pages is orthogonal to allocation. Unchanged.
 - **In-memory engine** — `DirectMemoryOnlyDiskCache` has no
