@@ -621,7 +621,7 @@ is exactly one of three values, used by Phase B Resume to dispatch:
 |---|---|---|
 | `failed-review-fix` | `rollback_and_handle_failure` | Write `[!]` if missing, insert retry/split rows, respawn `INITIAL` |
 | `late-design-decision` | `rollback_and_escalate` | Respawn `INITIAL`; new implementer re-derives — if it returns `DESIGN_DECISION_NEEDED` again, escalate then |
-| `late-risk-upgrade` | `rollback_and_upgrade` | Verify Risk line; apply upgrade if not yet rewritten; respawn `INITIAL` |
+| `late-risk-upgrade` | `rollback_and_upgrade` | Verify roster-line `risk:` token; apply upgrade if not yet rewritten; respawn `INITIAL` |
 
 A blank line separates the slug line from the prose explanation.
 Resume parses the body by reading the first body line and matching

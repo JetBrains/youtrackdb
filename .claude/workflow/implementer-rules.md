@@ -132,16 +132,29 @@ instead of continuing.
 **Preconditions.**
 
 - Read the track file at `step_file_path`.
-  - At `level=step`: locate the step at `step_index`; confirm intent
-    and check the `**Risk:**` line. If `mode == FIX_REVIEW_FINDINGS`,
-    also locate the prior commit's diff so the fixes land on top of
-    it.
-  - At `level=track`: read the file for cross-step context — the
-    `## Description` section (track intent), the per-step `**Risk:**`
-    lines (focal points), and the step episodes (what each step did
-    and discovered). Then read `git diff {base_commit}..HEAD` to load
-    the cumulative track diff that the findings refer to. There is no
-    `step_index` to focus on.
+  - At `level=step`: locate the step at `step_index` on the
+    `## Concrete Steps` roster; confirm intent from the roster
+    description and read the inline `risk: <tag>` token on the same
+    roster line (the per-step risk source under the 14-section shape
+    per D9; the legacy `**Risk:**` blockquote line no longer exists).
+    If `mode == FIX_REVIEW_FINDINGS`, also locate the prior commit's
+    diff so the fixes land on top of it.
+  - At `level=track`: read the file for cross-step context via
+    section-join under the 14-section shape (no `## Description`
+    section exists; track-level intent now spans four sections per
+    D10). Read the four track-level sections — `## Purpose / Big
+    Picture` (BLUF + ADDED/MODIFIED/REMOVED triad), `## Context and
+    Orientation` (current-state framing), `## Plan of Work`
+    (strategy + step-references appended at Phase A), and
+    `## Interfaces and Dependencies` (in-scope / out-of-scope, inter-
+    track dependencies) — for track intent. Read the inline
+    `risk: <tag>` token on each `## Concrete Steps` roster line for
+    per-step focal points (the legacy per-step `**Risk:**` blockquote
+    line no longer exists). Read the `## Episodes` blocks (one
+    `### Step N — commit <SHA>, <ISO> [ctx=<level>]` block per
+    completed step) for what each step did and discovered. Then read
+    `git diff {base_commit}..HEAD` to load the cumulative track diff
+    that the findings refer to. There is no `step_index` to focus on.
 - Read the slim plan at `plan_slim_path` for strategic context. Read
   `design_path` only if the change requires it.
 
@@ -592,10 +605,11 @@ see [`risk-tagging.md`](risk-tagging.md) for the full criteria), and
 `evidence` (a short factual statement of what was discovered).
 
 The implementer **never writes to the track file** to apply the
-upgrade. The orchestrator rewrites the `**Risk:**` line and
-respawns with `mode=INITIAL`. Downgrades mid-Phase B are not
-permitted — once a step has been planned at a given risk level, the
-implementer cannot self-relax review pressure.
+upgrade. The orchestrator rewrites the inline `risk: <tag>` token on
+the step's `## Concrete Steps` roster line and respawns with
+`mode=INITIAL`. Downgrades mid-Phase B are not permitted — once a
+step has been planned at a given risk level, the implementer cannot
+self-relax review pressure.
 
 ### Fundamental failure
 
