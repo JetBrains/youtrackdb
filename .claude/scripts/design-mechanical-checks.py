@@ -3,8 +3,10 @@
 
 Implements the structural rules listed in
 `.claude/workflow/design-document-rules.md § Mutation discipline § Mechanical
-checks (always run)`. Invoked by the `edit-design` skill after each edit to
-`design.md` or `design-mechanics.md`.
+checks (always run)` plus the `dsc-ai-tell` rule that detects the
+regex-expressible subset of `house-style.md` AI-tell patterns. Invoked by
+the `edit-design` skill after each edit to `design.md` or
+`design-mechanics.md`.
 
 Usage:
     python3 .claude/scripts/design-mechanical-checks.py \
@@ -28,7 +30,7 @@ import json
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +74,125 @@ PER_PART_WARN = 6
 # Overview is the concept-first elevator pitch; past 40 lines it has stopped
 # being a pitch.
 OVERVIEW_LINE_CAP = 40
+
+
+# ---------------------------------------------------------------------------
+# dsc-ai-tell constants
+#
+# The `check_dsc_ai_tell` function below implements the subset of
+# `house-style.md` patterns detectable by regex. Constants live up here so
+# their shape is visible without scrolling through the check body.
+# ---------------------------------------------------------------------------
+
+# Tier 1 hard-ban vocabulary lifted verbatim from
+# `.claude/output-styles/house-style.md § Tier 1 — hard ban` (29 base words).
+# Three entries (`navigate`, `unlock`, `underscore`) carry parenthetical
+# qualifications in the style file ("metaphorical", "as a verb meaning shows")
+# that a flat regex cannot enforce; the rule fires on all 29 unconditionally
+# and the Phase B step episode records the observed false-positive count on
+# the calibration ADRs. Demote-to-`suggestion` is the documented fallback if
+# real usage shows the qualifications matter.
+TIER1_BANNED_VOCAB = [
+    "delve",
+    "tapestry",
+    "pivotal",
+    "testament",
+    "realm",
+    "beacon",
+    "vibrant",
+    "commendable",
+    "paramount",
+    "multifaceted",
+    "holistic",
+    "meticulous",
+    "intricate",
+    "embark",
+    "navigate",
+    "unlock",
+    "foster",
+    "showcase",
+    "commence",
+    "garner",
+    "bolster",
+    "enduring",
+    "elevate",
+    "unwavering",
+    "journey",
+    "ecosystem",
+    "paradigm",
+    "underscore",
+    "nuanced",
+]
+
+# One alternation regex for every Tier-1 base word, case-insensitive, word
+# boundaries on both sides. Compiled once at module load.
+TIER1_BANNED_VOCAB_RE = re.compile(
+    r"\b(" + "|".join(re.escape(w) for w in TIER1_BANNED_VOCAB) + r")\b",
+    re.IGNORECASE,
+)
+
+# Negative parallelism: "It's not X, it's Y." / "It's not X — it's Y."
+# The match is constrained to a single paragraph by the caller (the regex
+# itself is not greedy across blank lines because paragraphs are joined
+# with a single space before matching).
+NEGATIVE_PARALLELISM_RE = re.compile(
+    r"\bit'?s not\b.*\bit'?s\b",
+    re.IGNORECASE,
+)
+
+# Signposting openers from `house-style.md § Signposting`.
+SIGNPOSTING_OPENERS_RE = re.compile(
+    r"\b(let'?s dive|let'?s break|here'?s what you need)\b",
+    re.IGNORECASE,
+)
+
+# Copula avoidance from `house-style.md § Copula avoidance`. The style file
+# lists more verbs in prose ("acts as", "functions as", "represents"), but
+# only "serves as" and "stands as" are listed for the regex pass per the
+# track plan; the others are judgment calls left to the cold-read prompt.
+COPULA_AVOIDANCE_RE = re.compile(
+    r"\b(serves as|stands as)\b",
+    re.IGNORECASE,
+)
+
+# Persuasive authority tropes from `house-style.md § Persuasive authority
+# tropes`. Track plan names three literal phrases.
+AUTHORITY_TROPE_RE = re.compile(
+    r"\b(at its core|fundamentally|the real question)\b",
+    re.IGNORECASE,
+)
+
+# Hyphenated-pair cluster: three or more distinct lowercase hyphenated pairs
+# in a single comma-separated list. Matches the canonical AI-tell shape
+# "fast-paced, well-crafted, next-generation" exactly. Strictly narrower than
+# the prose rule in house-style.md "immediately precedes a noun, or sits in a
+# comma-separated list of modifiers" — the comma-cluster form catches the
+# adjectival-ornament tell while letting legitimate technical compounds in
+# adjectival position (e.g., "cache-backed data structures with double-write
+# log protection") pass.
+HYPHENATED_PAIR_CLUSTER_RE = re.compile(
+    r"\b[a-z]+-[a-z]+(?:,\s+[a-z]+-[a-z]+){2,}\b",
+    re.IGNORECASE,
+)
+HYPHENATED_PAIR_CLUSTER_THRESHOLD = 3
+
+# Fragmented-header rule fires when the heading and the immediately
+# following one-line paragraph share >=50% content words after stop-word
+# stripping. Renamed from `_LEMMA_OVERLAP_` because the implementation
+# computes content-word overlap, not morphological lemmatisation.
+FRAGMENTED_HEADER_CONTENT_WORD_OVERLAP_THRESHOLD = 0.5
+
+# English stop-word list used by the fragmented-header check. Kept small
+# and project-local; pulling in a real NLP dependency would buy nothing
+# the overlap heuristic actually uses.
+STOP_WORDS: frozenset = frozenset({
+    "the", "a", "an",
+    "is", "are", "was", "were", "be", "been", "being",
+    "of", "for", "to", "in", "on", "at", "by", "from", "with", "as",
+    "and", "or", "but", "if", "then",
+    "that", "this", "these", "those",
+    "it", "its",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1291,438 @@ def check_full_design_link_resolution(
 
 
 # ---------------------------------------------------------------------------
+# dsc-ai-tell helpers and check
+# ---------------------------------------------------------------------------
+
+
+_BULLET_START_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+\.\s+)")
+
+
+def iter_paragraphs(
+    lines: List[str],
+    section: Optional[Dict] = None,
+    exclude_fences: bool = True,
+    exclude_references: bool = True,
+    exclude_tables: bool = True,
+) -> Iterator[Tuple[int, List[str]]]:
+    """Yield `(start_line_no, paragraph_lines)` for blank-line-bounded paragraphs.
+
+    `start_line_no` is 1-based and points at the first non-blank line of the
+    paragraph. `paragraph_lines` is the list of consecutive non-blank lines
+    that make up the paragraph (no trailing blank).
+
+    Each top-level bullet item (a line starting with `- `, `* `, `+ `, or
+    `N. `) opens a new paragraph even without a preceding blank line, so a
+    tightly-packed markdown list is treated as one paragraph per item rather
+    than one paragraph for the whole list. Without this split the em-dash
+    density rule (and the hyphenated-pair cluster rule) would over-fire on
+    legitimate ADR prose where authors stack short bullets with one em dash
+    each.
+
+    Exclusion semantics borrow from `check_dsc_parenthetical_asides`:
+
+    - `exclude_fences=True` (default) drops every line inside a fenced code
+      block, including the opener and closer. CommonMark same-char-and-length
+      matching is used so a 3-char ``` does not falsely close a 4-char ```` outer
+      fence.
+    - `exclude_references=True` (default) drops every line from a
+      `### References` / `**References.**` toggle through the next heading.
+      Citations there legitimately mention banned vocabulary or hyphenated
+      compounds without being a violation.
+    - `exclude_tables=True` (default) drops every line whose first
+      non-whitespace character is `|`. Table rows often encode terms,
+      definitions, and citations that would false-fire the vocabulary scan.
+
+    When `section` is supplied, only lines whose 1-based number falls in
+    `[section["line_start"], section["line_end"]]` are considered.
+    """
+    if section is not None:
+        start_idx = section["line_start"]
+        end_idx = section["line_end"] or len(lines)
+    else:
+        start_idx = 1
+        end_idx = len(lines)
+
+    open_fence: Optional[Tuple[str, int]] = None
+    in_references = False
+    paragraph: List[str] = []
+    paragraph_start: Optional[int] = None
+
+    def flush() -> Iterator[Tuple[int, List[str]]]:
+        nonlocal paragraph, paragraph_start
+        if paragraph_start is not None and paragraph:
+            yield paragraph_start, paragraph
+        paragraph = []
+        paragraph_start = None
+
+    for i in range(start_idx, end_idx + 1):
+        line = lines[i - 1] if 0 <= i - 1 < len(lines) else ""
+
+        # Fence tracking. Fence-delimiter lines and the body inside are
+        # excluded entirely when `exclude_fences` is set; the paragraph in
+        # progress is also flushed so a paragraph cannot straddle a fence.
+        if exclude_fences:
+            if open_fence is None:
+                parsed = parse_code_fence(line)
+                if parsed is not None:
+                    yield from flush()
+                    open_fence = parsed
+                    continue
+            else:
+                if fence_closes(open_fence, line):
+                    open_fence = None
+                # Inside-fence lines never contribute to a paragraph.
+                continue
+
+        # References-block toggle. Switches on at the `### References` /
+        # `**References.**` line and back off at the next heading.
+        if exclude_references:
+            if re.match(r"^### References\b|^\*\*References\.\*\*", line):
+                yield from flush()
+                in_references = True
+                continue
+            if re.match(r"^#{1,6}\s", line):
+                in_references = False
+            if in_references:
+                yield from flush()
+                continue
+
+        # Table rows.
+        if exclude_tables and line.lstrip().startswith("|"):
+            yield from flush()
+            continue
+
+        # Headings are paragraph separators — flush, do not include.
+        if re.match(r"^#{1,6}\s", line):
+            yield from flush()
+            continue
+
+        if line.strip() == "":
+            yield from flush()
+        else:
+            # A top-level bullet starter opens a new paragraph even when a
+            # prior bullet is still in progress (no blank line between
+            # bullets in a tight list).
+            if _BULLET_START_RE.match(line) and paragraph_start is not None:
+                yield from flush()
+            if paragraph_start is None:
+                paragraph_start = i
+            paragraph.append(line)
+
+    yield from flush()
+
+
+def _title_case_violation(line: str) -> bool:
+    """Return True if `line` is an H2-H6 heading whose words are Title Case.
+
+    A "Title Case" heading is three or more whitespace-separated words after
+    the heading marker, each beginning with an upper-case letter followed by
+    one or more lower-case letters. The 3-word minimum is a deliberate
+    calibration choice: it lets the project's 2-word ADR-scaffold headings
+    (Architecture Notes, Decision Records, Integration Points, Non-Goals,
+    Key Discoveries, Component Map) pass without violating the canonical
+    `house-style.md § Title Case headings forbidden` rule, which does not
+    itself carve out a word-count exemption.
+    """
+    return bool(re.match(r"^#{2,6} ([A-Z][a-z]+ ){2,}[A-Z][a-z]+$", line))
+
+
+def _heading_content_words(title: str) -> List[str]:
+    """Return lower-case content words from a heading title, stop-words stripped.
+
+    Tokenises on any non-alphanumeric-or-hyphen character so hyphenated
+    compounds stay as one token (`non-durable` is one token, not `non` +
+    `durable`). This avoids the false-positive case where `## Non-Goals`
+    collides with body tokens of `non-durable`.
+    """
+    tokens = re.split(r"[^a-zA-Z0-9-]+", title.lower())
+    return [t for t in tokens if t and t not in STOP_WORDS]
+
+
+def _paragraph_content_words(paragraph_lines: List[str]) -> List[str]:
+    """Tokenise paragraph body the same way as `_heading_content_words`."""
+    text = " ".join(paragraph_lines).lower()
+    tokens = re.split(r"[^a-zA-Z0-9-]+", text)
+    return [t for t in tokens if t and t not in STOP_WORDS]
+
+
+def check_dsc_ai_tell(
+    file_path: str,
+    lines: List[str],
+    sections: Optional[List[Dict]] = None,
+    changed_section: Optional[str] = None,
+    scope: str = "whole-doc",
+) -> List[Dict]:
+    """Detect the subset of `house-style.md` AI-tell patterns expressible as regex.
+
+    Nine patterns fire (each finding cites `house-style.md § <Section>` in
+    its description):
+
+    1. Tier-1 banned vocabulary scan (`§ Tier 1 — hard ban`).
+    2. Negative parallelism (`§ Banned sentence patterns`).
+    3. Em-dash density >1 per paragraph (`§ Em-dash discipline`).
+    4. Title Case heading on H2+ (`§ Title Case headings forbidden`).
+    5. Signposting openers (`§ Signposting`).
+    6. Copula avoidance (`§ Copula avoidance`).
+    7. Persuasive authority tropes (`§ Persuasive authority tropes`).
+    8. Hyphenated-pair comma cluster (`§ Hyphenated word-pair overuse`).
+    9. Fragmented header (`§ Fragmented headers`).
+
+    Signature matches the bounded-aware sibling `check_dsc_parenthetical_asides`:
+    when `scope == "bounded"` and `changed_section` is supplied, findings are
+    restricted to the named section. When `scope == "whole-doc"` (the default),
+    the entire file is walked.
+
+    References-block lines (`### References`, `**References.**` through the
+    next heading), table rows (lines starting with `|`), and fenced code
+    blocks are excluded for every pattern; findings inside legitimate
+    citations or example blocks would otherwise be noise.
+    """
+    findings: List[Dict] = []
+
+    # Resolve the bounded section range, if any.
+    target_section: Optional[Dict] = None
+    bounded_range: Optional[Tuple[int, int]] = None
+    if scope == "bounded" and changed_section is not None and sections is not None:
+        target_norm = normalize_heading(changed_section)
+        target_section = next(
+            (s for s in sections if normalize_heading(s["title"]) == target_norm),
+            None,
+        )
+        if target_section is not None:
+            bounded_range = (
+                target_section["line_start"],
+                target_section["line_end"] or len(lines),
+            )
+
+    in_range = (
+        lambda line_no: bounded_range is None
+        or bounded_range[0] <= line_no <= bounded_range[1]
+    )
+
+    # --- Per-line scans (fence/References/table exclusion replicated here so
+    #     the patterns that need character-level matches can run without
+    #     joining paragraphs).
+    open_fence: Optional[Tuple[str, int]] = None
+    in_references = False
+
+    for i, line in enumerate(lines, start=1):
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
+            continue
+
+        # References-block toggle: on at `### References` / `**References.**`,
+        # off at the next heading.
+        if re.match(r"^### References\b|^\*\*References\.\*\*", line):
+            in_references = True
+            continue
+        is_heading = bool(re.match(r"^#{1,6}\s", line))
+        if is_heading:
+            in_references = False
+
+        # Title Case heading check fires on headings only; runs before the
+        # table-row / References skip because a heading is never a table row.
+        if is_heading and in_range(i) and _title_case_violation(line):
+            heading_text = line.lstrip("#").strip()
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{i}",
+                (f"Title-Case heading per house-style.md § Title Case headings "
+                 f"forbidden: '{heading_text}'. H2 and below use sentence case."),
+                f"Rewrite the heading at line {i} in sentence case "
+                "(only the first word and proper nouns capitalised).",
+            ))
+
+        if in_references:
+            continue
+        if line.lstrip().startswith("|"):
+            continue
+        if is_heading:
+            continue
+        if not in_range(i):
+            continue
+
+        # Tier-1 banned vocabulary.
+        for m in TIER1_BANNED_VOCAB_RE.finditer(line):
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{i}",
+                (f"Tier-1 banned vocabulary per house-style.md § Tier 1 — hard ban: "
+                 f"'{m.group(0)}'."),
+                f"Replace '{m.group(0)}' with a plainer alternative.",
+            ))
+
+        # Signposting openers.
+        for m in SIGNPOSTING_OPENERS_RE.finditer(line):
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{i}",
+                (f"Signposting opener per house-style.md § Signposting: "
+                 f"'{m.group(0)}'. Just say the thing; the reader knows they "
+                 "are reading the document."),
+                f"Cut the signposting opener at line {i} and lead with the claim.",
+            ))
+
+        # Copula avoidance.
+        for m in COPULA_AVOIDANCE_RE.finditer(line):
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{i}",
+                (f"Copula avoidance per house-style.md § Copula avoidance: "
+                 f"'{m.group(0)}'. Prefer 'is' unless the action is genuinely "
+                 "active."),
+                f"Rewrite '{m.group(0)}' as 'is' at line {i}.",
+            ))
+
+        # Persuasive authority tropes.
+        for m in AUTHORITY_TROPE_RE.finditer(line):
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{i}",
+                (f"Persuasive authority trope per house-style.md § Persuasive "
+                 f"authority tropes: '{m.group(0)}'. State the actual mechanism."),
+                f"Cut '{m.group(0)}' at line {i}; name the mechanism directly.",
+            ))
+
+    # --- Per-paragraph scans (em-dash density, hyphenated-pair cluster,
+    #     negative parallelism).
+    for start_line, para_lines in iter_paragraphs(
+        lines,
+        section=target_section,
+        exclude_fences=True,
+        exclude_references=True,
+        exclude_tables=True,
+    ):
+        if not in_range(start_line):
+            continue
+        para_text = " ".join(para_lines)
+
+        # Em-dash density: more than one per paragraph fires once for the
+        # paragraph, not once per em dash, so the finding count stays
+        # proportional to author intent.
+        em_dash_count = para_text.count("—")
+        if em_dash_count > 1:
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{start_line}",
+                (f"Em-dash density per house-style.md § Em-dash discipline: "
+                 f"{em_dash_count} em dashes in this paragraph (cap: 1)."),
+                f"Replace em dashes at line {start_line} with periods, commas, "
+                "or colons; keep at most one per paragraph.",
+            ))
+
+        # Hyphenated-pair comma cluster: dedupe pairs inside the cluster so a
+        # match like "fast-paced, fast-paced, fast-paced" does not fire on
+        # one distinct pair repeated; the canonical AI-tell shape uses
+        # genuinely different pairs.
+        for m in HYPHENATED_PAIR_CLUSTER_RE.finditer(para_text):
+            cluster = m.group(0)
+            pairs = re.findall(r"[a-z]+-[a-z]+", cluster, flags=re.IGNORECASE)
+            distinct = {p.lower() for p in pairs}
+            if len(distinct) >= HYPHENATED_PAIR_CLUSTER_THRESHOLD:
+                findings.append(make_finding(
+                    "should-fix",
+                    "dsc-ai-tell",
+                    f"{file_path}:{start_line}",
+                    (f"Hyphenated-pair cluster per house-style.md § Hyphenated "
+                     f"word-pair overuse: {len(distinct)} distinct adjectival "
+                     f"hyphenated pairs in one comma-separated cluster "
+                     f"('{cluster}')."),
+                    f"Rewrite the cluster at line {start_line} so the adjectival "
+                    "ornament is gone; legitimate technical compounds outside a "
+                    "comma cluster do not trigger.",
+                ))
+
+        # Negative parallelism: match against the joined paragraph text so the
+        # ".*" between "it's not" and "it's" cannot cross a blank line.
+        m_neg = NEGATIVE_PARALLELISM_RE.search(para_text)
+        if m_neg is not None:
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{start_line}",
+                (f"Negative parallelism per house-style.md § Banned sentence "
+                 f"patterns: '{m_neg.group(0)[:80]}'. The pattern adds no "
+                 "information; rewrite as a positive statement."),
+                f"Rewrite the 'it's not X, it's Y' construct at line {start_line} "
+                "as a positive statement.",
+            ))
+
+    # --- Fragmented-header check: heading followed by a one-line paragraph
+    #     whose content-word overlap with the heading is at or above the
+    #     threshold. Walked by heading position rather than by paragraph so
+    #     the "no following blank line within 2 lines" rule is enforceable.
+    headings = collect_all_headings(lines)
+    for heading_line_no, _level, title in headings:
+        if not in_range(heading_line_no):
+            continue
+        # Find the next non-blank paragraph within 2 lines of the heading.
+        # The "within 2 lines" rule means the paragraph must start on
+        # heading_line_no+1 or heading_line_no+2 (one blank line allowed).
+        para_start: Optional[int] = None
+        for offset in (1, 2):
+            candidate_idx = heading_line_no + offset
+            if candidate_idx > len(lines):
+                break
+            if lines[candidate_idx - 1].strip() != "":
+                para_start = candidate_idx
+                break
+        if para_start is None:
+            continue
+        # Paragraph length must be exactly 1 line — if there is a non-blank
+        # line at para_start+1 the paragraph is multi-line and the rule does
+        # not apply.
+        if (para_start < len(lines)
+                and lines[para_start].strip() != ""):
+            continue
+        para_line = lines[para_start - 1]
+        # Skip if the "paragraph" line is itself a heading, table row, or
+        # fence delimiter — those are not prose continuations.
+        if (re.match(r"^#{1,6}\s", para_line)
+                or para_line.lstrip().startswith("|")
+                or is_code_fence_line(para_line)):
+            continue
+
+        heading_words = set(_heading_content_words(title))
+        if not heading_words:
+            continue
+        para_words = set(_paragraph_content_words([para_line]))
+        if not para_words:
+            continue
+        overlap_count = len(heading_words & para_words)
+        overlap_ratio = overlap_count / len(heading_words)
+        if overlap_ratio >= FRAGMENTED_HEADER_CONTENT_WORD_OVERLAP_THRESHOLD:
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{heading_line_no}",
+                (f"Fragmented header per house-style.md § Fragmented headers: "
+                 f"the one-line paragraph at line {para_start} shares "
+                 f"{overlap_count}/{len(heading_words)} content words with the "
+                 f"heading '{title}' "
+                 f"({overlap_ratio:.0%} overlap, threshold "
+                 f"{FRAGMENTED_HEADER_CONTENT_WORD_OVERLAP_THRESHOLD:.0%})."),
+                f"Either expand the paragraph at line {para_start} with new "
+                f"content, or cut it and let the heading at line "
+                f"{heading_line_no} stand alone.",
+            ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -1328,8 +1881,16 @@ def main() -> int:
             changed_section=args.changed_section,
             scope=args.scope,
         ))
+        findings.extend(check_dsc_ai_tell(
+            args.design_path, design_lines,
+            sections=sections,
+            changed_section=args.changed_section,
+            scope=args.scope,
+        ))
     if args.target in ("mechanics", "both") and design_mechanics_lines is not None:
         findings.extend(check_dsc_parenthetical_asides(
+            args.design_mechanics_path, design_mechanics_lines))
+        findings.extend(check_dsc_ai_tell(
             args.design_mechanics_path, design_mechanics_lines))
 
     # Cross-file link-resolution always fires — these rules guard against
