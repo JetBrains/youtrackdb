@@ -311,10 +311,22 @@ public final class AsyncFile implements File {
       checkForClose();
 
       // Pre-flight guard inside the exclusive-lock window: a shrink that does not
-      // actually reduce the logical size is a no-op. The read of this.size is
-      // serialised against concurrent shrink / allocateSpace by the surrounding
-      // exclusiveLock — placing the check outside the lock would race because
-      // allocateSpace bumps this.size without locking.
+      // actually reduce the logical size is a no-op. The structural placement matters
+      // for two reasons:
+      // (a) lock.exclusiveLock excludes other AsyncFile.shrink callers and serialises
+      //     this entire body against fileChannel.truncate on this AsyncFile — that is
+      //     the lock's purpose here.
+      // (b) The exclusion of concurrent AsyncFile.allocateSpace happens one layer up,
+      //     not inside this method. allocateSpace bumps this.size via a bare
+      //     AtomicLong.getAndAdd without acquiring lock.exclusiveLock, so the read of
+      //     this.size below is NOT in itself race-free against allocateSpace. The real
+      //     exclusion is at the WOWCache layer: every shrinkFile caller (also
+      //     WOWCache.truncateFile / createFile) holds filesLock.writeLock, which
+      //     excludes the loadOrAdd-path callers that are the only callers of
+      //     AsyncFile.allocateSpace.
+      // Placing the check inside the exclusive-lock window is still correct (moving it
+      // out would race against a sibling shrink); the comment just makes the layered
+      // rationale honest.
       if (size >= this.size.get()) {
         return;
       }

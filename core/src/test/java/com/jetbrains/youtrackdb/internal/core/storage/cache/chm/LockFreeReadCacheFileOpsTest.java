@@ -267,6 +267,19 @@ public class LockFreeReadCacheFileOpsTest {
    * <p>Sets up file 30 with 6 cached pages and file 31 with 2 cached pages, shrinks file 30 to
    * 3 pages, and verifies the cache holds exactly {3 + 2 = 5} pages afterwards — 3 below-cutoff
    * pages for file 30, plus all 2 pages for file 31.
+   *
+   * <p><b>Order pinning</b>: the orchestrator must call {@code writeCache.shrinkFile} BEFORE
+   * the LFRC range purge. The range purge invokes {@code writeCache.checkCacheOverflow} once
+   * per evicted entry (see {@code LockFreeReadCache.clearFileRange}'s freeze/onRemove/
+   * checkCacheOverflow loop) — those calls are observable from the {@code TrackingWriteCache}
+   * mock and fire only during the LFRC purge phase. We assert
+   * {@code shrinkFile} appears in the captured event list strictly BEFORE the first
+   * {@code clearFileRange.checkCacheOverflow} event. A regression that swapped the production
+   * order (purge cache first, then call writeCache.shrinkFile) would surface as
+   * {@code shrinkFile} appearing AFTER the first {@code checkCacheOverflow} event, failing the
+   * index comparison. An order-counter approach (which the earlier iteration used) is too
+   * lax: it only pins "writeCache.shrinkFile ran at some point during the orchestrator's
+   * invocation" rather than "writeCache.shrinkFile ran before the LFRC range purge."
    */
   @Test
   public void testShrinkFileDropsAboveTargetEntriesAndDelegates() throws IOException {
@@ -279,18 +292,19 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals("sanity: 8 pages in cache", 8L * PAGE_SIZE, readCache.getUsedMemory());
     Assert.assertEquals("sanity: shrinkFile not called yet", 0, writeCache.shrinkFileCount.get());
 
-    // Attach an order counter so the writeCache mock stamps the order it observed inside
-    // its shrinkFile, and after readCache.shrinkFile returns we increment the counter to
-    // get the post-orchestrator order. A regression that swapped the orchestrator's
-    // (writeCache.shrinkFile, clearFileRange) ordering would either cause the
-    // writeCache.shrinkFile call to be skipped (count == 0) or record a higher order than
-    // the post-orchestrator stamp.
-    final var orderCounter = new java.util.concurrent.atomic.AtomicInteger(0);
-    writeCache.attachOrderCounter(orderCounter);
+    // Capture distinguishable events into a thread-safe list. TrackingWriteCache records
+    // "writeCache.shrinkFile" on its shrinkFile entry, and (via the new tracker hook)
+    // "clearFileRange.checkCacheOverflow" each time clearFileRange's per-evicted-entry
+    // loop invokes checkCacheOverflow. The two are mutually exclusive on the production
+    // call path (shrinkFile runs once; checkCacheOverflow runs once per evicted entry
+    // during the LFRC purge that follows), so their ordering in the list is the
+    // orchestrator's call order.
+    final var callOrder =
+        java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+    writeCache.attachCallOrderTracker(callOrder);
 
     final long targetBytes = 3L * PAGE_SIZE;
     readCache.shrinkFile(30, targetBytes, writeCache);
-    final int postOrchestratorOrder = orderCounter.incrementAndGet();
 
     Assert.assertEquals(
         "writeCache.shrinkFile must be invoked exactly once",
@@ -298,12 +312,31 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals(
         "writeCache.shrinkFile must receive the orchestrator's targetBytes verbatim",
         targetBytes, writeCache.lastShrinkTargetBytes);
+
+    // Snapshot the captured order list under its own lock so the assertions below see a
+    // consistent view even if a future test variant spawns concurrent callers.
+    final java.util.List<String> capturedOrder;
+    synchronized (callOrder) {
+      capturedOrder = new java.util.ArrayList<>(callOrder);
+    }
+    final int shrinkIdx = capturedOrder.indexOf("writeCache.shrinkFile");
+    final int checkOverflowIdx =
+        capturedOrder.indexOf("clearFileRange.checkCacheOverflow");
     Assert.assertTrue(
-        "writeCache.shrinkFile must run before the post-orchestrator stamp "
-            + "(shrinkFileCallOrder=" + writeCache.shrinkFileCallOrder
-            + ", postOrchestratorOrder=" + postOrchestratorOrder + ")",
-        writeCache.shrinkFileCallOrder > 0
-            && writeCache.shrinkFileCallOrder < postOrchestratorOrder);
+        "writeCache.shrinkFile must appear in the captured order list (capturedOrder="
+            + capturedOrder + ")",
+        shrinkIdx >= 0);
+    Assert.assertTrue(
+        "clearFileRange.checkCacheOverflow must appear in the captured order list — the"
+            + " LFRC range purge invokes it once per evicted entry; missing means the purge"
+            + " never ran or never evicted (capturedOrder="
+            + capturedOrder + ")",
+        checkOverflowIdx >= 0);
+    Assert.assertTrue(
+        "writeCache.shrinkFile must run BEFORE the LFRC range purge (shrinkIdx="
+            + shrinkIdx + ", checkOverflowIdx=" + checkOverflowIdx + ", capturedOrder="
+            + capturedOrder + ")",
+        shrinkIdx < checkOverflowIdx);
 
     Assert.assertEquals(
         "After shrinkFile(30, 3 * PAGE_SIZE), 3 pages for file 30 + 2 pages for file 31 remain",
@@ -503,12 +536,36 @@ public class LockFreeReadCacheFileOpsTest {
      * {@code writeCache.shrinkFile} ran before whatever subsequent observation the test
      * stamps after the call. {@code -1} means the call has not been observed yet, or no
      * counter is attached.
+     *
+     * <p>Kept for the (currently un-used) order-counter pattern; the newer call-order
+     * tracker (see {@link #attachCallOrderTracker}) is the preferred shape because it pins
+     * the exact production-side event ordering rather than the vacuous "ran at some point"
+     * shape an order counter captures.
      */
     volatile int shrinkFileCallOrder = -1;
     private volatile AtomicInteger sharedOrderCounter;
+    /**
+     * Captures distinguishable production-side events ({@code "writeCache.shrinkFile"} on
+     * shrinkFile entry; {@code "clearFileRange.checkCacheOverflow"} on each
+     * {@code checkCacheOverflow} call) so a test can pin the orchestrator's actual call
+     * order. {@code null} means no tracker is attached.
+     */
+    private volatile java.util.List<String> callOrderTracker;
 
     void attachOrderCounter(final AtomicInteger counter) {
       this.sharedOrderCounter = counter;
+    }
+
+    /**
+     * Attach a thread-safe list (the test should pass
+     * {@code Collections.synchronizedList(new ArrayList<>())} or a {@code CopyOnWriteArrayList})
+     * to capture the order of distinguishable production-side events. The list receives a
+     * {@code "writeCache.shrinkFile"} entry on shrinkFile invocation and a
+     * {@code "clearFileRange.checkCacheOverflow"} entry on each {@code checkCacheOverflow}
+     * call (which the LFRC range purge invokes once per evicted entry).
+     */
+    void attachCallOrderTracker(final java.util.List<String> tracker) {
+      this.callOrderTracker = tracker;
     }
 
     TrackingWriteCache(final ByteBufferPool byteBufferPool) {
@@ -574,6 +631,10 @@ public class LockFreeReadCacheFileOpsTest {
       final var counter = sharedOrderCounter;
       if (counter != null) {
         shrinkFileCallOrder = counter.incrementAndGet();
+      }
+      final var tracker = callOrderTracker;
+      if (tracker != null) {
+        tracker.add("writeCache.shrinkFile");
       }
     }
 
@@ -664,6 +725,17 @@ public class LockFreeReadCacheFileOpsTest {
 
     @Override
     public void checkCacheOverflow() {
+      // The LFRC range purge (LockFreeReadCache.clearFileRange) invokes
+      // checkCacheOverflow once per evicted entry; on the shrinkFile orchestration tests
+      // those calls fire AFTER writeCache.shrinkFile, so a captured-event list pins the
+      // production order. Other LFRC paths (loadForRead, releaseFromRead, etc.) also
+      // invoke checkCacheOverflow; the tests that pin order-of-events know to attach the
+      // tracker only at the start of the orchestrated call so the captured list
+      // represents only the shrinkFile invocation.
+      final var tracker = callOrderTracker;
+      if (tracker != null) {
+        tracker.add("clearFileRange.checkCacheOverflow");
+      }
     }
 
     @Override

@@ -553,7 +553,7 @@ public class DirectMemoryOnlyDiskCacheTest {
    * supplied {@code WriteCache}.
    */
   @Test
-  public void testShrinkFileReadCacheVariantIsNoOp() {
+  public void testShrinkFileReadCacheVariantIsNoOp() throws java.io.IOException {
     var fileId = cache.addFile("shrink2.cf");
     for (int i = 0; i < 3; i++) {
       cache.loadOrAdd(fileId, i, false).decrementReadersReferrer();

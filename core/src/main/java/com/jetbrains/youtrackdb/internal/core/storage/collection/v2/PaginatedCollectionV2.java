@@ -499,7 +499,26 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * initialisation (the state page is at {@code STATE_ENTRY_INDEX = 0}, data pages
    * begin at page 1), so {@code fileSize == 0} is the legitimate post-create state.
    * The corruption guard fires only when both {@code fileSize == 0} <em>and</em>
-   * physical bytes exceed one state page.
+   * physical bytes exceed one state page; for PCV2, that combination covers two
+   * distinct shapes:
+   * <ul>
+   *   <li>(a) a true {@code logical < physical} corruption shape (the obvious case the
+   *       guard's name suggests), and</li>
+   *   <li>(b) a fresh-create + partial-flush-orphan case: a brand-new collection whose
+   *       {@code initCollectionState()} bumped physical via an allocation that reached
+   *       AsyncFile but crashed before the commit landed on disk, so {@code fileSize}
+   *       is still its initial 0 while physical now holds the partial-flushed orphan
+   *       tail.</li>
+   * </ul>
+   *
+   * <p>Both shapes are handled identically here: skip-with-WARN, leaving the truncate
+   * for operator review. The escape valve for case (b) is the allocator-only
+   * {@code op.loadOrAddPageForWrite} contract — the next allocation observes the
+   * physical orphan via the {@code op.filledUpTo > knownIndex} check and throws
+   * {@code IllegalStateException} loudly, surfacing the issue at first write rather than
+   * silently absorbing it. The previous version of this docstring called the shape only
+   * "a true {@code logical < physical} corruption", which misframed case (b) as
+   * corruption when it is actually a known-uncovered partial-flush gap.
    *
    * @param atomicOperation enclosing recovery-pass atomic operation
    * @param readCache       read cache the truncate dispatches through

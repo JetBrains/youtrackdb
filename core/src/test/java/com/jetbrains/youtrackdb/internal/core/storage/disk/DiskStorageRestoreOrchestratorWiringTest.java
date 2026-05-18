@@ -47,6 +47,15 @@ import org.junit.Test;
  * <p>This is a coarse but cheap regression sentinel: any code reorganization that moves
  * the orchestrator call to a different position relative to the flush — including
  * accidental deletion of either line — fails this test.
+ *
+ * <p><b>Stopgap nature.</b> This is a source-text test, not an executable IR / bytecode
+ * test. It pins the literal substring
+ * {@code executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)} — the exact
+ * wrapped dispatch — so a regression that comments out the dispatch, renames it, or wraps
+ * it in a different lifecycle helper fails the assertion. A future iteration that adds
+ * executable coverage (a real spy that intercepts the dispatch, or an end-to-end
+ * incremental-restore IT) can retire this sentinel; until then the substring match below
+ * is the only protection against the wiring being silently removed or re-ordered.
  */
 public class DiskStorageRestoreOrchestratorWiringTest {
 
@@ -70,6 +79,14 @@ public class DiskStorageRestoreOrchestratorWiringTest {
   public void truncateOrphansFollowsFlushAllDataInPostProcessIncrementalRestore()
       throws IOException {
     var source = loadDiskStorageSource();
+    // Hard pin against the silent-skip mode: if the source-locator below fails to find
+    // DiskStorage.java the test would degenerate into a vacuous pass; this assertion
+    // makes the missing-source case loud.
+    assertThat(source)
+        .as("DiskStorage source must be loadable from cwd or classpath; an empty result"
+            + " would silently neutralise every assertion below")
+        .isNotNull()
+        .isNotEmpty();
 
     // Restrict the search to the postProcessIncrementalRestore body so an unrelated
     // flushAllData()/truncateOrphansAfterRecovery elsewhere in the file does not satisfy
@@ -93,10 +110,18 @@ public class DiskStorageRestoreOrchestratorWiringTest {
         .as("postProcessIncrementalRestore must invoke flushAllData()")
         .isGreaterThanOrEqualTo(0);
 
-    int truncatePos = methodBody.indexOf("this::truncateOrphansAfterRecovery");
+    // Match the exact wrapped dispatch — not just the bare method reference. A regression
+    // that unwraps the orchestrator (calling truncateOrphansAfterRecovery directly, or
+    // wrapping it in a different lifecycle helper) would still leave the bare method
+    // reference present in the file but break the recovery contract; pinning the full
+    // executeInsideAtomicOperation(this::truncateOrphansAfterRecovery) call shape catches
+    // that. A rename of either method also fails this assertion.
+    int truncatePos = methodBody.indexOf(
+        "executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)");
     assertThat(truncatePos)
         .as("postProcessIncrementalRestore must dispatch truncateOrphansAfterRecovery"
-            + " via executeInsideAtomicOperation")
+            + " via the exact executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)"
+            + " call shape")
         .isGreaterThanOrEqualTo(0);
 
     assertThat(truncatePos)

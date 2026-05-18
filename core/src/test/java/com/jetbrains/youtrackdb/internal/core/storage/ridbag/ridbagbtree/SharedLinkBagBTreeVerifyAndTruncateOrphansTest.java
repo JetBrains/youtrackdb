@@ -170,6 +170,16 @@ public class SharedLinkBagBTreeVerifyAndTruncateOrphansTest {
   // init() sets pagesSize = 1, so seeing 0 is structurally anomalous and indicates
   // a corruption shape WAL replay should have ruled out. The helper logs WARN and
   // skips the truncate.
+  //
+  // WARN-log emission is NOT pinned here. The BTree sibling suite
+  // (BTreeVerifyAndTruncateOrphansTest.verifyAndTruncateOrphansSkipsOnCorruptionSignal)
+  // carries the WARN-log capture sentinel for budget reasons — the corruption-skip code
+  // shape is identical across BTree / SLBB / CPMV2 / PCV2 (pre-format String.format +
+  // LogManager.instance().warn(this, msg)), so a regression that nukes the logger
+  // entirely or demotes the level would surface there. If the SLBB-specific log
+  // substring changes (e.g., the format anchor diverges from "Storage corruption
+  // signal: SharedLinkBagBTree '%s' EP reports pagesSize=0 ..."), add a parallel
+  // capture rig here.
   @Test
   public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
     setPagesSizeOnEntryPoint(0);

@@ -1179,6 +1179,16 @@ public class CollectionPositionMapV2Test {
   // EP page. WAL replay should have prevented this shape; the helper skips the
   // truncate rather than mask the inconsistency. ReadCache.shrinkFile MUST NOT be
   // invoked.
+  //
+  // WARN-log emission is NOT pinned here. The BTree sibling suite
+  // (BTreeVerifyAndTruncateOrphansTest.verifyAndTruncateOrphansSkipsOnCorruptionSignal)
+  // carries the WARN-log capture sentinel for budget reasons — the corruption-skip code
+  // shape is identical across BTree / SLBB / CPMV2 / PCV2 (pre-format String.format +
+  // LogManager.instance().warn(this, msg)), so a regression that nukes the logger
+  // entirely or demotes the level would surface there. If the CPMV2-specific log
+  // substring changes (e.g., the format anchor diverges from "Storage corruption
+  // signal: CollectionPositionMapV2 '%s' EP reports fileSize=0 ..."), add a parallel
+  // capture rig here.
   @Test
   public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
     // create() left pageCount == 1 (just the EP) with fileSize == 0. Add an orphan

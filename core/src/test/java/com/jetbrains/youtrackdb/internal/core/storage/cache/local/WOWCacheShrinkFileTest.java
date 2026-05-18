@@ -211,10 +211,19 @@ public class WOWCacheShrinkFileTest {
    * a no-op — the AsyncFile is not touched and any dirty-page entries are left intact. This
    * is the entry-point check the orchestrator relies on so {@code shrinkFile} can be called
    * unconditionally per component without a per-call physical-size probe.
+   *
+   * <p>Allocates 4 dirty pages so the "dirty-page entries are left intact" branch of the
+   * contract is observable. Each page carries a per-page marker byte at
+   * {@code DurablePage.NEXT_FREE_POSITION}; after the no-op shrink the pages must still
+   * carry the same marker on a re-load. A regression that mutated {@code shrinkFile}'s
+   * pre-flight to purge every dirty entry on the no-op branch (for example, lifting the
+   * range-purge above the pre-flight) would lose the marker bytes and fail the per-page
+   * assertions below. The {@code markDirty=false} variant pinned only the file-size
+   * branch and was vacuous against the dirty-entry contract.
    */
   @Test
   public void shrinkFileWithTargetAtOrAboveCurrentSizeIsNoOp() throws IOException {
-    final var fileId = allocateAndOptionallyDirty(4, false);
+    final var fileId = allocateAndOptionallyDirty(4, true);
     final long initialSize = wowCache.getFilledUpTo(fileId) * pageSize;
     assertThat(initialSize).isEqualTo(4L * pageSize);
 
@@ -225,6 +234,28 @@ public class WOWCacheShrinkFileTest {
     // Above-target — same no-op contract
     wowCache.shrinkFile(fileId, initialSize + pageSize * 100L);
     assertThat(wowCache.getFilledUpTo(fileId) * pageSize).isEqualTo(initialSize);
+
+    // Flush so the dirty entries are persisted, then verify each page's marker byte
+    // survived the no-op shrink branch. The round-trip through load(...) catches the
+    // regression class where a future change silently purges dirty entries on the
+    // pre-flight branch (e.g., moving the range-purge above the file-size check).
+    wowCache.flush();
+    assertThat(wowCache.getFilledUpTo(fileId) * pageSize)
+        .as("flush after no-op shrinkFile must not perturb file size")
+        .isEqualTo(initialSize);
+
+    for (int i = 0; i < 4; i++) {
+      final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
+      try {
+        var buffer = cachePointer.getBuffer();
+        assert buffer != null;
+        assertThat(buffer.get(DurablePage.NEXT_FREE_POSITION))
+            .as("page %d's dirty marker must survive the no-op shrink", i)
+            .isEqualTo((byte) (i & 0x7F));
+      } finally {
+        cachePointer.decrementReadersReferrer();
+      }
+    }
   }
 
   /**

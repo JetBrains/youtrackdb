@@ -847,8 +847,12 @@ public final class LockFreeReadCache implements ReadCache {
    * Range-scoped sibling of {@link #clearFile(long, WriteCache)}: drops only the
    * read-cache entries at {@code pageIndex >= minPageIndex} for the given file. Mirrors
    * {@link #clearFile(long, WriteCache)}'s eviction-lock ordering, current-thread read
-   * batch flush, freeze/onRemove/checkCacheOverflow loop, and pinned-entry escalation.
-   * Only the segment-map call differs: this uses
+   * batch flush, and freeze/onRemove/checkCacheOverflow loop. The pinned-entry recovery
+   * shape mirrors {@link #drainAllEntries(WriteCache)}'s "re-insert un-frozen entries"
+   * pattern instead of {@code clearFile}'s early-throw — see the freeze-failure handling
+   * note below for the rationale.
+   *
+   * <p>Only the segment-map call differs from {@code clearFile}: this uses
    * {@link ConcurrentLongIntHashMap#removeByFileIdAtLeast(long, int)} so entries below
    * {@code minPageIndex} survive (they belong to file regions the truncate does NOT
    * drop and must remain reachable for ongoing readers).
@@ -858,7 +862,20 @@ public final class LockFreeReadCache implements ReadCache {
    * entry for a page of this file after {@code removeByFileIdAtLeast} completes. The
    * recovery-time orphan-truncation pass that drives this method runs under
    * {@code stateLock.writeLock()} so no client TX can race; the call site documents
-   * this coordination at a higher level.
+   * this coordination at a higher level. With no concurrent {@code doLoad}, no pinned
+   * entries are expected on the recovery path — the re-insertion safety net below is
+   * defensive against future callers (or interleavings) that violate the assumption.
+   *
+   * <p><b>Freeze-failure handling — re-insert un-frozen entries:</b> the original
+   * implementation here threw {@link StorageException} on the first pinned entry. That
+   * left every entry already removed from {@code data} but not yet processed in this
+   * loop orphaned: removed from the segment map but the WTinyLFU {@code policy} and
+   * {@code cacheSize} counter never updated for the un-processed tail. The asymmetric
+   * {@link #drainAllEntries(WriteCache)} handles this correctly by re-inserting
+   * un-frozen entries via {@code data.put(...)} before throwing; this method now mirrors
+   * that pattern. Continuing the loop on failure, collecting un-frozen entries, and
+   * re-inserting them before throwing keeps policy + cacheSize in lockstep with the
+   * segment map and lets a retry after the pin is released drain the entries correctly.
    */
   private void clearFileRange(
       final long fileId, final int minPageIndex, final WriteCache writeCache) {
@@ -873,6 +890,10 @@ public final class LockFreeReadCache implements ReadCache {
       // checkCacheOverflow loop below does not run under a segment write lock.
       final var removedEntries = data.removeByFileIdAtLeast(fileId, minPageIndex);
 
+      // First entry that freeze() rejected (still pinned). We use it to build the
+      // exception message after re-inserting every un-frozen entry into the segment
+      // map. Null means every entry was frozen.
+      CacheEntry firstUnfrozen = null;
       for (final var cacheEntry : removedEntries) {
         if (cacheEntry.freeze()) {
           policy.onRemove(cacheEntry);
@@ -886,13 +907,23 @@ public final class LockFreeReadCache implements ReadCache {
                 e, writeCache.getStorageName());
           }
         } else {
-          throw new StorageException(writeCache.getStorageName(),
-              "Page with index "
-                  + cacheEntry.getPageIndex()
-                  + " for file id "
-                  + cacheEntry.getFileId()
-                  + " is used and cannot be removed");
+          if (firstUnfrozen == null) {
+            firstUnfrozen = cacheEntry;
+          }
+          // Re-insert so policy + cacheSize stay in lockstep with the segment map and
+          // a retry by the caller (after the pin is released) can drain this entry
+          // through the normal path. See the Javadoc above for why this differs from
+          // clearFile's early-throw shape.
+          data.put(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
         }
+      }
+      if (firstUnfrozen != null) {
+        throw new StorageException(writeCache.getStorageName(),
+            "Page with index "
+                + firstUnfrozen.getPageIndex()
+                + " for file id "
+                + firstUnfrozen.getFileId()
+                + " is used and cannot be removed");
       }
     } finally {
       evictionLock.unlock();

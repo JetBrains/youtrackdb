@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -710,13 +711,23 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   /**
    * In-memory engine has no on-disk physical state and no read-cache layer separate from
-   * the write cache, so the {@link ReadCache} orchestrator simply forwards to its own
+   * the write cache, so the {@link ReadCache} orchestrator simply forwards to its argument
    * {@code WriteCache.shrinkFile} no-op. Implemented so the polymorphic dispatch from the
    * recovery-time orphan-truncation pass works uniformly across both engines.
+   *
+   * <p>Forwards to the supplied {@code writeCache} (not {@code this}) to honour the layering
+   * contract uniformly with {@code LockFreeReadCache.shrinkFile}. In production today both
+   * readCache and writeCache point at the same {@code DirectMemoryOnlyDiskCache} instance, so
+   * the call resolves to the 2-arg no-op on this object — but a hypothetical hybrid
+   * configuration that paired this read-cache with a different write-cache (e.g.,
+   * {@code WOWCache}) would correctly delegate the shrink to that write-cache rather than
+   * silently skip it. Discarding the {@code writeCache} argument here would have been a
+   * latent layering bug.
    */
   @Override
-  public void shrinkFile(final long fileId, final long targetBytes, final WriteCache writeCache) {
-    shrinkFile(fileId, targetBytes);
+  public void shrinkFile(final long fileId, final long targetBytes, final WriteCache writeCache)
+      throws IOException {
+    writeCache.shrinkFile(fileId, targetBytes);
   }
 
   @Override

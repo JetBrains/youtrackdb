@@ -210,7 +210,23 @@ public class BTreeVerifyAndTruncateOrphansTest {
   // Force the structurally anomalous shape: pagesSize=0 (which v3 BTree.create()
   // structurally rules out) and physical > 1 page. The helper must skip the
   // dispatch — masking the inconsistency would re-introduce the partial-flush-orphan
-  // path the pass exists to fix.
+  // path the pass exists to fix. Beyond the skip, the helper MUST emit a WARN log so
+  // operators see the corruption signal; a regression that demotes the log to DEBUG,
+  // silently drops it, or formats it with the wrong substring would hide the signal.
+  //
+  // This BTree suite carries the WARN-log capture sentinel for the four sibling
+  // corruption-skip tests (BTree / SLBB / CPMV2 / PCV2). The corruption-skip code shape
+  // is identical across all four components — pre-format String.format(...) on a
+  // "Storage corruption signal:" message, then LogManager.instance().warn(this, msg) —
+  // so pinning the WARN emission in one suite catches a regression that nukes the
+  // logger entirely without paying for four near-identical capture rigs. See the
+  // SLBB/CPMV2/PCV2 sibling tests for cross-references.
+  //
+  // Capture mechanism: the project's test runtime SLF4J binding is slf4j-jdk14, so the
+  // SLF4JLogManager.log(...) call routes through java.util.logging. We install a JUL
+  // Handler on the BTree class's logger (the name LogManager uses when 'this' is a
+  // BTree instance), capture the LogRecord, and assert level == WARNING + message
+  // contains the "Storage corruption signal" substring + the BTree component anchor.
   @Test
   public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
     setPagesSizeOnEntryPoint(0);
@@ -219,9 +235,70 @@ public class BTreeVerifyAndTruncateOrphansTest {
     makePage(FILE_ID, 2);
     pageCount = 3;
 
-    tree.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+    // Attach a JUL handler scoped to the BTree class's logger. The SLF4JLogManager
+    // routes through the logger named after the requester's class
+    // (BTree.class.getName()), so this handler observes warn(this, msg) emissions from
+    // the BTree under test without picking up unrelated logs from other components.
+    final var btreeLogger = java.util.logging.Logger.getLogger(BTree.class.getName());
+    final var capturedRecords = new java.util.concurrent.CopyOnWriteArrayList<
+        java.util.logging.LogRecord>();
+    final var handler = new java.util.logging.Handler() {
+      @Override
+      public void publish(final java.util.logging.LogRecord record) {
+        capturedRecords.add(record);
+      }
+
+      @Override
+      public void flush() {
+        // No-op — the test's assertions read directly from capturedRecords.
+      }
+
+      @Override
+      public void close() {
+        // No-op — the JUL framework calls close() on shutdown; nothing to release here.
+      }
+    };
+    handler.setLevel(java.util.logging.Level.ALL);
+    // Force the logger to actually deliver WARNING-level records to handlers even if a
+    // parent logger or LogManager configuration silenced them in the test environment.
+    final var priorLevel = btreeLogger.getLevel();
+    btreeLogger.setLevel(java.util.logging.Level.ALL);
+    btreeLogger.addHandler(handler);
+    try {
+      tree.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+    } finally {
+      btreeLogger.removeHandler(handler);
+      btreeLogger.setLevel(priorLevel);
+    }
 
     verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
+
+    // Pin the WARN emission. The production helper builds the message via
+    // String.format("Storage corruption signal: BTree '%s' EP reports pagesSize=0 but"
+    //   + " physical file holds %d pages (> 1). ...", getName(), physicalPages);
+    // so the assertions below match the format anchor and the component-specific
+    // substring (BTree) without locking in the exact phrasing. A regression that
+    // nukes the logger entirely (no record captured) or demotes the level (record
+    // captured but not WARNING) fails the assertion.
+    assertThat(capturedRecords)
+        .as("the BTree corruption-skip branch must emit at least one WARN log so the"
+            + " corruption signal is visible to operators")
+        .isNotEmpty();
+    final var warnRecord = capturedRecords.stream()
+        .filter(r -> r.getLevel() == java.util.logging.Level.WARNING)
+        .filter(r -> {
+          final var msg = r.getMessage();
+          return msg != null
+              && msg.contains("Storage corruption signal")
+              && msg.contains("BTree");
+        })
+        .findFirst()
+        .orElse(null);
+    assertThat(warnRecord)
+        .as("a WARNING record matching the BTree corruption-signal format must be"
+            + " present in the captured handler events (capturedRecords=%s)",
+            capturedRecords)
+        .isNotNull();
   }
 
   // ---------------------------------------------------------------------------

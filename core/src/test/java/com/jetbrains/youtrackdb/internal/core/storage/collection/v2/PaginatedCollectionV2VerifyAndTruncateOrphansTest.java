@@ -192,6 +192,16 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   // initCollectionState() sets fileSize=0 as the legitimate fresh-collection state, so
   // the guard requires BOTH conditions to fire — a healthy fresh collection
   // (fileSize == 0 && physical == 1 page) does NOT trigger the WARN.
+  //
+  // WARN-log emission is NOT pinned here. The BTree sibling suite
+  // (BTreeVerifyAndTruncateOrphansTest.verifyAndTruncateOrphansSkipsOnCorruptionSignal)
+  // carries the WARN-log capture sentinel for budget reasons — the corruption-skip code
+  // shape is identical across BTree / SLBB / CPMV2 / PCV2 (pre-format String.format +
+  // LogManager.instance().warn(this, msg)), so a regression that nukes the logger
+  // entirely or demotes the level would surface there. If the PCV2-specific log
+  // substring changes (e.g., the format anchor diverges from "Storage corruption
+  // signal: PaginatedCollectionV2 '%s' state page reports fileSize=0 ..."), add a
+  // parallel capture rig here.
   @Test
   public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
     // setStateFileSize(0) is the default post-create state; just extend physical
