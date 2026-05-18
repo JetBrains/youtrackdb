@@ -1,8 +1,8 @@
 # Chapter 3 — The Life of a Query: A Bird's-Eye Tour
 
-Chapter 2 left you with a concrete picture of how YouTrackDB stores data: records identified by RIDs, vertices with adjacency lists embedded directly in the record, and O(1) hops because there is no secondary index to consult. You now have the nouns. This chapter introduces the verbs — the pipeline every SQL statement travels before a single result row appears.
+Chapter 2 left you with a concrete picture of how YouTrackDB stores data: records identified by RIDs, vertices with adjacency lists embedded directly in the record, and O(1) hops because there is no secondary index to consult. You now have the nouns. This chapter introduces the verbs — the pipeline every YQL statement travels before a single result row appears.
 
-We are going to follow one query, from the moment the engine receives the SQL text to the moment it hands back data. The query is deliberately plain:
+We are going to follow one query, from the moment the engine receives the YQL text to the moment it hands back data. The query is deliberately plain:
 
 ```sql
 SELECT FROM Person WHERE name = 'Alice'
@@ -47,7 +47,7 @@ For our query, the planner asks one important question: is there an index on `Pe
 
 **With an index on `name`:** the planner produces three steps. First, an index lookup step that probes the index with the value `'Alice'` and returns the matching RIDs. Second, a fetch step that loads the full records for those RIDs. Third, a projection step that assembles the output columns from those records.
 
-**Without an index:** the planner replaces the index lookup with a full-class scan — a step that iterates all clusters belonging to `Person` — followed by a filter step that evaluates `name = 'Alice'` against each record, and then the same projection step at the end.
+**Without an index:** the planner replaces the index lookup with a full-class scan — a step that iterates all collections belonging to `Person` — followed by a filter step that evaluates `name = 'Alice'` against each record, and then the same projection step at the end.
 
 Both plans have the same three-box shape:
 
@@ -68,7 +68,7 @@ Chapters 8, 9, and 10 cover the cost-based machinery the planner uses when the q
 
 The execution plan is a chain of steps. Each step is a small Java object. The chain is *pull-based*: nothing moves until someone asks for a row.
 
-When the executor starts the plan, it calls `start()` on the last step in the chain. That step does not immediately produce any output. Instead it asks the step before it for a row. That step asks the step before *it*, and so on, all the way back to the source. Only when the source step has a record ready does data begin to flow forward.
+When the executor starts the plan, it calls `next()` on the last step in the chain. That step does not immediately produce any output. Instead it asks the step before it for a row. That step asks the step before *it*, and so on, all the way back to the source. Only when the source step has a record ready does data begin to flow forward.
 
 The interaction looks like this:
 
@@ -90,7 +90,7 @@ sequenceDiagram
 
 **Figure 3.3 — Pull-based execution for our three-step plan. The caller's single `next(ctx)` call drives the entire chain. (The actual signature is `next(CommandContext)` on the `ExecutionStream` interface.)**
 
-This model has a practical consequence that matters from day one: *memory consumption is bounded by the depth of the pipeline, not by the number of results*. The source step does not load all `Person` records into memory before the filter runs. It loads one, passes it up, and only when the projection step has returned that row to the caller does it reach back down for the next one. A query that matches a million records uses no more memory than one that matches ten, as long as the caller consumes results one at a time.
+This model has a practical consequence that matters from day one: *memory consumption is bounded by the depth of the pipeline, not by the number of results*. The source step does not load all `Person` records into memory before the filter runs. It loads one(or fixed batch of entries), passes it up, and only when the projection step has returned that row to the caller does it reach back down for the next one. A query that matches a million records uses no more memory than one that matches ten, as long as the caller consumes results one at a time.
 
 The pull-based model also makes early termination essentially free. If the client adds `LIMIT 10`, the caller simply stops asking for rows after ten. No step below is notified; they just stop being called. The source step never scans beyond what is needed.
 
