@@ -157,3 +157,7 @@ Track-level acceptance:
 
 **External contracts:**
 - The JSON output schema published to callers of `design-mechanical-checks.py` (the `edit-design` skill, CI hooks, manual invocations) does not change. New findings appear with `rule == "dsc-ai-tell"` and `auto_applicable: false`.
+
+## Base commit
+
+a75f18d62386ff1a8420d38a25ac5ba8d14c1403
