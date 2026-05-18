@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.concur.collection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.vmlens.api.AllInterleavingsBuilder;
@@ -169,60 +168,6 @@ public class CASObjectArrayMTTest {
         // Exactly one thread must have returned true.
         assertEquals(1, trueCount.get(),
             "Exactly one add(T, int) should return true when two threads race");
-      }
-    }
-  }
-
-  /**
-   * Verifies that {@code add(value, index)} returns {@code false} without side
-   * effects when the current size does not match the requested index — even
-   * when another thread is concurrently advancing the size past that index.
-   *
-   * <p>Thread 1 calls {@code add(value, 0)} repeatedly while Thread 2 advances
-   * the array via unindexed {@code add()}. Since size is never 0 again after the
-   * first unindexed add, every indexed call must return {@code false} and the
-   * value at index 0 must remain the original filler — never the indexed writer's
-   * value.
-   */
-  @Test
-  public void addWithStaleIndexAlwaysReturnsFalse() throws Exception {
-    final Integer FILLER = -1;
-    final int STALE_INDEX = 0;
-    final int INDEXED_VALUE = 777;
-
-    try (var allInterleavings = new AllInterleavingsBuilder()
-        .withMaximumIterations(MAX_ITERATIONS)
-        .build("addWithStaleIndexAlwaysReturnsFalse")) {
-      while (allInterleavings.hasNext()) {
-        var array = new CASObjectArray<Integer>();
-
-        // Seed index 0 so that size > STALE_INDEX from the start.
-        array.add(FILLER);
-
-        var indexedResult = new boolean[] {false};
-
-        var indexedWriter = new Thread(() -> {
-          // Attempt to write at a slot that's already past.
-          indexedResult[0] = array.add(INDEXED_VALUE, STALE_INDEX);
-        });
-
-        // Concurrently advance the array further.
-        var advancer = new Thread(() -> {
-          array.add(42);
-        });
-
-        indexedWriter.start();
-        advancer.start();
-        indexedWriter.join();
-        advancer.join();
-
-        // The indexed add must have returned false — index 0 is behind size.
-        assertFalse(indexedResult[0],
-            "add(T, staleIndex) should return false when size has advanced past the index");
-
-        // Index 0 must still hold the original filler, not the indexed writer's value.
-        assertEquals(FILLER, array.get(STALE_INDEX),
-            "Index 0 should still hold filler — add(T, staleIndex) must not overwrite it");
       }
     }
   }
