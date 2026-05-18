@@ -4572,7 +4572,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("item4", result.get(1).getProperty("label"));
     assertEquals("item5", result.get(2).getProperty("label"));
 
-    assertPlanHasIntersection(query, "Plan should show intersection");
+    // Index-ordered optimization takes precedence over intersection pre-filter:
+    // the planner detects ORDER BY p → e.priority → EOLLink_priority index and
+    // uses IndexOrderedEdgeStep, which subsumes the intersection.
+    String plan = explainPlan(query);
+    assertTrue(
+        "Plan should show INDEX ORDERED MATCH (supersedes intersection):\n" + plan,
+        plan.contains("INDEX ORDERED MATCH"));
     session.commit();
   }
 

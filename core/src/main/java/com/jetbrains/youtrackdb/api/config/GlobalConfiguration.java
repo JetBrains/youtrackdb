@@ -1312,6 +1312,51 @@ public enum GlobalConfiguration {
       Integer.class,
       50,
       true),
+
+  QUERY_INDEX_ORDERED_MIN_LINKBAG(
+      "youtrackdb.query.indexOrdered.minLinkBag",
+      "Minimum LinkBag size below which the index-ordered MATCH optimization"
+          + " always falls back to load-all-and-sort. Loading a few records is"
+          + " cheaper than RidSet construction + index scan setup",
+      Integer.class,
+      10,
+      true),
+
+  QUERY_INDEX_ORDERED_MAX_SCAN(
+      "youtrackdb.query.indexOrdered.maxScan",
+      "Safety-valve cap on expected index scan length for index-ordered MATCH."
+          + " If the estimated number of index entries to scan exceeds this,"
+          + " fall back to load-all-and-sort",
+      Long.class,
+      5_000_000L,
+      true),
+
+  QUERY_INDEX_ORDERED_COST_BIAS(
+      "youtrackdb.query.indexOrdered.costBias",
+      "Multiplicative bias applied to the index scan cost estimate in the"
+          + " index-ordered MATCH heuristic. Values > 1.0 make the optimizer"
+          + " more conservative (prefer load-all-and-sort). The default 1.2"
+          + " adds a 20%% safety margin for estimation error",
+      Double.class,
+      1.2,
+      true),
+
+  QUERY_INDEX_ORDERED_MAX_SOURCES(
+      "youtrackdb.query.indexOrdered.maxSources",
+      "Maximum number of upstream source rows to materialize in multi-source"
+          + " index-ordered MATCH. Beyond this, the optimization falls back to"
+          + " load-all-and-sort to limit memory usage",
+      Integer.class,
+      10_000,
+      true),
+
+  QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE(
+      "youtrackdb.query.indexOrdered.entriesPerPage",
+      "Estimated B-tree index entries per leaf page for amortizing sequential"
+          + " read costs in the index-ordered MATCH cost model",
+      Integer.class,
+      200,
+      true),
       ;
 
   static {

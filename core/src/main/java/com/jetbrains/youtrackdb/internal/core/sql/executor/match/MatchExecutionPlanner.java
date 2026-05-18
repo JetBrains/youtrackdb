@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
@@ -325,7 +326,7 @@ public class MatchExecutionPlanner {
    * memory before the traversal starts. This avoids repeated scans of very small sets
    * during the nested-loop pattern matching.
    */
-  private static final long THRESHOLD = 100;
+  static final long THRESHOLD = 100;
 
   /**
    * Maximum estimated build-side cardinality for which the planner will choose a
@@ -523,7 +524,32 @@ public class MatchExecutionPlanner {
       }
     }
 
+    // Phase 4b: Detect index-ordered MATCH traversal opportunity.
+    // Only applicable for single connected patterns (no Cartesian product).
+    // Detected BEFORE prefetch so we can exclude the target alias from prefetching —
+    // prefetching it would pre-bind the target, causing IndexOrderedEdgeStep to
+    // reject all index results via the isAlreadyBoundAndDifferent check.
+    //
+    // The schedule computed here is reused by Phase 5 (see precomputedSortedEdges
+    // parameter of createPlanForPattern) to avoid a duplicate
+    // getTopologicalSortedSchedule call on every planning invocation — measured
+    // ~5% CPU savings on queries where plan cache misses (e.g. IS7, where
+    // $matched.X.@rid back-reference blocks caching).
+    IndexOrderedPlanner.IndexOrderedCandidate indexOrderedCandidate = null;
+    List<EdgeTraversal> probeEdges = null;
+    if (subPatterns.size() == 1 && orderBy != null) {
+      probeEdges = getTopologicalSortedSchedule(
+          estimatedRootEntries, pattern, aliasClasses, aliasFilters,
+          context.getDatabaseSession());
+      indexOrderedCandidate = detectIndexOrderedCandidate(
+          probeEdges, context, estimatedRootEntries);
+    }
+
     // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
+    if (indexOrderedCandidate != null) {
+      // Exclude the target alias — it will be bound by IndexOrderedEdgeStep
+      aliasesToPrefetch.remove(indexOrderedCandidate.targetAlias());
+    }
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
     // Phase 5: Topological scheduling + step generation for each connected component
@@ -533,14 +559,18 @@ public class MatchExecutionPlanner {
       for (var subPattern : subPatterns) {
         step.addSubPlan(
             createPlanForPattern(
-                subPattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling));
+                subPattern, context, estimatedRootEntries, aliasesToPrefetch,
+                null, null, enableProfiling));
       }
       result.chain(step);
     } else {
-      // Single connected pattern → inline the steps directly into the main plan
+      // Single connected pattern → inline the steps directly into the main plan.
+      // probeEdges was computed in Phase 4b for this same pattern; reuse it so
+      // createPlanForPattern does not recompute the identical schedule.
       var plan =
           createPlanForPattern(
-              pattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling);
+              pattern, context, estimatedRootEntries, aliasesToPrefetch,
+              indexOrderedCandidate, probeEdges, enableProfiling);
       for (var step : plan.getSteps()) {
         result.chain((ExecutionStepInternal) step);
       }
@@ -575,17 +605,35 @@ public class MatchExecutionPlanner {
       }
 
       if (this.orderBy != null) {
-        // Compute bounded-heap size: keep only the top (skip + limit) rows
-        // during sorting to avoid materializing the full result set.
-        // Safe here because UNWIND (if present) has already run, so row
-        // cardinality is final and sort keys are scalar values.
         Integer maxResults = null;
         if (this.limit != null && this.limit.getValue(context) >= 0) {
           var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
               ? this.skip.getValue(context) : 0;
           maxResults = skipSize + this.limit.getValue(context);
         }
-        result.chain(new OrderByStep(orderBy, maxResults, context, -1, enableProfiling));
+        // Multi-field + candidate → primary key cutoff hint for early
+        // termination in the bounded heap.
+        // Disabled when RETURN DISTINCT: early termination stops reading
+        // when primary key worsens, but the bounded heap may contain
+        // duplicates that DistinctStep will remove — producing fewer
+        // than LIMIT distinct results. Without the hint, the bounded
+        // heap still reads all upstream rows (no early termination),
+        // matching the pre-existing behavior.
+        SQLOrderByItem primaryHint = null;
+        if (indexOrderedCandidate != null
+            && indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
+          primaryHint = orderBy.getItems().getFirst();
+        }
+        // indexOrderedUpstream: OrderByStep checks runtime context variable
+        // to pass through when IndexOrderedEdgeStep produces sorted output.
+        // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
+        // filter that preserves input order (RidSet-based dedup), and runs
+        // AFTER OrderByStep in the pipeline.
+        var indexOrderedUpstream = indexOrderedCandidate != null;
+        result.chain(new OrderByStep(
+            orderBy, maxResults, primaryHint, indexOrderedUpstream,
+            context, -1, enableProfiling));
       }
 
       if (this.skip != null && skip.getValue(context) >= 0) {
@@ -618,6 +666,20 @@ public class MatchExecutionPlanner {
       info.unwind = this.unwind;
       info.skip = this.skip;
       info.limit = this.limit;
+
+      // When index-ordered traversal is active AND no GROUP BY:
+      // pass indexOrderedUpstream flag so OrderByStep can detect pre-sorted
+      // input at runtime and pass through without sorting.
+      // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
+      // filter that preserves input order and runs after OrderByStep.
+      if (indexOrderedCandidate != null
+          && this.groupBy == null) {
+        info.indexOrderedUpstream = true;
+        if (indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
+          info.primaryKeySortedInput = orderBy.getItems().getFirst();
+        }
+      }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
       SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
@@ -1777,10 +1839,18 @@ public class MatchExecutionPlanner {
       CommandContext context,
       Map<String, Long> estimatedRootEntries,
       Set<String> prefetchedAliases,
+      @Nullable IndexOrderedPlanner.IndexOrderedCandidate candidate,
+      @Nullable List<EdgeTraversal> precomputedSortedEdges,
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
-    var sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern,
-        aliasClasses, aliasFilters, context.getDatabaseSession());
+    // Reuse the schedule computed by Phase 4b (index-ordered probe) when available.
+    // Inputs to getTopologicalSortedSchedule are deterministic for (pattern,
+    // estimatedRootEntries, aliasClasses, aliasFilters, session), so the probe's
+    // result is identical to what we would compute here.
+    var sortedEdges = precomputedSortedEdges != null
+        ? precomputedSortedEdges
+        : getTopologicalSortedSchedule(estimatedRootEntries, pattern,
+            aliasClasses, aliasFilters, context.getDatabaseSession());
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
@@ -1835,7 +1905,7 @@ public class MatchExecutionPlanner {
         if (branchEdgeSet.contains(edge.edge)) {
           continue; // Skip edges handled by hash join
         }
-        addStepsFor(plan, edge, context, first, profilingEnabled);
+        addStepsFor(plan, edge, context, first, candidate, profilingEnabled);
         first = false;
       }
 
@@ -1847,7 +1917,7 @@ public class MatchExecutionPlanner {
           // edges back into the main plan by not skipping them. Since we already
           // skipped them above, we need to add them now.
           for (var branchEdge : branch.branchEdges()) {
-            addStepsFor(plan, branchEdge, context, first, profilingEnabled);
+            addStepsFor(plan, branchEdge, context, first, null, profilingEnabled);
             first = false;
           }
         } else {
@@ -4215,6 +4285,7 @@ public class MatchExecutionPlanner {
       EdgeTraversal edge,
       CommandContext context,
       boolean first,
+      @Nullable IndexOrderedPlanner.IndexOrderedCandidate candidate,
       boolean profilingEnabled) {
     if (first) {
       var patternNode = edge.out ? edge.edge.out : edge.edge.in;
@@ -4308,6 +4379,27 @@ public class MatchExecutionPlanner {
       plan.chain(new BackRefHashJoinStep(
           context, edge.getSemiJoinDescriptor(), edge,
           edge.getConsumedPredecessor(), profilingEnabled));
+    } else if (candidate != null
+        && IndexOrderedPlanner.isIndexOrderedEdge(candidate, edge)) {
+      // Index-ordered traversal: replace MatchStep with IndexOrderedEdgeStep
+      plan.chain(new IndexOrderedEdgeStep(
+          context,
+          candidate.sourceAlias(),
+          candidate.targetAlias(),
+          candidate.edgeClassName(),
+          candidate.linkBagFieldName(),
+          candidate.index(),
+          candidate.orderAsc(),
+          edge,
+          candidate.limit(),
+          candidate.multiSourceMode(),
+          candidate.reverseFieldName(),
+          candidate.sourceClassName(),
+          candidate.targetFilter(),
+          candidate.targetClassName(),
+          candidate.isEdgeTraversal(),
+          candidate.downstreamEdgeCount(),
+          profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
@@ -4756,22 +4848,22 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Estimates the number of records each aliased root node will produce. These estimates
-   * drive two optimizations:
-   *
-   * <p>- **Prefetching**: aliases below {@link #THRESHOLD} records are loaded eagerly.
-   * - **Root selection**: the topological scheduler starts from the cheapest root.
-   *
-   * <p>Estimation strategy per alias:
-   * - RID constraint → exactly 1 record.
-   * - Class constraint with `WHERE` → uses the filter's own
-   *   {@link SQLWhereClause#estimate} method (which may use index statistics).
-   * - Class constraint without filter → uses the class's record count.
-   * - No constraint → omitted from the map (the alias is not a root candidate).
-   *
-   * @return a map from alias name to estimated record count
-   * @throws CommandExecutionException if a referenced class does not exist in the schema
+   * Thin adapter that constructs {@link IndexOrderedPlanner} from this planner's
+   * state and runs detection. Kept as a separate method so the planner
+   * construction's bytecode lives here (cold path) and does not bloat
+   * {@link #createExecutionPlan}, which HotSpot benefits from keeping small.
    */
+  @Nullable private IndexOrderedPlanner.IndexOrderedCandidate detectIndexOrderedCandidate(
+      List<EdgeTraversal> sortedEdges,
+      CommandContext context,
+      Map<String, Long> estimatedRootEntries) {
+    return new IndexOrderedPlanner(
+        pattern, aliasClasses, aliasFilters, aliasRids,
+        orderBy, skip, limit, returnItems, returnAliases,
+        returnElements, returnPaths, returnPatterns, returnPathElements)
+        .detect(sortedEdges, context, estimatedRootEntries);
+  }
+
   static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
       Map<String, SQLRid> aliasRids,
