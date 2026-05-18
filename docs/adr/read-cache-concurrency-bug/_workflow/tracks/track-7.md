@@ -529,7 +529,7 @@ pattern.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -598,7 +598,8 @@ pattern.
   >
   > **Critical context:** none.
 
-- [ ] Step 2: Layered shrink primitive — `WriteCache.shrinkFile` SPI + `LockFreeReadCache.shrinkFile` orchestrator + `ConcurrentLongIntHashMap.removeByFileIdAtLeast`
+- [x] Step 2: Layered shrink primitive — `WriteCache.shrinkFile` SPI + `LockFreeReadCache.shrinkFile` orchestrator + `ConcurrentLongIntHashMap.removeByFileIdAtLeast`
+  - [x] Context: info
   > **Risk:** high — architecture (new SPI surface touching 7 implementers: `WOWCache`, `DirectMemoryOnlyDiskCache`, plus 5 test-mocks) + concurrency (LFRC orchestration ordering load-bearing; periodic-flush exclusion via `filesLock.writeLock`; new segment-map primitive sits in the cache hot-path supporting class)
   >
   > **What**:
@@ -615,6 +616,159 @@ pattern.
   > - `ConcurrentLongIntHashMapTest.removeByFileIdAtLeast*` mirroring the existing `removeByFileId` surface: empty range; full-range equivalence to `removeByFileId`; range crossing a segment boundary; concurrent allocations into the same fileId while range-purge runs.
   > - `DirectMemoryOnlyDiskCache.shrinkFile` no-op test (assert it does not throw).
   > - 5 test-mock implementers: assert UOE.
+  >
+  > **What was done:** Landed the layered shrink primitive in three
+  > commits. Base commit `baa0c5a069` added `WriteCache.shrinkFile(fileId,
+  > targetBytes)` to the SPI (WOWCache impl + DirectMemoryOnlyDiskCache
+  > no-op + 5 test-mock UOE overrides), `LockFreeReadCache.shrinkFile(...)`
+  > orchestrator routing through a new private `clearFileRange`, the new
+  > `ConcurrentLongIntHashMap.removeByFileIdAtLeast` segment-map primitive,
+  > and `RemoveFilePagesAtLeastTask` as the sibling commit-executor task.
+  > Tests: 7 `removeByFileIdAtLeast` cases, 5 `WOWCacheShrinkFileTest`
+  > cases (incl. above/below-target symmetry pair), 3 LFRC orchestration
+  > tests, 2 in-memory no-op tests, 4 UOE-mock pins. Iter-1 review fix
+  > `60cf566b16` applied 10 findings: rewrote `shrinkFilePreservesDirty­
+  > EntriesBelowTarget` to exercise a real shrink (had been a pre-flight
+  > no-op decorated as a real-shrink test); added flush-after-shrink
+  > ordering test; barrier-synchronised the `removeByFileIdAtLeast` race
+  > test with UEH-captured exceptions and size-parity assertion;
+  > extended `TrackingWriteCache` with an attachable order counter so
+  > LFRC ordering is observable from the dispatch test; added zero-target
+  > end-to-end test, idempotence test; null-check on
+  > `files.acquire(fileId)` in `WOWCache.shrinkFile`; documentation
+  > corrections (stale line numbers, logical-vs-physical terminology,
+  > FQN cleanup). Iter-2 fix `70274af6e2` promoted three iter-1 asserts
+  > to production `IllegalArgumentException` guards (non-negative,
+  > page-aligned, no int-overflow) at both `WOWCache.shrinkFile` and
+  > `LockFreeReadCache.shrinkFile`, lifting them above each method's
+  > pre-flight no-op so the contract is enforced regardless of current
+  > file size; added 6 guard-pinning tests (3 per call site). The LFRC
+  > guards run before the `writeCache.shrinkFile` delegate, closing the
+  > `DirectMemoryOnlyDiskCache` slip case where the in-memory engine's
+  > no-op would otherwise let a negative target reach `clearFileRange`.
+  > Dim-review fan-out at iter-2: 7/7 PASS (CQ/BC/TB/TC/CS/TY/TX; PF
+  > had no findings). Targeted tests: 282/282 at iter-1, 24/24 at
+  > iter-2's guard rerun.
+  >
+  > **What was discovered:**
+  > - **Stale coverage baseline, not a real cascade.** The orchestrator
+  >   carried over an "unexplained pre-existing coverage gate failure on
+  >   43 files from Tracks 1-5" hypothesis from Step 1. The implementer
+  >   traced it to a stale `.coverage/reports/youtrackdb-core/jacoco.xml`
+  >   (dated May 6, populated only by gremlin-annotations). Regenerating
+  >   the report from a fresh `./mvnw -pl core test -P coverage` +
+  >   `jacoco:report` dropped the cumulative-diff failure to PASS at
+  >   93.3%/81.8% with no new tests beyond Step 2's own. Tracks 1–5
+  >   production code is well-covered by the existing core unit-test
+  >   suite; the "cascade" was a baseline artifact. Steps 3-5 and Track
+  >   6 should regenerate the jacoco report at gate time rather than
+  >   trust the on-disk baseline (one `mvnw jacoco:report` + copy into
+  >   `.coverage/reports/youtrackdb-core/`).
+  > - **`TrackingWriteCache.pageSize() == 0` divisor trap.** The in-tree
+  >   test mock returns 0 from `pageSize()`. Original `LockFreeReadCache.shrinkFile`
+  >   draft computed `minPageIndex = (int)(targetBytes / writeCache.pageSize())`
+  >   and would have div-by-zero'd through it. Switched to `this.pageSize`
+  >   (LFRC-local field; semantically identical since LFRC and its
+  >   WriteCache are constructed with the same page size). Documented at
+  >   the call site.
+  > - **`AsyncFile.HEADER_SIZE` on-disk byte accounting.** The
+  >   shrink-to-zero test must compare on-disk bytes against
+  >   `HEADER_SIZE` (1024), not 0 — AsyncFile prefixes every file with
+  >   the header and never truncates it. Reusable pattern for Step 5
+  >   integration tests inspecting raw file sizes after a recovery-time
+  >   shrink.
+  > - **Iter-1 placement bug on the alignment + overflow asserts.** The
+  >   iter-1 implementer placed the new asserts inside the `filesLock`
+  >   window AFTER the pre-flight no-op. The pre-flight short-circuited
+  >   on an overflow target against a small file — the assert never
+  >   fired. Iter-2 lifted the production guards above the lock
+  >   acquisition + pre-flight, cleanly separating "argument-validity"
+  >   (always enforced) from "shrink work needed" (the pre-flight
+  >   optimisation).
+  >
+  > **Cross-track impact (informational):**
+  > - **Track 6 (StorageBackupMTStateTest resurrection):** the new
+  >   `RemoveFilePagesAtLeastTask` lives next to the existing
+  >   `RemoveFilePagesTask`; Track 6 readers can reuse its dispatch
+  >   shape if any integration test wants to exercise the range-scoped
+  >   write-back purge under contention.
+  > - **Step 3 (this track):** the per-component
+  >   `verifyAndTruncateOrphans` helpers should call
+  >   `readCache.shrinkFile(fileId, targetBytes, writeCache)` (preferred,
+  >   handles both layers via the new `ReadCache.shrinkFile` interface
+  >   method added in this step). LFRC re-derives `minPageIndex` from
+  >   its own `pageSize` — Step 3 components do NOT need to compute or
+  >   pass `minPageIndex`. The defensive null-check inside
+  >   `WOWCache.shrinkFile` lets Step 3 skip pre-checking file
+  >   existence at the component layer.
+  > - **Step 5 (this track):** the orchestrator wiring at
+  >   `AbstractStorage.truncateOrphansAfterRecovery()` should dispatch
+  >   through the `ReadCache.shrinkFile` SPI (polymorphic over disk /
+  >   in-memory engines). The HEADER_SIZE-aware on-disk size pattern is
+  >   reusable for integration tests that inspect raw file sizes
+  >   post-recovery.
+  > - **Track 2 MT-hardening backlog absorption.** Deferred items from
+  >   this step's dim-review fan-out (not addressed in iter-2, to be
+  >   considered by future cache-layer hardening):
+  >   BC2 clearFileRange leak-on-pinned-entry (inherited from
+  >   clearFile); BC4 InterruptedException flag not restored
+  >   (inherited convention); CS3 `AsyncFile.shrink` durability via
+  >   subsequent flush rather than fsync (matches `truncateFile`
+  >   precedent); TC4 `Integer.MAX_VALUE` boundary on
+  >   `removeByFileIdAtLeast`; TC5 multi-file isolation pin at the WOW
+  >   layer; TY5 back-port `assert size/usedBuckets >= 0` to the
+  >   sibling `removeByFileId` / `removeByStorageId`; TY6
+  >   `DirectMemoryOnlyDiskCache.shrinkFile` negative-target silent
+  >   acceptance asymmetry; TX3 clearFileRange pinned-entry escalation
+  >   path; TX4 LFRC concurrent below-cutoff reader during shrinkFile;
+  >   TX5 WOWCache `filesLock.writeLock` exclusion against concurrent
+  >   addFile/truncateFile during in-flight shrinkFile; TB4 in-memory
+  >   no-op tests don't verify page content survival; TB5 LFRC purge
+  >   selectivity verified only by aggregate used memory not per-page
+  >   identity; TB6 `shrinkFileRejectsNegativeTarget` doesn't pin the
+  >   `targetBytes == 0` boundary; TB7 UOE-mock tests don't assert the
+  >   thrown exception message substring.
+  >
+  > **What changed from the plan:**
+  > - The plan didn't explicitly call out adding `shrinkFile` to the
+  >   `ReadCache` interface — only `LockFreeReadCache.shrinkFile`. The
+  >   interface method is required for polymorphic dispatch from the
+  >   per-component helpers Step 3 will add and is the dispatch surface
+  >   Step 5's orchestrator wiring will use.
+  > - The plan suggested `LockFreeReadCache.shrinkFile` would compute
+  >   `minPageIndex` via `writeCache.pageSize()`. Switched to
+  >   `this.pageSize` because `TrackingWriteCache.pageSize() == 0`
+  >   would div-by-zero through the mock. Semantically identical.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/collection/ConcurrentLongIntHashMap.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/ReadCache.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/WriteCache.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCache.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/RemoveFilePagesAtLeastTask.java` (new)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/common/collection/ConcurrentLongIntHashMapTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/AsyncReadCacheTestIT.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheBatchingTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheConcurrentTestIT.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheFileOpsTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheOptimisticTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCacheShrinkFileTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCacheTest.java` (modified)
+  >
+  > **Critical context:**
+  > - The `WOWCache.shrinkFile` + `LockFreeReadCache.shrinkFile`
+  >   production guards (negative / non-aligned / overflow) run BEFORE
+  >   the pre-flight no-op and BEFORE the WriteCache delegate
+  >   respectively. The LFRC-side guard is what fires when the in-memory
+  >   engine routes through `DirectMemoryOnlyDiskCache` (which itself
+  >   no-ops without validation).
+  > - The `RemoveFilePagesAtLeastTask` sibling dispatches through the
+  >   single-threaded `commitExecutor()` FIFO — same serialisation
+  >   primitive that orders the periodic flush task. A regression
+  >   re-routing this off the commitExecutor would break the
+  >   purge-before-truncate ordering invariant.
 
 - [ ] Step 3: Per-component `verifyAndTruncateOrphans` (4 EP-equipped components) + `v3.BTree.getFileId()` accessor + engine-side `verifyAndTruncateOrphans` (2 BTree index engines)
   > **Risk:** medium — multi-file logic in core (4 storage components + 2 index engines, each with its own EP shape; uniform `offset = +1` and corruption-guard arithmetic shared via helper template)
