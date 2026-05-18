@@ -529,7 +529,7 @@ pattern.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -902,12 +902,52 @@ pattern.
   >   `.coverage/reports/youtrackdb-core/`) — trusting the on-disk
   >   baseline is the Step 1 trap.
 
-- [ ] Step 4: `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans` iteration delegate
+- [x] Step 4: `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans` iteration delegate
+  - [x] Context: info
   > **Risk:** low — default (pure delegate-and-iterate over `fileIdBTreeMap.values()`; no new locking or invariant)
   >
   > **What**: add `verifyAndTruncateAllOrphans(AtomicOperation op, LockFreeReadCache readCache, WriteCache writeCache)` to `LinkCollectionsBTreeManagerShared` that iterates `fileIdBTreeMap.values()` and calls each `SharedLinkBagBTree.verifyAndTruncateOrphans(op, readCache, writeCache)`. The manager holds N ≥ 0 SLBB instances in `fileIdBTreeMap : ConcurrentHashMap<Integer, SharedLinkBagBTree>` and exposes no public iteration API — the new method is the iteration delegate (NOT a public `getAllManaged()` accessor).
   >
   > **Tests**: manager-level test installs 3 mock SLBBs into `fileIdBTreeMap`, calls `verifyAndTruncateAllOrphans`, asserts each receives the call exactly once with the supplied `(op, readCache, writeCache)` triple. Empty-map case asserts no NPE / no iteration side-effect.
+  >
+  > **What was done:** Added
+  > `verifyAndTruncateAllOrphans(AtomicOperation, ReadCache, WriteCache)`
+  > on `LinkCollectionsBTreeManagerShared` as the iteration delegate
+  > over the private `fileIdBTreeMap : ConcurrentHashMap<Integer,
+  > SharedLinkBagBTree>`. The method iterates `fileIdBTreeMap.values()`
+  > and forwards the supplied triple to each
+  > `SharedLinkBagBTree.verifyAndTruncateOrphans` call. Iteration order
+  > is undefined (independent per-file calls, no shared state across
+  > SLBBs); `IOException` from any per-SLBB helper propagates and
+  > aborts further iteration, matching the per-component contract.
+  > New manager-level unit-test class pins both branches: 3 mock
+  > SLBBs installed via reflection (the manager exposes no public
+  > mutator outside its own load/create paths) with `verify(...)` on
+  > each forwarded triple; empty-map case asserts a clean no-op with
+  > `verifyNoInteractions` on both caches. 2/2 tests pass in 2.8 s;
+  > Spotless applied.
+  >
+  > **What was discovered:** none.
+  >
+  > **Cross-track impact (informational):** Step 5's orchestrator
+  > can dispatch
+  > `linkCollectionsBTreeManager.verifyAndTruncateAllOrphans(op,
+  > readCache, writeCache)` as a single call alongside the
+  > per-component helpers and engine-side wrappers — no further
+  > accessor on the manager is required, the iteration is fully
+  > encapsulated. The empty-map case (no ridbags loaded yet on a
+  > fresh storage) is a clean no-op rather than an error path.
+  >
+  > **What changed from the plan:** Step file's What cited
+  > `LockFreeReadCache readCache` as the third parameter. Implemented
+  > with `ReadCache` per Step 3's cross-track note (strictly-additive
+  > simplification matching the polymorphic SPI surface Step 2 added).
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/LinkCollectionsBTreeManagerShared.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/LinkCollectionsBTreeManagerSharedVerifyAndTruncateAllOrphansTest.java` (new)
+  >
+  > **Critical context:** none.
 
 - [ ] Step 5: `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator + `open()` wiring + `postProcessIncrementalRestore` wiring + integration tests
   > **Risk:** high — crash-safety / durability (recovery path, two storage-startup entry points, unlogged truncate — EP-page floor + corruption guard are the only safety nets; integration tests include sub-JVM crash precedent)
