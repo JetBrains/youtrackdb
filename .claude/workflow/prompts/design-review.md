@@ -92,84 +92,19 @@ warning, or pass.
 Applies to mutation kinds `phase1-creation`, `phase4-creation`,
 and `design-sync`. All three produce a freshly-written
 `design.md` (or `design-final.md`) Overview that humans will
-read.
-
-These checks address human-readability gaps that the standard
-comprehension questions miss when the reviewer agent shares
-training-derived vocabulary with the doc author. The documents
-produced by these mutation kinds are read by humans (PR
-reviewers, the user, the architect, future re-readers, decision
-auditors) in addition to agents — so the cold-read must assess
-prose against a human reader, not against the reviewer's own
-training.
-
-`design-sync` is included because mechanics evolves freely
-between syncs while `design.md` stays frozen; when sync
-re-distills the Overview, it can introduce undefined domain
-terms, lose its audience framing (the prose cues that signal
-the intended reader), or shift to mechanism-first ordering
-without any single working-mode edit visibly causing the drift.
-The TL;DR-vs-mechanics instruction in the `design-sync` block
-above catches alignment drift between the
-two files; these checks catch human-readability drift in the
-freshly-rewritten Overview itself.
+read, so the cold-read must catch human-readability drift the
+standard comprehension questions miss when the reviewer agent
+shares training-derived vocabulary with the doc author. The
+rule statements themselves live in `.claude/output-styles/house-style.md`;
+the verifications below name each rule and cite the section to
+consult.
 
 **In addition to the standard whole-doc cold-read**, verify:
 
-(a) **Audience-fit** — the Overview names (or strongly implies
-    through concrete framing) the intended reader. Assess the
-    prose against *that* reader, not against your own training
-    as a coding-aware agent. If the doc doesn't name or imply
-    an audience, flag it as a blocker and request the doc
-    author establish the intended reader within the prose of
-    the Overview's first paragraph. **Not** a standalone
-    `Audience:` block — per design-document-rules.md § Overview,
-    the audience model must be self-evident from the prose; a
-    metadata-style audience block is forbidden.
-
-(b) **Glossary-introduction** — walk through the Overview and
-    list every internal API, type, or domain concept used in
-    load-bearing prose (used to make the Overview's argument,
-    not merely mentioned in passing). For each, determine
-    whether it is (i) defined inline at first use, (ii) defined
-    in a `## Core Concepts` section that the Overview points
-    to, or (iii) named as prerequisite knowledge in the
-    Overview's prose (e.g., a sentence like *"This design
-    assumes familiarity with WAL semantics and the disk-cache
-    layer"* makes those terms defined-by-reference for the
-    implied audience — same prose-only constraint as (a); no
-    standalone `Audience:` or `Prerequisites:` block).
-    Anything load-bearing that fails all three is a finding.
-    Severity: **blocker** if a reader without the term cannot
-    follow the Overview's main argument; **should-fix**
-    if the term appears in a supporting clause but the main
-    argument survives without it. Apply the same check to the
-    opening of each `##` section's mechanism overview, scoped
-    to terms newly introduced in that section.
-
-(c) **Why-before-what** — the Overview and the opening
-    paragraphs of each `##` section open with motivation
-    before mechanism. **Excluded** from this check: shape-exempt
-    reference sections (Core Concepts, Class Design, Workflow,
-    Part-level TL;DR per design-document-rules.md § Mechanical
-    checks) — these are intentionally mechanism-first and
-    naming a motivation paragraph in them adds noise rather
-    than clarity. For everything else, quote the opening 1-2
-    paragraphs and assess: does the reader learn *why this
-    section exists / why this mechanism matters* before
-    encountering the mechanism itself? A section that opens
-    with "this design replaces X with Y" without first
-    establishing why X needed replacing is a should-fix.
-
-(d) **Navigability** — section headers communicate purpose,
-    not just a mechanism name; each section's opening sentence
-    or TL;DR lets a skimming reader decide whether to drill
-    in; cross-references to deeper detail (Mechanics links,
-    references to sibling Parts) are present where a reader
-    would need them. Severity: **should-fix** — these are
-    quality concerns, not comprehension blockers (a reader can
-    still follow an opaquely-named section by reading its
-    body, but the doc is harder to scan).
+- Verify audience-fit per `.claude/output-styles/house-style.md § Audience-fit`.
+- Verify glossary-introduction per `.claude/output-styles/house-style.md § Glossary-introduction`.
+- Verify why-before-what per `.claude/output-styles/house-style.md § Why-before-what`.
+- Verify navigability per `.claude/output-styles/house-style.md § Navigability`.
 
 **Reviewer tone**: the "one sentence answers / don't pad"
 guidance under § Tone and depth is relaxed for findings under
