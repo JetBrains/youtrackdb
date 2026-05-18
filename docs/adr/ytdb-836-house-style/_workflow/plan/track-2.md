@@ -11,7 +11,7 @@ Strip the static catalogue lists (vocabulary tiers, structural tells, tone tells
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-05-18T06:32Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-18T08:22Z [ctx=safe] Step 1 complete (commit d507c7318e)
 - [x] 2026-05-18T08:37Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
