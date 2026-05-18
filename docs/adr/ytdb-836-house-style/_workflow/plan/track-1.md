@@ -9,12 +9,14 @@ Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per 
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-18T03:47Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-18T03:54Z [ctx=safe] Step 1 complete (commit 79ae898423)
 - [x] 2026-05-18T04:01Z [ctx=safe] Step 2 complete (commit 1980178c1f)
+- [x] 2026-05-18T04:05Z [ctx=safe] Step 3 complete (commit e8ed393fa8)
+- [x] 2026-05-18T04:05Z [ctx=safe] Step implementation
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
@@ -74,7 +76,7 @@ Invariants to preserve through every step:
 
 2. Rewrite the body of `.claude/output-styles/house-style.md` to match `design.md § Internal layout of house-style.md` — the 9 top-level sections in order (What this style governs, BLUF lead, Voice and tone, Banned vocabulary with Tier 1-4, Banned sentence patterns, Banned analysis patterns, Punctuation and typography, Structural rules, Document-shape rules, Self-check). Absorb the rule set: Tier-3 promotional vocab + knowledge-cutoff disclaimer ban + inline-header-list rule + curly→straight quotes + excessive-boldface cap from `.claude/skills/ai-tells/SKILL.md`; audience-fit, glossary-introduction, why-before-what, navigability from `prompts/design-review.md § Human-reader cold-read additions`; Overview concept-first, References footer shape, Edge cases sub-section required, same-shape sibling consolidation from `prompts/design-review.md § Structural findings`. Write each of the 12 humanizer-gap patterns with an inline before/after example block (~5 lines per pattern) in its assigned section per the design (10 in § Banned analysis patterns; Hyphenated word-pair overuse in § Punctuation and typography; Fragmented headers in § Structural rules). Update Self-check to reference the new sections. Target ~400-500 lines. — risk: low (default: single-file docs content rewrite; no logic, no project-behavior change)  [x] commit: 1980178c1f
 
-3. Find-and-replace sweep updating the 13 remaining `concise-doc` / `Concise Doc` references across 4 live files using the table at `design.md § Rename: every reference site across the repo` as the authoritative checklist: `CLAUDE.md:93,102` (2 occurrences — body prose at :93, slash-command form `/output-style concise-doc` → `/output-style house-style` at :102), `.claude/skills/code-review/SKILL.md:313` (1), `.claude/agents/review-workflow-consistency.md:72` (1), `.claude/agents/review-workflow-writing-style.md:3,7,9,11,13,26,62,102,137` (9). Preserve markdown emphasis style on every replacement (`**concise-doc**` → `**house-style**`, backtick-wrapped paths → backtick-wrapped new paths). After all edits, run the acceptance gate `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` — must return zero matches before commit; any remaining match is a step-back, fix in place, re-run. Commit the FRR sweep + verification outcome together (the grep is the gate, not a separate commit). — risk: low (default: multi-file string replacement against an explicit checklist; verification is a single grep)  [ ]
+3. Find-and-replace sweep updating the 13 remaining `concise-doc` / `Concise Doc` references across 4 live files using the table at `design.md § Rename: every reference site across the repo` as the authoritative checklist: `CLAUDE.md:93,102` (2 occurrences — body prose at :93, slash-command form `/output-style concise-doc` → `/output-style house-style` at :102), `.claude/skills/code-review/SKILL.md:313` (1), `.claude/agents/review-workflow-consistency.md:72` (1), `.claude/agents/review-workflow-writing-style.md:3,7,9,11,13,26,62,102,137` (9). Preserve markdown emphasis style on every replacement (`**concise-doc**` → `**house-style**`, backtick-wrapped paths → backtick-wrapped new paths). After all edits, run the acceptance gate `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` — must return zero matches before commit; any remaining match is a step-back, fix in place, re-run. Commit the FRR sweep + verification outcome together (the grep is the gate, not a separate commit). — risk: low (default: multi-file string replacement against an explicit checklist; verification is a single grep)  [x] commit: e8ed393fa8
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step, identified by step number + commit SHA. Empty at Phase 1; Phase A does not populate. -->
@@ -104,6 +106,23 @@ Final length (366 lines) is below the design's 400-500-line estimate by ~34 line
 
 **Critical context:**
 Track 4's `dsc-ai-tell` finding descriptions cite `house-style.md § <Section>` by name — the section names listed in Surprises & Discoveries are the authoritative reference. The 11 H3 entries under `## Banned analysis patterns` cover 10 humanizer-gap patterns plus Vague attribution (an ai-tells-sourced absorbed rule sharing the same H2 — not a 12th humanizer pattern). The 12th humanizer pattern (Hyphenated word-pair overuse) lives under § Punctuation and typography per the design.
+
+### Step 3 — commit e8ed393fa8, 2026-05-18T04:05Z [ctx=safe]
+
+**What was done:**
+Swept the 13 remaining `concise-doc` / `Concise Doc` string references across 4 live files using `design.md § Rename: every reference site across the repo` as the authoritative checklist. Edits landed at the line numbers cited in the step description: `CLAUDE.md:93` (body prose `**Concise Doc**` → `**House Style**` with matching path swap), `CLAUDE.md:102` (slash-command form `/output-style concise-doc` → `/output-style house-style`), `.claude/skills/code-review/SKILL.md:313` ("concise-doc style:" → "house-style:"), 9 sites in `review-workflow-writing-style.md`, and 1 in `review-workflow-consistency.md`. Markdown emphasis preserved on every replacement. Acceptance gate `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returns zero matches both before commit and after the orchestrator's re-verification.
+
+**What was discovered:**
+mcp-steroid is reachable on this host, but the `house-style` working tree is **not** among the IDE's open projects (only `new-track-format` and `read-cache-concurrency-bug` are loaded). `steroid_apply_patch` was therefore unavailable for the multi-file sweep, so the implementer fell back to native `Edit` — safe for this task because all 13 edits are single-occurrence literal-text replacements on markdown files with no PSI / symbol-resolution implications. For Tracks 2-4 (also docs-only) this is not a blocker; any future Java refactor on this branch would need the user to open the project in IntelliJ first.
+
+**Key files:**
+- `CLAUDE.md` (modified)
+- `.claude/skills/code-review/SKILL.md` (modified)
+- `.claude/agents/review-workflow-consistency.md` (modified)
+- `.claude/agents/review-workflow-writing-style.md` (modified)
+
+**Critical context:**
+The rename is now complete in all live files (Invariant 1 satisfied: zero grep matches). Downstream tracks (2, 3, 4) can cite `house-style.md § <Section>` with the canonical H2 names listed in this track's Surprises & Discoveries. The slash-command form is now `/output-style house-style` per `CLAUDE.md:102` — agents that suggest the style toggle should use that exact form.
 
 ## Validation and Acceptance
 
