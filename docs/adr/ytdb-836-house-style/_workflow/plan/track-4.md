@@ -12,6 +12,7 @@ Add a new `check_dsc_ai_tell` function to `design-mechanical-checks.py` that emi
 - [x] 2026-05-18T12:00Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
 - [x] 2026-05-18T12:15Z [ctx=safe] Step 1 complete (commit 05396db057bb25bc0001a2f53063142de1126eb0)
+- [x] 2026-05-18T12:22Z [ctx=safe] Step 2 complete (commit 991f1c35918e98ec47ce4b9b8b50ec7a3a96d8e3)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -106,7 +107,7 @@ Invariants to preserve:
 ## Concrete Steps
 
 1. Add `iter_paragraphs` helper, `check_dsc_ai_tell` function (9 patterns, bounded-aware signature, References-block + table-row exclusion), new constants, and `main()` wire-up in `.claude/scripts/design-mechanical-checks.py` — risk: medium (new non-public function that changes observable behavior of the mechanical-checks pipeline by emitting a new `dsc-ai-tell` finding type; heuristic-regex calibration risk is real at code-write time but covered empirically by step 3)  [x]  commit: 05396db057bb25bc0001a2f53063142de1126eb0
-2. Create `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` with 9 positive-case paragraphs (one per banned pattern) and ≥3 negative-case paragraphs (hyphenated technical compounds, single em-dash, H1 Title Case) per `## Plan of Work` step 2's fixture authoring constraints — risk: low (default: new single-purpose markdown fixture; not shared test infrastructure)  [ ]
+2. Create `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` with 9 positive-case paragraphs (one per banned pattern) and ≥3 negative-case paragraphs (hyphenated technical compounds, single em-dash, H1 Title Case) per `## Plan of Work` step 2's fixture authoring constraints — risk: low (default: new single-purpose markdown fixture; not shared test infrastructure)  [x]  commit: 991f1c35918e98ec47ce4b9b8b50ec7a3a96d8e3
 3. Author `.claude/scripts/tests/test_dsc_ai_tell.py` Python runner and run validation: assert ≥1 finding per positive-case paragraph, zero on negative-case paragraphs, zero on the three calibration ADRs (`docs/adr/persist-visible-count/adr.md`, `docs/adr/index-gc/adr.md`, `docs/adr/non-durable-wow/adr.md`), and no regressions on existing-ADR check output — risk: medium (new test infrastructure: first test harness under `.claude/scripts/tests/`; future tests for the mechanical-checks script may extend this scaffold)  [ ]
 
 ## Episodes
@@ -122,6 +123,18 @@ Invariants to preserve:
 - `.claude/scripts/design-mechanical-checks.py` (modified)
 
 **Critical context:** `index-gc/adr.md` currently registers 1 `dsc-ai-tell` finding (em-dash density at line 5). Step 3's runner is the gate for reconciling this against Invariant 3.
+
+### Step 2 — commit 991f1c35918e98ec47ce4b9b8b50ec7a3a96d8e3, 2026-05-18T12:22Z [ctx=safe]
+**What was done:** Created `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` (and the previously-absent `.claude/scripts/tests/fixtures/` directory). The fixture seeds a single H1 plus two H2 wrappers (`## Overview`, `## Banned patterns`) and twelve H3 demo blocks: 9 positive cases (Tier-1 vocab, negative parallelism, em-dash density, Title Case H2+, signposting, copula, authority, hyphenated-pair comma cluster, fragmented header) and 3 negative cases (hyphenated technical compounds, single em-dash, H1 Title Case). Running `python3 .claude/scripts/design-mechanical-checks.py --design-path <fixture> --target design --scope whole-doc` yields 11 `dsc-ai-tell` findings (3 Tier-1 + 1 each for the other 8 patterns) and zero `dsc-ai-tell` findings inside the three negative-case sections. The three calibration ADRs remain at 0 / 1 / 0.
+
+**What was discovered:** The Title Case regex `^#{2,6} ([A-Z][a-z]+ ){2,}[A-Z][a-z]+$` requires each Title-Case word to have ≥2 letters — `[A-Z][a-z]+` rejects a 1-letter word like `A`. An early fixture draft used `### A Title Case Demo Heading` and failed to fire the rule; the final draft uses `### Title Case Demo Heading` (three multi-letter Title-Case words). This is a fixture-authoring constraint Step 3's runner should encode in its assertion message. The fixture intentionally trips two non-`dsc-ai-tell` findings (`per-section-shape:tldr` and `per-section-shape:references-footer` on `## Banned patterns`) — the runner must assert against `rule == "dsc-ai-tell"` only.
+
+**What changed from the plan:** Demonstrated the Title Case pattern with a real H3 heading rather than a fenced `text` block (the rule operates on real H2+ lines, so a fenced demo would have been skipped by the fence tracker). The Plan-of-Work "fenced text block" hint was a generic risk-avoidance suggestion; the real constraint is that the rule fires only on live heading lines, so a live H3 is the correct way to exercise it. Affects Step 3 only — the runner must match the Title Case demo by line range or description substring, not by an "every H3 must fire" heuristic.
+
+**Key files:**
+- `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` (new)
+
+**Critical context:** Fixture registers 11 `dsc-ai-tell` findings but exercises 9 distinct patterns — Tier-1 fires 3 times in one paragraph (one finding per matched base word). Step 3's runner should group by pattern identity, not raw count.
 
 ## Validation and Acceptance
 
