@@ -9,10 +9,11 @@ Strip the static catalogue lists (vocabulary tiers, structural tells, tone tells
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-18T06:32Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-18T08:22Z [ctx=safe] Step 1 complete (commit d507c7318e)
 
 ## Surprises & Discoveries
 
@@ -80,9 +81,15 @@ Invariants to preserve:
 
 ## Concrete Steps
 
-1. Trim `.claude/skills/ai-tells/SKILL.md` to a procedural overlay. Replace lines 19-124 inclusive — drop the `## The catalogue` H2 at :19 and all six `###` sub-sections (Vocabulary tiers, Structural tells, Tone and opener tells, Punctuation tells, Content and analysis tells, Era-specific tells) through the blank line at :124 — with a single `## Catalogue lookups` H2 carrying the five cross-references to `house-style.md` (Banned vocabulary, Structural rules + Banned sentence patterns, Banned sentence patterns, Punctuation and typography, Banned analysis patterns). Leave the existing blank line above `## Workflow` intact. Relocate the collapse-without-opener diagnostic out of the deleted Tone-tells section into the `## Workflow` section, rewording it to stand alone — for example: "Test: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (sycophantic / throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence." Keep verbatim: the frontmatter `name` / `description` pair (lines 1-4), the `## Modes` section (audit/rewrite toggle), the 4-pass `## Workflow` procedure, the 3-block `## Output format` section, `## What this skill does not do`, and the `## Source and credit` attribution. Acceptance gates (must pass before commit): (a) `wc -l .claude/skills/ai-tells/SKILL.md` returns ≤80; (b) the cross-reference grep loop from `## Validation and Acceptance` emits empty output (all five section names resolve in `house-style.md`); (c) the diagnostic now lives under `## Workflow` and reads as a self-contained sentence; (d) the frontmatter is byte-identical to its pre-edit form. If gate (a) fails, trim the Modes section's prose or collapse the 4-pass Workflow to 3 passes before re-running. — risk: low (default: single-file docs rewrite; no logic, no project-behavior change; cross-reference targets are stable Track 1 H2 names)  [ ]
+1. Trim `.claude/skills/ai-tells/SKILL.md` to a procedural overlay. Replace lines 19-124 inclusive — drop the `## The catalogue` H2 at :19 and all six `###` sub-sections (Vocabulary tiers, Structural tells, Tone and opener tells, Punctuation tells, Content and analysis tells, Era-specific tells) through the blank line at :124 — with a single `## Catalogue lookups` H2 carrying the five cross-references to `house-style.md` (Banned vocabulary, Structural rules + Banned sentence patterns, Banned sentence patterns, Punctuation and typography, Banned analysis patterns). Leave the existing blank line above `## Workflow` intact. Relocate the collapse-without-opener diagnostic out of the deleted Tone-tells section into the `## Workflow` section, rewording it to stand alone — for example: "Test: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (sycophantic / throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence." Keep verbatim: the frontmatter `name` / `description` pair (lines 1-4), the `## Modes` section (audit/rewrite toggle), the 4-pass `## Workflow` procedure, the 3-block `## Output format` section, `## What this skill does not do`, and the `## Source and credit` attribution. Acceptance gates (must pass before commit): (a) `wc -l .claude/skills/ai-tells/SKILL.md` returns ≤80; (b) the cross-reference grep loop from `## Validation and Acceptance` emits empty output (all five section names resolve in `house-style.md`); (c) the diagnostic now lives under `## Workflow` and reads as a self-contained sentence; (d) the frontmatter is byte-identical to its pre-edit form. If gate (a) fails, trim the Modes section's prose or collapse the 4-pass Workflow to 3 passes before re-running. — risk: low (default: single-file docs rewrite; no logic, no project-behavior change; cross-reference targets are stable Track 1 H2 names)  commit: d507c7318e  [x]
 
 ## Episodes
+
+### Step 1 — commit d507c7318e, 2026-05-18T08:22Z [ctx=safe]
+**What was done:** Replaced lines 19-124 of `.claude/skills/ai-tells/SKILL.md` (the `## The catalogue` H2 plus six `###` sub-sections — Vocabulary tiers, Structural tells, Tone and opener tells, Punctuation tells, Content and analysis tells, Era-specific tells) with a single `## Catalogue lookups` H2 carrying five cross-references to `house-style.md` (Banned vocabulary; Structural rules + Banned sentence patterns; Banned sentence patterns; Punctuation and typography; Banned analysis patterns). Relocated the collapse-without-opener diagnostic from the dropped Tone-tells section into `## Workflow`, reworded as a stand-alone sentence anchored to `house-style.md § Banned sentence patterns`. Frontmatter `name`/`description` pair, Modes toggle, 4-pass Workflow, 3-block Output format, "What this skill does not do", and Source-and-credit attribution preserved verbatim. File is now 62 lines (≤80-line cap, with 18 lines of headroom).
+
+**Key files:**
+- `.claude/skills/ai-tells/SKILL.md` (modified)
 
 ## Validation and Acceptance
 
