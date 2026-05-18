@@ -30,12 +30,15 @@ pattern.
 >   argument (all current production callers in `WOWCache` at `:969`,
 >   `:1916`, `:2495` pass `0`, so the bug is latent). Track 7 is the
 >   first non-zero caller. Step 1 fixes the body to `this.size.set(size)`
->   and adds a top-line `if (size >= this.size.get()) return;` no-op
->   guard. The existing `AsyncFileTest.testShrink` (zero-target path,
->   `AsyncFileTest.java:376`) stays unchanged; a new `testShrinkPartial`
->   allocates K pages, calls `shrink(M*pageSize)` with `0 < M < K`, and
->   asserts `getFileSize() == M*pageSize` plus `fileChannel.size() ==
->   M*pageSize + HEADER_SIZE`.
+>   and adds a no-op guard `if (size >= this.size.get()) return;` placed
+>   **after** `lock.exclusiveLock(); checkForClose();` so the read of
+>   `this.size` happens inside the exclusive-lock window (avoids a
+>   TOCTOU race against a concurrent `shrink` / `allocateSpace` writer;
+>   locked at iter-1). The existing `AsyncFileTest.testShrink`
+>   (zero-target path, `AsyncFileTest.java:376`) stays unchanged; a new
+>   `testShrinkPartial` allocates K pages, calls `shrink(M*pageSize)`
+>   with `0 < M < K`, and asserts `getFileSize() == M*pageSize` plus
+>   `fileChannel.size() == M*pageSize + HEADER_SIZE`.
 > - **New `WriteCache.shrinkFile(long fileId, long targetBytes)`
 >   primitive.** Today `WriteCache` exposes `truncateFile(long fileId)`
 >   (truncate to zero, used for `DROP_FILE`-style operations);
@@ -56,11 +59,22 @@ pattern.
 >   throw `UnsupportedOperationException`. Pre-flight check: if
 >   `AsyncFile.getFileSize() <= targetBytes`, the method returns without
 >   invoking `shrink` or `removeCachedPages` so a clean shutdown is a
->   true no-op. **Note**: `removeCachedPages` is bulk-by-fileId today;
->   Phase A iter-2 / Phase B decides whether `WriteCache.shrinkFile`
->   accepts the bulk purge (acceptable on the recovery path because
->   `stateLock.writeLock` excludes concurrent allocators) or grows a
->   range-scoped variant.
+>   true no-op. **Range-scoped purge (locked at iter-1)**: the
+>   `writeCachePages` purge is range-scoped, not bulk-by-fileId. Step 2
+>   adds `WOWCache.removeCachedPagesAtLeast(intId, minPageIndex)` which
+>   iterates `writeCachePages.entrySet()` and removes entries matching
+>   `pageKey.fileId == intId && pageKey.pageIndex >= minPageIndex`
+>   (mirrors `doRemoveCachePages` at `WOWCache.java:3537` with a range
+>   filter). The bulk variant `removeCachedPages(intId)` is
+>   inappropriate here because the orchestrator runs after
+>   `openCollections` / `openIndexes` / `wireHistogramManagerOnLoad`
+>   atomic ops have completed and may have left dirty entries in
+>   `writeCachePages` for in-scope fileIds; a bulk purge would silently
+>   discard them (no `writePages` before removal — see
+>   `doRemoveCachePages:3548-3567`). The range variant preserves dirty
+>   entries at `pageIndex < minPageIndex` and only discards the
+>   physical-orphan region (`pageIndex >= targetBytes / pageSize`),
+>   which is exactly the file region the truncate is about to drop.
 > - **New `LockFreeReadCache.shrinkFile(long fileId, long targetBytes,
 >   WriteCache writeCache)` orchestrator.** Mirrors the existing
 >   `LockFreeReadCache.truncateFile` / `deleteFile` two-phase shape at
@@ -73,17 +87,18 @@ pattern.
 >   `LockFreeReadCache.java:796-839` (acquires `evictionLock`, flushes
 >   the current-thread read batch, calls a range-scoped removal,
 >   freezes/notifies the policy) — the only difference is the segment-
->   map call. Phase A iter-2 / Phase B picks placement:
->   - **Option A**: add `ConcurrentLongIntHashMap.removeByFileIdAtLeast(long
->     fileId, int minPageIndex) : List<V>` next to the existing
->     `removeByFileId(long)` at the segment map
->     (`internal/common/collection/ConcurrentLongIntHashMap.java`) — true
->     range purge under the per-segment write lock.
->   - **Option B**: fetch via `removeByFileId(fileId)` then re-insert
->     entries with `pageIndex < minPageIndex` — simpler at the segment
->     map but disturbs LFRC entries that didn't need to move.
->   - **Recommendation**: Option A. Step 2 PSI-verifies callers of
->     `removeByFileId` before adding the sibling method.
+>   map call. **Range-purge backing (locked at iter-1 to Option A)**:
+>   Step 2 adds `ConcurrentLongIntHashMap.removeByFileIdAtLeast(long
+>   fileId, int minPageIndex) : List<V>` next to the existing
+>   `removeByFileId(long)` at the segment map
+>   (`internal/common/collection/ConcurrentLongIntHashMap.java`) with a
+>   per-segment range filter under the existing write-lock. PSI at
+>   iter-1 confirms `removeByFileId` has exactly 1 production caller
+>   (`LockFreeReadCache.clearFile:813`); the sibling addition has
+>   bounded blast radius. The rejected alternative (fetch via
+>   `removeByFileId` then re-insert entries below `minPageIndex`)
+>   disturbs LFRC entries that didn't need to move and breaks WTinyLFU
+>   sketch idempotence on policy state.
 > - **Per-component `verifyAndTruncateOrphans(AtomicOperation,
 >   LockFreeReadCache, WriteCache)` helper.** Each of the four
 >   EP-equipped components implements a helper that:
@@ -94,19 +109,47 @@ pattern.
 >      `ridbagbtree.EntryPoint` (SLBB); `fileSize` for `MapEntryPoint`
 >      (CPMV2) and `PaginatedCollectionStateV2` (PCV2). Releases the
 >      page.
->   3. Computes `targetBytes = max(pageSize, (logicalPages + offset) *
->      pageSize)` where `offset` is component-specific (Phase A iter-2
->      audit target — locked down per the EP-counted vs data-only
->      convention each component uses in its `create()` path). The
->      `max(pageSize, …)` floor guarantees the EP page itself is
->      preserved even on an uninitialized / freshly-created
->      `EP.pagesSize == 0` shape.
->   4. **Guard**: if `EP.pagesSize == 0 && AsyncFile.getFileSize() >
->      pageSize`, skip with a WARN-level log (`storage corruption signal:
->      empty entry-point with non-empty file`) — the recovery pass
->      intentionally does not silently mask a `logical > physical`-like
->      shape that WAL replay is designed to prevent.
->   5. Calls `readCache.shrinkFile(this.fileId, targetBytes,
+>   3. Computes `targetBytes = max(pageSize, (epLogicalCounter + 1) *
+>      pageSize)`. **Uniform `offset = +1` (locked at iter-1,
+>      PSI-audited against each component's `create()` path)**: in all
+>      four components the EP-stored counter records the highest
+>      occupied pageIndex (EP page itself sits at pageIndex 0
+>      implicitly), so total physical pages = `counter + 1`.
+>
+>      | Component | EP-stored counter | Init in `create()` | Extend pattern | Test assertion |
+>      |---|---|---|---|---|
+>      | BTree (`v3.BTree`) | `pagesSize` (`CellBTreeSingleValueEntryPointV3.pagesSize`) | `init()` sets `pagesSize=1` (root + EP; `BTree:170-226` allocates `ENTRY_POINT_INDEX=0`, `ROOT_INDEX=1`) | `BTree:2185-2188`: `newIdx = getPagesSize()+1; allocate; setPagesSize(newIdx)` | physical pages == `pagesSize + 1` |
+>      | SLBB (`SharedLinkBagBTree`) | `pagesSize` (`ridbagbtree.EntryPoint.pagesSize`) | `init()` sets `pagesSize=1` (`SharedLinkBagBTree:51-77`) | `SharedLinkBagBTree:935-937` same pattern | physical pages == `pagesSize + 1` |
+>      | CPMV2 (`CollectionPositionMapV2`) | `fileSize` (`MapEntryPoint.fileSize`) | `create():133-153` allocates EP page 0 then `setFileSize(0)` (Javadoc: "does NOT include EP page") | `CollectionPositionMapV2:224-225`: `allocate(lastPage+1); setFileSize(lastPage+1)` | physical pages == `fileSize + 1` |
+>      | PCV2 (`PaginatedCollectionV2`) | `fileSize` (`PaginatedCollectionStateV2.fileSize`) | `initCollectionState()` allocates `STATE_ENTRY_INDEX=0` then `setFileSize(0)` | `PaginatedCollectionV2:2237-2256`: `allocate(fileSize+1); setFileSize(fileSize+1)` | physical pages == `fileSize + 1` |
+>
+>      The `max(pageSize, …)` floor guarantees the EP page itself is
+>      preserved even on an uninitialized / freshly-created shape where
+>      `epLogicalCounter == 0`.
+>   4. **Corruption guard**: if `epLogicalCounter == 0 &&
+>      AsyncFile.getFileSize() > pageSize`, skip with a WARN-level log
+>      (`storage corruption signal: empty entry-point with non-empty
+>      file`) — the recovery pass intentionally does not silently mask
+>      a `logical < physical`-inverse-shape that WAL replay is designed
+>      to prevent. Per-component `epLogicalCounter` field binding
+>      (locked at iter-1): `pagesSize` for BTree / SLBB; `fileSize` for
+>      CPMV2 / PCV2 (see uniform-offset table above). Asymmetry note:
+>      BTree/SLBB EPs `init()` `pagesSize = 1`, so `pagesSize == 0` is
+>      itself anomalous; CPMV2/PCV2 EPs `init()` `fileSize = 0`, which
+>      is the legitimate post-create state — the
+>      `fileSize_AsyncFile > pageSize` second clause is what
+>      discriminates a healthy fresh CPMV2/PCV2 (physical == `pageSize`,
+>      one EP page only) from a real `logical < physical` shape.
+>   5. **EP-read failure**: if `op.loadPageForRead(fileId,
+>      entryPointIndex)` throws (e.g., corrupted EP page under
+>      `checksumMode=StoreAndThrow`), the exception propagates through
+>      `verifyAndTruncateOrphans` to `truncateOrphansAfterRecovery` and
+>      aborts `open()` / `postProcessIncrementalRestore`. This is
+>      intentional: without the EP we cannot compute `targetBytes`, and
+>      silently skipping the component would re-introduce the
+>      partial-flush-orphan path. Operators handle this case via the
+>      existing storage-corruption runbook.
+>   6. Calls `readCache.shrinkFile(this.fileId, targetBytes,
 >      writeCache)`. The `shrinkFile` pre-flight makes this a no-op
 >      when the file is already at or below the target.
 >   The helper runs under whichever atomic-operation boundary the
@@ -124,30 +167,41 @@ pattern.
 >   `verifyAndTruncateOrphans(op, readCache, writeCache)`.
 > - **`AbstractStorage.truncateOrphansAfterRecovery()` orchestrator.**
 >   Iterates the four EP-equipped component groups:
->   - `collections : List<StorageCollection>` — each entry is a
->     `PaginatedCollectionV2` (the sole concrete/instantiable
->     production inheritor of `StorageCollection`); call
+>   - `collections : List<StorageCollection>` (FQN:
+>     `com.jetbrains.youtrackdb.internal.core.storage.StorageCollection`
+>     — one level up from the `…storage.collection.` sub-package).
+>     PSI-confirmed at iter-1: inheritor count = 2 (`PaginatedCollection`
+>     abstract + `PaginatedCollectionV2` concrete); PCV2 is the sole
+>     concrete/instantiable production inheritor. Call
 >     `verifyAndTruncateOrphans` on the PCV2 instance AND on its
 >     embedded `collectionPositionMap` field (`CollectionPositionMapV2`).
->     Note: the downcast is required to access `collectionPositionMap`;
->     `getFileId()` already lives on the abstract `PaginatedCollection`
->     base.
+>     The downcast to `PaginatedCollectionV2` is required to access
+>     `collectionPositionMap`; `getFileId()` already lives on the
+>     abstract `PaginatedCollection` base.
 >   - `indexEngines : List<BaseIndexEngine>` — filter by
->     `instanceof BTreeSingleValueIndexEngine` (holds an `sbTree` field
->     typed `CellBTreeSingleValue<CompositeKey>`) || `instanceof
->     BTreeMultiValueIndexEngine` (holds `svTree` + `nullTree` fields,
->     both `CellBTreeSingleValue<CompositeKey>`). The field type is the
->     `CellBTreeSingleValue` interface, but the sole production
->     inheritor is the generic
->     `com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`,
->     so each field value is downcastable to `v3.BTree`. After the
->     engine-class `instanceof` check, cast the field value to
->     `v3.BTree` and call `verifyAndTruncateOrphans` on it. For
->     `BTreeMultiValueIndexEngine`, iterate BOTH `svTree` AND
->     `nullTree` if `nullTree != null` (Phase A iter-2 PSI-confirms
->     whether `nullTree` can grow under multi-page null-key load; if
->     single-page-by-construction the iter-2 audit downgrades to
->     `svTree`-only).
+>     `instanceof BTreeSingleValueIndexEngine` (FQN
+>     `com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine`)
+>     || `instanceof BTreeMultiValueIndexEngine` (FQN
+>     `com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine`),
+>     then call `engine.verifyAndTruncateOrphans(op, readCache,
+>     writeCache)` on the engine itself. **Engine-side iteration
+>     (locked at iter-1)**: the `sbTree` / `svTree` / `nullTree` fields
+>     are `private final` on the engines, so iteration lives on the
+>     engine. Step 3 adds `verifyAndTruncateOrphans` as a method on
+>     `BTreeSingleValueIndexEngine` (delegates to `sbTree`) and on
+>     `BTreeMultiValueIndexEngine` (calls
+>     `svTree.verifyAndTruncateOrphans` and, when `nullTree != null`,
+>     also `nullTree.verifyAndTruncateOrphans`). This parallels the
+>     manager-side
+>     `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
+>     recipe and keeps `sbTree` / `svTree` / `nullTree` encapsulated.
+>     PSI at iter-1: `nullTree` IS a full multi-page-growing BTree
+>     (`BTreeMultiValueIndexEngine.java:39-41`; `put(null, value)`
+>     routes through `doPut(nullTree, …)` at `:382-385` with multi-page
+>     growth under multi-null-key load) — no downgrade. The `v3.BTree`
+>     field type lives at
+>     `com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree`
+>     (sole production inheritor of `CellBTreeSingleValue<CompositeKey>`).
 >   - `linkCollectionsBTreeManager` — call
 >     `verifyAndTruncateAllOrphans(op, readCache, writeCache)`
 >     (iteration is internal to the manager).
@@ -182,35 +236,62 @@ pattern.
 > - **Unit + integration tests.** Cumulative test surface:
 >   - `AsyncFileTest.testShrinkPartial` — partial-shrink semantics
 >     regression for the AsyncFile fix.
->   - Per-component helper unit tests (one suite per component):
->     orphan-present → `LockFreeReadCache.shrinkFile` called with
->     correct target; clean (`logical == physical`) → no-op;
->     `EP.pagesSize == 0 && fileSize > pageSize` → skip-with-WARN
->     (assert log).
+>   - Per-component helper unit tests (one suite per component:
+>     BTree / SLBB / CPMV2 / PCV2): orphan-present → engine-side
+>     `verifyAndTruncateOrphans` invokes `LockFreeReadCache.shrinkFile`
+>     with `targetBytes = (epLogicalCounter + 1) * pageSize`; clean
+>     (`physicalPages == epLogicalCounter + 1`) → no-op; **boundary
+>     case** (`physicalFileSize == targetBytes` exactly) → pre-flight
+>     no-op asserted via `shrinkFile` not invoked (catches off-by-one
+>     in per-component arithmetic — see uniform-offset table above);
+>     `epLogicalCounter == 0 && fileSize > pageSize` → skip-with-WARN
+>     (assert log). Each test docstring cites the per-component
+>     `create()` source line so the arithmetic stays anchored.
 >   - `LockFreeReadCache.shrinkFile` orchestration test: install a
 >     `CachePointer` at index past the post-shrink target, call
 >     `shrinkFile`, assert the entry is no longer in the cache.
->   - `WOWCache.shrinkFile` cache-purge test: install a dirty
->     `writeCachePages` entry at index past the post-shrink target,
->     call `shrinkFile`, run a synthetic `flushAllData`, assert the
->     file size matches `targetBytes` and the dirty entry did NOT
->     re-extend the file.
+>   - `WOWCache.shrinkFile` range-purge symmetry test pair:
+>     (a) above-target dirty entry — install a dirty `writeCachePages`
+>     entry at `pageIndex >= targetBytes / pageSize`, call `shrinkFile`,
+>     run synthetic `flushAllData`, assert the file size matches
+>     `targetBytes` and the dirty entry did NOT re-extend the file;
+>     (b) below-target dirty entry — install a dirty `writeCachePages`
+>     entry at `pageIndex < targetBytes / pageSize`, call `shrinkFile`,
+>     run synthetic `flushAllData`, assert the dirty page WAS persisted
+>     and the file size at least covers that index. The pair captures
+>     the silent-data-loss class of bug the range-scoped purge prevents.
+>   - `ConcurrentLongIntHashMapTest.removeByFileIdAtLeast*` mirroring
+>     the existing `removeByFileId` surface: empty range; full range
+>     (`minPageIndex = 0`) equivalence to `removeByFileId`; range
+>     crossing a segment boundary; concurrent allocations into the
+>     same fileId while range-purge runs (recovery excludes
+>     concurrency via `stateLock` + `filesLock`, but the cache
+>     primitive must still be thread-safe).
 >   - `truncateOrphansAfterRecovery` orchestrator unit test:
 >     mock-WriteCache + mock-LockFreeReadCache + mock components,
 >     assert iteration order + correct dispatch + `nullTree` handling.
 >   - Integration tests against a real `WOWCache`:
 >     - **Positive (primary) — deterministic orphan fabrication**:
 >       open a storage normally, use a test helper to write N extra
->       pages past `EP.pagesSize` via `AsyncFile.allocateSpace(...)`
+>       pages past `epLogicalCounter` via `AsyncFile.allocateSpace(...)`
 >       + `AsyncFile.write(...)` (bypassing the
 >       `StorageComponent.allocatePageForWrite` cache-allocator path,
->       which is what bumps `EP.pagesSize` — raw `AsyncFile.write`
+>       which is what bumps `epLogicalCounter` — raw `AsyncFile.write`
 >       alone rejects offsets past current `size` via `checkPosition`,
 >       so the helper must call `allocateSpace` first to extend
->       physical size, then `write` the orphan content), close,
->       reopen, assert the pass truncates and the next TX completes
->       without `IllegalStateException`. Fast, deterministic,
->       exercises the production path without sub-JVM coordination.
+>       physical size, then `write` the orphan content). **Orphan-page
+>       content must mirror the production crash path**: each orphan
+>       page carries LSN `(-1, -1)` + the WOWCache magic stamp (the
+>       byte layout `EnsurePageIsValidInFileTask.writeValidPageInFile`
+>       produces at `WOWCache.java:3905-3924`), so the next read under
+>       `checksumMode=StoreAndThrow` sees a clean empty page and not a
+>       checksum-corruption error. Close, reopen, assert the pass
+>       truncates and the next TX completes without
+>       `IllegalStateException`. Fast, deterministic, exercises the
+>       AsyncFile + orchestrator pre-flight path. The unit tests on
+>       `WOWCache.shrinkFile` cover the cache-purge layering
+>       separately (above-target discard + below-target preservation
+>       pair).
 >     - **Positive (confirmation) — sub-JVM crash** (slower, tagged
 >       integration): drive `commitChanges` to its WAL-buffered state
 >       on the disk engine, kill the JVM mid-flight via
@@ -235,31 +316,37 @@ pattern.
 >      pass `0` which still resolves to `size.set(0)`.
 >   2. **Step 2**: Introduce the layered shrink primitive.
 >      - `WriteCache.shrinkFile(fileId, targetBytes)` SPI; WOWCache impl
->        (`filesLock.writeLock` + `removeCachedPages` for writeCachePages
->        purge + `AsyncFile.shrink`); DirectMemoryOnlyDiskCache no-op;
->        5 test-mock implementers throw UOE.
+>        (`filesLock.writeLock` + range-scoped
+>        `removeCachedPagesAtLeast(intId, minPageIndex)` purge +
+>        `AsyncFile.shrink`); DirectMemoryOnlyDiskCache no-op; 5
+>        test-mock implementers throw UOE.
 >      - `LockFreeReadCache.shrinkFile(fileId, targetBytes, writeCache)`
 >        orchestrator that delegates to `writeCache.shrinkFile` then
 >        calls private `clearFileRange(fileId, minPageIndex, writeCache)`.
->      - Range-purge backing on `ConcurrentLongIntHashMap` —
->        `removeByFileIdAtLeast(long fileId, int minPageIndex) :
->        List<V>` (recommended) or LFRC-side filter + re-insert.
->      - Unit tests for both production impls plus the
->        flush-after-truncate ordering pin (no re-extend).
+>      - Range-purge backing: `ConcurrentLongIntHashMap.removeByFileIdAtLeast`
+>        (Option A, locked at iter-1).
+>      - Unit tests for both production impls plus the range-purge
+>        symmetry pair (above-target discard + below-target preservation)
+>        and the `ConcurrentLongIntHashMap` test surface mirroring
+>        `removeByFileId`.
 >      **Risk: high** — interface addition touches 7 implementers; LFRC
 >      orchestration ordering is load-bearing; a new segment-map
 >      primitive sits in the cache hot-path supporting class.
 >   3. **Step 3**: Add `verifyAndTruncateOrphans(AtomicOperation,
 >      LockFreeReadCache, WriteCache)` to each of the four EP-equipped
->      components, plus the trivial `BTree.getFileId()` getter. Phase A
->      iter-2 audits each component's `create()` path to lock the
->      `offset` arithmetic (whether the EP's logical count includes
->      the EP page itself or not — varies per component). Per-component
->      unit tests covering orphan-present, clean, and corruption-
->      skip-with-WARN branches.
->      **Risk: medium** — touches four storage components; each has
->      its own EP shape; floor + corruption guard are uniform across
->      them.
+>      components (BTree, SLBB, CPMV2, PCV2) plus the trivial
+>      `BTree.getFileId()` getter; add `verifyAndTruncateOrphans` on
+>      the two index-engine classes (`BTreeSingleValueIndexEngine`
+>      delegates to `sbTree`; `BTreeMultiValueIndexEngine` calls both
+>      `svTree` and `nullTree` when non-null) so the orchestrator can
+>      stay polymorphic against the engines without violating field
+>      encapsulation. Per-component unit tests covering orphan-present,
+>      clean, boundary-exact-target (catches off-by-one in uniform
+>      `offset = +1` arithmetic), and corruption-skip-with-WARN
+>      branches.
+>      **Risk: medium** — touches four storage components plus two
+>      index-engine classes; uniform `offset = +1` (see table above);
+>      floor + corruption guard are uniform across them.
 >   4. **Step 4**: Add
 >      `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
 >      (iteration delegate over `fileIdBTreeMap.values()`). Manager
@@ -290,45 +377,47 @@ pattern.
 >     orchestrates; `WriteCache.shrinkFile` does write-back +
 >     `AsyncFile.shrink`; LFRC range purge via private
 >     `clearFileRange` mirrors `truncateFile`'s two-phase pattern.
->   - **EP-page floor**: `targetBytes = max(pageSize, …)` in helper.
+>   - **EP-page floor**: `targetBytes = max(pageSize, (epLogicalCounter
+>     + 1) * pageSize)` in helper. Uniform `offset = +1` (locked at
+>     iter-1; PSI table above).
 >   - **Corruption guard**: skip-with-WARN on
->     `EP.pagesSize == 0 && fileSize > pageSize`.
+>     `epLogicalCounter == 0 && fileSize > pageSize`
+>     (`epLogicalCounter` binds to `pagesSize` for BTree/SLBB and
+>     `fileSize` for CPMV2/PCV2).
 >   - **Iteration over SLBB instances**: via new manager method, not
 >     a public `getAllManaged()` accessor.
+>   - **Iteration over BTree index engines**: engine-side
+>     `verifyAndTruncateOrphans` methods on
+>     `BTreeSingleValueIndexEngine` / `BTreeMultiValueIndexEngine`
+>     (locked at iter-1 — keeps `sbTree` / `svTree` / `nullTree`
+>     `private final` fields encapsulated).
 >   - **`BTree.getFileId()`**: added as part of Step 3.
 >   - **`BTreeMultiValueIndexEngine` coverage**: iterate both
->     `svTree` AND `nullTree` when `nullTree != null`.
+>     `svTree` AND `nullTree` when `nullTree != null`
+>     (PSI-confirmed multi-page-growing at iter-1).
+>   - **WriteCache implementer count**: PSI-confirmed at iter-1 —
+>     exactly 7 inheritors (2 production + 5 test-mock). No sixth
+>     implementer.
+>   - **Range-purge backing**: `ConcurrentLongIntHashMap.removeByFileIdAtLeast`
+>     (Option A, locked at iter-1).
 >   - **Truncate log**: WARN level with pre/post page counts +
 >     delta.
->   - **Truncate ordering safety**: `recoverIfNeeded()` calls
->     `flushAllData()` at `:4497` before `open()` proceeds; the
->     orchestrator runs after the catalogue load, and the only
->     other writer would be a client TX which is excluded by
->     `stateLock.writeLock()`. The orchestrator races only against
->     itself (single-threaded inside the lock).
-> - Phase A audit targets remaining for Phase A iter-2 (after this
->   replan re-enters /execute-tracks):
->   - The exact `offset` arithmetic per component for `targetBytes`
->     — read each `create()` path to determine whether the EP's
->     logical count includes the EP page itself or excludes it.
->     Output as a four-row table (one per component: BTree, SLBB,
->     CPMV2, PCV2) documenting (1) where `pagesSize` / `fileSize`
->     is incremented in `create()`, (2) the resulting offset, (3)
->     the WAL op that establishes the increment, (4) a unit-test
->     assertion shape.
->   - PSI audit of `BTreeMultiValueIndexEngine.nullTree` growth —
->     confirm whether it can grow under multi-page null-key load
->     or is single-page-by-construction like `BTree.nullBucketFileId`.
->     If single-page, downgrade the orchestrator to `svTree`-only.
->   - PSI find-implementations on `WriteCache` to confirm the
->     test-mock implementer count (the in-scope file list assumes
->     exactly five; iter-2 verifies no sixth implementer exists in
->     `embedded` / `tests` / `jmh-ldbc` modules).
->   - PSI audit of `v3.BTree.nullBucketFileId` — confirm
->     single-page-by-construction so the carve-out from
->     `verifyAndTruncateOrphans` is invariant-safe.
->   - Range-purge placement decision (segment-map sibling vs
->     LFRC-side filter) — Step 2 lockdown.
+>   - **Truncate ordering safety (corrected at iter-1)**:
+>     `recoverIfNeeded()` calls `flushAllData()` at `:4497` before
+>     `open()` proceeds. `stateLock.writeLock()` (acquired at
+>     `AbstractStorage.java:712`) excludes client TXs but does NOT
+>     block the periodic flush executor
+>     (`WOWCache.wowCacheFlushExecutor` runs on a separate thread and
+>     takes `filesLock.readLock`). The actual exclusion of concurrent
+>     flush writers during the truncate window comes from
+>     `WOWCache.shrinkFile` acquiring `filesLock.writeLock` (mirrors
+>     `WOWCache.truncateFile:1905-1927`); the periodic-flush path's
+>     `filesLock.readLock` blocks until the truncate completes. With
+>     the range-scoped purge locked above, the design does NOT depend
+>     on `stateLock`-blocks-flushers — dirty pages at
+>     `pageIndex < minPageIndex` survive, dirty pages at
+>     `pageIndex >= minPageIndex` are dropped (which is the file
+>     region about to be truncated).
 >
 > **Constraints**:
 > - **In-scope files**:
@@ -337,7 +426,9 @@ pattern.
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java` (impl)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCache.java` (no-op impl)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCache.java` (new `shrinkFile` orchestrator + private `clearFileRange`)
->   - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/collection/ConcurrentLongIntHashMap.java` (new `removeByFileIdAtLeast` if range purge is pushed into the segment map; skip if filter is kept inside LFRC — Step 2 lockdown)
+>   - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/collection/ConcurrentLongIntHashMap.java` (new `removeByFileIdAtLeast` — Option A locked at iter-1)
+>   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java` (new `verifyAndTruncateOrphans` delegating to `sbTree`)
+>   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java` (new `verifyAndTruncateOrphans` calling both `svTree` and `nullTree` when non-null)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTree.java` (new helper + getFileId getter)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTree.java` (new helper)
 >   - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/LinkCollectionsBTreeManagerShared.java` (new iteration delegate)
@@ -358,6 +449,30 @@ pattern.
 >   `IndexHistogramManager` — see D6 Risks/Caveats and Non-Goals.
 >   Public API renames. Any change to
 >   `WriteCache.getFilledUpTo` / `truncateFile` semantics.
+> - **Why FSM/CDPB/IHM are safely out of scope (locked at iter-1)**:
+>   the Non-Goals carve-out is invariant-safe by construction.
+>   - **`FreeSpaceMap` and `CollectionDirtyPageBitSet`**: both have no
+>     logical/physical split. Their growth loops compute
+>     `filledUpTo = physicalSize(...)` and grow from there
+>     (`FreeSpaceMap:227-235`, `CollectionDirtyPageBitSet:202-211`).
+>     Any physical-orphan past `filledUpTo` is structurally invisible
+>     to the allocator-only contract: the next growth allocation
+>     re-uses the next physical pageIndex (the orphan) via
+>     `op.loadOrAddPageForWrite(fileId, filledUpTo)`, which adopts the
+>     existing physical page on `loadOrAdd`'s extend branch. CS1
+>     cannot fire here because these components do not allocate
+>     through the allocator-only narrowed `op.allocatePageForWrite`.
+>   - **`IndexHistogramManager`**: pre-existing handlers absorb the
+>     partial-flush hazard. The page-1 discriminator
+>     `op.filledUpTo > 1 ? load : allocate` at
+>     `IndexHistogramManager.java:1928, 1997` structurally avoids the
+>     allocator-only contract on the spill path, and
+>     `IndexHistogramManager.java:1856-1866` has a warn-and-fall-back
+>     path for the page-1-missing case.
+>   - Track 6's CS1 integration test asserts this construction-safety
+>     by exercising FSM/CDPB/IHM partial-flush workloads under both
+>     `checksumMode=Off` and `checksumMode=StoreAndThrow`; the test is
+>     a regression net, not a fix target.
 > - **Performance constraint**: the recovery pass adds
 >   ~100-300 single-page EP-load reads per storage open (one per
 >   in-scope component instance, in-cache after `openIndexes` warms
@@ -413,10 +528,83 @@ pattern.
 >   the WAL directly.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 
 ## Reviews completed
+- [x] Technical: PASS at iteration 2 (8 findings — 1 blocker + 4 should-fix accepted and applied; 3 suggestions deferred)
+- [x] Risk: PASS at iteration 2 (6 findings — 2 should-fix accepted and applied; 3 suggestions deferred; 1 skip on Step 1 separability)
+- [x] Adversarial: PASS at iteration 2 (8 findings — 2 should-fix accepted and applied; 1 suggestion (orphan-content LSN/magic) accepted; 3 suggestions deferred; 2 skip on SLBB iteration + Step 1 separability)
 
 ## Steps
+
+- [ ] Step 1: Fix `AsyncFile.shrink(long size)` in-place semantics; add `AsyncFileTest.testShrinkPartial`
+  > **Risk:** low — isolated bug fix (single primitive body fix at `AsyncFile.java:307-318`; all current `WOWCache` callers pass `0` which still resolves to `size.set(0)`; new partial-target path covered by `testShrinkPartial`)
+  >
+  > **What**: replace `this.size.set(0)` with `this.size.set(size)` and add a no-op guard `if (size >= this.size.get()) return;` placed AFTER `lock.exclusiveLock(); checkForClose();` (inside the exclusive-lock window so the read of `this.size` is race-free against concurrent `shrink` / `allocateSpace`). The existing `AsyncFileTest.testShrink` (zero-target path, `AsyncFileTest.java:376`) stays unchanged; add `testShrinkPartial` allocating K pages, calling `shrink(M*pageSize)` with `0 < M < K`, asserting `getFileSize() == M*pageSize` and `fileChannel.size() == M*pageSize + HEADER_SIZE`.
+  > **Tests**: `AsyncFileTest.testShrink` (unchanged) + new `testShrinkPartial`.
+  > **Separability**: this step is intentionally separable from the rest of the track — a future `git revert` of Track 7 internals preserves the AsyncFile fix.
+
+- [ ] Step 2: Layered shrink primitive — `WriteCache.shrinkFile` SPI + `LockFreeReadCache.shrinkFile` orchestrator + `ConcurrentLongIntHashMap.removeByFileIdAtLeast`
+  > **Risk:** high — architecture (new SPI surface touching 7 implementers: `WOWCache`, `DirectMemoryOnlyDiskCache`, plus 5 test-mocks) + concurrency (LFRC orchestration ordering load-bearing; periodic-flush exclusion via `filesLock.writeLock`; new segment-map primitive sits in the cache hot-path supporting class)
+  >
+  > **What**:
+  > 1. Add `WriteCache.shrinkFile(long fileId, long targetBytes)` to the `WriteCache` interface.
+  > 2. `WOWCache.shrinkFile` impl: acquires `filesLock.writeLock`; pre-flight `if (AsyncFile.getFileSize() <= targetBytes) return;` (true no-op on clean shutdown); calls new `removeCachedPagesAtLeast(intId, minPageIndex)` (range-scoped purge mirroring `doRemoveCachePages` at `WOWCache.java:3537` with a `pageKey.fileId == intId && pageKey.pageIndex >= minPageIndex` filter); then `AsyncFile.shrink(targetBytes)`. Where `minPageIndex = (int)(targetBytes / pageSize)`.
+  > 3. `DirectMemoryOnlyDiskCache.shrinkFile` impl: no-op (in-memory engine cannot produce on-disk orphans).
+  > 4. 5 test-mock implementers override `shrinkFile` to throw `UnsupportedOperationException` (`LockFreeReadCacheOptimisticTest.PageFrameWriteCache`; `MockedWriteCache` inner classes in `AsyncReadCacheTestIT`, `LockFreeReadCacheBatchingTest`, `LockFreeReadCacheConcurrentTestIT`; `TrackingWriteCache` in `LockFreeReadCacheFileOpsTest`). PSI re-check at implementation time confirms no sixth implementer.
+  > 5. Add `LockFreeReadCache.shrinkFile(long fileId, long targetBytes, WriteCache writeCache)` orchestrator: delegates to `writeCache.shrinkFile(fileId, targetBytes)` first (settles write-back + AsyncFile), then calls private `clearFileRange(fileId, minPageIndex, writeCache)`. `clearFileRange` mirrors `LockFreeReadCache.clearFile` at `:796-839` (acquires `evictionLock`, flushes the current-thread read batch, calls range-scoped removal on the segment map, freezes/notifies the policy).
+  > 6. Add `ConcurrentLongIntHashMap.removeByFileIdAtLeast(long fileId, int minPageIndex) : List<V>` next to `removeByFileId(long)`, with per-segment range filter under the existing write-lock.
+  >
+  > **Tests**:
+  > - `WOWCache.shrinkFile` range-purge symmetry pair (above-target dirty entry discarded; below-target dirty entry preserved and persisted on subsequent `flushAllData`).
+  > - `LockFreeReadCache.shrinkFile` orchestration test (install `CachePointer` past target; assert entry purged after `shrinkFile`).
+  > - `ConcurrentLongIntHashMapTest.removeByFileIdAtLeast*` mirroring the existing `removeByFileId` surface: empty range; full-range equivalence to `removeByFileId`; range crossing a segment boundary; concurrent allocations into the same fileId while range-purge runs.
+  > - `DirectMemoryOnlyDiskCache.shrinkFile` no-op test (assert it does not throw).
+  > - 5 test-mock implementers: assert UOE.
+
+- [ ] Step 3: Per-component `verifyAndTruncateOrphans` (4 EP-equipped components) + `v3.BTree.getFileId()` accessor + engine-side `verifyAndTruncateOrphans` (2 BTree index engines)
+  > **Risk:** medium — multi-file logic in core (4 storage components + 2 index engines, each with its own EP shape; uniform `offset = +1` and corruption-guard arithmetic shared via helper template)
+  >
+  > **What**:
+  > 1. Add `verifyAndTruncateOrphans(AtomicOperation op, LockFreeReadCache readCache, WriteCache writeCache)` to each of the four EP-equipped components: `v3.BTree`, `SharedLinkBagBTree`, `CollectionPositionMapV2`, `PaginatedCollectionV2`. Each helper: (a) loads its EP page via `op.loadPageForRead(fileId, entryPointIndex)`; (b) reads `epLogicalCounter` from the EP (`pagesSize` for BTree/SLBB; `fileSize` for CPMV2/PCV2) and releases the page; (c) computes `targetBytes = max(pageSize, (epLogicalCounter + 1) * pageSize)`; (d) applies corruption guard `if (epLogicalCounter == 0 && AsyncFile.getFileSize() > pageSize) WARN-and-skip`; (e) calls `readCache.shrinkFile(this.fileId, targetBytes, writeCache)`. EP-read failure propagates (aborts open() / restore as designed).
+  > 2. Add `getFileId() -> long` accessor to `v3.BTree` (trivial; field exists at `:117`, no getter today). The other three components already expose `getFileId()`.
+  > 3. Add `verifyAndTruncateOrphans(AtomicOperation, LockFreeReadCache, WriteCache)` to `BTreeSingleValueIndexEngine` (FQN `com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine`) delegating to its `sbTree.verifyAndTruncateOrphans(...)`.
+  > 4. Add `verifyAndTruncateOrphans(AtomicOperation, LockFreeReadCache, WriteCache)` to `BTreeMultiValueIndexEngine` (FQN `com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine`) calling `svTree.verifyAndTruncateOrphans(...)` and, when `nullTree != null`, also `nullTree.verifyAndTruncateOrphans(...)`. (PSI at iter-1 confirms `nullTree` is a full multi-page-growing BTree — no downgrade.)
+  >
+  > **Tests** (per-component, one suite per of: BTree / SLBB / CPMV2 / PCV2):
+  > - Orphan-present branch: physical file is `(epLogicalCounter + 1 + N) * pageSize` for N ≥ 1; assert engine-side or component-side `verifyAndTruncateOrphans` invokes `LockFreeReadCache.shrinkFile` with `targetBytes = (epLogicalCounter + 1) * pageSize`.
+  > - Clean branch (`physicalPages == epLogicalCounter + 1`): no `shrinkFile` invocation.
+  > - **Boundary case** (`physicalFileSize == targetBytes` exactly): pre-flight no-op asserted via `shrinkFile` not invoked — catches off-by-one in per-component arithmetic.
+  > - Corruption-guard branch (`epLogicalCounter == 0 && fileSize > pageSize`): skip-with-WARN, no `shrinkFile` invocation, WARN log asserted.
+  > - Each test docstring cites the per-component `create()` source line (BTree:170-226; SLBB:51-77; CPMV2:133-153; PCV2 `initCollectionState`) so the arithmetic stays anchored.
+  > - Engine-side wrapper tests (`BTreeSingleValueIndexEngine.verifyAndTruncateOrphans`, `BTreeMultiValueIndexEngine.verifyAndTruncateOrphans` for both `svTree`-only and `svTree`+`nullTree` cases) using mocked inner trees to assert delegate dispatch.
+
+- [ ] Step 4: `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans` iteration delegate
+  > **Risk:** low — default (pure delegate-and-iterate over `fileIdBTreeMap.values()`; no new locking or invariant)
+  >
+  > **What**: add `verifyAndTruncateAllOrphans(AtomicOperation op, LockFreeReadCache readCache, WriteCache writeCache)` to `LinkCollectionsBTreeManagerShared` that iterates `fileIdBTreeMap.values()` and calls each `SharedLinkBagBTree.verifyAndTruncateOrphans(op, readCache, writeCache)`. The manager holds N ≥ 0 SLBB instances in `fileIdBTreeMap : ConcurrentHashMap<Integer, SharedLinkBagBTree>` and exposes no public iteration API — the new method is the iteration delegate (NOT a public `getAllManaged()` accessor).
+  >
+  > **Tests**: manager-level test installs 3 mock SLBBs into `fileIdBTreeMap`, calls `verifyAndTruncateAllOrphans`, asserts each receives the call exactly once with the supplied `(op, readCache, writeCache)` triple. Empty-map case asserts no NPE / no iteration side-effect.
+
+- [ ] Step 5: `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator + `open()` wiring + `postProcessIncrementalRestore` wiring + integration tests
+  > **Risk:** high — crash-safety / durability (recovery path, two storage-startup entry points, unlogged truncate — EP-page floor + corruption guard are the only safety nets; integration tests include sub-JVM crash precedent)
+  >
+  > **What**:
+  > 1. Add private `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator that iterates:
+  >    - `collections : List<StorageCollection>` (FQN `com.jetbrains.youtrackdb.internal.core.storage.StorageCollection`): downcast each entry to `PaginatedCollectionV2`; call `verifyAndTruncateOrphans` on the PCV2 instance AND on its embedded `collectionPositionMap` field (`CollectionPositionMapV2`).
+  >    - `indexEngines : List<BaseIndexEngine>`: filter by `instanceof BTreeSingleValueIndexEngine || BTreeMultiValueIndexEngine` and call `engine.verifyAndTruncateOrphans(op, readCache, writeCache)` polymorphically (engine-side iteration encapsulates `sbTree`/`svTree`/`nullTree`).
+  >    - `linkCollectionsBTreeManager.verifyAndTruncateAllOrphans(op, readCache, writeCache)`.
+  >    The orchestrator is silent on no-op (clean shutdown / no orphans); on truncate emits one-line WARN per affected file: component name + fileId + pre/post-truncate page counts + delta pages.
+  > 2. Wrap the orchestrator body in `atomicOperationsManager.executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)` (matches the catalogue-load idiom at `AbstractStorage.java:797-802`).
+  > 3. `AbstractStorage.open()` wiring: insert call to `truncateOrphansAfterRecovery()` AFTER `:800` (`openIndexes`) and BEFORE the first non-recovery TX. Unconditional (NOT gated by `wereDataRestoredAfterOpen`).
+  > 4. `DiskStorage.postProcessIncrementalRestore` wiring: insert call AFTER `:1673` (`flushAllData()`) and BEFORE `:1675` (`generateDatabaseInstanceId`). Both call sites sit inside their respective `stateLock.writeLock()` windows.
+  >
+  > **Tests**:
+  > - **Orchestrator unit test** (mock-WriteCache + mock-LockFreeReadCache + mock components/engines/manager): assert iteration order across the three groups; assert correct dispatch through `instanceof` filter on `indexEngines`; assert `BTreeMultiValueIndexEngine` calls both `svTree` and `nullTree` when non-null; assert silent on clean.
+  > - **Integration tests against a real `WOWCache`**:
+  >   - **Positive (primary) — deterministic orphan fabrication**: open a storage normally; use a test helper to write N orphan pages past `epLogicalCounter` via `AsyncFile.allocateSpace(...)` + `AsyncFile.write(...)`. Orphan-page content must carry LSN `(-1, -1)` + the WOWCache magic stamp (byte layout `EnsurePageIsValidInFileTask.writeValidPageInFile` produces at `WOWCache.java:3905-3924`) so `checksumMode=StoreAndThrow` reads see clean empty pages rather than corruption. Close, reopen, assert the pass truncates and the next TX completes without `IllegalStateException`.
+  >   - **Positive (confirmation) — sub-JVM crash** (slower, tagged integration): drive `commitChanges` to WAL-buffered state on the disk engine, kill the JVM mid-flight via `Runtime.exec` (`LocalPaginatedStorageRestoreFromWALIT` precedent), reopen, assert `physical == logical`.
+  >   - **Negative (clean shutdown → no-op)**: assert the pass runs but emits no truncate log line.
+  >   - **Incremental-restore entry point**: drive a backup with concurrent writes (so `physicalSizeForBackupSnapshot` captures a transient orphan-shape file), restore the backup, assert `physical == logical` post-restore.
