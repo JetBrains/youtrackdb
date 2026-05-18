@@ -530,7 +530,7 @@ pattern.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (5/5 complete)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations)
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (8 findings — 1 blocker + 4 should-fix accepted and applied; 3 suggestions deferred)
