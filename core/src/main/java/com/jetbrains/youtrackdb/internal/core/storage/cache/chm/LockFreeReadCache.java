@@ -671,6 +671,29 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
+  public void shrinkFile(long fileId, final long targetBytes, final WriteCache writeCache)
+      throws IOException {
+    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
+
+    // Two-phase orchestration mirroring truncateFile / deleteFile at :666-687:
+    // write-back layer + AsyncFile first, then read-cache purge. The ordering matters
+    // because doLoad readers consult the writeCachePages dirty map; a stale dirty
+    // entry surviving past the shrink would let a periodic flush re-extend the file
+    // past targetBytes. WriteCache.shrinkFile drops dirty entries at
+    // pageIndex >= minPageIndex BEFORE the AsyncFile truncate, so by the time
+    // clearFileRange runs the write-back side is already settled.
+    writeCache.shrinkFile(fileId, targetBytes);
+    // LockFreeReadCache and its WriteCache always share the same page size by
+    // construction (the cache stores pages frame-for-frame), so this.pageSize is
+    // the right divisor. Using the local field avoids depending on the WriteCache
+    // impl returning a non-zero pageSize() — TrackingWriteCache returns 0, and a
+    // test-mock that stubs every method should not need to know the page size to
+    // reach the LFRC range-purge.
+    final int minPageIndex = (int) (targetBytes / pageSize);
+    clearFileRange(fileId, minPageIndex, writeCache);
+  }
+
+  @Override
   public void closeFile(long fileId, final boolean flush, final WriteCache writeCache) {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
 
@@ -787,6 +810,62 @@ public final class LockFreeReadCache implements ReadCache {
                 + " for file id "
                 + firstUnfrozen.getFileId()
                 + " is used and cannot be removed");
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
+  /**
+   * Range-scoped sibling of {@link #clearFile(long, WriteCache)}: drops only the
+   * read-cache entries at {@code pageIndex >= minPageIndex} for the given file. Mirrors
+   * {@link #clearFile(long, WriteCache)}'s eviction-lock ordering, current-thread read
+   * batch flush, freeze/onRemove/checkCacheOverflow loop, and pinned-entry escalation.
+   * Only the segment-map call differs: this uses
+   * {@link ConcurrentLongIntHashMap#removeByFileIdAtLeast(long, int)} so entries below
+   * {@code minPageIndex} survive (they belong to file regions the truncate does NOT
+   * drop and must remain reachable for ongoing readers).
+   *
+   * <p>Precondition: like {@code clearFile}, this method assumes no concurrent
+   * {@code doLoad} for the same fileId. A concurrent {@code doLoad} could re-insert an
+   * entry for a page of this file after {@code removeByFileIdAtLeast} completes. The
+   * recovery-time orphan-truncation pass that drives this method runs under
+   * {@code stateLock.writeLock()} so no client TX can race; the call site documents
+   * this coordination at a higher level.
+   */
+  private void clearFileRange(
+      final long fileId, final int minPageIndex, final WriteCache writeCache) {
+    flushCurrentThreadReadBatch();
+    evictionLock.lock();
+    try {
+      emptyBuffers();
+
+      // Bulk removal: removeByFileIdAtLeast sweeps each segment linearly under its
+      // write lock with a (fileId, pageIndex >= minPageIndex) match filter. Entries
+      // are returned after the segment lock is released; the freeze / onRemove /
+      // checkCacheOverflow loop below does not run under a segment write lock.
+      final var removedEntries = data.removeByFileIdAtLeast(fileId, minPageIndex);
+
+      for (final var cacheEntry : removedEntries) {
+        if (cacheEntry.freeze()) {
+          policy.onRemove(cacheEntry);
+          cacheSize.decrementAndGet();
+
+          try {
+            writeCache.checkCacheOverflow();
+          } catch (final java.lang.InterruptedException e) {
+            throw BaseException.wrapException(
+                new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                e, writeCache.getStorageName());
+          }
+        } else {
+          throw new StorageException(writeCache.getStorageName(),
+              "Page with index "
+                  + cacheEntry.getPageIndex()
+                  + " for file id "
+                  + cacheEntry.getFileId()
+                  + " is used and cannot be removed");
+        }
       }
     } finally {
       evictionLock.unlock();

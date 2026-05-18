@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -55,6 +56,17 @@ public class LockFreeReadCacheOptimisticTest {
   public void tearDown() {
     readCache.clear();
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
+  }
+
+  /**
+   * The {@code PageFrameWriteCache} mock is not exercised by the recovery-time
+   * orphan-truncation pass, so its {@code shrinkFile} override throws UOE. This assertion
+   * pins that behaviour — a regression to a silent no-op or a real truncate would hide the
+   * fact that a future test misroutes through this mock instead of the production WOWCache.
+   */
+  @Test
+  public void testShrinkFileMockThrowsUnsupportedOperation() {
+    assertThrows(UnsupportedOperationException.class, () -> writeCache.shrinkFile(0L, 0L));
   }
 
   @Test
@@ -365,6 +377,14 @@ public class LockFreeReadCacheOptimisticTest {
 
     @Override
     public void truncateFile(long fileId) {
+    }
+
+    @Override
+    public void shrinkFile(long fileId, long targetBytes) {
+      // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
+      // catches an accidental call from a future test that should use the production
+      // WriteCache impl instead.
+      throw new UnsupportedOperationException("shrinkFile is not supported by test mock");
     }
 
     @Override

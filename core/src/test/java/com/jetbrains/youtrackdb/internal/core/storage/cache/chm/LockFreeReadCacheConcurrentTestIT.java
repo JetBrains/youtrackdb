@@ -234,6 +234,24 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
   }
 
+  /**
+   * The {@code MockedWriteCache} inner record is not exercised by the recovery-time
+   * orphan-truncation pass, so its {@code shrinkFile} override throws UOE. This assertion pins
+   * the contract — a regression to a silent no-op or a real truncate would hide a future test
+   * accidentally routing through this mock instead of the production WOWCache.
+   */
+  @Test
+  public void testShrinkFileMockThrowsUnsupportedOperation() {
+    final var pool = new ByteBufferPool(4 * 1024);
+    try {
+      final WriteCache writeCache = new MockedWriteCache(pool);
+      org.junit.Assert.assertThrows(
+          UnsupportedOperationException.class, () -> writeCache.shrinkFile(0L, 0L));
+    } finally {
+      pool.clear();
+    }
+  }
+
   /** Minimal WriteCache stub — allocates from ByteBufferPool, no disk I/O. */
   private record MockedWriteCache(ByteBufferPool byteBufferPool) implements WriteCache {
 
@@ -373,6 +391,14 @@ public class LockFreeReadCacheConcurrentTestIT {
 
     @Override
     public void truncateFile(final long fileId) {
+    }
+
+    @Override
+    public void shrinkFile(final long fileId, final long targetBytes) {
+      // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
+      // catches an accidental call from a future test that should use the production
+      // WriteCache impl instead.
+      throw new UnsupportedOperationException("shrinkFile is not supported by test mock");
     }
 
     @Override

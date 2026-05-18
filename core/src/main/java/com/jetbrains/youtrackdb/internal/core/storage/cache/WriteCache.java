@@ -318,6 +318,44 @@ public interface WriteCache {
 
   void truncateFile(long fileId) throws IOException;
 
+  /**
+   * One-way shrink primitive: reduces the on-disk physical size of {@code fileId} to
+   * {@code targetBytes}, dropping any cached dirty page entries that sit at or above
+   * the target. Unlike {@link #truncateFile(long)} (which truncates to zero), this
+   * primitive carries an explicit target and never grows the file: callers passing a
+   * {@code targetBytes} greater than or equal to the current physical file size get a
+   * no-op.
+   *
+   * <p>Used by the recovery-time orphan-truncation pass to repair the
+   * {@code logical &lt;= physical} invariant on the four entry-point-equipped storage
+   * components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
+   * PaginatedCollectionV2) after a partial-flush crash leaves physical pages past the
+   * EP-stored logical counter.
+   *
+   * <p>The disk impl ({@code WOWCache}) acquires {@code filesLock.writeLock} so the
+   * truncate is mutually exclusive against concurrent file-table mutations; the
+   * write-back layer's dirty pages at {@code pageIndex >= targetBytes / pageSize} are
+   * dropped via the range-scoped {@code removeCachedPagesAtLeast} purge before the
+   * underlying {@code AsyncFile.shrink} runs, so a concurrent flush of an orphan
+   * dirty entry cannot re-extend the file past the target. Dirty entries below the
+   * target are preserved and will be persisted by the next periodic flush.
+   *
+   * <p>The in-memory impl ({@code DirectMemoryOnlyDiskCache}) is a no-op: an
+   * in-memory engine cannot produce on-disk orphans, so the recovery pass has
+   * nothing to repair.
+   *
+   * <p>Test-mock implementers throw {@link UnsupportedOperationException}; only the
+   * two production implementers (WOWCache and DirectMemoryOnlyDiskCache) need to
+   * participate in the recovery pass.
+   *
+   * @param fileId external file id of the target file
+   * @param targetBytes new physical size in bytes; must be {@code >= 0} and should be
+   *     a multiple of the page size (the recovery pass always supplies a
+   *     page-aligned value)
+   * @throws IOException if the underlying disk I/O fails during the truncate
+   */
+  void shrinkFile(long fileId, long targetBytes) throws IOException;
+
   void renameFile(long fileId, String newFileName) throws IOException;
 
   long[] close() throws IOException;

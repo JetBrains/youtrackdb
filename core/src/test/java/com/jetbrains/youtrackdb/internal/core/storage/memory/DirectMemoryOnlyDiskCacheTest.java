@@ -515,6 +515,58 @@ public class DirectMemoryOnlyDiskCacheTest {
   }
 
   /**
+   * Verifies that {@code shrinkFile(fileId, targetBytes)} is a no-op for the in-memory engine —
+   * the on-disk physical state the recovery-time orphan-truncation pass repairs does not exist
+   * for {@link DirectMemoryOnlyDiskCache}, so the WriteCache half of the layered shrink must
+   * leave the file unchanged regardless of the supplied target. The orchestrator calls this
+   * polymorphically through the WriteCache interface, so a regression to UOE or to a real
+   * truncate would break the in-memory startup path.
+   */
+  @Test
+  public void testShrinkFileWriteCacheVariantIsNoOp() {
+    var fileId = cache.addFile("shrink.cf");
+    for (int i = 0; i < 4; i++) {
+      cache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
+    }
+    assertEquals(4L, cache.getFilledUpTo(fileId));
+
+    // Target below current size — must NOT shrink (in-memory engine has no on-disk state)
+    cache.shrinkFile(fileId, PAGE_SIZE);
+    assertEquals(
+        "shrinkFile(WriteCache variant) must be a no-op on the in-memory engine",
+        4L, cache.getFilledUpTo(fileId));
+
+    // Target above current size — also a no-op, no growth
+    cache.shrinkFile(fileId, 16L * PAGE_SIZE);
+    assertEquals(4L, cache.getFilledUpTo(fileId));
+
+    // Zero target — still a no-op
+    cache.shrinkFile(fileId, 0L);
+    assertEquals(4L, cache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * Verifies that {@code shrinkFile(fileId, targetBytes, writeCache)} — the {@code ReadCache}
+   * orchestrator variant — is a no-op for the in-memory engine. The polymorphic dispatch in the
+   * recovery pass routes through this entry point; it must behave identically to the
+   * {@link DirectMemoryOnlyDiskCache#shrinkFile(long, long)} sibling regardless of the
+   * supplied {@code WriteCache}.
+   */
+  @Test
+  public void testShrinkFileReadCacheVariantIsNoOp() {
+    var fileId = cache.addFile("shrink2.cf");
+    for (int i = 0; i < 3; i++) {
+      cache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
+    }
+    assertEquals(3L, cache.getFilledUpTo(fileId));
+
+    cache.shrinkFile(fileId, PAGE_SIZE, cache);
+    assertEquals(
+        "shrinkFile(ReadCache variant) must be a no-op on the in-memory engine",
+        3L, cache.getFilledUpTo(fileId));
+  }
+
+  /**
    * Verifies that {@code deleteFile(fileId)} removes the file so that {@code exists()} returns
    * {@code false} afterwards.
    */

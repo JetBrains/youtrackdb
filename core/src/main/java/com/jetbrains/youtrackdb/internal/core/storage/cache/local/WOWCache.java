@@ -1927,6 +1927,52 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public void shrinkFile(long fileId, final long targetBytes) throws IOException {
+    if (targetBytes < 0) {
+      throw new IllegalArgumentException(
+          "Target shrink size must be non-negative: " + targetBytes);
+    }
+    final var intId = extractFileId(fileId);
+    fileId = composeFileId(id, intId);
+
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+
+      final var entry = files.acquire(fileId);
+      try {
+        final var file = entry.get();
+        // Pre-flight no-op: a target greater than or equal to the current logical
+        // size has nothing to drop. The read of getFileSize() is serialised against
+        // concurrent allocateSpace / shrink writers by the surrounding filesLock
+        // writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
+        // stable for the duration of the call.
+        if (file.getFileSize() <= targetBytes) {
+          return;
+        }
+        // Drop write-back layer entries at pageIndex >= minPageIndex BEFORE
+        // truncating the AsyncFile. If we truncated first, a concurrent periodic
+        // flush could write a dirty orphan entry back to disk and re-extend the
+        // file past targetBytes. Dirty entries below minPageIndex are preserved
+        // (they belong to file regions the truncate does NOT drop and need to
+        // survive the next periodic flush).
+        final var pageSizeLocal = (long) pageSize;
+        final var minPageIndex = (int) (targetBytes / pageSizeLocal);
+        removeCachedPagesAtLeast(intId, minPageIndex);
+        file.shrink(targetBytes);
+      } finally {
+        files.release(entry);
+      }
+    } catch (final java.lang.InterruptedException e) {
+      throw BaseException.wrapException(
+          new StorageException(storageName, "File shrink was interrupted"),
+          e, storageName);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  @Override
   public boolean fileIdsAreEqual(final long firsId, final long secondId) {
     final var firstIntId = extractFileId(firsId);
     final var secondIntId = extractFileId(secondId);
@@ -3251,6 +3297,32 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * Range-scoped sibling of {@link #removeCachedPages(int)}: drops only the
+   * {@code writeCachePages} entries at {@code pageIndex >= minPageIndex} for the given file.
+   * Routed through the commit executor for the same reason as
+   * {@link #removeCachedPages(int)} — the periodic-flush task runs on that single-threaded
+   * FIFO, so dispatching the purge there orders it cleanly against any in-flight flush.
+   *
+   * <p>The bulk variant is inappropriate for the orphan-truncation use case: dirty entries
+   * at {@code pageIndex < minPageIndex} belong to file regions the truncate does NOT drop
+   * and must survive the next periodic flush.
+   */
+  private void removeCachedPagesAtLeast(final int fileId, final int minPageIndex) {
+    final var future =
+        commitExecutor().submit(new RemoveFilePagesAtLeastTask(this, fileId, minPageIndex));
+    try {
+      future.get();
+    } catch (final java.lang.InterruptedException e) {
+      throw BaseException.wrapException(
+          new ThreadInterruptedException("File data removal was interrupted"), e, storageName);
+    } catch (final Exception e) {
+      throw BaseException.wrapException(
+          new WriteCacheException(storageName, "File data removal was abnormally terminated"), e,
+          storageName);
+    }
+  }
+
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
@@ -3562,6 +3634,53 @@ public final class WOWCache extends AbstractWriteCache
           // under the exclusive lock would deadlock.
           // The group lock (lockManager) is still held, preventing concurrent
           // modifications to this page key.
+          pagePointer.decrementWritersReferrer();
+
+          entryIterator.remove();
+        } finally {
+          groupLock.unlock();
+        }
+      }
+    }
+  }
+
+  /**
+   * Range-scoped sibling of {@link #doRemoveCachePages(int)}: removes every
+   * {@code writeCachePages} entry whose {@code pageKey} matches
+   * {@code (fileId == internalFileId && pageIndex >= minPageIndex)}. Mirrors the
+   * lock-ordering, exclusive-lock + decrementWritersReferrer-after-release, and
+   * dirty-page-table cleanup of the bulk variant; only the match predicate differs.
+   *
+   * <p>Entries at {@code pageIndex < minPageIndex} are left untouched. The recovery-time
+   * orphan-truncation pass uses this primitive so dirty pages below the truncate target
+   * survive (they belong to file regions the truncate does NOT drop and must be
+   * persisted by the next periodic flush), while pages at or past the target are
+   * dropped before the underlying file shrink runs.
+   */
+  void doRemoveCachePagesAtLeast(int internalFileId, int minPageIndex) {
+    final var entryIterator =
+        writeCachePages.entrySet().iterator();
+    while (entryIterator.hasNext()) {
+      final var entry = entryIterator.next();
+      final var pageKey = entry.getKey();
+
+      if (pageKey.fileId == internalFileId && pageKey.pageIndex >= minPageIndex) {
+        final var pagePointer = entry.getValue();
+        final var groupLock = lockManager.acquireExclusiveLock(pageKey);
+        try {
+          long exclusiveStamp = pagePointer.acquireExclusiveLock();
+          try {
+            pagePointer.setWritersListener(null);
+            writeCacheSize.decrementAndGet();
+
+            removeFromDirtyPages(pageKey);
+          } finally {
+            pagePointer.releaseExclusiveLock(exclusiveStamp);
+          }
+
+          // See doRemoveCachePages for why decrementWritersReferrer must run AFTER
+          // releasing the page-pointer's exclusive lock but BEFORE releasing the
+          // group lock (StampedLock non-reentrancy + pageFramePool.release locking).
           pagePointer.decrementWritersReferrer();
 
           entryIterator.remove();

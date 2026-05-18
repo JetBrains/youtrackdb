@@ -251,6 +251,96 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals("cache must remain empty", 0, readCache.getUsedMemory());
   }
 
+  // ---- shrinkFile ----
+
+  /**
+   * {@code shrinkFile(fileId, targetBytes, writeCache)} must:
+   * <ol>
+   *   <li>Invoke {@code writeCache.shrinkFile(fileId, targetBytes)} exactly once with the
+   *       supplied target.</li>
+   *   <li>Purge cache entries at {@code pageIndex >= targetBytes / pageSize} for {@code fileId}
+   *       only.</li>
+   *   <li>Preserve entries below the cutoff for {@code fileId}, plus all entries for other
+   *       files.</li>
+   * </ol>
+   *
+   * <p>Sets up file 30 with 6 cached pages and file 31 with 2 cached pages, shrinks file 30 to
+   * 3 pages, and verifies the cache holds exactly {3 + 2 = 5} pages afterwards — 3 below-cutoff
+   * pages for file 30, plus all 2 pages for file 31.
+   */
+  @Test
+  public void testShrinkFileDropsAboveTargetEntriesAndDelegates() throws IOException {
+    for (int i = 0; i < 6; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(30, i, writeCache, false));
+    }
+    for (int i = 0; i < 2; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(31, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 8 pages in cache", 8L * PAGE_SIZE, readCache.getUsedMemory());
+    Assert.assertEquals("sanity: shrinkFile not called yet", 0, writeCache.shrinkFileCount.get());
+
+    final long targetBytes = 3L * PAGE_SIZE;
+    readCache.shrinkFile(30, targetBytes, writeCache);
+
+    Assert.assertEquals(
+        "writeCache.shrinkFile must be invoked exactly once",
+        1, writeCache.shrinkFileCount.get());
+    Assert.assertEquals(
+        "writeCache.shrinkFile must receive the orchestrator's targetBytes verbatim",
+        targetBytes, writeCache.lastShrinkTargetBytes);
+
+    Assert.assertEquals(
+        "After shrinkFile(30, 3 * PAGE_SIZE), 3 pages for file 30 + 2 pages for file 31 remain",
+        5L * PAGE_SIZE, readCache.getUsedMemory());
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  /**
+   * {@code shrinkFile()} with {@code targetBytes = 0} drops every cached page for the target
+   * file — equivalent shape to {@code truncateFile} but exercised through the new orchestrator.
+   * Catches a regression where the range filter mishandles the {@code minPageIndex == 0} edge
+   * case (which should match every page).
+   */
+  @Test
+  public void testShrinkFileToZeroDropsEverything() throws IOException {
+    for (int i = 0; i < 4; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(40, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 4 pages in cache", 4L * PAGE_SIZE, readCache.getUsedMemory());
+
+    readCache.shrinkFile(40, 0L, writeCache);
+
+    Assert.assertEquals(
+        "Every cached page for file 40 must be evicted by shrinkFile(0)",
+        0, readCache.getUsedMemory());
+    Assert.assertEquals(
+        "writeCache.shrinkFile must still be invoked once on the zero-target path",
+        1, writeCache.shrinkFileCount.get());
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  /**
+   * {@code shrinkFile()} on a file with no cached pages must still invoke
+   * {@code writeCache.shrinkFile()} exactly once — the file-system call is the
+   * orchestrator's responsibility regardless of cache state, and a clean shutdown
+   * (no pages cached) is a valid call shape for the recovery pass.
+   */
+  @Test
+  public void testShrinkFileOnUncachedFileStillDelegates() throws IOException {
+    Assert.assertEquals("sanity: cache is empty", 0, readCache.getUsedMemory());
+
+    readCache.shrinkFile(99, 4L * PAGE_SIZE, writeCache);
+
+    Assert.assertEquals(
+        "shrinkFile on an uncached file must still invoke writeCache.shrinkFile()",
+        1, writeCache.shrinkFileCount.get());
+    Assert.assertEquals("cache must remain empty", 0, readCache.getUsedMemory());
+  }
+
   // ---- silentLoadForRead ----
 
   /**
@@ -306,6 +396,8 @@ public class LockFreeReadCacheFileOpsTest {
     final AtomicInteger truncateCount = new AtomicInteger();
     final AtomicInteger closeFileCount = new AtomicInteger();
     final AtomicInteger deleteFileCount = new AtomicInteger();
+    final AtomicInteger shrinkFileCount = new AtomicInteger();
+    volatile long lastShrinkTargetBytes = -1L;
     volatile long lastClosedFileId = -1;
 
     TrackingWriteCache(final ByteBufferPool byteBufferPool) {
@@ -355,6 +447,16 @@ public class LockFreeReadCacheFileOpsTest {
     @Override
     public void truncateFile(final long fileId) {
       truncateCount.incrementAndGet();
+    }
+
+    @Override
+    public void shrinkFile(final long fileId, final long targetBytes) {
+      // Tracking variant — unlike the four other test mocks (which throw UOE because the
+      // recovery-time orphan-truncation pass never reaches them), this mock is exercised
+      // by the LockFreeReadCache.shrinkFile orchestration tests below and records the
+      // delegate-dispatch counters they assert on.
+      shrinkFileCount.incrementAndGet();
+      lastShrinkTargetBytes = targetBytes;
     }
 
     @Override

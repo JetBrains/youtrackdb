@@ -446,6 +446,18 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     file.clear();
   }
 
+  /**
+   * In-memory engine has no on-disk physical state, so a one-way shrink to a non-zero
+   * target has nothing to repair — the recovery-time orphan-truncation pass cannot
+   * fabricate an in-memory orphan because the page-table is the only source of truth.
+   * Implemented as a no-op so the orchestrator can dispatch polymorphically without
+   * a type-test.
+   */
+  @Override
+  public void shrinkFile(final long fileId, final long targetBytes) {
+    // No-op: in-memory engine cannot produce on-disk orphans.
+  }
+
   @Override
   public void flush() {
   }
@@ -694,6 +706,17 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   @Override
   public void truncateFile(final long fileId, final WriteCache writeCache) {
     truncateFile(fileId);
+  }
+
+  /**
+   * In-memory engine has no on-disk physical state and no read-cache layer separate from
+   * the write cache, so the {@link ReadCache} orchestrator simply forwards to its own
+   * {@code WriteCache.shrinkFile} no-op. Implemented so the polymorphic dispatch from the
+   * recovery-time orphan-truncation pass works uniformly across both engines.
+   */
+  @Override
+  public void shrinkFile(final long fileId, final long targetBytes, final WriteCache writeCache) {
+    shrinkFile(fileId, targetBytes);
   }
 
   @Override
