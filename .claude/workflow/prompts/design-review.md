@@ -84,10 +84,9 @@ addition to the standard cold-read, verify:
 - Verify why-before-what per `.claude/output-styles/house-style.md § Why-before-what`.
 - Verify navigability per `.claude/output-styles/house-style.md § Navigability`.
 
-**Reviewer tone** for these four rules: § Tone and depth's
-"one-sentence answers" is relaxed — quote the prose, list undefined
-terms, name the failing audience, and (for navigability) the opaque
-section.
+**Reviewer tone** for these four rules relaxes the "one-sentence answers"
+rule in § Tone and depth: quote the prose, list undefined terms, name the
+audience the prose fails, and (for navigability) the opaque section.
 
 ## Reading rules
 
@@ -95,6 +94,7 @@ section.
 - **Bounded scope**: changed section + 1-2 surrounding + `## Overview` + (when present) `## Core Concepts`; open mechanics only for a specific `Mechanics:` link.
 - **Whole-doc scope**: entire `design.md`; mechanics for link targets.
 - **Plan / track-file reads**: grep-only for `**Full design**` link resolution.
+- **`house-style.md` reads**: read only the cited `§ <heading>` section using grep + targeted Read (offset/limit). Never load the file whole and never pre-load all cited sections; fetch a section only when a finding is forming.
 
 ## Comprehension questions
 
@@ -126,9 +126,10 @@ phrase or section + anchor). Insufficient material is itself a finding.
 - Verify **References footer** per `.claude/output-styles/house-style.md § References footer shape`.
 - Verify **Same-shape sibling consolidation** per `.claude/output-styles/house-style.md § Same-shape sibling consolidation`.
 - (**Whole-doc only**) Verify **Overview is concept-first** per `.claude/output-styles/house-style.md § Overview concept-first`.
-- **TL;DR present** (`dsc-tldr-shape`); **Mechanism overview ≤300 lines** (`dsc-mechanism-length`, warn 200); **Length budget** ≤2,000 (`dsc-length-budget`).
+- **TL;DR present**; **Mechanism overview ≤300 lines** (warn 200); **Length budget** ≤2,000.
 - **`Mechanics:` link target** exists in `design-mechanics.md` when split applies.
-- (**Whole-doc only**) **Core Concepts current and complete** for docs with Parts or ≥3 new domain terms (`dsc-core-concepts-current`); **`**Full design**` refs** in plan and track files resolve to real `design.md` sections.
+- (**Whole-doc only**) **Core Concepts current and complete** for docs with Parts or ≥3 new domain terms; **`**Full design**` refs** in plan and track files resolve to real `design.md` sections.
+- Mechanical checks live in `.claude/scripts/design-mechanical-checks.py`; see `design-document-rules.md § Mechanical checks` for the rule contracts.
 
 ## Output format
 
@@ -163,7 +164,7 @@ Produce exactly the following Markdown, no preamble:
 findings under the Human-reader cold-read additions go in the
 same list but prefix each with the dimension label and use
 multi-line bullets to fit the evidence required by the Tone
-exception — e.g. `[blocker] (a) Audience-fit: <quoted prose +
+exception — e.g. `[blocker] audience-fit: <quoted prose +
 named audience + why it breaks down>`.)
 
 ## Verdict
@@ -192,7 +193,7 @@ attempt the fix automatically.>
 
 ## Tone and depth
 
-- One-sentence answers where one suffices. **Exception**: the four Human-reader rules require evidence (see § Reviewer tone).
+- One-sentence answers where one suffices. **Exception**: the four Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions).
 - Cite, don't paraphrase.
 - If unanswerable, say "Insufficient — see finding below" and add the structural finding.
 - Don't speculate about intent the doc doesn't state.
