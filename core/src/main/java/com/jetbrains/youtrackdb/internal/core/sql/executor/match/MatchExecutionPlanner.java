@@ -4504,10 +4504,13 @@ public class MatchExecutionPlanner {
           // Update currentEdgeClass state based on the method type.
           // inV/outV is deferred: it consumes currentEdgeClass after inference below.
           var isInVOrOutV = "inv".equals(methodLower) || "outv".equals(methodLower);
-          if ("oute".equals(methodLower) || "ine".equals(methodLower)) {
+          if ("oute".equals(methodLower) || "ine".equals(methodLower)
+              || "bothe".equals(methodLower)) {
+            // bothE('X') identifies the edge class just like outE/inE — store it so that
+            // a subsequent inV/outV step can infer its linked vertex class.
             currentEdgeClass = extractEdgeClassName(method);
           } else if (!isInVOrOutV) {
-            // Any other method (out, in, both, bothE, etc.) resets the state.
+            // Any other method (out, in, both, etc.) resets the state.
             currentEdgeClass = null;
           }
 
@@ -4541,12 +4544,17 @@ public class MatchExecutionPlanner {
   /**
    * Infers the alias class from the edge schema LINK declarations.
    *
-   * <p>Handles six method types:
+   * <p>Handles eight method types:
    * <ul>
    *   <li>{@code out('X')} / {@code in('X')}: target is the opposite endpoint
    *       of edge class X (vertex class)</li>
-   *   <li>{@code outE('X')} / {@code inE('X')}: alias class is X itself
-   *       (the edge class)</li>
+   *   <li>{@code both('X')}: target class is inferred only when both endpoints
+   *       of edge class X resolve to the same vertex class (symmetric edges
+   *       such as {@code KNOWS}). For heterogeneous edges (e.g. in=Post,
+   *       out=Person) inference returns {@code null}, because a single alias
+   *       cannot represent both endpoint classes.</li>
+   *   <li>{@code outE('X')} / {@code inE('X')} / {@code bothE('X')}: alias class
+   *       is X itself (the edge class)</li>
    *   <li>{@code inV()} / {@code outV()}: alias class is the linked vertex
    *       class from the preceding edge's LINK schema ({@code currentEdgeClass})</li>
    * </ul>
@@ -4567,8 +4575,8 @@ public class MatchExecutionPlanner {
     }
     dirName = dirName.toLowerCase(Locale.ROOT);
 
-    // outE('X') / inE('X'): the edge class itself is the alias class
-    if ("oute".equals(dirName) || "ine".equals(dirName)) {
+    // outE('X') / inE('X') / bothE('X'): the edge class itself is the alias class
+    if ("oute".equals(dirName) || "ine".equals(dirName) || "bothe".equals(dirName)) {
       return extractEdgeClassName(method);
     }
 
@@ -4582,13 +4590,30 @@ public class MatchExecutionPlanner {
       return lookupLinkedVertexClass(currentEdgeClass, prop, context);
     }
 
-    // out('X') / in('X'): infer the target vertex class from the edge LINK schema
-    if (!"in".equals(dirName) && !"out".equals(dirName)) {
+    // out('X') / in('X') / both('X'): infer the target vertex class from the
+    // edge LINK schema
+    if (!"in".equals(dirName) && !"out".equals(dirName)
+        && !"both".equals(dirName)) {
       return null;
     }
 
     var edgeClassName = extractEdgeClassName(method);
     if (edgeClassName == null) {
+      return null;
+    }
+
+    // both('X'): infer only when both endpoints resolve to the same vertex
+    // class. For symmetric edges (e.g. KNOWS: in=Person, out=Person) this
+    // returns Person; for heterogeneous edges (e.g. HAS_CREATOR: in=Post,
+    // out=Person) it returns null, because a single alias cannot safely
+    // represent both endpoint classes and an index lookup on the alias
+    // could miss records of the other class.
+    if ("both".equals(dirName)) {
+      var inClass = lookupLinkedVertexClass(edgeClassName, "in", context);
+      var outClass = lookupLinkedVertexClass(edgeClassName, "out", context);
+      if (inClass != null && inClass.equals(outClass)) {
+        return inClass;
+      }
       return null;
     }
 
