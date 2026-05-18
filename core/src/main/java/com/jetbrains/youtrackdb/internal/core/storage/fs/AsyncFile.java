@@ -310,7 +310,21 @@ public final class AsyncFile implements File {
     try {
       checkForClose();
 
-      this.size.set(0);
+      // Pre-flight guard inside the exclusive-lock window: a shrink that does not
+      // actually reduce the logical size is a no-op. The read of this.size is
+      // serialised against concurrent shrink / allocateSpace by the surrounding
+      // exclusiveLock — placing the check outside the lock would race because
+      // allocateSpace bumps this.size without locking.
+      if (size >= this.size.get()) {
+        return;
+      }
+
+      // Set the in-memory logical size to the target. Previously this method
+      // unconditionally set the size to 0, which was only correct for the
+      // truncate-to-zero callers; a partial shrink (0 < size < currentSize)
+      // would corrupt the logical / physical accounting on subsequent
+      // allocateSpace calls.
+      this.size.set(size);
       fileChannel.truncate(size + HEADER_SIZE);
     } finally {
       lock.exclusiveUnlock();
