@@ -827,12 +827,42 @@ flowchart LR
   >   strengthen `inMemoryEagerInstallToleratesConcurrentOrphanReuse`
   >   contention window.
   >
+  > **Phase C deferrals absorbed (Track 7 review fan-out):**
+  > - **ChecksumMode coverage matrix** — Track 7's
+  >   `TruncateOrphansAfterRecoveryIT` runs only under
+  >   `ChecksumMode.Off`. Track 7's CS1 partial-flush-orphan scenarios
+  >   (already in Track 6 scope above) should exercise both
+  >   `ChecksumMode.Off` and `ChecksumMode.StoreAndThrow` so the
+  >   "orphan bodies are never read during truncate" claim is pinned
+  >   under the production CI default checksum mode. A future-track
+  >   regression that accidentally reads an orphan page during the
+  >   pass would trip checksum verification under StoreAndThrow.
+  > - **Multi-value engine `.nbt` null-tree orphan IT** — Track 7's
+  >   unit tests pin the `BTreeMultiValueIndexEngine` wrapper's
+  >   svTree + nullTree dispatch via mocks, but no IT exercises a
+  >   real `.nbt` file with an orphan tail (a NOTUNIQUE index
+  >   accumulating null-keyed entries that grow the null-bucket
+  >   past one page). Add an IT scenario alongside Track 6's CS1
+  >   coverage.
+  > - **Executable `postProcessIncrementalRestore` wiring test** —
+  >   Track 7 ships a tightened source-text wiring sentinel
+  >   (`DiskStorageRestoreOrchestratorWiringTest`) pinning the exact
+  >   `executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)`
+  >   call shape after `flushAllData()`. Track 6's
+  >   `StorageBackupMTStateTest` resurrection (above) is the natural
+  >   home for an executable IR test that drives an orphan-bearing
+  >   backup through `DiskStorage.incrementalRestore` and asserts
+  >   `physical == logical` on the destination — replacing the
+  >   stopgap source-text test once the executable coverage lands.
+  >
   > **Scope:** ~5-7 steps covering: (a) original poison-cascade test
   > scaffolding + fail-on-develop / pass-on-fix verification;
   > (b) CS1 partial-flush-orphan scenario (post-Track-7 invariant
-  > assertion); (c) HLL-spill recovery; (d) StorageBackupMTStateTest
-  > resurrection; (e) I4 per-component MT pins across the four
-  > allocator sites + in-memory contention strengthening.
+  > assertion) under both checksum modes + multi-value null-tree
+  > variant; (c) HLL-spill recovery; (d) StorageBackupMTStateTest
+  > resurrection with executable IR-wiring coverage; (e) I4
+  > per-component MT pins across the four allocator sites +
+  > in-memory contention strengthening.
   > **Depends on:** Track 1, Track 4, Track 7
 
 ## Plan Review

@@ -495,14 +495,19 @@ pattern.
 > - **Depends on Track 4** — Track 4's AOBT allocator-only contract is
 >   what makes the orphan reachable as an `IllegalStateException` (and
 >   thus motivates this track). Track 7 does not modify Track 4 code.
-> - **Independent of Track 5** — Track 5's gated-helper work is
->   parallel and non-conflicting. Track 7 reads physical size via
->   `AsyncFile.getFileSize() / pageSize` internally to its new
->   `shrinkFile` primitive; it does NOT call
->   `WriteCache.getFilledUpTo` or Track 5's `StorageComponent.physicalSize`
->   on the recovery path (different lifecycle from steady-state
->   discovery — recovery happens before the per-TX read patterns the
->   Track 5 helpers serve).
+> - **Uses Track 5's `StorageComponent.physicalSize` on the recovery path**
+>   — Track 5's gated-helper work is parallel and non-conflicting; the
+>   per-component `verifyAndTruncateOrphans` helpers (BTree, SLBB,
+>   CPMV2, PCV2) all read physical size via
+>   `physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD)`,
+>   which routes through `atomicOperation.filledUpTo(fileId)`. The new
+>   `RECOVERY_REBUILD` enum constant in `PhysicalReadIntent` documents
+>   the recovery lifecycle (the per-TX read patterns the other intents
+>   serve are distinct). The new `shrinkFile` primitive itself
+>   internally reads `AsyncFile.getFileSize() / pageSize` for the
+>   pre-flight no-op check, but the orchestrator-side decision of
+>   "is there an orphan tail?" routes through Track 5's helper, not
+>   `WriteCache.getFilledUpTo` directly.
 > - **Feeds Track 6** — Track 6's CS1 integration test asserts the
 >   post-replay invariant Track 7 establishes (I6). The Track 6 CS1
 >   coverage also exercises FSM/CDPB/IHM partial-flush scenarios
@@ -530,7 +535,7 @@ pattern.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (5/5 complete)
-- [ ] Track-level code review (1/3 iterations)
+- [x] Track-level code review (1/3 iterations, PASS)
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (8 findings — 1 blocker + 4 should-fix accepted and applied; 3 suggestions deferred)
