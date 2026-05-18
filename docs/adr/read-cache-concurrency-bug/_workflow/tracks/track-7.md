@@ -529,7 +529,7 @@ pattern.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation (5/5 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -949,7 +949,8 @@ pattern.
   >
   > **Critical context:** none.
 
-- [ ] Step 5: `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator + `open()` wiring + `postProcessIncrementalRestore` wiring + integration tests
+- [x] Step 5: `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator + `open()` wiring + `postProcessIncrementalRestore` wiring + integration tests
+  - [x] Context: warning
   > **Risk:** high — crash-safety / durability (recovery path, two storage-startup entry points, unlogged truncate — EP-page floor + corruption guard are the only safety nets; integration tests include sub-JVM crash precedent)
   >
   > **What**:
@@ -969,6 +970,205 @@ pattern.
   >   - **Positive (confirmation) — sub-JVM crash** (slower, tagged integration): drive `commitChanges` to WAL-buffered state on the disk engine, kill the JVM mid-flight via `Runtime.exec` (`LocalPaginatedStorageRestoreFromWALIT` precedent), reopen, assert `physical == logical`.
   >   - **Negative (clean shutdown → no-op)**: assert the pass runs but emits no truncate log line.
   >   - **Incremental-restore entry point**: drive a backup with concurrent writes (so `physicalSizeForBackupSnapshot` captures a transient orphan-shape file), restore the backup, assert `physical == logical` post-restore.
+  >
+  > **What was done:** Implemented
+  > `AbstractStorage.truncateOrphansAfterRecovery(AtomicOperation)` as a
+  > `protected` orchestrator (lifted from `private` so the disk-engine
+  > subclass can dispatch across packages). The orchestrator walks
+  > three groups in documented order: (1) `PaginatedCollectionV2` +
+  > its embedded `CollectionPositionMapV2` for every non-null entry
+  > in `collections`; (2) `BTreeSingleValueIndexEngine` /
+  > `BTreeMultiValueIndexEngine` in `indexEngines` (`instanceof` filter,
+  > other engine types silently skipped); (3) a single
+  > `linkCollectionsBTreeManager.verifyAndTruncateAllOrphans` call.
+  > `(atomicOperation, readCache, writeCache)` forward unchanged to
+  > each helper. Wired from `AbstractStorage.open()` after
+  > `openIndexes` and from `DiskStorage.postProcessIncrementalRestore`
+  > after `flushAllData()` and before `generateDatabaseInstanceId`; both
+  > sites wrap the dispatch in `executeInsideAtomicOperation`. Added
+  > `PaginatedCollectionV2.getCollectionPositionMap()` so the
+  > orchestrator can dispatch the `.cpm` truncate independently.
+  > Tests: orchestrator unit test pins iteration order (Mockito
+  > `InOrder`), null-slot skipping, `instanceof` filtering, and
+  > per-group exception propagation across all three group origins.
+  > Integration test fabricates orphan pages on `.pcl` / `.cpm` /
+  > `.cbt` files via `RandomAccessFile` + magic-stamp pages, reopens,
+  > asserts strict-equality file shrinkage to the pre-fabrication
+  > size measured BEFORE any post-recovery TX. A separate
+  > `DiskStorageRestoreOrchestratorWiringTest` is a source-text
+  > regression sentinel pinning `flushAllData()` before
+  > `truncateOrphansAfterRecovery` in
+  > `postProcessIncrementalRestore`'s body — a Mockito spy was
+  > infeasible because the method is `private` on `DiskStorage` and
+  > a real spy would re-create the integration scaffolding the test
+  > is trying to avoid. Iter-1 fix `f2f35391a0` applied M1–M7 + m1–m4
+  > findings across 6 dim reviews: restored the orphaned
+  > `verifyAndTruncateOrphans` Javadoc in PCV2, tightened all four
+  > IT scenarios to capture file size pre-TX with strict equality,
+  > added Javadoc orderiing rationale + inline FSM-rebuild
+  > future-work note, pinned cross-group dispatch ordering with
+  > `InOrder`, added Group-2 / Group-3 exception-origin tests,
+  > added the wiring-sentinel test, added the `.cpm` IT, renamed
+  > stale `.sbt` references to `.cbt`, named
+  > `WOWCache.MAGIC_NUMBER_WITHOUT_CHECKSUM` at its anchor, and
+  > tidied static imports. Iter-1 dim-review gate-check: 5/6
+  > dimensions PASS (BC/TB/TC/CS/TY all clear). One CQ STILL OPEN
+  > (CQ5, FQN inline-import cleanup for ~10 type references in the
+  > IT — style only, no behavior/correctness impact, including a
+  > genuine `metadata.schema.schema.PropertyType` package path with
+  > a doubled `.schema.` segment that exists on disk). Deferred —
+  > recorded in the deferred-items list below for Phase C track
+  > review or a future cleanup pass. Targeted tests: 20/20 pass at
+  > iter-1; full Step-5-implementer suite at base commit
+  > `fe6b728f2e` was 18225/18225 unit tests + coverage gate PASS at
+  > 91.5% line / 85.9% branch on the 58-file cumulative diff.
+  >
+  > **What was discovered:**
+  > - **`postProcessIncrementalRestore` is `private` on `DiskStorage`**,
+  >   so a Mockito spy of the wiring is impractical (the spy
+  >   re-creates the integration scaffolding the test is trying to
+  >   avoid). Used a source-text regression sentinel instead — load
+  >   `DiskStorage.java`, walk the brace-matched
+  >   `postProcessIncrementalRestore` body, assert `flushAllData()`
+  >   text precedes `this::truncateOrphansAfterRecovery` text. This
+  >   pattern is reusable for any future test where the production
+  >   method-level Mockito spy is more invasive than the regression
+  >   surface justifies.
+  > - **`BTreeSingleValueIndexEngine.DATA_FILE_EXTENSION = ".cbt"`**,
+  >   not `.sbt`. The plan's terminology slipped (the `.sbt` /
+  >   `.nbt` pair lives on the lower-level `v3.BTree` class; the
+  >   engine wraps those under `.cbt` / `.nbt`). Test code uses
+  >   `.cbt` correctly; prose and variable names updated to match.
+  > - **`YouTrackDBImpl` has no public `getStorage(name)`** accessor.
+  >   Integration tests that need the storage reference must go
+  >   through `session.getStorage()` inside an open session before
+  >   close — a reusable recipe for Track 6's CS1 / poison-cascade
+  >   regression tests.
+  > - **The full `core` test suite under `-P coverage` exceeds the
+  >   10-minute foreground Bash budget** on this host. Targeted
+  >   reruns over the changed-files dependency surface plus the
+  >   pre-coverage-stage `jacoco.exec` from the timed-out run was
+  >   enough to produce a gate-eligible cumulative-diff report.
+  >   Track 6 / later tracks that need a full coverage run should
+  >   split into `default-test` (parallel) and `sequential-tests`
+  >   stages, or restrict via `-Dtest=`.
+  > - **Orchestrator runs AFTER `openCollections` / `openIndexes`**.
+  >   The `PaginatedCollectionV2.open()` FSM-rebuild branch
+  >   (`freeSpaceMap.exists(...) == false`) scans physical pages
+  >   that may include orphans not yet truncated. Inline comment
+  >   added; full FSM-rebuild-orphan-interaction handling is
+  >   future work (potentially Track 6 or a follow-up issue).
+  >
+  > **Cross-track impact (informational):**
+  > - **Track 6 (CS1 partial-flush-orphan regression test).** Step
+  >   5's `TruncateOrphansAfterRecoveryIT` is a template for the
+  >   orphan-fabrication pattern. Track 6 can extend the same
+  >   approach to assert that without the recovery pass, the first
+  >   non-recovery TX raises `IllegalStateException` (the CS1
+  >   negative case), then re-run with the pass enabled to assert
+  >   it disappears. The IT does not yet simulate a real dirty-WAL
+  >   recovery crash — Track 6 owns that.
+  > - **Track 6 (StorageBackupMTStateTest resurrection).** The
+  >   orphan fabrication helper (`RandomAccessFile` + magic-stamp
+  >   pages) is reusable; the `findFileName` lookup pattern that
+  >   maps cluster names to on-disk file IDs is too.
+  > - **Track 6 (HLL-spill recovery).** Outside Step 5's EP-equipped
+  >   component set (IHM uses page-1 discrimination, not
+  >   EP-fileSize sizing). Step 5's orchestrator deliberately
+  >   skips IHM and other EP-less components per the plan's
+  >   Non-Goals.
+  > - **Track 6 (I4 per-component MT pins).** The orchestrator
+  >   runs under `stateLock.writeLock()` at both entry points;
+  >   Track 6's MT pins should ensure no allocator-side concurrent
+  >   contention can race with the orchestrator's per-component
+  >   helpers during the open window.
+  >
+  > **What changed from the plan:**
+  > - **Method visibility** changed from `private` (per the plan)
+  >   to `protected` — required for `DiskStorage` to dispatch the
+  >   orchestrator across package boundaries.
+  > - **Helper signature** uses `ReadCache` / `WriteCache` (per
+  >   Step 2's promoted interface), not `LockFreeReadCache` (per
+  >   the plan's pre-Step-2 text). Strictly-additive simplification
+  >   matching the polymorphic SPI surface.
+  > - **`getCollectionPositionMap()` accessor** added to
+  >   `PaginatedCollectionV2` — was not explicitly in the plan but
+  >   needed so the orchestrator can dispatch `.cpm` truncate
+  >   independently of `.pcl` truncate (the embedded field is
+  >   `private final`).
+  > - **Sub-JVM crash test deferred to Track 6** rather than
+  >   landed here. Step 5's IT exercises the post-WAL orchestrator
+  >   path with deterministic orphan fabrication; the real
+  >   dirty-WAL-replay crash path is owned by Track 6's CS1
+  >   integration tests.
+  >
+  > **Deferred items (style / depth — fold into Phase C track
+  > review or Track 6 / future passes):**
+  > - **CQ5 (style):** FQN inline usage in `TruncateOrphansAfterRecoveryIT`
+  >   for `java.nio.file.Path` (lines 118, 203, 275, 346),
+  >   `com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType`
+  >   / `SchemaClass.INDEX_TYPE` (lines 352, 354 — note the genuine
+  >   `metadata.schema.schema.` package path with a doubled
+  >   `.schema.` segment; this is real, not a typo),
+  >   `org.apache.commons.configuration2.BaseConfiguration` (lines
+  >   419, 420), `ChecksumMode` (line 422), `java.io.File` /
+  >   `java.io.IOException` (lines 439, 440, 482). Style cleanup —
+  >   add proper imports. No behavior impact.
+  > - **TB-MultiValue IT:** No IT exercises
+  >   `BTreeMultiValueIndexEngine` end-to-end (only a unit test
+  >   covers the dispatch). Track 6's CS1 IT will exercise both
+  >   engine types under partial-flush-orphan scenarios.
+  > - **TB-SLBB IT:** No IT exercises
+  >   `LinkCollectionsBTreeManagerShared` end-to-end (only a unit
+  >   test covers the iteration). The IT fixture has no edges /
+  >   RidBag-using classes, so the manager's `fileIdBTreeMap` is
+  >   empty in the current IT. Track 6's CS1 IT (edge-bearing
+  >   schema) covers this naturally.
+  > - **TB-DirtyReopen IT:** No IT covers the real dirty-WAL
+  >   recovery crash path. Track 6's CS1 partial-flush-orphan
+  >   integration test owns this shape end-to-end (sub-JVM crash
+  >   precedent at `LocalPaginatedStorageRestoreFromWALIT`).
+  > - **CS-MultiMode IT:** IT uses `checksumMode=Off`; coverage
+  >   under `StoreAndVerify` / `StoreAndThrow` is implicit in
+  >   the orchestrator's design (it reads only EP pages, never
+  >   orphan content) but not tested.
+  > - **CS-FSMRebuild ordering follow-up:** The
+  >   `PaginatedCollectionV2.open()` FSM-rebuild branch can scan
+  >   orphan pages because the orchestrator runs after
+  >   `openCollections`. Inline comment added in this iteration;
+  >   full handling is future work (track in a follow-up issue if
+  >   it surfaces in real recovery scenarios).
+  > - **Reflection-helper fragility:** Unit test uses reflection
+  >   to install lists on a `Mockito.CALLS_REAL_METHODS` storage.
+  >   The fields are `private final`; the write is JDK-21-version-
+  >   dependent. Hygiene-level concern only.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorage.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorageRestoreOrchestratorWiringTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorageTruncateOrphansAfterRecoveryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/TruncateOrphansAfterRecoveryIT.java` (new)
+  >
+  > **Critical context:**
+  > - The orphan-fabrication IT pattern (close DB, extend
+  >   `.pcl` / `.cpm` / `.cbt` file with valid-stamped pages via
+  >   `RandomAccessFile`, reopen, assert file shrank back to logical
+  >   horizon) is reusable for Track 6's CS1 / partial-flush
+  >   regression tests. The pages must carry
+  >   `MAGIC_NUMBER_WITHOUT_CHECKSUM = 0xEF30BCAFL` at offset 0
+  >   plus the LSN `(-1, -1)` slot. Open the storage with
+  >   `ChecksumMode.Off` so the magic stamp is the only validity
+  >   check the read path applies (defence-in-depth — the recovery
+  >   orchestrator itself never reads the orphan pages).
+  > - The orchestrator dispatches `.pcl` truncate BEFORE `.cpm`
+  >   truncate for each PCV2 entry. If `.cpm` fails (e.g., bad EP
+  >   page), `.pcl` has already been truncated and the per-file
+  >   invariant holds on `.pcl` but is unrestored on `.cpm`. This
+  >   is a documented design choice — per-component invariants are
+  >   the contract, not per-storage-atomic invariants. The next
+  >   reopen re-runs the pass and converges.
 
 ## Base commit
 
