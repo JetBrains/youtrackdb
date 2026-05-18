@@ -1,17 +1,18 @@
 # Track 1: Rename `concise-doc.md` → `house-style.md` and consolidate declarative rules
 
 ## Purpose / Big Picture
-After this track lands, the project has one declarative source of writing-style rules (`.claude/output-styles/house-style.md`) and every existing reference to the old name has been updated, so the acceptance gate `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returns zero matches.
+After this track lands, the project has one declarative source of writing-style rules (`.claude/output-styles/house-style.md`) and every existing reference to the old name has been updated, so the acceptance gate `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returns zero matches. The `--exclude-dir=_workflow` flag scopes the gate to live in-scope files; the planning artifacts under `docs/adr/ytdb-836-house-style/_workflow/` legitimately reference the old name and are removed by the Phase 4 cleanup commit before merge.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per `design.md § Internal layout of house-style.md` (absorbing ai-tells Tier-3 vocab + extra rules, design-review.md's Human-reader cold-read additions, design-review.md's Structural findings, and the 12 humanizer-gap patterns with inline before/after examples), update the frontmatter `name:` and `description:` to name the broader scope, and find-and-replace the 14 string references to `concise-doc` / `Concise Doc` across `CLAUDE.md`, `.claude/skills/code-review/SKILL.md`, `.claude/agents/review-workflow-consistency.md`, `.claude/agents/review-workflow-writing-style.md`, and the renamed source file's own frontmatter. The acceptance check is `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returning zero matches.
+Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per `design.md § Internal layout of house-style.md` (absorbing ai-tells Tier-3 vocab + extra rules, design-review.md's Human-reader cold-read additions, design-review.md's Structural findings, and the 12 humanizer-gap patterns with inline before/after examples), update the frontmatter `name:` and `description:` to name the broader scope, and find-and-replace the 14 string references to `concise-doc` / `Concise Doc` across `CLAUDE.md`, `.claude/skills/code-review/SKILL.md`, `.claude/agents/review-workflow-consistency.md`, `.claude/agents/review-workflow-writing-style.md`, and the renamed source file's own frontmatter. The acceptance check is `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returning zero matches.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-18T03:47Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
@@ -23,6 +24,7 @@ Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per 
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (4 findings, 2 accepted). T1 (blocker) — acceptance-gate command would not return zero during Phase 3 because `docs/adr/ytdb-836-house-style/_workflow/` carries 54 legitimate references; fixed by adding `--exclude-dir=_workflow` to all 8 gate-command sites across `implementation-plan.md` (3) and `track-1.md` (5). T2 (should-fix) — `## Validation and Acceptance` mis-located 2 of 12 humanizer patterns under `§ Banned analysis patterns`; reworded to match design's three-section ownership (10 / 1 / 1). T3 (suggestion) — design.md:243 table cell formatting; rejected, deferred to Phase 4 / `design-final.md` (design.md frozen Phase 1 end → Phase 4 start). T4 (suggestion) — step 2 sizing; rejected as decomposition-time call. Iter 2 gate verification confirmed both fixes landed cleanly with no regression.
 
 ## Context and Orientation
 
@@ -41,7 +43,7 @@ Concrete deliverables this track produces:
 2. Removal of `.claude/output-styles/concise-doc.md` (via the `git mv` operation in step 1).
 3. Updated `CLAUDE.md § Writing Style for Design Docs and Issues` block referencing the new filename and slash-command name.
 4. Updated string references — 14 occurrences total — across the four companion files listed above plus the renamed source file's frontmatter.
-5. Verified acceptance criterion: `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returns zero matches.
+5. Verified acceptance criterion: `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returns zero matches.
 
 ## Plan of Work
 
@@ -50,7 +52,7 @@ The approach moves from file rename to content rewrite to reference sweep, in th
 1. **`git mv` + frontmatter.** Rename the file in one commit. Update frontmatter `name: Concise Doc` → `name: House Style` and rewrite the `description:` to name the broader scope (design / plan / track / issue / PR / commit-body / comment / status prose). No other content changes in this step — the rename and frontmatter update is the smallest reviewable unit.
 2. **Content rewrite — full consolidated section structure.** Rewrite `house-style.md` to match `design.md § Internal layout of house-style.md`. Insert the absorbed rules from `ai-tells` (Tier-3 vocab, knowledge-cutoff disclaimer ban, inline-header-list rule, curly→straight quotes, excessive-boldface cap), from `design-review.md § Human-reader cold-read additions` (audience-fit, glossary-introduction, why-before-what, navigability), from `design-review.md § Structural findings` (Overview concept-first, References footer shape, Edge cases sub-section, same-shape sibling consolidation), and the 12 humanizer-gap patterns each with an inline before/after example block. Update the self-check to reference the new sections.
 3. **Find-and-replace sweep.** Update the remaining 13 string references across `CLAUDE.md` (2), `.claude/skills/code-review/SKILL.md` (1), `.claude/agents/review-workflow-consistency.md` (1), and `.claude/agents/review-workflow-writing-style.md` (9) — the 14th reference (the source file's frontmatter `name:`) is covered by step 1. Each is a single-line edit; use the table in `design.md § Rename: every reference site across the repo` as the authoritative checklist. Where the source text says "concise-doc style" or "**concise-doc**" with markdown emphasis, preserve the emphasis style on the replacement.
-4. **End-of-track grep verification.** Run `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` and confirm zero matches. Any remaining match is a step-back to the FRR sweep.
+4. **End-of-track grep verification.** Run `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` and confirm zero matches. Any remaining match in a live file is a step-back to the FRR sweep. The `--exclude-dir=_workflow` flag is required because the planning artifacts under `docs/adr/ytdb-836-house-style/_workflow/` legitimately document the rename (they reference the old name) and are removed by the Phase 4 cleanup commit before merge.
 
 Ordering constraints:
 - Step 1 must precede step 2 (the file must exist at the new path before content goes in).
@@ -63,21 +65,31 @@ Invariants to preserve through every step:
 - Cross-references in Tracks 2, 3, 4 will point at `house-style.md § <Section>` by name. The section headings created in step 2 must use the names enumerated in `design.md § Internal layout of house-style.md`; renames after this track lands would break the readers.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here: one entry per step with description, `risk:` tag, and a `[ ]` status checkbox. Per-step episodes do NOT live here; they live in `## Episodes` below. -->
+
+1. `git mv .claude/output-styles/concise-doc.md .claude/output-styles/house-style.md`, then update the renamed file's frontmatter `name: Concise Doc` → `name: House Style` and rewrite `description:` to enumerate the full surface (design / plan / track / issue / PR / commit-body / comment / status prose). No body content changes in this commit — the rename + frontmatter is the smallest reviewable unit and preserves git history of `concise-doc.md`. — risk: low (default: docs file rename + frontmatter edit; no project-behavior change)  [ ]
+
+2. Rewrite the body of `.claude/output-styles/house-style.md` to match `design.md § Internal layout of house-style.md` — the 9 top-level sections in order (What this style governs, BLUF lead, Voice and tone, Banned vocabulary with Tier 1-4, Banned sentence patterns, Banned analysis patterns, Punctuation and typography, Structural rules, Document-shape rules, Self-check). Absorb the rule set: Tier-3 promotional vocab + knowledge-cutoff disclaimer ban + inline-header-list rule + curly→straight quotes + excessive-boldface cap from `.claude/skills/ai-tells/SKILL.md`; audience-fit, glossary-introduction, why-before-what, navigability from `prompts/design-review.md § Human-reader cold-read additions`; Overview concept-first, References footer shape, Edge cases sub-section required, same-shape sibling consolidation from `prompts/design-review.md § Structural findings`. Write each of the 12 humanizer-gap patterns with an inline before/after example block (~5 lines per pattern) in its assigned section per the design (10 in § Banned analysis patterns; Hyphenated word-pair overuse in § Punctuation and typography; Fragmented headers in § Structural rules). Update Self-check to reference the new sections. Target ~400-500 lines. — risk: low (default: single-file docs content rewrite; no logic, no project-behavior change)  [ ]
+
+3. Find-and-replace sweep updating the 13 remaining `concise-doc` / `Concise Doc` references across 4 live files using the table at `design.md § Rename: every reference site across the repo` as the authoritative checklist: `CLAUDE.md:93,102` (2 occurrences — body prose at :93, slash-command form `/output-style concise-doc` → `/output-style house-style` at :102), `.claude/skills/code-review/SKILL.md:313` (1), `.claude/agents/review-workflow-consistency.md:72` (1), `.claude/agents/review-workflow-writing-style.md:3,7,9,11,13,26,62,102,137` (9). Preserve markdown emphasis style on every replacement (`**concise-doc**` → `**house-style**`, backtick-wrapped paths → backtick-wrapped new paths). After all edits, run the acceptance gate `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` — must return zero matches before commit; any remaining match is a step-back, fix in place, re-run. Commit the FRR sweep + verification outcome together (the grep is the gate, not a separate commit). — risk: low (default: multi-file string replacement against an explicit checklist; verification is a single grep)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step, identified by step number + commit SHA. Empty at Phase 1; Phase A does not populate. -->
 
 ## Validation and Acceptance
 
-Track-level acceptance: `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md` returns zero matches AND `house-style.md` contains every section listed in `design.md § Internal layout of house-style.md` AND each of the 12 humanizer-gap patterns under § Banned analysis patterns has an inline before/after example.
+Track-level acceptance: `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returns zero matches AND `house-style.md` contains every section listed in `design.md § Internal layout of house-style.md` AND each of the 12 humanizer-gap patterns has an inline before/after example in its assigned section per `design.md § Internal layout of house-style.md` (10 patterns under `§ Banned analysis patterns`, `Hyphenated word-pair overuse` under `§ Punctuation and typography`, and `Fragmented headers` under `§ Structural rules`).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+- **Step 1 — `git mv` + frontmatter.** Completion proof: `git status` is clean, `ls .claude/output-styles/house-style.md` succeeds, `ls .claude/output-styles/concise-doc.md` fails, and `head -5 .claude/output-styles/house-style.md` shows `name: House Style`. Recovery if interrupted before commit: `git status` reveals partial state; resolve by either completing the missing edits and committing, or `git restore --staged . && git restore .` to return to a clean tree and retry the step from scratch. `git mv` itself is idempotent — re-running after the rename has landed is a no-op.
+
+- **Step 2 — content rewrite.** Completion proof: `wc -l .claude/output-styles/house-style.md` shows ~400-500 lines, `grep -c '^## ' .claude/output-styles/house-style.md` shows 10 (9 top-level sections + Self-check), and `grep -E '^### ' .claude/output-styles/house-style.md` enumerates the 12 humanizer-gap patterns. Recovery if interrupted before commit: the file is single-file scope so `git restore .claude/output-styles/house-style.md` discards the partial rewrite and step 2 restarts from the post-step-1 frontmatter-only state. Continuing the partial rewrite is also valid — no atomicity requirement within the file.
+
+- **Step 3 — FRR sweep + grep gate.** Completion proof: `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returns zero matches. Recovery if interrupted before commit: re-run the gate to see which references remain; the gate output is the exact list of remaining work. Each per-file edit is independent — `git restore <file>` discards that file's edits without affecting siblings. The gate is the completion proof, so re-running it any number of times has no cost; it returns the same result until the next edit lands.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't belong to one specific step. Per-step episode content lives in `## Episodes` above. Often empty. -->
