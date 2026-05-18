@@ -1053,20 +1053,25 @@ public abstract class AbstractStorage
    *
    * <p>The orchestrator runs after {@code recoverIfNeeded()} (which drains the flush executor
    * via {@code flushAllData()} on the dirty-reopen path) so dirty WAL-replay pages have
-   * settled before any truncate fires. EP-less components ({@code FreeSpaceMap},
-   * {@code CollectionDirtyPageBitSet}) and {@code IndexHistogramManager} are deliberately
-   * out of scope — their growth loops compute physical horizons from the allocator, so
-   * physical-orphan pages past their logical horizon are structurally invisible to them.
+   * settled before any truncate fires. It also runs strictly AFTER {@code openCollections}
+   * and {@code openIndexes} populate the {@code collections} and {@code indexEngines}
+   * catalogues that Groups 1 and 2 iterate — running the pass earlier would observe empty
+   * catalogues and silently skip every per-component dispatch. EP-less components
+   * ({@code FreeSpaceMap}, {@code CollectionDirtyPageBitSet}) and
+   * {@code IndexHistogramManager} are deliberately out of scope — their growth loops
+   * compute physical horizons from the allocator, so physical-orphan pages past their
+   * logical horizon are structurally invisible to them.
+   *
+   * <p>Each per-component helper reads only the EP page (already checksum-valid from the
+   * production write path) and dispatches the truncate through the cache layer; the orphan
+   * pages themselves are never read during the pass, so a checksum-corrupted orphan body
+   * cannot abort recovery.
    *
    * @param atomicOperation the enclosing recovery-pass atomic operation supplied by
    *     {@code executeInsideAtomicOperation}
    * @throws IOException propagated from any per-component / per-engine / manager helper when
    *     the underlying EP read or cache-layer truncate fails
    */
-  // Package-private surface upgraded to protected so the disk-engine subclass
-  // (DiskStorage in com.jetbrains.youtrackdb.internal.core.storage.disk) can dispatch
-  // the same recovery-time orphan-truncation pass from its incremental-restore entry
-  // point.
   protected void truncateOrphansAfterRecovery(final AtomicOperation atomicOperation)
       throws IOException {
     // Group 1: paginated collections. Each non-null entry contributes two truncates —

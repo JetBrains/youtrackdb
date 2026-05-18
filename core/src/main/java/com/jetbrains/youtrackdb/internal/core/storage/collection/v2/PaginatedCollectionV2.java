@@ -393,6 +393,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               // FSM-rebuild recovery scan: the free-space map was missing or lost in a
               // prior crash, so logical bookkeeping that would normally bound this scan
               // is unavailable -- physical extent is the only source of truth.
+              // Follow-up: this scan can read pages past the eventual truncate target of
+              // the recovery-time orphan-truncation orchestrator
+              // (AbstractStorage.truncateOrphansAfterRecovery), because PCV2.open()
+              // runs before that orchestrator. Tracked for future work; in practice the
+              // FSM-rebuild branch fires only when the FSM itself is missing, while
+              // partial-flush orphans target the PCV2 data file.
               final var filledUpTo =
                   physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
               for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
@@ -501,24 +507,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * @throws IOException if the collection-state page cannot be read or the underlying
    *                     shrink fails
    */
-  /**
-   * Exposes the embedded position map so the recovery-time orphan-truncation orchestrator
-   * ({@code AbstractStorage.truncateOrphansAfterRecovery()}) can dispatch
-   * {@link CollectionPositionMapV2#verifyAndTruncateOrphans} on the {@code .cpm} file in
-   * addition to {@link #verifyAndTruncateOrphans} on the {@code .pcl} file. The two physical
-   * files have independent EPs and either can carry a partial-flush orphan tail.
-   *
-   * <p>Visibility is {@code public} (rather than package-private) because the orchestrator
-   * lives in {@code com.jetbrains.youtrackdb.internal.core.storage.impl.local} —
-   * a different package from this class.
-   *
-   * @return the embedded {@link CollectionPositionMapV2}; never {@code null} once the
-   *     collection has been constructed (the field is initialised in the ctor at line ~285)
-   */
-  public CollectionPositionMapV2 getCollectionPositionMap() {
-    return collectionPositionMap;
-  }
-
   public void verifyAndTruncateOrphans(
       @Nonnull final AtomicOperation atomicOperation,
       @Nonnull final ReadCache readCache,
@@ -551,6 +539,24 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
     final long targetBytes = Math.max((long) pageSize, ((long) stateFileSize + 1L) * pageSize);
     readCache.shrinkFile(fileId, targetBytes, writeCache);
+  }
+
+  /**
+   * Exposes the embedded position map so the recovery-time orphan-truncation orchestrator
+   * ({@code AbstractStorage.truncateOrphansAfterRecovery()}) can dispatch
+   * {@link CollectionPositionMapV2#verifyAndTruncateOrphans} on the {@code .cpm} file in
+   * addition to {@link #verifyAndTruncateOrphans} on the {@code .pcl} file. The two physical
+   * files have independent EPs and either can carry a partial-flush orphan tail.
+   *
+   * <p>Visibility is {@code public} (rather than package-private) because the orchestrator
+   * lives in {@code com.jetbrains.youtrackdb.internal.core.storage.impl.local} —
+   * a different package from this class.
+   *
+   * @return the embedded {@link CollectionPositionMapV2}; never {@code null} once the
+   *     collection has been constructed (the field is initialised in the ctor at line ~285)
+   */
+  public CollectionPositionMapV2 getCollectionPositionMap() {
+    return collectionPositionMap;
   }
 
   @Override
