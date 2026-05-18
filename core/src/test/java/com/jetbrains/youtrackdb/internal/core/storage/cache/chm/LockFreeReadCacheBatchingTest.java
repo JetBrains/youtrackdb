@@ -90,9 +90,9 @@ public class LockFreeReadCacheBatchingTest {
    * the contract — a regression to a silent no-op or a real truncate would hide a future test
    * accidentally routing through this mock instead of the production WOWCache.
    */
-  @org.junit.Test
+  @Test
   public void testShrinkFileMockThrowsUnsupportedOperation() {
-    org.junit.Assert.assertThrows(
+    Assert.assertThrows(
         UnsupportedOperationException.class, () -> writeCache.shrinkFile(0L, 0L));
   }
 

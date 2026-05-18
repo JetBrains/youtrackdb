@@ -1940,12 +1940,19 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       final var entry = files.acquire(fileId);
+      // Defensive: files.acquire returns null when the entry is missing or already
+      // retired. Mirrors renameFile's defensive shape (see :1992-1996); a future
+      // recovery-flow refactor that dispatches shrinkFile on stale fileIds discovered
+      // through component iteration could otherwise NPE on entry.get() below.
+      if (entry == null) {
+        return;
+      }
       try {
         final var file = entry.get();
-        // Pre-flight no-op: a target greater than or equal to the current logical
-        // size has nothing to drop. The read of getFileSize() is serialised against
-        // concurrent allocateSpace / shrink writers by the surrounding filesLock
-        // writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
+        // Pre-flight no-op: a target greater than or equal to the current
+        // AsyncFile.getFileSize() has nothing to drop. The read of getFileSize() is
+        // serialised against concurrent allocateSpace / shrink writers by the surrounding
+        // filesLock writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
         // stable for the duration of the call.
         if (file.getFileSize() <= targetBytes) {
           return;
@@ -1957,6 +1964,24 @@ public final class WOWCache extends AbstractWriteCache
         // (they belong to file regions the truncate does NOT drop and need to
         // survive the next periodic flush).
         final var pageSizeLocal = (long) pageSize;
+        // Defensive invariants on the targetBytes -> minPageIndex cast. The
+        // non-negative guard above is the production contract; these asserts
+        // additionally pin page alignment and int-overflow safety for the
+        // (int) cast on the next line. A non-page-aligned target would silently
+        // truncate a half-page on disk while keeping the whole page cached; a
+        // targetBytes / pageSize beyond Integer.MAX_VALUE would wrap the cast
+        // to a negative minPageIndex, after which the downstream range filter
+        // (pageIndex >= minPageIndex) would match every entry.
+        assert targetBytes % pageSizeLocal == 0
+            : "targetBytes must be a multiple of pageSize: targetBytes="
+                + targetBytes
+                + " pageSize="
+                + pageSizeLocal;
+        assert targetBytes / pageSizeLocal <= Integer.MAX_VALUE
+            : "minPageIndex would overflow int: targetBytes="
+                + targetBytes
+                + " pageSize="
+                + pageSizeLocal;
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPagesAtLeast(intId, minPageIndex);
         file.shrink(targetBytes);

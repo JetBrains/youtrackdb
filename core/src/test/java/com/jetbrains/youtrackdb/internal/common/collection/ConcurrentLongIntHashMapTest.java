@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -1312,8 +1314,19 @@ public class ConcurrentLongIntHashMapTest {
   // allocations, but the primitive itself must still tolerate the race
   // without corruption (each section uses a write-lock; concurrent put on
   // a not-yet-swept section may survive, on a sweeping section it blocks).
+  //
+  // Synchronisation: a CyclicBarrier(2) pins both threads to enter their
+  // tight loops at the same wall-clock instant so the race window is
+  // exercised on every run — a bare start()/join() lets the inserter
+  // finish before the sweep starts (or vice versa) on a lightly-loaded host,
+  // hiding any future regression that drops the per-section write lock.
+  // An UncaughtExceptionHandler captures any throwable from the inserter so
+  // an assertion at the end can flag silent corruption (e.g., a NullPointer
+  // surfaced inside put() during a concurrent rehash). The post-run size()
+  // check pins the section-aggregated counter against a manual survivor
+  // count — a corrupted size counter would silently drift here.
   @Test
-  public void removeByFileIdAtLeastWithConcurrentInsertsIsRaceFree() throws InterruptedException {
+  public void removeByFileIdAtLeastWithConcurrentInsertsIsRaceFree() throws Exception {
     var map = new ConcurrentLongIntHashMap<String>();
     // Seed the map with pages [0, 1000) for the target file
     for (int page = 0; page < 1000; page++) {
@@ -1326,16 +1339,35 @@ public class ConcurrentLongIntHashMapTest {
     // the section); those inserted in not-yet-swept sections may be dropped
     // by the sweep. The contract is that no entry is corrupted and no segment
     // lock is left in an inconsistent state.
+    var barrier = new CyclicBarrier(2);
+    var inserterFailure = new AtomicReference<Throwable>();
     var inserter =
         new Thread(
             () -> {
-              for (int page = 1000; page < 2000; page++) {
-                map.put(7L, page, "concurrent-" + page);
+              try {
+                barrier.await();
+                for (int page = 1000; page < 2000; page++) {
+                  map.put(7L, page, "concurrent-" + page);
+                }
+              } catch (Throwable t) {
+                inserterFailure.set(t);
               }
             });
+    inserter.setUncaughtExceptionHandler((thread, throwable) -> inserterFailure.set(throwable));
     inserter.start();
+    // Main thread: barrier-sync with the inserter, then start the sweep at the
+    // same instant. The await() returns once both parties reach the barrier; the
+    // sweep below races the inserter's tight put() loop on the very next
+    // instruction on both threads.
+    barrier.await();
     map.removeByFileIdAtLeast(7L, 500);
     inserter.join();
+
+    // Inserter must not have thrown silently — a NullPointer or
+    // ConcurrentModificationException leaking out would otherwise be lost.
+    assertThat(inserterFailure.get())
+        .as("inserter thread must not throw during concurrent put + sweep")
+        .isNull();
 
     // Every surviving entry must be findable via get() — the probe chains
     // are intact after compaction.
@@ -1348,14 +1380,24 @@ public class ConcurrentLongIntHashMapTest {
     // be present. Sanity-check that every survivor at pageIndex >= 500 (if
     // any) has the "concurrent-" prefix, i.e. it was inserted after the sweep
     // pass through that section.
+    int survivorsAboveCutoff = 0;
     for (int page = 500; page < 2000; page++) {
       var v = map.get(7L, page);
       if (v != null) {
         assertThat(v)
             .as("any survivor at page %d (>= 500) must be a concurrent insert", page)
             .startsWith("concurrent-");
+        survivorsAboveCutoff++;
       }
     }
+
+    // Aggregated size() must agree with the manual survivor count
+    // (500 below-cutoff seeds + above-cutoff concurrent inserts that won the race).
+    // A corrupted size counter — for example, one that double-decrements during
+    // a rehash race — would diverge here silently.
+    assertThat(map.size())
+        .as("section-aggregated size() must agree with the manual survivor count")
+        .isEqualTo(500 + survivorsAboveCutoff);
   }
 
   // ---- clear() ----

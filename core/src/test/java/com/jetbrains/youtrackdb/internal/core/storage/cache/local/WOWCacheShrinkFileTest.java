@@ -258,34 +258,38 @@ public class WOWCacheShrinkFileTest {
 
   /**
    * Symmetry-pair half (b): a dirty {@code writeCachePages} entry at
-   * {@code pageIndex < targetBytes / pageSize} must SURVIVE the shrink. These belong to file
-   * regions the truncate does NOT drop and must be persisted by the next periodic flush.
+   * {@code pageIndex < targetBytes / pageSize} must SURVIVE a real shrink. These belong to
+   * file regions the truncate does NOT drop and must be persisted by the next periodic flush.
    * Dropping them would silently lose unflushed user data on the recovery path.
+   *
+   * <p>Allocates K=8 dirty pages, calls {@code shrinkFile(fileId, 5 * pageSize)} so the shrink
+   * actually fires (not the pre-flight no-op path covered separately by
+   * {@code shrinkFileWithTargetAtOrAboveCurrentSizeIsNoOp}), and verifies the 5 below-target
+   * pages still carry their pre-shrink dirty markers after the post-shrink flush + reload.
    */
   @Test
   public void shrinkFilePreservesDirtyEntriesBelowTarget() throws IOException {
-    // Allocate 4 pages, mark all dirty. Shrink to 4 pages exactly — physically nothing
-    // to drop, but the range filter must still match correctly across pageIndex < target.
-    final var fileId = allocateAndOptionallyDirty(4, true);
-    final long initialSize = wowCache.getFilledUpTo(fileId) * pageSize;
-    assertThat(initialSize).isEqualTo(4L * pageSize);
+    // Allocate K=8 pages, mark all dirty. The file is logically + physically 8 pages.
+    final var fileId = allocateAndOptionallyDirty(8, true);
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(8);
 
-    // Shrink to a target greater than the file: pre-flight no-op, the dirty entries at
-    // pageIndex < 4 must survive untouched.
-    wowCache.shrinkFile(fileId, initialSize);
-    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize).isEqualTo(initialSize);
+    // Real shrink to 5 pages — the [5, 8) range is dropped at the WriteCache layer + truncated
+    // on disk; the [0, 5) range must survive both the in-memory dirty map and the on-disk
+    // post-flush bytes.
+    final long targetBytes = 5L * pageSize;
+    wowCache.shrinkFile(fileId, targetBytes);
+    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize).isEqualTo(targetBytes);
 
-    // A subsequent flush persists every dirty page; the file size remains exactly 4 pages
-    // (no orphan grew because all dirty entries belong to live pages).
+    // Post-shrink flush must persist the surviving dirty entries and NOT re-extend the file.
     wowCache.flush();
     assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize)
-        .as("flush of below-target dirty entries must preserve every live page")
-        .isEqualTo(initialSize);
+        .as("flush after shrinkFile must not re-extend the file past targetBytes")
+        .isEqualTo(targetBytes);
 
-    // Re-load each page through the cache; the marker byte set under exclusive lock must
-    // be reachable, confirming the dirty entry actually persisted (the on-disk page now
-    // matches what the cache stamped before the shrink).
-    for (int i = 0; i < 4; i++) {
+    // Re-load each below-target page through the cache; the marker byte set under exclusive
+    // lock must be reachable, confirming the dirty entry actually persisted (the on-disk page
+    // now matches what the cache stamped before the shrink).
+    for (int i = 0; i < 5; i++) {
       var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
       try {
         var buffer = cachePointer.getBuffer();
@@ -342,5 +346,133 @@ public class WOWCacheShrinkFileTest {
     assertThatThrownBy(() -> wowCache.shrinkFile(fileId, -1L))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Target shrink size must be non-negative");
+  }
+
+  /**
+   * Zero-target shrink — every dirty entry at the WriteCache layer must be dropped (the range
+   * filter at {@code pageIndex >= 0} matches everything) and the on-disk file must truncate
+   * to zero bytes. The LFRC-level zero-target case is covered by
+   * {@code testShrinkFileToZeroDropsEverything} in {@code LockFreeReadCacheFileOpsTest}, but
+   * that exercise routes through {@code TrackingWriteCache} (a counter-only mock). This test
+   * pins the real {@link WOWCache} zero-target path end-to-end including the AsyncFile
+   * truncate and the post-flush no-extend property.
+   */
+  @Test
+  public void shrinkFileToZeroDropsEveryDirtyEntryAndTruncates() throws IOException {
+    final var fileId = allocateAndOptionallyDirty(5, true);
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(5);
+
+    wowCache.shrinkFile(fileId, 0L);
+
+    // Logical size — getFilledUpTo divides AsyncFile.getFileSize() by pageSize.
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(0);
+
+    // Post-shrink flush must NOT re-extend the file. Every dirty entry was dropped at
+    // pageIndex >= 0 before AsyncFile.shrink(0), so flushAllData has nothing to write.
+    wowCache.flush();
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(0);
+
+    // Physical on-disk size — verifies the underlying file actually shrank, not just that
+    // the in-memory AsyncFile counter dropped to zero. AsyncFile prefixes every file with a
+    // {@link File#HEADER_SIZE}-byte header that {@link AsyncFile#shrink} never removes; after
+    // shrinkFile(0) the file is expected to be exactly the header.
+    final var nativeFileName = wowCache.nativeFileNameById(fileId);
+    final var underlyingPath = storagePath.resolve(nativeFileName);
+    assertThat(Files.size(underlyingPath))
+        .as("on-disk file must shrink to exactly HEADER_SIZE bytes after shrinkFile(0)")
+        .isEqualTo((long) File.HEADER_SIZE);
+  }
+
+  /**
+   * Idempotence: the recovery pass re-runs after every partial crash, so a second invocation
+   * of {@code shrinkFile(fileId, sameTarget)} must observe an already-shrunk file and hit the
+   * pre-flight no-op cleanly. A regression that double-drops below-target dirty entries on
+   * the second call would silently lose user data on the recovery path.
+   */
+  @Test
+  public void shrinkFileIsIdempotentOnRepeatedInvocation() throws IOException {
+    // 6 dirty pages, shrink to 3 pages, then shrink again with the same target.
+    final var fileId = allocateAndOptionallyDirty(6, true);
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(6);
+
+    final long targetBytes = 3L * pageSize;
+    wowCache.shrinkFile(fileId, targetBytes);
+    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize).isEqualTo(targetBytes);
+
+    // Second call with the same target — should be a pre-flight no-op (file.getFileSize() <=
+    // targetBytes branch); the [0, 3) below-target dirty entries must NOT be perturbed.
+    wowCache.shrinkFile(fileId, targetBytes);
+    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize)
+        .as("second shrinkFile call with the same target must leave file size unchanged")
+        .isEqualTo(targetBytes);
+
+    // Post-second-call flush must NOT re-extend the file.
+    wowCache.flush();
+    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize)
+        .as("flush after idempotent shrinkFile must not re-extend the file")
+        .isEqualTo(targetBytes);
+
+    // The 3 below-target pages still flush-persist their dirty markers — confirms the second
+    // shrinkFile invocation did NOT clobber the surviving dirty entries.
+    for (int i = 0; i < 3; i++) {
+      var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
+      try {
+        var buffer = cachePointer.getBuffer();
+        assert buffer != null;
+        assertThat(buffer.get(DurablePage.NEXT_FREE_POSITION))
+            .as("page %d's dirty marker must survive the idempotent second shrink", i)
+            .isEqualTo((byte) (i & 0x7F));
+      } finally {
+        cachePointer.decrementReadersReferrer();
+      }
+    }
+  }
+
+  /**
+   * End-to-end ordering check: a flush immediately after a real shrink must NOT re-extend the
+   * file. This pins the load-bearing invariant that
+   * {@code removeCachedPagesAtLeast} runs BEFORE {@code AsyncFile.shrink} inside
+   * {@code WOWCache.shrinkFile} (and that {@code WriteCache.shrinkFile} runs BEFORE
+   * {@code LockFreeReadCache.clearFileRange} in the orchestrator). A regression that swapped
+   * either ordering would let a periodic flush rewrite the dirty above-target entries past
+   * the truncate and silently re-create the orphan the recovery pass just removed.
+   *
+   * <p>The bigger page span (12 pages, shrink to 4) widens the race window the production code
+   * forecloses: 8 pages worth of above-target dirty entries must all be dropped before the
+   * AsyncFile.shrink fires, and the post-shrink flush must observe an empty above-target
+   * dirty set.
+   */
+  @Test
+  public void shrinkFileFlushAfterShrinkDoesNotReExtendFile() throws IOException {
+    final var fileId = allocateAndOptionallyDirty(12, true);
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(12);
+
+    final long targetBytes = 4L * pageSize;
+    wowCache.shrinkFile(fileId, targetBytes);
+    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize).isEqualTo(targetBytes);
+
+    // Trigger a flush of every still-dirty entry. The 8 above-target pages were dropped from
+    // writeCachePages BEFORE AsyncFile.shrink, so flushAllData has nothing past targetBytes to
+    // write back. If the ordering were reversed, the dirty entries would survive the shrink
+    // and the flush would re-extend the file to its original 12-page size.
+    wowCache.flush();
+    assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize)
+        .as("post-shrink flush must not re-extend the file past targetBytes")
+        .isEqualTo(targetBytes);
+
+    // The 4 below-target pages survive the shrink + flush — confirms the range filter did not
+    // drop them by mistake.
+    for (int i = 0; i < 4; i++) {
+      var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
+      try {
+        var buffer = cachePointer.getBuffer();
+        assert buffer != null;
+        assertThat(buffer.get(DurablePage.NEXT_FREE_POSITION))
+            .as("page %d below targetBytes must keep its dirty marker", i)
+            .isEqualTo((byte) (i & 0x7F));
+      } finally {
+        cachePointer.decrementReadersReferrer();
+      }
+    }
   }
 }

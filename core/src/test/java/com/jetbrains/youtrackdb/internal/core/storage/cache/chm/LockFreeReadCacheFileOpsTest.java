@@ -279,8 +279,18 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals("sanity: 8 pages in cache", 8L * PAGE_SIZE, readCache.getUsedMemory());
     Assert.assertEquals("sanity: shrinkFile not called yet", 0, writeCache.shrinkFileCount.get());
 
+    // Attach an order counter so the writeCache mock stamps the order it observed inside
+    // its shrinkFile, and after readCache.shrinkFile returns we increment the counter to
+    // get the post-orchestrator order. A regression that swapped the orchestrator's
+    // (writeCache.shrinkFile, clearFileRange) ordering would either cause the
+    // writeCache.shrinkFile call to be skipped (count == 0) or record a higher order than
+    // the post-orchestrator stamp.
+    final var orderCounter = new java.util.concurrent.atomic.AtomicInteger(0);
+    writeCache.attachOrderCounter(orderCounter);
+
     final long targetBytes = 3L * PAGE_SIZE;
     readCache.shrinkFile(30, targetBytes, writeCache);
+    final int postOrchestratorOrder = orderCounter.incrementAndGet();
 
     Assert.assertEquals(
         "writeCache.shrinkFile must be invoked exactly once",
@@ -288,6 +298,12 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals(
         "writeCache.shrinkFile must receive the orchestrator's targetBytes verbatim",
         targetBytes, writeCache.lastShrinkTargetBytes);
+    Assert.assertTrue(
+        "writeCache.shrinkFile must run before the post-orchestrator stamp "
+            + "(shrinkFileCallOrder=" + writeCache.shrinkFileCallOrder
+            + ", postOrchestratorOrder=" + postOrchestratorOrder + ")",
+        writeCache.shrinkFileCallOrder > 0
+            && writeCache.shrinkFileCallOrder < postOrchestratorOrder);
 
     Assert.assertEquals(
         "After shrinkFile(30, 3 * PAGE_SIZE), 3 pages for file 30 + 2 pages for file 31 remain",
@@ -399,6 +415,19 @@ public class LockFreeReadCacheFileOpsTest {
     final AtomicInteger shrinkFileCount = new AtomicInteger();
     volatile long lastShrinkTargetBytes = -1L;
     volatile long lastClosedFileId = -1;
+    /**
+     * Stamps the shrinkFile invocation against a sequence counter the test may install via
+     * {@link #attachOrderCounter}, so an LFRC-level ordering check can verify that
+     * {@code writeCache.shrinkFile} ran before whatever subsequent observation the test
+     * stamps after the call. {@code -1} means the call has not been observed yet, or no
+     * counter is attached.
+     */
+    volatile int shrinkFileCallOrder = -1;
+    private volatile AtomicInteger sharedOrderCounter;
+
+    void attachOrderCounter(final AtomicInteger counter) {
+      this.sharedOrderCounter = counter;
+    }
 
     TrackingWriteCache(final ByteBufferPool byteBufferPool) {
       this.byteBufferPool = byteBufferPool;
@@ -457,6 +486,13 @@ public class LockFreeReadCacheFileOpsTest {
       // delegate-dispatch counters they assert on.
       shrinkFileCount.incrementAndGet();
       lastShrinkTargetBytes = targetBytes;
+      // Stamp the order against a test-supplied counter, if attached, so a subsequent
+      // observation (e.g., another counter increment after readCache.shrinkFile returns)
+      // proves writeCache.shrinkFile ran first.
+      final var counter = sharedOrderCounter;
+      if (counter != null) {
+        shrinkFileCallOrder = counter.incrementAndGet();
+      }
     }
 
     @Override
