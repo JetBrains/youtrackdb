@@ -1,41 +1,28 @@
 # Cold-Read Comprehension Review (Sub-Agent Prompt)
 
-You're a fresh agent reading a design document for the first
-time. Your task: assess whether a human reviewer encountering
-this document cold could build a working mental model from it,
-**using only what's in the document(s) provided**.
-
-This prompt is invoked by the design-mutation action defined in
-`.claude/workflow/design-document-rules.md` § Mutation
-discipline. The mutation action runs you after applying an edit
-to `design.md` (and optionally `design-mechanics.md`), and it
-consumes your verdict to decide whether to iterate, present a
-warning, or pass.
+Fresh agent reading a design document cold. Assess whether a human
+reviewer could build a working mental model **using only the
+document(s) provided**. Invoked by the design-mutation action
+(`design-document-rules.md § Mutation discipline`); verdict drives
+iterate / warn / pass.
 
 ## Inputs
 
-- `design_path` — absolute path to `design.md`.
-- `design_mechanics_path` (optional) — absolute path to
-  `design-mechanics.md` if the design exceeded the length
-  trigger.
+- `design_path` — `design.md`.
+- `design_mechanics_path` (optional) — `design-mechanics.md` when
+  the design exceeded the length trigger.
 - `scope` — `bounded` or `whole-doc`.
-- `bounded_scope` (when `scope=bounded`) — the changed section
-  name(s) plus one or two surrounding section names.
+- `bounded_scope` (when `scope=bounded`) — changed section name(s)
+  + 1-2 surrounding sections.
 - `mutation_kind` — one of `content-edit`, `section-add`,
   `section-remove`, `section-rename`, `section-move`,
-  `structural-rewrite`, `length-trigger-crossing`,
-  `phase1-creation`, `design-sync`, `phase4-creation`.
-  (`mechanics-edit` does not invoke this prompt — cold-read is
-  deferred to the next `design-sync`.)
-- `plan_path` (optional) — absolute path to
-  `implementation-plan.md`. Read **only** to verify
-  `**Full design**` link resolution, never for context.
-- `plan_dir` (optional) — same: a directory of
-  `plan/track-N.md` track files, each potentially carrying
-  `**Full design**` references inside its `## Purpose / Big Picture`,
-  `## Context and Orientation`, `## Plan of Work`, `## Decision Log`,
-  or `## Interfaces and Dependencies` sections. Read **only** for link
-  resolution, never for context.
+  `structural-rewrite`, `length-trigger-crossing`, `phase1-creation`,
+  `design-sync`, `phase4-creation`. (`mechanics-edit` defers
+  cold-read to the next `design-sync`.)
+- `plan_path` (optional) — `implementation-plan.md`; read **only**
+  for `**Full design**` link resolution.
+- `plan_dir` (optional) — directory of `plan/track-N.md` files
+  carrying `**Full design**` refs; read **only** for link resolution.
 
 ### Mutation-kind specific instructions
 
@@ -89,56 +76,30 @@ warning, or pass.
 
 ### Human-reader cold-read additions
 
-Applies to mutation kinds `phase1-creation`, `phase4-creation`,
-and `design-sync`. All three produce a freshly-written
-`design.md` (or `design-final.md`) Overview that humans will
-read, so the cold-read must catch human-readability drift the
-standard comprehension questions miss when the reviewer agent
-shares training-derived vocabulary with the doc author. The
-rule statements themselves live in `.claude/output-styles/house-style.md`;
-the verifications below name each rule and cite the section to
-consult.
-
-**In addition to the standard whole-doc cold-read**, verify:
+Applies to `phase1-creation`, `phase4-creation`, `design-sync`. In
+addition to the standard cold-read, verify:
 
 - Verify audience-fit per `.claude/output-styles/house-style.md § Audience-fit`.
 - Verify glossary-introduction per `.claude/output-styles/house-style.md § Glossary-introduction`.
 - Verify why-before-what per `.claude/output-styles/house-style.md § Why-before-what`.
 - Verify navigability per `.claude/output-styles/house-style.md § Navigability`.
 
-**Reviewer tone**: the "one sentence answers / don't pad"
-guidance under § Tone and depth is relaxed for findings under
-(a), (b), (c), and (d). Quote the prose, list undefined terms,
-name the section whose header reads opaquely or whose
-cross-references are missing, and explain *for which target
-audience* the prose breaks down. Compressed reviewer feedback
-under-reports these failure modes — a one-sentence "the
-Overview is hard to follow" finding is not actionable; a
-finding that lists six undefined APIs and identifies the
-absent audience framing is.
+**Reviewer tone** for these four rules: § Tone and depth's
+"one-sentence answers" is relaxed — quote the prose, list undefined
+terms, name the failing audience, and (for navigability) the opaque
+section.
 
 ## Reading rules
 
-- **Read only the files at the paths above.** No source code.
-  No prior conversation context. No other workflow files.
-- **Bounded scope**: read the changed section + 1-2 surrounding
-  sections + the `## Overview` section + (when present) the
-  `## Core Concepts` section. Do not read the rest of `design.md`
-  and do not open `design-mechanics.md` unless verifying a
-  specific `Mechanics:` link.
-- **Whole-doc scope**: read the entire `design.md`. Read
-  `design-mechanics.md` only when verifying that a
-  `Mechanics: design-mechanics.md §"…"` link resolves.
-- **Plan / track-file reads** are restricted to grepping for
-  `**Full design**` lines and verifying the targets exist.
-  Do not read plan or track-file content for context.
+- **Only the files above** — no source code, prior conversation, or other workflow files.
+- **Bounded scope**: changed section + 1-2 surrounding + `## Overview` + (when present) `## Core Concepts`; open mechanics only for a specific `Mechanics:` link.
+- **Whole-doc scope**: entire `design.md`; mechanics for link targets.
+- **Plan / track-file reads**: grep-only for `**Full design**` link resolution.
 
 ## Comprehension questions
 
-Answer each in order. For each, **cite the specific paragraph(s)
-or sentence(s) you relied on** (quote a phrase or name the
-section + a 1-sentence anchor). If the document doesn't give you
-enough to answer, that itself is a finding.
+Answer in order; **cite the paragraph(s) you relied on** (quoted
+phrase or section + anchor). Insufficient material is itself a finding.
 
 1. **What is this design replacing or adding?** State in one
    sentence. Use the Overview.
@@ -161,34 +122,13 @@ enough to answer, that itself is a finding.
 
 ## Structural findings (always check)
 
-- **TL;DR present** in the changed section, ≤5 lines, no
-  parenthetical D/S asides like `(per D27)` or `(see S14)`.
-- **Mechanism overview prose** ≤300 lines (warn at 200).
-- **Edge cases / Gotchas** sub-section present (or N/A
-  justified in prose).
-- **References footer** present with D-records, Invariants,
-  `Mechanics:` link.
-- **`Mechanics:` link target** exists in `design-mechanics.md`
-  (when split applies). Open mechanics file, verify the section
-  heading is present.
-- **Same-shape sibling check**: are there 3+ sibling sections
-  with similar internal heading sequences that should be
-  consolidated under the consolidation form (TL;DR + comparison
-  table + per-instance short bodies)?
-- **Length budget**: did this change push `design.md` over
-  2,000 lines without splitting into `design-mechanics.md`?
-- (**Whole-doc scope only**) **Overview is concept-first** —
-  starts with the baseline being replaced + the change, no
-  meta-navigation block (audience listing, journey table) ahead
-  of the concept. Closes with companion-file pointer (when
-  applicable) and a one-sentence document-structure roadmap.
-- (**Whole-doc scope only**) **Core Concepts is current and
-  complete** (when the doc has Parts or ≥3 new domain terms) —
-  every load-bearing concept the Parts use without re-definition
-  appears in Core Concepts; each entry has a `→ Part X §"…"`
-  pointer; no concept entries name removed Parts.
-- (**Whole-doc scope only**) **`**Full design**` refs in plan
-  and track files all resolve** to real `design.md` sections.
+- Verify **Edge cases / Gotchas** per `.claude/output-styles/house-style.md § Edge cases sub-section required`.
+- Verify **References footer** per `.claude/output-styles/house-style.md § References footer shape`.
+- Verify **Same-shape sibling consolidation** per `.claude/output-styles/house-style.md § Same-shape sibling consolidation`.
+- (**Whole-doc only**) Verify **Overview is concept-first** per `.claude/output-styles/house-style.md § Overview concept-first`.
+- **TL;DR present** (`dsc-tldr-shape`); **Mechanism overview ≤300 lines** (`dsc-mechanism-length`, warn 200); **Length budget** ≤2,000 (`dsc-length-budget`).
+- **`Mechanics:` link target** exists in `design-mechanics.md` when split applies.
+- (**Whole-doc only**) **Core Concepts current and complete** for docs with Parts or ≥3 new domain terms (`dsc-core-concepts-current`); **`**Full design**` refs** in plan and track files resolve to real `design.md` sections.
 
 ## Output format
 
@@ -244,38 +184,15 @@ attempt the fix automatically.>
 
 ## Severity rubric
 
-- **blocker** — the doc fails the comprehension check, or a
-  mechanical rule is violated in a way that would corrupt cross-
-  references, or the section has no TL;DR / no References
-  footer / no shape compliance at all. The mutation cannot
-  stand.
-- **should-fix** — the doc is comprehensible but a rule was
-  violated (D/S parenthetical aside, mechanism prose grew past
-  300 lines, missing edge-case bullets, etc.). The mutation can
-  stand if the budget exhausts, but the finding is logged.
-  (Per design-document-rules.md § Mechanical checks, the
-  per-section length tiers are: 201-300 lines = suggestion,
-  301-400 = should-fix, >400 = blocker. The mechanical script
-  surfaces the precise tier; this rubric matches the script's
-  should-fix threshold.)
-- **suggestion** — improvement opportunity that isn't
-  rule-mandated (e.g., "the TL;DR could be one sentence
-  tighter").
+- **blocker** — comprehension fails, mechanical violation corrupts
+  cross-refs, or section lacks TL;DR / References footer / shape.
+- **should-fix** — comprehensible but a rule violated. Per
+  `design-document-rules.md § Mechanical checks`, length tiers: 201-300 = suggestion, 301-400 = should-fix, >400 = blocker.
+- **suggestion** — non-rule-mandated improvement.
 
 ## Tone and depth
 
-- One sentence answers where one suffices. Don't pad.
-  - **Exception**: findings under the Human-reader cold-read
-    additions (§ above, applies to `phase1-creation`,
-    `phase4-creation`, and `design-sync`) require evidence —
-    quote the prose, list undefined terms, name the target
-    audience the prose fails, and (for navigability findings)
-    name the section whose header reads opaquely or whose
-    cross-references are missing.
-- Cite, don't paraphrase the whole section.
-- If a question can't be answered from the document, say
-  "Insufficient — see finding below" and add the corresponding
-  structural finding.
-- Don't speculate about what the design might mean if the doc
-  doesn't say. The point of cold-read is to surface where the
-  doc fails to convey intent.
+- One-sentence answers where one suffices. **Exception**: the four Human-reader rules require evidence (see § Reviewer tone).
+- Cite, don't paraphrase.
+- If unanswerable, say "Insufficient — see finding below" and add the structural finding.
+- Don't speculate about intent the doc doesn't state.
