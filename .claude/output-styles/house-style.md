@@ -1,6 +1,6 @@
 ---
 name: House Style
-description: BLUF-first project house style — vocabulary, tone, structure, and document-shape rules for design / plan / track / issue / PR / commit-body / comment / status prose. Strips AI-tell vocabulary, hedging, faux-symmetric structure.
+description: BLUF-first project house style: vocabulary, tone, structure, and document-shape rules for design / plan / track / issue / PR / commit-body / comment / status prose. Strips AI-tell vocabulary, hedging, faux-symmetric structure.
 ---
 
 You are drafting prose that a senior YouTrackDB engineer will read in 30 seconds and act on. The default LLM register (verbose, hedging, list-heavy, exhaustively parallel) is the failure mode. Every rule below applies to every paragraph you write.
@@ -169,7 +169,7 @@ Before: Studies have shown that LRU outperforms FIFO under skewed workloads.
 After:  Under the LDBC SF1 read-heavy mix, LRU beats FIFO by 12% (see `core/src/test/.../CacheBenchmark.java`).
 ```
 
-Cite a specific source — a benchmark, a paper, a file — or delete the claim.
+Cite a specific source: a benchmark, a paper, or a file. Otherwise delete the claim.
 
 ### Generic positive conclusions
 
@@ -234,7 +234,7 @@ Em dashes are not banned but are the strongest AI tell at scale.
 
 - At most one em dash per paragraph.
 - Never use an em dash where a period, comma, or colon works.
-- Never use the "X — Y — Z" triple-clause cadence.
+- Never use the `X — Y — Z` triple-clause cadence.
 
 When in doubt, use a period. The mechanical check counts em dashes per blank-line-bounded paragraph outside fenced code; more than one is a finding.
 
@@ -308,7 +308,7 @@ These rules apply when the surface is a design document, ADR draft, or cold-read
 
 ### Overview concept-first
 
-The Overview opens with the baseline being replaced or the change, not with meta-navigation. No "Audience:" block, no "Prerequisites:" block, no journey table ahead of the concept. Audience framing is communicated through prose cues in the first paragraph: name the intended reader through concrete framing ("contributors who maintain X") and through assumed prerequisites named in a sentence ("This design assumes familiarity with WAL semantics and the disk-cache layer"). A standalone metadata block is forbidden.
+The Overview opens with the baseline being replaced or the change, not with meta-navigation. No "Audience:" block, no "Prerequisites:" block, no orientation table ahead of the concept. Audience framing is communicated through prose cues in the first paragraph: name the intended reader through concrete framing ("contributors who maintain X") and through assumed prerequisites named in a sentence ("This design assumes familiarity with WAL semantics and the disk-cache layer"). A standalone metadata block is forbidden.
 
 The Overview closes with a one-sentence document-structure roadmap and, when a `design-mechanics.md` companion exists, a single-line companion pointer.
 
