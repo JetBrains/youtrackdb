@@ -16,119 +16,25 @@ Two modes:
 
 Default to audit + rewrite unless the user asks for one mode.
 
-## The catalogue
+## Catalogue lookups
 
-Walk every category below. For each match in the input, note the exact phrase, the category, and a proposed replacement.
+All section references below live in `.claude/output-styles/house-style.md`. Walk these sections during Pass 1:
 
-### Vocabulary tells
-
-These words appear at AI-anomalous frequency in machine-generated text. Replace with plainer alternatives unless context absolutely demands them.
-
-**Tier 1, high-confidence AI markers:**
-delve, tapestry, multifaceted, pivotal, intricate, robust, vibrant, meticulous, nuanced, leverage, foster, navigate, underscore, showcase, ensure, realm, garner, bolster, enduring, elevate, unwavering, testament, journey, landscape, ecosystem, paradigm.
-
-**Tier 2, context-dependent:**
-crucial, key, vital, significant, essential, comprehensive, holistic, seamless, dynamic, innovative, transformative, cutting-edge, state-of-the-art, harness, embrace, embark, dive into, dive deep.
-
-**Tier 3, promotional language (cut especially in marketing or about-page contexts):**
-boasts a, nestled in, in the heart of, renowned for, exemplifies, stands as a testament, serves as a reminder, represents a shift, marks a turning point, indelible mark, deeply rooted, rich, profound, enhancing, showcasing, commitment to excellence.
-
-When one of these appears, ask: is there a plainer word that means the same thing? If yes, swap it.
-
-### Structural tells
-
-**Negative parallelism** ("not X, it's Y") is the most overused AI structure. Cut every instance unless it's a direct quote from a real human source. Examples:
-
-- "It's not [a tool], it's [a thought partner]"
-- "You're not [an X], you're [a Y]"
-- "Not just A, but B"
-- "It's not about A. It's about B."
-
-**Bullet-everything.** A 1-3 sentence answer broken into bullets, or a markdown header used for a paragraph-length response. Convert to flowing prose.
-
-**Rule of three.** Adjective triads ("creative, thoughtful, and deeply considered") used for false comprehensiveness. Cut to one or two specific adjectives.
-
-**Outline-style conclusions.** Final paragraphs that read "Despite [challenges], [subject] continues to [vague positive outlook]." Replace with a sharp specific kicker, or no conclusion at all.
-
-**Title Case headings** when sentence case is the convention. Convert.
-
-**Skipping heading levels** (H2 directly to H4 with no H3). Fix the hierarchy.
-
-**Inline-header lists** (`- **Term:** description` repeated mechanically). Use only for genuine definition lists. Otherwise convert to prose.
-
-**Excessive boldface.** Bolding every key term mechanically. Cap bold at roughly two instances per section, only on phrases the reader needs to find by skimming.
-
-### Tone and opener tells
-
-Cut these phrases and the sentences they live in:
-
-- "Great question!"
-- "Absolutely!"
-- "Certainly!"
-- "Of course!"
-- "I'd be happy to help."
-- "I'd love to help."
-- "I'm here to help."
-- "It's important to note that…"
-- "It's worth noting that…"
-- "It should be noted that…"
-- "Interestingly,"
-- "In conclusion,"
-- "In summary,"
-- "To summarize,"
-- "To wrap up,"
-- "Furthermore,"
-- "Moreover,"
-- "Additionally,"
-- "However," used as the opening word of multiple paragraphs.
-
-Test: if the sentence still works without the opener phrase, delete the phrase. If the sentence collapses without it, the sentence is filler, so delete the whole sentence.
-
-### Punctuation tells
-
-**Em dash overuse.** More than 2-3 em dashes per 500 words, or em dashes appearing at every clause boundary. Replace most with commas, full stops, or hyphens with spaces. Genuine asides can keep theirs.
-
-**Curly quotes** in plain-text or markdown contexts where the surrounding ecosystem uses straight quotes. Convert.
-
-**Knowledge-cutoff disclaimers.** "As of my knowledge cutoff…", "I may not have current information…". Cut from final output.
-
-**Sycophantic openers.** "What a wonderful question!", "I love this prompt!". Cut.
-
-### Content and analysis tells
-
-**Vague attribution.** "Many experts say…", "Studies have shown…", "It is widely believed that…". Cite a specific source or delete the claim.
-
-**Superficial -ing analysis.** Clauses that add no information: "highlighting their significance", "emphasizing their role", "underscoring their importance". Cut the whole clause.
-
-**Hedge stacking.** "May potentially possibly suggest." Pick the strongest verb that's still accurate.
-
-**Filler hedges.** "Somewhat", "relatively", "arguably", "perhaps", "potentially". Cut where the claim still holds. If the claim doesn't hold without the hedge, the claim is too weak. Sharpen or delete.
-
-### Era-specific tells (current as of May 2026)
-
-**Active right now:**
-
-- Goblin, gremlin (except when referring to the Apache TinkerPop Gremlin query language), raccoon, troll, ogre, pigeon. OpenAI hard-banned these in May 2025; if they appear, they leaked through.
-- "It's not X, it's Y." Still rampant.
-- Markdown-bullet-everything. Still rampant.
-- "I'd be happy to help" openers. Still rampant.
-- Title Case section headings. Still rampant.
-
-**Mostly trained out:**
-
-- "Delve". Paul Graham's 2024 viral tweet pushed OpenAI to train it down. Now uncommon.
-- Em dashes at every clause boundary. OpenAI shipped a fix in November 2025. Less common but still leak through.
-- "Tapestry". Peak 2023. Now rare.
-
-Update this section quarterly against the Wikipedia source. Demote trained-out tells to the second list, but never delete from the catalogue. Tells are cyclical and may return.
+- Vocabulary fingerprints → `house-style.md § Banned vocabulary` (Tier 1 / 2 / 3 / 4)
+- Structural fingerprints → `house-style.md § Structural rules` and `§ Banned sentence patterns`
+- Tone fingerprints → sub-bullets in `house-style.md § Banned sentence patterns` (sycophantic openers, throat-clearing, closing phrases)
+- Punctuation fingerprints → `house-style.md § Punctuation and typography`
+- Content and analysis tells → `house-style.md § Banned analysis patterns` (includes the 12 humanizer gap patterns)
 
 ## Workflow
 
 1. **Read the input fully.** Don't skim. Density and combination matter more than any single tell.
-2. **Pass 1, flag.** Walk every category. For each match, note the phrase, the category, and a proposed replacement.
+2. **Pass 1, flag.** Walk every category in `## Catalogue lookups`. For each match, note the phrase, the category, and a proposed replacement.
 3. **Pass 2, score.** Estimate tells per 100 words. Above 3 is heavy. Above 6, recommend a rewrite from scratch rather than editing.
 4. **Pass 3, rewrite.** Maintain the writer's intent and voice. Don't substitute one set of AI tells for another.
 5. **Pass 4, self-audit.** Read the rewrite. Ask: what still feels AI? Fix it. Repeat until clean.
+
+Apply during Pass 1: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (sycophantic / throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence.
 
 ## Output format
 

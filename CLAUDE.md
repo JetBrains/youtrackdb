@@ -90,7 +90,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 ## Writing Style for Design Docs and Issues
 
-The default LLM register is verbose, hedging, list-heavy, and full of "AI tells" (delve, leverage, robust, "It's not X — it's Y", em-dash overuse). Documents in this register are slow to read and reviewers ignore them. Use the **Concise Doc** output style at `.claude/output-styles/concise-doc.md` whenever you draft:
+The default LLM register is verbose, hedging, list-heavy, and full of "AI tells" (delve, leverage, robust, "It's not X — it's Y", em-dash overuse). Documents in this register are slow to read and reviewers ignore them. Use the **House Style** output style at `.claude/output-styles/house-style.md` whenever you draft:
 
 - ADR / design documents under `docs/adr/**` (including `_workflow/` drafts during a branch's lifetime, and the final `adr.md` and `design-final.md`).
 - GitHub issue bodies you write for the user to post (e.g., the `issue-*.md` scratch files at the repo root).
@@ -99,7 +99,7 @@ The default LLM register is verbose, hedging, list-heavy, and full of "AI tells"
 
 The output style is **mandatory style guidance for these artifacts, not optional**. Apply its rules (BLUF lead, banned-vocabulary list, em-dash cap, 200-word section cap, repo-anchored voice) whether or not the user has activated the style with `/output-style`. Read the file once at the start of any session that will produce documents in those paths; treat its self-check list as a pre-return checklist for every draft.
 
-When the user wants the style toggled for the whole session (e.g., a session focused on writing an ADR), suggest `/output-style concise-doc`. Otherwise, just apply the rules silently.
+When the user wants the style toggled for the whole session (e.g., a session focused on writing an ADR), suggest `/output-style house-style`. Otherwise, just apply the rules silently.
 
 ## Testing
 
