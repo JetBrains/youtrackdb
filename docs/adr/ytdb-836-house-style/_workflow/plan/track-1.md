@@ -94,6 +94,10 @@ Track-level acceptance: `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAU
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't belong to one specific step. Per-step episode content lives in `## Episodes` above. Often empty. -->
 
+## Base commit
+
+cca6f9c3cd8b1ca13f1923c4d5c328e2da9c7b6e
+
 ## Interfaces and Dependencies
 
 **In-scope files:**
