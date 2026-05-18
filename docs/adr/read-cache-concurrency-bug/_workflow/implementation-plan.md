@@ -21,21 +21,16 @@
 
 ### Constraints
 
-- Edits stay inside `core`'s `internal/core/storage/cache/**` (disk-engine
-  cache primitives — `chm/LockFreeReadCache` including the Track 7
-  layered `shrinkFile` + private `clearFileRange`, `local/WOWCache`,
-  `WriteCache` interface), `internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
-  (in-memory engine parallel implementation), the storage components
-  that own logical page counts (`paginated/base/StorageComponent` and
-  subclasses, `storage/impl/local/AbstractStorage`,
-  `storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking`,
-  `storage/disk/DiskStorage`), `storage/ridbag/LinkCollectionsBTreeManagerShared.java`
-  (Track 7 SLBB iteration accessor), `storage/fs/AsyncFile.java`
-  (Track 7 in-place semantics fix for the existing `shrink(size)`
-  primitive), and `internal/common/collection/ConcurrentLongIntHashMap.java`
-  (Track 7 range-scoped purge primitive backing `clearFileRange`,
-  if the range filter is pushed into the segment map rather than
-  iterated inside `LockFreeReadCache`). No public-API changes.
+- Edits stay inside `core`'s disk-engine cache primitives
+  (`chm/LockFreeReadCache`, `local/WOWCache`, `WriteCache` interface,
+  in-memory parallel `DirectMemoryOnlyDiskCache`), the storage components
+  that own logical page counts (`StorageComponent` + subclasses,
+  `AbstractStorage`, `AtomicOperationBinaryTracking`, `DiskStorage`), and
+  the Track 7 expansion files (`storage/fs/AsyncFile`,
+  `storage/ridbag/LinkCollectionsBTreeManagerShared`,
+  `internal/common/collection/ConcurrentLongIntHashMap`). Exhaustive
+  in-scope file list: see `tracks/track-7.md` § Constraints →
+  "In-scope files". No public-API changes.
 - WAL format and replay-record schema unchanged. Page allocation remains
   implicit (no new `AddPage*` record).
 - `DoubleWriteLog` (anti-tear) and `EnsurePageIsValidInFileTask`
@@ -210,63 +205,34 @@ flowchart LR
 #### D6: Recovery-time orphan truncation pass for EP-equipped components (revised after Track 7 Phase A iter-1 v2 — LFRC purge layering + restore-path wiring)
 
 - **Alternatives considered**: marker-bit + adopt-on-existing at the
-  cache layer (rejected by D5; symptom-not-cause); `reuseOrphanPageForWrite`
-  SPI allowing below-allocation-floor pageIndex (rejected — re-exposes the
-  discovery channel D4 closes); accept-and-document-only (rejected —
-  silent self-healing pre-fix becomes noisy manual-recovery post-fix);
-  file-name iteration via `WriteCache.nameIdMap` (rejected — per-component
-  helper placement colocates EP arithmetic with each component's other
-  recovery code, iterates a typed component list rather than a
-  file-extension dispatcher, and keeps the discovery seam owned by the
-  component rather than the cache); lazy self-heal in AOBT's allocator
-  path (rejected — pushes recovery cost into the steady-state allocator
-  hot path and complicates AOBT's allocator-only contract).
+  cache layer (rejected by D5); `reuseOrphanPageForWrite` SPI (rejected —
+  re-exposes the discovery channel D4 closes); accept-and-document-only
+  runbook (rejected — silent self-heal becomes noisy manual recovery);
+  file-name iteration via `WriteCache.nameIdMap` (rejected — typed
+  component list keeps EP arithmetic colocated with the component);
+  lazy self-heal in AOBT's allocator path (rejected — recovery cost
+  in the steady-state hot path).
 - **Rationale**: Track 4's `addPage` deletion converts the previously-
   silent partial-flush-orphan path into a noisy `IllegalStateException`
-  at the next allocator call on the four EP-equipped components. A new
-  private `AbstractStorage.truncateOrphansAfterRecovery()` (invoked from
-  `open()` after the catalogue load, and from
-  `DiskStorage.postProcessIncrementalRestore` AFTER `flushAllData()` so
-  WAL-replay-buffered dirty pages are flushed before truncation) reads
-  logical pages from each EP and calls a new
-  `LockFreeReadCache.shrinkFile(fileId, targetBytes, writeCache)` —
-  the read-cache layer is the orchestrator, mirroring the existing
-  `LockFreeReadCache.truncateFile` / `deleteFile` two-phase pattern.
-  Inside, LFRC delegates to a new `WriteCache.shrinkFile(fileId,
-  targetBytes)` (WOWCache: filesLock.writeLock + `removeCachedPages`
-  for the writeCachePages range + `AsyncFile.shrink(targetBytes)`;
-  DirectMemoryOnlyDiskCache: no-op), then runs a new range-scoped
-  `clearFileRange(fileId, minPageIndex, writeCache)` on the LFRC
-  segment map to purge read-cache entries at `pageIndex >=
-  targetBytes / pageSize`. EP-only reads keep D2 and D4 intact.
-- **Risks/Caveats**: in-scope is the four EP-equipped components (BTree,
-  SLBB, CPMV2, PCV2); EP-less components and IndexHistogramManager are
-  out of scope per Non-Goals (the carve-out acknowledges the
-  `checksumMode=StoreAndThrow` exposure). Track 7 also (a) fixes a
-  latent `AsyncFile.shrink(size)` in-memory-size reset bug as a
-  separable commit, (b) the LFRC orchestration in `shrinkFile` mirrors
-  `LockFreeReadCache.truncateFile`'s `writeCache.truncateFile` → bulk
-  `clearFile` ordering — the new path runs `writeCache.shrinkFile` →
-  range-scoped `clearFileRange` so the LFRC range purge happens AFTER
-  the AsyncFile truncation and writeCachePages range purge (eliminating
-  the previously-spec'd-but-wrong "WOWCache purges LFRC" placement),
-  (c) `verifyAndTruncateOrphans` floors `targetBytes` at `pageSize`
-  (preserving the EP page) and skips-with-warn when
-  `EP.pagesSize == 0 && getFileSize() > pageSize` (signals data
-  corruption that the recovery pass intentionally does not silently
-  mask), (d) the pass adds ~100-300 in-cache EP page reads per storage
-  open (after `openIndexes` warms the cache) — bounded one-shot cost
-  vs. the runbook-only alternative whose blast radius is naive-
-  operator triage of a `StorageException` at first write,
-  (e) adds a `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
-  internal-iteration delegate, (f) adds the missing
-  `v3.BTree.getFileId()` accessor, and (g) for
-  `BTreeMultiValueIndexEngine` the pass iterates BOTH `svTree` AND
-  `nullTree` (Phase A iter-2 PSI-confirms both can grow under
-  multi-page null-key load; if `nullTree` is single-page-by-construction
-  the iter-2 audit downgrades to `svTree`-only).
+  at the next allocator call. A recovery-time
+  `AbstractStorage.truncateOrphansAfterRecovery()` orchestrator, wired
+  from `open()` post-catalogue-load and from
+  `DiskStorage.postProcessIncrementalRestore` post-`flushAllData()`,
+  reads each EP-equipped component's logical pages and dispatches a
+  layered `LockFreeReadCache.shrinkFile` (WriteCache-side shrink + LFRC
+  range purge). EP-only reads keep D2 and D4 intact.
+- **Risks/Caveats**: in-scope is the four EP-equipped components
+  (BTree, SLBB, CPMV2, PCV2); EP-less components and IHM are out of
+  scope per Non-Goals. EP-page floor (`targetBytes >= pageSize`) +
+  corruption guard (`EP.pagesSize == 0 && fileSize > pageSize` →
+  skip-with-WARN) are the only safety nets, since the truncate is
+  unlogged. Adds a one-shot ~100-300 in-cache EP page reads per storage
+  open. Side-effects: separable `AsyncFile.shrink(size)` semantics fix,
+  new `v3.BTree.getFileId()` accessor, new
+  `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
+  iteration delegate.
 - **Implemented in**: Track 7.
-- **Full design**: design.md §"Crash safety" → "Post-WAL-replay file truncation"
+- **Full design**: design.md §"Crash safety" → "Post-WAL-replay file truncation"; design.md §"Workflow" → "Recovery-time orphan-truncation path" for the layered orchestration diagram.
 
 ### Invariants
 
@@ -290,13 +256,12 @@ flowchart LR
 - **I6**: After `AbstractStorage.open()` and
   `DiskStorage.postProcessIncrementalRestore` return, every EP-equipped
   component (BTree, SLBB, CollectionPositionMapV2, PaginatedCollectionV2)
-  satisfies `entryPoint.logicalPages <= AsyncFile.getFileSize() / pageSize`,
-  and the recovery-time pass restores equality whenever it observes
-  `logical < physical` by truncating the orphan extent. The pass does NOT
-  auto-repair `logical > physical` (a data-corruption signature WAL replay
-  is designed to prevent) — it skips-with-warn so an operator can
-  triage rather than silently masking the divergence. Established by
-  Track 7; maintained by I5.
+  satisfies `entryPoint.logicalPages <= AsyncFile.getFileSize() / pageSize`.
+  Established by Track 7's recovery-time pass; maintained by I5.
+  Corruption-signature handling (the inverse `logical > physical`-like
+  shape — `EP.pagesSize == 0 && fileSize > pageSize`) is skip-with-WARN,
+  not auto-repair — see design.md §"Crash safety" → "Post-WAL-replay
+  file truncation".
 
 ### Integration Points
 
@@ -311,51 +276,25 @@ flowchart LR
   parallel implementation of the new primitive.
 - `DiskStorage.backupPagesWithChanges` reads file-physical size during
   storage quiesce via the gated path introduced in Track 5.
-- `AbstractStorage.open()` invokes Track 7's new
-  `truncateOrphansAfterRecovery()` pass after the catalogue load
-  (`recoverIfNeeded()` has already drained the flush executor);
-  `DiskStorage.postProcessIncrementalRestore` invokes the same pass
-  AFTER `flushAllData()` runs at `:1673` (so WAL-replay-buffered dirty
-  pages settle before truncation, avoiding the
-  flush-after-truncate orphan re-creation hazard). The orchestrator
-  routes through `LockFreeReadCache.shrinkFile(fileId, targetBytes,
-  writeCache)` — see design.md §"Crash safety" → "Post-WAL-replay file
-  truncation" for the iteration + layered `shrinkFile` mechanics.
+- `AbstractStorage.open()` and `DiskStorage.postProcessIncrementalRestore`
+  invoke Track 7's new `truncateOrphansAfterRecovery()` orchestrator
+  after WAL replay and flush drain (both entry points end up post-flush
+  to avoid the flush-after-truncate hazard). See design.md §"Workflow"
+  → "Recovery-time orphan-truncation path" for the layered routing
+  through `LockFreeReadCache.shrinkFile` and §"Crash safety" →
+  "Post-WAL-replay file truncation" for the placement rationale.
 
 ### Non-Goals
 
 - Post-WAL-replay file truncation for **EP-less** components
-  (`FreeSpaceMap`, `CollectionDirtyPageBitSet`). Their growth-loop
-  allocators skip the orphan write (`for (i = filledUpTo; i <=
-  target; i++)` is empty when `target < filledUpTo`) but DO read the
-  orphan page on the next access via `loadPageForWrite`. Behaviour
-  per checksum mode (PSI-audited at Track 7 Phase A iter-1):
-  - `checksumMode=StoreAndThrow` (project CI default): the orphan's
-    stale or zero checksum trips `StorageException("Page Y is broken
-    in file")` at first read — loud, user-visible failure.
-  - `checksumMode=Off`: the orphan is adopted as a legitimate page on
-    next access; FSM/CDPB are bitmap-style structures, so historical
-    bytes are overwritten without progressive corruption.
-  Track 6 owns the CS1 regression coverage exercising FSM and CDPB
-  partial-flush scenarios under both modes; Track 7 deliberately
-  stays scoped to EP-equipped components where logical-recovery is a
-  one-liner (`entryPoint.fileSize` / `pagesSize` read). Expanding
-  Track 7 to FSM/CDPB would require deriving logical state from each
-  component's parent PCV2 — complex per-component logic for a smaller
-  exposure surface.
-- Post-WAL-replay file truncation for `IndexHistogramManager`. IHM
-  uses a page-1 discriminator (`op.filledUpTo > 1 ? load : allocate`)
-  rather than an EP-fileSize check; the discriminator IS the physical
-  extent, so a partial-flush orphan at page 1 mis-classifies a
-  not-spilled HLL as spilled. Behaviour:
-  - `checksumMode=StoreAndThrow`: HLL deserialise of orphan bytes
-    fails the stale checksum → `StorageException` — loud failure.
-  - `checksumMode=Off`: HLL state silently corrupted, but cardinality
-    estimation is best-effort (not load-bearing data).
-  Track 6 owns the HLL-spill crash-then-second-spill regression
-  exercising both modes. Expanding Track 7 to IHM would require
-  reading page-0's `hllSize` flag to derive logical state — IHM-
-  specific recovery logic outside the EP-driven pass.
+  (`FreeSpaceMap`, `CollectionDirtyPageBitSet`) and
+  `IndexHistogramManager`. Track 7 stays scoped to EP-equipped
+  components where logical recovery is a one-liner EP read; the
+  EP-less / IHM carve-out (per-checksum-mode failure shapes, why
+  expanding Track 7 to cover them is complex, where the symptom-surface
+  coverage lives) is documented in design.md §"Crash safety" → "Edge
+  cases / Gotchas → EP-less and IHM carve-out: per-mode failure
+  behaviour". Track 6 owns the CS1 / HLL-spill regression coverage.
 - Performance debt of the recovery probe — tracked in
   `ISSUE-recovery-log-perf-debt.md`.
 - Truncate-cache purge ordering bug — tracked in
@@ -897,9 +836,33 @@ flowchart LR
   > **Depends on:** Track 1, Track 4, Track 7
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed 2026-05-18 at consistency iter 2 / structural iter 2 (Track 7 Phase A iter-1 v2 ESCALATE re-validation)
 
-<!-- Prior pass: passed 2026-05-17 at consistency iter 3 / structural iter 3 (post-inline-replan re-validation after commit `fc9b448e02` reset to `[ ]`). Reset to `[ ]` after Track 7 Phase A iter-1 v2 ESCALATE — D6 LFRC purge layering + I6 tightening + Integration Points wiring + Constraints scope-list expansion + Track 7 step-file rewrite. Next session re-enters State 0 to validate the revision. -->
+**Auto-fixed (mechanical)**:
+- **CR10** (suggestion): track-7.md integration-test wording — clarified the deterministic orphan-fabrication test pattern to call out `AsyncFile.allocateSpace(...)` + `AsyncFile.write(...)` (raw `write` rejects offsets past current `size` via `checkPosition`).
+- **CR11** (suggestion): four sites in plan + track-7.md added the `isDirty()` qualifier to `recoverIfNeeded()` drain claims (on clean reopens the body is a no-op, which is still safe because nothing was buffered).
+- **CR12** (should-fix): design.md two-site line drift — `IndexHistogramManager.readSnapshotFromPage:1819` → `:1823` (prior pass's CR6 over-corrected; current code position is `:1823`). (design.md Mutation 9.)
+- **CR13** (should-fix): plan D6 — `removeCachedPages` wording corrected from "for the writeCachePages range" to "bulk-by-fileId purge of writeCachePages (acceptable on the recovery path because `stateLock.writeLock` excludes concurrent allocators; Phase A iter-2 / Phase B decides whether to add a range-scoped variant)".
+- **CR16** (should-fix, iter-2): new Recovery-time orphan-truncation sequence diagram in design.md — removed spurious `SC->>WC: physicalSize(fileId)` step (contradicted Track 7's "independent of Track 5" claim); file-size read now happens inside `WriteCache.shrinkFile`'s pre-flight (`WC->>AF: getFileSize()`). Corruption guard moved to `Note over SC` with explicit Track 5 disclaim. (design.md Mutation 11.)
+- **CR17** (suggestion, iter-2): expanded loop caption `SLBB` → `SharedLinkBagBTree` for consistency with §"Crash safety" prose. (design.md Mutation 11.)
+- **S10** (should-fix): D6 trimmed from 63 lines back to four-bullet form (~30 lines) — long-form material relocated to `design.md` §"Crash safety" and §"Workflow" → "Recovery-time orphan-truncation path".
+- **S11** (should-fix): I6 trimmed from 10 lines to ~5; corruption-signature semantics moved to design.md §"Crash safety" → "Post-WAL-replay file truncation".
+- **S12** (should-fix): Integration Points Track 7 bullet trimmed from 12 lines to 7; long-form workflow walk-through moved to `design.md` §"Workflow" → "Recovery-time orphan-truncation path".
+- **S13** (suggestion): Constraints scope-list bullet trimmed from 15 lines to 10; exhaustive in-scope file list delegated to `tracks/track-7.md` § Constraints → "In-scope files".
+
+**Escalated (design decisions)**:
+- **CR14** (suggestion, design-decision): class diagram completeness for Track 7 surface — user chose **Leave as-is (prose-only)**; coverage stays in §"Crash safety" → "Post-WAL-replay file truncation" + the new Workflow sub-section.
+- **CR15** (suggestion, design-decision): missing recovery-time sequence diagram — user chose **Add sequence diagram**; new `### Recovery-time orphan-truncation path` sub-section added under §"Workflow" with a 6-participant `sequenceDiagram` (AbstractStorage → StorageComponent → EntryPoint → LockFreeReadCache → WriteCache → AsyncFile) + trailing prose. (design.md Mutation 10, polished by Mutation 11.)
+- **S14** (suggestion, design-decision): Non-Goals shape — user chose **Trim Non-Goals + move detail to design.md**; per-checksum-mode failure-behaviour walk-throughs for the EP-less (FSM/CDPB) + IHM carve-out moved to a new `**EP-less and IHM carve-out: per-mode failure behaviour**` bullet under design.md §"Crash safety" → `### Edge cases / Gotchas`. (design.md Mutation 12.)
+
+**CR8 (deferred from prior pass)**: resolved by the Track 7 step-file rewrite — both entry points now run post-`flushAllData()`, so the Step 5 risk note is no longer inaccurate.
+
+**Deferred (suggestion-class — logged, not retried)**:
+- Pre-existing typo in design.md §"Crash safety" → "Post-WAL-replay file truncation" gotcha (line ~772): "`logical > physical`-like signature" should read "`logical < physical`-like" (since `EP.pagesSize == 0` and `physical > pageSize` is logical < physical). The new §"Workflow" → "Recovery-time orphan-truncation path" sub-section phrases the same case correctly. One-character directional fix; out-of-scope for this pass.
+- §"Crash safety" → `### Edge cases / Gotchas` is approaching the upper bound for its enclosing mechanism prose (~134 cumulative lines; warn threshold ~200). No action needed yet.
+- Growth-loop terminology in the new EP-less/IHM carve-out bullet could be name-shaped at first mention (4-word parenthetical noting the `for (i=filledUpTo; …)` shape). Quality-of-life polish.
+
+<!-- Prior pass: passed 2026-05-17 at consistency iter 3 / structural iter 3 (post-inline-replan re-validation after commit `fc9b448e02` reset to `[ ]`). Reset to `[ ]` after Track 7 Phase A iter-1 v2 ESCALATE — D6 LFRC purge layering + I6 tightening + Integration Points wiring + Constraints scope-list expansion + Track 7 step-file rewrite. This session (2026-05-18) re-validated the revision: consistency iter 1 found 0 blockers, 2 should-fix, 4 suggestions (4 mechanical auto-fixed + 2 design-decision escalated); iter 2 gate found CR16 (should-fix, mechanical) + CR17 (suggestion, mechanical) on the new sequence diagram, both auto-fixed; iter 2 verified PASS. Structural iter 1 found 0 blockers, 3 should-fix, 2 suggestions (4 mechanical auto-fixed + 1 design-decision escalated); iter 2 gate verified PASS with zero new findings. -->
 
 <!-- Auto-fix audit trail from the prior pass (preserved for traceability):
 

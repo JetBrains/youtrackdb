@@ -118,11 +118,14 @@ instead.
 
 ## Workflow
 
-The new design has three runtime paths worth diagramming: the write-side
-allocation happy path, the recovery gap-fill path, and the cross-TX read
-path. Each runs the same `LockFreeReadCache.data.compute` lambda
-delegating to `WriteCache.loadOrAdd`; they diverge only on what
-`loadOrAdd` does internally.
+The new design has four runtime paths worth diagramming: the write-side
+allocation happy path, the recovery gap-fill path, the cross-TX read
+path, and the recovery-time orphan-truncation path (Track 7). The first
+three run the same `LockFreeReadCache.data.compute` lambda delegating to
+`WriteCache.loadOrAdd`; they diverge only on what `loadOrAdd` does
+internally. The fourth path is a recovery-only orchestration that
+shrinks files holding orphan extents — see §"Crash safety" →
+"Post-WAL-replay file truncation" for the full mechanism.
 
 ### Write-side allocation happy path
 
@@ -228,6 +231,63 @@ observe a partial state. `TX_B`'s `loadForRead` takes the load branch,
 never the extend branches; the race vector — a reader observing an
 in-flight pageIndex via `getFilledUpTo` — is not reachable from this
 path.
+
+### Recovery-time orphan-truncation path
+
+```mermaid
+sequenceDiagram
+    participant AS as AbstractStorage
+    participant SC as StorageComponent
+    participant EP as EntryPoint
+    participant RC as LockFreeReadCache
+    participant WC as WriteCache
+    participant AF as AsyncFile
+
+    Note over AS: open() after openIndexes,<br/>or postProcessIncrementalRestore after flushAllData
+    AS->>AS: truncateOrphansAfterRecovery() inside executeInsideAtomicOperation
+    loop for each EP-equipped component (BTree, SharedLinkBagBTree, CPMV2, PCV2)
+        AS->>SC: verifyAndTruncateOrphans(op, lfrc, wc)
+        SC->>EP: read pagesSize / fileSize (logical)
+        SC->>SC: targetBytes = max(pageSize, logicalPages * pageSize)
+        Note over SC: corruption guard fires when<br/>EP.pagesSize == 0 && fileSize > pageSize → skip-with-WARN<br/>(physical sourced via AsyncFile.getFileSize, not Track 5's physicalSize)
+        SC->>RC: shrinkFile(fileId, targetBytes, wc)
+        RC->>WC: shrinkFile(fileId, targetBytes)
+        WC->>AF: getFileSize() [pre-flight inside shrinkFile]
+        alt fileSize > targetBytes (orphan present)
+            Note over WC: filesLock.writeLock held
+            WC->>WC: removeCachedPages(fileId) bulk-by-fileId purge
+            WC->>AF: shrink(targetBytes)
+            WC-->>RC: returns
+            RC->>RC: clearFileRange(fileId, targetBytes / pageSize, wc)
+            Note over RC: segment-map purge of read-cache entries<br/>at pageIndex >= targetBytes / pageSize
+            RC-->>SC: returns
+            SC->>SC: WARN log: component, fileId, pre/post pages, delta
+        else fileSize <= targetBytes (clean)
+            WC-->>RC: returns (pre-flight no-op)
+            RC-->>SC: returns (no work)
+        end
+    end
+    AS->>AS: orchestrator returns; storage proceeds to first non-recovery TX
+```
+
+The orchestrator runs **after** WAL replay has settled logical state and
+flush executor has been drained — either via `recoverIfNeeded()` →
+`flushAllData()` on the `open()` path (when `isDirty()`) or via the
+explicit `flushAllData()` call on the incremental-restore path. Inside
+`executeInsideAtomicOperation`, the orchestrator iterates the four
+EP-equipped component classes, reads each instance's logical page count
+from its EntryPoint, and dispatches the layered shrink when physical
+exceeds the EP-page-floor target. The two-phase ordering inside
+`LockFreeReadCache.shrinkFile` — first `WriteCache.shrinkFile` (write
+side: write-cache purge + AsyncFile.shrink), then `clearFileRange` (read
+side: LFRC segment-map purge) — mirrors the existing
+`LockFreeReadCache.truncateFile` two-phase pattern. The corruption guard
+(`EP.pagesSize == 0 && fileSize > pageSize`) treats `logical < physical
+== orphan` as recoverable but `logical == 0 < physical` as a corruption
+signature WAL replay is designed to prevent; the pass intentionally
+skips-with-warn rather than masking it. See §"Crash safety" →
+"Post-WAL-replay file truncation" for the rest of the rationale (D6
+risks, EP-page floor derivation, integration-point ordering).
 
 ## Cache primitive: loadOrAdd
 
@@ -396,7 +456,7 @@ Track 3:
   recovery scan at `PaginatedCollectionV2.open:391` (logical
   bookkeeping was lost — physical-by-design). EP-less: defensive
   physical-presence probe at
-  `IndexHistogramManager.readSnapshotFromPage:1819` (discriminator at
+  `IndexHistogramManager.readSnapshotFromPage:1823` (discriminator at
   `:1843`; guards against
   partial crash between page-0 and page-1 writes in the same atomic
   op; IHM has no EntryPoint per the §"Logical-size surface per
@@ -484,7 +544,7 @@ already track logical-size advances continue to do so.
   checks "does page 0 exist physically?" before instantiating
   `PaginatedCollectionStateV2` over page 0. Stays on physical via
   Track 5's gated helper; rationale recorded inline in Track 4.
-- **`IndexHistogramManager.readSnapshotFromPage:1819`** (discriminator at `:1843`)**.** Defensive
+- **`IndexHistogramManager.readSnapshotFromPage:1823`** (discriminator at `:1843`)**.** Defensive
   physical-presence probe guarding against a partial crash between
   page-0 and page-1 writes in the same atomic op (the in-line comment
   documents the intent). Track 4 Phase A picks between (a) staying on
@@ -716,6 +776,36 @@ durable post-eviction.
   `CollectionDirtyPageBitSet`) and `IndexHistogramManager` are
   deliberately out of scope per the Non-Goals — their growth-loops
   are `getFilledUpTo`-anchored or use a page-1 discriminator pattern.
+- **EP-less and IHM carve-out: per-mode failure behaviour** — Track 7
+  stays scoped to EP-equipped components; FSM, CDPB, and IHM are
+  out-of-scope per Non-Goals, and their post-replay failure shape
+  depends on `checksumMode`.
+  - **EP-less components (FSM, CDPB)**: their growth-loop allocators
+    skip the orphan write (`for (i = filledUpTo; i <= target; i++)` is
+    empty when `target < filledUpTo`) but DO read the orphan page on
+    the next access via `loadPageForWrite`. Under
+    `checksumMode=StoreAndThrow` (project CI default), the orphan's
+    stale or zero checksum trips `StorageException("Page Y is broken
+    in file")` at first read — loud, user-visible failure. Under
+    `checksumMode=Off`, the orphan is adopted as a legitimate page on
+    next access; FSM/CDPB are bitmap-style structures, so historical
+    bytes are overwritten without progressive corruption.
+  - **IHM**: uses a page-1 discriminator
+    (`op.filledUpTo > 1 ? load : allocate`) rather than an EP-fileSize
+    check; the discriminator IS the physical extent, so a partial-flush
+    orphan at page 1 mis-classifies a not-spilled HLL as spilled.
+    Under `checksumMode=StoreAndThrow`, HLL deserialise of the orphan
+    bytes fails the stale checksum → `StorageException` — loud failure.
+    Under `checksumMode=Off`, HLL state is silently corrupted, but
+    cardinality estimation is best-effort (not load-bearing data).
+  - **Why expanding Track 7 is complex**: FSM/CDPB would need logical
+    state derived from each component's parent PCV2 (complex
+    per-component logic for a smaller exposure surface); IHM would
+    need page-0's `hllSize` flag read to derive logical state (IHM-
+    specific recovery logic outside the EP-driven pass).
+  Symptom-surface coverage for FSM / CDPB / IHM partial-flush scenarios
+  lives in Track 6's CS1 + HLL-spill regression coverage, exercising
+  both checksum modes.
 - **`DoubleWriteLog` interaction** — anti-tear protection for
   partially-written pages is orthogonal to allocation. Unchanged.
 - **In-memory engine** — `DirectMemoryOnlyDiskCache` has no

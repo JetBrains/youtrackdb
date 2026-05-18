@@ -165,9 +165,12 @@ pattern.
 >     (NOT gated by `wereDataRestoredAfterOpen` — orphan creation can
 >     survive a crash → clean-reopen-without-touch → clean reclose, so
 >     a subsequent open with `isDirty() == false` still needs the
->     pass). `recoverIfNeeded()` at `AbstractStorage.java:764` already
->     ran `flushAllData()` internally (`AbstractStorage.java:4497`),
->     so the flush executor is drained before the pass fires.
+>     pass). `recoverIfNeeded()` at `AbstractStorage.java:764` ran
+>     `flushAllData()` internally (`AbstractStorage.java:4497`) when
+>     `isDirty()` returned true, so the flush executor is drained
+>     before the pass fires on the dirty-reopen path; on the clean-
+>     reopen path `recoverIfNeeded()`'s body is skipped entirely
+>     because no work was buffered, which is still safe.
 >   - `DiskStorage.postProcessIncrementalRestore`: insert a call
 >     **AFTER** `:1673` (`flushAllData()`). The earlier-spec'd
 >     "between `:1671` and `:1673`" placement is wrong because at that
@@ -198,11 +201,16 @@ pattern.
 >   - Integration tests against a real `WOWCache`:
 >     - **Positive (primary) — deterministic orphan fabrication**:
 >       open a storage normally, use a test helper to write N extra
->       pages past `EP.pagesSize` via `AsyncFile.write` (bypassing
->       the allocator), close, reopen, assert the pass truncates and
->       the next TX completes without `IllegalStateException`. Fast,
->       deterministic, exercises the production path without sub-JVM
->       coordination.
+>       pages past `EP.pagesSize` via `AsyncFile.allocateSpace(...)`
+>       + `AsyncFile.write(...)` (bypassing the
+>       `StorageComponent.allocatePageForWrite` cache-allocator path,
+>       which is what bumps `EP.pagesSize` — raw `AsyncFile.write`
+>       alone rejects offsets past current `size` via `checkPosition`,
+>       so the helper must call `allocateSpace` first to extend
+>       physical size, then `write` the orphan content), close,
+>       reopen, assert the pass truncates and the next TX completes
+>       without `IllegalStateException`. Fast, deterministic,
+>       exercises the production path without sub-JVM coordination.
 >     - **Positive (confirmation) — sub-JVM crash** (slower, tagged
 >       integration): drive `commitChanges` to its WAL-buffered state
 >       on the disk engine, kill the JVM mid-flight via
@@ -258,9 +266,11 @@ pattern.
 >      unit test pins the iteration.
 >      **Risk: low** — pure delegate-and-iterate.
 >   5. **Step 5**: Add `AbstractStorage.truncateOrphansAfterRecovery()`;
->      wire into `open()` (after `:800` — `recoverIfNeeded()` has
->      already drained the flush executor at `:4497`) and
->      `postProcessIncrementalRestore` (AFTER `:1673` `flushAllData()`).
+>      wire into `open()` (after `:800` — `recoverIfNeeded()` already
+>      drained the flush executor at `:4497` when `isDirty()`; clean
+>      reopens skip the drain entirely, which is still safe because no
+>      work was buffered) and `postProcessIncrementalRestore` (AFTER
+>      `:1673` `flushAllData()`).
 >      Both call sites wrapped in `executeInsideAtomicOperation`.
 >      Integration tests: positive (primary — deterministic orphan
 >      fabrication via `AsyncFile.write`), positive (confirmation —
@@ -391,12 +401,16 @@ pattern.
 >   iter-1).
 > - **Crash-recovery coordination**: the pass runs **after**
 >   `recoverIfNeeded()` returns (so WAL replay has settled logical
->   state and `flushAllData()` has drained the flush executor on the
->   `open()` path) and **after** `flushAllData()` on the
->   `postProcessIncrementalRestore` path. Both entry-point sequences
->   end up post-flush before the orchestrator fires, eliminating the
->   flush-after-truncate orphan re-creation hazard. The new
->   orchestrator does not interact with the WAL directly.
+>   state and, on the dirty-reopen path where `isDirty()` returned
+>   true, `flushAllData()` has drained the flush executor inside
+>   `recoverIfNeeded()` at `:4497`; on the clean-reopen path
+>   `recoverIfNeeded()`'s body is skipped entirely because no work
+>   was buffered, which is still safe) and **after** `flushAllData()`
+>   on the `postProcessIncrementalRestore` path. Both entry-point
+>   sequences end up post-flush (or no-flush-needed) before the
+>   orchestrator fires, eliminating the flush-after-truncate orphan
+>   re-creation hazard. The new orchestrator does not interact with
+>   the WAL directly.
 
 ## Progress
 - [ ] Review + decomposition

@@ -309,3 +309,128 @@ Overview): PASS — 3 suggestions (no blockers, no should-fix).
   corruption-skip) so a footer skim conveys the full mechanism.
 
 **Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 9 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review mechanical fix CR12 —
+corrected `IndexHistogramManager.readSnapshotFromPage` line anchor at
+two sites in the Allocation discovery surface section (line 399 EP-less
+defensive physical-presence probe bullet; line 487 per-site breakdown
+heading). Anchor `:1819` → `:1823`; discriminator anchor `:1843`
+unchanged. Pure line-anchor correction (the prior pass's CR6
+mechanical fix shifted `:1833` → `:1819`, which over-corrected; current
+code position is `IndexHistogramManager.java:1823` for
+`private HistogramSnapshot readSnapshotFromPage(AtomicOperation op)`).
+No surrounding prose or rationale touched.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Allocation discovery surface + Overview
++ Cache primitive: loadOrAdd + Concurrency model): PASS — 0 findings.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 10 — 2026-05-18 — section-add (design.md)
+
+**Diff summary**: Phase 2 consistency-review user-resolved fix CR15 —
+added a new `### Recovery-time orphan-truncation path` sub-section
+under `## Workflow` (between `### Cross-TX read path` and
+`## Cache primitive: loadOrAdd`). The sub-section contains a 6-
+participant `sequenceDiagram` (AbstractStorage → StorageComponent →
+EntryPoint → LockFreeReadCache → WriteCache → AsyncFile) showing the
+recovery-time orphan-truncation flow (orchestrator → per-EP-equipped
+component helper → `LockFreeReadCache.shrinkFile` → `WriteCache.shrinkFile`
++ `clearFileRange` two-phase ordering, plus the corruption-skip branch),
+followed by one prose paragraph naming the entry-point ordering vs
+`recoverIfNeeded()` / `flushAllData()` and the EP-floor / corruption
+guard rationale. Also updated `## Workflow` intro paragraph from "three
+runtime paths" to "four runtime paths" with a one-sentence introduction
+of the new recovery-only path. Resolves the CR15 diagram-vs-prose
+asymmetry surfaced by the consistency review.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: whole-doc — N=5 periodic counter fired on
+mutation #10): PASS — 0 blockers, 0 should-fix, 2 suggestions.
+
+**Findings**:
+- suggestion (pre-existing): `## Crash safety` Edge cases / Gotchas
+  bullet line 772 phrases the `EP.pagesSize == 0 && fileSize > pageSize`
+  signature as `a \`logical > physical\`-like signature`; the new
+  sub-section phrases the same situation correctly as `logical == 0 <
+  physical` (a `logical < physical`-like signature). One-character
+  directional fix; out-of-scope for this mutation (Crash safety prose
+  not touched). Carry forward as known suggestion.
+- suggestion: new sub-section's loop caption uses the short-name
+  `SLBB` while §"Crash safety" prose spells out `SharedLinkBagBTree`.
+  No other use of `SLBB` in design.md. Trivial expand-the-abbreviation
+  fix; deferred to keep this mutation scoped to CR15. Carry forward.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 11 — 2026-05-18 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review gate-verification fixes
+CR16 + CR17 — revised the `### Recovery-time orphan-truncation path`
+sequence diagram added in Mutation 10 to (1) remove the spurious
+`SC->>WC: physicalSize(fileId)` call that contradicted Track 7's
+"independent of Track 5" claim (CR16, was should-fix). The file-size
+read now happens inside `WriteCache.shrinkFile`'s pre-flight
+(`WC->>AF: getFileSize()`), matching `track-7.md:39-58` and the
+Track 5 independence statement at `track-7.md:383-390`. The
+corruption guard moves to a `Note over SC` describing the rule and
+explicitly disclaiming Track 5 dependence. (2) Expand the loop
+caption's short-name `SLBB` to `SharedLinkBagBTree` for consistency
+with §"Crash safety" prose (CR17, was suggestion). Alt-branch labels
+now read `fileSize > targetBytes (orphan present)` / `fileSize <=
+targetBytes (clean)` matching the actual two-branch control flow
+(the corruption-skip case short-circuits before `shrinkFile` is
+called, so it's a Note rather than a third alt arm).
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Recovery-time orphan-truncation path
+sub-section + Cross-TX read path + Cache primitive + Crash safety
+cross-reference): PASS — 0 findings.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 12 — 2026-05-18 — content-edit (design.md)
+
+**Diff summary**: Phase 2 structural-review user-resolved fix S14 —
+moved the per-checksum-mode failure-behaviour walk-throughs for the
+EP-less (FSM, CDPB) and IndexHistogramManager carve-out from the
+plan-file Non-Goals section into a new `**EP-less and IHM carve-out:
+per-mode failure behaviour**` bullet under `## Crash safety` → `###
+Edge cases / Gotchas` (between the Post-WAL-replay file truncation
+bullet and the DoubleWriteLog interaction bullet). The new bullet
+documents per-mode failure shapes (StoreAndThrow → loud
+`StorageException`; Off → silent bitmap overwrite for FSM/CDPB,
+best-effort cardinality drift for IHM), why expanding Track 7 to cover
+them is complex (FSM/CDPB need parent-PCV2-derived logical state; IHM
+needs page-0 `hllSize`-flag read), and where the symptom-surface
+coverage lives (Track 6 CS1 + HLL-spill regressions). Corresponds to
+the plan-file Non-Goals bullet trim from ~32 lines to one consolidated
+8-line scope-exclusion + pointer.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Crash safety + Allocation discovery
+surface cross-section): PASS — 0 blockers, 0 should-fix, 2 suggestions
+(both quality-of-life polishes: section-length-bound is comfortably
+under threshold; growth-loop term is established via the loop-shape
+quote inside the bullet itself).
+
+**Findings**:
+- suggestion: §"Edge cases / Gotchas" sub-section is approaching upper
+  bound for its enclosing §"Crash safety" mechanism prose (134 lines
+  cumulative, under the 200-line warn threshold). No action needed.
+- suggestion: a 4-word parenthetical naming the growth-loop shape on
+  first use in the carve-out would aid readers who navigate directly
+  to this gotcha. Not retried per discipline.
+
+**Iterations**: 1 of 3 (PASS).
