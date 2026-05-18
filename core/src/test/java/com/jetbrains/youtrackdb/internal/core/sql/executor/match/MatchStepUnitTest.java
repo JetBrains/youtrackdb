@@ -22,10 +22,12 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -41,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -1904,6 +1907,125 @@ public class MatchStepUnitTest extends DbTestBase {
     assertFalse(stream.hasNext(ctx));
   }
 
+  /**
+   * toExecutionStream uses the RID-only path for VertexFromLinkBagIterable:
+   * yields RecordId-backed ResultInternal objects without loading entities.
+   * This is the core lazy-loading optimization for MATCH traversal.
+   */
+  @Test
+  public void testToExecutionStreamVertexFromLinkBagIterable() {
+    var ctx = createCommandContext();
+    var rid1 = new RecordId(10, 1);
+    var rid2 = new RecordId(10, 2);
+
+    var linkBag = mock(LinkBag.class);
+    when(linkBag.iterator()).thenReturn(List.of(
+        RidPair.ofPair(new RecordId(30, 1), rid1),
+        RidPair.ofPair(new RecordId(30, 2), rid2)).iterator());
+    when(linkBag.size()).thenReturn(2);
+
+    var vfli = new VertexFromLinkBagIterable(linkBag, session);
+    var stream = MatchEdgeTraverser.toExecutionStream(vfli, session);
+
+    // Stream should yield two results
+    assertTrue(stream.hasNext(ctx));
+    var result1 = stream.next(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result2 = stream.next(ctx);
+    assertFalse(stream.hasNext(ctx));
+
+    // Results should carry the correct RIDs
+    assertEquals(rid1, result1.getIdentity());
+    assertEquals(rid2, result2.getIdentity());
+  }
+
+  /**
+   * toExecutionStream with VertexFromLinkBagIterable takes priority over the
+   * generic Iterable branch. Verifies the switch case ordering is correct.
+   */
+  @Test
+  public void testToExecutionStreamVFLBI_takePriorityOverIterable() {
+    var ctx = createCommandContext();
+    var rid = new RecordId(10, 1);
+
+    var linkBag = mock(LinkBag.class);
+    when(linkBag.iterator()).thenReturn(
+        List.of(RidPair.ofPair(new RecordId(30, 1), rid)).iterator());
+    when(linkBag.size()).thenReturn(1);
+
+    // VertexFromLinkBagIterable implements Iterable<Vertex> — but should
+    // match the VFLI case, not the generic Iterable case
+    var vfli = new VertexFromLinkBagIterable(linkBag, session);
+    var stream = MatchEdgeTraverser.toExecutionStream(vfli, session);
+
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // RID-only path: getIdentity() returns the RID without loading
+    assertEquals(rid, result.getIdentity());
+  }
+
+  /**
+   * Verifies that getIdentity() on a RID-backed ResultInternal (as produced
+   * by the lazy MATCH path) does NOT trigger entity loading, while
+   * getProperty() DOES trigger loading.
+   */
+  @Test
+  public void testLazyLoadingBehavior_getIdentityVsGetProperty() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    vertex.setProperty("name", "Alice");
+    session.commit();
+
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    // Simulate what toExecutionStream does: wrap a bare RID
+    var result = new ResultInternal(session, rid);
+
+    // getIdentity() should return the RID without triggering entity loading
+    assertEquals(rid, result.getIdentity());
+    // Verify the identifiable is still the bare RID, not a loaded Entity
+    assertFalse("getIdentity() must not trigger entity loading",
+        result.asIdentifiableOrNull() instanceof Entity);
+
+    // getProperty() triggers lazy loading and returns the value
+    assertEquals("Alice", result.getProperty("name"));
+    // After getProperty(), the identifiable should now be a loaded Entity
+    assertTrue("getProperty() must trigger entity loading",
+        result.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Regression test for lazy MATCH traversal over blob clusters. A bare
+   * {@code RecordId} pointing to a blob is not {@code instanceof Blob}, so the
+   * cold path in {@code ResultInternal.loadLazyAndGetProperty} cannot classify
+   * it before loading. Both {@code getProperty} and {@code hasProperty} must
+   * resolve the type after materialization and return {@code null}/{@code false}
+   * for blobs — historically the behavior delivered by the schema-snapshot
+   * {@code isBlob()} check. They must NOT route the bare RID through
+   * {@code loadEntity()}, which throws {@link
+   * com.jetbrains.youtrackdb.internal.core.exception.DatabaseException
+   * DatabaseException} ("Record with id ... is not an entity, but a Blob") on
+   * a blob record.
+   */
+  @Test
+  public void testGetPropertyOnBareBlobRidReturnsNullNotThrows() {
+    var blobRid =
+        session.computeInTx(tx -> tx.newBlob("payload".getBytes()).getIdentity());
+
+    session.begin();
+    // Simulate the lazy MATCH path: wrap the bare blob RID — not the Blob
+    // instance — in a ResultInternal. instanceof Blob would miss this.
+    var result = new ResultInternal(session, blobRid);
+
+    // getProperty must return null instead of throwing DatabaseException
+    assertNull(result.getProperty("anything"));
+    // hasProperty must return false instead of throwing DatabaseException
+    assertFalse(result.hasProperty("anything"));
+    session.commit();
+  }
+
   // -- matchesRid tests --
 
   /** Verifies matchesRid returns true when rid is null (no constraint). */
@@ -1946,6 +2068,114 @@ public class MatchStepUnitTest extends DbTestBase {
     var ctx = createCommandContext();
     // ResultInternal with no entity returns null from asEntityOrNull()
     assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Person", new ResultInternal(session)));
+  }
+
+  /**
+   * Verifies matchesClass resolves the class from the RID's cluster ID via the
+   * immutable schema snapshot, without forcing entity materialization.
+   * This is the zero-I/O path that prevents the {@code loadEntity()} chain
+   * triggered by the previous implementation — the dominant cost in LDBC ic12
+   * where every MATCH hop has a {@code class:} constraint. Also asserts that
+   * the underlying identifiable remains a bare RID after the call, proving no
+   * load occurred.
+   */
+  @Test
+  public void testMatchesClassRidOnlyNoLoad() {
+    session.createVertexClass("Person");
+    session.begin();
+    var vertex = session.newVertex("Person");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    // Simulate the lazy MATCH path: bare RID wrapped in a ResultInternal
+    var result = new ResultInternal(session, rid);
+
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
+    // The identifiable MUST still be the bare RID — if matchesClass loaded
+    // the entity, asIdentifiableOrNull() would now return an Entity instead.
+    assertFalse(
+        "matchesClass must not trigger entity loading",
+        result.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClass returns true for a subclass of the requested class,
+   * resolving the relationship via the schema snapshot without loading the
+   * entity. Exercises the polymorphic {@code isSubClassOf} path inside the
+   * RID-only fast path.
+   */
+  @Test
+  public void testMatchesClassRidOnlySubclass() {
+    session.createVertexClass("Animal");
+    // Dog extends Animal (which already extends V via createVertexClass)
+    session.createClass("Dog", "Animal");
+
+    session.begin();
+    var vertex = session.newVertex("Dog");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session, rid);
+
+    // Dog is a subclass of Animal — matchesClass should accept it
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Animal", result));
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Dog", result));
+    assertFalse(
+        "matchesClass must not trigger entity loading on subclass check",
+        result.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClass returns false when the target class name differs
+   * from the RID's schema class, and still does not trigger entity loading.
+   */
+  @Test
+  public void testMatchesClassRidOnlyNegativeNoLoad() {
+    session.createVertexClass("Cat");
+    session.createVertexClass("Other");
+    session.begin();
+    var vertex = session.newVertex("Cat");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session, rid);
+
+    assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Other", result));
+    assertFalse(
+        "negative matchesClass must not trigger entity loading",
+        result.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClass still works on an already-loaded Entity, using the
+   * entity's cached schema class without a schema snapshot lookup. Guards the
+   * fast path from a regression that would force the slow fallback.
+   */
+  @Test
+  public void testMatchesClassLoadedEntityUsesCachedClass() {
+    session.createVertexClass("Person");
+    session.begin();
+    var vertex = session.newVertex("Person");
+    session.commit();
+
+    session.begin();
+    var ctx = createCommandContext();
+    // Pre-load: pass the actual Entity, not just its RID
+    var result = new ResultInternal(session, vertex);
+
+    // Sanity: already an Entity
+    assertTrue(result.asIdentifiableOrNull() instanceof Entity);
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
+    session.commit();
   }
 
   // -- matchesFilters tests --

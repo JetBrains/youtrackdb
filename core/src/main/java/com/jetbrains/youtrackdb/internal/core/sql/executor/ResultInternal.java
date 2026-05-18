@@ -466,13 +466,37 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (content != null && content.containsKey(name)) {
       //noinspection unchecked
       result = (T) content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getProperty(name);
-      }
+    } else if (identifiable instanceof Entity entity) {
+      // Hot path: entity already materialized — kept slim for JIT inlining.
+      //noinspection unchecked
+      result = (T) entity.getProperty(name);
+    } else if (identifiable != null) {
+      // Cold path: bare RID (lazy MATCH traversal) or Blob.
+      // Extracted to a separate method so the JIT can inline the hot path
+      // independently of the lazy-loading bytecode.
+      result = loadLazyAndGetProperty(name);
     }
 
     return result;
+  }
+
+  /**
+   * Cold path for {@link #getProperty}: materializes the record from a bare RID
+   * and returns the requested property. Returns {@code null} for blobs — a bare
+   * {@code RecordId} pointing to a blob cluster is not {@code instanceof Blob},
+   * so the only reliable way to classify it without a schema snapshot lookup is
+   * to load the record and dispatch on the resolved type. The load is unavoidable
+   * here anyway since reading the property requires it.
+   */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable private <T> T loadLazyAndGetProperty(@Nonnull String name) {
+    DBRecord record = session.getActiveTransaction().load(identifiable);
+    this.identifiable = record;
+    if (record instanceof Entity entity) {
+      //noinspection unchecked
+      return (T) entity.getProperty(name);
+    }
+    return null;
   }
 
   @Override
@@ -595,13 +619,27 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public boolean hasProperty(@Nonnull String propName) {
     assert checkSession();
-    if (isEntity() && asEntity().hasProperty(propName)) {
+    if (content != null && content.containsKey(propName)) {
       return true;
     }
-    if (content != null) {
-      return content.containsKey(propName);
+    if (identifiable instanceof Entity entity) {
+      return entity.hasProperty(propName);
+    }
+    if (identifiable != null) {
+      return loadLazyAndHasProperty(propName);
     }
     return false;
+  }
+
+  /**
+   * Cold path for {@link #hasProperty}: materializes the record from a bare RID
+   * and checks for the property. See {@link #loadLazyAndGetProperty} for the
+   * rationale behind loading-then-dispatching instead of a pre-load type check.
+   */
+  private boolean loadLazyAndHasProperty(@Nonnull String propName) {
+    DBRecord record = session.getActiveTransaction().load(identifiable);
+    this.identifiable = record;
+    return record instanceof Entity entity && entity.hasProperty(propName);
   }
 
   @Nullable @Override
