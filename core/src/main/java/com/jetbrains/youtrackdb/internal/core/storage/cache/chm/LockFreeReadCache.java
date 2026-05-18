@@ -682,27 +682,34 @@ public final class LockFreeReadCache implements ReadCache {
     // past targetBytes. WriteCache.shrinkFile drops dirty entries at
     // pageIndex >= minPageIndex BEFORE the AsyncFile truncate, so by the time
     // clearFileRange runs the write-back side is already settled.
-    writeCache.shrinkFile(fileId, targetBytes);
     // Defensive invariants on the targetBytes -> minPageIndex cast. There is no
     // upstream argument guard at this orchestrator entry point (unlike
-    // WOWCache.shrinkFile which throws on negative targets), so the asserts pin
-    // the non-negative / page-aligned / no-int-overflow contract. A non-aligned
-    // target would silently truncate a half-page on disk while keeping the whole
-    // page cached; a target beyond Integer.MAX_VALUE * pageSize would wrap the
-    // cast to a negative minPageIndex and the range filter (pageIndex >= minPageIndex)
-    // would match every cached entry.
-    assert targetBytes >= 0
-        : "targetBytes must be non-negative: " + targetBytes;
-    assert targetBytes % pageSize == 0
-        : "targetBytes must be a multiple of pageSize: targetBytes="
-            + targetBytes
-            + " pageSize="
-            + pageSize;
-    assert targetBytes / pageSize <= Integer.MAX_VALUE
-        : "minPageIndex would overflow int: targetBytes="
-            + targetBytes
-            + " pageSize="
-            + pageSize;
+    // WOWCache.shrinkFile which throws on negative targets, but that path is
+    // bypassed by DirectMemoryOnlyDiskCache.shrinkFile's no-op on the in-memory
+    // engine — without these guards a negative target slips through to the
+    // (int) cast below and the range filter purges every cached entry). The
+    // checks run under default JVM flags (no -ea) and fire BEFORE the
+    // writeCache delegate so a contract violation never lands a partial
+    // truncate at the WriteCache layer.
+    if (targetBytes < 0) {
+      throw new IllegalArgumentException(
+          "targetBytes must be non-negative: " + targetBytes);
+    }
+    if (targetBytes % pageSize != 0) {
+      throw new IllegalArgumentException(
+          "targetBytes must be a multiple of pageSize: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSize);
+    }
+    if (targetBytes / pageSize > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          "minPageIndex would overflow int: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSize);
+    }
+    writeCache.shrinkFile(fileId, targetBytes);
     // LockFreeReadCache and its WriteCache always share the same page size by
     // construction (the cache stores pages frame-for-frame), so this.pageSize is
     // the right divisor. Using the local field avoids depending on the WriteCache

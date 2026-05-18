@@ -349,6 +349,48 @@ public class WOWCacheShrinkFileTest {
   }
 
   /**
+   * Non-page-aligned target — rejected before any I/O. The orchestrator computes
+   * {@code minPageIndex = targetBytes / pageSize} via integer division; a mis-aligned target
+   * would silently truncate to the floored page boundary on disk while keeping the half-page
+   * region cached, producing a torn read on the very next reload. The production guard fires
+   * before either {@code removeCachedPagesAtLeast} or {@code AsyncFile.shrink} runs, so the
+   * cache and file state are unperturbed when the exception lands.
+   */
+  @Test
+  public void shrinkFileRejectsNonPageAlignedTarget() throws IOException {
+    final var fileId = allocateAndOptionallyDirty(4, false);
+    final long unaligned = 3L * pageSize + 1L;
+    assertThatThrownBy(() -> wowCache.shrinkFile(fileId, unaligned))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("multiple of pageSize");
+
+    // File state must be untouched — the guard runs before any AsyncFile or
+    // writeCachePages mutation.
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(4);
+  }
+
+  /**
+   * Overflow target — a target whose {@code targetBytes / pageSize} exceeds
+   * {@link Integer#MAX_VALUE} would wrap the {@code (int)} cast for {@code minPageIndex} to a
+   * negative value; the downstream {@code pageIndex >= minPageIndex} filter would then match
+   * every cached entry, purging unrelated dirty regions of the file. The production guard
+   * fires before any I/O so no actual file is allocated to the hypothetical 17 TB shape the
+   * input describes.
+   */
+  @Test
+  public void shrinkFileRejectsOverflowTarget() throws IOException {
+    final var fileId = allocateAndOptionallyDirty(2, false);
+    final long overflow = ((long) Integer.MAX_VALUE + 1L) * pageSize;
+    assertThatThrownBy(() -> wowCache.shrinkFile(fileId, overflow))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("overflow");
+
+    // File state must be untouched — the guard runs before any AsyncFile or
+    // writeCachePages mutation.
+    assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(2);
+  }
+
+  /**
    * Zero-target shrink — every dirty entry at the WriteCache layer must be dropped (the range
    * filter at {@code pageIndex >= 0} matches everything) and the on-disk file must truncate
    * to zero bytes. The LFRC-level zero-target case is covered by

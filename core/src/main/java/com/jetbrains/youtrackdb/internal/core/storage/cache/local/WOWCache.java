@@ -1928,9 +1928,40 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void shrinkFile(long fileId, final long targetBytes) throws IOException {
+    // Argument-validity guards run BEFORE any locking or pre-flight no-op so a contract
+    // violation never lands a partial truncate and never racily competes with concurrent
+    // file writers for filesLock. These checks run under default JVM flags (no -ea) — the
+    // recovery-time orphan-truncation path runs once per storage open, so an unconditional
+    // IllegalArgumentException is cheaper than the cost of a silent half-page truncate or
+    // a runaway range purge.
+    //
+    //  - Non-negative: catches arithmetic underflow at the call site (a negative target
+    //    would either bottom out in AsyncFile.shrink or, after the (int) cast, produce a
+    //    negative minPageIndex that the downstream range filter (pageIndex >= minPageIndex)
+    //    treats as match-all).
+    //  - Page-aligned: a non-aligned target would silently truncate a half-page on disk
+    //    via AsyncFile.shrink while keeping the whole page cached, yielding a torn read on
+    //    the next reload.
+    //  - No int overflow: targetBytes / pageSize beyond Integer.MAX_VALUE would wrap the
+    //    (int) cast to a negative minPageIndex with the same match-all consequence above.
     if (targetBytes < 0) {
       throw new IllegalArgumentException(
           "Target shrink size must be non-negative: " + targetBytes);
+    }
+    final var pageSizeLocal = (long) pageSize;
+    if (targetBytes % pageSizeLocal != 0) {
+      throw new IllegalArgumentException(
+          "targetBytes must be a multiple of pageSize: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSizeLocal);
+    }
+    if (targetBytes / pageSizeLocal > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          "minPageIndex would overflow int: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSizeLocal);
     }
     final var intId = extractFileId(fileId);
     fileId = composeFileId(id, intId);
@@ -1963,25 +1994,6 @@ public final class WOWCache extends AbstractWriteCache
         // file past targetBytes. Dirty entries below minPageIndex are preserved
         // (they belong to file regions the truncate does NOT drop and need to
         // survive the next periodic flush).
-        final var pageSizeLocal = (long) pageSize;
-        // Defensive invariants on the targetBytes -> minPageIndex cast. The
-        // non-negative guard above is the production contract; these asserts
-        // additionally pin page alignment and int-overflow safety for the
-        // (int) cast on the next line. A non-page-aligned target would silently
-        // truncate a half-page on disk while keeping the whole page cached; a
-        // targetBytes / pageSize beyond Integer.MAX_VALUE would wrap the cast
-        // to a negative minPageIndex, after which the downstream range filter
-        // (pageIndex >= minPageIndex) would match every entry.
-        assert targetBytes % pageSizeLocal == 0
-            : "targetBytes must be a multiple of pageSize: targetBytes="
-                + targetBytes
-                + " pageSize="
-                + pageSizeLocal;
-        assert targetBytes / pageSizeLocal <= Integer.MAX_VALUE
-            : "minPageIndex would overflow int: targetBytes="
-                + targetBytes
-                + " pageSize="
-                + pageSizeLocal;
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPagesAtLeast(intId, minPageIndex);
         file.shrink(targetBytes);

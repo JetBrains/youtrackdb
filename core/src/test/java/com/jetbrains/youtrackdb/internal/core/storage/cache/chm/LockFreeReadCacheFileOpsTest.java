@@ -357,6 +357,88 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals("cache must remain empty", 0, readCache.getUsedMemory());
   }
 
+  /**
+   * Negative {@code targetBytes} is rejected at the orchestrator entry point with
+   * {@link IllegalArgumentException}. The guard closes the
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.chm.DirectMemoryOnlyDiskCache#shrinkFile}
+   * no-op slip on the in-memory engine — without it a negative target would flow through to
+   * the {@code (int)} cast for {@code minPageIndex} and the downstream range filter would
+   * purge every cached page for the file. The delegate must NOT be invoked when the guard
+   * fires, so the read-cache + write-cache pair stay in their pre-call state.
+   */
+  @Test
+  public void testShrinkFileRejectsNegativeTarget() {
+    for (int i = 0; i < 3; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(50, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 3 pages in cache", 3L * PAGE_SIZE, readCache.getUsedMemory());
+
+    Assert.assertThrows(IllegalArgumentException.class,
+        () -> readCache.shrinkFile(50, -1L, writeCache));
+
+    // Delegate must not have been called — the LFRC-level guard fires before
+    // writeCache.shrinkFile.
+    Assert.assertEquals(
+        "writeCache.shrinkFile must NOT be invoked when the LFRC guard rejects the call",
+        0, writeCache.shrinkFileCount.get());
+    // Cache contents must be unperturbed.
+    Assert.assertEquals(
+        "cache state must be unchanged when the LFRC guard rejects the call",
+        3L * PAGE_SIZE, readCache.getUsedMemory());
+  }
+
+  /**
+   * Non-page-aligned {@code targetBytes} is rejected at the orchestrator entry point with
+   * {@link IllegalArgumentException}. {@code (int) (targetBytes / pageSize)} would otherwise
+   * silently floor to a page boundary and the LFRC range purge would only drop entries past
+   * the rounded-down index — leaving the half-page region inconsistent between cache and
+   * disk. The delegate must NOT be invoked when the guard fires.
+   */
+  @Test
+  public void testShrinkFileRejectsNonPageAlignedTarget() {
+    for (int i = 0; i < 3; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(51, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 3 pages in cache", 3L * PAGE_SIZE, readCache.getUsedMemory());
+
+    final long unaligned = 3L * PAGE_SIZE + 1L;
+    Assert.assertThrows(IllegalArgumentException.class,
+        () -> readCache.shrinkFile(51, unaligned, writeCache));
+
+    Assert.assertEquals(
+        "writeCache.shrinkFile must NOT be invoked when the LFRC guard rejects the call",
+        0, writeCache.shrinkFileCount.get());
+    Assert.assertEquals(
+        "cache state must be unchanged when the LFRC guard rejects the call",
+        3L * PAGE_SIZE, readCache.getUsedMemory());
+  }
+
+  /**
+   * Overflow {@code targetBytes} — a target whose {@code targetBytes / pageSize} exceeds
+   * {@link Integer#MAX_VALUE} would wrap the {@code (int)} cast for {@code minPageIndex} to
+   * a negative value; the downstream {@code pageIndex >= minPageIndex} filter would then
+   * match every cached entry for the file. The orchestrator guard fires before any I/O so
+   * the delegate must NOT be invoked.
+   */
+  @Test
+  public void testShrinkFileRejectsOverflowTarget() {
+    for (int i = 0; i < 2; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(52, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 2 pages in cache", 2L * PAGE_SIZE, readCache.getUsedMemory());
+
+    final long overflow = ((long) Integer.MAX_VALUE + 1L) * PAGE_SIZE;
+    Assert.assertThrows(IllegalArgumentException.class,
+        () -> readCache.shrinkFile(52, overflow, writeCache));
+
+    Assert.assertEquals(
+        "writeCache.shrinkFile must NOT be invoked when the LFRC guard rejects the call",
+        0, writeCache.shrinkFileCount.get());
+    Assert.assertEquals(
+        "cache state must be unchanged when the LFRC guard rejects the call",
+        2L * PAGE_SIZE, readCache.getUsedMemory());
+  }
+
   // ---- silentLoadForRead ----
 
   /**
