@@ -18,11 +18,11 @@ Default to audit + rewrite unless the user asks for one mode.
 
 ## Catalogue lookups
 
-Every category previously enumerated here lives in `house-style.md`. Walk these sections during Pass 1:
+All section references below live in `.claude/output-styles/house-style.md`. Walk these sections during Pass 1:
 
-- Vocabulary fingerprints → `house-style.md § Banned vocabulary` (Tier 1 / 2 / 3 / Era-specific)
+- Vocabulary fingerprints → `house-style.md § Banned vocabulary` (Tier 1 / 2 / 3 / 4)
 - Structural fingerprints → `house-style.md § Structural rules` and `§ Banned sentence patterns`
-- Tone fingerprints → `house-style.md § Banned sentence patterns` (sycophantic openers, throat-clearing, closing phrases)
+- Tone fingerprints → sub-bullets in `house-style.md § Banned sentence patterns` (sycophantic openers, throat-clearing, closing phrases)
 - Punctuation fingerprints → `house-style.md § Punctuation and typography`
 - Content and analysis tells → `house-style.md § Banned analysis patterns` (includes the 12 humanizer gap patterns)
 
@@ -34,7 +34,7 @@ Every category previously enumerated here lives in `house-style.md`. Walk these 
 4. **Pass 3, rewrite.** Maintain the writer's intent and voice. Don't substitute one set of AI tells for another.
 5. **Pass 4, self-audit.** Read the rewrite. Ask: what still feels AI? Fix it. Repeat until clean.
 
-Test: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (sycophantic / throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence.
+Apply during Pass 1: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (sycophantic / throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence.
 
 ## Output format
 
