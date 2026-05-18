@@ -1608,19 +1608,40 @@ def check_dsc_ai_tell(
             continue
         para_text = " ".join(para_lines)
 
-        # Em-dash density: more than one per paragraph fires once for the
-        # paragraph, not once per em dash, so the finding count stays
-        # proportional to author intent.
+        # Em-dash density: fire on 3+ em dashes per paragraph (unbalanced
+        # `X — Y — Z — W` cadence, the canonical AI-tell shape), or on 2 em
+        # dashes whose middle segment carries a sentence terminator (which
+        # means the two em dashes are not a single balanced parenthetical
+        # aside but two unpaired uses). A 2-em-dash balanced parenthetical
+        # aside `A — clause — B` (no `.`/`!`/`?` in the middle segment) is
+        # treated as one aside, not as a cadence, and passes the rule. The
+        # canonical `X — Y — Z` cadence the style file flags always has
+        # 3 segments separated by 2 em dashes; with 2 em dashes the cadence
+        # only exists when the middle segment is structurally a sentence
+        # continuation rather than an aside, which is exactly what the
+        # sentence-terminator check captures.
         em_dash_count = para_text.count("—")
-        if em_dash_count > 1:
+        em_dash_fires = False
+        if em_dash_count > 2:
+            em_dash_fires = True
+        elif em_dash_count == 2:
+            # Split on em dashes; the middle segment is parts[1].
+            middle = para_text.split("—", 2)[1]
+            if any(ch in middle for ch in ".!?"):
+                em_dash_fires = True
+        if em_dash_fires:
             findings.append(make_finding(
                 "should-fix",
                 "dsc-ai-tell",
                 f"{file_path}:{start_line}",
                 (f"Em-dash density per house-style.md § Em-dash discipline: "
-                 f"{em_dash_count} em dashes in this paragraph (cap: 1)."),
+                 f"{em_dash_count} em dashes in this paragraph form an "
+                 "unbalanced cadence (balanced parenthetical asides "
+                 "`A — clause — B` are exempt; 3+ em dashes or 2 unpaired "
+                 "em dashes fire)."),
                 f"Replace em dashes at line {start_line} with periods, commas, "
-                "or colons; keep at most one per paragraph.",
+                "or colons; keep at most one balanced parenthetical aside per "
+                "paragraph.",
             ))
 
         # Hyphenated-pair comma cluster: dedupe pairs inside the cluster so a

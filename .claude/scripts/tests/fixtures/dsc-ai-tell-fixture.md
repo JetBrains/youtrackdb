@@ -47,11 +47,12 @@ the rule detects.
 
 ### Em-dash density
 
-The cache layer ingests writes, applies them to a page buffer,
-then flushes through the WAL — once the WAL fsync returns, the
-page is durable — and the read path can serve the new value
-without going through the disk. Two em dashes in one paragraph
-trips the density rule.
+The cache layer ingests writes — applies them to a page buffer —
+then flushes through the WAL — once the WAL fsync returns the
+page is durable, and the read path can serve the new value
+without going through the disk. Three em dashes form an
+unbalanced `X — Y — Z — W` cadence (the canonical AI-tell shape);
+a balanced two-em-dash parenthetical aside would pass the rule.
 
 ### Title Case Demo Heading
 
