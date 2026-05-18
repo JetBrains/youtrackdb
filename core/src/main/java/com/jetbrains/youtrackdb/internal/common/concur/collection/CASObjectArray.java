@@ -10,11 +10,30 @@ public final class CASObjectArray<T> {
   private final AtomicReferenceArray<AtomicReferenceArray<T>> containers =
       new AtomicReferenceArray<>(32);
 
+  public boolean add(T value, int index) {
+    Objects.requireNonNull(value);
+    return doAdd(value, index) >= 0;
+  }
+
   public int add(T value) {
     Objects.requireNonNull(value);
+    return doAdd(value, -1);
+  }
 
+  /**
+   * Core add logic shared by both {@code add(T)} and {@code add(T, int)}.
+   *
+   * @param requiredIndex the index the caller expects to write at, or {@code -1}
+   *     to accept any index (unconditional append).
+   * @return the index where the value was placed, or {@code -1} if
+   *     {@code requiredIndex >= 0} and the current size did not match it.
+   */
+  private int doAdd(T value, int requiredIndex) {
     while (true) {
       final var newIndex = size.get();
+      if (requiredIndex >= 0 && newIndex != requiredIndex) {
+        return -1;
+      }
       final var containerIndex = 31 - Integer.numberOfLeadingZeros(newIndex + 1);
       final var containerSize = 1 << containerIndex;
       final var indexInsideContainer = newIndex + 1 - containerSize;
@@ -51,8 +70,7 @@ public final class CASObjectArray<T> {
       }
       // size >= index now. If size == index, the target slot is the next to
       // be allocated — write the actual value directly, no placeholder window.
-      if (this.size.get() == index) {
-        add(value);
+      if (add(value, index)) {
         return;
       }
       // size > index: the target slot was already expanded past (by a
