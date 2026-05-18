@@ -608,3 +608,7 @@ pattern.
   >   - **Positive (confirmation) — sub-JVM crash** (slower, tagged integration): drive `commitChanges` to WAL-buffered state on the disk engine, kill the JVM mid-flight via `Runtime.exec` (`LocalPaginatedStorageRestoreFromWALIT` precedent), reopen, assert `physical == logical`.
   >   - **Negative (clean shutdown → no-op)**: assert the pass runs but emits no truncate log line.
   >   - **Incremental-restore entry point**: drive a backup with concurrent writes (so `physicalSizeForBackupSnapshot` captures a transient orphan-shape file), restore the backup, assert `physical == logical` post-restore.
+
+## Base commit
+
+7d0c88567e43628d8c86d12d14ac0991a8f28aef
