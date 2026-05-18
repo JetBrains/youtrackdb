@@ -529,7 +529,7 @@ pattern.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -770,7 +770,8 @@ pattern.
   >   re-routing this off the commitExecutor would break the
   >   purge-before-truncate ordering invariant.
 
-- [ ] Step 3: Per-component `verifyAndTruncateOrphans` (4 EP-equipped components) + `v3.BTree.getFileId()` accessor + engine-side `verifyAndTruncateOrphans` (2 BTree index engines)
+- [x] Step 3: Per-component `verifyAndTruncateOrphans` (4 EP-equipped components) + `v3.BTree.getFileId()` accessor + engine-side `verifyAndTruncateOrphans` (2 BTree index engines)
+  - [x] Context: info
   > **Risk:** medium — multi-file logic in core (4 storage components + 2 index engines, each with its own EP shape; uniform `offset = +1` and corruption-guard arithmetic shared via helper template)
   >
   > **What**:
@@ -786,6 +787,120 @@ pattern.
   > - Corruption-guard branch (`epLogicalCounter == 0 && fileSize > pageSize`): skip-with-WARN, no `shrinkFile` invocation, WARN log asserted.
   > - Each test docstring cites the per-component `create()` source line (BTree:170-226; SLBB:51-77; CPMV2:133-153; PCV2 `initCollectionState`) so the arithmetic stays anchored.
   > - Engine-side wrapper tests (`BTreeSingleValueIndexEngine.verifyAndTruncateOrphans`, `BTreeMultiValueIndexEngine.verifyAndTruncateOrphans` for both `svTree`-only and `svTree`+`nullTree` cases) using mocked inner trees to assert delegate dispatch.
+  >
+  > **What was done:** Implemented `verifyAndTruncateOrphans(AtomicOperation,
+  > ReadCache, WriteCache)` on the four EP-equipped storage components
+  > (`v3.BTree`, `SharedLinkBagBTree`, `CollectionPositionMapV2`,
+  > `PaginatedCollectionV2`) and engine-side wrappers on
+  > `BTreeSingleValueIndexEngine` (delegates to `sbTree`) and
+  > `BTreeMultiValueIndexEngine` (delegates to `svTree` plus `nullTree`
+  > when non-null). Each component helper (a) loads its EP page via
+  > `op.loadPageForRead`, (b) reads `epLogicalCounter` (`pagesSize` for
+  > BTree/SLBB; `fileSize` for CPMV2/PCV2), (c) computes `targetBytes =
+  > max(pageSize, (epLogicalCounter + 1) * pageSize)`, (d) applies the
+  > corruption-guard skip-with-WARN when `epLogicalCounter == 0 &&
+  > AsyncFile.getFileSize() > pageSize`, (e) dispatches to
+  > `readCache.shrinkFile(this.fileId, targetBytes, writeCache)`. Added
+  > trivial `getFileId()` accessor on `v3.BTree`. Promoted
+  > `verifyAndTruncateOrphans` onto the `CellBTreeSingleValue` interface
+  > with a default-throw stub so the engine-side delegates dispatch
+  > polymorphically. Four new per-component test suites + one
+  > engine-wrapper test suite pin all four branches (orphan-present,
+  > clean, boundary-exact, corruption-guard) plus delegate dispatch.
+  > 18212/18212 unit tests pass; Spotless applied; coverage gate PASS at
+  > 89.9% line / 85.4% branch on the cumulative branch diff after
+  > regenerating the jacoco baseline.
+  >
+  > **What was discovered:**
+  > - **LogManager.warn three-arg dbName overload trap.** The
+  >   `LogManager.warn(this, "format-string-with-%s-or-%d", arg1, arg2)`
+  >   shape silently picks the three-arg `warn(Object, String dbName,
+  >   String message, Object... args)` overload when `arg1` is a String,
+  >   consuming the first arg as `dbName` and dropping it from format
+  >   substitution. The first test run flagged "Format specifier '%d'"
+  >   runtime errors because `String.format` saw only one positional
+  >   arg. Fix: pre-format the message via `String.format` eagerly then
+  >   pass it as the two-arg `(this, message)` call. All four
+  >   corruption-guard WARN sites now use the pre-format pattern. Future
+  >   storage-component helpers logging mixed-type WARN should follow
+  >   the same shape.
+  > - **Mockito `executeInsideComponentOperation` consumer trap.** The
+  >   BTree / SLBB / PCV2 tests cannot mock the storage stack with bare
+  >   `mock(AtomicOperationsManager.class)` because the mocked default
+  >   for `executeInsideComponentOperation(...)` returns without
+  >   invoking the consumer lambda — so the component's `fileId` field
+  >   stays at 0 and the helper reads page 0 of a zero-fileId file.
+  >   Required pattern: install
+  >   `doAnswer(inv -> { consumer.accept(op); return null; }).when(...)`
+  >   so the consumer actually runs. CPMV2's create() doesn't route
+  >   through this idiom and is exempt. Reusable across future
+  >   per-component recovery hooks (Step 5 orchestrator).
+  > - **BTreeMultiValueIndexEngine accepts only version 4.** The MV
+  >   engine rejects versions 1, 2, 3 (legacy `CellBTreeMultiValue`
+  >   shapes). Phase A iter-1 noted v3 SV engine accepts version 3; the
+  >   MV engine's version range diverges. The engine-wrapper test
+  >   constructs the MV engine with version 4.
+  >
+  > **Cross-track impact (informational):**
+  > - **Step 4 (this track):** dispatch into
+  >   `SharedLinkBagBTree.verifyAndTruncateOrphans(AtomicOperation,
+  >   ReadCache, WriteCache)` — the public method is now in place on
+  >   the concrete SLBB class. Step 4's iteration delegate signature
+  >   matches the per-component shape.
+  > - **Step 5 (this track):** the orchestrator dispatches through
+  >   `ReadCache` / `WriteCache` (not `LockFreeReadCache`); the
+  >   per-component helpers are polymorphic over disk + in-memory
+  >   engines because `DirectMemoryOnlyDiskCache.shrinkFile` is a no-op.
+  >   `storage.getReadCache()` + `storage.getWriteCache()` produce the
+  >   cache pair. The CPMV2 / PCV2 iteration must call
+  >   `verifyAndTruncateOrphans` on BOTH the `PaginatedCollectionV2`
+  >   AND its embedded `collectionPositionMap` field (the PCV2 helper
+  >   only truncates the `.pcl` file; the CPMV2 helper only truncates
+  >   the `.cpm` file). The plan's Step 5 spec already calls this out;
+  >   the implementation here makes the asymmetry concrete via separate
+  >   per-instance helpers.
+  >
+  > **What changed from the plan:**
+  > The plan's What section names the helper's third parameter as
+  > `LockFreeReadCache readCache`. Step 2's `What was discovered`
+  > cross-track note already escalated this to `ReadCache readCache`
+  > (the new SPI surface Step 2 added to the `ReadCache` interface).
+  > Step 3 implemented with `ReadCache` throughout — polymorphic over
+  > disk and in-memory engines. Step 4 (Step file What still cites
+  > `LockFreeReadCache`) and Step 5 (Step file What still cites
+  > `LockFreeReadCache` in the `executeInsideAtomicOperation` lambda)
+  > should use `ReadCache` instead. The orchestrator's existing
+  > `storage.getReadCache()` accessor returns the polymorphic
+  > `ReadCache` type, so this is a strictly-additive simplification
+  > and does not require plan-correction commits.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/CellBTreeSingleValue.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTree.java` (modified)
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTree.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeIndexEngineVerifyAndTruncateOrphansTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2Test.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2VerifyAndTruncateOrphansTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTreeVerifyAndTruncateOrphansTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTreeVerifyAndTruncateOrphansTest.java` (new)
+  >
+  > **Critical context:**
+  > - The `nullTree` defensive null-check in
+  >   `BTreeMultiValueIndexEngine.verifyAndTruncateOrphans` is a
+  >   defensive guard against future refactors — production today
+  >   always assigns `nullTree` in the ctor (PSI-verified at Phase A).
+  >   The corresponding test pins the null-tree-absent branch via
+  >   reflection.
+  > - Coverage gate baseline: cumulative-diff PASS at 89.9% line /
+  >   85.4% branch on 49 changed files. Step 4-5 should regenerate the
+  >   jacoco baseline before gate-checking (`./mvnw -pl core test -P
+  >   coverage` + `jacoco:report` + copy to
+  >   `.coverage/reports/youtrackdb-core/`) — trusting the on-disk
+  >   baseline is the Step 1 trap.
 
 - [ ] Step 4: `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans` iteration delegate
   > **Risk:** low — default (pure delegate-and-iterate over `fileIdBTreeMap.values()`; no new locking or invariant)
