@@ -11,6 +11,7 @@ Strip declarative rule statements from `prompts/design-review.md § Human-reader
 - [x] Review + decomposition
 - [x] 2026-05-18T09:01Z [ctx=safe] Review + decomposition complete
 - [ ] Step implementation
+- [x] 2026-05-18T09:24Z [ctx=safe] Step 1 complete (commit d0045927e1)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -73,10 +74,22 @@ Invariants to preserve:
 
 ## Concrete Steps
 
-1. Trim the Human-reader cold-read additions block (lines 90-183) to verification-only form: replace each of the four sub-sections (Audience-fit, Glossary-introduction, Why-before-what, Navigability) with a single bullet of the form `Verify <rule> per .claude/output-styles/house-style.md § <full H3 heading verbatim>`; trim the block's three-paragraph rule-rationale intro (lines 92-115) down to a one-paragraph "what this block does" preamble (the *why* now lives in house-style.md); preserve the "Reviewer tone exception" prose (lines 174-183) wholesale. Acceptance: `grep -nE "house-style\.md § " .claude/workflow/prompts/design-review.md` returns the four cited H3 names from the cleared Human-reader block, and each cited name appears verbatim in the output of `grep -nE "^### " .claude/output-styles/house-style.md`. — risk: low (default: workflow-prompt markdown edit; no production code, no API, no symbols)  [ ]
+1. Trim the Human-reader cold-read additions block (lines 90-183) to verification-only form: replace each of the four sub-sections (Audience-fit, Glossary-introduction, Why-before-what, Navigability) with a single bullet of the form `Verify <rule> per .claude/output-styles/house-style.md § <full H3 heading verbatim>`; trim the block's three-paragraph rule-rationale intro (lines 92-115) down to a one-paragraph "what this block does" preamble (the *why* now lives in house-style.md); preserve the "Reviewer tone exception" prose (lines 174-183) wholesale. Acceptance: `grep -nE "house-style\.md § " .claude/workflow/prompts/design-review.md` returns the four cited H3 names from the cleared Human-reader block, and each cited name appears verbatim in the output of `grep -nE "^### " .claude/output-styles/house-style.md`. — risk: low (default: workflow-prompt markdown edit; no production code, no API, no symbols)  [x] commit: d0045927e1
 2. Trim the Structural findings block (lines 227-256) to verification-only form per the four-cite / six-stay-as-is split in `## Plan of Work` Step 2, and bring the file to ≤200 lines: the two block trims alone leave the file at ~260 lines, so additional compression is required against the procedural-prose fallback named in `## Plan of Work` Step 3 (tighten `## Tone and depth` lines 330-346; if still over, compress the Severity rubric or Reading rules prose; **never** touch Q1-Q7, the `phase4-creation` plan-deviation block, the mutation-kind instructions, or the Output format — these are acceptance-criteria-preserved blocks). Acceptance: `wc -l .claude/workflow/prompts/design-review.md` returns ≤ 200; the four cite-house-style.md H3 names in the trimmed Structural block all match on-disk H3 headings verbatim (same `grep -nE "^### "` check as Step 1); the four preserved blocks listed above are byte-identical to their pre-Track-3 state (`git diff` shows zero changes inside their line ranges); cross-references from `design-document-rules.md:374`, `edit-design/SKILL.md:252`, `:530`, `create-final-design.md:173`, `house-style.md:20` still resolve. — risk: low (default: workflow-prompt markdown edit; no production code, no API, no symbols)  [ ]
 
 ## Episodes
+
+### Step 1 — commit d0045927e1, 2026-05-18T09:24Z [ctx=safe]
+**What was done:** Trimmed the `### Human-reader cold-read additions` block in `.claude/workflow/prompts/design-review.md` to verification-only form. Replaced the three-paragraph rule-rationale intro (former lines 92-115) with a one-paragraph "what this block does" preamble pointing readers at `.claude/output-styles/house-style.md` for the rule bodies. Replaced the four declarative sub-sections (Audience-fit, Glossary-introduction, Why-before-what, Navigability) with four single-bullet `Verify <rule> per .claude/output-styles/house-style.md § <section>` entries. Preserved the "Reviewer tone" exception prose wholesale per the plan. Net delta: +10 / −75 lines; file size 346 → 281 lines.
+
+**What was discovered:** The "Reviewer tone" prose preserved wholesale still cites "(a), (b), (c), and (d)" as orphan label references — those labels no longer exist after the trim, but the bullet topic labels (audience-fit, glossary-introduction, why-before-what, navigability) reconstruct the intent unambiguously. The Output format section at line ~226 has a similar orphan `(a) Audience-fit` example reference. The next step trims the Structural findings block but does not touch the Output format section per the acceptance-criteria-preserved list; cleaning these orphan label refs would be a separate follow-up edit outside this track's scope.
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/workflow/prompts/design-review.md` (modified)
+
+**Critical context:** Acceptance check ran clean — `grep -nE "house-style\.md § "` returns the four cited names at lines 104-107; each cited name matches an on-disk `### ` heading in `house-style.md` verbatim (lines 315, 319, 329, 335). File is at 281 lines; the next step must bring it under 200 per the track-level acceptance criterion.
 
 ## Validation and Acceptance
 
