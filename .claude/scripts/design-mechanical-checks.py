@@ -1544,12 +1544,15 @@ def check_dsc_ai_tell(
             continue
         if line.lstrip().startswith("|"):
             continue
-        if is_heading:
-            continue
         if not in_range(i):
             continue
 
-        # Tier-1 banned vocabulary.
+        # Tier-1 banned vocabulary, signposting, copula, and authority-trope
+        # scans run on heading lines too: an AI tell like "delve" or
+        # "at its core" inside an H2/H3 is the same signal as in body prose
+        # and the "every authored prose surface" scope in
+        # `house-style.md § What this style governs` does not exempt
+        # heading text.
         for m in TIER1_BANNED_VOCAB_RE.finditer(line):
             findings.append(make_finding(
                 "should-fix",
@@ -1702,11 +1705,17 @@ def check_dsc_ai_tell(
                 break
         if para_start is None:
             continue
-        # Paragraph length must be exactly 1 line — if there is a non-blank
-        # line at para_start+1 the paragraph is multi-line and the rule does
-        # not apply.
+        # Paragraph length must be exactly 1 line — if a non-blank prose
+        # line follows immediately at para_start+1 the paragraph is
+        # multi-line and the rule does not apply. A heading or code-fence
+        # delimiter on the next line does *not* extend the paragraph
+        # (Markdown treats them as new blocks even without an intervening
+        # blank line), so a fragmented one-liner sandwiched between a
+        # heading and the next structural marker still fires the rule.
         if (para_start < len(lines)
-                and lines[para_start].strip() != ""):
+                and lines[para_start].strip() != ""
+                and not re.match(r"^#{1,6}\s", lines[para_start])
+                and not is_code_fence_line(lines[para_start])):
             continue
         para_line = lines[para_start - 1]
         # Skip if the "paragraph" line is itself a heading, table row, or

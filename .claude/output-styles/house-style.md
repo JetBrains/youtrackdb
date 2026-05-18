@@ -282,6 +282,8 @@ After: The storage layer is a pageful disk-backed file under a bounded LRU page 
 
 H2 and below use sentence case. "## Page eviction strategy", not "## Page Eviction Strategy". Document titles (H1) may use Title Case where the document is itself a published artifact (ADR titles, "Persist Approximate Index Entries Count — Architecture Decision Record"); every other heading level is sentence case.
 
+**Scaffold-heading carve-out.** Two-word ADR scaffold headings under H2+ ("Architecture Notes", "Decision Records", "Integration Points", "Non-Goals", "Key Discoveries", "Component Map") pass without violation. The mechanical check (`dsc-ai-tell` in `design-mechanical-checks.py`) only flags headings with three or more title-case words; the scaffold names are conventionally Title-Cased section anchors, not prose headings, and rewriting them as sentence case would break cross-document linking and reader expectations. Headings outside that scaffold set still use sentence case.
+
 ### Heading hierarchy
 
 Do not skip heading levels. H2 → H3 → H4. An H4 directly under an H2 with no intervening H3 is a structural finding. The skip is usually a sign that the H4 wants to be H3 or that an H3 was deleted without re-leveling its children.

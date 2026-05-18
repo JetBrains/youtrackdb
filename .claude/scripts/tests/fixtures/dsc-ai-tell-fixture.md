@@ -109,3 +109,24 @@ serve the new value without going through the disk. The block
 above runs six lines with exactly one em dash, which must not
 trip the density rule. The paragraph also avoids any banned
 vocabulary so the runner sees zero findings on this block.
+
+## Banned-pattern regressions
+
+### Delve into the holistic foster pattern
+
+The H3 above seeds banned vocabulary inside a heading. The
+scanner used to skip headings entirely for the Tier-1 vocab
+sweep, so an `if is_heading: continue` short-circuit would let
+"delve", "holistic", and "foster" pass; the rule should fire
+once per base word against the heading text itself.
+
+### Fragmented one-liner regression
+Fragmented one-liner regression body.
+### Boundary heading after fragmented body
+
+The H3 directly before this paragraph closes the fragmented
+one-liner block above without an intervening blank line. That
+structural shape used to suppress the fragmented-header rule
+because the paragraph-length guard treated the next heading as
+a paragraph continuation; with the bugfix the next heading is
+treated as a new block and the one-liner still fires.

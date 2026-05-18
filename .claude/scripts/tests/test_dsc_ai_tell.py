@@ -89,11 +89,33 @@ PATTERN_SIGNATURES: List[Tuple[str, str]] = [
 # Title-Case negative case (the rule must skip `# ` lines); the two
 # `### *negative` H3 blocks start at lines 94 and 103. The runner
 # enforces zero `dsc-ai-tell` findings whose location line falls inside
-# either of these ranges or equals 1.
+# either of these ranges or equals 1. The trailing `## Banned-pattern
+# regressions` section (line 113+) is positive-case territory and must
+# not be folded into a negative range.
 H1_TITLE_CASE_LINE = 1
 NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
     (94, 102, "Hyphenated technical compounds negative"),
-    (103, 999, "Single em-dash negative"),
+    (103, 111, "Single em-dash negative"),
+]
+
+# Anchored regression cases. Each pair `(line, description_prefix)` must
+# appear at least once in the fixture findings — these guard specific
+# bugfixes that the pattern-coverage assertion above is too coarse to
+# catch (a regression could remove one anchored finding while leaving
+# the per-pattern count at >= 1 elsewhere in the fixture).
+#
+# Line 115: heading-scan regression — Tier-1 vocab inside an H3 was
+# previously skipped by an `if is_heading: continue` short-circuit.
+# Line 123: fragmented-header continuation regression — a one-line
+# paragraph immediately followed by another heading (no blank line)
+# was previously misclassified as paragraph continuation, suppressing
+# the rule.
+ANCHORED_REGRESSION_CASES: List[Tuple[int, str, str]] = [
+    (115, "Tier-1 banned vocabulary",
+     "heading-scan regression: Tier-1 vocab inside an H3 must fire"),
+    (123, "Fragmented header",
+     "fragmented-header continuation regression: one-liner followed "
+     "by a heading with no intervening blank line must fire"),
 ]
 
 
@@ -156,6 +178,23 @@ def assert_fixture_positive(findings: List[Dict]) -> List[str]:
                 f"FIXTURE positive case missing: pattern '{label}' "
                 f"(expected description prefix: '{prefix}') had zero "
                 f"`dsc-ai-tell` findings in the fixture."
+            )
+    return failures
+
+
+def assert_fixture_anchored(findings: List[Dict]) -> List[str]:
+    """Each ANCHORED_REGRESSION_CASES entry must be present in findings."""
+    failures: List[str] = []
+    for line_no, prefix, rationale in ANCHORED_REGRESSION_CASES:
+        present = any(
+            parse_location_line(f.get("location", "")) == line_no
+            and prefix in f.get("description", "")
+            for f in findings
+        )
+        if not present:
+            failures.append(
+                f"FIXTURE anchored case missing at line {line_no} "
+                f"(expected '{prefix}' finding): {rationale}."
             )
     return failures
 
@@ -223,6 +262,7 @@ def main() -> int:
         return 1
     fixture_findings = run_script(FIXTURE)
     failures.extend(assert_fixture_positive(fixture_findings))
+    failures.extend(assert_fixture_anchored(fixture_findings))
     failures.extend(assert_fixture_negative(fixture_findings))
 
     # Calibration ADRs must hold at zero `dsc-ai-tell` findings each.
