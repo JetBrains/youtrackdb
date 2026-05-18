@@ -20,11 +20,14 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionPositionMapException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -169,6 +172,67 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   public void delete(final AtomicOperation atomicOperation) throws IOException {
     deleteFile(atomicOperation, fileId);
+  }
+
+  /**
+   * Recovery-time orphan-truncation hook for CollectionPositionMapV2, dispatched by
+   * {@code AbstractStorage.truncateOrphansAfterRecovery()}. Reads the entry-point's
+   * {@code fileSize} counter (which records the number of bucket pages in use,
+   * <em>not</em> including the EP page itself — see {@link MapEntryPoint}), computes
+   * the expected physical file size as {@code max(pageSize, (fileSize + 1) * pageSize)},
+   * and dispatches to {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop
+   * physical pages beyond the logical horizon.
+   *
+   * <p>Note the asymmetry vs BTree / SharedLinkBagBTree: CPMV2's {@code create()}
+   * (lines 133-153) sets {@code fileSize = 0} on initialisation (the EP page is page 0,
+   * bucket pages begin at page 1), so {@code fileSize == 0} is the legitimate
+   * post-create state on a fresh map. The corruption guard fires only when both
+   * {@code fileSize == 0} <em>and</em> physical bytes exceed one EP page — that
+   * combination indicates a true {@code logical < physical} corruption shape, distinct
+   * from a healthy fresh map (physical == 1 page, EP only).
+   *
+   * <p>The {@code max(pageSize, ...)} floor preserves the EP page on the fresh-map
+   * branch: a healthy CPMV2 with {@code fileSize == 0} computes a target of
+   * {@code 1 * pageSize}, which keeps the EP page and is a no-op against current
+   * physical state.
+   *
+   * @param atomicOperation enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if the entry-point page cannot be read or the underlying shrink
+   *                     fails
+   */
+  public void verifyAndTruncateOrphans(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    final int epFileSize;
+    try (final var entryPointEntry = loadPageForRead(atomicOperation, fileId, 0)) {
+      final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
+      epFileSize = mapEntryPoint.getFileSize();
+    }
+
+    final int pageSize = writeCache.pageSize();
+    final long physicalPages =
+        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
+    final long physicalBytes = physicalPages * (long) pageSize;
+
+    if (epFileSize == 0 && physicalBytes > pageSize) {
+      // Format eagerly so the message does not collide with LogManager.warn's three-arg
+      // dbName overload (which would consume the first String arg as a dbName prefix).
+      final String msg =
+          String.format(
+              "Storage corruption signal: CollectionPositionMapV2 '%s' EP reports"
+                  + " fileSize=0 but physical file holds %d pages (> 1). Skipping"
+                  + " orphan-truncation; investigate manually.",
+              getName(), physicalPages);
+      LogManager.instance().warn(this, msg);
+      return;
+    }
+
+    final long targetBytes = Math.max((long) pageSize, ((long) epFileSize + 1L) * pageSize);
+    readCache.shrinkFile(fileId, targetBytes, writeCache);
   }
 
   void rename(final String newName) throws IOException {

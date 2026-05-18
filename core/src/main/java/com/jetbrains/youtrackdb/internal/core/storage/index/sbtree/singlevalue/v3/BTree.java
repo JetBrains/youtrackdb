@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
@@ -40,6 +41,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -866,6 +869,91 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             releaseExclusiveLock();
           }
         });
+  }
+
+  /**
+   * Returns the disk-cache file id of this BTree's primary data file. Used by the
+   * recovery-time orphan-truncation pass to iterate the four EP-equipped storage
+   * components polymorphically. The three sibling components ({@code SharedLinkBagBTree},
+   * {@code CollectionPositionMapV2}, {@code PaginatedCollectionV2}) already expose this
+   * accessor; this getter brings v3 BTree onto the same iteration recipe.
+   */
+  public long getFileId() {
+    return fileId;
+  }
+
+  /**
+   * Recovery-time orphan-truncation hook. Reads the entry-point's {@code pagesSize}
+   * counter, computes the expected physical file size as
+   * {@code max(pageSize, (pagesSize + 1) * pageSize)} — the EP page itself sits at
+   * {@code ENTRY_POINT_INDEX = 0} and {@code pagesSize} records the highest occupied
+   * data-page index, so total physical pages == {@code pagesSize + 1} — and dispatches
+   * to {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop any physical pages
+   * beyond the logical horizon.
+   *
+   * <p>The {@code max(pageSize, ...)} floor preserves the EP page itself on a freshly
+   * created BTree where {@code pagesSize == 0} would otherwise compute a target of
+   * {@code pageSize} regardless — the floor only matters defensively if a corruption
+   * scenario surfaces {@code pagesSize == 0}, which {@code init()} rules out for v3
+   * BTree (init sets {@code pagesSize = 1}; see {@code create()} at lines 170-226).
+   *
+   * <p>Corruption guard: a v3 BTree whose EP reports {@code pagesSize == 0} while the
+   * physical file holds more than the EP page is a structurally anomalous shape that
+   * WAL replay is supposed to prevent. The pass skips the truncate with a WARN log
+   * rather than mask the inconsistency — operators handle this case through the storage
+   * corruption runbook.
+   *
+   * <p>EP-read failure (e.g., corrupted EP page under
+   * {@code checksumMode=StoreAndThrow}) propagates the {@link IOException} to the
+   * orchestrator and aborts {@code open()} / incremental restore. Silently skipping the
+   * component would re-introduce the partial-flush-orphan path the pass exists to fix.
+   *
+   * @param atomicOperation enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if the entry-point page cannot be read or the underlying shrink
+   *                     fails
+   */
+  @Override
+  public void verifyAndTruncateOrphans(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    final int pagesSize;
+    try (final var entryPointCacheEntry =
+        loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+      final var entryPoint =
+          new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+      pagesSize = entryPoint.getPagesSize();
+    }
+
+    final int pageSize = writeCache.pageSize();
+    // Physical size in pages, read via the gated StorageComponent.physicalSize helper
+    // (RECOVERY_REBUILD intent — the recovery pass is a one-shot scan over committed
+    // pages to decide whether to drop a physical-orphan tail).
+    final long physicalPages =
+        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
+    final long physicalBytes = physicalPages * (long) pageSize;
+
+    if (pagesSize == 0 && physicalBytes > pageSize) {
+      // Structurally anomalous: WAL replay should have advanced pagesSize past 0 because
+      // BTree.create() initialises pagesSize = 1. Treat as a corruption signal — skip
+      // the truncate rather than mask the inconsistency. Format eagerly so the message
+      // does not collide with LogManager.warn's three-arg dbName overload (which would
+      // consume the first arg as a dbName prefix).
+      final String msg =
+          String.format(
+              "Storage corruption signal: BTree '%s' EP reports pagesSize=0 but physical"
+                  + " file holds %d pages (> 1). Skipping orphan-truncation; investigate"
+                  + " manually.",
+              getName(), physicalPages);
+      LogManager.instance().warn(this, msg);
+      return;
+    }
+
+    final long targetBytes = Math.max((long) pageSize, ((long) pagesSize + 1L) * pageSize);
+    readCache.shrinkFile(fileId, targetBytes, writeCache);
   }
 
   @Override

@@ -38,6 +38,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
@@ -466,6 +468,71 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             releaseExclusiveLock();
           }
         });
+  }
+
+  /**
+   * Recovery-time orphan-truncation hook for the PaginatedCollectionV2 data file.
+   * Reads the collection-state page's {@code fileSize} counter (which records the
+   * number of data pages in use, <em>not</em> including the state page itself),
+   * computes the expected physical file size as
+   * {@code max(pageSize, (fileSize + 1) * pageSize)}, and dispatches to
+   * {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop physical pages
+   * beyond the logical horizon.
+   *
+   * <p>This helper truncates only the PaginatedCollectionV2 data file (.pcl). The
+   * embedded {@code collectionPositionMap} (.cpm) has its own
+   * {@link CollectionPositionMapV2#verifyAndTruncateOrphans} that the
+   * {@code AbstractStorage.truncateOrphansAfterRecovery()} orchestrator invokes
+   * separately. The sibling EP-less components ({@code freeSpaceMap},
+   * {@code dirtyPageBitSet}) are deliberately out of scope: their growth loops
+   * recompute physical horizons from the allocator, so a physical-orphan past the
+   * logical horizon is structurally invisible to them.
+   *
+   * <p>Note the asymmetry vs BTree / SharedLinkBagBTree: PCV2's
+   * {@code initCollectionState()} (around line 2280) sets {@code fileSize = 0} on
+   * initialisation (the state page is at {@code STATE_ENTRY_INDEX = 0}, data pages
+   * begin at page 1), so {@code fileSize == 0} is the legitimate post-create state.
+   * The corruption guard fires only when both {@code fileSize == 0} <em>and</em>
+   * physical bytes exceed one state page.
+   *
+   * @param atomicOperation enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if the collection-state page cannot be read or the underlying
+   *                     shrink fails
+   */
+  public void verifyAndTruncateOrphans(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    final int stateFileSize;
+    try (final var stateCacheEntry =
+        loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
+      final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+      stateFileSize = state.getFileSize();
+    }
+
+    final int pageSize = writeCache.pageSize();
+    final long physicalPages =
+        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
+    final long physicalBytes = physicalPages * (long) pageSize;
+
+    if (stateFileSize == 0 && physicalBytes > pageSize) {
+      // Format eagerly so the message does not collide with LogManager.warn's three-arg
+      // dbName overload (which would consume the first String arg as a dbName prefix).
+      final String msg =
+          String.format(
+              "Storage corruption signal: PaginatedCollectionV2 '%s' state page"
+                  + " reports fileSize=0 but physical file holds %d pages (> 1)."
+                  + " Skipping orphan-truncation; investigate manually.",
+              getName(), physicalPages);
+      LogManager.instance().warn(this, msg);
+      return;
+    }
+
+    final long targetBytes = Math.max((long) pageSize, ((long) stateFileSize + 1L) * pageSize);
+    readCache.shrinkFile(fileId, targetBytes, writeCache);
   }
 
   @Override

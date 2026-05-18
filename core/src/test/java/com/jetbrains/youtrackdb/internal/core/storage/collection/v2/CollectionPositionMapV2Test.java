@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,11 +66,17 @@ public class CollectionPositionMapV2Test {
 
   private CollectionPositionMapV2 positionMap;
 
+  // Page size used by both the buffer pool and the WriteCache mock. Aligned with the
+  // production default (DISK_CACHE_PAGE_SIZE=8 KB) so the in-test buffers match the
+  // shrink-target arithmetic the verifyAndTruncateOrphans tests pin.
+  private static final int PAGE_SIZE_BYTES = 8 * 1024;
+
   @Before
   public void setUp() throws IOException {
     bufferPool = ByteBufferPool.instance(null);
     mockReadCache = mock(ReadCache.class);
     mockWriteCache = mock(WriteCache.class);
+    when(mockWriteCache.pageSize()).thenReturn(PAGE_SIZE_BYTES);
     mockStorage = mock(AbstractStorage.class);
 
     var mockAtomicOperationsManager = mock(AtomicOperationsManager.class);
@@ -1105,6 +1112,104 @@ public class CollectionPositionMapV2Test {
     // First and last positions should be 0 and 4 respectively.
     assertThat(positionMap.getFirstPosition(atomicOperation)).isEqualTo(0L);
     assertThat(positionMap.getLastPosition(atomicOperation)).isEqualTo(4L);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Recovery-time orphan truncation (verifyAndTruncateOrphans)
+  // ---------------------------------------------------------------------------
+  //
+  // Anchors: CollectionPositionMapV2.create() at :133-153 allocates page 0 then
+  // setFileSize(0), so a healthy fresh map has physical=1 (EP only) and fileSize=0.
+  // allocate() bumps fileSize when extending to a new bucket page; pages map 1:1 to
+  // bucket pages with the EP page sitting implicitly at index 0. The helper therefore
+  // expects physical pages == fileSize + 1 in steady state.
+
+  // Orphan-present branch: physical file has N pages past (fileSize + 1). The helper
+  // must invoke ReadCache.shrinkFile with targetBytes = (fileSize + 1) * pageSize.
+  @Test
+  public void verifyAndTruncateOrphansShrinksWhenPhysicalExceedsLogical() throws IOException {
+    // Allocate three bucket pages so the EP fileSize ticks up to 3 (pages 1..3 are
+    // bucket pages, EP at page 0). physical == fileSize + 1 == 4 here.
+    allocatePositions(3 * CollectionPositionMapBucket.MAX_ENTRIES);
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(3);
+    // Simulate two orphan pages tail-extending the file past the logical horizon.
+    makePage(4);
+    makePage(5);
+    pageCount = 6;
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    final long expectedTarget = 4L * PAGE_SIZE_BYTES; // (fileSize=3 + 1) * pageSize
+    verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
+  }
+
+  // Clean branch (physical == fileSize + 1): the helper still dispatches to
+  // ReadCache.shrinkFile, but with targetBytes equal to current physical bytes so the
+  // cache layer's pre-flight makes it a no-op. The helper does NOT skip the call —
+  // making the targetBytes match production-physical keeps the dispatch shape uniform
+  // across orphan-present, clean, and boundary-exact-target scenarios.
+  @Test
+  public void verifyAndTruncateOrphansNoOpOnCleanShape() throws IOException {
+    allocatePositions(2 * CollectionPositionMapBucket.MAX_ENTRIES);
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(2);
+    assertThat(pageCount).isEqualTo(3);
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    final long expectedTarget = 3L * PAGE_SIZE_BYTES;
+    verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
+  }
+
+  // Boundary case: physical file size exactly matches the helper-computed target.
+  // Catches off-by-one in the (fileSize + 1) * pageSize arithmetic — if the helper
+  // computed fileSize * pageSize by mistake, this test would observe a smaller target.
+  @Test
+  public void verifyAndTruncateOrphansBoundaryExactTarget() throws IOException {
+    allocatePositions(CollectionPositionMapBucket.MAX_ENTRIES);
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(1);
+    assertThat(pageCount).isEqualTo(2);
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    final long expectedTarget = 2L * PAGE_SIZE_BYTES;
+    verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
+  }
+
+  // Corruption-guard branch: EP fileSize == 0 but physical file holds more than the
+  // EP page. WAL replay should have prevented this shape; the helper skips the
+  // truncate rather than mask the inconsistency. ReadCache.shrinkFile MUST NOT be
+  // invoked.
+  @Test
+  public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
+    // create() left pageCount == 1 (just the EP) with fileSize == 0. Add an orphan
+    // page at index 1 without bumping the EP fileSize counter — the corruption shape
+    // the guard detects.
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
+    makePage(1);
+    pageCount = 2;
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
+  }
+
+  // Fresh-map branch (legitimate post-create state): fileSize == 0 AND physical == 1
+  // (EP only). The corruption guard MUST NOT fire — both conditions of the
+  // (fileSize == 0 && physicalBytes > pageSize) test are required, and physical == 1
+  // page fails the second clause. The helper dispatches a no-op shrink (target =
+  // pageSize via the max(pageSize, ...) floor).
+  @Test
+  public void verifyAndTruncateOrphansFreshMapDispatchesWithFloorTarget() throws IOException {
+    // setUp() left pageCount == 1 (EP page only) and EP fileSize == 0 — the legitimate
+    // post-create state.
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
+    assertThat(pageCount).isEqualTo(1);
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    // max(pageSize, (0 + 1) * pageSize) == pageSize. The cache layer's pre-flight
+    // then makes the shrink itself a no-op at the WOWCache layer.
+    verify(mockReadCache).shrinkFile(FILE_ID, (long) PAGE_SIZE_BYTES, mockWriteCache);
   }
 
   // ---------------------------------------------------------------------------
