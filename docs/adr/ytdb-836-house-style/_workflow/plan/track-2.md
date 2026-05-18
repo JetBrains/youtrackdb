@@ -10,11 +10,12 @@ Strip the static catalogue lists (vocabulary tiers, structural tells, tone tells
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-18T06:32Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-18T08:22Z [ctx=safe] Step 1 complete (commit d507c7318e)
 - [x] 2026-05-18T08:37Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-18T08:39Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 
@@ -25,6 +26,7 @@ Strip the static catalogue lists (vocabulary tiers, structural tells, tone tells
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion summary at Phase C. -->
 - [x] Technical: PASS at iteration 3 (6 findings, 5 accepted). T1 (should-fix) — frontmatter described as `name`/`description`/`argument-hint` triple at track-2.md:28; actual file has only the `name`/`description` pair. T2 (suggestion) — "Replace lines 19-124" boundary made explicit ("inclusive — drop the `## The catalogue` H2 at :19 and all six `###` sub-sections through the blank line at :124"; pre-`## Workflow` blank line preserved). T3 (suggestion) — collapse diagnostic at SKILL.md:85 keyed off the dropped tone-tells list; re-anchored to `house-style.md § Banned sentence patterns` with stand-alone rewording. T4 (suggestion) — line-budget buffer warning rejected; step 2's `wc -l` gate is self-healing. T5 (suggestion) — appended mechanical grep test for invariant 3 to `## Validation and Acceptance`. T6 (should-fix, new at iter-2) — same root cause as T1; invariant 1 at track-2.md:74 still said "triple" after iter-1 fix; corrected at iter-2 to `name`/`description` pair. Iter-3 gate verification confirmed all fixes landed with no regressions.
+- [x] Phase C track-level code review: PASS at iteration 1 (5 findings synthesised from 4 reviewer dimensions, all 5 accepted, all 4 gate-checks VERIFIED). Diff classified workflow-only per Case 1, so the baseline group was skipped; the workflow-review group fired with WC + WP + WI + WB + WS (hook-safety skipped, no hooks/scripts/settings touched). F1 (should-fix, WP1+WI1 merged) anchored the SKILL.md `## Catalogue lookups` block to `.claude/output-styles/house-style.md` so a sub-agent invoked without project CLAUDE.md context can still resolve the path. F2 (suggestion, WP3+WI2 merged) bound the relocated `Test:` diagnostic at SKILL.md:37 to Pass 1 with an "Apply during Pass 1:" prefix. F3 (suggestion, WC1) replaced the SKILL.md:23 parenthetical `(Tier 1 / 2 / 3 / Era-specific)` with `(Tier 1 / 2 / 3 / 4)` to match the on-disk `### Tier 4 — era-specific` H3 naming. F4 (suggestion, WI3) reworded the SKILL.md:25 Tone bullet as "sub-bullets in `house-style.md § Banned sentence patterns` (…)" so the dedup intent against the Structural bullet is explicit. F5 (should-fix, WS1) replaced the first em dash in the Step 1 episode `**What was done:**` paragraph at track-2.md:89 with a colon (the gate-check reviewer observed the rewrite reduced the count to zero, well under the one-per-paragraph cap). One finding rejected at synthesis: WP2 flagged the 856-char skill `description:` frontmatter as too long, but the track invariant explicitly froze the frontmatter byte-identical (acceptance gate (d)); WP2 is a legitimate concern that belongs in a separate cleanup track, not Track 2. WB returned zero findings — the trim is a net context-budget win (~73 fewer lines pulled into context when the skill fires, with the always-loaded `description:` unchanged).
 
 ## Context and Orientation
 
