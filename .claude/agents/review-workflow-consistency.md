@@ -69,7 +69,7 @@ Focus only on changed files under `.claude/`, root `CLAUDE.md`, and `docs/adr/<d
 
 ### Glossary and term consistency
 - Terms defined in `.claude/workflow/conventions.md` § Glossary (Track, Step, Episode, Scope indicator, Risk tag, Research, Session, Sub-agent, Orchestrator, Implementer, Track file) must be used consistently across all workflow files. A renamed term must propagate everywhere.
-- `CLAUDE.md` term shortcuts (e.g., "Concise Doc style") must match the canonical name in their source file (`.claude/output-styles/concise-doc.md`).
+- `CLAUDE.md` term shortcuts (e.g., "House Style") must match the canonical name in their source file (`.claude/output-styles/house-style.md`).
 
 ### Plan ↔ design ↔ track-file references
 - `implementation-plan.md` track entries reference `plan/track-N.md` files — each must exist for `[ ]` tracks.

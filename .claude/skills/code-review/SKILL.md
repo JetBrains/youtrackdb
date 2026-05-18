@@ -310,7 +310,7 @@ The 16 possible agents (launch only those selected in Step 5):
 13. **review-workflow-instruction-completeness** — branch coverage, gate resume paths, sub-agent input/output handshake, error recovery, loop termination
 14. **review-workflow-hook-safety** — shell hygiene, `/tmp` collision safety, hook performance, secret hygiene, JSON schema validity
 15. **review-workflow-context-budget** — always-loaded surface (descriptions, CLAUDE.md, SessionStart stdout), load-on-demand discipline, instant per-operation consumption (sub-agent delegation, output caps, `/tmp` staging, targeted reads)
-16. **review-workflow-writing-style** — concise-doc style: banned vocabulary, em-dash cap, BLUF lead, 200-word section cap, repo-anchored voice
+16. **review-workflow-writing-style** — house-style: banned vocabulary, em-dash cap, BLUF lead, 200-word section cap, repo-anchored voice
 
 Set `subagent_type` to the agent name. The agent's frontmatter declares its model; do not override it from the dispatch call unless the user explicitly asks for a different model.
 
