@@ -109,3 +109,7 @@ Track-level acceptance: `wc -l .claude/workflow/prompts/design-review.md` return
 **Caller contract:**
 - The `edit-design` skill invokes this prompt with the inputs listed at the top of the file (`design_path`, `design_mechanics_path`, `scope`, `mutation_kind`, `plan_path`, `plan_dir`). The skill's invocation surface is unchanged; only the prompt's internal content changes.
 - The prompt's output format (the exact Markdown structure at lines 258-308) is the sub-agent's return contract. Any deviation breaks the calling skill's parsing.
+
+## Base commit
+
+c352677aef36310e2fe03343f7b6fdc4d2c8afed
