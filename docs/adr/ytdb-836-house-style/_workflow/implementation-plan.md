@@ -112,9 +112,13 @@ flowchart LR
 
 ## Checklist
 
-- [ ] Track 1: Rename `concise-doc.md` → `house-style.md` and consolidate declarative rules
+- [x] Track 1: Rename `concise-doc.md` → `house-style.md` and consolidate declarative rules
   > Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per `design.md § Internal layout of house-style.md` (absorbing ai-tells Tier-3 vocab + extra rules, design-review.md's Human-reader cold-read additions, design-review.md's Structural findings, and the 12 humanizer-gap patterns with inline before/after examples), update the frontmatter `name:` and `description:` to name the broader scope, and find-and-replace the 14 string references to `concise-doc` / `Concise Doc` across `CLAUDE.md`, `.claude/skills/code-review/SKILL.md`, `.claude/agents/review-workflow-consistency.md`, `.claude/agents/review-workflow-writing-style.md`, and the renamed source file's own frontmatter. The acceptance check is `grep -rnE "concise-doc|Concise Doc" .claude/ docs/ CLAUDE.md --exclude-dir=_workflow` returning zero matches.
-  > **Scope:** ~4 steps covering `git mv` + frontmatter, content rewrite with humanizer gaps, find-and-replace sweep, end-of-track grep verification
+  >
+  > **Track episode:**
+  > Track 1 consolidated four overlapping writing-style sources into one renamed declarative file at `.claude/output-styles/house-style.md` and swept the 14 string references across 4 live files plus the renamed source's own frontmatter. The new file (366 lines) absorbs Tier 3/4 vocab + structural cold-read rules + the 12 humanizer-gap patterns with inline before/after examples; downstream Tracks 2, 3, 4 cite its 10 canonical H2 sections. Iteration 1 of track review applied 6 follow-up fixes (2 self-violations in the source-of-truth file, 2 stale-framing fixes in `review-workflow-writing-style.md`, 2 cosmetic em-dash cleanups); gate check verified all clean. **Cross-track context:** the H2 `Document-shape rules (design / ADR-specific)` carries a trailing parenthetical Tracks 2-4 must cite verbatim if they cite the full heading; the inline banned-vocabulary lists that previously lived in the writing-style agent are now removed (the F3 delegation pattern is the durable shape for future vocabulary checks). One transient citation gap remains until Track 4 lands `dsc-ai-tell`.
+  >
+  > **Track file:** `plan/track-1.md` (3 steps, 0 failed; 1 review-fix iteration)
 
 - [ ] Track 2: Trim `ai-tells/SKILL.md` to procedural overlay
   > Strip the static catalogue lists (vocabulary tiers, structural tells, tone tells, punctuation tells, content tells, era-specific tells) from `ai-tells/SKILL.md`. Keep the audit/rewrite mode toggle, the "if the sentence collapses without the opener, delete the whole sentence" diagnostic, and the before/after rewrite examples. Add cross-references to `house-style.md § <Section>` for the catalogue lookups, so a user invoking the skill is directed to the consolidated declarative source. Final file must be ≤ 80 lines.

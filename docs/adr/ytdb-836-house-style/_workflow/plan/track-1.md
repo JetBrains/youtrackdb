@@ -10,14 +10,15 @@ Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per 
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-05-18T03:47Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-18T03:54Z [ctx=safe] Step 1 complete (commit 79ae898423)
 - [x] 2026-05-18T04:01Z [ctx=safe] Step 2 complete (commit 1980178c1f)
 - [x] 2026-05-18T04:05Z [ctx=safe] Step 3 complete (commit e8ed393fa8)
 - [x] 2026-05-18T04:05Z [ctx=safe] Step implementation
 - [x] 2026-05-18T04:26Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-18T04:30Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
