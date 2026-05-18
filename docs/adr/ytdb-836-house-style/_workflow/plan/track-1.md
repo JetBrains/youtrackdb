@@ -13,6 +13,7 @@ Move `concise-doc.md` to `house-style.md` via `git mv`, rewrite its content per 
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-18T03:47Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-18T03:54Z [ctx=safe] Step 1 complete (commit 79ae898423)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
@@ -66,7 +67,7 @@ Invariants to preserve through every step:
 
 ## Concrete Steps
 
-1. `git mv .claude/output-styles/concise-doc.md .claude/output-styles/house-style.md`, then update the renamed file's frontmatter `name: Concise Doc` → `name: House Style` and rewrite `description:` to enumerate the full surface (design / plan / track / issue / PR / commit-body / comment / status prose). No body content changes in this commit — the rename + frontmatter is the smallest reviewable unit and preserves git history of `concise-doc.md`. — risk: low (default: docs file rename + frontmatter edit; no project-behavior change)  [ ]
+1. `git mv .claude/output-styles/concise-doc.md .claude/output-styles/house-style.md`, then update the renamed file's frontmatter `name: Concise Doc` → `name: House Style` and rewrite `description:` to enumerate the full surface (design / plan / track / issue / PR / commit-body / comment / status prose). No body content changes in this commit — the rename + frontmatter is the smallest reviewable unit and preserves git history of `concise-doc.md`. — risk: low (default: docs file rename + frontmatter edit; no project-behavior change)  [x] commit: 79ae898423
 
 2. Rewrite the body of `.claude/output-styles/house-style.md` to match `design.md § Internal layout of house-style.md` — the 9 top-level sections in order (What this style governs, BLUF lead, Voice and tone, Banned vocabulary with Tier 1-4, Banned sentence patterns, Banned analysis patterns, Punctuation and typography, Structural rules, Document-shape rules, Self-check). Absorb the rule set: Tier-3 promotional vocab + knowledge-cutoff disclaimer ban + inline-header-list rule + curly→straight quotes + excessive-boldface cap from `.claude/skills/ai-tells/SKILL.md`; audience-fit, glossary-introduction, why-before-what, navigability from `prompts/design-review.md § Human-reader cold-read additions`; Overview concept-first, References footer shape, Edge cases sub-section required, same-shape sibling consolidation from `prompts/design-review.md § Structural findings`. Write each of the 12 humanizer-gap patterns with an inline before/after example block (~5 lines per pattern) in its assigned section per the design (10 in § Banned analysis patterns; Hyphenated word-pair overuse in § Punctuation and typography; Fragmented headers in § Structural rules). Update Self-check to reference the new sections. Target ~400-500 lines. — risk: low (default: single-file docs content rewrite; no logic, no project-behavior change)  [ ]
 
@@ -74,6 +75,18 @@ Invariants to preserve through every step:
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step, identified by step number + commit SHA. Empty at Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 79ae898423, 2026-05-18T03:54Z [ctx=safe]
+
+**What was done:**
+Renamed `.claude/output-styles/concise-doc.md` to `.claude/output-styles/house-style.md` via `git mv` (history preserved; 95% similarity index in the diff because frontmatter is the only delta). Updated frontmatter `name: Concise Doc` → `name: House Style` and rewrote `description:` to enumerate the full surface list per `design.md § Internal layout of house-style.md` — design / plan / track / issue / PR / commit-body / comment / status prose. Body content is unchanged; the content rewrite is Step 2.
+
+**Key files:**
+- `.claude/output-styles/concise-doc.md` (removed via rename)
+- `.claude/output-styles/house-style.md` (new at this path; frontmatter updated)
+
+**Critical context:**
+The `/output-style` slash command reads frontmatter `name:`, so the canonical invocation after this commit is `/output-style house-style` (kebab-case normalization of `House Style`). Between this commit and Step 3's FRR-sweep commit, the slash-command name documented in `CLAUDE.md:102` still says `concise-doc` — a brief transient sync gap inside the track that Step 3 closes.
 
 ## Validation and Acceptance
 
