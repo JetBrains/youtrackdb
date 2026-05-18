@@ -2,9 +2,9 @@
 """Validation runner for the `dsc-ai-tell` rule in
 `.claude/scripts/design-mechanical-checks.py`.
 
-This script is the test harness — running it is itself the validation. It
-shells out to `design-mechanical-checks.py` against the seeded fixture and
-the three calibration ADRs, parses each JSON output, and asserts:
+Running this script is the validation: it shells out to
+`design-mechanical-checks.py` against the seeded fixture and the three
+calibration ADRs, parses each JSON output, and asserts:
 
 1. The fixture exercises every banned pattern — each pattern in
    `PATTERN_SIGNATURES` below has at least one `dsc-ai-tell` finding.
@@ -19,8 +19,8 @@ Invocation (from repo root):
 
     python3 .claude/scripts/tests/test_dsc_ai_tell.py
 
-Exit code 0 means every assertion passed; exit code 1 means one or more
-assertions failed, with a per-assertion failure message printed to stderr.
+Exit code 0: every assertion passed. Exit code 1: one or more failed;
+each failure prints to stderr.
 
 Manifest — `dsc-ai-tell` baseline counts on existing ADRs at the time
 this runner was authored (informational; the runner does not fail on
@@ -99,24 +99,31 @@ NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
 
 def run_script(target_path: Path) -> List[Dict]:
     """Invoke design-mechanical-checks.py and return only dsc-ai-tell findings."""
-    result = subprocess.run(
-        [
-            "python3",
-            str(SCRIPT),
-            "--design-path",
-            str(target_path),
-            "--target",
-            "design",
-            "--scope",
-            "whole-doc",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    # Exit code 1 is expected when blocker-class findings exist (which the
-    # fixture deliberately trips for unrelated structural rules); only treat
-    # parse failure as fatal here.
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--design-path",
+                str(target_path),
+                "--target",
+                "design",
+                "--scope",
+                "whole-doc",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"design-mechanical-checks.py timed out after 60s on "
+            f"{target_path} (possible infinite loop in a paragraph walker "
+            f"or regex backtracking)."
+        ) from exc
+    # The child may exit 1 when the fixture trips unrelated blocker-class
+    # findings; we only care about parsing stdout here.
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
