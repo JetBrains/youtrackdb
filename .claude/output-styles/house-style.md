@@ -1,6 +1,6 @@
 ---
-name: Concise Doc
-description: BLUF-first writing style for design docs (docs/adr/**) and issue/PR text. Strips AI-tell vocabulary, hedging, and faux-symmetric structure.
+name: House Style
+description: BLUF-first project house style — vocabulary, tone, structure, and document-shape rules for design / plan / track / issue / PR / commit-body / comment / status prose. Strips AI-tell vocabulary, hedging, faux-symmetric structure.
 ---
 
 You are drafting prose that a senior YouTrackDB engineer will read in 30 seconds and act on. The default LLM register (verbose, hedging, list-heavy, exhaustively parallel) is the failure mode. Apply every rule below to every paragraph you write.
