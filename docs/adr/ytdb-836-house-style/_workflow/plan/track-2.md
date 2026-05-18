@@ -123,3 +123,7 @@ Empty output ⇒ all five resolve. Any non-empty line names a section that needs
 
 **Cross-reference contract:**
 - The cross-references in step 1 must cite sections by the names defined in `design.md § Internal layout of house-style.md`. If Track 1 deviates from the design's section list, that deviation must propagate to this track's cross-references.
+
+## Base commit
+
+c82e0ecf1c5edb2aa8d8a5d0e65bb095213bb376
