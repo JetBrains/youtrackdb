@@ -10,9 +10,11 @@ Add a new `check_dsc_ai_tell` function to `design-mechanical-checks.py` that emi
 ## Progress
 - [x] Review + decomposition
 - [x] 2026-05-18T12:00Z [ctx=info] Review + decomposition complete
-- [ ] Step implementation
+- [x] Step implementation
 - [x] 2026-05-18T12:15Z [ctx=safe] Step 1 complete (commit 05396db057bb25bc0001a2f53063142de1126eb0)
 - [x] 2026-05-18T12:22Z [ctx=safe] Step 2 complete (commit 991f1c35918e98ec47ce4b9b8b50ec7a3a96d8e3)
+- [x] 2026-05-18T12:31Z [ctx=safe] Step 3 complete (commit 0f56f60b8b365555d77d2e6a06aabe14a53f9559)
+- [x] 2026-05-18T12:31Z [ctx=safe] Step implementation complete
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -24,7 +26,7 @@ Add a new `check_dsc_ai_tell` function to `design-mechanical-checks.py` that emi
 - **A5 — Optional cheap-add: 5 additional banned-sentence-pattern regexes.** `house-style.md § Banned sentence patterns` lines 96-102 list 7 bullet patterns; Track 4 covers only negative parallelism. The other 6 — sycophantic openers ("Great question!", "Certainly!", "I'd be happy to"), throat-clearing ("It's worth noting that", "It is important to consider"), closing phrases ("In conclusion,", "In summary,", "Ultimately,"), trailing hedges, prompt-restating ("This document will…"), knowledge-cutoff disclaimers — are equally regex-detectable with low-FP risk (literal-phrase word-boundary regexes, structurally identical to the signposting / copula / authority tropes Track 4 already plans). Cost is ~30 extra lines (5 constants + 5 fixture demos). Not in scope for the initial Track 4 cut; Phase B implementer may absorb if calibration room allows. Capture as a follow-up issue if deferred.
 - **A6 — D5 rationale framing.** The D5 paragraph at `implementation-plan.md:84-88` leads with the "placeholder citations" hazard but the load-bearing reason for folding is user direction during research. Cosmetic — decision survives, no action.
 - **Runner-CI gap (T6 / A3 confirmed).** No `.github/workflows/*.yml` invokes `design-mechanical-checks.py`. The Python runner authored in step 3 is invocation-on-demand only. Follow-up issue (out of scope): wire `.github/workflows/design-checks.yml` to run the runner on every PR that touches `.claude/scripts/`, `.claude/output-styles/house-style.md`, or `docs/adr/**`.
-- **Residual em-dash finding on `index-gc/adr.md`.** Step 1's `dsc-ai-tell` rule registers one finding on `docs/adr/index-gc/adr.md` (two em dashes on lines 7-9 forming the parenthetical-aside cadence "`BTree.put()` — when entries are already being redistributed —"). This is a genuine `X — Y — Z` tell per `house-style.md § Em-dash discipline`. Step 3's runner is the gate for reconciling against Invariant 3: accept as true positive (revisit the calibration baseline), tighten the em-dash rule to ignore matched parenthetical-aside pairs, or demote severity per D3. See Episodes §Step 1.
+- **Em-dash rule carve-out for balanced parenthetical asides.** Step 3 resolved the Step 1 residual finding on `index-gc/adr.md` via Option A: tightened the em-dash density rule so a paragraph with exactly 2 em dashes fires only when the middle segment contains a sentence terminator (`. ! ?`). Balanced parenthetical asides `A — clause — B` (no terminator in `clause`) are exempt; unbalanced `X. — Y — Z` cadences still fire. This is a documented carve-out parallel to the 3-word Title-Case threshold (entry T4): the canonical `house-style.md § Em-dash discipline` rule is "max 1 em dash per paragraph", and the implementation accepts a narrower "max 1 or balanced-aside" form. Track 1 follow-up (out of scope here) could either amend the canonical wording or accept this as documented implementation drift. The 12-finding baseline across the seven non-calibration ADRs is recorded in the `test_dsc_ai_tell.py` module docstring manifest. See Episodes §Step 3.
 
 ## Decision Log
 
@@ -108,7 +110,7 @@ Invariants to preserve:
 
 1. Add `iter_paragraphs` helper, `check_dsc_ai_tell` function (9 patterns, bounded-aware signature, References-block + table-row exclusion), new constants, and `main()` wire-up in `.claude/scripts/design-mechanical-checks.py` — risk: medium (new non-public function that changes observable behavior of the mechanical-checks pipeline by emitting a new `dsc-ai-tell` finding type; heuristic-regex calibration risk is real at code-write time but covered empirically by step 3)  [x]  commit: 05396db057bb25bc0001a2f53063142de1126eb0
 2. Create `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` with 9 positive-case paragraphs (one per banned pattern) and ≥3 negative-case paragraphs (hyphenated technical compounds, single em-dash, H1 Title Case) per `## Plan of Work` step 2's fixture authoring constraints — risk: low (default: new single-purpose markdown fixture; not shared test infrastructure)  [x]  commit: 991f1c35918e98ec47ce4b9b8b50ec7a3a96d8e3
-3. Author `.claude/scripts/tests/test_dsc_ai_tell.py` Python runner and run validation: assert ≥1 finding per positive-case paragraph, zero on negative-case paragraphs, zero on the three calibration ADRs (`docs/adr/persist-visible-count/adr.md`, `docs/adr/index-gc/adr.md`, `docs/adr/non-durable-wow/adr.md`), and no regressions on existing-ADR check output — risk: medium (new test infrastructure: first test harness under `.claude/scripts/tests/`; future tests for the mechanical-checks script may extend this scaffold)  [ ]
+3. Author `.claude/scripts/tests/test_dsc_ai_tell.py` Python runner and run validation: assert ≥1 finding per positive-case paragraph, zero on negative-case paragraphs, zero on the three calibration ADRs (`docs/adr/persist-visible-count/adr.md`, `docs/adr/index-gc/adr.md`, `docs/adr/non-durable-wow/adr.md`), and no regressions on existing-ADR check output — risk: medium (new test infrastructure: first test harness under `.claude/scripts/tests/`; future tests for the mechanical-checks script may extend this scaffold)  [x]  commit: 0f56f60b8b365555d77d2e6a06aabe14a53f9559
 
 ## Episodes
 
@@ -135,6 +137,20 @@ Invariants to preserve:
 - `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` (new)
 
 **Critical context:** Fixture registers 11 `dsc-ai-tell` findings but exercises 9 distinct patterns — Tier-1 fires 3 times in one paragraph (one finding per matched base word). Step 3's runner should group by pattern identity, not raw count.
+
+### Step 3 — commit 0f56f60b8b365555d77d2e6a06aabe14a53f9559, 2026-05-18T12:31Z [ctx=safe]
+**What was done:** Authored `.claude/scripts/tests/test_dsc_ai_tell.py` — a Python runner that shells out to `design-mechanical-checks.py` against the seeded fixture and the three calibration ADRs, filters JSON findings to `rule == "dsc-ai-tell"` only, and asserts: (1) ≥1 finding per pattern via a 9-entry `PATTERN_SIGNATURES` table keyed on description prefixes; (2) zero findings on the fixture's H1 Title Case line and on the two `### *negative` H3 ranges; (3) zero findings on each calibration ADR. Resolved the Step 1 residual em-dash finding via Option A — tightened `check_dsc_ai_tell`'s em-dash density rule to fire on 3+ em dashes per paragraph, or on 2 em dashes whose middle segment carries a sentence terminator; balanced parenthetical asides `A — clause — B` are exempt. Bumped the fixture's em-dash demo from 2 to 3 em dashes so the unbalanced cadence still fires. Runner exits 0; calibration ADRs all hold at zero `dsc-ai-tell` findings; the seven non-calibration ADRs still emit the same 12 baseline findings recorded in the runner module docstring's manifest comment.
+
+**What was discovered:** Option A reduces to a single middle-segment check rather than a multi-em-dash pairing search: every paragraph with exactly 2 em dashes has the shape `A — middle — B`, so the genuine `X — Y — Z` cadence vs balanced parenthetical aside disambiguation reduces to "is there a sentence terminator in `middle`?". The `index-gc` case has middle " when entries are already being redistributed " (no terminator → aside, drops out). The `thin-workflow/adr.md:58` case has middle " held. Entries are only added during " (period → two unpaired em dashes, still fires). The check is structurally narrower than the initial parenthetical-aside-pairing idea and avoids weakening the rule on the 12 baseline findings across the seven non-calibration ADRs.
+
+**What changed from the plan:** Plan-of-Work step 3 directive listed three resolution paths for the residual finding (Option A tighten, Option B snapshot allowlist, Option C demote severity). Picked Option A; the runner's calibration assertion is the simple "zero findings" form rather than the snapshot allowlist Option B would have required. Plan-file Invariant 3 wording survives unchanged.
+
+**Key files:**
+- `.claude/scripts/tests/test_dsc_ai_tell.py` (new)
+- `.claude/scripts/design-mechanical-checks.py` (modified — em-dash rule tightened)
+- `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` (modified — em-dash demo bumped 2 → 3)
+
+**Critical context:** Runner is invocation-on-demand only — no CI wiring (Phase A finding T6/A3). Future regression detection depends on running `python3 .claude/scripts/tests/test_dsc_ai_tell.py` manually. The runner's module docstring carries the 12-finding baseline across the seven non-calibration ADRs as a manifest comment; if a future change drives any of those to zero unintentionally, the rule has been weakened.
 
 ## Validation and Acceptance
 
