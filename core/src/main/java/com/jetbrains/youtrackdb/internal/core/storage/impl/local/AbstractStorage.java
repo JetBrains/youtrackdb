@@ -799,6 +799,15 @@ public abstract class AbstractStorage
           atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
           atomicOperationsManager.executeInsideAtomicOperation(this::openIndexes);
 
+          // Recovery-time orphan-truncation pass. Restores the per-component
+          // logical <= physical invariant before any non-recovery transaction runs.
+          // Unconditional (NOT gated by wereDataRestoredAfterOpen) because an orphan
+          // can survive a crash -> clean-reopen-without-touch -> clean reclose, so a
+          // subsequent open with isDirty() == false still needs the pass. Per-component
+          // helpers each pre-flight to a no-op on a clean shape, so the pass is cheap on
+          // already-consistent storages.
+          atomicOperationsManager.executeInsideAtomicOperation(this::truncateOrphansAfterRecovery);
+
           atomicOperationsManager.executeInsideAtomicOperation(
               (atomicOperation) -> {
                 final var cs = configuration.getConflictStrategy();
@@ -1002,6 +1011,90 @@ public abstract class AbstractStorage
         }
       }
     }
+  }
+
+  /**
+   * Recovery-time orphan-truncation pass. Walks the four entry-point-equipped storage
+   * component groups, reads each component's persisted logical-page counter, and dispatches
+   * the layered {@code ReadCache.shrinkFile} primitive to drop any physical pages beyond the
+   * logical horizon. The pass restores the {@code logical <= physical} invariant before any
+   * non-recovery transaction runs.
+   *
+   * <p>The orchestrator iterates three groups:
+   *
+   * <ul>
+   *   <li>{@code collections} — each non-null {@link PaginatedCollectionV2} entry triggers a
+   *       {@code verifyAndTruncateOrphans} on the collection itself (truncates the {@code .pcl}
+   *       data file) and a second call on its embedded {@link CollectionPositionMapV2}
+   *       (truncates the {@code .cpm} position-map file). The two files have independent
+   *       EPs; either can carry a partial-flush orphan tail.</li>
+   *   <li>{@code indexEngines} — each engine that is a {@link BTreeSingleValueIndexEngine}
+   *       or {@link BTreeMultiValueIndexEngine} routes through its engine-side wrapper,
+   *       which keeps the {@code sbTree}/{@code svTree}/{@code nullTree} fields
+   *       {@code private final} on the engine.</li>
+   *   <li>{@code linkCollectionsBTreeManager} — a single call to
+   *       {@link LinkCollectionsBTreeManagerShared#verifyAndTruncateAllOrphans}, which fans
+   *       out internally over its private {@code fileIdBTreeMap}. The manager intentionally
+   *       exposes no public iteration accessor.</li>
+   * </ul>
+   *
+   * <p>The pass is wrapped in {@code executeInsideAtomicOperation} to match the
+   * catalogue-load idiom used by the surrounding {@code open()} sites. Each per-component
+   * helper is silent on the clean case (it dispatches {@code shrinkFile} unconditionally;
+   * the cache layer's pre-flight no-ops when {@code physical <= target}) and emits a
+   * one-line WARN log per affected file from inside the {@code WOWCache.shrinkFile} body
+   * when an actual truncate fires.
+   *
+   * <p>EP-read failures (e.g., a corrupted EP page surfaced by
+   * {@code checksumMode=StoreAndThrow}) propagate the {@link IOException} through this
+   * orchestrator and abort the enclosing {@code open()} / incremental-restore flow. This is
+   * intentional: without the EP we cannot compute the truncate target, and silently skipping
+   * the component would re-introduce the partial-flush-orphan path the pass exists to fix.
+   *
+   * <p>The orchestrator runs after {@code recoverIfNeeded()} (which drains the flush executor
+   * via {@code flushAllData()} on the dirty-reopen path) so dirty WAL-replay pages have
+   * settled before any truncate fires. EP-less components ({@code FreeSpaceMap},
+   * {@code CollectionDirtyPageBitSet}) and {@code IndexHistogramManager} are deliberately
+   * out of scope — their growth loops compute physical horizons from the allocator, so
+   * physical-orphan pages past their logical horizon are structurally invisible to them.
+   *
+   * @param atomicOperation the enclosing recovery-pass atomic operation supplied by
+   *     {@code executeInsideAtomicOperation}
+   * @throws IOException propagated from any per-component / per-engine / manager helper when
+   *     the underlying EP read or cache-layer truncate fails
+   */
+  // Package-private surface upgraded to protected so the disk-engine subclass
+  // (DiskStorage in com.jetbrains.youtrackdb.internal.core.storage.disk) can dispatch
+  // the same recovery-time orphan-truncation pass from its incremental-restore entry
+  // point.
+  protected void truncateOrphansAfterRecovery(final AtomicOperation atomicOperation)
+      throws IOException {
+    // Group 1: paginated collections. Each non-null entry contributes two truncates —
+    // the collection's own .pcl data file and the embedded position map's .cpm file.
+    for (final var collection : collections) {
+      if (collection instanceof PaginatedCollectionV2 pcv2) {
+        pcv2.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        pcv2.getCollectionPositionMap()
+            .verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+      }
+    }
+
+    // Group 2: B-tree index engines. Filter to the engine classes whose underlying
+    // CellBTreeSingleValue trees carry the EP shape this pass targets; other engine
+    // classes (e.g., hash-index, legacy variants) either have no EP-vs-physical drift
+    // or no public orphan-truncation hook.
+    for (final var engine : indexEngines) {
+      if (engine instanceof BTreeSingleValueIndexEngine svEngine) {
+        svEngine.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+      } else if (engine instanceof BTreeMultiValueIndexEngine mvEngine) {
+        mvEngine.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+      }
+    }
+
+    // Group 3: shared link-bag B-trees. Iteration is internal to the manager so the
+    // manager's private fileIdBTreeMap stays encapsulated.
+    linkCollectionsBTreeManager.verifyAndTruncateAllOrphans(
+        atomicOperation, readCache, writeCache);
   }
 
   @Override
