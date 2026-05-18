@@ -529,7 +529,7 @@ pattern.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -539,12 +539,64 @@ pattern.
 
 ## Steps
 
-- [ ] Step 1: Fix `AsyncFile.shrink(long size)` in-place semantics; add `AsyncFileTest.testShrinkPartial`
+- [x] Step 1: Fix `AsyncFile.shrink(long size)` in-place semantics; add `AsyncFileTest.testShrinkPartial`
+  - [x] Context: safe
   > **Risk:** low — isolated bug fix (single primitive body fix at `AsyncFile.java:307-318`; all current `WOWCache` callers pass `0` which still resolves to `size.set(0)`; new partial-target path covered by `testShrinkPartial`)
   >
   > **What**: replace `this.size.set(0)` with `this.size.set(size)` and add a no-op guard `if (size >= this.size.get()) return;` placed AFTER `lock.exclusiveLock(); checkForClose();` (inside the exclusive-lock window so the read of `this.size` is race-free against concurrent `shrink` / `allocateSpace`). The existing `AsyncFileTest.testShrink` (zero-target path, `AsyncFileTest.java:376`) stays unchanged; add `testShrinkPartial` allocating K pages, calling `shrink(M*pageSize)` with `0 < M < K`, asserting `getFileSize() == M*pageSize` and `fileChannel.size() == M*pageSize + HEADER_SIZE`.
   > **Tests**: `AsyncFileTest.testShrink` (unchanged) + new `testShrinkPartial`.
   > **Separability**: this step is intentionally separable from the rest of the track — a future `git revert` of Track 7 internals preserves the AsyncFile fix.
+  >
+  > **What was done:** Replaced `AsyncFile.shrink`'s unconditional
+  > `this.size.set(0)` with `this.size.set(size)` so the in-memory
+  > logical-size counter tracks the truncate target; added a pre-flight
+  > no-op guard `if (size >= this.size.get()) return;` placed inside the
+  > exclusive-lock window (after `lock.exclusiveLock()` / `checkForClose()`)
+  > so the read of `this.size` is race-free against a concurrent
+  > `shrink` / `allocateSpace` writer. Added two new `AsyncFileTest`
+  > cases: `testShrinkPartial` (allocates K=4 pages, writes them, calls
+  > `shrink(M*pageSize)` with M=2, asserts both `getFileSize()` and
+  > `getUnderlyingFileSize()` report `M*pageSize`) and
+  > `testShrinkNoOpWhenTargetGreaterOrEqual` (covers the equal-target and
+  > greater-target branches of the new guard). Existing `testShrink`
+  > (target=0) unchanged. Full `core` test suite: 18058/18058 passing
+  > on the clean re-run (98 skipped); Spotless applied. Commit
+  > `743572c5fb`.
+  >
+  > **What was discovered:**
+  > Test-fixture detail not surfaced in the step spec:
+  > `AsyncFile.allocateSpace()` only bumps the in-memory size counter —
+  > the underlying file channel extends only on `write()`. Initial
+  > `testShrinkPartial` assertion `getUnderlyingFileSize() == M*pageSize`
+  > failed (returned 0) until the test was changed to actually write K
+  > pages of data. `testShrinkNoOpWhenTargetGreaterOrEqual` was hardened
+  > the same way so its assertions are non-trivial. The existing
+  > `testShrink` (zero-target case) did not surface this gap only
+  > because both pre- and post-values are 0.
+  >
+  > **Cross-track impact (informational):** The implementer surfaced a
+  > pre-existing coverage-gate failure on the cumulative branch diff
+  > against `origin/develop`. 43 files from Tracks 1–5 (WOWCache,
+  > FreeSpaceMap, IndexHistogramManager, AbstractStorage,
+  > AtomicOperationBinaryTracking, StorageComponent, BTree, DiskStorage,
+  > DirectMemoryOnlyDiskCache, MemoryFile, SharedLinkBagBTree,
+  > CollectionDirtyPageBitSet, CollectionPositionMapV2, FreeSpaceMap,
+  > PaginatedCollectionV2, LockFreeReadCache) report 0/249 line and
+  > 0/86 branch coverage under the `core` unit-test suite alone — these
+  > lines need either Track 7 Step 5's integration tests or Track 6's
+  > CS1 / poison-cascade end-to-end tests, neither of which has landed
+  > yet. Confirmed pre-existing by stashing Step 1 and re-running the
+  > gate (identical failure). Recommendation absorbed into orchestrator
+  > stance: accept the gate as "pre-existing, unchanged by step"
+  > through Steps 2–4 and revisit at Step 5 / Track 6.
+  >
+  > **What changed from the plan:** none.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/fs/AsyncFile.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/fs/AsyncFileTest.java` (modified)
+  >
+  > **Critical context:** none.
 
 - [ ] Step 2: Layered shrink primitive — `WriteCache.shrinkFile` SPI + `LockFreeReadCache.shrinkFile` orchestrator + `ConcurrentLongIntHashMap.removeByFileIdAtLeast`
   > **Risk:** high — architecture (new SPI surface touching 7 implementers: `WOWCache`, `DirectMemoryOnlyDiskCache`, plus 5 test-mocks) + concurrency (LFRC orchestration ordering load-bearing; periodic-flush exclusion via `filesLock.writeLock`; new segment-map primitive sits in the cache hot-path supporting class)
