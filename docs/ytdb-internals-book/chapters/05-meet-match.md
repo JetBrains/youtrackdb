@@ -34,20 +34,20 @@ Each named token has a precise meaning that maps directly onto a field in the AS
 
 ## 5.2 The AST in one diagram
 
-With those four fragments named, the `SQLMatchStatement` for the example query looks like this:
+With those four fragments named, the `SQLMatchStatement` for the query from the example looks like this:
 
 ```mermaid
 graph TD
     S["SQLMatchStatement"]
-    S -->|matchExpressions[0]| E0["SQLMatchExpression"]
-    S -->|returnItems| RET["me.name, friend.name, city.name"]
+    S -->|"matchExpressions[0]"| E0["SQLMatchExpression"]
+    S -->|"returnItems"| RET["me.name, friend.name, city.name"]
 
-    E0 -->|origin| F_me["SQLMatchFilter<br/>alias: me<br/>class: Person<br/>where: name='Alice'"]
-    E0 -->|items[0]| I0["SQLMatchPathItem<br/>method: .out('Knows')"]
-    E0 -->|items[1]| I1["SQLMatchPathItem<br/>method: .out('Lives')"]
+    E0 -->|"origin"| F_me["SQLMatchFilter<br/>alias: me<br/>class: Person<br/>where: name=&#39;Alice&#39;"]
+    E0 -->|"items[0]"| I0["SQLMatchPathItem<br/>method: .out(&#39;Knows&#39;)"]
+    E0 -->|"items[1]"| I1["SQLMatchPathItem<br/>method: .out(&#39;Lives&#39;)"]
 
-    I0 -->|filter| F_friend["SQLMatchFilter<br/>alias: friend"]
-    I1 -->|filter| F_city["SQLMatchFilter<br/>alias: city<br/>where: name='Berlin'"]
+    I0 -->|"filter"| F_friend["SQLMatchFilter<br/>alias: friend"]
+    I1 -->|"filter"| F_city["SQLMatchFilter<br/>alias: city<br/>where: name=&#39;Berlin&#39;"]
 ```
 
 **Figure 5.1 — AST for the two-edge example query.**
@@ -56,7 +56,7 @@ graph TD
 
 Each `SQLMatchExpression` has two parts: an `origin` field of type `SQLMatchFilter` (the leftmost node in the chain), and an `items` list of `SQLMatchPathItem` objects (one per edge-and-node pair that follows). For our query, `origin` is the `me` filter and `items` contains two entries: the `.out('Knows')` step leading to `friend`, and the `.out('Lives')` step leading to `city`.
 
-`returnItems` is a `List<SQLExpression>` that holds the things the user wrote after `RETURN` — here, `me.name`, `friend.name`, and `city.name`. The companion `returnAliases` list holds any `AS` labels the user added to rename output columns; it is absent here. The four predicate methods `returnsElements()`, `returnsPaths()`, `returnsPatterns()`, and `returnsPathElements()` inspect `returnItems` for the special tokens `$elements`, `$paths`, `$patterns`, and `$pathElements`; if none of these special tokens is present, the planner uses a plain projection step. Note that `returnsPatterns()` also recognises `$matches` as a legacy alias for `$patterns` (line 290).
+`returnItems` is a `List<SQLExpression>` that holds the things the user wrote after `RETURN` — here, `me.name`, `friend.name`, and `city.name`. The companion `returnAliases` list holds any `AS` labels the user added to rename output columns; it is absent here. The four predicate methods `returnsElements()`, `returnsPaths()`, `returnsPatterns()`, and `returnsPathElements()` inspect `returnItems` for the special tokens `$elements`, `$paths`, `$patterns`, and `$pathElements`; if none of these special tokens is present, the planner uses a plain projection step. Note that `returnsPatterns()` also recognises `$matches` as a legacy alias for `$patterns` ([`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchStatement.java:290`](https://github.com/JetBrains/youtrackdb/blob/0ab1cb75643d0a0dd14328666cc553abf9665164/core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchStatement.java#L290)).
 
 The remaining fields — `groupBy`, `orderBy`, `unwind`, `skip`, `limit` — are optional clauses that follow RETURN. They mirror what a SELECT statement carries and are handled by the same planner machinery after the MATCH-specific steps are built.
 
@@ -66,7 +66,7 @@ There is one more field not shown in the diagram: `pattern`, of type `Pattern`. 
 
 A SELECT statement produces a row with a fixed shape: four columns in, four columns out, regardless of what the query touches. MATCH works differently. The result row is not a fixed-width tuple — it is an *alias-keyed map* that grows as the engine walks each edge.
 
-Picture the row at three points during execution of the example query:
+Picture the row at three points during execution of the example query. In the snippet below, `P#N` denotes some Person record and `C#N` some City record; the integer is a tag for the reader's benefit, not the actual RID. A real YouTrackDB RID has the form `#<clusterId>:<position>` (e.g. `#12:3`).
 
 ```
 After binding me:      {me: P#3}
@@ -86,7 +86,7 @@ Chapter 11 covers the mechanics of `MatchResultRow` in full, including how the `
 
 The AST and the growing row are the what. The harder question is how the planner turns that AST into an execution plan. Three decisions arise that have no direct analogue in a pure relational planner.
 
-**Decision 1: which alias to start from.** In the example query, the planner could start by scanning all `Person` records where `name = 'Alice'`, or it could start by scanning all `Person` records where `name = 'Berlin'` and walk backwards. Neither approach is obvious from the query text. The cost formula is approximately `rows_at_root × fan_out_per_step × number_of_steps`: choosing a root with a tight filter keeps `rows_at_root` small and compresses every downstream cost proportionally. Choosing the wrong root — one that matches a million records — multiplies that million through every subsequent traversal. The planner must estimate cardinality for every alias and pick the most selective starting point. Chapter 9 is devoted to this decision.
+**Decision 1: which alias to start from.** In the example query, the planner could start by scanning all `Person` records where `name = 'Alice'`, or it could start by scanning all `City` records where `name = 'Berlin'` and walk backwards. Neither approach is obvious from the query text. The cost formula is approximately `rows_at_root × fan_out_per_step × number_of_steps`: choosing a root with a tight filter keeps `rows_at_root` small and compresses every downstream cost proportionally. Choosing the wrong root — one that matches a million records — multiplies that million through every subsequent traversal. The planner must estimate cardinality for every alias and pick the most selective starting point. Chapter 9 is devoted to this decision.
 
 **Decision 2: which direction to walk each edge.** Our query says `.out('Knows')` — follow outgoing `Knows` edges from `me`. But if the planner chose `friend` as the root instead, it would need to arrive at `me` by walking *inbound* `Knows` edges — the opposite direction to what the query text says. This is legal: the planner can reverse any edge that lacks `while`, `maxdepth`, or `optional` modifiers. Deciding which edges to run forward and which to reverse is called *direction scheduling*, and it interacts with root selection: the traversal direction of every edge falls out of the choice of root. Chapter 10 covers this.
 
