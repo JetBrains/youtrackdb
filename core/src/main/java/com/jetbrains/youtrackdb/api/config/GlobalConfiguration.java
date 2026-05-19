@@ -1292,17 +1292,29 @@ public enum GlobalConfiguration {
   QUERY_PREFILTER_MAX_RIDSET_SIZE(
       "youtrackdb.query.prefilter.maxRidSetSize",
       "Maximum number of RIDs collected from an index or reverse edge lookup"
-          + " before aborting the pre-filter build (memory protection cap)",
+          + " before aborting the pre-filter build (memory protection cap)."
+          + " Auto-scaled to 0.5% of max heap, clamped to [100K, 10M]."
+          + " Set explicitly to override auto-scaling",
       Integer.class,
-      100_000,
+      (int) Math.min(10_000_000L,
+          Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200)),
       true),
 
-  QUERY_PREFILTER_MAX_SELECTIVITY_RATIO(
-      "youtrackdb.query.prefilter.maxSelectivityRatio",
-      "Maximum ratio of ridSetSize/linkBagSize at which the pre-filter is"
-          + " still applied. Above this the filter is too weak to be useful",
+  QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO(
+      "youtrackdb.query.prefilter.edgeLookupMaxRatio",
+      "Maximum ratio of ridSetSize/linkBagSize for EdgeRidLookup pre-filters."
+          + " Above this the overlap is too high to be useful.",
       Double.class,
       0.8,
+      true),
+
+  QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY(
+      "youtrackdb.query.prefilter.indexLookupMaxSelectivity",
+      "Maximum selectivity (estimateHits/totalCount) for IndexLookup"
+          + " pre-filters. Above this the condition matches too many records."
+          + " Independent of edgeLookupMaxRatio (different semantics).",
+      Double.class,
+      0.95,
       true),
 
   QUERY_PREFILTER_MIN_LINKBAG_SIZE(
@@ -1311,6 +1323,16 @@ public enum GlobalConfiguration {
           + " Loading a few records is cheaper than building a RidSet",
       Integer.class,
       50,
+      true),
+
+  QUERY_PREFILTER_LOAD_TO_SCAN_RATIO(
+      "youtrackdb.query.prefilter.loadToScanRatio",
+      "Cost ratio of random record load vs. RidSet scan entry, used in"
+          + " the IndexLookup build amortization formula. Calibrated for"
+          + " cold SSD storage; override with a positive value to tune for"
+          + " specific hardware",
+      Double.class,
+      100.0,
       true),
       ;
 
@@ -1481,6 +1503,32 @@ public enum GlobalConfiguration {
    */
   public boolean isChanged() {
     return value != nullValue;
+  }
+
+  /**
+   * Resets this configuration entry to its default state, as if it was
+   * never explicitly set. After calling this, {@link #isChanged()} returns
+   * {@code false} and {@link #getValue()} returns the declared default.
+   *
+   * <p>Fires the change callback (if any) for consistency with
+   * {@link #setValue(Object)}.
+   *
+   * <p>Intended for test teardown only — production code should use
+   * {@link #setValue(Object)} instead.
+   */
+  public void resetToDefault() {
+    var oldValue = value;
+    value = nullValue;
+
+    if (changeCallback != null) {
+      try {
+        changeCallback.change(
+            oldValue == nullValue ? null : oldValue, null);
+      } catch (Exception e) {
+        LogManager.instance()
+            .error(this, "Error during call of 'change callback'", e);
+      }
+    }
   }
 
   public void setValue(final Object iValue) {

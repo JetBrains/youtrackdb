@@ -26,9 +26,20 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
+  public static final MetricDefinition<MetricScope.Global, Ratio> PREFILTER_EFFECTIVENESS =
+      new MetricDefinition<>(
+          "PrefilterEffectiveness",
+          "Pre-filter Effectiveness",
+          "The ratio of filtered entries to probed entries (in percents) for the last 60 seconds",
+          MetricType.ratio(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              100.0));
+
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
       FILE_EVICTION_RATE,
-      CACHE_HIT_RATIO);
+      CACHE_HIT_RATIO,
+      PREFILTER_EFFECTIVENESS);
 
   // ===================== DATABASE ===================== //
 

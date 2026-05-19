@@ -140,6 +140,101 @@ public class ExecutionStreamWrappersTest extends TestUtilsFixture {
     stream.close(ctx);
   }
 
+  /**
+   * When the wrapped iterator implements {@link AutoCloseable}, {@code
+   * IteratorExecutionStream.close()} must propagate the {@code close()} call to it. This is the
+   * hook the LinkBag iterators rely on to flush the pre-filter effectiveness metric on a
+   * short-circuited LIMIT / exception path — without this propagation, the per-vertex
+   * probed/filtered counters would be lost whenever the downstream consumer stops pulling
+   * before natural iterator exhaustion.
+   */
+  @Test
+  public void iteratorStream_closePropagatesToAutoCloseableIterator() {
+    var ctx = newContext();
+    var closed = new AtomicInteger();
+    var iter = new ClosingIterator(Arrays.asList(1, 2, 3).iterator(), closed, null);
+    var stream = new IteratorExecutionStream(iter, "x");
+
+    stream.close(ctx);
+
+    assertThat(closed.get()).isEqualTo(1);
+  }
+
+  /**
+   * If the wrapped {@link AutoCloseable} iterator's {@code close()} throws, the exception must
+   * NOT propagate out of {@code IteratorExecutionStream.close()} — the wrapper catches and
+   * logs. The contract guarantees that downstream consumers can always close the stream
+   * without risking a leaked exception (cleanup paths are usually invoked from {@code finally}
+   * blocks where a throw would mask the original error).
+   */
+  @Test
+  public void iteratorStream_closeSwallowsCloseableException() {
+    var ctx = newContext();
+    var closed = new AtomicInteger();
+    var iter =
+        new ClosingIterator(
+            Arrays.asList(1, 2).iterator(),
+            closed,
+            new RuntimeException("close failure"));
+    var stream = new IteratorExecutionStream(iter, "x");
+
+    // Must not throw despite the underlying close() throwing.
+    stream.close(ctx);
+
+    assertThat(closed.get()).isEqualTo(1);
+  }
+
+  /**
+   * Non-{@link AutoCloseable} iterators ride through {@code close()} untouched — no
+   * reflection-style attempt to invoke a same-named method, no exception. Exercises the
+   * fall-through branch of the {@code instanceof AutoCloseable} check.
+   */
+  @Test
+  public void iteratorStream_closeIsNoOpForNonCloseableIterator() {
+    var ctx = newContext();
+    var iter = Arrays.asList(1, 2, 3).iterator();
+    var stream = new IteratorExecutionStream(iter, "x");
+
+    // No exception; nothing to assert beyond the absence of failure.
+    stream.close(ctx);
+  }
+
+  /**
+   * Bookkeeping helper: an {@link Iterator} that is also {@link AutoCloseable}, counting
+   * {@code close()} invocations and (optionally) throwing on close to exercise the exception
+   * path. Defined inline rather than as a top-level fixture because it has a single user.
+   */
+  private static final class ClosingIterator implements Iterator<Object>, AutoCloseable {
+    private final Iterator<?> delegate;
+    private final AtomicInteger closedCount;
+    private final RuntimeException closeFailure;
+
+    ClosingIterator(
+        Iterator<?> delegate, AtomicInteger closedCount, RuntimeException closeFailure) {
+      this.delegate = delegate;
+      this.closedCount = closedCount;
+      this.closeFailure = closeFailure;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return delegate.hasNext();
+    }
+
+    @Override
+    public Object next() {
+      return delegate.next();
+    }
+
+    @Override
+    public void close() {
+      closedCount.incrementAndGet();
+      if (closeFailure != null) {
+        throw closeFailure;
+      }
+    }
+  }
+
   // =========================================================================
   // ResultIteratorExecutionStream (pre-built Result iterator)
   // =========================================================================
