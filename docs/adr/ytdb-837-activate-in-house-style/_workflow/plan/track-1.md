@@ -8,10 +8,11 @@ After this track lands, `.claude/workflow/conventions.md` carries a canonical §
 Adds the canonical § "Writing style for Markdown and prose artifacts" section to `.claude/workflow/conventions.md` naming `house-style.md` as the rule source, listing the tier mapping (full house-style on Markdown, AI-tell subset on Java/Kotlin), and giving the citation every other pointer cross-refs. Also broadens the project `CLAUDE.md § Writing Style` block from the narrow 4-surface list to "all Markdown files" so project-level guidance mirrors the hook's Tier-A glob.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-19T13:33Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -27,12 +28,15 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (4 findings, 3 accepted, 1 deferred). T1/T2 reworded §1.4 shape claim + dropped misattributed §1.2 token-cap citation; T3 folded into T1 (H3-nesting hint for `Em-dash discipline`); T4 deferred — cosmetic phrasing alignment between Track 1's Downstream description ("relative path + anchor") and Tracks 3-5's Upstream wording ("section heading") to be cleaned up opportunistically if those tracks amend the relevant text during their own Phase A.
+- Risk: skipped (Track 1 is Simple, 1-2 steps; complexity table mandates Technical only).
+- Adversarial: skipped (same reason).
 
 ## Context and Orientation
 
 The repository already carries the rule file `.claude/output-styles/house-style.md` from YTDB-836 and a project-level `CLAUDE.md § Writing Style for Design Docs and Issues` block (lines 91-102) that names house-style.md as the rule source for four surfaces: ADR / design docs under `docs/adr/**`, GitHub issue bodies (`issue-*.md` scratch files), PR titles and descriptions, and YouTrack issue bodies. The narrower 4-surface scope predates the user's broader Markdown stance, which expanded mid-research: "we use *.md files for project documentation in wide patterns so we should apply to all *.md files."
 
-`.claude/workflow/conventions.md` is loaded at every `/execute-tracks` startup, so its content is paid for by every Phase A/B/C session. It already follows the pattern of carrying a project-anchor section that other workflow files cross-reference — §1.4 *Tooling discipline* is the canonical anchor for PSI / grep / Maven / refactoring routing rules, with one paragraph per topic plus three sub-tables (recipes, hook routing, Mermaid). The new § "Writing style for Markdown and prose artifacts" follows the same shape: BLUF-led, citation-first, tier-mapping table, recipe table for which sections of house-style.md cover which audience.
+`.claude/workflow/conventions.md` is loaded at every `/execute-tracks` startup, so its content is paid for by every Phase A/B/C session. It already follows the pattern of carrying a project-anchor section that other workflow files cross-reference — §1.4 *Tooling discipline* is the canonical anchor for PSI / grep / Maven / refactoring routing rules, with a short preamble, three to five tight subsections, and a single tail table (the recipes table). The new § "Writing style for Markdown and prose artifacts" follows the same shape: BLUF-led, citation-first, one tier-mapping table that names the AI-tell subset sections by heading (with `Em-dash discipline` flagged as an H3 nested under `Punctuation and typography`).
 
 This track produces two concrete deliverables: (1) a new §1.5 (or §1.6 depending on numbering — confirm during Phase A decomposition) in `conventions.md` carrying the canonical pointer, the Tier-A/Tier-B mapping, and the path-glob list; (2) a rewrite of `CLAUDE.md § Writing Style for Design Docs and Issues` to broaden its surface list from the four bullets to "all Markdown files in the repo" plus the supplementary list of non-Markdown surfaces (PR descriptions, commit message bodies, YouTrack issue bodies).
 
@@ -44,8 +48,11 @@ Ordering constraints: the conventions.md section's name and slug must be stable 
 
 Invariants to preserve: the YTDB-836 rule file at `.claude/output-styles/house-style.md` stays unchanged. The `dsc-ai-tell` regex rule in `scripts/design-mechanical-checks.py` stays unchanged. The existing § references in `CLAUDE.md` to the rule file by path (`.claude/output-styles/house-style.md`) and by name ("House Style") stay intact and resolvable.
 
+Phase A sequencing summary: Step 1 lands the new conventions.md anchor section so Tracks 2-5 have a stable heading slug to cross-reference; Step 2 broadens the project CLAUDE.md § Writing Style block to match. Both steps are markdown-only, low-risk, independently revertable.
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+1. Add § "Writing style for Markdown and prose artifacts" to `.claude/workflow/conventions.md` — risk: low (default: docs/ change). The new section follows the §1.4 shape (short preamble, citation-first, one tier-mapping table) and names `.claude/output-styles/house-style.md` as the rule source; the table lists Markdown → full house-style, Java/Kotlin → AI-tell subset (§ Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline H3-nested under § Punctuation and typography), other → none. Section stays at or below ~200 words.  [ ]
+2. Broaden `CLAUDE.md § Writing Style for Design Docs and Issues` from the 4-surface bullet list to "all Markdown files" plus the non-Markdown surfaces (PR titles/descriptions, commit-message bodies, YouTrack issue bodies) — risk: low (default: docs/ change). Adds a back-reference to the new conventions.md anchor from Step 1. Additive only — no existing scope narrows.  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -56,14 +63,18 @@ Invariants to preserve: the YTDB-836 rule file at `.claude/output-styles/house-s
 - The new section lists the tier mapping (Markdown → full house-style; Java/Kotlin → AI-tell subset; other → none) and the source-section names that constitute the AI-tell subset (Banned vocabulary, Banned sentence patterns, Banned analysis patterns, Em-dash discipline).
 - `CLAUDE.md § Writing Style for Design Docs and Issues` is rewritten so its surface list reads "all Markdown files" plus the non-Markdown surfaces (PR descriptions, commit-message bodies, YouTrack issue bodies) and the YouTrack issue creation hint.
 - Cross-references between `CLAUDE.md`, `conventions.md`, and `house-style.md` resolve in both directions (markdown link checker pass).
-- The new conventions.md section fits within the file's existing voice and length budget (no section pushes the file over the ~30 K-token soft cap named in `conventions.md` §1.2).
+- The new conventions.md section stays at or below ~200 words, consistent with the house-style structural rule and matching the size of §1.4 *Tooling discipline*'s peer subsections.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+Per-step acceptance:
+
+- **Step 1 (conventions.md anchor):** When the orchestrator next reads `.claude/workflow/conventions.md`, the file contains exactly one new `## ` section titled "Writing style for Markdown and prose artifacts" placed adjacent to §1.4 *Tooling discipline*; the section names `.claude/output-styles/house-style.md` as the rule source, contains the three-row tier-mapping table, and lists the four AI-tell subset section headings (`Banned vocabulary`, `Banned sentence patterns`, `Banned analysis patterns`, `Em-dash discipline`) with the H3-nesting note for the last. `grep -c '^## Writing style for Markdown and prose artifacts$' .claude/workflow/conventions.md` returns `1`.
+- **Step 2 (CLAUDE.md broadening):** When a reader opens `CLAUDE.md § Writing Style for Design Docs and Issues`, the surface list reads "all Markdown files" plus the non-Markdown surfaces (PR titles/descriptions, commit-message bodies, YouTrack issue bodies); the existing pointer to `.claude/output-styles/house-style.md` is preserved verbatim; and a one-line cross-reference to the new conventions.md anchor is present. No bullet from the prior 4-surface list disappears — each is absorbed into the broader scope. `grep 'all Markdown files' CLAUDE.md` returns at least one hit inside the § Writing Style block.
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+- **Step 1 (conventions.md anchor):** idempotent by re-running the edit — `steroid_apply_patch` validates `old_string` uniqueness before applying. Recovery from a partial write: `git checkout HEAD -- .claude/workflow/conventions.md` reverts to the pre-step baseline; re-run Step 1.
+- **Step 2 (CLAUDE.md broadening):** idempotent by re-running the edit on the same hunks. Recovery from a partial write: `git checkout HEAD -- CLAUDE.md` reverts to baseline; re-run Step 2. Because Step 2 only adds back-references to Step 1's anchor (and broadens scope), it can be re-attempted any number of times without state divergence.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't belong to one specific step. -->
