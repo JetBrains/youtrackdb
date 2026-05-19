@@ -142,6 +142,8 @@ All three are ASPIRATIONAL — Track 2 implements them. Each maps to a testable 
   > **Cross-track impact for Tracks 3-5:** the new PreToolUse hook fires on every Write/Edit/apply_patch from `b44f421345` onward, so any prose-producing session writing Markdown will see the Tier-A reminder once at the first Markdown write of the session and stay silent thereafter; this is the designed cadence. Any new Tier-A pointer added in Tracks 3-5 should cite `conventions.md §1.5` using the no-space form (matches the M6 sweep) and reference the four heading slugs `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline` verbatim (matches the `test_16_section_name_guard` drift check).
   >
   > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** ADJUST — Track 3 pointer-wording template will be aligned to Track 2's conventions (`§1.5` no-space form, four banned-section heading slugs `## Banned vocabulary` / `## Banned sentence patterns` / `## Banned analysis patterns` / `### Em-dash discipline` named verbatim) during Phase A decomposition. No track-file disk content changes at the gate.
 
 - [ ] Track 3: Pointers in workflow prompts and review agents
   > One-line cross-references to `house-style.md` (and the Track 1 conventions.md anchor) in 10 workflow prompts (skip `design-review.md`, already verification-only per YTDB-836) and 18 prose-producing review agents (skip `review-workflow-writing-style.md`, already references house-style by name). Pointers cite the rule source and the tier that applies; no rule restatement.
