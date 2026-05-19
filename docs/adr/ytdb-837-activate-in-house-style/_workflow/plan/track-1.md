@@ -9,11 +9,13 @@ Adds the canonical § "Writing style for Markdown and prose artifacts" section t
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-19T13:33Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-19T13:42Z [ctx=safe] Step 1 complete (commit 9ca6e8e78e)
+- [x] 2026-05-19T13:46Z [ctx=safe] Step 2 complete (commit dbfbfb83b5)
+- [x] 2026-05-19T13:46Z [ctx=safe] Step implementation complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -55,7 +57,7 @@ Phase A sequencing summary: Step 1 lands the new conventions.md anchor section s
 
 ## Concrete Steps
 1. Add § "Writing style for Markdown and prose artifacts" to `.claude/workflow/conventions.md` — risk: low (default: docs/ change). The new section follows the §1.4 shape (short preamble, citation-first, one tier-mapping table) and names `.claude/output-styles/house-style.md` as the rule source; the table lists Markdown → full house-style, Java/Kotlin → AI-tell subset (§ Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline H3-nested under § Punctuation and typography), other → none. Section stays at or below ~200 words.  [x] commit: 9ca6e8e78e
-2. Broaden `CLAUDE.md § Writing Style for Design Docs and Issues` from the 4-surface bullet list to "all Markdown files" plus the non-Markdown surfaces (PR titles/descriptions, commit-message bodies, YouTrack issue bodies) — risk: low (default: docs/ change). Adds a back-reference to the new conventions.md anchor from Step 1. Additive only — no existing scope narrows.  [ ]
+2. Broaden `CLAUDE.md § Writing Style for Design Docs and Issues` from the 4-surface bullet list to "all Markdown files" plus the non-Markdown surfaces (PR titles/descriptions, commit-message bodies, YouTrack issue bodies) — risk: low (default: docs/ change). Adds a back-reference to the new conventions.md anchor from Step 1. Additive only — no existing scope narrows.  [x] commit: dbfbfb83b5
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -75,6 +77,22 @@ The stable heading slug downstream tracks must cite is `## 1.5 Writing style for
 
 **Critical context:**
 The heading slug is now durable; do not rename without sweeping every downstream pointer Tracks 2-5 will add.
+
+### Step 2 — commit dbfbfb83b5, 2026-05-19T13:46Z [ctx=safe]
+
+**What was done:**
+Broadened `CLAUDE.md § Writing Style for Design Docs and Issues` from the four-surface bullet list (ADR/design docs, `issue-*.md` scratch files, PR titles/descriptions, YouTrack issue bodies) to "all Markdown files in the repo" plus three explicit non-Markdown surfaces — PR titles/descriptions, commit-message bodies (newly named), and YouTrack issue bodies. Each prior bullet absorbs into the broader scope; nothing narrows. Added a back-reference to the new `.claude/workflow/conventions.md § 1.5 Writing style for Markdown and prose artifacts` anchor and noted the Java/Kotlin AI-tell subset for code-comment scale so CLAUDE.md mirrors the conventions.md tier table. Preserved the existing `.claude/output-styles/house-style.md` pointer verbatim. Acceptance grep `grep 'all Markdown files' CLAUDE.md` returns a hit.
+
+**What was discovered:**
+The Step 2 acceptance grep is case-sensitive on the literal "all Markdown files" (lowercase `a`). An initial draft used "All Markdown files" as a bullet header (capital `A`); the wording was adjusted so the literal-case string lands inside the § Writing Style block.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `CLAUDE.md` (modified)
+
+**Critical context:**
+Tracks 3-5 can now cite either the conventions.md §1.5 anchor (canonical workflow anchor, primary citation target) or `CLAUDE.md § Writing Style for Design Docs and Issues` (project-level mirror) — both name house-style.md as the rule source. Prefer the conventions.md anchor in workflow files (loaded at every `/execute-tracks` startup) and the CLAUDE.md mirror when speaking to the project-level reader.
 
 ## Validation and Acceptance
 
