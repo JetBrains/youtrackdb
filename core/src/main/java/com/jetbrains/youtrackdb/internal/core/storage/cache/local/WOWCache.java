@@ -112,6 +112,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.zip.CRC32;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
@@ -364,6 +365,31 @@ public final class WOWCache extends AbstractWriteCache
    * Approximate amount of all pages contained by write cache at the moment
    */
   private final AtomicLong writeCacheSize = new AtomicLong();
+
+  /**
+   * Counts invocations of the single-page extend branch of {@link #loadOrAdd}
+   * ({@code pageIndex == currentSize}). Test-only positive-evidence probe: the
+   * regression suite for the original poison-cascade bug uses this counter to prove that a
+   * concurrent-insert workload genuinely exercised the file-extending allocator path, so a
+   * future change that re-routes inserts away from the allocator (and would silently make
+   * an absence-of-symptom assertion "pass" for the wrong reason) fails loud. Incremented at
+   * the end of {@link #loadOrAddExtendBranch} after the successful allocation completes;
+   * never decremented; overflow-safe on {@link LongAdder}'s 64-bit sum. Exposed via the
+   * public {@link #getLoadOrAddExtendBranchInvocations} accessor for cross-package test
+   * access; not part of the production API surface.
+   */
+  private final LongAdder loadOrAddExtendBranchInvocations = new LongAdder();
+
+  /**
+   * Counts invocations of the multi-page gap-fill branch of {@link #loadOrAdd}
+   * ({@code pageIndex > currentSize}). Test-only positive-evidence probe — see the
+   * {@link #loadOrAddExtendBranchInvocations} Javadoc above for the rationale. Incremented
+   * at the end of {@link #loadOrAddGapFillBranch} after the successful allocation completes.
+   * Recovery-only branch under normal callers (WAL replay can reference page indices many
+   * pages past the current file size); a healthy steady-state production workload should
+   * see this counter stay at 0 even under heavy contention.
+   */
+  private final LongAdder loadOrAddGapFillBranchInvocations = new LongAdder();
 
   /**
    * Amount of exclusive pages are hold by write cache.
@@ -1597,6 +1623,10 @@ public final class WOWCache extends AbstractWriteCache
     }
     commitExecutor()
         .submit(new EnsurePageIsValidInFileTask(intId, (int) pageIndex, this));
+    // Positive-evidence probe — see field Javadoc. Counted at the end of the branch so a
+    // throw from allocateSpace, the hard sanity check above, or the EnsurePageIsValidInFileTask
+    // submission does not record a spurious increment.
+    loadOrAddExtendBranchInvocations.increment();
     return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
   }
 
@@ -1658,6 +1688,10 @@ public final class WOWCache extends AbstractWriteCache
       commitExecutor()
           .submit(new EnsurePageIsValidInFileTask(intId, (int) gapPage, this));
     }
+    // Positive-evidence probe — see field Javadoc. Counted at the end of the branch so a
+    // throw from allocateSpace or the hard sanity check above does not record a spurious
+    // increment.
+    loadOrAddGapFillBranchInvocations.increment();
     return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
   }
 
@@ -1856,6 +1890,31 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public long getExclusiveWriteCachePagesSize() {
     return exclusiveWriteCacheSize.get();
+  }
+
+  /**
+   * Test-only accessor: number of times the single-page extend branch of
+   * {@link #loadOrAdd} has run to completion (post-allocate, post-sanity-check) since this
+   * cache instance was constructed. The regression suite for the original poison-cascade
+   * bug uses this counter to prove a concurrent-insert workload actually exercised the
+   * file-extending allocator path (so a future change that re-routes inserts elsewhere
+   * fails loud rather than silently "passing" an absence-of-symptom assertion). Not part
+   * of the production API surface — callers outside the regression suite should not
+   * depend on this method.
+   */
+  public long getLoadOrAddExtendBranchInvocations() {
+    return loadOrAddExtendBranchInvocations.sum();
+  }
+
+  /**
+   * Test-only accessor: number of times the multi-page gap-fill branch of
+   * {@link #loadOrAdd} has run to completion (post-allocate, post-sanity-check) since this
+   * cache instance was constructed. Mirrors
+   * {@link #getLoadOrAddExtendBranchInvocations}. Recovery-only branch under normal
+   * callers; a healthy steady-state workload should see this counter stay at 0.
+   */
+  public long getLoadOrAddGapFillBranchInvocations() {
+    return loadOrAddGapFillBranchInvocations.sum();
   }
 
   @Override
