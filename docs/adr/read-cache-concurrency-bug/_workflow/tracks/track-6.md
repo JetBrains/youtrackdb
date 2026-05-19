@@ -275,7 +275,7 @@ below without standalone refinement notes.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/7 complete)
+- [ ] Step implementation (3/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -379,8 +379,21 @@ below without standalone refinement notes.
   > **Key files:** `core/src/test/.../impl/local/TruncateOrphansAfterRecoveryIT.java`
   > (extend); no production-code changes.
 
-- [ ] Step: SLBB `.bbt` and multi-value engine `.nbt` orphan-truncation IT scenarios
+- [x] Step: SLBB `.bbt` and multi-value engine `.nbt` orphan-truncation IT scenarios
+  - [x] Context: warning
   > **Risk:** medium — test infrastructure (adds two new file shapes to the existing IT pattern)
+  >
+  > **What was done:** Extended `TruncateOrphansAfterRecoveryIT` with two new scenario groups covering the last two recovery-pass dispatch surfaces previously uncovered at the IT level: `SharedLinkBagBTree` (Group 3 of `AbstractStorage.truncateOrphansAfterRecovery` — the `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans` iteration delegate over the private `fileIdBTreeMap`) and the nullTree leg of `BTreeMultiValueIndexEngine.verifyAndTruncateOrphans` (svTree leg already pinned by the `.cbt` scenarios). Each shape gets 4 `@Test` methods covering the full `ChecksumMode × fabrication-shape` matrix (Off / StoreAndThrow × magic-stamped / zero-byte) using the existing `OrphanFabricator` interface and its two factory helpers from the prior step. The class-level Javadoc was updated from "four file shapes" to "six file shapes" with the new entries documenting which dispatch surfaces each scenario pins. Test count grew from 14 to 22; all pass under `./mvnw -pl core test -Dtest=TruncateOrphansAfterRecoveryIT` in ~61 s.
+  >
+  > **What was discovered:** (1) The step description's "SLBB `.bbt`" and "MV-engine `.nbt`" file extensions are colloquial. The actual SLBB on-disk extension is `.grb` (`LinkCollectionsBTreeManagerShared.FILE_EXTENSION`) with prefix `global_collection_<clusterId>`. The actual MV-engine null sub-tree data file is `<index>$null.cbt` — the `BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION` constant `.nbt` refers to a single-page null-bucket sibling that never grows past one page in BTree's design, so it is not a viable orphan-truncation target. Test names and Javadoc were aligned to the production component identities (SharedLinkBagBTree, multi-value null sub-tree) instead of the incorrect extensions; this preserves grep-ability against the real production surfaces. (2) Every paginated collection (every cluster created via `createClass`) implicitly creates one SLBB file at `addCollection()` time, so the SLBB scenario does not need to insert any edges — the pristine EP-and-root two-page footprint is sufficient. (3) An SLBB freshly created via `SharedLinkBagBTree.create()` has `pagesSize=1` stored in its EntryPoint (the "1" is the highest occupied data-page index, not the data-page count). The recovery pass's `targetBytes` formula `max(pageSize, (logicalPages + 1) * pageSize)` therefore yields 2 pages, matching the EP-and-root footprint. This contract is documented at `SLBB.java:124-126` and is load-bearing for the SLBB scenario. (4) Inserting 800 null-keyed entities reliably forces the `<index>$null.cbt` file past its EP-and-root two-page footprint.
+  >
+  > **What changed from the plan:** None structural. The step's "SLBB `.bbt`" / "MV-engine `.nbt`" naming was treated as colloquial; actual extensions verified at implementation time and reflected in test names. The step also did not specify the ChecksumMode × fabrication-shape matrix; followed the pattern set by Step 2 (4 tests per shape) for consistency — 8 new tests total.
+  >
+  > **Key files:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/TruncateOrphansAfterRecoveryIT.java` (modified, no production-code changes).
+  >
+  > **Critical context:** Cross-step signals for the remaining Track 6 steps and Phase C reviewers: (a) The two extension-name mismatches (`.bbt` → `.grb`, `.nbt` → `<index>$null.cbt`) are likely to surface in Step 7's plan text ("the IT helper from the second step above"); the `OrphanFabricator` interface and two factory helpers are unchanged and directly reusable. (b) Tests that need to disambiguate the MV-engine null sub-tree from the svTree's plain `<index>.cbt` sibling should filter on `endsWith("$null.cbt")`, not `endsWith(".cbt")` alone. (c) The recovery pass's `targetBytes` formula for SLBB depends on `pagesSize=1` being the highest occupied data-page index post-`create()`; future changes to `SLBB.init()` must preserve this contract.
+
+
   >
   > **What:** Extend `TruncateOrphansAfterRecoveryIT` with two new
   > scenario groups. **SLBB `.bbt`:** create a class with a LinkBag
