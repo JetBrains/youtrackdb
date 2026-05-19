@@ -750,7 +750,7 @@ flowchart LR
   > checklist reorder applied this session (Track 7 ahead of Track 6)
   > to satisfy Track 6's `**Depends on:** Track 7`.
 
-- [ ] Track 7: Recovery-time orphan-truncation pass
+- [x] Track 7: Recovery-time orphan-truncation pass
   > Add a recovery-time pass via a new private
   > `AbstractStorage.truncateOrphansAfterRecovery()` called from
   > `open()` after the catalogue load (`openCollections` /
@@ -765,35 +765,90 @@ flowchart LR
   > `WriteCache.shrinkFile(fileId, targetBytes)` (WOWCache:
   > `removeCachedPages` writeCachePages range purge +
   > `AsyncFile.shrink(targetBytes)`; in-memory: no-op), then a new
-  > range-scoped `clearFileRange(fileId, minPageIndex, writeCache)`
+  > range-scoped `clearFile(fileId, minPageIndex, writeCache)`
   > on the LFRC segment map to purge read-cache entries at
   > `pageIndex >= targetBytes / pageSize` — mirroring the existing
   > `LockFreeReadCache.truncateFile` two-phase pattern.
   >
-  > **Scope:** ~5 steps covering: (a) `AsyncFile.shrink(size)`
-  > in-place semantics fix as a separable commit; (b) layered shrink
-  > primitive — `WriteCache.shrinkFile` SPI + WOWCache impl + in-memory
-  > no-op + 5 test-mock UOE overrides; `LockFreeReadCache.shrinkFile`
-  > orchestrator + range-scoped `clearFileRange` private helper;
-  > range-purge backing on `ConcurrentLongIntHashMap` (or LFRC-side
-  > filter — Phase A iter-2 picks the placement); (c)
-  > per-EP-equipped-component `verifyAndTruncateOrphans(AtomicOperation,
-  > LockFreeReadCache, WriteCache)` helper with `targetBytes >= pageSize`
-  > floor and `EP.pagesSize == 0 && fileSize > pageSize` skip-with-warn
-  > guard + `v3.BTree.getFileId()` accessor; (d)
+  > **Track episode:**
+  > Landed the recovery-time orphan-truncation pass that establishes
+  > Invariant I6 (`logical == physical` after `open()` and
+  > `postProcessIncrementalRestore` return). The layered shrink architecture
+  > pairs a new `WriteCache.shrinkFile(fileId, targetBytes)` SPI (WOWCache
+  > impl + range-scoped `removeCachedPages` + `AsyncFile.shrink` in-place
+  > semantics fix at Step 1) with `LockFreeReadCache.shrinkFile(fileId,
+  > targetBytes, writeCache)` orchestrator (range-scoped `clearFile` + new
+  > `ConcurrentLongIntHashMap.removeByFileId(long, int)`). The
+  > `StorageComponent.verifyAndTruncateOrphans` template method on the
+  > common base (3 abstract hooks plus an overridable `…Siblings`
+  > default-no-op hook) drives per-component dispatch on BTree / SLBB /
+  > CPMV2 / PCV2; each component overrides three small hooks that map to
+  > its EP wrapper + `getPagesSize` / `getFileSize`. PCV2 overrides the
+  > siblings hook to internally delegate `.cpm` truncation, so the
+  > orchestrator at `AbstractStorage.truncateOrphansAfterRecovery()` makes
+  > one dispatch per top-level component. The orchestrator wires from
+  > `open()` after `recoverIfNeeded()` + the catalogue load and from
+  > `DiskStorage.postProcessIncrementalRestore` after `flushAllData()` —
+  > both entry points run post-flush to avoid the flush-after-truncate
+  > hazard. Per-component try/catch in the orchestrator absorbs IOExceptions
+  > with a WARN-log skip-and-continue policy;
   > `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
-  > iteration delegate; (e) `AbstractStorage.truncateOrphansAfterRecovery()`
-  > orchestrator + `open()` wiring (after `:800`) +
-  > `DiskStorage.postProcessIncrementalRestore` wiring (AFTER `:1673`
-  > `flushAllData()`) + iteration over `collections` / `indexEngines`
-  > / `linkCollectionsBTreeManager` (BTreeMultiValueIndexEngine
-  > iterates both `svTree` and `nullTree` pending iter-2 nullTree
-  > multi-page audit); integration tests with deterministic
-  > orphan-fabrication via `AsyncFile.write` helper as the primary
-  > positive test (sub-JVM crash test demoted to a longer-running
-  > confirmation) plus negative (clean shutdown) and incremental-
-  > restore entry-point coverage.
-  > **Depends on:** Track 4
+  > mirrors the same shape one layer down so its orchestrator entry no
+  > longer needs a separate catch. `WOWCache.shrinkFile` throws
+  > `StorageException` on a missing file entry instead of silently no-op'ing,
+  > giving the orchestrator the policy choice. Integration coverage
+  > (`TruncateOrphansAfterRecoveryIT`) fabricates orphans deterministically
+  > via `RandomAccessFile` + `MAGIC_NUMBER_WITHOUT_CHECKSUM` under
+  > `ChecksumMode.Off`; per-component VAT tests pin the corruption-guard
+  > WARN-format and the cross-engine SVE/MVE dispatch.
+  >
+  > **Phase C track-level review.** 9-reviewer fan-out at iteration 1
+  > returned 68 raw findings; 8 in-scope merged findings landed in
+  > `fdbe455b00`. Gate-check fan-out across BC / CS / TB / TS / TY: 5/5
+  > PASS at iteration 1. A user-driven review-mode round at track
+  > completion accumulated 9 additional findings; commit
+  > `9886eb0d0f` applied them all (template method extraction
+  > consolidating ~120 duplicated lines; LFRC `clearFile` /
+  > `clearFileRange` unification with the corrected re-insert-on-failure
+  > shape; 3-layer `WOWCache` `Foo` / `FooAtLeast` cascade collapse;
+  > `WOWCache.shrinkFile` throw + orchestrator catch; `PCV2.open`
+  > FSM-rebuild bound by logical state-page fileSize, closing the CS3
+  > ordering hazard and fixing a latent page-0-as-`CollectionPage`
+  > registration in the FSM; `AsyncFile.shrink` `@apiNote` documenting
+  > the caller-held `WOWCache.filesLock.writeLock` invariant; sweep of
+  > history-tracking comments). Two cascade fixes surfaced during the
+  > implementer pass: `PaginatedCollection.getFileId()` gained
+  > `@Override` after `StorageComponent` introduced the abstract method;
+  > `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans`
+  > dropped its `throws IOException` declaration (per-SLBB error
+  > handling moved inside the manager).
+  >
+  > **Cross-track impact.** Track 6 absorbed three deferred Track 7
+  > IT-coverage items via plan correction `a6d3fe770c`:
+  > `ChecksumMode.StoreAndThrow` + `Off` matrix across CS1
+  > partial-flush-orphan scenarios; multi-value engine `.nbt` null-tree
+  > orphan-truncation IT; executable IR-wiring test replacing the
+  > source-text sentinel. Track 5 confirmed as a hard dependency
+  > (Track 7 uses `StorageComponent.physicalSize` + `PhysicalReadIntent`
+  > enum); no changes to Track 5 footprint. YouTrack issue
+  > [YTDB-889](https://youtrack.jetbrains.com/issue/YTDB-889) filed
+  > during review-mode for a future filesystem-scanning recovery pass
+  > (orphan *components* whose `addFile` WAL entry never committed —
+  > orthogonal to Track 7's per-component scope).
+  >
+  > **Known follow-ups (deferred to future passes):** LFRC
+  > short-circuit perf on clean-shutdown shrink (PF1/BC4, ~77ms at 300
+  > components); defensive `assert` invariants in the orchestrator
+  > (TY6/TY7/TY8); MT defense-in-depth pins (TX1/TX2); FSM-rebuild
+  > ordering note (now closed by `9886eb0d0f`'s logical-bound scan, but
+  > worth a design.md mention in a future doc pass); cross-layer lock
+  > invariant `@apiNote` discipline as a `review-bugs-concurrency`
+  > agent rule (filed via end-of-session reflection).
+  >
+  > **What changed from the plan.** Nothing structural. Plan corrections
+  > affect Track 6 scope only. No design decisions surfaced; no ESCALATE.
+  >
+  > **Step file:** `tracks/track-7.md` (5 steps, 0 failed; Phase C iter-1 review fix `fdbe455b00`; track-completion review-mode round `9886eb0d0f` applying 9 findings)
 
 - [ ] Track 6: Integration regression test
   > End-to-end concurrent-insert workload that reproduces the original
