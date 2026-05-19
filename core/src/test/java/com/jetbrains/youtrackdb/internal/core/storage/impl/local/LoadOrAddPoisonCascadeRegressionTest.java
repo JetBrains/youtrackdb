@@ -567,7 +567,6 @@ public class LoadOrAddPoisonCascadeRegressionTest {
    * path, repeated to catch intermittent regressions.
    */
   @Test
-  @SuppressWarnings("deprecation")
   public void whiteBoxLoadOrAddSameKeyContentionConverges() throws Exception {
     var config = makeConfigWithChecksumStoreAndThrow();
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
@@ -600,15 +599,19 @@ public class LoadOrAddPoisonCascadeRegressionTest {
    * next round's {@code addFile} does not interfere with the prior round's cached
    * pages.
    *
-   * <p>The deprecation suppression on the caller covers the {@code getFilledUpTo}
-   * call: this test must read the raw physical page count to assert "exactly one
-   * extend happened", and the test-friendly Layer A helper
-   * ({@code WriteCache.physicalSizeForBackupSnapshot}) returns bytes rather than
-   * the page count this assertion needs. The deprecation forbids cross-component
-   * callers but the listed retained internal callers include the storage layer's
-   * own probes — this test is in the same category (white-box concurrency check
-   * pinning the raw allocator behaviour).
+   * <p>The {@code @SuppressWarnings("deprecation")} on this method covers the
+   * {@code getFilledUpTo} call below: this test must read the raw physical page
+   * count to assert "exactly one extend happened", and the test-friendly Layer A
+   * helper ({@code WriteCache.physicalSizeForBackupSnapshot}) returns bytes rather
+   * than the page count this assertion needs. The deprecation forbids
+   * cross-component callers but the listed retained internal callers include the
+   * storage layer's own probes — this test is in the same category (white-box
+   * concurrency check pinning the raw allocator behaviour). Per JLS 9.6.4.5 the
+   * annotation must sit on the method that contains the deprecated call site, not
+   * on the {@code @Test} caller, because {@code @SuppressWarnings} is lexically
+   * scoped and does not propagate across the call.
    */
+  @SuppressWarnings("deprecation")
   private void runSameKeyContentionRound(final int round, final LockFreeReadCache readCache,
       final WOWCache wowCache, final ExecutorService pool) throws Exception {
     final var fileName = getClass().getSimpleName() + "-round-" + round + ".dat";
@@ -668,7 +671,9 @@ public class LoadOrAddPoisonCascadeRegressionTest {
       // Exactly one extend on this round's file. White-box read against the
       // raw page count — the Layer A backup helper returns bytes, which would
       // need a pageSize conversion to assert the same fact, so the deprecated
-      // accessor stays for this case (annotated at the test-method level).
+      // accessor stays for this case (the @SuppressWarnings("deprecation")
+      // annotation sits on this helper method's declaration, the lexically
+      // scoped location required by JLS 9.6.4.5).
       assertEquals("round " + round
           + ": exactly one extend must have happened on this round's file",
           1L, wowCache.getFilledUpTo(fileId));
