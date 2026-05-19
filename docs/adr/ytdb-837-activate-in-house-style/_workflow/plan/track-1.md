@@ -13,11 +13,14 @@ Adds the canonical § "Writing style for Markdown and prose artifacts" section t
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-19T13:33Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-19T13:42Z [ctx=safe] Step 1 complete (commit 9ca6e8e78e)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-05-19T13:42Z — Stable cross-references for downstream tracks: heading slug `## 1.5 Writing style for Markdown and prose artifacts` and relative path `../output-styles/house-style.md` (from conventions.md). Tracks 2-5 cite these exact strings. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -51,11 +54,27 @@ Invariants to preserve: the YTDB-836 rule file at `.claude/output-styles/house-s
 Phase A sequencing summary: Step 1 lands the new conventions.md anchor section so Tracks 2-5 have a stable heading slug to cross-reference; Step 2 broadens the project CLAUDE.md § Writing Style block to match. Both steps are markdown-only, low-risk, independently revertable.
 
 ## Concrete Steps
-1. Add § "Writing style for Markdown and prose artifacts" to `.claude/workflow/conventions.md` — risk: low (default: docs/ change). The new section follows the §1.4 shape (short preamble, citation-first, one tier-mapping table) and names `.claude/output-styles/house-style.md` as the rule source; the table lists Markdown → full house-style, Java/Kotlin → AI-tell subset (§ Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline H3-nested under § Punctuation and typography), other → none. Section stays at or below ~200 words.  [ ]
+1. Add § "Writing style for Markdown and prose artifacts" to `.claude/workflow/conventions.md` — risk: low (default: docs/ change). The new section follows the §1.4 shape (short preamble, citation-first, one tier-mapping table) and names `.claude/output-styles/house-style.md` as the rule source; the table lists Markdown → full house-style, Java/Kotlin → AI-tell subset (§ Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline H3-nested under § Punctuation and typography), other → none. Section stays at or below ~200 words.  [x] commit: 9ca6e8e78e
 2. Broaden `CLAUDE.md § Writing Style for Design Docs and Issues` from the 4-surface bullet list to "all Markdown files" plus the non-Markdown surfaces (PR titles/descriptions, commit-message bodies, YouTrack issue bodies) — risk: low (default: docs/ change). Adds a back-reference to the new conventions.md anchor from Step 1. Additive only — no existing scope narrows.  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
+
+### Step 1 — commit 9ca6e8e78e, 2026-05-19T13:42Z [ctx=safe]
+
+**What was done:**
+Added §1.5 "Writing style for Markdown and prose artifacts" to `.claude/workflow/conventions.md` directly after §1.4 *Tooling discipline*. The new section names `.claude/output-styles/house-style.md` as the rule source and carries one tier-mapping table: Markdown → full house-style; Java/Kotlin → AI-tell subset (Banned vocabulary, Banned sentence patterns, Banned analysis patterns, Em-dash discipline H3-nested under Punctuation and typography); other extensions → silent. Body length is 199 words, inside the ~200-word target. Section shape matches §1.4: BLUF lead, citation-first, single tail table.
+
+**What was discovered:**
+The stable heading slug downstream tracks must cite is `## 1.5 Writing style for Markdown and prose artifacts`. The repo-relative path from `.claude/workflow/conventions.md` to the rule source is `../output-styles/house-style.md`. Tracks 2-5 should use these exact strings when drafting hook reminder text (Track 2) and one-line pointers (Tracks 3-5).
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `.claude/workflow/conventions.md` (modified)
+
+**Critical context:**
+The heading slug is now durable; do not rename without sweeping every downstream pointer Tracks 2-5 will add.
 
 ## Validation and Acceptance
 
