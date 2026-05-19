@@ -275,7 +275,7 @@ below without standalone refinement notes.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/7 complete)
+- [ ] Step implementation (6/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -500,8 +500,21 @@ below without standalone refinement notes.
   > `PaginatedCollectionV2.java:2288-2304`,
   > `IndexHistogramManager.java:1879-1932`.
 
-- [ ] Step: I4 lock-contract documentation via Javadoc `@apiNote`
+- [x] Step: I4 lock-contract documentation via Javadoc `@apiNote`
+  - [x] Context: info
   > **Risk:** low — docs only (no code or test logic; no executable behavior change)
+  >
+  > **What was done:** Added `@apiNote` Javadoc blocks to two SPI methods documenting the per-component-lock contract that allocator-shape callers must satisfy before sharing a `fileId` across concurrent transactions: (a) `WriteCache.loadOrAdd(long, long, boolean)` — the cache-layer primitive, with the contract scoped to the extend / gap-fill branches (the load branch covered by the per-page `lockManager` shared lock); (b) `AtomicOperation.allocatePageForWrite(long, long)` — the AOBT-layer wrapper, cross-referencing the cache primitive's `@apiNote`. Both blocks name the production-reachable hot paths (`CollectionPositionMapV2.allocate` wrapped by `PaginatedCollectionV2.allocatePosition`, `PaginatedCollectionV2.allocateNewPage`, and `IndexHistogramManager.writeSnapshotToPage`) pinned by `ProductionAllocatorConcurrencyMTTest`, and call out the lifecycle-only callers (`BTree.create`, `SharedLinkBagBTree.splitRootBucket`) that are not reachable from concurrent session-level transactions and therefore rely on the contract via audit rather than an MT regression gate.
+  >
+  > **What was discovered:** `AtomicOperationsManager` exposes the lock as `executeInsideComponentOperation` / `calculateInsideComponentOperation`, which both internally call `acquireExclusiveLockTillOperationComplete`; spelling out the public facade plus the underlying acquire method gives readers a complete grep target for "where is this lock taken?". The existing `AsyncFile.shrink` `@apiNote` in the same package set the placement convention (after `@param`/`@throws`, last block tag), which the new blocks follow.
+  >
+  > **What changed from the plan:** None. Per the ephemeral-identifier rule, the Javadoc text cites the concrete test class name `ProductionAllocatorConcurrencyMTTest` rather than plan-invariant labels.
+  >
+  > **Key files:** `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/WriteCache.java` (modified — `@apiNote` block on `loadOrAdd`); `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java` (modified — `@apiNote` block on `allocatePageForWrite`).
+  >
+  > **Critical context:** The two `@apiNote` blocks are the durable home for the per-component-lock contract; design.md and the Phase A audit notes in `_workflow/` will be removed in the Phase 4 cleanup. Phase C reviewers entering the allocator SPI surface will now see the contract inline rather than reverse-engineering it from call sites. The `ProductionAllocatorConcurrencyMTTest` cross-reference is the load-bearing regression gate on the production-reachable subset; the lifecycle-only carve-out for `BTree.create` / `SharedLinkBagBTree.splitRootBucket` is documented as relying on audit, not MT pin.
+
+
   >
   > **What:** Add `@apiNote` Javadoc blocks documenting the
   > per-component-lock invariant on (a)
