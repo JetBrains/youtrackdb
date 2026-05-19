@@ -97,3 +97,6 @@ Per-step acceptance:
 **Compatibility requirements:** The existing `CLAUDE.md § Writing Style` block is durable user-facing content (lands in the project README's CLAUDE.md surface). Broadening it is additive; narrowing any existing scope would be a regression.
 
 **Library / function signatures relevant to this track:** none — this is a pure-documentation track.
+
+## Base commit
+ac8f7cb2e86448ab894d91e9b5ac7e87c3f097f3
