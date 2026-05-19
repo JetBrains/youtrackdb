@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -69,6 +69,15 @@ import org.junit.Test;
 public class AllocatePageForWriteTest {
 
   private static final int STORAGE_ID = 1;
+
+  /**
+   * Number of rounds the {@link #inMemoryEagerInstallToleratesConcurrentOrphanReuse}
+   * test executes. Each round drives two threads through {@code allocatePageForWrite}
+   * on a fresh fileId under a {@link CyclicBarrier}(2). {@value} is high enough to
+   * surface a regression in the orphan-reuse branch within seconds while staying well
+   * under the surefire fork's per-test budget.
+   */
+  private static final int IN_MEMORY_EAGER_INSTALL_ROUNDS = 100;
 
   private ReadCache readCache;
   private WriteCache writeCache;
@@ -770,12 +779,12 @@ public class AllocatePageForWriteTest {
   }
 
   /**
-   * Multi-thread regression pin for the rollback-orphan reuse branch: two AOBT
-   * instances on two threads, both calling {@code allocatePageForWrite(fileId, 0L)}
-   * against a {@code DirectMemoryOnlyDiskCache} where pageIndex 0 is already a
-   * leftover orphan from a prior aborted "TX". Both threads must succeed (no
-   * {@code IllegalStateException}) and the page must remain installed with a
-   * balanced referrer count.
+   * Multi-thread regression pin for the rollback-orphan reuse branch: a repeated-rounds
+   * harness where on each round two fresh AOBT instances on two threads both call
+   * {@code allocatePageForWrite(fileId, 0L)} against a {@code DirectMemoryOnlyDiskCache}
+   * where pageIndex 0 is already a leftover orphan from a prior aborted "TX". Both
+   * threads must succeed (no {@code IllegalStateException}) and the page must remain
+   * installed with a balanced referrer count on every round.
    *
    * <p>The episode that triggered the rollback-orphan-tolerant branch (the 4-thread
    * CME race in {@code EntityPartialDeserializationLinkBagTest.testOppositeLinkBag
@@ -783,79 +792,122 @@ public class AllocatePageForWriteTest {
    * this branch under contention. A regression that re-introduced the strict
    * allocator-only check on the in-memory engine would surface here as an
    * {@code IllegalStateException} from at least one of the threads.
+   *
+   * <p><b>Repeated-rounds + {@link CyclicBarrier}(2) harness.</b> The original
+   * single-release {@code CountDownLatch(1)} start gate often let one thread complete
+   * before the other reached the cache primitive, narrowing the genuine concurrent
+   * window to microseconds. The repeated-rounds shape (a fresh fileId per round and a
+   * {@link CyclicBarrier}(2) re-armed each round) gives the scheduler {@value
+   * #IN_MEMORY_EAGER_INSTALL_ROUNDS} opportunities to interleave the two
+   * {@code allocatePageForWrite} call sites at the cache-primitive boundary — the
+   * contention window the rollback-orphan-tolerant branch is meant to handle.
+   *
+   * <p><b>Fresh fileId per round.</b> Each round registers a new file in the cache,
+   * stages the orphan on page 0, drives the race, asserts the invariants, then deletes
+   * the file. A leftover round's installed page or referrer count would otherwise
+   * accumulate and obscure a regression on the following round.
    */
   @Test
   public void inMemoryEagerInstallToleratesConcurrentOrphanReuse() throws Exception {
     final var realCache = newRealInMemoryCache();
+    final ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
-      // Pre-stage the orphan: pretend a prior TX installed page 0 in MemoryFile then
-      // rolled back. From the next TX's perspective, mapEntryPoint.fileSize would still
-      // read 0 (logical horizon) but realCache.getFilledUpTo would return 1 (physical
-      // horizon). Both threads ask for pageIndex 0 — the legal "first allocation"
-      // from the logical TX's view.
-      long fileId = realCache.addFile("orphan.dat", writeCache);
+      for (var round = 0; round < IN_MEMORY_EAGER_INSTALL_ROUNDS; round++) {
+        runOrphanReuseRound(realCache, pool, round);
+      }
+    } finally {
+      pool.shutdownNow();
+      try {
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+      }
+      realCache.delete();
+    }
+  }
+
+  /**
+   * Executes one round of the two-thread orphan-reuse race. A fresh fileId per round
+   * keeps each round independent: an installed-page or referrer-count regression
+   * on round {@code N} would otherwise propagate into round {@code N+1} as a false
+   * negative (or a false positive when a leftover orphan from round {@code N}
+   * coincidentally matches round {@code N+1}'s pre-stage).
+   *
+   * <p>The {@link CyclicBarrier}(2) replaces the original {@code CountDownLatch(1)}
+   * start gate: it re-arms per round, so it is reused across rounds (one
+   * {@code CyclicBarrier} instance per round is constructed below for clarity over
+   * micro-optimisation). Both threads block on {@code barrier.await()} immediately
+   * before the {@code allocatePageForWrite} call, maximising the chance that the two
+   * cache-primitive entries land in the same scheduler slice.
+   *
+   * @param realCache the test-owned in-memory cache reused across rounds
+   * @param pool      the two-thread executor reused across rounds (a per-round
+   *                  executor would amortise the round into thread-creation latency
+   *                  and shrink the genuine contention window)
+   * @param round     the 0-based round index, used to name the file and to label
+   *                  per-round assertion messages
+   */
+  private void runOrphanReuseRound(final DirectMemoryOnlyDiskCache realCache,
+      final ExecutorService pool, final int round) throws Exception {
+    // Pre-stage the orphan: pretend a prior TX installed page 0 in MemoryFile then
+    // rolled back. From the next TX's perspective, mapEntryPoint.fileSize would still
+    // read 0 (logical horizon) but realCache.getFilledUpTo would return 1 (physical
+    // horizon). Both threads ask for pageIndex 0 — the legal "first allocation"
+    // from the logical TX's view.
+    long fileId = realCache.addFile("orphan-round-" + round + ".dat", writeCache);
+    try {
       var orphanPointer = realCache.loadOrAdd(fileId, 0L, false);
       orphanPointer.decrementReadersReferrer();
-      assertThat(realCache.getFilledUpTo(fileId)).isEqualTo(1L);
+      assertThat(realCache.getFilledUpTo(fileId))
+          .as("round %d: pre-stage must leave physical = 1", round)
+          .isEqualTo(1L);
 
-      // Two AOBT instances coordinated via CountDownLatch to maximize contention on
+      // Two AOBT instances coordinated via CyclicBarrier(2) to maximize contention on
       // the orphan-reuse path. Each instance owns its own pageChangesMap, so the
       // idempotency early-return does NOT collapse the two calls into one.
       final var op1 = newInMemoryOp(realCache);
       final var op2 = newInMemoryOp(realCache);
-      final var startGate = new CountDownLatch(1);
-      final var finishGate = new CountDownLatch(2);
+      final var startBarrier = new CyclicBarrier(2);
       final var error1 = new AtomicReference<Throwable>();
       final var error2 = new AtomicReference<Throwable>();
 
-      final ExecutorService pool = Executors.newFixedThreadPool(2);
-      try {
-        pool.submit(
-            () -> {
-              try {
-                startGate.await();
-                op1.allocatePageForWrite(fileId, 0L);
-              } catch (Throwable t) {
-                error1.set(t);
-              } finally {
-                finishGate.countDown();
-              }
-            });
-        pool.submit(
-            () -> {
-              try {
-                startGate.await();
-                op2.allocatePageForWrite(fileId, 0L);
-              } catch (Throwable t) {
-                error2.set(t);
-              } finally {
-                finishGate.countDown();
-              }
-            });
+      final var future1 = pool.submit(
+          () -> {
+            try {
+              startBarrier.await(30, TimeUnit.SECONDS);
+              op1.allocatePageForWrite(fileId, 0L);
+            } catch (Throwable t) {
+              error1.set(t);
+            }
+            return null;
+          });
+      final var future2 = pool.submit(
+          () -> {
+            try {
+              startBarrier.await(30, TimeUnit.SECONDS);
+              op2.allocatePageForWrite(fileId, 0L);
+            } catch (Throwable t) {
+              error2.set(t);
+            }
+            return null;
+          });
 
-        startGate.countDown();
-        assertThat(finishGate.await(30, TimeUnit.SECONDS)).isTrue();
-      } finally {
-        pool.shutdownNow();
-        // Ensure submitted tasks have fully terminated before the outer finally
-        // runs realCache.delete() — without this, a still-in-flight task could
-        // race with cache teardown. Restore the interrupt flag if interrupted.
-        try {
-          pool.awaitTermination(5, TimeUnit.SECONDS);
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt();
-        }
-      }
+      future1.get(30, TimeUnit.SECONDS);
+      future2.get(30, TimeUnit.SECONDS);
 
       assertThat(error1.get())
-          .as("thread 1 must not raise IllegalStateException on rollback-orphan reuse")
+          .as("round %d: thread 1 must not raise IllegalStateException on rollback-"
+              + "orphan reuse", round)
           .isNull();
       assertThat(error2.get())
-          .as("thread 2 must not raise IllegalStateException on rollback-orphan reuse")
+          .as("round %d: thread 2 must not raise IllegalStateException on rollback-"
+              + "orphan reuse", round)
           .isNull();
       // Page 0 must still be resident — both threads decremented exactly once each
       // and the in-cache referrer (held by installEmptyPage) keeps it pinned.
-      assertThat(realCache.getFilledUpTo(fileId)).isEqualTo(1L);
+      assertThat(realCache.getFilledUpTo(fileId))
+          .as("round %d: physical must remain 1 after both threads complete", round)
+          .isEqualTo(1L);
 
       // Probe the orphan pointer's referrer count directly. Both threads incremented
       // the readers-referrer once via MemoryFile.loadOrAddPage and the in-memory
@@ -873,17 +925,21 @@ public class AllocatePageForWriteTest {
       // the field read measures the steady-state count rather than a transient bump.
       orphanReload.decrementReadersReferrer();
       assertThat(orphanReload)
-          .as("page 0 must still be the same orphan pointer — a recycled frame would "
-              + "break the readers-referrer accounting under the eager-install branch")
+          .as("round %d: page 0 must still be the same orphan pointer — a recycled "
+              + "frame would break the readers-referrer accounting under the eager-"
+              + "install branch", round)
           .isSameAs(orphanPointer);
       var referrersField = CachePointer.class.getDeclaredField("referrersCount");
       referrersField.setAccessible(true);
       assertThat(referrersField.getInt(orphanPointer))
-          .as("orphan readers-referrer must be balanced: bump-once / decrement-once per "
-              + "thread leaves the in-cache referrer at 1")
+          .as("round %d: orphan readers-referrer must be balanced — bump-once / "
+              + "decrement-once per thread leaves the in-cache referrer at 1", round)
           .isEqualTo(1);
     } finally {
-      realCache.delete();
+      // Per-round file cleanup so the next round's addFile does not interfere with
+      // the prior round's cached pages. The cache instance itself survives across
+      // rounds (only files come and go).
+      realCache.deleteFile(fileId);
     }
   }
 
