@@ -1,13 +1,13 @@
 /*
- *
- *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *
- */
+     *
+     *
+     *  *  Licensed under the Apache License, Version 2.0 (the "License");
+     *  *  you may not use this file except in compliance with the License.
+     *  *  You may obtain a copy of the License at
+     *  *
+     *  *       http://www.apache.org/licenses/LICENSE-2.0
+     *
+     */
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -32,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Test;
@@ -46,33 +48,48 @@ import org.junit.experimental.categories.Category;
  * non-recovery transaction observes a {@code physical > logical} shape and the
  * allocator-only AOBT contract surfaces an {@code IllegalStateException}.
  *
- * <p>Four scenarios are exercised here against a real {@code WOWCache} + {@code DiskStorage}:
+ * <p>Each scenario is exercised under a 2-dimensional matrix:
+ *
+ * <ul>
+ *   <li><b>{@link ChecksumMode}</b> — {@link ChecksumMode#Off} and
+ *       {@link ChecksumMode#StoreAndThrow}. The StoreAndThrow axis pins the production-CI
+ *       default and proves the recovery pass never reads orphan-page bodies (which would
+ *       trip a checksum mismatch under StoreAndThrow). The {@code MAGIC_NUMBER_WITHOUT_CHECKSUM}
+ *       stamp the magic-stamped helper writes is accepted by
+ *       {@code WOWCache.verifyMagicChecksumAndDecryptPage} without a CRC comparison, so the
+ *       helper transfers unchanged across the two modes — the value of the matrix is to fail
+ *       loud if a future change introduces an eager orphan-page read pre-shrink.</li>
+ *   <li><b>Orphan fabrication shape</b> — magic-stamped and zero-byte. The magic-stamped
+ *       fabrication mirrors {@code EnsurePageIsValidInFileTask.writeValidPageInFile} (the
+ *       byte layout that survives "WAL flushed, in-memory gap-fill stamped, JVM crashed
+ *       before the next periodic flush"). The zero-byte fabrication mirrors a strictly
+ *       earlier crash window: {@code AsyncFile.allocateSpace} extended the physical file
+ *       counter but the {@code EnsurePageIsValidInFileTask} never ran, so the trailing
+ *       bytes on disk are filesystem-zeroed. The recovery pass only reads the EP page
+ *       (which is valid because the production stack wrote it), then dispatches a shrink
+ *       that doesn't touch the orphan tail, so both shapes are equivalent for the pass —
+ *       the second shape is here to prove the pass survives a missing magic stamp without
+ *       a load attempt.</li>
+ * </ul>
+ *
+ * <p>Four file shapes are exercised:
  *
  * <ol>
- *   <li><b>Positive (primary) — deterministic orphan fabrication on a {@code .pcl} file.</b>
- *       Open a storage, populate, close. Then directly extend a paginated-collection's
- *       {@code .pcl} file with N orphan pages carrying the WOWCache magic stamp +
- *       LSN {@code (-1, -1)} (mirroring the byte layout
- *       {@code EnsurePageIsValidInFileTask.writeValidPageInFile} produces). Reopen; assert
- *       the file size shrinks back to {@code (epLogicalCounter + 1) * pageSize} and a
- *       subsequent transaction commits without an {@code IllegalStateException}.</li>
- *   <li><b>Positive — deterministic orphan fabrication on a {@code .cpm} file.</b> Mirrors
- *       the {@code .pcl} test but fabricates orphans on the embedded position-map file.
+ *   <li><b>{@code .pcl}</b> — a paginated-collection cluster file.</li>
+ *   <li><b>{@code .cpm}</b> — a {@code CollectionPositionMapV2} embedded position-map file.
  *       Pins the PCV2 sibling-truncation hook that internally drives the embedded
  *       {@code CollectionPositionMapV2.verifyAndTruncateOrphans} call.</li>
- *   <li><b>Negative — clean shutdown / no-op.</b> Open, populate, close cleanly, reopen.
- *       Assert no file shrunk (the per-component pre-flight makes the pass a no-op).</li>
- *   <li><b>Index engine variant.</b> Same fabrication shape against a BTree index engine's
- *       {@code .cbt} file (single-value) — pins the engine-side dispatch through the
- *       orchestrator's {@code instanceof BTreeSingleValueIndexEngine} filter.</li>
+ *   <li><b>Clean shutdown / no-op.</b> Open, populate, close cleanly, reopen. Asserts no
+ *       file shrunk (the per-component pre-flight makes the pass a no-op).</li>
+ *   <li><b>{@code .cbt}</b> — a BTree single-value index engine's primary data file. Pins
+ *       the engine-side dispatch through the orchestrator's
+ *       {@code instanceof BTreeSingleValueIndexEngine} filter.</li>
  * </ol>
  *
- * <p>The orphan fabrication uses {@link RandomAccessFile} after the DB is closed. We must
- * fabricate the pages with valid magic + checksum bytes so that subsequent reads under
- * {@code checksumMode=StoreAndThrow} (or even the default StoreAndVerify) see clean empty
- * pages and not a checksum-corruption error. {@code MAGIC_NUMBER_WITHOUT_CHECKSUM} +
- * {@code checksumMode=Off} is the simplest combination — chosen here to keep the test
- * deterministic and not depend on CRC bytes.
+ * <p>The orphan fabrication uses {@link RandomAccessFile} after the DB is closed. The
+ * magic-stamped helper writes {@link #MAGIC_NUMBER_WITHOUT_CHECKSUM} + LSN {@code (-1, -1)}
+ * (the production gap-fill byte layout); the zero-byte helper extends the file via
+ * {@link RandomAccessFile#setLength(long)} so the trailing bytes are filesystem-zeroed.
  *
  * <p>This test runs in the {@link SequentialTest} category because it manipulates raw
  * storage files and cannot tolerate parallel JVMs touching the same build directory.
@@ -84,29 +101,95 @@ public class TruncateOrphansAfterRecoveryIT {
   // in raw file-size accounting, small enough to keep the test fast.
   private static final int ORPHAN_PAGE_COUNT = 4;
 
-  // Mirrors WOWCache.MAGIC_NUMBER_WITHOUT_CHECKSUM (see WOWCache.java around line 3905,
+  // Mirrors WOWCache.MAGIC_NUMBER_WITHOUT_CHECKSUM (see WOWCache.java around line 259 and
   // EnsurePageIsValidInFileTask.writeValidPageInFile). If WOWCache's constant changes,
   // this fabrication will no longer match the production write path and the recovery
   // pass's load-on-reopen behaviour would diverge — kept duplicated here intentionally so
   // a future change there surfaces as a test failure.
   private static final long MAGIC_NUMBER_WITHOUT_CHECKSUM = 0xEF30BCAFL;
 
+  /**
+   * Fabrication shape for orphan-tail pages appended to a closed storage file. Two
+   * implementations exist: {@link #magicStampedOrphanFabricator()} mirrors the production
+   * "gap-fill page" byte layout ({@link #MAGIC_NUMBER_WITHOUT_CHECKSUM} + LSN {@code (-1,
+   * -1)}); {@link #zeroByteOrphanFabricator()} mirrors a strictly earlier crash window
+   * where {@code AsyncFile.allocateSpace} extended the physical file before
+   * {@code EnsurePageIsValidInFileTask} ran, so the trailing bytes are filesystem-zeroed.
+   */
+  @FunctionalInterface
+  private interface OrphanFabricator {
+    void fabricate(java.io.File file, int pageSize, int orphanPages) throws java.io.IOException;
+  }
+
   private YouTrackDBImpl youTrackDB;
 
   // ---------------------------------------------------------------------------
-  // Positive (primary): deterministic orphan fabrication on a paginated collection
+  // .pcl (paginated collection) — full ChecksumMode × fabrication-shape matrix
   // ---------------------------------------------------------------------------
 
   /**
-   * Open a storage, populate a class so its {@code .pcl} file has multiple pages, close.
-   * Externally extend the {@code .pcl} file with {@link #ORPHAN_PAGE_COUNT} valid-stamped
-   * orphan pages. Reopen the storage; the recovery-time orchestrator must truncate the
-   * orphans so the post-reopen file size equals {@code (epLogicalCounter + 1) * pageSize}.
-   * A subsequent transaction must complete without throwing.
+   * Magic-stamped orphan tail on a {@code .pcl} file under {@link ChecksumMode#Off}.
+   * The recovery pass must truncate the orphans so the post-reopen file size equals the
+   * logical horizon ({@code (epLogicalCounter + 1) * pageSize}) and a subsequent TX must
+   * complete without throwing.
    */
   @Test
-  public void truncatesOrphansOnPaginatedCollectionFileAfterReopen() throws Exception {
-    var config = makeConfigWithChecksumOff();
+  public void truncatesOrphansOnPaginatedCollectionFileMagicStampedUnderChecksumOff()
+      throws Exception {
+    runPaginatedCollectionScenario(ChecksumMode.Off, magicStampedOrphanFabricator());
+  }
+
+  /**
+   * Magic-stamped orphan tail on a {@code .pcl} file under {@link ChecksumMode#StoreAndThrow}.
+   * Pins the recovery pass under the production-CI checksum default: the pass must NOT
+   * read orphan-page bodies (which would trip a checksum mismatch and surface a
+   * {@code StorageException} under StoreAndThrow); a clean truncate + a non-throwing
+   * post-recovery TX is the expected outcome.
+   */
+  @Test
+  public void truncatesOrphansOnPaginatedCollectionFileMagicStampedUnderStoreAndThrow()
+      throws Exception {
+    runPaginatedCollectionScenario(ChecksumMode.StoreAndThrow, magicStampedOrphanFabricator());
+  }
+
+  /**
+   * Zero-byte orphan tail on a {@code .pcl} file under {@link ChecksumMode#Off}. Mirrors
+   * the crash window between {@code AsyncFile.allocateSpace} and
+   * {@code EnsurePageIsValidInFileTask} — the file grows but the trailing pages are
+   * filesystem-zeroed (no magic stamp). The recovery pass must still truncate cleanly
+   * because it never reads the orphan bodies.
+   */
+  @Test
+  public void truncatesOrphansOnPaginatedCollectionFileZeroByteUnderChecksumOff()
+      throws Exception {
+    runPaginatedCollectionScenario(ChecksumMode.Off, zeroByteOrphanFabricator());
+  }
+
+  /**
+   * Zero-byte orphan tail on a {@code .pcl} file under {@link ChecksumMode#StoreAndThrow}.
+   * The strictest combination: the pass must truncate without reading the all-zero
+   * orphan bodies (a zero magic stamp would otherwise be rejected by
+   * {@code WOWCache.verifyMagicChecksumAndDecryptPage}).
+   */
+  @Test
+  public void truncatesOrphansOnPaginatedCollectionFileZeroByteUnderStoreAndThrow()
+      throws Exception {
+    runPaginatedCollectionScenario(ChecksumMode.StoreAndThrow, zeroByteOrphanFabricator());
+  }
+
+  /**
+   * Scenario body shared by the four {@code .pcl} variants. Opens a storage under the
+   * given {@code checksumMode}, populates a class so its {@code .pcl} file has multiple
+   * pages, closes, externally extends the {@code .pcl} file with
+   * {@link #ORPHAN_PAGE_COUNT} orphan pages using the given {@code fabricator}, reopens,
+   * captures the file size BEFORE any non-recovery TX runs, then drives a follow-up TX
+   * to prove the storage remains usable. Asserts the captured file size equals the
+   * pre-fabrication size — the orphans must have been truncated by the recovery pass
+   * before the post-reopen TX could observe them.
+   */
+  private void runPaginatedCollectionScenario(
+      ChecksumMode checksumMode, OrphanFabricator fabricator) throws Exception {
+    var config = makeConfig(checksumMode);
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
@@ -125,8 +208,6 @@ public class TruncateOrphansAfterRecoveryIT {
           entity.setProperty("value", "row-" + i);
         }
       });
-      // Capture storage references inside the open session — the path is published via
-      // session.getStorage() (YouTrackDB has no public name-keyed accessor).
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
       var pclFileName = findFileName(wowCache, "orphans", ".pcl");
@@ -137,61 +218,81 @@ public class TruncateOrphansAfterRecoveryIT {
     }
     youTrackDB.close();
 
-    // Fabricate orphan pages directly on disk while the DB is closed. The .pcl native
-    // file lives under storagePath; HEADER_SIZE precedes data pages.
     var pclPath = storagePath.resolve(nativeFileName).toFile();
     long sizeBeforeFabrication = pclPath.length();
-    fabricateOrphanPages(pclPath, pageSize, ORPHAN_PAGE_COUNT);
+    fabricator.fabricate(pclPath, pageSize, ORPHAN_PAGE_COUNT);
     long sizeAfterFabrication = pclPath.length();
     assertThat(sizeAfterFabrication)
         .as(".pcl file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize after fabrication")
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
-    // Reopen — the recovery-time orchestrator should truncate the orphan tail before any
-    // non-recovery TX runs.
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
         TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
-      // Capture the file size BEFORE any non-recovery TX runs. The TX can grow the file
-      // by a page, which would mask a missing or partial truncate from the assertion.
+      // Capture file size BEFORE any non-recovery TX runs — a TX can grow the file by a
+      // page, which would mask a missing or partial truncate.
       sizeImmediatelyAfterReopen = pclPath.length();
 
-      // Health check: the storage must remain usable after the recovery pass. The first
-      // non-recovery TX must not surface IllegalStateException from the physical > logical
-      // shape the fabrication just produced.
+      // Health check: the first non-recovery TX must not surface IllegalStateException
+      // from the physical > logical shape the fabrication just produced, and (under
+      // StoreAndThrow) must not surface a checksum-mismatch StorageException from any
+      // accidental load of an orphan page.
       session.executeInTx(transaction -> {
         var entity = transaction.newEntity("Orphans");
         entity.setProperty("value", "post-recovery");
       });
     }
 
-    // The orchestrator must have shrunk the file back to its pre-fabrication size (the
-    // logical horizon). Strict equality is asserted against the file size captured BEFORE
-    // the post-reopen TX — measuring after the TX would tolerate an orphan that the TX
-    // happens to reuse.
     assertThat(sizeImmediatelyAfterReopen)
-        .as("recovery pass must have truncated the orphan tail back to the logical horizon")
+        .as("recovery pass must have truncated the orphan tail back to the logical horizon"
+            + " under checksumMode=" + checksumMode)
         .isEqualTo(sizeBeforeFabrication);
   }
 
   // ---------------------------------------------------------------------------
-  // Positive: deterministic orphan fabrication on a CollectionPositionMapV2 (.cpm) file
+  // .cpm (CollectionPositionMapV2) — full ChecksumMode × fabrication-shape matrix
   // ---------------------------------------------------------------------------
 
-  /**
-   * The orchestrator dispatches an orphan-truncation pass on BOTH a
-   * {@link com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2}
-   * and its embedded {@code CollectionPositionMapV2}. This test pins the {@code .cpm} half
-   * of that dispatch: open a storage, populate the position map (allocating positions for
-   * many entities forces the position map to grow), close. Fabricate orphan pages on the
-   * {@code .cpm} file. Reopen; assert the {@code .cpm} file shrinks back to the position
-   * map's logical horizon.
-   */
+  /** See {@link #runPositionMapScenario}. */
   @Test
-  public void truncatesOrphansOnCollectionPositionMapFileAfterReopen() throws Exception {
-    var config = makeConfigWithChecksumOff();
+  public void truncatesOrphansOnCollectionPositionMapFileMagicStampedUnderChecksumOff()
+      throws Exception {
+    runPositionMapScenario(ChecksumMode.Off, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runPositionMapScenario}. */
+  @Test
+  public void truncatesOrphansOnCollectionPositionMapFileMagicStampedUnderStoreAndThrow()
+      throws Exception {
+    runPositionMapScenario(ChecksumMode.StoreAndThrow, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runPositionMapScenario}. */
+  @Test
+  public void truncatesOrphansOnCollectionPositionMapFileZeroByteUnderChecksumOff()
+      throws Exception {
+    runPositionMapScenario(ChecksumMode.Off, zeroByteOrphanFabricator());
+  }
+
+  /** See {@link #runPositionMapScenario}. */
+  @Test
+  public void truncatesOrphansOnCollectionPositionMapFileZeroByteUnderStoreAndThrow()
+      throws Exception {
+    runPositionMapScenario(ChecksumMode.StoreAndThrow, zeroByteOrphanFabricator());
+  }
+
+  /**
+   * Scenario body shared by the four {@code .cpm} variants. Drives the position-map half
+   * of the PCV2 sibling-truncation hook: opens a storage under {@code checksumMode},
+   * allocates many records to force the position map to grow well past its single-page
+   * bootstrap, closes, fabricates orphan pages on the {@code .cpm} file, reopens, and
+   * asserts the orphans are truncated back to the position map's logical horizon.
+   */
+  private void runPositionMapScenario(
+      ChecksumMode checksumMode, OrphanFabricator fabricator) throws Exception {
+    var config = makeConfig(checksumMode);
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
@@ -204,8 +305,6 @@ public class TruncateOrphansAfterRecoveryIT {
     try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
       session.getMetadata().getSchema().createClass("CpmOrphans");
-      // Allocating many records forces the position map (.cpm) to grow well past the
-      // single-page bootstrap so the orphan-truncation pass has something to do.
       session.executeInTx(transaction -> {
         for (var i = 0; i < 200; i++) {
           var entity = transaction.newEntity("CpmOrphans");
@@ -214,7 +313,6 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      // The position map file (.cpm) lives next to the .pcl with the same class-name prefix.
       var cpmFileName = findFileName(wowCache, "cpmorphans", ".cpm");
       var fileId = wowCache.fileIdByName(cpmFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
@@ -225,7 +323,7 @@ public class TruncateOrphansAfterRecoveryIT {
 
     var cpmPath = storagePath.resolve(nativeFileName).toFile();
     long sizeBeforeFabrication = cpmPath.length();
-    fabricateOrphanPages(cpmPath, pageSize, ORPHAN_PAGE_COUNT);
+    fabricator.fabricate(cpmPath, pageSize, ORPHAN_PAGE_COUNT);
     long sizeAfterFabrication = cpmPath.length();
     assertThat(sizeAfterFabrication)
         .as(".cpm file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize after fabrication")
@@ -236,11 +334,8 @@ public class TruncateOrphansAfterRecoveryIT {
     try (var session = youTrackDB.open(
         TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
-      // Capture .cpm size BEFORE the post-reopen TX so the assertion is not masked by the
-      // TX extending the position map.
       sizeImmediatelyAfterReopen = cpmPath.length();
 
-      // Health check: insert another entity, which routes through the position map.
       session.executeInTx(transaction -> {
         var entity = transaction.newEntity("CpmOrphans");
         entity.setProperty("value", "post-recovery");
@@ -249,22 +344,36 @@ public class TruncateOrphansAfterRecoveryIT {
 
     assertThat(sizeImmediatelyAfterReopen)
         .as("recovery pass must truncate the .cpm orphan tail back to the position map's"
-            + " logical horizon")
+            + " logical horizon under checksumMode=" + checksumMode)
         .isEqualTo(sizeBeforeFabrication);
   }
 
   // ---------------------------------------------------------------------------
-  // Negative: clean shutdown / no-op
+  // Clean shutdown / no-op — ChecksumMode matrix only (no fabrication axis)
   // ---------------------------------------------------------------------------
 
-  /**
-   * A storage that closes cleanly has {@code physical == logical} on every component.
-   * The per-component pre-flight makes the recovery pass a no-op — file sizes must NOT
-   * change across the close-reopen boundary.
-   */
+  /** See {@link #runCleanShutdownScenario}. */
   @Test
-  public void noOpOnCleanShutdownReopen() throws Exception {
-    var config = makeConfigWithChecksumOff();
+  public void noOpOnCleanShutdownReopenUnderChecksumOff() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.Off);
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenUnderStoreAndThrow() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.StoreAndThrow);
+  }
+
+  /**
+   * Scenario body shared by the two clean-shutdown variants. Asserts the recovery pass
+   * is a strict no-op after a clean close-reopen cycle: the per-component pre-flight
+   * skips the shrink dispatch, so the file size must be identical across the boundary.
+   * Strict equality catches both the over-shrink direction (a buggy pass that drops live
+   * pages) and the no-op direction (the desired clean-case behaviour) — a relaxation to
+   * {@code >=} would make the latter unfalsifiable.
+   */
+  private void runCleanShutdownScenario(ChecksumMode checksumMode) throws Exception {
+    var config = makeConfig(checksumMode);
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
@@ -294,47 +403,64 @@ public class TruncateOrphansAfterRecoveryIT {
     var pclPath = storagePath.resolve(nativeFileName).toFile();
     long sizeBeforeReopen = pclPath.length();
 
-    // No fabrication. Just close + reopen.
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
         TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
-      // Capture file size BEFORE the post-reopen TX. The TX writes a new record and can
-      // grow the file, which would let a buggy recovery-time shrink slip through unnoticed
-      // if measured afterwards. Strict equality against the pre-reopen size only holds
-      // when measured here.
       sizeImmediatelyAfterReopen = pclPath.length();
 
-      // Health check: the storage must be usable after the no-op recovery pass.
       session.executeInTx(transaction -> {
         var entity = transaction.newEntity("CleanShutdown");
         entity.setProperty("value", "post-reopen");
       });
     }
 
-    // The clean-shutdown contract: the recovery pass must NOT shrink the file. Strict
-    // equality against the pre-reopen size catches both the over-shrink direction (a buggy
-    // pass that drops live pages) and the no-op direction (the desired clean-case
-    // behaviour). The earlier >= relaxation made the latter unfalsifiable.
     assertThat(sizeImmediatelyAfterReopen)
-        .as("clean reopen must leave the file size identical to the pre-reopen size")
+        .as("clean reopen must leave the file size identical to the pre-reopen size under"
+            + " checksumMode=" + checksumMode)
         .isEqualTo(sizeBeforeReopen);
   }
 
   // ---------------------------------------------------------------------------
-  // Index engine variant: orphans on a .cbt file
+  // .cbt (BTree single-value index engine) — full matrix
   // ---------------------------------------------------------------------------
 
-  /**
-   * Same fabrication pattern as the primary test, but the orphan tail lives on a BTree
-   * index engine's {@code .cbt} file. Pins the orchestrator's
-   * {@code instanceof BTreeSingleValueIndexEngine} dispatch through the engine-side
-   * {@code verifyAndTruncateOrphans} wrapper.
-   */
+  /** See {@link #runIndexEngineScenario}. */
   @Test
-  public void truncatesOrphansOnIndexEngineFileAfterReopen() throws Exception {
-    var config = makeConfigWithChecksumOff();
+  public void truncatesOrphansOnIndexEngineFileMagicStampedUnderChecksumOff() throws Exception {
+    runIndexEngineScenario(ChecksumMode.Off, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runIndexEngineScenario}. */
+  @Test
+  public void truncatesOrphansOnIndexEngineFileMagicStampedUnderStoreAndThrow() throws Exception {
+    runIndexEngineScenario(ChecksumMode.StoreAndThrow, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runIndexEngineScenario}. */
+  @Test
+  public void truncatesOrphansOnIndexEngineFileZeroByteUnderChecksumOff() throws Exception {
+    runIndexEngineScenario(ChecksumMode.Off, zeroByteOrphanFabricator());
+  }
+
+  /** See {@link #runIndexEngineScenario}. */
+  @Test
+  public void truncatesOrphansOnIndexEngineFileZeroByteUnderStoreAndThrow() throws Exception {
+    runIndexEngineScenario(ChecksumMode.StoreAndThrow, zeroByteOrphanFabricator());
+  }
+
+  /**
+   * Scenario body shared by the four {@code .cbt} variants. Pins the orchestrator's
+   * {@code instanceof BTreeSingleValueIndexEngine} dispatch through the engine-side
+   * {@code verifyAndTruncateOrphans} wrapper: opens a storage with a single unique
+   * index, populates enough entities to force the index file past one page, closes,
+   * fabricates orphan pages on the {@code .cbt} file, reopens, and asserts the orphan
+   * tail is truncated.
+   */
+  private void runIndexEngineScenario(
+      ChecksumMode checksumMode, OrphanFabricator fabricator) throws Exception {
+    var config = makeConfig(checksumMode);
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
@@ -361,9 +487,6 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      // The Indexed.key single-value B-tree index engine uses .cbt for its primary data
-      // file (BTreeSingleValueIndexEngine.DATA_FILE_EXTENSION). Filter on .cbt to pick
-      // the index file; the test only creates one user index so this is unambiguous.
       var cbtFileName = wowCache.files().keySet().stream()
           .filter(name -> name.endsWith(".cbt"))
           .findFirst()
@@ -379,7 +502,7 @@ public class TruncateOrphansAfterRecoveryIT {
 
     var cbtPath = storagePath.resolve(nativeFileName).toFile();
     long sizeBeforeFabrication = cbtPath.length();
-    fabricateOrphanPages(cbtPath, pageSize, ORPHAN_PAGE_COUNT);
+    fabricator.fabricate(cbtPath, pageSize, ORPHAN_PAGE_COUNT);
     long sizeAfterFabrication = cbtPath.length();
     assertThat(sizeAfterFabrication)
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
@@ -389,11 +512,8 @@ public class TruncateOrphansAfterRecoveryIT {
     try (var session = youTrackDB.open(
         TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
-      // Capture .cbt size BEFORE the post-reopen TX so the assertion is not masked by an
-      // insert that re-extends the index file.
       sizeImmediatelyAfterReopen = cbtPath.length();
 
-      // Health check: an insert into the same indexed class must round-trip.
       session.executeInTx(transaction -> {
         var entity = transaction.newEntity("Indexed");
         entity.setProperty("key", "post-recovery");
@@ -401,7 +521,8 @@ public class TruncateOrphansAfterRecoveryIT {
     }
 
     assertThat(sizeImmediatelyAfterReopen)
-        .as("recovery pass must truncate the orphan tail back to the index's logical horizon")
+        .as("recovery pass must truncate the orphan tail back to the index's logical horizon"
+            + " under checksumMode=" + checksumMode)
         .isEqualTo(sizeBeforeFabrication);
   }
 
@@ -410,51 +531,66 @@ public class TruncateOrphansAfterRecoveryIT {
   // ---------------------------------------------------------------------------
 
   /**
-   * Builds a configuration that disables checksum so the orphan fabrication (which writes
-   * the {@code MAGIC_NUMBER_WITHOUT_CHECKSUM} stamp) is readable on reopen. The recovery
-   * pass itself is checksum-agnostic — it only reads the EP page (which is valid because
-   * the production stack wrote it), then dispatches a shrink that doesn't read the
-   * orphan pages at all.
+   * Builds a configuration that selects the given checksum mode and disables the double
+   * write log. The recovery pass itself is checksum-agnostic — it only reads the EP page
+   * (which is valid because the production stack wrote it), then dispatches a shrink
+   * that doesn't read the orphan pages at all — so the mode parameter is the lever for
+   * "did the pass accidentally start reading orphan bodies?" regression detection.
    */
-  private static org.apache.commons.configuration2.BaseConfiguration makeConfigWithChecksumOff() {
-    var config = new org.apache.commons.configuration2.BaseConfiguration();
-    config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
-        com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode.Off.name());
+  private static BaseConfiguration makeConfig(ChecksumMode checksumMode) {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(), checksumMode.name());
     config.setProperty(GlobalConfiguration.STORAGE_USE_DOUBLE_WRITE_LOG.getKey(), false);
     return config;
   }
 
   /**
-   * Extends the given file with {@code orphanPages} pages carrying the WOWCache
-   * "without-checksum" magic stamp and LSN {@code (-1, -1)} — exactly the byte layout
-   * {@code EnsurePageIsValidInFileTask.writeValidPageInFile} produces for a gap-fill on a
-   * fresh page allocation. The pages look "valid but blank" to subsequent reads, which is
-   * required so the recovery pass's downstream loads (if any) under
-   * {@code checksumMode=Off} don't trip on a corruption check.
+   * Returns a fabricator that extends the file with {@code orphanPages} pages carrying
+   * the WOWCache "without-checksum" magic stamp and LSN {@code (-1, -1)} — exactly the
+   * byte layout {@code EnsurePageIsValidInFileTask.writeValidPageInFile} produces for a
+   * gap-fill on a fresh page allocation. The pages look "valid but blank" to subsequent
+   * reads, so the recovery pass's downstream loads (if any) under any checksum mode
+   * would not trip on a corruption check.
    *
    * <p>The file layout is: {@link File#HEADER_SIZE} bytes of header, then {@code N} data
    * pages of {@code pageSize} bytes each. The fabrication appends to the end of the file
    * with a fresh {@link RandomAccessFile} write.
    */
-  private static void fabricateOrphanPages(java.io.File file, int pageSize, int orphanPages)
-      throws java.io.IOException {
-    var page = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
+  private static OrphanFabricator magicStampedOrphanFabricator() {
+    return (file, pageSize, orphanPages) -> {
+      var page = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
 
-    // LSN slot lives at DurablePage.WAL_SEGMENT_OFFSET / WAL_POSITION_OFFSET. Mirror the
-    // WOWCache.writeValidPageInFile shape: setLogSequenceNumberForPage(buffer, LSN(-1, -1))
-    // then write the magic bytes at offset 0.
-    DurablePage.setLogSequenceNumberForPage(page, new LogSequenceNumber(-1, -1));
-    page.putLong(0, MAGIC_NUMBER_WITHOUT_CHECKSUM);
+      DurablePage.setLogSequenceNumberForPage(page, new LogSequenceNumber(-1, -1));
+      page.putLong(0, MAGIC_NUMBER_WITHOUT_CHECKSUM);
 
-    try (var raf = new RandomAccessFile(file, "rw")) {
-      raf.seek(raf.length());
-      for (var i = 0; i < orphanPages; i++) {
-        page.position(0);
-        var bytes = new byte[pageSize];
-        page.get(bytes);
-        raf.write(bytes);
+      try (var raf = new RandomAccessFile(file, "rw")) {
+        raf.seek(raf.length());
+        for (var i = 0; i < orphanPages; i++) {
+          page.position(0);
+          var bytes = new byte[pageSize];
+          page.get(bytes);
+          raf.write(bytes);
+        }
       }
-    }
+    };
+  }
+
+  /**
+   * Returns a fabricator that extends the file by {@code orphanPages * pageSize} bytes
+   * via {@link RandomAccessFile#setLength(long)}. The trailing bytes are
+   * filesystem-zeroed — no magic stamp, no LSN, no checksum. This mirrors a strictly
+   * earlier crash window than the magic-stamped helper: {@code AsyncFile.allocateSpace}
+   * extended the physical file counter but {@code EnsurePageIsValidInFileTask} never
+   * ran. The recovery pass only reads the EP page and then dispatches a shrink that
+   * doesn't load the tail, so the missing magic stamp is invisible to it — failing this
+   * direction would mean a future change introduced an eager orphan-page read pre-shrink.
+   */
+  private static OrphanFabricator zeroByteOrphanFabricator() {
+    return (file, pageSize, orphanPages) -> {
+      try (var raf = new RandomAccessFile(file, "rw")) {
+        raf.setLength(raf.length() + (long) orphanPages * pageSize);
+      }
+    };
   }
 
   /**
