@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.nio.file.Files;
@@ -44,6 +45,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -67,29 +69,46 @@ import org.junit.experimental.categories.Category;
  *   <li><b>{@link #cpmv2AllocateUnderSharedClusterToleratesConcurrentAllocators}</b> —
  *       drives two concurrent {@code CollectionPositionMapV2.allocate} call sites on the
  *       same cluster's CPMV2 instance via the public
- *       {@code PaginatedCollectionV2.allocatePosition} surface. Each call enters under
- *       the per-component exclusive lock (acquired inside CPMV2's
- *       {@code calculateInsideComponentOperation}); without the lock, two allocators
- *       would race the entry-point page write lock and the cache-layer fast-fail
- *       {@code IllegalStateException} in {@code WOWCache.loadOrAdd} would surface a
- *       hard crash on the loser of the allocator race.
+ *       {@code PaginatedCollectionV2.allocatePosition} surface. The lock contract this
+ *       pins is the PCV2-wrapping-CPMV2 lock contract: {@code PCV2.allocatePosition}
+ *       enters under PCV2's {@code calculateInsideComponentOperation}, which acquires
+ *       the per-component exclusive lock on {@code this} of the {@link
+ *       com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2}
+ *       instance, and only then calls {@code CollectionPositionMapV2.allocate}.
+ *       The test therefore detects a regression that dropped the lock on
+ *       {@code PCV2.allocatePosition}; a regression that dropped the lock on
+ *       {@code CPMV2.allocate} alone (a path no production caller exercises today —
+ *       every production entry into {@code CPMV2.allocate} flows through PCV2's
+ *       wrapping lock) would not surface here. Without the PCV2 lock, two allocators
+ *       on the same cluster would race the entry-point page write lock and the
+ *       cache-layer fast-fail {@code IllegalStateException} in
+ *       {@code WOWCache.loadOrAdd} would surface a hard crash on the loser of the
+ *       allocator race.
  *   <li><b>{@link #pcv2AllocateNewPageUnderSharedClusterToleratesConcurrentAppends}</b> —
  *       drives two concurrent {@code PaginatedCollectionV2.allocateNewPage} call sites
  *       on the same cluster's PCV2 instance via the public {@code createRecord} surface
- *       with a payload large enough to force an {@code allocateNewPage} on every call
- *       (the FSM cannot find a fitting existing page, so the new-page allocator path is
- *       taken deterministically). Same per-component lock invariant as the CPMV2 case
- *       above, but on the data file ({@code .pcl}) and the state-page write lock.
- *   <li><b>{@link #ihmFlushUnderSharedIndexToleratesConcurrentDirtyFlush}</b> — drives
- *       two concurrent {@code IndexHistogramManager} dirty-flush call sites on the same
- *       index's IHM instance: one via the explicit {@code flushIfDirty(AtomicOperation)}
- *       overload (which calls {@code writeSnapshotToPage}) and one via the no-arg
- *       {@code flushIfDirty()} (which calls {@code flushSnapshotToPage} through a
- *       dedicated atomic operation). Both methods acquire the same per-component
- *       exclusive lock via {@code acquireExclusiveLockTillOperationComplete}; without
- *       the lock the two page-0 / page-1 allocators (the page-1 path under HLL spill,
- *       the page-0 path on every flush) could race for the same {@code (fileId,
- *       pageIndex)} and trip the cache-layer fast-fail in {@code WOWCache.loadOrAdd}.
+ *       with a payload larger than {@code CollectionPage.MAX_RECORD_SIZE} so the FSM
+ *       cannot locate an existing page that fits the record and {@code findNewPageToWrite}
+ *       fires on every call (the new-page allocator branch is taken deterministically).
+ *       Same per-component lock invariant as the CPMV2 case above, but on the data file
+ *       ({@code .pcl}) and the state-page write lock.
+ *   <li><b>{@link #ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds}</b> —
+ *       drives two concurrent {@code IndexHistogramManager.buildHistogram} call sites on
+ *       the same index's IHM instance. Both calls reach {@code writeSnapshotToPage}
+ *       (via the {@code nonNullCount < histogramMinSize} early-exit), which acquires
+ *       the per-component exclusive lock directly via
+ *       {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
+ *       This surface is deliberately chosen over {@code flushIfDirty}: {@code
+ *       flushIfDirty} gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet}
+ *       that admits exactly one CAS-winner per round (so the loser fast-returns
+ *       without touching the lock), making it impossible to drive two concurrent
+ *       lock-acquiring threads through that path. {@code buildHistogram} has no CAS
+ *       gate — both threads enter {@code writeSnapshotToPage} unconditionally, and
+ *       the lock is the only structural barrier serialising their page-0 (and
+ *       optional page-1) accesses. A regression that dropped the lock at
+ *       {@code writeSnapshotToPage} would surface as an {@code IllegalStateException}
+ *       from the cache-layer fast-fail in {@code WOWCache.loadOrAdd} on the loser of
+ *       the page-0 allocate-or-load race.
  * </ul>
  *
  * <h2>Repeated-rounds + {@link CyclicBarrier}(2) shape</h2>
@@ -138,15 +157,19 @@ public class ProductionAllocatorConcurrencyMTTest {
   private static final long BARRIER_WAIT_SECONDS = 30L;
 
   /**
-   * Record payload size in the PCV2 {@code allocateNewPage} test. Sized so the FSM
-   * cannot locate an existing page with enough free space on every call, forcing the
-   * {@code allocateNewPage} branch deterministically. The collection page's usable
-   * payload area after the page-header is well below the storage's default 65536-byte
-   * page; a 16 KiB record fits at most three records per page, so two concurrent
-   * inserts on a freshly-extended page race the new-page allocator on the very next
-   * call instead of fitting next to existing records.
+   * Record payload size in the PCV2 {@code allocateNewPage} test. Derived from
+   * {@code CollectionPage.MAX_RECORD_SIZE + 1}: the production constant defines
+   * the largest record that fits inside a single collection page after the
+   * page-header, page-indexes table, and per-entry index slot have been
+   * deducted. Any payload above this threshold forces {@code serializeRecord}
+   * to split across pages, so {@code findNewPageToWrite} fires on every call
+   * (no existing page can fit the record) and both concurrent workers race the
+   * new-page allocator branch deterministically. The storage's default page
+   * size is 8 KiB ({@code GlobalConfiguration.DISK_CACHE_PAGE_SIZE = 8} KB), so
+   * the resulting payload is on the order of a few KiB, not the speculative
+   * 65536-byte page the prior draft referenced.
    */
-  private static final int PCV2_LARGE_PAYLOAD_BYTES = 16 * 1024;
+  private static final int PCV2_LARGE_PAYLOAD_BYTES = CollectionPage.MAX_RECORD_SIZE + 1;
 
   private YouTrackDBImpl youTrackDB;
   private Path directoryPath;
@@ -216,6 +239,15 @@ public class ProductionAllocatorConcurrencyMTTest {
    * {@code PaginatedCollectionV2.allocatePosition} on the same PCV2 instance, then
    * asserts no thread raised. A fresh component per round keeps round {@code N+1}'s
    * race independent of round {@code N}'s leftover state.
+   *
+   * <p>Positive-evidence: each worker captures its returned
+   * {@code PhysicalPosition.collectionPosition} into a shared queue. After both
+   * workers complete the round, the test asserts the queue holds exactly two
+   * elements with distinct values — proof that two independent allocator calls
+   * actually ran to completion and produced different positions, rather than one
+   * call silently bypassing the body or both calls returning the same idempotent
+   * result. Without this floor, a regression that broke allocation state would
+   * still pass the "no exception fired" gate.
    */
   private void runCpmv2AllocateRound(
       final DatabaseSessionEmbedded session,
@@ -231,18 +263,23 @@ public class ProductionAllocatorConcurrencyMTTest {
 
     final var barrier = new CyclicBarrier(2);
     final var errors = new ConcurrentLinkedQueue<Throwable>();
+    final var positions = new ConcurrentLinkedQueue<Long>();
     final List<Callable<Void>> workers = new ArrayList<>(2);
-    final var workerIdGen = new AtomicInteger();
     for (var w = 0; w < 2; w++) {
+      // Capture construction-order worker id so diagnostic labels reflect the
+      // lambda's identity at the time the worker list was built, not the order
+      // in which the executor happened to enter the lambdas.
+      final int workerId = w;
       workers.add(() -> {
-        final var workerId = workerIdGen.getAndIncrement();
         try {
           barrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
           // Each worker enters the AOM through its own atomic op so the two
           // allocatePosition calls genuinely contend at the per-component lock.
           // A shared op would idempotency-collapse them to one call.
-          storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-              op -> pcv2.allocatePosition(/* recordType = */ (byte) 'd', op));
+          final var allocated = storage.getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  op -> pcv2.allocatePosition(/* recordType = */ (byte) 'd', op));
+          positions.add(allocated.collectionPosition);
         } catch (Throwable t) {
           errors.add(taggedFailure(round, workerId, t));
         }
@@ -257,6 +294,14 @@ public class ProductionAllocatorConcurrencyMTTest {
       throw buildAggregatedAssertionError(errors,
           "round " + round + ": concurrent CPMV2.allocate must not raise");
     }
+    // Positive-evidence floor: both workers must have completed and produced
+    // distinct collection positions. Detects a regression that silently bypassed
+    // the allocator body or returned a duplicate position.
+    assertThat(positions)
+        .as("round %d: each concurrent allocator must produce a distinct "
+            + "collectionPosition", round)
+        .hasSize(2)
+        .doesNotHaveDuplicates();
   }
 
   // ---------------------------------------------------------------------------
@@ -266,9 +311,10 @@ public class ProductionAllocatorConcurrencyMTTest {
   /**
    * Two concurrent {@code PaginatedCollectionV2.allocateNewPage} call sites on the
    * same cluster's PCV2 instance must both succeed. Driven via the public
-   * {@code createRecord} surface with a 16 KiB payload — large enough that the FSM
-   * cannot locate an existing page with enough free space, forcing the
-   * {@code allocateNewPage} branch on every call.
+   * {@code createRecord} surface with a payload exceeding
+   * {@code CollectionPage.MAX_RECORD_SIZE} — large enough that the FSM cannot locate
+   * an existing page with enough free space, forcing the {@code allocateNewPage}
+   * branch on every call.
    *
    * <p>A regression that dropped the per-component lock would surface as an
    * {@code IllegalStateException} from one of the threads (the cache-layer
@@ -283,8 +329,8 @@ public class ProductionAllocatorConcurrencyMTTest {
         YouTrackDBConfig.builder()
             .fromApacheConfiguration(makeConfigWithChecksumStoreAndThrow()).build())) {
       final var storage = (AbstractStorage) session.getStorage();
-      // A single 16 KiB payload reused across rounds — content does not vary the
-      // allocator path being tested.
+      // A single payload sized just above MAX_RECORD_SIZE reused across rounds —
+      // content does not vary the allocator path being tested.
       final var payload = new byte[PCV2_LARGE_PAYLOAD_BYTES];
       for (var round = 0; round < ROUNDS; round++) {
         runPcv2AllocateNewPageRound(session, storage, pool, payload, round);
@@ -301,6 +347,15 @@ public class ProductionAllocatorConcurrencyMTTest {
    * class (and therefore a fresh data file and PCV2 instance) and spawns two threads
    * that each call {@code createRecord} with a payload sized to defeat the FSM
    * lookup; both then race the {@code allocateNewPage} branch.
+   *
+   * <p>Positive-evidence: each worker captures its returned
+   * {@code PhysicalPosition.collectionPosition} into a shared queue. After both
+   * workers complete the round, the test asserts the queue holds exactly two
+   * elements with distinct values. Each {@code createRecord} call with a payload
+   * larger than {@code CollectionPage.MAX_RECORD_SIZE} forces at least one new
+   * page to be allocated, so two distinct positions also imply at least two
+   * distinct new-page allocations have actually run — proof that the body did
+   * not collapse to a single observed allocation.
    */
   private void runPcv2AllocateNewPageRound(
       final DatabaseSessionEmbedded session,
@@ -316,18 +371,22 @@ public class ProductionAllocatorConcurrencyMTTest {
 
     final var barrier = new CyclicBarrier(2);
     final var errors = new ConcurrentLinkedQueue<Throwable>();
+    final var positions = new ConcurrentLinkedQueue<Long>();
     final List<Callable<Void>> workers = new ArrayList<>(2);
-    final var workerIdGen = new AtomicInteger();
     for (var w = 0; w < 2; w++) {
+      // Construction-order worker id (see runCpmv2AllocateRound).
+      final int workerId = w;
       workers.add(() -> {
-        final var workerId = workerIdGen.getAndIncrement();
         try {
           barrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
           // Each worker drives a createRecord in its own atomic op. createRecord
           // calls findNewPageToWrite → allocateNewPage when no FSM page fits;
-          // the 16 KiB payload ensures no FSM hit on a freshly-extended page.
-          storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-              op -> pcv2.createRecord(payload, (byte) 'd', null, op));
+          // the > MAX_RECORD_SIZE payload ensures no FSM hit on a freshly-extended
+          // page and forces a new-page allocation on every call.
+          final var allocated = storage.getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  op -> pcv2.createRecord(payload, (byte) 'd', null, op));
+          positions.add(allocated.collectionPosition);
         } catch (Throwable t) {
           errors.add(taggedFailure(round, workerId, t));
         }
@@ -342,42 +401,51 @@ public class ProductionAllocatorConcurrencyMTTest {
       throw buildAggregatedAssertionError(errors,
           "round " + round + ": concurrent PCV2.allocateNewPage must not raise");
     }
+    // Positive-evidence floor: both workers must have completed and produced
+    // distinct collection positions. With a > MAX_RECORD_SIZE payload, two
+    // distinct positions imply at least two new-page allocations actually ran.
+    assertThat(positions)
+        .as("round %d: each concurrent createRecord must produce a distinct "
+            + "collectionPosition", round)
+        .hasSize(2)
+        .doesNotHaveDuplicates();
   }
 
   // ---------------------------------------------------------------------------
-  // IndexHistogramManager flushSnapshotToPage vs writeSnapshotToPage concurrency pin
+  // IndexHistogramManager.buildHistogram concurrency pin
   // ---------------------------------------------------------------------------
 
   /**
-   * Two concurrent {@code IndexHistogramManager} dirty-flush call sites on the same
-   * index's IHM instance must both succeed. The {@code flushIfDirty(AtomicOperation)}
-   * overload calls {@code writeSnapshotToPage}; the no-arg {@code flushIfDirty()}
-   * calls {@code flushSnapshotToPage} through a dedicated atomic operation. Both
-   * methods acquire the same per-component exclusive lock via
-   * {@code acquireExclusiveLockTillOperationComplete}.
+   * Two concurrent {@code IndexHistogramManager.buildHistogram} call sites on the
+   * same index's IHM instance must both succeed. Both calls reach
+   * {@code writeSnapshotToPage} unconditionally (via the
+   * {@code nonNullCount < histogramMinSize} early-exit on an empty key stream),
+   * which acquires the per-component exclusive lock directly via
+   * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
    *
-   * <p>The lock matters when an HLL spill has put state on page 1: the page-1
-   * allocator (called from one method) and the page-1 loader (called from the other)
-   * would race for the same {@code (fileId, pageIndex)} without the lock. Driving the
-   * HLL-spill threshold deterministically from a session-level workload is fragile
-   * (the boundary is set at IHM construction from
-   * {@code QUERY_STATS_MAX_BOUNDARY_BYTES}); the page-1 discriminator branch itself
-   * is pinned at the unit level by the IHM spill-discriminator test sibling. The
-   * value of this MT test is the lock-acquisition contract on the
-   * {@code DIRTY_MUTATIONS}-driven flush race — a regression that dropped the lock
-   * would surface as concurrent invocations of {@code writeSnapshotToPage} and
-   * {@code flushSnapshotToPage} on the same IHM instance, both of which write page 0
-   * and would race the page-0 loader.
+   * <p>This surface is chosen over {@code flushIfDirty} because {@code flushIfDirty}
+   * gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet} that admits
+   * exactly one CAS-winner per round; the CAS-loser fast-returns without ever
+   * touching the per-component lock, so a same-instance two-thread race on
+   * {@code flushIfDirty} cannot pin the lock contract (the lock would simply not be
+   * contended). {@code buildHistogram} has no CAS gate — both threads enter
+   * {@code writeSnapshotToPage} on every call, and the lock is the only structural
+   * barrier serialising their page-0 (and optional page-1) accesses.
+   *
+   * <p>A regression that dropped the lock at {@code writeSnapshotToPage} (the
+   * {@code acquireExclusiveLockTillOperationComplete} call inside the method body)
+   * would surface as an {@code IllegalStateException} from the cache-layer fast-fail
+   * in {@code WOWCache.loadOrAdd} on the loser of the page-0 allocate-or-load race.
    */
   @Test
-  public void ihmFlushUnderSharedIndexToleratesConcurrentDirtyFlush() throws Exception {
+  public void ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds() throws Exception {
     final var pool = Executors.newFixedThreadPool(2);
     try (var session = youTrackDB.open(DB_NAME, "admin", "admin",
         YouTrackDBConfig.builder()
             .fromApacheConfiguration(makeConfigWithChecksumStoreAndThrow()).build())) {
       final var storage = (AbstractStorage) session.getStorage();
       for (var round = 0; round < ROUNDS; round++) {
-        runIhmFlushRound(session, storage, pool, round);
+        runIhmBuildHistogramRound(session, storage, pool, round);
       }
     } finally {
       pool.shutdownNow();
@@ -387,80 +455,77 @@ public class ProductionAllocatorConcurrencyMTTest {
   }
 
   /**
-   * Drives one round of the IHM flush race. Each round creates a fresh class with a
-   * UNIQUE index, inserts one row to put DIRTY_MUTATIONS &gt; 0 (so both flush
-   * branches actually enter the {@code writeSnapshotToPage} body rather than the CAS
-   * early-return), then spawns two threads — one calls {@code flushIfDirty(op)}, the
-   * other calls {@code flushIfDirty()} — racing for the same IHM instance under the
-   * per-component exclusive lock.
-   *
-   * <p>Note that {@code DIRTY_MUTATIONS} is a single counter and only one of the two
-   * concurrent threads will win the CAS to take the flush path; the other will fast-
-   * return. Both paths exercise the lock-acquisition decision (the no-arg path
-   * acquires through {@code executeInsideComponentOperation}, the with-op path
-   * acquires through the direct {@code acquireExclusiveLockTillOperationComplete}
-   * call inside {@code writeSnapshotToPage}). The lock pin is therefore valid even
-   * when the CAS picks a winner deterministically: a regression that dropped the
-   * lock on either path would still surface here as an {@code IllegalStateException}
-   * on the next round, when the winner thread on round {@code N} releases (or fails
-   * to release) the lock the round {@code N+1} CAS-winner needs.
+   * Drives one round of the IHM {@code buildHistogram} race. Each round creates a
+   * fresh class with a UNIQUE index (a fresh IHM instance per round, so round
+   * {@code N}'s allocator state is independent of round {@code N-1}'s), then spawns
+   * two threads that each call {@code buildHistogram} on the same IHM with an empty
+   * sorted-keys stream. The empty stream + {@code totalCount = 0} input drives the
+   * {@code nonNullCount < histogramMinSize} early-exit, which still calls
+   * {@code writeSnapshotToPage(op, snapshot)} — the exact production surface the
+   * per-component lock protects. Two empty streams suffice because the lock
+   * contract is independent of stream content; the goal is to pin the
+   * lock-acquisition site, not the histogram-construction logic.
    */
-  private void runIhmFlushRound(
+  private void runIhmBuildHistogramRound(
       final DatabaseSessionEmbedded session,
       final AbstractStorage storage, final ExecutorService pool, final int round)
       throws Exception {
-    final var className = "IhmFlush_" + round;
+    final var className = "IhmBuild_" + round;
     session.getMetadata().getSchema().createClass(className)
         .createProperty("name", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
-    // One insert dirties DIRTY_MUTATIONS via onPut so the flush methods actually
-    // enter writeSnapshotToPage instead of taking the CAS early-return.
-    session.executeInTx(tx -> {
-      var entity = tx.newEntity(className);
-      entity.setProperty("name", "name-round-" + round);
-    });
 
     final var ihm = resolveHistogramManagerByIndexName(session, className + ".name");
     assertThat(ihm)
         .as("round %d: index '%s.name' must expose a non-null IndexHistogramManager",
             round, className)
         .isNotNull();
+    final var keyFieldCount = ihm.getKeyFieldCount();
 
     final var barrier = new CyclicBarrier(2);
     final var errors = new ConcurrentLinkedQueue<Throwable>();
+    final var completions = new AtomicInteger();
     final List<Callable<Void>> workers = new ArrayList<>(2);
-    final var workerIdGen = new AtomicInteger();
-    // Worker 0: explicit-op overload → writeSnapshotToPage path.
-    workers.add(() -> {
-      final var workerId = workerIdGen.getAndIncrement();
-      try {
-        barrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-            op -> ihm.flushIfDirty(op));
-      } catch (Throwable t) {
-        errors.add(taggedFailure(round, workerId, t));
-      }
-      return null;
-    });
-    // Worker 1: no-arg overload → flushSnapshotToPage path (creates own op).
-    workers.add(() -> {
-      final var workerId = workerIdGen.getAndIncrement();
-      try {
-        barrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-        ihm.flushIfDirty();
-      } catch (Throwable t) {
-        errors.add(taggedFailure(round, workerId, t));
-      }
-      return null;
-    });
+    for (var w = 0; w < 2; w++) {
+      // Construction-order worker id (see runCpmv2AllocateRound).
+      final int workerId = w;
+      workers.add(() -> {
+        try {
+          barrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
+          // Each worker enters its own atomic op so the two buildHistogram calls
+          // genuinely contend at the per-component lock. The empty key stream +
+          // totalCount=0 drives the histogramMinSize early-exit, which still
+          // calls writeSnapshotToPage — the lock-acquiring surface this test
+          // pins.
+          storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+              op -> {
+                try (var emptyKeys = Stream.<Object>empty()) {
+                  ihm.buildHistogram(op, emptyKeys, /* totalCount */ 0L,
+                      /* nullCount */ 0L, keyFieldCount);
+                }
+              });
+          completions.incrementAndGet();
+        } catch (Throwable t) {
+          errors.add(taggedFailure(round, workerId, t));
+        }
+        return null;
+      });
+    }
     final var futures = pool.invokeAll(workers);
     for (final var future : futures) {
       future.get(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
     }
     if (!errors.isEmpty()) {
       throw buildAggregatedAssertionError(errors,
-          "round " + round + ": concurrent IHM flushIfDirty must not raise");
+          "round " + round + ": concurrent IHM.buildHistogram must not raise");
     }
+    // Positive-evidence floor: both workers must have completed their
+    // writeSnapshotToPage call (and therefore both acquired and released the
+    // per-component lock). A regression that bypassed the body silently would
+    // leave completions < 2 and surface here.
+    assertThat(completions.get())
+        .as("round %d: both buildHistogram workers must run to completion", round)
+        .isEqualTo(2);
   }
 
   // ---------------------------------------------------------------------------
@@ -501,9 +566,12 @@ public class ProductionAllocatorConcurrencyMTTest {
   /**
    * Locates the {@link IndexHistogramManager} owned by the BTree index engine backing
    * a named index. The path is: session → index → BTreeIndexEngine → histogramManager.
-   * Returns {@code null} if the index does not exist, is not backed by a BTree engine,
-   * or has no histogram manager attached (the latter happens for index types that
-   * skip histogram setup at wire-up).
+   * Returns {@code null} only when the index does not exist or is not backed by a BTree
+   * engine (a no-histogram-manager BTree returns the {@code null} attached on the engine
+   * itself). Any thrown exception from the engine-resolution call propagates as an
+   * {@link AssertionError} so a regression in the engine registry surfaces with the root
+   * cause chained, rather than collapsing into the generic {@code isNotNull()} failure
+   * the original swallowed-exception variant produced.
    */
   private static IndexHistogramManager resolveHistogramManagerByIndexName(
       final DatabaseSessionEmbedded session,
@@ -513,13 +581,16 @@ public class ProductionAllocatorConcurrencyMTTest {
       return null;
     }
     final var engineId = index.getIndexId();
+    final Object engine;
     try {
-      final var engine = ((AbstractStorage) session.getStorage()).getIndexEngine(engineId);
-      if (engine instanceof BTreeIndexEngine btree) {
-        return btree.getHistogramManager();
-      }
+      engine = ((AbstractStorage) session.getStorage()).getIndexEngine(engineId);
     } catch (final Exception e) {
-      return null;
+      throw new AssertionError(
+          "failed to resolve index engine for '" + indexName + "' (engineId=" + engineId + ")",
+          e);
+    }
+    if (engine instanceof BTreeIndexEngine btree) {
+      return btree.getHistogramManager();
     }
     return null;
   }
@@ -540,12 +611,22 @@ public class ProductionAllocatorConcurrencyMTTest {
    * and adds the remainder as suppressed exceptions. Mirrors the aggregator pattern
    * used by the {@code LoadOrAddPoisonCascadeRegressionTest} smoke test so a future
    * regression that surfaces here produces the same diagnostic shape in CI logs.
+   *
+   * <p>The error message renders the first failure's root cause inline (e.g.,
+   * {@code "...first failure: java.lang.RuntimeException: round 3 worker 1 raised
+   * caused by java.lang.IllegalStateException: Page 42:1 was allocated in other thread"})
+   * so the root exception class is visible in the surefire summary without walking the
+   * cause chain in a debugger. The {@code taggedFailure} wrapper hides the root type
+   * behind a {@code RuntimeException} in {@code toString}; rendering the cause restores
+   * the diagnostic.
    */
   private static AssertionError buildAggregatedAssertionError(
       final ConcurrentLinkedQueue<Throwable> errors, final String header) {
     final var first = errors.poll();
+    final var rootCause = first == null ? null : first.getCause();
+    final var causeSuffix = rootCause == null ? "" : " caused by " + rootCause;
     final var error = new AssertionError(
-        header + "; first failure: " + first, first);
+        header + "; first failure: " + first + causeSuffix, first);
     for (final var rest : errors) {
       error.addSuppressed(rest);
     }
