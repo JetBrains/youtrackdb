@@ -275,7 +275,7 @@ below without standalone refinement notes.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/7 complete)
+- [ ] Step implementation (2/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -347,8 +347,21 @@ below without standalone refinement notes.
   > `AllocatePageForWriteTest` for the two-thread race pattern;
   > `WOWCache.loadOrAdd` (already public method) for the white-box probe.
 
-- [ ] Step: `ChecksumMode.StoreAndThrow` matrix on existing CS1 scenarios plus zero-byte orphan helper
+- [x] Step: `ChecksumMode.StoreAndThrow` matrix on existing CS1 scenarios plus zero-byte orphan helper
+  - [x] Context: info
   > **Risk:** medium — test infrastructure (extends an existing IT with a new mode axis and a new fabrication shape)
+  >
+  > **What was done:** Extended `TruncateOrphansAfterRecoveryIT` with a 2-dimensional matrix over the four existing scenarios. Each scenario body extracted into a private `runXxxScenario` helper accepting `(ChecksumMode, OrphanFabricator)`; `makeConfigWithChecksumOff` replaced with `makeConfig(ChecksumMode)`. Added a zero-byte `OrphanFabricator` that extends the file via `RandomAccessFile.setLength` without writing magic bytes — the production-equivalent shape for "JVM crash after `AsyncFile.allocateSpace` but before `EnsurePageIsValidInFileTask` ran". Original 4 tests grew to 14 `@Test` methods: `.pcl`, `.cpm`, `.cbt` under `ChecksumMode.{Off, StoreAndThrow}` × `{magic-stamped, zero-byte}` fabrication (12 tests), plus clean-shutdown no-op under both modes (2 tests). All 14 pass under `-Dtest=TruncateOrphansAfterRecoveryIT` in 38 s; full `-P coverage` profile reports 89.3% line / 84.8% branch on changed production lines (no production changes, so the matrix value is regression detection).
+  >
+  > **What was discovered:** The Phase A iter-1 refinement framing ("recovery pass never reads orphan bodies pre-shrink") is empirically validated by the `StoreAndThrow` axis — under `StoreAndThrow`, an eager orphan-page load would surface as a `StorageException` from the CRC mismatch on a zero-byte page, but the suite passes, confirming `AbstractStorage.truncateOrphansAfterRecovery` + `StorageComponent.verifyAndTruncateOrphans` read only the EP page and dispatch a shrink that does not touch the tail. The `MAGIC_NUMBER_WITHOUT_CHECKSUM` stamp is accepted by `WOWCache.verifyMagicChecksumAndDecryptPage` without a CRC comparison (`WOWCache.java:3643-3650`), so the matrix value is regression detection. Note: `pcv2.verifyAndTruncateOrphans` dispatch covers both `.pcl` and `.cpm` via the siblings hook — the `.cpm` test pins the same orchestrator code path the `.pcl` test exercises, they are not independent dispatches.
+  >
+  > **What changed from the plan:** None. Implemented exactly the sibling-`@Test`-per-mode pattern the step prescribed, with the zero-byte fabrication helper as a second `OrphanFabricator` factory. Test names use a 2D coordinate shape `…Magic{Stamped|Zero}Byte…Under{ChecksumOff|StoreAndThrow}`.
+  >
+  > **Key files:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/TruncateOrphansAfterRecoveryIT.java` (modified, no production-code changes).
+  >
+  > **Critical context:** The private `OrphanFabricator` functional interface plus its two factory methods (`magicStampedOrphanFabricator`, `zeroByteOrphanFabricator`) are the intended hook for **Step 3** (SLBB `.bbt` and MV-engine `.nbt` scenarios) and **Step 7** (incremental-backup IT — the plan explicitly cites "the IT helper from the second step above" for the zero-byte fabricator). If a third IT outside this class reaches for the same shape, promote to a small package-private utility.
+
+
   >
   > **What:** Extend `TruncateOrphansAfterRecoveryIT` with a per-method
   > helper `runScenario(ChecksumMode mode, ...)` and add a sibling
