@@ -10,7 +10,7 @@ Adds `.claude/hooks/house-style-write-reminder.sh` wired into `.claude/settings.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-19T14:30Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-19T14:57Z [ctx=safe] Step 1 complete (commit cf3ea99f86)
@@ -18,6 +18,7 @@ Adds `.claude/hooks/house-style-write-reminder.sh` wired into `.claude/settings.
 - [x] 2026-05-19T15:09Z [ctx=safe] Step 3 complete (commit 9083e472c7)
 - [x] 2026-05-19T15:09Z [ctx=safe] Phase B complete (3 steps, 0 failed)
 - [x] 2026-05-19T16:08Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-19T16:11Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -32,6 +33,8 @@ Adds `.claude/hooks/house-style-write-reminder.sh` wired into `.claude/settings.
 - [x] Technical: PASS at iteration 2 (12 findings, 11 accepted, 1 rejected). Iter-1 produced 0 blockers / 6 should-fix / 6 suggestions. The orchestrator accepted T1–T7, T9–T12 and applied fixes (operation ordering, `session_id` fallback, mixed-tier concatenation, byte budget, normalization-before-blacklist, timing assertion at 3 s, apply-patch variant explicit, chmod 755 rationale, Component Map fix in `implementation-plan.md:55`). T8 (matcher anchoring) deferred to a header-comment note in the hook script because the hook's internal jq check already anchors the suffix via `test("^mcp__.+__steroid_apply_patch$")` per D4. Iter-2 gate-check verified every fix landed.
 - [x] Adversarial: PASS at iteration 2 (12 findings, 11 accepted, 1 rejected). Iter-1 produced 2 blockers + 6 should-fix + 4 suggestions. The orchestrator accepted A1–A9, A11–A12 and applied fixes (matcher-semantics probes in Step 2, captured fixtures, flock-wrapped critical section for A3 blocker, realpath-normalize-before-blacklist for A4 blocker, §1.5 section-name drift guard, 3-s test budget headroom, non-file-edit scope gap acknowledged, mixed-extension apply-patch coverage, byte budget, malformed-input fixtures). A10 (bash-vs-Python primitive) deferred to a header-comment note in the hook script — downstream-clean. Iter-2 gate-check verified both blockers (A3 + A4) closed and every other fix landed.
 - Risk: skipped (Track 2 is Moderate-3-step and lacks performance / durability / security characteristics; the complexity table mandates Technical + Adversarial only).
+- [x] Track-level code review iteration 1 — PASS. Fan-out spawned 4 workflow-review agents (consistency, context-budget, hook-safety, writing-style) per the workflow-only baseline-skip override. Iter-1 produced 0 blockers / 2 should-fix / 12 suggestion-or-recommended findings; orchestrator accepted 7 in-scope (M1-M7 covering plan-file stale phrase, hook lock-fd guard, four em-dash-discipline paragraphs, banned `X, not Y` analysis pattern, three minor filler trims, `§ 1.5`/`§1.5` spacing sweep, `H3 nested under` phrasing match) and DROPped 7 (WS1-WS3 episode 200-word section cap conflicts with `conventions-execution.md §2.2` structured-field contract; WH2 symlink concern applies equally to both branches; WH3/WH4 cosmetic/no-op). Implementer refined WH1 from the proposed `exec ... 2>/dev/null` form to a `test -w "$state_dir"` pre-check because bash prints redirection errors before stderr suppression can intercept them. Gate-check fan-out on the three affected dimensions returned VERIFIED across all 12 verdicts, 0 new findings. Commit `faaee9adba`.
+- [x] Track complete (1 review iteration, 0 plan corrections, 0 unfixed findings).
 
 ## Context and Orientation
 

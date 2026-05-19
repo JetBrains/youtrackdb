@@ -133,10 +133,15 @@ All three are ASPIRATIONAL — Track 2 implements them. Each maps to a testable 
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: PreToolUse hook + settings + tests
+- [x] Track 2: PreToolUse hook + settings + tests
   > Adds `.claude/hooks/house-style-write-reminder.sh` wired into `.claude/settings.json` under a `PreToolUse` matcher `Write|Edit|mcp__.+__steroid_apply_patch` (regex on the server-name segment so the hook fires regardless of how the MCP server is keyed in `~/.claude.json`). Implements extension-based tier matching (`*.md` → Tier A, `*.java|*.kt` → Tier B, else silent), per-session per-tier rate-limit, path blacklist for rule-source self-edits, apply-patch input parsing, and jq fallback. Adds Python tests under `.claude/scripts/tests/test_house_style_hook.py` covering tier matching, rate-limit semantics, apply-patch parsing, fallback paths.
-  > **Scope:** ~3 steps covering hook script, settings wiring + manual smoke, automated test file.
-  > **Depends on:** Track 1 (the hook's additionalContext text cites the new conventions.md section)
+  >
+  > **Track episode:**
+  > Landed the PreToolUse hook + settings wiring + three durable captured fixtures + a 17-case stand-alone Python validation runner. Hook keys per-session rate-limit state by the input JSON's `session_id` (not Claude pid) so `/clear` resets the throttle naturally; reminder bodies cite `conventions.md §1.5` and name the four Tier-B heading slugs from `house-style.md` verbatim, with `test_16_section_name_guard` standing in as a drift guard against future renames. Hook latency lands at 14-27 ms (5 s production timeout, 3 s test budget). Phase C surfaced one hook-safety guard the implementer refined (TMPDIR-non-writable + bash redirection-error stderr leak combination resolved via `test -w "$state_dir"` pre-check), four em-dash + one banned-pattern episode-prose fixes, and three minor consistency sweeps (`stat` mtime phrase removed from the plan, `§1.5` no-space form unified across CLAUDE.md / hook / tests, `H3 nested under` phrasing matched in both hook reminder and conventions.md tier table).
+  >
+  > **Cross-track impact for Tracks 3-5:** the new PreToolUse hook fires on every Write/Edit/apply_patch from `b44f421345` onward, so any prose-producing session writing Markdown will see the Tier-A reminder once at the first Markdown write of the session and stay silent thereafter; this is the designed cadence. Any new Tier-A pointer added in Tracks 3-5 should cite `conventions.md §1.5` using the no-space form (matches the M6 sweep) and reference the four heading slugs `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline` verbatim (matches the `test_16_section_name_guard` drift check).
+  >
+  > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
 
 - [ ] Track 3: Pointers in workflow prompts and review agents
   > One-line cross-references to `house-style.md` (and the Track 1 conventions.md anchor) in 10 workflow prompts (skip `design-review.md`, already verification-only per YTDB-836) and 18 prose-producing review agents (skip `review-workflow-writing-style.md`, already references house-style by name). Pointers cite the rule source and the tier that applies; no rule restatement.
