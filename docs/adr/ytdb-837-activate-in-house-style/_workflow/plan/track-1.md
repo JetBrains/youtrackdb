@@ -10,13 +10,14 @@ Adds the canonical § "Writing style for Markdown and prose artifacts" section t
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-05-19T13:33Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-19T13:42Z [ctx=safe] Step 1 complete (commit 9ca6e8e78e)
 - [x] 2026-05-19T13:46Z [ctx=safe] Step 2 complete (commit dbfbfb83b5)
 - [x] 2026-05-19T13:46Z [ctx=safe] Step implementation complete
 - [x] 2026-05-19T14:01Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-19T14:02Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -37,6 +38,7 @@ summary at Phase C. -->
 - [x] Technical: PASS at iteration 2 (4 findings, 3 accepted, 1 deferred). T1/T2 reworded §1.4 shape claim + dropped misattributed §1.2 token-cap citation; T3 folded into T1 (H3-nesting hint for `Em-dash discipline`); T4 deferred — cosmetic phrasing alignment between Track 1's Downstream description ("relative path + anchor") and Tracks 3-5's Upstream wording ("section heading") to be cleaned up opportunistically if those tracks amend the relevant text during their own Phase A.
 - Risk: skipped (Track 1 is Simple, 1-2 steps; complexity table mandates Technical only).
 - Adversarial: skipped (same reason).
+- [x] Track-level code review: PASS at iteration 1. Launched 4 workflow-review dimensions (consistency, instruction-completeness, context-budget, writing-style) per the workflow-only override; synthesised 7 findings (M1-M7); applied 6 fixes via `Review fix:` commit 2db33db648 (M1 added a non-Markdown row to the §1.5 tier table; M2 swapped one em dash for a semicolon in Step 2; M3 appended the rename-locator grep recipe to §1.5; M4 replaced "markdown link checker pass" with a concrete grep recipe; M5 corrected the Step 1 acceptance grep to match the `1.5 ` prefix; M6 dropped the redundant banned-section enumeration from CLAUDE.md). M7 (CLAUDE.md bullet split) was already satisfied. All 4 gate-checks PASS. No plan corrections.
 
 ## Context and Orientation
 
