@@ -53,6 +53,19 @@
 # by the host's /tmp aging policy; the per-`session_id` keying also
 # ensures one zero-byte/few-bytes pair per logical session, not per
 # tool invocation.
+#
+# Fail-silent guards already cover: missing/empty `session_id` (falls
+# back to `$$`), missing `tool_input.file_path`, empty `hunks: []`,
+# non-JSON stdin, jq absent (Python fallback), GNU `realpath -m`
+# absent (Python fallback), state-file read failure, `flock`-busy
+# (lock holder will emit), and `flock` binary absent (race accepted
+# at most one duplicate reminder). A non-writable `${TMPDIR:-/tmp}`
+# would normally turn the fd-open at the lock-acquisition step into a
+# fatal bash redirection error that also prints to stderr before any
+# `2>/dev/null` on `exec` itself can suppress it; the hook therefore
+# probes `test -w "$state_dir"` before the `exec 9>"$lock_file"`,
+# exits 0 on the miss, and that branch joins the silent-no-op list
+# with no stderr leak.
 
 set -uo pipefail
 
@@ -246,7 +259,7 @@ lock_file="${state_dir}/house-style-reminder-${session_id}.lock"
 # text silently rots.
 tier_a_body='House style applies to this Markdown surface. See .claude/workflow/conventions.md §1.5 *Writing style for Markdown and prose artifacts* (canonical anchor) and the rule source at .claude/output-styles/house-style.md — BLUF lead, banned vocabulary, banned sentence patterns, banned analysis patterns, punctuation and typography, structural rules, document-shape rules.'
 
-tier_b_body='House style AI-tell subset applies to code comments and Javadoc on this Java/Kotlin surface. See .claude/workflow/conventions.md §1.5 and the four sections in .claude/output-styles/house-style.md: § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline (H3 under § Punctuation and typography).'
+tier_b_body='House style AI-tell subset applies to code comments and Javadoc on this Java/Kotlin surface. See .claude/workflow/conventions.md §1.5 and the four sections in .claude/output-styles/house-style.md: § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline (H3 nested under § Punctuation and typography).'
 
 emit_reminder() {
   local fired_a="$1"
@@ -313,6 +326,17 @@ run_critical_section() {
 # accept the race; the failure mode is at most one duplicate reminder,
 # never blocking the underlying tool call.
 if command -v flock >/dev/null 2>&1; then
+  # Guard the fd-open against non-writable ${TMPDIR}: bash prints the
+  # redirection error before `2>/dev/null` on `exec` itself can
+  # suppress it, so probe the lock-dir writability first via
+  # `test -w` (silent on failure) and skip the lock-and-emit path on
+  # any miss. Exit 0 keeps the never-block-tool-execution contract
+  # intact in restricted sandboxes (read-only TMPDIR, custom TMPDIR
+  # override pointing at a missing directory, etc.) and the
+  # test -w probe leaves no stderr noise behind.
+  if [ ! -w "$state_dir" ]; then
+    exit 0
+  fi
   exec 9>"$lock_file"
   if flock -n 9; then
     run_critical_section

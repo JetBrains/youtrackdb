@@ -97,7 +97,7 @@ The default LLM register is verbose, hedging, list-heavy, and full of "AI tells"
 - **Commit message bodies** — durable git history; the imperative subject line stays terse, the body uses house-style prose.
 - **YouTrack issue bodies** created via the YouTrack MCP tools.
 
-The broader scope (all Markdown files plus the three non-Markdown surfaces above) mirrors the tier mapping in `.claude/workflow/conventions.md § 1.5 Writing style for Markdown and prose artifacts`, which is the canonical anchor every workflow prompt, review agent, implementer file, and orchestrator file cross-references. Java and Kotlin source files get only the AI-tell subset at code-comment scale; see the conventions.md tier table for the specific sections that apply.
+The broader scope (all Markdown files plus the three non-Markdown surfaces above) mirrors the tier mapping in `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts`, which is the canonical anchor every workflow prompt, review agent, implementer file, and orchestrator file cross-references. Java and Kotlin source files get only the AI-tell subset at code-comment scale; see the conventions.md tier table for the specific sections that apply.
 
 The output style is **mandatory style guidance for these artifacts, not optional**. Apply its rules (BLUF lead, banned-vocabulary list, em-dash cap, 200-word section cap, repo-anchored voice) whether or not the user has activated the style with `/output-style`. Read the file once at the start of any session that will produce documents in those paths; treat its self-check list as a pre-return checklist for every draft.
 
