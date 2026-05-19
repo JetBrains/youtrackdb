@@ -1,17 +1,18 @@
 # Track 3: Pointers in workflow prompts and review agents
 
 ## Purpose / Big Picture
-After this track lands, every prose-producing workflow prompt (10 of 11) and every prose-producing review agent (18 of 19) carries a one-line cross-reference to `.claude/output-styles/house-style.md` via the Track 1 conventions.md anchor.
+After this track lands, every prose-producing workflow prompt (10 of 11) and every prose-producing review agent (18 of 19) carries a single citation paragraph cross-referencing `.claude/output-styles/house-style.md` via the Track 1 conventions.md §1.5 anchor.
 
 <!-- Reserved for Move 2. -->
 
-One-line cross-references to `house-style.md` (and the Track 1 conventions.md anchor) in 10 workflow prompts (skip `design-review.md`, already verification-only per YTDB-836) and 18 prose-producing review agents (skip `review-workflow-writing-style.md`, already references house-style by name). Pointers cite the rule source and the tier that applies; no rule restatement.
+Single citation paragraphs cross-referencing `house-style.md` (and the Track 1 conventions.md §1.5 anchor) in 10 workflow prompts (skip `design-review.md`, already verification-only per YTDB-836) and 18 prose-producing review agents (skip `review-workflow-writing-style.md`, already references house-style by name). Pointers name the rule source, the canonical workflow anchor, and the four banned-section heading slugs verbatim; no rule restatement.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-19T16:28Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Empty at Phase 1. -->
@@ -22,11 +23,11 @@ One-line cross-references to `house-style.md` (and the Track 1 conventions.md an
 <!-- Reserved for Move 1. -->
 
 ## Outcomes & Retrospective
-<!-- Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 1 (4 findings, 4 accepted)
 
 ## Context and Orientation
 
-The workflow surface this track touches is large in file count but small in per-file edit size — every file gets one paragraph (or one inline line) added near the top, referencing the Track 1 conventions.md section and the relevant tier.
+The workflow surface this track touches is large in file count but small in per-file edit size — every in-scope file gets one citation paragraph added near the top, referencing the Track 1 conventions.md §1.5 anchor and naming the four banned-section heading slugs verbatim.
 
 Workflow prompts under `.claude/workflow/prompts/` (11 total):
 - `adversarial-review.md` — devil's-advocate Phase A review; produces findings prose; needs Tier-A pointer (the report lands in the working directory).
@@ -50,42 +51,93 @@ Review agents under `.claude/agents/` (19 total):
 - `review-workflow-writing-style.md` — **already names house-style by name** (lines 7-13 of the file read in research); **skip**.
 - `test-quality-reviewer.md` — Tier-A.
 
-Pointer wording (template): one line near the top of the file (after the frontmatter, before the body's first heading) reading roughly:
+Pointer wording (template): one paragraph inserted near the top of each file's body (per-family anchor below in §Plan of Work), reading verbatim:
 
-> "When this agent writes prose (findings reports, gate-verdict prose, durable artifact bodies), it follows the project house-style at `.claude/output-styles/house-style.md`; see also `.claude/workflow/conventions.md § Writing style for Markdown and prose artifacts` for the canonical workflow-level pointer and the tier mapping."
+> Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
-The exact wording is settled during Phase A; the goal is one line, citation-only, no rule restatement.
+The wording is byte-identical across all 28 in-scope files (same `new_string` for every `steroid_apply_patch` hunk), so a single pointer-specific substring drives the §Validation audit grep. The four heading slugs named verbatim align this pointer with the Track 2 reminder bodies and the `test_16_section_name_guard` drift check in `.claude/scripts/tests/test_house_style_hook.py`.
 
 ## Plan of Work
 
-The track delivers in two steps, by file family:
+The track delivers in two steps, by file family. Insertion anchors differ because the families have different file-shape conventions.
 
-Step 1 — Add pointers to the 10 workflow prompts. Use `steroid_apply_patch` (multi-site literal-text patch) since the same one-paragraph insertion lands at the same logical position in every file (top of body, after frontmatter where present). Verify the exact wording against the Track 1 conventions.md anchor before patching.
+**Step 1 — workflow prompts (10 files):** None of these files has YAML frontmatter; they open with an orientation paragraph. The insertion anchor is the closing line of the file's opening orientation paragraph plus the following blank line — the pointer paragraph lands immediately after the file's BLUF lead and before the next paragraph or first `## ` heading.
 
-Step 2 — Add pointers to the 18 review agents. Same approach — `steroid_apply_patch` for the multi-site insertion. Skip `review-workflow-writing-style.md` (already done).
+**Step 2 — review agents (18 files):** All review agents have YAML frontmatter. The insertion anchor is the closing `---` line of the frontmatter plus the line that follows (the latter making the per-file `old_string` unique). The pointer paragraph lands as a new blank-separated paragraph between them, strictly below the closing `---` so the frontmatter block stays intact.
 
-Ordering constraints: Track 1 must be complete (the pointer text cites the new conventions.md section heading verbatim). Tracks 2, 4, 5 are independent and may interleave.
+Both steps use `steroid_apply_patch` (one call per step, N hunks per call where N is the file count in that family) per `.claude/workflow/conventions.md §1.4 *Tooling discipline* → "Other mcp-steroid routes"`. The same `new_string` (pointer paragraph from §Context) is appended at every site; only the per-file `old_string` anchor differs.
 
-Invariants to preserve: every file's existing frontmatter (`---` block) stays intact and the YAML stays valid. The pointer paragraph never lands above the frontmatter. No file gets more than one pointer paragraph.
+Ordering constraints: Track 1 must be complete (the pointer text cites the §1.5 heading verbatim and names the four banned-section heading slugs). Tracks 2, 4, 5 are independent and may interleave.
+
+Invariants to preserve: every review-agent file's existing YAML frontmatter (`---` block) stays intact, with exactly one opening and one closing `---` line; YAML keys `name`, `description`, and `model` stay byte-identical. The pointer paragraph never lands above or inside the frontmatter. No file (prompt or agent) gets more than one pointer paragraph.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. Insert the §Context pointer paragraph into the 10 in-scope workflow prompts under `.claude/workflow/prompts/` via a single `steroid_apply_patch` call (10 hunks; one per file). Anchor each hunk on the closing line of the file's opening orientation paragraph plus the following blank line; append the pointer paragraph and a blank line. Run the §Validation greps after the patch lands and confirm 10 in-scope prompts contain the canonical substring and the two skipped files are untouched. — risk: low (default: pure documentation insertion; no semantic change)  [ ]
+2. Insert the §Context pointer paragraph into the 18 in-scope review agents under `.claude/agents/` via a single `steroid_apply_patch` call (18 hunks; one per file). Anchor each hunk on the closing `---` line of the frontmatter plus the line that follows; insert the pointer paragraph between them, blank-separated. Run the §Validation greps and the §Idempotence and Recovery frontmatter-integrity check after the patch lands; expect 28 total pointer hits (including Step 1) and `2` for each agent's `awk` count. — risk: low (default: pure documentation insertion; frontmatter integrity preserved by anchoring strictly below the closing `---`)  [ ]
 
 ## Episodes
 <!-- Empty at Phase 1. -->
 
 ## Validation and Acceptance
 
-- Every prompt in scope and every review agent in scope contains the canonical house-style pointer, verified by searching for a stable pointer-specific substring (e.g., `conventions.md § Writing style for Markdown and prose artifacts` — Phase A settles the exact substring) rather than the bare path `house-style` (which already appears incidentally in some in-scope files such as `agents/review-workflow-consistency.md:72`, and would false-positive the audit). The grep returns empty across the in-scope file set, per YTDB-837 acceptance bullet 3.
-- The pointer wording is identical across files (modulo agent / prompt naming) so a future audit can use a stable substring search.
-- The skipped files (`design-review.md`, `review-workflow-writing-style.md`) already contain a house-style reference, verified by `grep -l 'house-style' <those-files>` returning both paths.
-
-<!-- Phase A placeholder. -->
+- Every in-scope workflow prompt (10) and every in-scope review agent (18) carries the canonical pointer paragraph, verified by searching for the pointer-specific substring `conventions.md §1.5 Writing style for Markdown and prose artifacts`. Run `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/prompts/*.md .claude/agents/*.md | wc -l` and expect `28`. The bare substring `house-style` is NOT used as the audit token because it incidentally appears in `.claude/agents/review-workflow-consistency.md:72`; the §1.5-anchored substring sidesteps the collision.
+- The pointer wording is byte-identical across all 28 in-scope files (one `new_string` per `steroid_apply_patch` hunk).
+- The two explicitly skipped files (`.claude/workflow/prompts/design-review.md`, `.claude/agents/review-workflow-writing-style.md`) still self-reference house-style, verified by `grep -l 'house-style' .claude/workflow/prompts/design-review.md .claude/agents/review-workflow-writing-style.md` returning both paths.
+- For each in-scope review agent, the YAML frontmatter remains intact with exactly one opening and one closing `---` line. Run for every agent file: `awk '/^---$/{c++} END{print c}' <agent>` and expect `2`. A file returning anything other than `2` indicates a malformed insertion and must be repaired before Phase B closes.
 
 <!-- Reserved for Move 3. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+
+Both steps are atomic via `steroid_apply_patch` — if any single hunk's `old_string` fails pre-flight validation, no edits land. On failure, fix the failing hunk's anchor (typically a stale `old_string` from a file that was edited between research and execution) and re-run the patch.
+
+Re-runnable audit (paste into terminal to verify track state at any time):
+
+```bash
+# 1. Pointer presence across the 28 in-scope files (expect 28):
+grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' \
+  .claude/workflow/prompts/adversarial-review.md \
+  .claude/workflow/prompts/consistency-gate-verification.md \
+  .claude/workflow/prompts/consistency-review.md \
+  .claude/workflow/prompts/create-final-design.md \
+  .claude/workflow/prompts/dimensional-review-gate-check.md \
+  .claude/workflow/prompts/review-gate-verification.md \
+  .claude/workflow/prompts/risk-review.md \
+  .claude/workflow/prompts/structural-gate-verification.md \
+  .claude/workflow/prompts/structural-review.md \
+  .claude/workflow/prompts/technical-review.md \
+  .claude/agents/code-reviewer.md \
+  .claude/agents/pr-reviewer.md \
+  .claude/agents/review-bugs-concurrency.md \
+  .claude/agents/review-code-quality.md \
+  .claude/agents/review-crash-safety.md \
+  .claude/agents/review-performance.md \
+  .claude/agents/review-security.md \
+  .claude/agents/review-test-behavior.md \
+  .claude/agents/review-test-completeness.md \
+  .claude/agents/review-test-concurrency.md \
+  .claude/agents/review-test-crash-safety.md \
+  .claude/agents/review-test-structure.md \
+  .claude/agents/review-workflow-consistency.md \
+  .claude/agents/review-workflow-context-budget.md \
+  .claude/agents/review-workflow-hook-safety.md \
+  .claude/agents/review-workflow-instruction-completeness.md \
+  .claude/agents/review-workflow-prompt-design.md \
+  .claude/agents/test-quality-reviewer.md | wc -l
+
+# 2. Skipped files still self-reference house-style (expect both paths):
+grep -l 'house-style' \
+  .claude/workflow/prompts/design-review.md \
+  .claude/agents/review-workflow-writing-style.md
+
+# 3. Per-agent frontmatter integrity (expect '2' for each in-scope agent):
+for f in .claude/agents/{code-reviewer,pr-reviewer,review-bugs-concurrency,review-code-quality,review-crash-safety,review-performance,review-security,review-test-behavior,review-test-completeness,review-test-concurrency,review-test-crash-safety,review-test-structure,review-workflow-consistency,review-workflow-context-budget,review-workflow-hook-safety,review-workflow-instruction-completeness,review-workflow-prompt-design,test-quality-reviewer}.md; do
+  printf '%s: ' "$f"; awk '/^---$/{c++} END{print c}' "$f"
+done
+```
+
+These audits run identically on a fresh clone and on a partially-applied track, so a partial Step 1 / Step 2 commit is recoverable: re-run the failed step's patch with the surviving anchors and re-audit.
 
 ## Artifacts and Notes
 <!-- Empty at Phase 1. -->
