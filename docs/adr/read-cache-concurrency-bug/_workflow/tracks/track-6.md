@@ -275,7 +275,7 @@ below without standalone refinement notes.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/7 complete)
+- [ ] Step implementation (4/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -412,8 +412,21 @@ below without standalone refinement notes.
   > (extend); reference `BTreeMultiValueIndexEngine` for the wrapper's
   > svTree + nullTree dispatch and the null-bucket file extension.
 
-- [ ] Step: IHM HLL-spill discriminator unit test plus fabrication-style recovery IT
+- [x] Step: IHM HLL-spill discriminator unit test plus fabrication-style recovery IT
+  - [x] Context: safe
   > **Risk:** medium — test infrastructure plus crash-recovery semantics (no live concurrency; static orphan setup)
+  >
+  > **What was done:** Added two new test classes under `core/src/test/.../core/index/engine/` pinning the `IndexHistogramManager` HLL-spill page-1 discriminator. The unit test `IndexHistogramManagerSpillDiscriminatorTest` (6 `@Test` methods) drives both `writeSnapshotToPage` (via public `flushIfDirty(AtomicOperation)`) and the private `flushSnapshotToPage` (via no-arg `flushIfDirty()` with stubbed `AtomicOperationsManager.executeInsideAtomicOperation` + `executeInsideComponentOperation`) along the `op.filledUpTo > 1` branch with a mocked `AtomicOperation` and real `ByteBufferPool`-backed `CacheEntry`s so the real `HistogramStatsPage.writeSnapshot` and `writeHllToPage1` byte writes execute. `Mockito.verify` confirms which page-1 method fires (`loadPageForWrite` vs `allocatePageForWrite`). The IT `IndexHistogramSpillRecoveryIT` mirrors `TruncateOrphansAfterRecoveryIT`'s fabrication pattern: opens disk storage under `ChecksumMode.StoreAndThrow`, creates a NOTUNIQUE String index, populates 500 rows, ANALYZEs to materialize `.ixs`, closes cleanly, magic-stamps one orphan page on `.ixs`, reopens + inserts + ANALYZEs again, asserts no `IllegalStateException`.
+  >
+  > **What was discovered:** (1) The IHM `.ixs` file is excluded from Track 7's recovery-time orphan-truncation pass (EP-less component), so a fabricated orphan page persists across reopen and the post-recovery `filledUpTo(fileId) > 1` contract is permanent on that file — this is the structural property the IT leverages, mirroring the plan's Non-Goals position that "EP-less components and `IndexHistogramManager` deliberately excluded". (2) `AtomicOperation.loadPageForWrite` uses `(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)` — the `pageCount` slot is `int`, not `long`, so Mockito `verify`/stubs must use `anyInt()` / `eq(1)` not `anyLong()` / `eq(1L)`; the initial draft used `anyLong()` and produced a compile error. (3) `CacheEntryImpl` and `CachePointer` take `int pageIndex`, even though the `AtomicOperation` surface and `StorageComponent` helpers consistently use `long pageIndex` — the conversion happens at the cache-construction boundary. (4) `HistogramStatsPage.writeSnapshot` needs a real buffer to avoid NPE on `setIntValue` / `setBinaryValue`, so the unit test allocates real `ByteBufferPool`-backed pages rather than pure Mockito mocks; this pattern was already canonical in `HistogramStatsPageHllSpillTest` and is reused here. (5) `flushSnapshotToPage`'s body is wrapped in BOTH `executeInsideAtomicOperation` AND `executeInsideComponentOperation` — the initial single-layer stub left the locked-op consumer unrun and Mockito reported "zero interactions with this mock"; the fix stubs both layers. (6) Cross-track forward-looking note: if a future track adds an EP / EP-like metadata page to IHM (today the plan's Non-Goals deliberately excludes IHM from the recovery-time truncation pass), the IT's fabrication assumption would break — the orphan page would be truncated on reopen, post-reopen `filledUpTo` would return 1, and the discriminator's existing-page arm would no longer be exercised. The IT should be reconsidered alongside any such change.
+  >
+  > **What changed from the plan:** None structural. The IT's "drives a follow-up spill" framing in the step description is interpreted as "the follow-up flush exercises the same `writeSnapshotToPage` body whose discriminator branch is the load-bearing surface"; deterministic `hllOnPage1=true` triggering at the session level would require very specific `MAX_BOUNDARY_BYTES` + bucket configuration and is not necessary because the unit test pins the branch logic directly — the IT's value is the end-to-end lifecycle (open + flush + close + reopen + flush) under a fabricated post-recovery file-size shape and `StoreAndThrow` checksum mode.
+  >
+  > **Key files:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManagerSpillDiscriminatorTest.java` (new — 6 `@Test` methods); `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramSpillRecoveryIT.java` (new — fabrication-style recovery IT under `ChecksumMode.StoreAndThrow`).
+  >
+  > **Critical context:** Cross-step signals for the remaining Track 6 steps and Phase C reviewers: (a) The IHM page-1 discriminator at `IndexHistogramManager.java:1928` (write-path) and `:1997` (flush-path) is now pinned at both the unit and IT level; Step 5 (I4 production hot-path MT pins) does NOT need to re-cover the spill path — it should focus on the same-instance two-TX races on `CollectionPositionMapV2.allocate`, `PaginatedCollectionV2.allocateNewPage`, and `IndexHistogramManager` `flushSnapshotToPage` vs `writeSnapshotToPage` per the original step description. (b) The `ByteBufferPool` + `CacheEntryImpl` real-buffer pattern (from `HistogramStatsPageHllSpillTest`, reused here) is the canonical way to unit-test methods that read/write page bytes without a full storage fixture; future tests that need to verify the contents of a page on a mocked `AtomicOperation` should follow the same pattern. (c) The IT uses `ChecksumMode.StoreAndThrow`, mirroring `TruncateOrphansAfterRecoveryIT`'s matrix axis — if a future change introduces an eager orphan-page read on the IHM open path, this IT would surface a checksum-mismatch `StorageException` under `StoreAndThrow` rather than silently passing.
+
+
   >
   > **What:** Two test classes. **Unit:**
   > `IndexHistogramManagerSpillDiscriminatorTest` mocks
