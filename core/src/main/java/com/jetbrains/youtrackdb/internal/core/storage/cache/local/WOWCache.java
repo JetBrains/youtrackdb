@@ -1971,12 +1971,20 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       final var entry = files.acquire(fileId);
-      // Defensive: files.acquire returns null when the entry is missing or already
-      // retired. Mirrors renameFile's defensive shape (see :1992-1996); a future
-      // recovery-flow refactor that dispatches shrinkFile on stale fileIds discovered
-      // through component iteration could otherwise NPE on entry.get() below.
+      // shrinkFile is only invoked by the recovery-time orphan-truncation orchestrator,
+      // which iterates already-open components. A null entry here means the orchestrator
+      // dispatched against a fileId that is no longer open — a contract violation worth
+      // signalling loudly rather than silently no-op'ing. The orchestrator (in
+      // AbstractStorage.truncateOrphansAfterRecovery) wraps each dispatch in a try/catch
+      // that absorbs StorageException with a WARN log so a single corrupted component
+      // does not poison recovery for the rest of the storage.
       if (entry == null) {
-        return;
+        throw new StorageException(
+            storageName,
+            "shrinkFile invoked on fileId="
+                + intId
+                + " but no file entry is open — recovery orchestrator must guarantee the"
+                + " file is open before dispatching orphan truncation");
       }
       try {
         final var file = entry.get();
@@ -1995,7 +2003,7 @@ public final class WOWCache extends AbstractWriteCache
         // (they belong to file regions the truncate does NOT drop and need to
         // survive the next periodic flush).
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
-        removeCachedPagesAtLeast(intId, minPageIndex);
+        removeCachedPages(intId, minPageIndex);
         file.shrink(targetBytes);
       } finally {
         files.release(entry);
@@ -3320,34 +3328,31 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * "Drop every {@code writeCachePages} dirty entry for this fileId" delegate. Forwards to
+   * the range-scoped overload with {@code minPageIndex = 0}, which matches every page index.
+   */
   private void removeCachedPages(final int fileId) {
-    final var future = commitExecutor().submit(new RemoveFilePagesTask(this, fileId));
-    try {
-      future.get();
-    } catch (final java.lang.InterruptedException e) {
-      throw BaseException.wrapException(
-          new ThreadInterruptedException("File data removal was interrupted"), e, storageName);
-    } catch (final Exception e) {
-      throw BaseException.wrapException(
-          new WriteCacheException(storageName, "File data removal was abnormally terminated"), e,
-          storageName);
-    }
+    removeCachedPages(fileId, 0);
   }
 
   /**
-   * Range-scoped sibling of {@link #removeCachedPages(int)}: drops only the
-   * {@code writeCachePages} entries at {@code pageIndex >= minPageIndex} for the given file.
-   * Routed through the commit executor for the same reason as
-   * {@link #removeCachedPages(int)} — the periodic-flush task runs on that single-threaded
-   * FIFO, so dispatching the purge there orders it cleanly against any in-flight flush.
+   * Drops the {@code writeCachePages} entries at {@code pageIndex >= minPageIndex} for the
+   * given file via {@link RemoveFilePagesTask} on the single-threaded commit executor.
+   * Routing through the commit executor matters because the periodic-flush task runs on the
+   * same executor, so dispatching the purge there orders it cleanly against any in-flight
+   * flush.
    *
-   * <p>The bulk variant is inappropriate for the orphan-truncation use case: dirty entries
-   * at {@code pageIndex < minPageIndex} belong to file regions the truncate does NOT drop
-   * and must survive the next periodic flush.
+   * <p>With {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the
+   * shape used by {@code closeFile} / {@code truncateFile} / {@code deleteFile}. With a
+   * positive {@code minPageIndex} the entries below the minimum survive — the shape used by
+   * {@link #shrinkFile(long, long)} for the recovery-time orphan-truncation pass (those
+   * entries belong to file regions the truncate does NOT drop and must survive the next
+   * periodic flush).
    */
-  private void removeCachedPagesAtLeast(final int fileId, final int minPageIndex) {
+  private void removeCachedPages(final int fileId, final int minPageIndex) {
     final var future =
-        commitExecutor().submit(new RemoveFilePagesAtLeastTask(this, fileId, minPageIndex));
+        commitExecutor().submit(new RemoveFilePagesTask(this, fileId, minPageIndex));
     try {
       future.get();
     } catch (final java.lang.InterruptedException e) {
@@ -3643,58 +3648,17 @@ public final class WOWCache extends AbstractWriteCache
     doubleWriteLog.truncate();
   }
 
-  void doRemoveCachePages(int internalFileId) {
-    final var entryIterator =
-        writeCachePages.entrySet().iterator();
-    while (entryIterator.hasNext()) {
-      final var entry = entryIterator.next();
-      final var pageKey = entry.getKey();
-
-      if (pageKey.fileId == internalFileId) {
-        final var pagePointer = entry.getValue();
-        final var groupLock = lockManager.acquireExclusiveLock(pageKey);
-        try {
-          long exclusiveStamp = pagePointer.acquireExclusiveLock();
-          try {
-            pagePointer.setWritersListener(null);
-            writeCacheSize.decrementAndGet();
-
-            removeFromDirtyPages(pageKey);
-          } finally {
-            pagePointer.releaseExclusiveLock(exclusiveStamp);
-          }
-
-          // Decrement writers referrer AFTER releasing the exclusive lock.
-          // decrementWritersReferrer() → decrementReferrer() may call
-          // pageFramePool.release() which acquires the same PageFrame's
-          // exclusive lock. StampedLock is non-reentrant, so calling this
-          // under the exclusive lock would deadlock.
-          // The group lock (lockManager) is still held, preventing concurrent
-          // modifications to this page key.
-          pagePointer.decrementWritersReferrer();
-
-          entryIterator.remove();
-        } finally {
-          groupLock.unlock();
-        }
-      }
-    }
-  }
-
   /**
-   * Range-scoped sibling of {@link #doRemoveCachePages(int)}: removes every
-   * {@code writeCachePages} entry whose {@code pageKey} matches
-   * {@code (fileId == internalFileId && pageIndex >= minPageIndex)}. Mirrors the
-   * lock-ordering, exclusive-lock + decrementWritersReferrer-after-release, and
-   * dirty-page-table cleanup of the bulk variant; only the match predicate differs.
-   *
-   * <p>Entries at {@code pageIndex < minPageIndex} are left untouched. The recovery-time
-   * orphan-truncation pass uses this primitive so dirty pages below the truncate target
-   * survive (they belong to file regions the truncate does NOT drop and must be
-   * persisted by the next periodic flush), while pages at or past the target are
-   * dropped before the underlying file shrink runs.
+   * Removes every {@code writeCachePages} entry whose {@code pageKey} matches
+   * {@code (fileId == internalFileId && pageIndex >= minPageIndex)}. With
+   * {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the shape
+   * used by {@code closeFile} / {@code truncateFile} / {@code deleteFile}. With a positive
+   * {@code minPageIndex} the dirty pages below the truncate target survive (they belong to
+   * file regions the truncate does NOT drop and must be persisted by the next periodic
+   * flush), while pages at or past the target are dropped before the underlying file
+   * shrink runs.
    */
-  void doRemoveCachePagesAtLeast(int internalFileId, int minPageIndex) {
+  void doRemoveCachePages(int internalFileId, int minPageIndex) {
     final var entryIterator =
         writeCachePages.entrySet().iterator();
     while (entryIterator.hasNext()) {
@@ -3715,9 +3679,13 @@ public final class WOWCache extends AbstractWriteCache
             pagePointer.releaseExclusiveLock(exclusiveStamp);
           }
 
-          // See doRemoveCachePages for why decrementWritersReferrer must run AFTER
-          // releasing the page-pointer's exclusive lock but BEFORE releasing the
-          // group lock (StampedLock non-reentrancy + pageFramePool.release locking).
+          // Decrement writers referrer AFTER releasing the exclusive lock.
+          // decrementWritersReferrer() → decrementReferrer() may call
+          // pageFramePool.release() which acquires the same PageFrame's
+          // exclusive lock. StampedLock is non-reentrant, so calling this
+          // under the exclusive lock would deadlock.
+          // The group lock (lockManager) is still held, preventing concurrent
+          // modifications to this page key.
           pagePointer.decrementWritersReferrer();
 
           entryIterator.remove();
@@ -4893,7 +4861,7 @@ public final class WOWCache extends AbstractWriteCache
     final var internalFileId = extractFileId(externalFileId);
     final var fileId = composeFileId(id, internalFileId);
 
-    doRemoveCachePages(internalFileId);
+    doRemoveCachePages(internalFileId, 0);
 
     final var fileClassic = files.remove(fileId);
 

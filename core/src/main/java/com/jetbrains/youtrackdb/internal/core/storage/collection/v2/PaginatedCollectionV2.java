@@ -365,11 +365,19 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             fileId = openFile(atomicOperation, getFullName());
             collectionPositionMap.open(atomicOperation);
 
-            // Load the persistent approximate records count into the volatile field.
+            // Load the persistent approximate records count AND the logical data-page
+            // count from the state page in a single read. The state page's fileSize
+            // counter records the number of data pages in use (NOT including the state
+            // page itself); using it to bound the FSM-rebuild scan below avoids reading
+            // partial-flush orphans past the truncate target and keeps page 0 (the state
+            // page) out of the FSM, which would otherwise be wrapped as a CollectionPage
+            // and contribute a garbage maxRecordSize to the free-space map.
+            final int dataPageCount;
             try (final var stateCacheEntry =
                 loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
               final var state = new PaginatedCollectionStateV2(stateCacheEntry);
               approximateRecordsCount = state.getApproximateRecordsCount();
+              dataPageCount = state.getFileSize();
             }
 
             if (freeSpaceMap.exists(atomicOperation)) {
@@ -390,18 +398,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       additionalArgs1);
 
               freeSpaceMap.create(atomicOperation);
-              // FSM-rebuild recovery scan: the free-space map was missing or lost in a
-              // prior crash, so logical bookkeeping that would normally bound this scan
-              // is unavailable -- physical extent is the only source of truth.
-              // Follow-up: this scan can read pages past the eventual truncate target of
-              // the recovery-time orphan-truncation orchestrator
-              // (AbstractStorage.truncateOrphansAfterRecovery), because PCV2.open()
-              // runs before that orchestrator. Tracked for future work; in practice the
-              // FSM-rebuild branch fires only when the FSM itself is missing, while
-              // partial-flush orphans target the PCV2 data file.
-              final var filledUpTo =
-                  physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
-              for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+              // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
+              // Data pages live at indices 1..dataPageCount (page 0 is the state page).
+              // Bounding by logical fileSize avoids reading partial-flush orphans past
+              // the truncate target and keeps the rebuilt FSM consistent with the
+              // recovery-time orphan-truncation orchestrator
+              // (AbstractStorage.truncateOrphansAfterRecovery), which runs after open()
+              // and trims the file back to (fileSize + 1) * pageSize.
+              for (var pageIndex = 1; pageIndex <= dataPageCount; pageIndex++) {
 
                 try (final var cacheEntry =
                     loadPageForRead(atomicOperation, fileId, pageIndex)) {
@@ -413,7 +417,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 if (pageIndex > 0 && pageIndex % 1_000 == 0) {
                   final var additionalArgs =
                       new Object[] {
-                          pageIndex + 1, filledUpTo, 100L * (pageIndex + 1) / filledUpTo, getName()
+                          pageIndex, dataPageCount, 100L * pageIndex / dataPageCount, getName()
                       };
                   LogManager.instance()
                       .info(
@@ -476,106 +480,43 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         });
   }
 
+  @Override
+  protected int readLogicalPageCountFromEntryPoint(@Nonnull final AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var stateCacheEntry =
+        loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
+      final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+      return state.getFileSize();
+    }
+  }
+
+  @Override
+  protected String getComponentTypeName() {
+    return "PaginatedCollectionV2";
+  }
+
+  @Override
+  protected String getLogicalCountFieldName() {
+    // EP wrapper class PaginatedCollectionStateV2 stores the data-page count (NOT
+    // including the state page at STATE_ENTRY_INDEX = 0) as fileSize; initCollectionState()
+    // seeds it at 0.
+    return "state page fileSize";
+  }
+
   /**
-   * Recovery-time orphan-truncation hook for the PaginatedCollectionV2 data file.
-   * Reads the collection-state page's {@code fileSize} counter (which records the
-   * number of data pages in use, <em>not</em> including the state page itself),
-   * computes the expected physical file size as
-   * {@code max(pageSize, (fileSize + 1) * pageSize)}, and dispatches to
-   * {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop physical pages
-   * beyond the logical horizon.
-   *
-   * <p>This helper truncates only the PaginatedCollectionV2 data file (.pcl). The
-   * embedded {@code collectionPositionMap} (.cpm) has its own
-   * {@link CollectionPositionMapV2#verifyAndTruncateOrphans} that the
-   * {@code AbstractStorage.truncateOrphansAfterRecovery()} orchestrator invokes
-   * separately. The sibling EP-less components ({@code freeSpaceMap},
-   * {@code dirtyPageBitSet}) are deliberately out of scope: their growth loops
-   * recompute physical horizons from the allocator, so a physical-orphan past the
-   * logical horizon is structurally invisible to them.
-   *
-   * <p>Note the asymmetry vs BTree / SharedLinkBagBTree: PCV2's
-   * {@code initCollectionState()} (around line 2280) sets {@code fileSize = 0} on
-   * initialisation (the state page is at {@code STATE_ENTRY_INDEX = 0}, data pages
-   * begin at page 1), so {@code fileSize == 0} is the legitimate post-create state.
-   * The corruption guard fires only when both {@code fileSize == 0} <em>and</em>
-   * physical bytes exceed one state page; for PCV2, that combination covers two
-   * distinct shapes:
-   * <ul>
-   *   <li>(a) a true {@code logical < physical} corruption shape (the obvious case the
-   *       guard's name suggests), and</li>
-   *   <li>(b) a fresh-create + partial-flush-orphan case: a brand-new collection whose
-   *       {@code initCollectionState()} bumped physical via an allocation that reached
-   *       AsyncFile but crashed before the commit landed on disk, so {@code fileSize}
-   *       is still its initial 0 while physical now holds the partial-flushed orphan
-   *       tail.</li>
-   * </ul>
-   *
-   * <p>Both shapes are handled identically here: skip-with-WARN, leaving the truncate
-   * for operator review. The escape valve for case (b) is the allocator-only
-   * {@code op.loadOrAddPageForWrite} contract — the next allocation observes the
-   * physical orphan via the {@code op.filledUpTo > knownIndex} check and throws
-   * {@code IllegalStateException} loudly, surfacing the issue at first write rather than
-   * silently absorbing it. The previous version of this docstring called the shape only
-   * "a true {@code logical < physical} corruption", which misframed case (b) as
-   * corruption when it is actually a known-uncovered partial-flush gap.
-   *
-   * @param atomicOperation enclosing recovery-pass atomic operation
-   * @param readCache       read cache the truncate dispatches through
-   * @param writeCache      write cache backing the read cache
-   * @throws IOException if the collection-state page cannot be read or the underlying
-   *                     shrink fails
+   * Delegates recovery-time orphan truncation of the embedded {@code .cpm} position map.
+   * The position map has its own EP and can carry an independent partial-flush orphan
+   * tail; the parent collection owns the lifecycle of the embedded map, so the truncate
+   * dispatch lives here rather than in the orchestrator (which keeps the embedded map a
+   * private implementation detail of the collection).
    */
-  public void verifyAndTruncateOrphans(
+  @Override
+  protected void verifyAndTruncateOrphansSiblings(
       @Nonnull final AtomicOperation atomicOperation,
       @Nonnull final ReadCache readCache,
       @Nonnull final WriteCache writeCache)
       throws IOException {
-    final int stateFileSize;
-    try (final var stateCacheEntry =
-        loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
-      final var state = new PaginatedCollectionStateV2(stateCacheEntry);
-      stateFileSize = state.getFileSize();
-    }
-
-    final int pageSize = writeCache.pageSize();
-    final long physicalPages =
-        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
-    final long physicalBytes = physicalPages * (long) pageSize;
-
-    if (stateFileSize == 0 && physicalBytes > pageSize) {
-      // Format eagerly so the message does not collide with LogManager.warn's three-arg
-      // dbName overload (which would consume the first String arg as a dbName prefix).
-      final String msg =
-          String.format(
-              "Storage corruption signal: PaginatedCollectionV2 '%s' state page"
-                  + " reports fileSize=0 but physical file holds %d pages (> 1)."
-                  + " Skipping orphan-truncation; investigate manually.",
-              getName(), physicalPages);
-      LogManager.instance().warn(this, msg);
-      return;
-    }
-
-    final long targetBytes = Math.max((long) pageSize, ((long) stateFileSize + 1L) * pageSize);
-    readCache.shrinkFile(fileId, targetBytes, writeCache);
-  }
-
-  /**
-   * Exposes the embedded position map so the recovery-time orphan-truncation orchestrator
-   * ({@code AbstractStorage.truncateOrphansAfterRecovery()}) can dispatch
-   * {@link CollectionPositionMapV2#verifyAndTruncateOrphans} on the {@code .cpm} file in
-   * addition to {@link #verifyAndTruncateOrphans} on the {@code .pcl} file. The two physical
-   * files have independent EPs and either can carry a partial-flush orphan tail.
-   *
-   * <p>Visibility is {@code public} (rather than package-private) because the orchestrator
-   * lives in {@code com.jetbrains.youtrackdb.internal.core.storage.impl.local} —
-   * a different package from this class.
-   *
-   * @return the embedded {@link CollectionPositionMapV2}; never {@code null} once the
-   *     collection has been constructed (the field is initialised in the ctor at line ~285)
-   */
-  public CollectionPositionMapV2 getCollectionPositionMap() {
-    return collectionPositionMap;
+    collectionPositionMap.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
   }
 
   @Override

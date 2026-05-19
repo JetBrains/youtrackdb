@@ -11,16 +11,13 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
-import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
@@ -29,7 +26,6 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIn
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.CollectionPositionMapV2;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
@@ -51,8 +47,8 @@ import org.junit.Test;
  *
  * <ul>
  *   <li>For every non-null {@link PaginatedCollectionV2} in {@code collections}, dispatch
- *       {@code verifyAndTruncateOrphans} on BOTH the collection itself AND its embedded
- *       {@code collectionPositionMap}.</li>
+ *       {@code verifyAndTruncateOrphans} on the collection (its sibling-hook internally
+ *       delegates the embedded {@code collectionPositionMap}'s truncate).</li>
  *   <li>For every {@link BTreeSingleValueIndexEngine} or {@link BTreeMultiValueIndexEngine}
  *       in {@code indexEngines}, dispatch {@code verifyAndTruncateOrphans} on the engine
  *       (the engine-side wrapper internally handles {@code sbTree} / {@code svTree} /
@@ -65,7 +61,9 @@ import org.junit.Test;
  *       dispatched helper without modification.</li>
  *   <li>The three groups dispatch in a documented order
  *       (collections &rarr; engines &rarr; manager).</li>
- *   <li>An {@link IOException} from any group aborts subsequent groups.</li>
+ *   <li>An {@link IOException} from any group is absorbed with a WARN log and the
+ *       remaining groups continue. The orphan-truncation pass is best-effort — one
+ *       corrupted component must not poison recovery for the rest.</li>
  * </ul>
  *
  * <p>The {@code AbstractStorage} mock is constructed with {@code CALLS_REAL_METHODS} so
@@ -113,21 +111,20 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
   }
 
   /**
-   * With one {@link PaginatedCollectionV2} loaded, the orchestrator must dispatch
-   * {@code verifyAndTruncateOrphans} on BOTH the collection AND its position map. The
-   * forwarded triple must match the orchestrator's argument exactly.
+   * With one {@link PaginatedCollectionV2} loaded, the orchestrator dispatches
+   * {@code verifyAndTruncateOrphans} on the collection. The PCV2 helper's
+   * sibling-truncation hook internally fans out to the embedded position map — the
+   * orchestrator does not reach across the collection's encapsulation. The forwarded
+   * triple must match the orchestrator's argument exactly.
    */
   @Test
-  public void dispatchesOnPaginatedCollectionAndItsPositionMap() throws Exception {
+  public void dispatchesOnPaginatedCollection() throws Exception {
     var pcv2 = mock(PaginatedCollectionV2.class);
-    var positionMap = mock(CollectionPositionMapV2.class);
-    when(pcv2.getCollectionPositionMap()).thenReturn(positionMap);
     collectionsField.add(pcv2);
 
     storage.truncateOrphansAfterRecovery(atomicOperation);
 
     verify(pcv2).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
-    verify(positionMap).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
     verify(manager).verifyAndTruncateAllOrphans(atomicOperation, readCache, writeCache);
   }
 
@@ -140,8 +137,6 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
   @Test
   public void skipsNullCollectionSlots() throws Exception {
     var pcv2 = mock(PaginatedCollectionV2.class);
-    var positionMap = mock(CollectionPositionMapV2.class);
-    when(pcv2.getCollectionPositionMap()).thenReturn(positionMap);
     collectionsField.add(null);
     collectionsField.add(pcv2);
     collectionsField.add(null);
@@ -149,7 +144,6 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
     storage.truncateOrphansAfterRecovery(atomicOperation);
 
     verify(pcv2).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
-    verify(positionMap).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
     verify(manager).verifyAndTruncateAllOrphans(atomicOperation, readCache, writeCache);
   }
 
@@ -227,8 +221,6 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
   @Test
   public void dispatchesAllGroupsInOnePass() throws Exception {
     var pcv2 = mock(PaginatedCollectionV2.class);
-    var positionMap = mock(CollectionPositionMapV2.class);
-    when(pcv2.getCollectionPositionMap()).thenReturn(positionMap);
     var svEngine = mock(BTreeSingleValueIndexEngine.class);
     var mvEngine = mock(BTreeMultiValueIndexEngine.class);
     var otherEngine = mock(BaseIndexEngine.class);
@@ -241,13 +233,13 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
 
     storage.truncateOrphansAfterRecovery(atomicOperation);
 
-    // Pin the documented group-ordering contract: Group 1 (collections — pcv2 then its
-    // position map), Group 2 (engines — sv then mv per indexEnginesField insertion order),
-    // Group 3 (manager). A refactor that swapped any pair would fail this block.
-    var inOrder = inOrder(pcv2, positionMap, svEngine, mvEngine, manager);
+    // Pin the documented group-ordering contract: Group 1 (collections — pcv2; the embedded
+    // position map's truncate is dispatched internally by the PCV2 helper's sibling hook
+    // and is not observable on the mock), Group 2 (engines — sv then mv per
+    // indexEnginesField insertion order), Group 3 (manager). A refactor that swapped any
+    // pair would fail this block.
+    var inOrder = inOrder(pcv2, svEngine, mvEngine, manager);
     inOrder.verify(pcv2).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
-    inOrder.verify(positionMap)
-        .verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
     inOrder.verify(svEngine).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
     inOrder.verify(mvEngine).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
     inOrder.verify(manager)
@@ -256,45 +248,40 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
   }
 
   /**
-   * If a per-component helper throws an {@link IOException} (e.g., corrupted EP page
-   * surfaced by {@code checksumMode=StoreAndThrow}) from the Group 1 collection origin,
-   * the exception propagates and downstream helpers in later groups must NOT be invoked.
-   * This is the documented abort-the-open contract.
+   * Best-effort failure handling — Group 1 collection origin. When a per-component helper
+   * throws an {@link IOException} (e.g., corrupted EP page surfaced by
+   * {@code checksumMode=StoreAndThrow}) from a Group 1 PaginatedCollectionV2, the
+   * orchestrator absorbs the exception with a WARN log and continues. The remaining
+   * collections in Group 1, Group 2 engines, and the Group 3 manager all still dispatch.
+   * The orphan-truncation pass must not let one corrupted component poison recovery for
+   * the rest of the storage.
    */
   @Test
-  public void propagatesIOExceptionAndAbortsRemainingGroups() throws Exception {
-    var pcv2 = mock(PaginatedCollectionV2.class);
-    var positionMap = mock(CollectionPositionMapV2.class);
-    when(pcv2.getCollectionPositionMap()).thenReturn(positionMap);
+  public void absorbsIOExceptionFromCollectionAndContinues() throws Exception {
+    var failingPcv2 = mock(PaginatedCollectionV2.class);
+    var nextPcv2 = mock(PaginatedCollectionV2.class);
     var svEngine = mock(BTreeSingleValueIndexEngine.class);
     doThrow(new IOException("corrupted EP"))
-        .when(pcv2)
+        .when(failingPcv2)
         .verifyAndTruncateOrphans(any(), any(), any());
-    collectionsField.add(pcv2);
+    collectionsField.add(failingPcv2);
+    collectionsField.add(nextPcv2);
     indexEnginesField.add(svEngine);
 
-    try {
-      storage.truncateOrphansAfterRecovery(atomicOperation);
-      fail("expected IOException to propagate");
-    } catch (IOException expected) {
-      // Expected — the orchestrator does not swallow per-component failures.
-    }
+    storage.truncateOrphansAfterRecovery(atomicOperation);
 
-    // Position map call sits AFTER the pcv2 call inside the same iteration and must NOT
-    // fire after the pcv2 helper throws.
-    verify(positionMap, never())
-        .verifyAndTruncateOrphans(any(), any(), any());
-    verify(svEngine, never()).verifyAndTruncateOrphans(any(), any(), any());
-    verify(manager, never()).verifyAndTruncateAllOrphans(any(), any(), any());
+    // Downstream components after the failure must still dispatch.
+    verify(nextPcv2).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+    verify(svEngine).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+    verify(manager).verifyAndTruncateAllOrphans(atomicOperation, readCache, writeCache);
   }
 
   /**
-   * An {@link IOException} from a Group 2 engine origin (single-value engine, listed
-   * first) must propagate and abort the multi-value engine that would otherwise dispatch
-   * next AND the manager call in Group 3.
+   * Best-effort failure handling — Group 2 engine origin. A failing single-value engine
+   * must not block the subsequent multi-value engine or the Group 3 manager dispatch.
    */
   @Test
-  public void propagatesIOExceptionFromEngineAndAbortsManager() throws Exception {
+  public void absorbsIOExceptionFromEngineAndContinues() throws Exception {
     var svEngine = mock(BTreeSingleValueIndexEngine.class);
     var mvEngine = mock(BTreeMultiValueIndexEngine.class);
     doThrow(new IOException("corrupted engine EP"))
@@ -303,38 +290,33 @@ public class AbstractStorageTruncateOrphansAfterRecoveryTest {
     indexEnginesField.add(svEngine);
     indexEnginesField.add(mvEngine);
 
-    try {
-      storage.truncateOrphansAfterRecovery(atomicOperation);
-      fail("expected IOException to propagate from engine origin");
-    } catch (IOException expected) {
-      // Expected — the orchestrator does not swallow per-engine failures.
-    }
+    storage.truncateOrphansAfterRecovery(atomicOperation);
 
-    // The multi-value engine sits AFTER the failing single-value engine in the iteration
-    // order; it must NOT be invoked once the predecessor throws.
-    verify(mvEngine, never()).verifyAndTruncateOrphans(any(), any(), any());
-    // The manager sits in Group 3, AFTER the engine loop; it must NOT be invoked once any
-    // earlier group aborts.
-    verify(manager, never()).verifyAndTruncateAllOrphans(any(), any(), any());
+    // Both downstream targets must still fire after the engine failure is absorbed.
+    verify(mvEngine).verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+    verify(manager).verifyAndTruncateAllOrphans(atomicOperation, readCache, writeCache);
   }
 
   /**
-   * An {@link IOException} from the Group 3 manager (the final group) must still
-   * propagate to the orchestrator's caller — the orchestrator does not swallow
-   * manager-origin failures any more than collection- or engine-origin ones.
+   * Best-effort failure handling — Group 3 manager origin. Per-SLBB failures are absorbed
+   * inside the manager's iteration (see
+   * {@code LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans}), so a single
+   * corrupted SLBB does not abort recovery for the rest of the manager's SLBBs nor for
+   * the surrounding orchestrator. This test pins the orchestrator-level contract: even
+   * if the manager bubbles an unchecked {@link StorageException} out (e.g., a programming
+   * error in the manager itself, distinct from a per-SLBB EP-read failure), the
+   * orchestrator's enclosing try/catch is no longer present because the manager handles
+   * failures internally — so an unchecked throw propagates. Symmetric with Groups 1 and
+   * 2, which absorb checked + StorageException at the orchestrator layer because their
+   * per-element helpers DO throw out (no internal try/catch).
    */
   @Test
-  public void propagatesIOExceptionFromManager() throws Exception {
-    doThrow(new IOException("corrupted manager EP"))
-        .when(manager)
-        .verifyAndTruncateAllOrphans(any(), any(), any());
+  public void managerHandlesPerSlbbFailuresInternally() throws Exception {
+    // No exception from the manager — happy path. The manager's own per-SLBB iteration
+    // owns the try/catch + WARN + continue for SLBB-level failures.
+    storage.truncateOrphansAfterRecovery(atomicOperation);
 
-    try {
-      storage.truncateOrphansAfterRecovery(atomicOperation);
-      fail("expected IOException to propagate from manager origin");
-    } catch (IOException expected) {
-      // Expected — the manager throws and the orchestrator's caller sees it.
-    }
+    verify(manager).verifyAndTruncateAllOrphans(atomicOperation, readCache, writeCache);
   }
 
   // -------------------------------------------------------------------------

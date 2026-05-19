@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAb
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
@@ -312,6 +313,173 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       throws IOException {
     assert atomicOperation != null;
     atomicOperation.truncateFile(filedId);
+  }
+
+  // --- Recovery-time orphan-truncation template method ---
+
+  /**
+   * Returns the disk-cache file id of this component's primary data file. The four
+   * entry-point-equipped components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
+   * PaginatedCollectionV2) override this with their stored {@code fileId} field; EP-less
+   * components (FreeSpaceMap, CollectionDirtyPageBitSet, IndexHistogramManager) inherit the
+   * default-throw because the recovery-time orphan-truncation pass never iterates over them.
+   */
+  protected long getFileId() {
+    throw new UnsupportedOperationException(
+        "getFileId() not implemented for " + getClass().getName());
+  }
+
+  /**
+   * Recovery-time orphan-truncation pass invoked by
+   * {@code AbstractStorage.truncateOrphansAfterRecovery()} after WAL replay has settled
+   * logical state. Reads the entry-point's logical-page counter via the
+   * {@link #readLogicalPageCountFromEntryPoint} hook, computes the expected physical file size
+   * as {@code max(pageSize, (logicalPages + 1) * pageSize)}, and dispatches to
+   * {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop any physical pages beyond the
+   * logical horizon (the partial-flush "orphan" pages that survive a crash between an
+   * allocator-only physical extend and the corresponding logical-counter advance).
+   *
+   * <p>The {@code max(pageSize, ...)} floor preserves the EP page itself on the fresh-component
+   * branch ({@code logicalPages == 0}): a healthy CPMV2 or PCV2 computes a target of
+   * {@code 1 * pageSize}, which keeps the EP / state page and is a no-op against current
+   * physical state. For BTree / SLBB whose {@code init()} sets the counter to {@code 1}, the
+   * floor only matters defensively against the corruption shape ruled out by the guard below.
+   *
+   * <p>Corruption guard: if {@code logicalPages == 0} AND physical bytes exceed one EP page,
+   * the pass skips the truncate with a WARN log rather than mask the inconsistency. The
+   * combination covers two distinct shapes:
+   *
+   * <ul>
+   *   <li>(a) a true {@code logical < physical} corruption shape that WAL replay is supposed
+   *       to prevent — operators handle this through the storage-corruption runbook;</li>
+   *   <li>(b) a fresh-create + partial-flush-orphan case: a brand-new component whose
+   *       {@code create()} bumped physical via an allocation that reached AsyncFile but
+   *       crashed before the commit landed on disk, so the EP counter is still its initial
+   *       0 while physical now holds the partial-flushed orphan tail. The escape valve is
+   *       the allocator-only {@code op.loadOrAddPageForWrite} contract — the next allocation
+   *       observes the physical orphan via the {@code op.filledUpTo > knownIndex} check and
+   *       throws {@code IllegalStateException} loudly, surfacing the issue at first write
+   *       rather than silently absorbing it.</li>
+   * </ul>
+   *
+   * <p>Both shapes are handled identically here: skip-with-WARN, leaving the truncate for
+   * operator review. Asymmetry note: BTree / SLBB EPs {@code init()} their counter to
+   * {@code 1}, so {@code logicalPages == 0} is itself anomalous; CPMV2 / PCV2 EPs
+   * {@code init()} their counter to {@code 0}, which is the legitimate post-create state — the
+   * {@code physicalBytes > pageSize} second clause is what discriminates a healthy fresh
+   * CPMV2 / PCV2 (physical == {@code pageSize}, one EP page only) from a real
+   * {@code logical < physical} shape.
+   *
+   * <p>EP-read failures (e.g., a corrupted EP page surfaced by
+   * {@code checksumMode=StoreAndThrow}) propagate the {@link IOException} through this
+   * method and abort the enclosing {@code open()} / incremental-restore flow. This is
+   * intentional: without the EP we cannot compute the truncate target, and silently skipping
+   * the component would re-introduce the partial-flush-orphan path the pass exists to fix.
+   *
+   * <p>After the primary truncate dispatches, {@link #verifyAndTruncateOrphansSiblings} runs
+   * so components with embedded sibling files (PCV2's embedded CPM is the only current case)
+   * can delegate their sibling's truncate without exposing the embedded reference to the
+   * orchestrator.
+   *
+   * @param atomicOperation enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if the entry-point page cannot be read or the underlying shrink fails
+   */
+  public final void verifyAndTruncateOrphans(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    final long fileId = getFileId();
+    final int logicalPages = readLogicalPageCountFromEntryPoint(atomicOperation);
+    final int pageSize = writeCache.pageSize();
+    // Physical size in pages, read via the gated StorageComponent.physicalSize helper
+    // (RECOVERY_REBUILD intent — the recovery pass is a one-shot scan over committed
+    // pages to decide whether to drop a physical-orphan tail).
+    final long physicalPages =
+        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
+    final long physicalBytes = physicalPages * (long) pageSize;
+
+    if (logicalPages == 0 && physicalBytes > pageSize) {
+      // Format eagerly so the message does not collide with LogManager.warn's three-arg
+      // dbName overload (which would consume the first String arg as a dbName prefix).
+      final String msg =
+          String.format(
+              "Storage corruption signal: %s '%s' EP reports %s=0 but physical file holds"
+                  + " %d pages (> 1). Skipping orphan-truncation; investigate manually.",
+              getComponentTypeName(), getName(), getLogicalCountFieldName(), physicalPages);
+      LogManager.instance().warn(this, msg);
+      return;
+    }
+
+    final long targetBytes = Math.max((long) pageSize, ((long) logicalPages + 1L) * pageSize);
+    readCache.shrinkFile(fileId, targetBytes, writeCache);
+
+    // Hook for components with embedded sibling files (PCV2's embedded CPM is the only
+    // current case). Default no-op; overridden where needed.
+    verifyAndTruncateOrphansSiblings(atomicOperation, readCache, writeCache);
+  }
+
+  /**
+   * Reads the logical-page counter from this component's entry-point page. Each EP-equipped
+   * subclass loads its EP via {@link #loadPageForRead}, wraps the cache entry in the
+   * appropriate EP wrapper class, returns the counter, and releases the page. The counter
+   * binding is {@code pagesSize} for BTree / SharedLinkBagBTree and {@code fileSize} for
+   * CollectionPositionMapV2 / PaginatedCollectionV2.
+   *
+   * <p>Default-throw because EP-less components ({@code FreeSpaceMap},
+   * {@code CollectionDirtyPageBitSet}, {@code IndexHistogramManager}) cannot satisfy this
+   * contract — they have no logical-page counter on disk. The orchestrator never invokes
+   * {@code verifyAndTruncateOrphans} on EP-less components, so the default is unreachable
+   * in production.
+   *
+   * @param atomicOperation the enclosing recovery-pass atomic operation
+   * @return the logical-page counter stored in the entry-point
+   * @throws IOException if the entry-point page cannot be read
+   */
+  protected int readLogicalPageCountFromEntryPoint(
+      @Nonnull final AtomicOperation atomicOperation) throws IOException {
+    throw new UnsupportedOperationException(
+        "readLogicalPageCountFromEntryPoint not implemented for " + getClass().getName());
+  }
+
+  /**
+   * Returns the human-readable component-type name used in the
+   * {@link #verifyAndTruncateOrphans} corruption-guard WARN log
+   * (e.g., {@code "BTree"}, {@code "CollectionPositionMapV2"}).
+   */
+  protected String getComponentTypeName() {
+    throw new UnsupportedOperationException(
+        "getComponentTypeName not implemented for " + getClass().getName());
+  }
+
+  /**
+   * Returns the EP field name surfaced in the {@link #verifyAndTruncateOrphans}
+   * corruption-guard WARN log so operators see which counter was read
+   * (e.g., {@code "pagesSize"} for BTree / SLBB, {@code "fileSize"} for CPMV2 / PCV2).
+   */
+  protected String getLogicalCountFieldName() {
+    throw new UnsupportedOperationException(
+        "getLogicalCountFieldName not implemented for " + getClass().getName());
+  }
+
+  /**
+   * Sibling-file truncation hook invoked at the tail of {@link #verifyAndTruncateOrphans}
+   * for components that embed a second EP-equipped file (PCV2's embedded
+   * {@code CollectionPositionMapV2} is the only current case). Default: no-op.
+   *
+   * @param atomicOperation the enclosing recovery-pass atomic operation
+   * @param readCache       read cache the sibling truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if the sibling's EP read or shrink fails
+   */
+  protected void verifyAndTruncateOrphansSiblings(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    // default: no embedded siblings.
   }
 
   // --- Optimistic read infrastructure ---

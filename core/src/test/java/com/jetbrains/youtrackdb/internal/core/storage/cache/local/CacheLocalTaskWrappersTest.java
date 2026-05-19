@@ -198,16 +198,16 @@ public class CacheLocalTaskWrappersTest {
         task.call());
   }
 
-  /** Verifies {@link RemoveFilePagesTask#call()} forwards the captured fileId to
-   * {@code doRemoveCachePages} and returns {@code null} as documented. */
+  /** Verifies {@link RemoveFilePagesTask#call()} forwards the captured (fileId, minPageIndex)
+   * to {@code doRemoveCachePages} and returns {@code null} as documented. */
   @Test
   public void testRemoveFilePagesTaskDelegatesToDoRemoveCachePages() throws Exception {
     var cache = mock(WOWCache.class);
-    var task = new RemoveFilePagesTask(cache, 31);
+    var task = new RemoveFilePagesTask(cache, 31, 0);
     var result = task.call();
 
     assertNull("RemoveFilePagesTask.call() must always return null", result);
-    verify(cache, times(1)).doRemoveCachePages(31);
+    verify(cache, times(1)).doRemoveCachePages(31, 0);
   }
 
   /** Verifies {@link PeriodicFlushTask#run()} forwards itself as the {@code PeriodicFlushTask}

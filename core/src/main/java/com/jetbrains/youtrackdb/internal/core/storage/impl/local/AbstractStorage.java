@@ -1024,10 +1024,10 @@ public abstract class AbstractStorage
    *
    * <ul>
    *   <li>{@code collections} — each non-null {@link PaginatedCollectionV2} entry triggers a
-   *       {@code verifyAndTruncateOrphans} on the collection itself (truncates the {@code .pcl}
-   *       data file) and a second call on its embedded {@link CollectionPositionMapV2}
-   *       (truncates the {@code .cpm} position-map file). The two files have independent
-   *       EPs; either can carry a partial-flush orphan tail.</li>
+   *       single {@code verifyAndTruncateOrphans} call on the collection itself; the
+   *       PCV2 helper's siblings-hook then delegates the embedded
+   *       {@link CollectionPositionMapV2} truncate (the {@code .cpm} position-map file)
+   *       internally, so the orchestrator never reaches across PCV2's encapsulation.</li>
    *   <li>{@code indexEngines} — each engine that is a {@link BTreeSingleValueIndexEngine}
    *       or {@link BTreeMultiValueIndexEngine} routes through its engine-side wrapper,
    *       which keeps the {@code sbTree}/{@code svTree}/{@code nullTree} fields
@@ -1045,11 +1045,17 @@ public abstract class AbstractStorage
    * one-line WARN log per affected file from inside the {@code WOWCache.shrinkFile} body
    * when an actual truncate fires.
    *
-   * <p>EP-read failures (e.g., a corrupted EP page surfaced by
-   * {@code checksumMode=StoreAndThrow}) propagate the {@link IOException} through this
-   * orchestrator and abort the enclosing {@code open()} / incremental-restore flow. This is
-   * intentional: without the EP we cannot compute the truncate target, and silently skipping
-   * the component would re-introduce the partial-flush-orphan path the pass exists to fix.
+   * <p>Per-component failure handling: each per-component dispatch is wrapped in a
+   * try/catch that absorbs {@link StorageException} and {@link IOException}, logs a
+   * one-line WARN naming the component and fileId, and continues with the next component.
+   * A failure in one component (e.g., a corrupted EP page surfaced by
+   * {@code checksumMode=StoreAndThrow}, or a missing-file entry that
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache#shrinkFile
+   * WOWCache.shrinkFile} now signals loudly) must not poison recovery for the other
+   * components — the orphan-truncation pass is best-effort and the affected component
+   * remains recoverable via the existing storage-corruption runbook. The pass therefore
+   * does not throw out of any per-component group; only programming errors
+   * ({@link RuntimeException} subclasses that are not {@code StorageException}) escape.
    *
    * <p>The orchestrator runs after {@code recoverIfNeeded()} (which drains the flush executor
    * via {@code flushAllData()} on the dirty-reopen path) so dirty WAL-replay pages have
@@ -1069,18 +1075,31 @@ public abstract class AbstractStorage
    *
    * @param atomicOperation the enclosing recovery-pass atomic operation supplied by
    *     {@code executeInsideAtomicOperation}
-   * @throws IOException propagated from any per-component / per-engine / manager helper when
-   *     the underlying EP read or cache-layer truncate fails
+   * @throws IOException only on unrecoverable infrastructure failures outside any
+   *     per-component scope (today: never).
    */
   protected void truncateOrphansAfterRecovery(final AtomicOperation atomicOperation)
       throws IOException {
-    // Group 1: paginated collections. Each non-null entry contributes two truncates —
-    // the collection's own .pcl data file and the embedded position map's .cpm file.
+    // Group 1: paginated collections. Each non-null entry truncates the collection's own
+    // .pcl data file; the PCV2 helper's siblings hook (verifyAndTruncateOrphansSiblings)
+    // then internally truncates the embedded position map's .cpm file.
     for (final var collection : collections) {
       if (collection instanceof PaginatedCollectionV2 pcv2) {
-        pcv2.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
-        pcv2.getCollectionPositionMap()
-            .verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        try {
+          pcv2.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        } catch (final StorageException | IOException e) {
+          // Best-effort recovery: log and continue so a single corrupted component does
+          // not block orphan truncation for the rest of the storage. The affected
+          // component is left in whatever shape WAL replay produced; operators handle
+          // it via the storage-corruption runbook.
+          LogManager.instance()
+              .warn(
+                  this,
+                  String.format(
+                      "Orphan-truncation skipped for PaginatedCollectionV2 '%s'"
+                          + " (fileId=%d): %s",
+                      pcv2.getName(), pcv2.getFileId(), e.getMessage()));
+        }
       }
     }
 
@@ -1090,14 +1109,34 @@ public abstract class AbstractStorage
     // or no public orphan-truncation hook.
     for (final var engine : indexEngines) {
       if (engine instanceof BTreeSingleValueIndexEngine svEngine) {
-        svEngine.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        try {
+          svEngine.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        } catch (final StorageException | IOException e) {
+          LogManager.instance()
+              .warn(
+                  this,
+                  String.format(
+                      "Orphan-truncation skipped for BTreeSingleValueIndexEngine: %s",
+                      e.getMessage()));
+        }
       } else if (engine instanceof BTreeMultiValueIndexEngine mvEngine) {
-        mvEngine.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        try {
+          mvEngine.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+        } catch (final StorageException | IOException e) {
+          LogManager.instance()
+              .warn(
+                  this,
+                  String.format(
+                      "Orphan-truncation skipped for BTreeMultiValueIndexEngine: %s",
+                      e.getMessage()));
+        }
       }
     }
 
     // Group 3: shared link-bag B-trees. Iteration is internal to the manager so the
-    // manager's private fileIdBTreeMap stays encapsulated.
+    // manager's private fileIdBTreeMap stays encapsulated; per-SLBB best-effort handling
+    // (try/catch + WARN log + continue) lives inside the manager's iteration so the call
+    // here neither throws nor needs an enclosing catch.
     linkCollectionsBTreeManager.verifyAndTruncateAllOrphans(
         atomicOperation, readCache, writeCache);
   }

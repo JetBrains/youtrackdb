@@ -1153,15 +1153,15 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.get(9L, 0)).isEqualTo("other");
   }
 
-  // ---- removeByFileIdAtLeast() ----
+  // ---- removeByFileId(long, int) — range-scoped variant ----
 
   // Empty-map case mirrors the removeByFileId equivalent — exercises the early
   // "no entries removed" exit path without an entries scan dominating the
   // assertion noise.
   @Test
-  public void removeByFileIdAtLeastOnEmptyMapReturnsEmpty() {
+  public void removeByFileIdWithRangeOnEmptyMapReturnsEmpty() {
     var map = new ConcurrentLongIntHashMap<String>();
-    var removed = map.removeByFileIdAtLeast(1L, 0);
+    var removed = map.removeByFileId(1L, 0);
     assertThat(removed).isEmpty();
     assertThat(map.size()).isEqualTo(0);
   }
@@ -1170,13 +1170,13 @@ public class ConcurrentLongIntHashMapTest {
   // removeByFileId. The two-method symmetry lets callers default to the
   // range-scoped variant without an upper-API switch.
   @Test
-  public void removeByFileIdAtLeastWithMinPageIndexZeroEquivalentToRemoveByFileId() {
+  public void removeByFileIdWithMinPageIndexZeroRemovesEverything() {
     var map = new ConcurrentLongIntHashMap<String>();
     for (int page = 0; page < 6; page++) {
       map.put(7L, page, "f7-p" + page);
       map.put(9L, page, "f9-p" + page);
     }
-    var removed = map.removeByFileIdAtLeast(7L, 0);
+    var removed = map.removeByFileId(7L, 0);
     assertThat(removed).hasSize(6);
     for (int page = 0; page < 6; page++) {
       assertThat(map.get(7L, page)).isNull();
@@ -1190,13 +1190,13 @@ public class ConcurrentLongIntHashMapTest {
   // time orphan-truncation pass: pages below the EP-stored logical counter
   // remain reachable, pages at or past the counter are dropped.
   @Test
-  public void removeByFileIdAtLeastPartialRangeKeepsEntriesBelowMin() {
+  public void removeByFileIdPartialRangeKeepsEntriesBelowMin() {
     var map = new ConcurrentLongIntHashMap<String>();
     for (int page = 0; page < 10; page++) {
       map.put(3L, page, "f3-p" + page);
     }
     // Drop pages [5, 10) — pages [0, 5) survive
-    var removed = map.removeByFileIdAtLeast(3L, 5);
+    var removed = map.removeByFileId(3L, 5);
     assertThat(removed).hasSize(5);
     for (int page = 0; page < 5; page++) {
       assertThat(map.get(3L, page))
@@ -1217,14 +1217,14 @@ public class ConcurrentLongIntHashMapTest {
   // runs. Both shapes show up in the recovery pass (boundary-exact and clean-
   // shutdown paths respectively).
   @Test
-  public void removeByFileIdAtLeastBoundaryConditions() {
+  public void removeByFileIdRangeBoundaryConditions() {
     var map = new ConcurrentLongIntHashMap<String>();
     map.put(1L, 3, "v3");
     map.put(1L, 4, "v4");
     map.put(1L, 5, "v5");
 
     // minPageIndex == lowest present pageIndex (3) → all three removed
-    var allRemoved = map.removeByFileIdAtLeast(1L, 3);
+    var allRemoved = map.removeByFileId(1L, 3);
     assertThat(allRemoved).containsExactlyInAnyOrder("v3", "v4", "v5");
     assertThat(map.size()).isEqualTo(0);
 
@@ -1232,7 +1232,7 @@ public class ConcurrentLongIntHashMapTest {
     map.put(1L, 0, "v0");
     map.put(1L, 1, "v1");
 
-    var noneRemoved = map.removeByFileIdAtLeast(1L, 99);
+    var noneRemoved = map.removeByFileId(1L, 99);
     assertThat(noneRemoved).isEmpty();
     assertThat(map.size()).isEqualTo(2);
     assertThat(map.get(1L, 0)).isEqualTo("v0");
@@ -1244,13 +1244,13 @@ public class ConcurrentLongIntHashMapTest {
   // recovery shrink on one component must not perturb cached entries of
   // unrelated components sharing the JVM cache.
   @Test
-  public void removeByFileIdAtLeastDoesNotTouchOtherFiles() {
+  public void removeByFileIdRangeDoesNotTouchOtherFiles() {
     var map = new ConcurrentLongIntHashMap<String>();
     for (int page = 0; page < 10; page++) {
       map.put(1L, page, "f1-p" + page);
       map.put(2L, page, "f2-p" + page);
     }
-    var removed = map.removeByFileIdAtLeast(1L, 3);
+    var removed = map.removeByFileId(1L, 3);
     assertThat(removed).hasSize(7);
     // File 2 untouched
     for (int page = 0; page < 10; page++) {
@@ -1269,13 +1269,13 @@ public class ConcurrentLongIntHashMapTest {
   // hash function. Compaction must restore probe chains in every affected
   // section, otherwise surviving below-cutoff entries become unreachable.
   @Test
-  public void removeByFileIdAtLeastAcrossAllSections() {
+  public void removeByFileIdRangeAcrossAllSections() {
     var map = new ConcurrentLongIntHashMap<String>();
     int pagesPerFile = 200;
     for (int page = 0; page < pagesPerFile; page++) {
       map.put(42L, page, "p" + page);
     }
-    var removed = map.removeByFileIdAtLeast(42L, 100);
+    var removed = map.removeByFileId(42L, 100);
     assertThat(removed).hasSize(100);
     for (int page = 0; page < 100; page++) {
       assertThat(map.get(42L, page))
@@ -1294,14 +1294,14 @@ public class ConcurrentLongIntHashMapTest {
   // section's slot-empty check is `entries[i] == null`, but a brittle filter
   // could regress to comparing fileId to a 0 sentinel.
   @Test
-  public void removeByFileIdAtLeastWithFileIdZero() {
+  public void removeByFileIdRangeWithFileIdZero() {
     var map = new ConcurrentLongIntHashMap<String>(16, 1);
     map.put(0L, 0, "f0-p0");
     map.put(0L, 1, "f0-p1");
     map.put(0L, 2, "f0-p2");
     map.put(1L, 0, "f1-p0");
 
-    var removed = map.removeByFileIdAtLeast(0L, 1);
+    var removed = map.removeByFileId(0L, 1);
     assertThat(removed).containsExactlyInAnyOrder("f0-p1", "f0-p2");
     assertThat(map.get(0L, 0)).isEqualTo("f0-p0");
     assertThat(map.get(0L, 1)).isNull();
@@ -1326,7 +1326,7 @@ public class ConcurrentLongIntHashMapTest {
   // check pins the section-aggregated counter against a manual survivor
   // count — a corrupted size counter would silently drift here.
   @Test
-  public void removeByFileIdAtLeastWithConcurrentInsertsIsRaceFree() throws Exception {
+  public void removeByFileIdRangeWithConcurrentInsertsIsRaceFree() throws Exception {
     var map = new ConcurrentLongIntHashMap<String>();
     // Seed the map with pages [0, 1000) for the target file
     for (int page = 0; page < 1000; page++) {
@@ -1360,7 +1360,7 @@ public class ConcurrentLongIntHashMapTest {
     // sweep below races the inserter's tight put() loop on the very next
     // instruction on both threads.
     barrier.await();
-    map.removeByFileIdAtLeast(7L, 500);
+    map.removeByFileId(7L, 500);
     inserter.join();
 
     // Inserter must not have thrown silently — a NullPointer or

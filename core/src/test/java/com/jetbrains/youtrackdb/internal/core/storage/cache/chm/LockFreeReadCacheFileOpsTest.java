@@ -270,11 +270,11 @@ public class LockFreeReadCacheFileOpsTest {
    *
    * <p><b>Order pinning</b>: the orchestrator must call {@code writeCache.shrinkFile} BEFORE
    * the LFRC range purge. The range purge invokes {@code writeCache.checkCacheOverflow} once
-   * per evicted entry (see {@code LockFreeReadCache.clearFileRange}'s freeze/onRemove/
+   * per evicted entry (see {@code LockFreeReadCache.clearFile}'s freeze/onRemove/
    * checkCacheOverflow loop) — those calls are observable from the {@code TrackingWriteCache}
    * mock and fire only during the LFRC purge phase. We assert
    * {@code shrinkFile} appears in the captured event list strictly BEFORE the first
-   * {@code clearFileRange.checkCacheOverflow} event. A regression that swapped the production
+   * {@code clearFile.checkCacheOverflow} event. A regression that swapped the production
    * order (purge cache first, then call writeCache.shrinkFile) would surface as
    * {@code shrinkFile} appearing AFTER the first {@code checkCacheOverflow} event, failing the
    * index comparison. An order-counter approach (which the earlier iteration used) is too
@@ -294,7 +294,7 @@ public class LockFreeReadCacheFileOpsTest {
 
     // Capture distinguishable events into a thread-safe list. TrackingWriteCache records
     // "writeCache.shrinkFile" on its shrinkFile entry, and (via the new tracker hook)
-    // "clearFileRange.checkCacheOverflow" each time clearFileRange's per-evicted-entry
+    // "clearFile.checkCacheOverflow" each time clearFile's per-evicted-entry
     // loop invokes checkCacheOverflow. The two are mutually exclusive on the production
     // call path (shrinkFile runs once; checkCacheOverflow runs once per evicted entry
     // during the LFRC purge that follows), so their ordering in the list is the
@@ -321,13 +321,13 @@ public class LockFreeReadCacheFileOpsTest {
     }
     final int shrinkIdx = capturedOrder.indexOf("writeCache.shrinkFile");
     final int checkOverflowIdx =
-        capturedOrder.indexOf("clearFileRange.checkCacheOverflow");
+        capturedOrder.indexOf("clearFile.checkCacheOverflow");
     Assert.assertTrue(
         "writeCache.shrinkFile must appear in the captured order list (capturedOrder="
             + capturedOrder + ")",
         shrinkIdx >= 0);
     Assert.assertTrue(
-        "clearFileRange.checkCacheOverflow must appear in the captured order list — the"
+        "clearFile.checkCacheOverflow must appear in the captured order list — the"
             + " LFRC range purge invokes it once per evicted entry; missing means the purge"
             + " never ran or never evicted (capturedOrder="
             + capturedOrder + ")",
@@ -546,7 +546,7 @@ public class LockFreeReadCacheFileOpsTest {
     private volatile AtomicInteger sharedOrderCounter;
     /**
      * Captures distinguishable production-side events ({@code "writeCache.shrinkFile"} on
-     * shrinkFile entry; {@code "clearFileRange.checkCacheOverflow"} on each
+     * shrinkFile entry; {@code "clearFile.checkCacheOverflow"} on each
      * {@code checkCacheOverflow} call) so a test can pin the orchestrator's actual call
      * order. {@code null} means no tracker is attached.
      */
@@ -561,7 +561,7 @@ public class LockFreeReadCacheFileOpsTest {
      * {@code Collections.synchronizedList(new ArrayList<>())} or a {@code CopyOnWriteArrayList})
      * to capture the order of distinguishable production-side events. The list receives a
      * {@code "writeCache.shrinkFile"} entry on shrinkFile invocation and a
-     * {@code "clearFileRange.checkCacheOverflow"} entry on each {@code checkCacheOverflow}
+     * {@code "clearFile.checkCacheOverflow"} entry on each {@code checkCacheOverflow}
      * call (which the LFRC range purge invokes once per evicted entry).
      */
     void attachCallOrderTracker(final java.util.List<String> tracker) {
@@ -725,7 +725,7 @@ public class LockFreeReadCacheFileOpsTest {
 
     @Override
     public void checkCacheOverflow() {
-      // The LFRC range purge (LockFreeReadCache.clearFileRange) invokes
+      // The LFRC range purge (LockFreeReadCache.clearFile) invokes
       // checkCacheOverflow once per evicted entry; on the shrinkFile orchestration tests
       // those calls fire AFTER writeCache.shrinkFile, so a captured-event list pins the
       // production order. Other LFRC paths (loadForRead, releaseFromRead, etc.) also
@@ -734,7 +734,7 @@ public class LockFreeReadCacheFileOpsTest {
       // represents only the shrinkFile invocation.
       final var tracker = callOrderTracker;
       if (tracker != null) {
-        tracker.add("clearFileRange.checkCacheOverflow");
+        tracker.add("clearFile.checkCacheOverflow");
       }
     }
 

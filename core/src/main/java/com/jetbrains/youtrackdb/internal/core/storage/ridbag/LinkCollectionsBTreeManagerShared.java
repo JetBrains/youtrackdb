@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -239,23 +240,33 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
    * does not affect the recovery outcome. When {@code fileIdBTreeMap} is empty (no
    * collections loaded), the method returns without iterating.
    *
+   * <p>Per-SLBB failure handling: each dispatch is wrapped in a try/catch that absorbs
+   * {@link StorageException} and {@link IOException} with a WARN log and continues with
+   * the next SLBB. The orphan-truncation pass is best-effort — one corrupted SLBB must
+   * not poison recovery for the rest.
+   *
    * <p>This delegate is the orchestrator-facing surface for SLBB orphan truncation; the
    * manager intentionally exposes no public iteration accessor over its internal map.
    *
    * @param atomicOperation the enclosing recovery-pass atomic operation
    * @param readCache       read cache the truncate dispatches through
    * @param writeCache      write cache backing the read cache
-   * @throws IOException propagated from a per-SLBB helper when its entry-point page
-   *                     cannot be read or the underlying shrink fails; aborts the
-   *                     recovery pass before any further SLBB is visited
    */
   public void verifyAndTruncateAllOrphans(
       final AtomicOperation atomicOperation,
       final ReadCache readCache,
-      final WriteCache writeCache)
-      throws IOException {
+      final WriteCache writeCache) {
     for (final var bTree : fileIdBTreeMap.values()) {
-      bTree.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+      try {
+        bTree.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+      } catch (final StorageException | IOException e) {
+        LogManager.instance()
+            .warn(
+                this,
+                String.format(
+                    "Orphan-truncation skipped for SharedLinkBagBTree '%s' (fileId=%d): %s",
+                    bTree.getName(), bTree.getFileId(), e.getMessage()));
+      }
     }
   }
 }

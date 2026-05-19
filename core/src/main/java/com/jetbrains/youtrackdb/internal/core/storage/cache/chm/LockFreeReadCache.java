@@ -680,8 +680,8 @@ public final class LockFreeReadCache implements ReadCache {
     // because doLoad readers consult the writeCachePages dirty map; a stale dirty
     // entry surviving past the shrink would let a periodic flush re-extend the file
     // past targetBytes. WriteCache.shrinkFile drops dirty entries at
-    // pageIndex >= minPageIndex BEFORE the AsyncFile truncate, so by the time
-    // clearFileRange runs the write-back side is already settled.
+    // pageIndex >= minPageIndex BEFORE the AsyncFile truncate, so by the time the
+    // range-scoped clearFile call runs the write-back side is already settled.
     // Defensive invariants on the targetBytes -> minPageIndex cast. There is no
     // upstream argument guard at this orchestrator entry point (unlike
     // WOWCache.shrinkFile which throws on negative targets, but that path is
@@ -717,7 +717,7 @@ public final class LockFreeReadCache implements ReadCache {
     // test-mock that stubs every method should not need to know the page size to
     // reach the LFRC range-purge.
     final int minPageIndex = (int) (targetBytes / pageSize);
-    clearFileRange(fileId, minPageIndex, writeCache);
+    clearFile(fileId, minPageIndex, writeCache);
   }
 
   @Override
@@ -844,51 +844,61 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   /**
-   * Range-scoped sibling of {@link #clearFile(long, WriteCache)}: drops only the
-   * read-cache entries at {@code pageIndex >= minPageIndex} for the given file. Mirrors
-   * {@link #clearFile(long, WriteCache)}'s eviction-lock ordering, current-thread read
-   * batch flush, and freeze/onRemove/checkCacheOverflow loop. The pinned-entry recovery
-   * shape mirrors {@link #drainAllEntries(WriteCache)}'s "re-insert un-frozen entries"
-   * pattern instead of {@code clearFile}'s early-throw — see the freeze-failure handling
-   * note below for the rationale.
-   *
-   * <p>Only the segment-map call differs from {@code clearFile}: this uses
-   * {@link ConcurrentLongIntHashMap#removeByFileIdAtLeast(long, int)} so entries below
-   * {@code minPageIndex} survive (they belong to file regions the truncate does NOT
-   * drop and must remain reachable for ongoing readers).
-   *
-   * <p>Precondition: like {@code clearFile}, this method assumes no concurrent
-   * {@code doLoad} for the same fileId. A concurrent {@code doLoad} could re-insert an
-   * entry for a page of this file after {@code removeByFileIdAtLeast} completes. The
-   * recovery-time orphan-truncation pass that drives this method runs under
-   * {@code stateLock.writeLock()} so no client TX can race; the call site documents
-   * this coordination at a higher level. With no concurrent {@code doLoad}, no pinned
-   * entries are expected on the recovery path — the re-insertion safety net below is
-   * defensive against future callers (or interleavings) that violate the assumption.
-   *
-   * <p><b>Freeze-failure handling — re-insert un-frozen entries:</b> the original
-   * implementation here threw {@link StorageException} on the first pinned entry. That
-   * left every entry already removed from {@code data} but not yet processed in this
-   * loop orphaned: removed from the segment map but the WTinyLFU {@code policy} and
-   * {@code cacheSize} counter never updated for the un-processed tail. The asymmetric
-   * {@link #drainAllEntries(WriteCache)} handles this correctly by re-inserting
-   * un-frozen entries via {@code data.put(...)} before throwing; this method now mirrors
-   * that pattern. Continuing the loop on failure, collecting un-frozen entries, and
-   * re-inserting them before throwing keeps policy + cacheSize in lockstep with the
-   * segment map and lets a retry after the pin is released drain the entries correctly.
+   * "Remove every cache entry for {@code fileId}" delegate. Forwards to the range-scoped
+   * overload with {@code minPageIndex = 0}, which matches every page index.
    */
-  private void clearFileRange(
+  private void clearFile(final long fileId, final WriteCache writeCache) {
+    clearFile(fileId, 0, writeCache);
+  }
+
+  /**
+   * Drops every cache entry whose {@code (fileId, pageIndex)} pair satisfies
+   * {@code pageIndex >= minPageIndex}; entries below the minimum survive (they belong to
+   * file regions the truncate does NOT drop and must remain reachable for ongoing
+   * readers). With {@code minPageIndex = 0} this is "remove every cache entry for this
+   * fileId" — the shape that {@code closeFile} / {@code deleteFile} /
+   * {@code truncateFile} use.
+   *
+   * <p>Same evictionLock acquisition, current-thread read batch flush, and freeze /
+   * onRemove / checkCacheOverflow loop in every case. Pinned-entry recovery follows
+   * {@link #drainAllEntries(WriteCache)}'s "re-insert un-frozen entries" pattern: on a
+   * freeze failure the loop continues, every un-frozen entry is re-inserted into the
+   * segment map, and the first-pinned exception is thrown only after the tail has been
+   * fully processed. This keeps {@code policy} and {@code cacheSize} in lockstep with
+   * the segment map even on partial failure — an earlier shape that threw on the first
+   * pinned entry orphaned the un-processed tail (removed from the map but never
+   * accounted for in the policy / cacheSize, leaking direct-memory references via the
+   * never-decremented CachePointer referrers).
+   *
+   * <p>Precondition: this method assumes no concurrent {@code doLoad} for the same
+   * fileId. A concurrent {@code doLoad} could re-insert an entry for a page of this
+   * file after {@code removeByFileId} completes. Callers coordinate file lifecycle at
+   * a higher level so no client TX can race the bulk removal:
+   *
+   * <ul>
+   *   <li>{@code closeFile} / {@code deleteFile} / {@code truncateFile} hold the
+   *       storage's exclusive lock.</li>
+   *   <li>{@code shrinkFile} is invoked only by the recovery-time orphan-truncation
+   *       pass, which runs under {@code stateLock.writeLock()}.</li>
+   * </ul>
+   *
+   * <p>With no concurrent {@code doLoad}, no pinned entries are expected on the
+   * recovery path — the re-insertion safety net is defensive against future callers
+   * (or interleavings) that violate the precondition.
+   */
+  private void clearFile(
       final long fileId, final int minPageIndex, final WriteCache writeCache) {
     flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
 
-      // Bulk removal: removeByFileIdAtLeast sweeps each segment linearly under its
-      // write lock with a (fileId, pageIndex >= minPageIndex) match filter. Entries
-      // are returned after the segment lock is released; the freeze / onRemove /
-      // checkCacheOverflow loop below does not run under a segment write lock.
-      final var removedEntries = data.removeByFileIdAtLeast(fileId, minPageIndex);
+      // Bulk removal: removeByFileId sweeps each segment linearly under its write lock
+      // with a (fileId, pageIndex >= minPageIndex) match filter. Entries are returned
+      // after the segment lock is released; the freeze / onRemove / checkCacheOverflow
+      // loop below does not run under a segment write lock — avoiding StampedLock
+      // reentrancy deadlock if callbacks re-enter the map.
+      final var removedEntries = data.removeByFileId(fileId, minPageIndex);
 
       // First entry that freeze() rejected (still pinned). We use it to build the
       // exception message after re-inserting every un-frozen entry into the segment
@@ -912,8 +922,7 @@ public final class LockFreeReadCache implements ReadCache {
           }
           // Re-insert so policy + cacheSize stay in lockstep with the segment map and
           // a retry by the caller (after the pin is released) can drain this entry
-          // through the normal path. See the Javadoc above for why this differs from
-          // clearFile's early-throw shape.
+          // through the normal path.
           data.put(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
         }
       }
@@ -924,51 +933,6 @@ public final class LockFreeReadCache implements ReadCache {
                 + " for file id "
                 + firstUnfrozen.getFileId()
                 + " is used and cannot be removed");
-      }
-    } finally {
-      evictionLock.unlock();
-    }
-  }
-
-  private void clearFile(final long fileId, final WriteCache writeCache) {
-    flushCurrentThreadReadBatch();
-    evictionLock.lock();
-    try {
-      emptyBuffers();
-
-      // Bulk removal: removeByFileId sweeps each segment linearly under its write
-      // lock, collecting removed entries into a list. Entries are returned after
-      // the segment lock is released, so the processing below (freeze, onRemove,
-      // checkCacheOverflow) does not run under a segment write lock — avoiding
-      // StampedLock reentrancy deadlock if callbacks re-enter the map.
-      //
-      // Precondition: clearFile assumes no concurrent doLoad for the same fileId.
-      // A concurrent doLoad could re-insert an entry for a page of this file after
-      // removeByFileId completes. This is a pre-existing race (the old per-page
-      // loop had the same gap between remove and freeze). Callers ensure this by
-      // coordinating file lifecycle at a higher level.
-      final var removedEntries = data.removeByFileId(fileId);
-
-      for (final var cacheEntry : removedEntries) {
-        if (cacheEntry.freeze()) {
-          policy.onRemove(cacheEntry);
-          cacheSize.decrementAndGet();
-
-          try {
-            writeCache.checkCacheOverflow();
-          } catch (final java.lang.InterruptedException e) {
-            throw BaseException.wrapException(
-                new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                e, writeCache.getStorageName());
-          }
-        } else {
-          throw new StorageException(writeCache.getStorageName(),
-              "Page with index "
-                  + cacheEntry.getPageIndex()
-                  + " for file id "
-                  + cacheEntry.getFileId()
-                  + " is used and cannot be removed");
-        }
       }
     } finally {
       evictionLock.unlock();

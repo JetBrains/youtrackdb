@@ -58,8 +58,8 @@ import org.junit.experimental.categories.Category;
  *       subsequent transaction commits without an {@code IllegalStateException}.</li>
  *   <li><b>Positive — deterministic orphan fabrication on a {@code .cpm} file.</b> Mirrors
  *       the {@code .pcl} test but fabricates orphans on the embedded position-map file.
- *       Pins the orchestrator's per-PCV2 dispatch through {@code getCollectionPositionMap()}
- *       in addition to the collection itself.</li>
+ *       Pins the PCV2 sibling-truncation hook that internally drives the embedded
+ *       {@code CollectionPositionMapV2.verifyAndTruncateOrphans} call.</li>
  *   <li><b>Negative — clean shutdown / no-op.</b> Open, populate, close cleanly, reopen.
  *       Assert no file shrunk (the per-component pre-flight makes the pass a no-op).</li>
  *   <li><b>Index engine variant.</b> Same fabrication shape against a BTree index engine's

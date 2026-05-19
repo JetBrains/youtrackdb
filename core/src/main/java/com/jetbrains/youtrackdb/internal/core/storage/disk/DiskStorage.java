@@ -1672,11 +1672,11 @@ public class DiskStorage extends AbstractStorage {
 
     flushAllData();
 
-    // Recovery-time orphan-truncation pass on the incremental-restore path. Placement is
-    // post-flush (mirrors the open() entry point): an earlier truncate-then-flush ordering
-    // would let the subsequent flushAllData() re-extend any in-scope file past targetBytes
-    // when writeCachePages still holds dirty WAL-replay entries past the logical horizon,
-    // silently re-creating the orphan the pass exists to remove.
+    // Recovery-time orphan-truncation pass on the incremental-restore path. Runs
+    // post-flush (mirrors the open() entry point): running the truncate after
+    // flushAllData() ensures writeCachePages cannot re-extend any in-scope file past
+    // targetBytes via a dirty WAL-replay entry past the logical horizon, silently
+    // re-creating the orphan the pass exists to remove.
     atomicOperationsManager.executeInsideAtomicOperation(this::truncateOrphansAfterRecovery);
 
     atomicOperationsManager.executeInsideAtomicOperation(this::generateDatabaseInstanceId);

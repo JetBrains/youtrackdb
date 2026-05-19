@@ -235,29 +235,18 @@ public class ConcurrentLongIntHashMap<V> {
    * @return a list of removed values (may be empty, never null)
    */
   public List<V> removeByFileId(long fileId) {
-    var result = new ArrayList<V>();
-    for (Section<V> section : sections) {
-      section.removeByFileId(fileId, result);
-    }
-    return result;
+    return removeByFileId(fileId, 0);
   }
 
   /**
-   * Range-scoped sibling of {@link #removeByFileId(long)}: removes only the entries whose
+   * Range-scoped variant of {@link #removeByFileId(long)}: removes only the entries whose
    * {@code fileId} matches AND whose {@code pageIndex >= minPageIndex}. Entries below the
    * minimum page index are left in place.
    *
-   * <p>Same single-pass-per-section + same-capacity-rehash strategy as
-   * {@link #removeByFileId(long)}; only the match predicate differs. Each section is swept
-   * linearly under its own write lock and matching values are appended to the returned list
-   * outside any lock, so callers can perform post-removal processing (e.g., freeze, eviction
-   * callbacks) without holding segment locks.
-   *
-   * <p>Cross-section removal is not collectively atomic, matching {@link #removeByFileId(long)}.
-   *
-   * <p>{@code minPageIndex = 0} is equivalent to {@link #removeByFileId(long)} — every entry
-   * with the matching {@code fileId} is removed. {@code minPageIndex} larger than every
-   * present {@code pageIndex} is a clean no-op (empty list, no section rehash).
+   * <p>{@code minPageIndex = 0} matches every {@code pageIndex} and is equivalent to
+   * {@link #removeByFileId(long)} — every entry with the matching {@code fileId} is removed.
+   * A {@code minPageIndex} larger than every present {@code pageIndex} is a clean no-op
+   * (empty list, no section rehash).
    *
    * <p>Used by the recovery-time orphan-truncation pass to drop only the cache entries that
    * correspond to physical-orphan pages past the EP-stored logical counter, while preserving
@@ -268,10 +257,10 @@ public class ConcurrentLongIntHashMap<V> {
    *     are removed
    * @return a list of removed values (may be empty, never null)
    */
-  public List<V> removeByFileIdAtLeast(long fileId, int minPageIndex) {
+  public List<V> removeByFileId(long fileId, int minPageIndex) {
     var result = new ArrayList<V>();
     for (Section<V> section : sections) {
-      section.removeByFileIdAtLeast(fileId, minPageIndex, result);
+      section.removeByFileId(fileId, minPageIndex, result);
     }
     return result;
   }
@@ -714,48 +703,13 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Remove all entries with the given fileId. Sweeps the entire section linearly under write
-     * lock, collecting removed values into the provided list. After the sweep, always performs a
-     * same-capacity rehash to compact the section and restore probe chain integrity.
+     * Removes entries with the given fileId at {@code pageIndex >= minPageIndex}. Sweeps the
+     * entire section linearly under the write lock, collecting removed values into the provided
+     * list. After the sweep, performs a same-capacity rehash to compact the section and restore
+     * probe chain integrity. {@code minPageIndex = 0} matches every {@code pageIndex} so it is
+     * equivalent to "remove all entries for this fileId".
      */
-    void removeByFileId(long fileId, List<V> removedEntries) {
-      long stamp = lock.writeLock();
-      try {
-        int removed = 0;
-        for (int i = 0; i < capacity; i++) {
-          Entry<V> e = entries[i];
-          if (e != null && e.fileId == fileId) {
-            removedEntries.add(e.value);
-            entries[i] = null;
-            removed++;
-          }
-        }
-
-        if (removed == 0) {
-          return;
-        }
-
-        size -= removed;
-        usedBuckets -= removed;
-        assert size >= 0 : "size went negative after removeByFileId: " + size;
-        assert usedBuckets >= 0
-            : "usedBuckets went negative after removeByFileId: " + usedBuckets;
-
-        // Since we used simple nullification (not backward-sweep per entry), there may be
-        // gaps in probe chains. A same-capacity rehash restores probe chain integrity.
-        rehashSameCapacity();
-      } finally {
-        lock.unlockWrite(stamp);
-      }
-    }
-
-    /**
-     * Range-scoped sibling of {@link #removeByFileId(long, List)}: removes only entries whose
-     * {@code fileId} matches AND whose {@code pageIndex >= minPageIndex}. Same
-     * single-pass-per-section + same-capacity-rehash strategy as
-     * {@link #removeByFileId(long, List)}; only the match predicate differs.
-     */
-    void removeByFileIdAtLeast(long fileId, int minPageIndex, List<V> removedEntries) {
+    void removeByFileId(long fileId, int minPageIndex, List<V> removedEntries) {
       long stamp = lock.writeLock();
       try {
         int removed = 0;
@@ -774,12 +728,12 @@ public class ConcurrentLongIntHashMap<V> {
 
         size -= removed;
         usedBuckets -= removed;
-        assert size >= 0 : "size went negative after removeByFileIdAtLeast: " + size;
+        assert size >= 0 : "size went negative after removeByFileId: " + size;
         assert usedBuckets >= 0
-            : "usedBuckets went negative after removeByFileIdAtLeast: " + usedBuckets;
+            : "usedBuckets went negative after removeByFileId: " + usedBuckets;
 
-        // Same probe-chain restoration as removeByFileId — nullification may leave
-        // gaps that defeat lookup probes for surviving entries.
+        // Since we used simple nullification (not backward-sweep per entry), there may be
+        // gaps in probe chains. A same-capacity rehash restores probe chain integrity.
         rehashSameCapacity();
       } finally {
         lock.unlockWrite(stamp);

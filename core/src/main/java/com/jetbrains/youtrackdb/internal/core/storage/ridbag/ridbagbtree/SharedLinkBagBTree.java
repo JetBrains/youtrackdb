@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -9,8 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
@@ -47,6 +44,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     this.serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
   }
 
+  @Override
   public long getFileId() {
     return fileId;
   }
@@ -106,64 +104,26 @@ public final class SharedLinkBagBTree extends StorageComponent {
         });
   }
 
-  /**
-   * Recovery-time orphan-truncation hook for SharedLinkBagBTree, dispatched by
-   * {@code LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans} (which
-   * iterates the manager's {@code fileIdBTreeMap.values()}). Reads the entry-point's
-   * {@code pagesSize}, computes the expected physical file size as
-   * {@code max(pageSize, (pagesSize + 1) * pageSize)}, and dispatches to
-   * {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop physical pages beyond
-   * the logical horizon.
-   *
-   * <p>Asymmetry vs CPMV2/PCV2: the SLBB EP's {@code init()} sets {@code pagesSize = 1}
-   * (root + EP), so a healthy SLBB always reports {@code pagesSize >= 1}. A
-   * {@code pagesSize == 0} reading is itself anomalous — paired with
-   * {@code physicalBytes > pageSize} it indicates a storage-corruption signal that
-   * WAL replay should have ruled out. The pass skips with a WARN log rather than mask
-   * the inconsistency.
-   *
-   * <p>The {@code max(pageSize, ...)} floor preserves the EP page even on the
-   * skip-with-WARN path's symmetry: if the corruption guard ever ceases to fire, the
-   * floor still keeps the file from being truncated below its single EP page.
-   *
-   * @param atomicOperation enclosing recovery-pass atomic operation
-   * @param readCache       read cache the truncate dispatches through
-   * @param writeCache      write cache backing the read cache
-   * @throws IOException if the entry-point page cannot be read or the underlying shrink
-   *                     fails
-   */
-  public void verifyAndTruncateOrphans(
-      @Nonnull final AtomicOperation atomicOperation,
-      @Nonnull final ReadCache readCache,
-      @Nonnull final WriteCache writeCache)
+  @Override
+  protected int readLogicalPageCountFromEntryPoint(@Nonnull final AtomicOperation atomicOperation)
       throws IOException {
-    final int pagesSize;
     try (final var entryPointCacheEntry =
         loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      pagesSize = entryPoint.getPagesSize();
+      return entryPoint.getPagesSize();
     }
+  }
 
-    final int pageSize = writeCache.pageSize();
-    final long physicalPages =
-        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
-    final long physicalBytes = physicalPages * (long) pageSize;
+  @Override
+  protected String getComponentTypeName() {
+    return "SharedLinkBagBTree";
+  }
 
-    if (pagesSize == 0 && physicalBytes > pageSize) {
-      // Format eagerly so the message does not collide with LogManager.warn's three-arg
-      // dbName overload (which would consume the first String arg as a dbName prefix).
-      final String msg =
-          String.format(
-              "Storage corruption signal: SharedLinkBagBTree '%s' EP reports"
-                  + " pagesSize=0 but physical file holds %d pages (> 1). Skipping"
-                  + " orphan-truncation; investigate manually.",
-              getName(), physicalPages);
-      LogManager.instance().warn(this, msg);
-      return;
-    }
-
-    final long targetBytes = Math.max((long) pageSize, ((long) pagesSize + 1L) * pageSize);
-    readCache.shrinkFile(fileId, targetBytes, writeCache);
+  @Override
+  protected String getLogicalCountFieldName() {
+    // EP wrapper class ridbagbtree.EntryPoint stores the highest occupied data-page
+    // index as pagesSize; init() seeds it at 1 (root + EP). See create() at lines 51-77.
+    return "pagesSize";
   }
 
   /**

@@ -304,6 +304,18 @@ public final class AsyncFile implements File {
     return this.size.getAndAdd(size);
   }
 
+  /**
+   * Truncates this file's logical size to {@code size} bytes. A no-op when
+   * {@code size >= getFileSize()}.
+   *
+   * @apiNote Callers MUST hold {@code WOWCache.filesLock.writeLock} (or an equivalent
+   *     lock that excludes
+   *     {@link com.jetbrains.youtrackdb.internal.core.storage.fs.File#allocateSpace(int)
+   *     allocateSpace} on this file). {@code AsyncFile.lock.exclusiveLock} acquired
+   *     inside this method does NOT serialise against {@code allocateSpace} — the
+   *     {@code this.size.get()} read at the pre-flight guard would race otherwise. See
+   *     the in-body comment for the layered rationale.
+   */
   @Override
   public void shrink(long size) throws IOException {
     lock.exclusiveLock();

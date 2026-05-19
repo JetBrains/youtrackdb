@@ -506,7 +506,7 @@ public class WOWCacheShrinkFileTest {
    * file. This pins the load-bearing invariant that
    * {@code removeCachedPagesAtLeast} runs BEFORE {@code AsyncFile.shrink} inside
    * {@code WOWCache.shrinkFile} (and that {@code WriteCache.shrinkFile} runs BEFORE
-   * {@code LockFreeReadCache.clearFileRange} in the orchestrator). A regression that swapped
+   * {@code LockFreeReadCache.clearFile} in the orchestrator). A regression that swapped
    * either ordering would let a periodic flush rewrite the dirty above-target entries past
    * the truncate and silently re-create the orphan the recovery pass just removed.
    *
@@ -547,5 +547,28 @@ public class WOWCacheShrinkFileTest {
         cachePointer.decrementReadersReferrer();
       }
     }
+  }
+
+  /**
+   * Contract-violation signal: invoking {@code shrinkFile} against a fileId that has no
+   * open entry in {@code files} surfaces a {@link com.jetbrains.youtrackdb.internal.core
+   * .exception.StorageException}. The recovery-time orphan-truncation orchestrator
+   * iterates already-open components, so a null entry here means the orchestrator
+   * dispatched against a stale fileId — a programming error that previously surfaced as
+   * a silent no-op (any subsequent partial-flush orphan on that file would persist). The
+   * orchestrator wraps each dispatch in a try/catch that absorbs the throw with a WARN
+   * log so a single contract violation does not poison recovery for other components.
+   */
+  @Test
+  public void shrinkFileThrowsOnMissingFileEntry() throws IOException {
+    // Allocate a file, then delete it from the WOWCache.files map (mirroring a stale
+    // fileId reaching the recovery pass) and re-dispatch shrinkFile.
+    final var fileId = allocateAndOptionallyDirty(2, false);
+    wowCache.deleteFile(fileId);
+
+    assertThatThrownBy(() -> wowCache.shrinkFile(fileId, pageSize))
+        .isInstanceOf(
+            com.jetbrains.youtrackdb.internal.core.exception.StorageException.class)
+        .hasMessageContaining("no file entry is open");
   }
 }
