@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
@@ -278,7 +279,7 @@ public class ProductionAllocatorConcurrencyMTTest {
           // A shared op would idempotency-collapse them to one call.
           final var allocated = storage.getAtomicOperationsManager()
               .calculateInsideAtomicOperation(
-                  op -> pcv2.allocatePosition(/* recordType = */ (byte) 'd', op));
+                  op -> pcv2.allocatePosition(EntityImpl.RECORD_TYPE, op));
           positions.add(allocated.collectionPosition);
         } catch (Throwable t) {
           errors.add(taggedFailure(round, workerId, t));
@@ -385,7 +386,7 @@ public class ProductionAllocatorConcurrencyMTTest {
           // page and forces a new-page allocation on every call.
           final var allocated = storage.getAtomicOperationsManager()
               .calculateInsideAtomicOperation(
-                  op -> pcv2.createRecord(payload, (byte) 'd', null, op));
+                  op -> pcv2.createRecord(payload, EntityImpl.RECORD_TYPE, null, op));
           positions.add(allocated.collectionPosition);
         } catch (Throwable t) {
           errors.add(taggedFailure(round, workerId, t));
