@@ -223,6 +223,36 @@ public interface WriteCache {
    * @throws IllegalArgumentException if {@code pageIndex < 0} or the file is deleted /
    *     never registered
    * @throws IOException if the underlying disk I/O fails
+   * @apiNote <b>Per-component-lock contract on the extend / gap-fill branches.</b>
+   *     Callers reaching the extend or gap-fill branch (i.e. allocating a fresh
+   *     {@code (fileId, pageIndex)}) MUST hold the per-component exclusive lock on the
+   *     {@code StorageComponent} that owns {@code fileId}, acquired via {@code
+   *     AtomicOperationsManager.executeInsideComponentOperation} /
+   *     {@code calculateInsideComponentOperation} (which internally call {@code
+   *     acquireExclusiveLockTillOperationComplete}). The per-component lock is what
+   *     serialises two concurrent transactions that share the same {@code fileId} on the
+   *     same component — without it, both transactions can race past the snapshot read of
+   *     the file's logical page count and submit the same {@code pageIndex} to this method,
+   *     tripping {@link IllegalStateException} from the cache's allocator-uniqueness check
+   *     ({@code "Page X:Y was allocated in other thread"}).
+   *
+   *     <p>Production-reachable hot paths that share a {@code fileId} across concurrent
+   *     transactions — {@code CollectionPositionMapV2.allocate} (wrapped by {@code
+   *     PaginatedCollectionV2.allocatePosition}), {@code
+   *     PaginatedCollectionV2.allocateNewPage}, and {@code
+   *     IndexHistogramManager.writeSnapshotToPage} — are pinned by the {@code
+   *     ProductionAllocatorConcurrencyMTTest} suite under {@code
+   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}; a regression
+   *     that drops the per-component lock on any of those callers fails that suite.
+   *     Component initialisers that run once per index/component lifecycle (e.g.
+   *     {@code BTree.create}, {@code SharedLinkBagBTree.splitRootBucket}) are not
+   *     reachable from concurrent session-level transactions and rely on the same
+   *     per-component-lock contract rather than on a dedicated MT regression gate.
+   *
+   *     <p>Load-branch ({@code pageIndex < currentSize}) callers do not require the
+   *     per-component lock for safety from this method's perspective; the per-page
+   *     {@code lockManager} shared lock covers concurrent reads. The lock contract above
+   *     applies to allocator-shaped uses.
    */
   CachePointer loadOrAdd(long fileId, long pageIndex, boolean verifyChecksums) throws IOException;
 

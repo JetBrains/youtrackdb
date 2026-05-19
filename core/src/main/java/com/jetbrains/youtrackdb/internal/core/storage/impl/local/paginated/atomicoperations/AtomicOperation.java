@@ -100,6 +100,33 @@ public interface AtomicOperation {
    * @throws IllegalStateException on the disk engine when {@code pageIndex} is below the
    *     committed file size and no prior overlay exists for it; the in-memory engine
    *     bypasses this check for rollback-orphan re-use
+   * @apiNote <b>Per-component-lock contract.</b> Callers MUST hold the per-component
+   *     exclusive lock on the {@code StorageComponent} that owns {@code fileId}, acquired
+   *     via {@code AtomicOperationsManager.executeInsideComponentOperation} /
+   *     {@code calculateInsideComponentOperation} (which internally call {@code
+   *     acquireExclusiveLockTillOperationComplete}). The per-component lock is what
+   *     serialises two concurrent transactions that share the same {@code fileId} on the
+   *     same component &mdash; without it, both transactions can race past the snapshot
+   *     read of the file's logical page count and pass the same {@code pageIndex} to this
+   *     method, tripping {@link IllegalStateException} on the disk engine (and reproducing
+   *     the {@code "Page X:Y was allocated in other thread"} cascade at the cache layer).
+   *     The contract propagates one layer down: the cache primitive that this method
+   *     ultimately calls ({@code WriteCache.loadOrAdd} on the extend / gap-fill branches)
+   *     carries the same precondition; see {@code WriteCache#loadOrAdd}'s {@code @apiNote}
+   *     for the cache-layer phrasing.
+   *
+   *     <p>Production-reachable hot paths that share a {@code fileId} across concurrent
+   *     transactions &mdash; {@code CollectionPositionMapV2.allocate} (wrapped by {@code
+   *     PaginatedCollectionV2.allocatePosition}), {@code
+   *     PaginatedCollectionV2.allocateNewPage}, and {@code
+   *     IndexHistogramManager.writeSnapshotToPage} &mdash; are pinned by the {@code
+   *     ProductionAllocatorConcurrencyMTTest} suite under {@code
+   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}; a regression
+   *     that drops the per-component lock on any of those callers fails that suite.
+   *     Component initialisers that run once per index/component lifecycle (e.g. {@code
+   *     BTree.create}, {@code SharedLinkBagBTree.splitRootBucket}) are not reachable from
+   *     concurrent session-level transactions and rely on the same per-component-lock
+   *     contract rather than on a dedicated MT regression gate.
    */
   CacheEntry allocatePageForWrite(long fileId, long pageIndex) throws IOException;
 
