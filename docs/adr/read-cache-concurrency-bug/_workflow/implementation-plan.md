@@ -849,6 +849,14 @@ flowchart LR
   > affect Track 6 scope only. No design decisions surfaced; no ESCALATE.
   >
   > **Step file:** `tracks/track-7.md` (5 steps, 0 failed; Phase C iter-1 review fix `fdbe455b00`; track-completion review-mode round `9886eb0d0f` applying 9 findings)
+  >
+  > **Strategy refresh:** CONTINUE — Track 6's only remaining track; the
+  > three IT-coverage deferrals from Track 7's review fan-out are already
+  > captured in Track 6's plan-file scope via `a6d3fe770c` (ChecksumMode
+  > matrix on CS1; multi-value `.nbt` null-tree IT; executable IR-wiring
+  > test). YTDB-889 remains orthogonal future work. Decomposition will
+  > fold these absorptions into the existing CS1 and StorageBackupMTStateTest
+  > resurrection step scopes rather than adding separate steps.
 
 - [ ] Track 6: Integration regression test
   > End-to-end concurrent-insert workload that reproduces the original
