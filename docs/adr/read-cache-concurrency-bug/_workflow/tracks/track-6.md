@@ -278,6 +278,9 @@ below without standalone refinement notes.
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`76d2939f0e88ee41c964d53abab70a3d0470a8e0`
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 1 (10 findings: 4 should-fix accepted + 6 suggestions folded into step descriptions)
 - [x] Risk: PASS at iteration 1 (9 findings: 5 should-fix accepted + 3 suggestions accepted + 1 suggestion deferred with downstream check)
