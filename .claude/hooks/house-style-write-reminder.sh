@@ -45,8 +45,16 @@
 # would not be misclassified. Over-matching on the settings.json side is
 # an acceptable risk for an informational reminder that no-ops on
 # unrecognized tool inputs.
+#
+# State and lock files persist across the session by design: the
+# per-tier rate-limit lives inside the state file, and a trap-cleanup
+# on exit would erase the rate-limit memory and let every Write/Edit
+# in the session re-fire the reminder. Orphan accumulation is bounded
+# by the host's /tmp aging policy; the per-`session_id` keying also
+# ensures one zero-byte/few-bytes pair per logical session, not per
+# tool invocation.
 
-set -u
+set -uo pipefail
 
 # ---------- Stage 1: read stdin and parse the input JSON --------------
 
@@ -63,6 +71,12 @@ jq_or_python_get() {
     result=$(printf '%s' "$input_json" | jq -r "$filter" 2>/dev/null)
     if [ "$result" != "null" ] && [ -n "$result" ]; then
       printf '%s' "$result"
+      return 0
+    elif [ "$result" = "null" ]; then
+      # jq confirmed the field is absent / null. Skip the Python
+      # fallback — its ~10–15 ms startup would add latency for no
+      # gain. Empty output (`-n "$result"` false above) is still
+      # ambiguous between miss and absent, so it falls through.
       return 0
     fi
   fi
@@ -232,7 +246,7 @@ lock_file="${state_dir}/house-style-reminder-${session_id}.lock"
 # text silently rots.
 tier_a_body='House style applies to this Markdown surface. See .claude/workflow/conventions.md §1.5 *Writing style for Markdown and prose artifacts* (canonical anchor) and the rule source at .claude/output-styles/house-style.md — BLUF lead, banned vocabulary, banned sentence patterns, banned analysis patterns, punctuation and typography, structural rules, document-shape rules.'
 
-tier_b_body='House style AI-tell subset applies to code comments and Javadoc on this Java/Kotlin surface. See .claude/workflow/conventions.md §1.5 and the four sections in .claude/output-styles/house-style.md: § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline.'
+tier_b_body='House style AI-tell subset applies to code comments and Javadoc on this Java/Kotlin surface. See .claude/workflow/conventions.md §1.5 and the four sections in .claude/output-styles/house-style.md: § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline (H3 under § Punctuation and typography).'
 
 emit_reminder() {
   local fired_a="$1"
