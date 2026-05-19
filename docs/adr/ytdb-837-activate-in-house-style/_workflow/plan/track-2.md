@@ -196,3 +196,6 @@ flowchart TD
 - `tool_input.hunks` (array of objects) — for `mcp__<server>__steroid_apply_patch`, each hunk has `file_path`, `old_string`, `new_string` (all strings). The hook enumerates `hunks[].file_path` and dedups. Confirmed against `mcp-steroid://skill/apply-patch-tool-description`.
 - `tool_name` regex match `^mcp__.+__steroid_apply_patch$` — the dispatch site identifies the apply-patch variant regardless of MCP-server registry-key choice.
 - State file format: one line per fired tier (`A` or `B`) for the session.
+
+## Base commit
+f0a1e39415c7c23809127b6595a6f23c1281117c
