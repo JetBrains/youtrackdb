@@ -394,9 +394,10 @@ scale. Other extensions stay silent.
 | Surface | Tier | Sections that apply |
 |---|---|---|
 | All `*.md` files (design docs, ADRs, plans, track files, reviews, issue and PR bodies, status updates) | Full house-style | Every section of `house-style.md` |
+| PR titles and descriptions, commit message bodies, YouTrack issue bodies | Full house-style | Every section of `house-style.md` |
 | `*.java`, `*.kt` source (code comments, Javadoc rationale) | AI-tell subset | `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` (H3 nested under `§ Punctuation and typography`) |
 | Other extensions | Silent | n/a |
 
 The four Tier-B section names are stable headings after YTDB-836; a
 future rename in `house-style.md` requires updating every pointer in
-the same commit.
+the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
