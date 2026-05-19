@@ -72,7 +72,7 @@ import org.junit.experimental.categories.Category;
  *       a load attempt.</li>
  * </ul>
  *
- * <p>Four file shapes are exercised:
+ * <p>Six file shapes are exercised:
  *
  * <ol>
  *   <li><b>{@code .pcl}</b> — a paginated-collection cluster file.</li>
@@ -84,6 +84,15 @@ import org.junit.experimental.categories.Category;
  *   <li><b>{@code .cbt}</b> — a BTree single-value index engine's primary data file. Pins
  *       the engine-side dispatch through the orchestrator's
  *       {@code instanceof BTreeSingleValueIndexEngine} filter.</li>
+ *   <li><b>{@code .grb}</b> — a {@code SharedLinkBagBTree} file (one per paginated
+ *       collection, named {@code global_collection_<id>.grb}). Pins Group 3 of the
+ *       orchestrator, where {@code LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans}
+ *       iterates the manager's private {@code fileIdBTreeMap} — the only recovery-pass
+ *       target with no public iteration accessor on the manager.</li>
+ *   <li><b>Multi-value engine null sub-tree {@code <index>$null.cbt}</b> — the nullTree
+ *       data file inside a {@code BTreeMultiValueIndexEngine}. Pins the previously
+ *       IT-uncovered nullTree leg of {@code BTreeMultiValueIndexEngine.verifyAndTruncateOrphans}
+ *       (svTree leg is already pinned by the {@code .cbt} scenarios above).</li>
  * </ol>
  *
  * <p>The orphan fabrication uses {@link RandomAccessFile} after the DB is closed. The
@@ -523,6 +532,271 @@ public class TruncateOrphansAfterRecoveryIT {
     assertThat(sizeImmediatelyAfterReopen)
         .as("recovery pass must truncate the orphan tail back to the index's logical horizon"
             + " under checksumMode=" + checksumMode)
+        .isEqualTo(sizeBeforeFabrication);
+  }
+
+  // ---------------------------------------------------------------------------
+  // SharedLinkBagBTree (.grb) — full ChecksumMode × fabrication-shape matrix
+  //
+  // Every paginated collection creates one SLBB file at addCollection() time
+  // (see AbstractStorage.doAddCollection -> linkCollectionsBTreeManager.createComponent),
+  // named "global_collection_<id>.grb". The freshly-created file holds two pages — the
+  // entry point at index 0 (pagesSize=1) and the root bucket at index 1 — so the logical
+  // horizon enforced by the recovery pass is targetBytes = (1 + 1) * pageSize.
+  // The dispatch path under test is AbstractStorage.truncateOrphansAfterRecovery's
+  // Group 3 — linkCollectionsBTreeManager.verifyAndTruncateAllOrphans() iterates the
+  // manager's private fileIdBTreeMap, so this scenario pins that iteration delegate.
+  // ---------------------------------------------------------------------------
+
+  /** See {@link #runSharedLinkBagBTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnSharedLinkBagBTreeFileMagicStampedUnderChecksumOff()
+      throws Exception {
+    runSharedLinkBagBTreeScenario(ChecksumMode.Off, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runSharedLinkBagBTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnSharedLinkBagBTreeFileMagicStampedUnderStoreAndThrow()
+      throws Exception {
+    runSharedLinkBagBTreeScenario(ChecksumMode.StoreAndThrow, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runSharedLinkBagBTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnSharedLinkBagBTreeFileZeroByteUnderChecksumOff()
+      throws Exception {
+    runSharedLinkBagBTreeScenario(ChecksumMode.Off, zeroByteOrphanFabricator());
+  }
+
+  /** See {@link #runSharedLinkBagBTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnSharedLinkBagBTreeFileZeroByteUnderStoreAndThrow()
+      throws Exception {
+    runSharedLinkBagBTreeScenario(ChecksumMode.StoreAndThrow, zeroByteOrphanFabricator());
+  }
+
+  /**
+   * Scenario body shared by the four {@code .grb} variants. Pins Group 3 of the
+   * orphan-truncation orchestrator — the {@code LinkCollectionsBTreeManagerShared}
+   * iteration delegate that fans out over every loaded {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree}.
+   *
+   * <p>Opens a storage under the given {@code checksumMode}, creates a class (which
+   * implicitly registers a paginated collection and the associated SLBB), closes,
+   * fabricates orphan pages on the SLBB's {@code .grb} file, reopens, and asserts the
+   * orphans are truncated back to the SLBB's logical horizon. The SLBB is the only
+   * recovery-pass target that exposes no public iteration accessor on the manager, so
+   * its dispatch coverage rests on this scenario alone.
+   */
+  private void runSharedLinkBagBTreeScenario(
+      ChecksumMode checksumMode, OrphanFabricator fabricator) throws Exception {
+    var config = makeConfig(checksumMode);
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
+    String nativeFileName;
+    int pageSize;
+    java.nio.file.Path storagePath;
+    try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      // Creating a class allocates a cluster, which in turn creates the per-cluster SLBB
+      // via AbstractStorage.doAddCollection. No edges / link-bags are needed here — the
+      // pristine SLBB carries the EP-and-root two-page footprint the recovery pass
+      // dispatches against, which is exactly the surface we want to exercise.
+      session.getMetadata().getSchema().createClass("GrbOrphans");
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      // SLBB files use a fixed prefix unrelated to the class name — see
+      // LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX = "global_collection_" and
+      // FILE_EXTENSION = ".grb". Picking the first match is sufficient: the per-collection
+      // truncate is independent and the manager iterates internally in undefined order.
+      var grbFileName = wowCache.files().keySet().stream()
+          .filter(name -> name.startsWith("global_collection_") && name.endsWith(".grb"))
+          .findFirst()
+          .orElseThrow(() -> new AssertionError(
+              "No .grb file in the file map; SLBB component appears not to have been"
+                  + " created for the new cluster"));
+      var fileId = wowCache.fileIdByName(grbFileName);
+      nativeFileName = wowCache.nativeFileNameById(fileId);
+      pageSize = wowCache.pageSize();
+      storagePath = storage.getStoragePath();
+    }
+    youTrackDB.close();
+
+    var grbPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeFabrication = grbPath.length();
+    fabricator.fabricate(grbPath, pageSize, ORPHAN_PAGE_COUNT);
+    long sizeAfterFabrication = grbPath.length();
+    assertThat(sizeAfterFabrication)
+        .as(".grb file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize after fabrication")
+        .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
+
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long sizeImmediatelyAfterReopen;
+    try (var session = youTrackDB.open(
+        TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      sizeImmediatelyAfterReopen = grbPath.length();
+
+      // Health check: a non-recovery TX on the same cluster must complete without the
+      // physical>logical IllegalStateException the fabrication just produced, and (under
+      // StoreAndThrow) without a checksum-mismatch StorageException from any accidental
+      // load of an orphan page on the .grb file.
+      session.executeInTx(transaction -> {
+        var entity = transaction.newEntity("GrbOrphans");
+        entity.setProperty("value", "post-recovery");
+      });
+    }
+
+    assertThat(sizeImmediatelyAfterReopen)
+        .as("recovery pass must truncate the .grb orphan tail back to the SLBB's logical horizon"
+            + " under checksumMode=" + checksumMode)
+        .isEqualTo(sizeBeforeFabrication);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Multi-value B-tree null-key sub-tree — full ChecksumMode × fabrication-shape matrix
+  //
+  // A NOTUNIQUE index over a String property routes through BTreeMultiValueIndexEngine,
+  // which holds two CellBTreeSingleValue trees: svTree for non-null keys (covered by the
+  // .cbt scenarios above) and nullTree for null-keyed entries. The nullTree's primary
+  // data file is named "<index>$null.cbt" (NULL_TREE_SUFFIX = "$null"; data extension is
+  // DATA_FILE_EXTENSION = ".cbt"). The companion null-bucket file ".nbt" is a single page
+  // by construction and never grows — the page-extension surface is the nullTree's .cbt.
+  //
+  // The dispatch path under test is AbstractStorage.truncateOrphansAfterRecovery's Group
+  // 2 BTreeMultiValueIndexEngine branch, which fans out to nullTree.verifyAndTruncateOrphans
+  // (see BTreeMultiValueIndexEngine.java:355-357). The svTree leg is already pinned by
+  // the .cbt scenarios above; this scenario pins the previously-unexercised nullTree leg.
+  // ---------------------------------------------------------------------------
+
+  /** See {@link #runMultiValueNullSubTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnMultiValueNullSubTreeFileMagicStampedUnderChecksumOff()
+      throws Exception {
+    runMultiValueNullSubTreeScenario(ChecksumMode.Off, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runMultiValueNullSubTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnMultiValueNullSubTreeFileMagicStampedUnderStoreAndThrow()
+      throws Exception {
+    runMultiValueNullSubTreeScenario(ChecksumMode.StoreAndThrow, magicStampedOrphanFabricator());
+  }
+
+  /** See {@link #runMultiValueNullSubTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnMultiValueNullSubTreeFileZeroByteUnderChecksumOff()
+      throws Exception {
+    runMultiValueNullSubTreeScenario(ChecksumMode.Off, zeroByteOrphanFabricator());
+  }
+
+  /** See {@link #runMultiValueNullSubTreeScenario}. */
+  @Test
+  public void truncatesOrphansOnMultiValueNullSubTreeFileZeroByteUnderStoreAndThrow()
+      throws Exception {
+    runMultiValueNullSubTreeScenario(ChecksumMode.StoreAndThrow, zeroByteOrphanFabricator());
+  }
+
+  /**
+   * Scenario body shared by the four multi-value-engine null-sub-tree variants. Pins the
+   * nullTree leg of {@code BTreeMultiValueIndexEngine.verifyAndTruncateOrphans} —
+   * previously exercised at the unit level by mocks only (no IT touches a real
+   * {@code <index>$null.cbt} file with a physical-orphan tail). Opens a storage under
+   * the given {@code checksumMode}, creates a NOTUNIQUE index over a String property,
+   * inserts entities with {@code null} for that property until the nullTree's
+   * {@code .cbt} file grows past its EP-and-root two-page footprint (so a truncate is
+   * actually exercised), closes, fabricates orphans on that file, reopens, and asserts
+   * the orphan tail is truncated back to the nullTree's logical horizon.
+   */
+  private void runMultiValueNullSubTreeScenario(
+      ChecksumMode checksumMode, OrphanFabricator fabricator) throws Exception {
+    var config = makeConfig(checksumMode);
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
+    String nativeFileName;
+    int pageSize;
+    java.nio.file.Path storagePath;
+    try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      var schema = session.getMetadata().getSchema();
+      var clazz = schema.createClass("NullIndexed");
+      clazz.createProperty("key",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+      // NOTUNIQUE routes through BTreeMultiValueIndexEngine, which keeps a separate
+      // nullTree for null-keyed entries (BTreeMultiValueIndexEngine.java:43,82-85).
+      clazz.createIndex("NullIndexed.key",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
+          "key");
+      // 800 null-keyed entities is empirically enough to force the nullTree's .cbt file
+      // past one data page in addition to its EP — a single leaf bucket holds far fewer
+      // than 800 entries with the [LINK, LONG, LONG] composite-key layout that the null
+      // sub-tree uses (BTreeMultiValueIndexEngine.java:120-123 pins keySize=2 with a LINK
+      // + LONG layout, plus the auto-appended timestamp). The exact split count is
+      // page-size dependent, so we err on the high side; the assertion that the orphans
+      // grew the file guards against accidental short-circuit reductions.
+      session.executeInTx(transaction -> {
+        for (var i = 0; i < 800; i++) {
+          var entity = transaction.newEntity("NullIndexed");
+          // Don't set the "key" property — the index key is null, so the row routes
+          // through nullTree on commit.
+          entity.setProperty("payload", "row-" + i);
+        }
+      });
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      // The nullTree's data file is "<index>$null.cbt"; pick the one that ends with the
+      // composite "$null.cbt" suffix so it does not collide with the svTree's plain
+      // "<index>.cbt" sibling (which the .cbt scenarios above already pin).
+      var nullCbtFileName = wowCache.files().keySet().stream()
+          .filter(name -> name.endsWith("$null.cbt"))
+          .findFirst()
+          .orElseThrow(() -> new AssertionError(
+              "No <index>$null.cbt file in the file map; the multi-value engine's null"
+                  + " sub-tree appears not to have been created on disk"));
+      var fileId = wowCache.fileIdByName(nullCbtFileName);
+      nativeFileName = wowCache.nativeFileNameById(fileId);
+      pageSize = wowCache.pageSize();
+      storagePath = storage.getStoragePath();
+    }
+    youTrackDB.close();
+
+    var nullCbtPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeFabrication = nullCbtPath.length();
+    fabricator.fabricate(nullCbtPath, pageSize, ORPHAN_PAGE_COUNT);
+    long sizeAfterFabrication = nullCbtPath.length();
+    assertThat(sizeAfterFabrication)
+        .as("<index>$null.cbt file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize"
+            + " after fabrication")
+        .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
+
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long sizeImmediatelyAfterReopen;
+    try (var session = youTrackDB.open(
+        TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      sizeImmediatelyAfterReopen = nullCbtPath.length();
+
+      // Health check: a follow-up null-keyed insert must complete without the
+      // physical>logical IllegalStateException or (under StoreAndThrow) a checksum
+      // mismatch from any accidental load of an orphan page on the null sub-tree.
+      session.executeInTx(transaction -> {
+        var entity = transaction.newEntity("NullIndexed");
+        entity.setProperty("payload", "post-recovery");
+      });
+    }
+
+    assertThat(sizeImmediatelyAfterReopen)
+        .as("recovery pass must truncate the <index>$null.cbt orphan tail back to the null"
+            + " sub-tree's logical horizon under checksumMode=" + checksumMode)
         .isEqualTo(sizeBeforeFabrication);
   }
 
