@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -244,7 +245,7 @@ public class IndexHistogramManager extends StorageComponent {
             .getValueAsInteger();
   }
 
-  // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
+  // ---- Configuration setters wired post-construction by the storage layer ----
 
   public void setKeyStreamSupplier(Function<AtomicOperation, Stream<Object>> supplier) {
     this.keyStreamSupplier = supplier;
@@ -1797,7 +1798,11 @@ public class IndexHistogramManager extends StorageComponent {
    */
   private void createEmptyStatsPage(AtomicOperation op) throws IOException {
     fileId = addFile(op, getFullName());
-    var cacheEntry = addPage(op, fileId);
+    // Fresh file -- append the initial empty stats page (statically known-new at
+    // pageIndex 0). createStatsFile / createStatsFileWithCounters are invoked
+    // from AbstractStorage's index-creation path immediately after addFile, so
+    // the file has no other writers when this allocation runs.
+    var cacheEntry = allocatePageForWrite(op, fileId, 0);
     try {
       var page = new HistogramStatsPage(cacheEntry);
       page.writeEmpty(serializerId);
@@ -1826,11 +1831,15 @@ public class IndexHistogramManager extends StorageComponent {
       releasePageFromRead(op, cacheEntry);
     }
 
-    // If HLL was spilled to page 1, load it separately.
-    // Guard against missing page 1 (e.g., crash between page-0 and
-    // page-1 write — both are in the same atomic op, but defensive).
+    // Defensive physical-presence probe for the optional HLL page 1. Pages 0 and 1
+    // are written in the same atomic op, so under normal operation `hllOnPage1()`
+    // implies page 1 is present; this probe guards against a partial-crash window
+    // between the page-0 and page-1 writes. Stays on physical extent (rather than a
+    // logical bookkeeping field) for tx-uniform behaviour with the rest of IHM.
+    // Option A (probe + skip) is pre-committed here -- do NOT migrate to a
+    // `loadIfPresent`-style helper.
     if (snapshot.hllOnPage1()) {
-      long filledUpTo = getFilledUpTo(op, fileId);
+      long filledUpTo = physicalSize(op, fileId, PhysicalReadIntent.DEFENSIVE_PRESENCE);
       if (filledUpTo > 1) {
         var page1Entry = loadPageForRead(op, fileId, 1);
         try {
@@ -1866,9 +1875,38 @@ public class IndexHistogramManager extends StorageComponent {
    * {@code hllOnPage1} is set, also writes HLL registers to page 1.
    * Both pages are written within the same {@link AtomicOperation}, so
    * they are flushed atomically via WAL.
+   *
+   * <p>Acquires the IHM's per-component exclusive lock before touching any page so the
+   * two page-1 allocators on this component cannot race for the same {@code fileId}.
+   * The lock matches the one {@link #flushSnapshotToPage()} acquires (via the same
+   * {@code acquireExclusiveLockTillOperationComplete} call inside
+   * {@code executeInsideComponentOperation}); without the symmetric lock,
+   * {@code flushSnapshotToPage} (reachable from {@code applyDelta} on a commit-time
+   * batch flush, from {@code flushIfDirty} on checkpoint/shutdown/recovery, from
+   * {@code closeStatsFile}, and from {@code doRebalance}) could race with
+   * {@code writeSnapshotToPage} (reachable from {@code buildHistogram} via the BTree
+   * engines' {@code buildInitialHistogram} and from
+   * {@code createStatsFileWithCounters} at storage open), and the cache-layer
+   * load-or-add primitive's fail-fast {@code IllegalStateException} in
+   * {@code WOWCache.loadOrAdd} would surface a hard crash on the loser of the
+   * I4-violating concurrent allocation.
+   *
+   * <p>The lock is acquired directly via
+   * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete} rather
+   * than via {@code executeInsideComponentOperation} because the wrapper rewraps any
+   * thrown {@link IOException} as an unchecked {@code CommonStorageComponentException}.
+   * Callers such as {@link #flushIfDirty(AtomicOperation)} catch {@link IOException} to
+   * restore the dirty-mutation counter; keeping the checked exception transparent here
+   * preserves that catch site. Acquisition is idempotent (the AOM fast-path no-ops
+   * when the component is already in the operation's {@code lockedObjects} set), so
+   * callers that already sit inside the lock pay only a hash-set lookup. The lock is
+   * released by {@code AtomicOperationsManager.endAtomicOperation} when the outer
+   * atomic op commits or rolls back.
    */
   private void writeSnapshotToPage(AtomicOperation op,
       HistogramSnapshot snapshot) throws IOException {
+    storage.getAtomicOperationsManager()
+        .acquireExclusiveLockTillOperationComplete(op, this);
     var cacheEntry = loadPageForWrite(op, fileId, 0, true);
     try {
       var page = new HistogramStatsPage(cacheEntry);
@@ -1878,10 +1916,20 @@ public class IndexHistogramManager extends StorageComponent {
       releasePageFromWrite(op, cacheEntry);
     }
 
-    // Write HLL to page 1 when spilled. loadOrAddPageForWrite creates
-    // page 1 on first use (the .ixs file starts with only page 0).
+    // Write HLL to page 1 when spilled. The .ixs file starts with only
+    // page 0; the first spill allocates page 1, subsequent flushes
+    // re-write the existing page 1. Discriminate at the caller because
+    // allocatePageForWrite is allocator-only and would throw if asked
+    // to load an already-committed page 1. The per-component exclusive
+    // lock acquired above keeps the filledUpTo read consistent with the
+    // subsequent allocate/load call.
     if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-      var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+      CacheEntry page1Entry;
+      if (op.filledUpTo(fileId) > 1) {
+        page1Entry = loadPageForWrite(op, fileId, 1, true);
+      } else {
+        page1Entry = allocatePageForWrite(op, fileId, 1);
+      }
       try {
         HistogramStatsPage.writeHllToPage1(page1Entry, snapshot.hllSketch());
       } finally {
@@ -1894,6 +1942,25 @@ public class IndexHistogramManager extends StorageComponent {
    * Writes the current cached snapshot to the .ixs file. Creates its own
    * atomic operation (flush runs from commit and rebalance paths where
    * no caller-provided AtomicOperation is available).
+   *
+   * <p>The body runs inside {@code executeInsideComponentOperation} so the
+   * per-component exclusive lock is held while pages 0 and 1 are loaded /
+   * allocated. Without this lock, this method could race with
+   * {@code writeSnapshotToPage} (called from {@code buildHistogram} and
+   * {@code createStatsFileWithCounters}) for the same {@code fileId},
+   * causing two concurrent allocators to target page 1 simultaneously and
+   * trip the cache-layer fail-fast {@code IllegalStateException} in
+   * {@code WOWCache.loadOrAdd} that surfaces I4 violations.
+   * Audit: PSI call-hierarchy showed {@code flushSnapshotToPage} reachable
+   * from {@code applyDelta} (commit-time batch flush above threshold),
+   * {@code flushIfDirty} (checkpoint / shutdown / recovery via
+   * {@code AbstractStorage.flushDirtyHistograms}), {@code closeStatsFile}
+   * (index-level close), and {@code doRebalance} (rebalance task), while
+   * {@code writeSnapshotToPage} is reachable from
+   * {@code buildHistogram} (called by BTree engines' {@code buildInitialHistogram})
+   * and {@code createStatsFileWithCounters} (storage open / wire-up). None
+   * of those entry points serialise with each other naturally; the
+   * component-lock wrap closes the race.
    */
   private void flushSnapshotToPage() throws IOException {
     var snapshot = cache.get(engineId);
@@ -1904,27 +1971,42 @@ public class IndexHistogramManager extends StorageComponent {
     // Create a standalone atomic operation for the flush — we cannot
     // use executeInsideComponentOperation(null, ...) because that
     // passes null to AtomicOperationsManager which requires non-null.
-    storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
-      var cacheEntry = loadPageForWrite(op, fileId, 0, true);
-      try {
-        var page = new HistogramStatsPage(cacheEntry);
-        page.writeSnapshot(snapshot, serializerId,
-            keySerializer, serializerFactory);
-      } finally {
-        releasePageFromWrite(op, cacheEntry);
-      }
+    storage.getAtomicOperationsManager()
+        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, lockedOp -> {
+          // lockedOp is the same AtomicOperation as op, re-bound after the
+          // per-component exclusive lock has been acquired by
+          // executeInsideComponentOperation; the rename makes the relationship
+          // explicit at every use site below.
+          var cacheEntry = loadPageForWrite(lockedOp, fileId, 0, true);
+          try {
+            var page = new HistogramStatsPage(cacheEntry);
+            page.writeSnapshot(snapshot, serializerId,
+                keySerializer, serializerFactory);
+          } finally {
+            releasePageFromWrite(lockedOp, cacheEntry);
+          }
 
-      // Write HLL to page 1 when spilled
-      if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-        var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
-        try {
-          HistogramStatsPage.writeHllToPage1(
-              page1Entry, snapshot.hllSketch());
-        } finally {
-          releasePageFromWrite(op, page1Entry);
-        }
-      }
-    });
+          // Write HLL to page 1 when spilled. Same allocator-only
+          // discrimination as writeSnapshotToPage: first spill allocates
+          // page 1, subsequent flushes re-write it. The per-component
+          // exclusive lock acquired by the surrounding
+          // executeInsideComponentOperation keeps filledUpTo consistent
+          // with the subsequent allocate/load call.
+          if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
+            CacheEntry page1Entry;
+            if (lockedOp.filledUpTo(fileId) > 1) {
+              page1Entry = loadPageForWrite(lockedOp, fileId, 1, true);
+            } else {
+              page1Entry = allocatePageForWrite(lockedOp, fileId, 1);
+            }
+            try {
+              HistogramStatsPage.writeHllToPage1(
+                  page1Entry, snapshot.hllSketch());
+            } finally {
+              releasePageFromWrite(lockedOp, page1Entry);
+            }
+          }
+        }));
   }
 
   // ---- Internal: key utilities ----

@@ -35,5 +35,6 @@ public abstract class PaginatedCollection extends StorageComponent implements St
 
   public abstract StoragePaginatedCollectionConfiguration generateCollectionConfig();
 
+  @Override
   public abstract long getFileId();
 }

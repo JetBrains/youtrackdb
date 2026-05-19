@@ -235,9 +235,32 @@ public class ConcurrentLongIntHashMap<V> {
    * @return a list of removed values (may be empty, never null)
    */
   public List<V> removeByFileId(long fileId) {
+    return removeByFileId(fileId, 0);
+  }
+
+  /**
+   * Range-scoped variant of {@link #removeByFileId(long)}: removes only the entries whose
+   * {@code fileId} matches AND whose {@code pageIndex >= minPageIndex}. Entries below the
+   * minimum page index are left in place.
+   *
+   * <p>{@code minPageIndex = 0} matches every {@code pageIndex} and is equivalent to
+   * {@link #removeByFileId(long)} — every entry with the matching {@code fileId} is removed.
+   * A {@code minPageIndex} larger than every present {@code pageIndex} is a clean no-op
+   * (empty list, no section rehash).
+   *
+   * <p>Used by the recovery-time orphan-truncation pass to drop only the cache entries that
+   * correspond to physical-orphan pages past the EP-stored logical counter, while preserving
+   * cache entries for pages below the truncate target that are still valid.
+   *
+   * @param fileId fileId to match
+   * @param minPageIndex minimum page index (inclusive) — entries at {@code pageIndex >= this}
+   *     are removed
+   * @return a list of removed values (may be empty, never null)
+   */
+  public List<V> removeByFileId(long fileId, int minPageIndex) {
     var result = new ArrayList<V>();
     for (Section<V> section : sections) {
-      section.removeByFileId(fileId, result);
+      section.removeByFileId(fileId, minPageIndex, result);
     }
     return result;
   }
@@ -680,17 +703,19 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Remove all entries with the given fileId. Sweeps the entire section linearly under write
-     * lock, collecting removed values into the provided list. After the sweep, always performs a
-     * same-capacity rehash to compact the section and restore probe chain integrity.
+     * Removes entries with the given fileId at {@code pageIndex >= minPageIndex}. Sweeps the
+     * entire section linearly under the write lock, collecting removed values into the provided
+     * list. After the sweep, performs a same-capacity rehash to compact the section and restore
+     * probe chain integrity. {@code minPageIndex = 0} matches every {@code pageIndex} so it is
+     * equivalent to "remove all entries for this fileId".
      */
-    void removeByFileId(long fileId, List<V> removedEntries) {
+    void removeByFileId(long fileId, int minPageIndex, List<V> removedEntries) {
       long stamp = lock.writeLock();
       try {
         int removed = 0;
         for (int i = 0; i < capacity; i++) {
           Entry<V> e = entries[i];
-          if (e != null && e.fileId == fileId) {
+          if (e != null && e.fileId == fileId && e.pageIndex >= minPageIndex) {
             removedEntries.add(e.value);
             entries[i] = null;
             removed++;

@@ -304,13 +304,51 @@ public final class AsyncFile implements File {
     return this.size.getAndAdd(size);
   }
 
+  /**
+   * Truncates this file's logical size to {@code size} bytes. A no-op when
+   * {@code size >= getFileSize()}.
+   *
+   * @apiNote Callers MUST hold {@code WOWCache.filesLock.writeLock} (or an equivalent
+   *     lock that excludes
+   *     {@link com.jetbrains.youtrackdb.internal.core.storage.fs.File#allocateSpace(int)
+   *     allocateSpace} on this file). {@code AsyncFile.lock.exclusiveLock} acquired
+   *     inside this method does NOT serialise against {@code allocateSpace} — the
+   *     {@code this.size.get()} read at the pre-flight guard would race otherwise. See
+   *     the in-body comment for the layered rationale.
+   */
   @Override
   public void shrink(long size) throws IOException {
     lock.exclusiveLock();
     try {
       checkForClose();
 
-      this.size.set(0);
+      // Pre-flight guard inside the exclusive-lock window: a shrink that does not
+      // actually reduce the logical size is a no-op. The structural placement matters
+      // for two reasons:
+      // (a) lock.exclusiveLock excludes other AsyncFile.shrink callers and serialises
+      //     this entire body against fileChannel.truncate on this AsyncFile — that is
+      //     the lock's purpose here.
+      // (b) The exclusion of concurrent AsyncFile.allocateSpace happens one layer up,
+      //     not inside this method. allocateSpace bumps this.size via a bare
+      //     AtomicLong.getAndAdd without acquiring lock.exclusiveLock, so the read of
+      //     this.size below is NOT in itself race-free against allocateSpace. The real
+      //     exclusion is at the WOWCache layer: every shrinkFile caller (also
+      //     WOWCache.truncateFile / createFile) holds filesLock.writeLock, which
+      //     excludes the loadOrAdd-path callers that are the only callers of
+      //     AsyncFile.allocateSpace.
+      // Placing the check inside the exclusive-lock window is still correct (moving it
+      // out would race against a sibling shrink); the comment just makes the layered
+      // rationale honest.
+      if (size >= this.size.get()) {
+        return;
+      }
+
+      // Set the in-memory logical size to the target. Previously this method
+      // unconditionally set the size to 0, which was only correct for the
+      // truncate-to-zero callers; a partial shrink (0 < size < currentSize)
+      // would corrupt the logical / physical accounting on subsequent
+      // allocateSpace calls.
+      this.size.set(size);
       fileChannel.truncate(size + HEADER_SIZE);
     } finally {
       lock.exclusiveUnlock();

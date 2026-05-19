@@ -122,23 +122,269 @@ public interface WriteCache {
 
   void checkCacheOverflow() throws InterruptedException;
 
-  int allocateNewPage(final long fileId) throws IOException;
-
+  /**
+   * @deprecated Use {@link #loadIfPresent(long, long, boolean)} for silent (non-extending) reads
+   *     or {@link #loadOrAdd(long, long, boolean)} for allocating reads. This method carries the
+   *     {@code cacheHit} out-parameter that the new primitives drop; it has no remaining
+   *     production callers as of the read-cache concurrency fix. The legacy allocator that
+   *     pre-published the new {@code pageIndex} before the cache entry was installed has been
+   *     deleted; this overload is the only remaining legacy read primitive and will be deleted
+   *     alongside the read-side API consolidation.
+   */
+  @Deprecated
   CachePointer load(
       long fileId, long startPageIndex, ModifiableBoolean cacheHit, boolean verifyChecksums)
       throws IOException;
+
+  /**
+   * Non-extending probe: returns the existing on-disk (or dirty-write-cache) page for
+   * {@code (fileId, pageIndex)} if one exists, otherwise {@code null}. Unlike {@link #load} this
+   * method drops the {@code cacheHit} out-parameter (the silent read path does not track cache
+   * hits) and unlike {@link #loadOrAdd} it never extends the file or stamps a fresh empty buffer
+   * on miss &mdash; it is the read-only probe primitive used by
+   * {@code LockFreeReadCache.silentLoadForRead} for diagnostic readers (e.g. backup,
+   * restore-mode probes) that must observe a page only if it already exists. Implementations
+   * must preserve the dirty-page-priority order documented on {@link #load}: a more recent
+   * dirty pointer in the write cache shadows an older on-disk version.
+   *
+   * @param fileId external file id of the target page
+   * @param pageIndex zero-based page index inside that file
+   * @param verifyChecksums whether checksum verification is enforced on the load branch
+   * @return a {@link CachePointer} positioned at the target page, or {@code null} if the page
+   *     does not exist on disk and is not in the dirty-write map
+   * @throws IOException if the underlying disk I/O fails
+   */
+  CachePointer loadIfPresent(long fileId, long pageIndex, boolean verifyChecksums)
+      throws IOException;
+
+  /**
+   * Total page-access primitive: returns a usable {@link CachePointer} for the given
+   * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
+   *
+   * <p>The method dispatches to one of three branches depending on whether
+   * {@code pageIndex} is less than, equal to, or greater than the current in-memory file
+   * size (in pages):
+   * <ul>
+   *   <li><b>Load existing</b> ({@code pageIndex < currentSize}) &mdash; returns the
+   *       existing on-disk (or dirty-write-cache) page. On the disk engine this acquires
+   *       the per-{@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.PageKey}
+   *       shared {@code lockManager} lock (same policy as the legacy {@code load});
+   *       the in-memory engine has no equivalent lock.</li>
+   *   <li><b>One-page extend</b> ({@code pageIndex == currentSize}) &mdash; atomically
+   *       extends the file by one page via {@code AsyncFile.allocateSpace}, submits an
+   *       {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.EnsurePageIsValidInFileTask}
+   *       on the single-threaded FIFO {@code wowCacheFlushExecutor}, and returns a
+   *       freshly-allocated magic-stamped empty {@link CachePointer}.
+   *       The {@code lockManager} shared lock is <b>not</b> taken on this branch: the
+   *       freshly-installed pointer is published only after the caller's outer
+   *       {@code data.compute} segment write lock releases it.</li>
+   *   <li><b>Multi-page gap-fill</b> ({@code pageIndex > currentSize}; recovery only)
+   *       &mdash; allocates space for the entire gap in one batched call, submits one
+   *       {@code EnsurePageIsValidInFileTask} per gap page in {@code [currentSize,
+   *       pageIndex]}, and returns only the target page's {@link CachePointer}. Gap-fill
+   *       is the recovery-only branch; callers under normal operation always target
+   *       {@code pagesSize + 1} (from the component's {@code entryPoint}), so
+   *       {@code pageIndex > currentSize} can only occur during WAL replay.
+   *       The {@code lockManager} shared lock is not taken here either, for the same
+   *       reason as the extend branch.</li>
+   * </ul>
+   *
+   * <p><b>Caller precondition.</b> For the disk engine: the segment write lock for the
+   * {@code (fileId, pageIndex)} key must be held by the caller &mdash; that is, the call
+   * must originate from inside a {@code LockFreeReadCache.data.compute} lambda. The
+   * in-memory engine ({@code DirectMemoryOnlyDiskCache}) enforces its own install-or-fetch
+   * atomicity via {@code MemoryFile.loadOrAddPage} without a segment lock.
+   *
+   * <p><b>Totality contract.</b> The method never returns {@code null} for any open,
+   * non-deleted file. An {@link IllegalArgumentException} is thrown &mdash; not a null
+   * return &mdash; if the file has been concurrently deleted or was never registered;
+   * that is a caller-bug signal. Any {@link java.io.IOException} from the underlying disk
+   * I/O propagates raw.
+   *
+   * <p><b>Runtime invariant.</b> Under normal (non-recovery) operation the caller computes
+   * the target {@code pageIndex} from {@code entryPoint.pagesSize + 1}: the logical page
+   * count on the component's {@code EntryPoint} metadata page, which is bumped only on
+   * commit inside the same WAL atomic unit. This guarantees {@code pageIndex ==
+   * currentSize} on the extend branch; the gap-fill branch is structurally unreachable
+   * until the write-side API collapse rewires the WAL replay loops.
+   *
+   * <p><b>FIFO + monotonic submission.</b> {@code EnsurePageIsValidInFileTask} submissions
+   * for a given {@code fileId} are monotonically increasing in {@code pageIndex} by
+   * construction (the per-component lock serializes concurrent allocators). Combined with
+   * the single-threaded FIFO executor, this guarantees that every gap page in
+   * {@code [old_size, pageIndex]} is stamped in order; no interior zero page can survive
+   * across a crash. See design.md §"Crash safety" for the three crash scenarios and
+   * their walk-throughs.
+   *
+   * @param fileId external file id of the target page
+   * @param pageIndex zero-based page index inside that file; must be &ge; 0
+   * @param verifyChecksums whether checksum verification is enforced on the load branch
+   * @return a non-null {@link CachePointer} positioned at the target page
+   * @throws IllegalArgumentException if {@code pageIndex < 0} or the file is deleted /
+   *     never registered
+   * @throws IOException if the underlying disk I/O fails
+   * @apiNote <b>Per-component-lock contract on the extend / gap-fill branches.</b>
+   *     Callers reaching the extend or gap-fill branch (i.e. allocating a fresh
+   *     {@code (fileId, pageIndex)}) MUST hold the per-component exclusive lock on the
+   *     {@code StorageComponent} that owns {@code fileId}, acquired via {@code
+   *     AtomicOperationsManager.executeInsideComponentOperation} /
+   *     {@code calculateInsideComponentOperation} (which internally call {@code
+   *     acquireExclusiveLockTillOperationComplete}). The per-component lock is what
+   *     serialises two concurrent transactions that share the same {@code fileId} on the
+   *     same component — without it, both transactions can race past the snapshot read of
+   *     the file's logical page count and submit the same {@code pageIndex} to this method,
+   *     tripping {@link IllegalStateException} from the cache's allocator-uniqueness check
+   *     ({@code "Page X:Y was allocated in other thread"}).
+   *
+   *     <p>Production-reachable hot paths that share a {@code fileId} across concurrent
+   *     transactions — {@code CollectionPositionMapV2.allocate} (wrapped by {@code
+   *     PaginatedCollectionV2.allocatePosition}), {@code
+   *     PaginatedCollectionV2.allocateNewPage}, and {@code
+   *     IndexHistogramManager.writeSnapshotToPage} — are pinned by the {@code
+   *     ProductionAllocatorConcurrencyMTTest} suite under {@code
+   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}; a regression
+   *     that drops the per-component lock on any of those callers fails that suite.
+   *     Component initialisers that run once per index/component lifecycle (e.g.
+   *     {@code BTree.create}, {@code SharedLinkBagBTree.splitRootBucket}) are not
+   *     reachable from concurrent session-level transactions and rely on the same
+   *     per-component-lock contract rather than on a dedicated MT regression gate.
+   *
+   *     <p>Load-branch ({@code pageIndex < currentSize}) callers do not require the
+   *     per-component lock for safety from this method's perspective; the per-page
+   *     {@code lockManager} shared lock covers concurrent reads. The lock contract above
+   *     applies to allocator-shaped uses.
+   */
+  CachePointer loadOrAdd(long fileId, long pageIndex, boolean verifyChecksums) throws IOException;
 
   void flush(long fileId);
 
   void flush();
 
+  /**
+   * Reads the physical (in-memory) file size, in pages, of the given file.
+   *
+   * <p><b>Deprecated for external callers.</b> Cross-component callers must funnel physical-size
+   * reads through the gated helper set: {@link #physicalSizeForBackupSnapshot(long)} for the
+   * post-unfreeze incremental-backup snapshot reader (Layer A), and
+   * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} for every
+   * {@code StorageComponent}-anchored consumer (Layer B). The helper set is the audit-grep entry
+   * surface for "who reads physical size from outside the cache / atomic-operation core?" — a
+   * new direct call to this method anywhere outside the documented internal set below is a
+   * regression.
+   *
+   * <p><b>Documented internal callers (retained intentionally, suppress this deprecation
+   * warning at method scope):</b>
+   * <ul>
+   *   <li>{@code LockFreeReadCache.doLoad} — pre-call file-size snapshot for the
+   *       {@code markAllocated} flag computation; the snapshot is taken under the
+   *       {@code data.compute} segment write lock and feeds the freshly-allocated branch.
+   *   <li>{@code AtomicOperationBinaryTracking.allocatePageForWrite} — allocation-floor
+   *       classifier for the {@code isNew} slow path, read under the per-component exclusive
+   *       lock.
+   *   <li>{@code AtomicOperationBinaryTracking.filledUpTo} — committed-file fall-through; the
+   *       method routes Layer B helpers through {@code AtomicOperation.filledUpTo} so the
+   *       in-TX {@code FileChanges} placeholder side-effect is preserved on first touch.
+   *   <li>{@link #physicalSizeForBackupSnapshot(long)} — the Layer A helper body delegates here
+   *       inside the {@link WriteCache} implementers ({@code WOWCache},
+   *       {@code DirectMemoryOnlyDiskCache}).
+   *   <li>The {@link WriteCache} implementers themselves carry the method on their override
+   *       lists; the override declarations are part of this internal set.
+   * </ul>
+   *
+   * @param fileId external file id of the target file
+   * @return current in-memory file size in pages
+   * @deprecated External / cross-component callers must use {@link
+   *     #physicalSizeForBackupSnapshot(long)} (Layer A) or {@code
+   *     StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} (Layer B).
+   *     The five sites enumerated above are the only retained internal callers.
+   */
+  @Deprecated(forRemoval = false)
   long getFilledUpTo(long fileId);
+
+  /**
+   * Reads the physical (in-memory) file size, in pages, of the given file for the
+   * post-unfreeze incremental-backup snapshot iteration.
+   *
+   * <p>Named alias for the gated read of {@link #getFilledUpTo(long)} that callers from
+   * outside the cache / atomic-operation core must funnel through. The cross-component
+   * discovery contract enforced by this helper set: cross-TX readers route through the
+   * logical surface (the component's {@code EntryPoint} {@code pagesSize} /
+   * {@code fileSize}) where one exists; physical-size reads from outside the documented
+   * internal set route through this helper (cache-layer entry point used by the backup
+   * snapshot) or through
+   * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)}
+   * (storage-component entry point used by every other surviving consumer). Tightening
+   * the discovery surface to this small named helper set turns "who reads physical size
+   * from outside the cache/AOBT internal core?" into an audit-grep-able question.
+   * {@link #getFilledUpTo(long)} stays callable for the documented internal set
+   * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
+   * allocatePageForWrite}}, and the {@link WriteCache} implementers) and now carries an
+   * {@code @Deprecated} marker so a new external caller trips a deprecation warning at
+   * compile time.
+   *
+   * <p><b>Sole expected caller.</b> {@code DiskStorage.backupPagesWithChanges} — the
+   * incremental-backup snapshot iterator. The method runs <b>after</b> {@code
+   * freezeWriteOperations} has been unfrozen in the enclosing {@code
+   * storeBackupDataToStream} path: concurrent writes can extend the file during the
+   * snapshot read, and correctness is recovered by the subsequent WAL replay on restore.
+   * The method name calls out that this is a post-unfreeze read so future readers do not
+   * mistake it for a quiesced surface.
+   *
+   * <p>Behaviour and locking match {@link #getFilledUpTo(long)} bit-for-bit: the
+   * {@code WOWCache} impl re-acquires the existing {@code filesLock} read lock and the
+   * null-file safety (returning {@code 0} when the file was concurrently deleted) inside
+   * the wrapped call; the in-memory {@code DirectMemoryOnlyDiskCache} mirrors the same
+   * delegation.
+   *
+   * @param fileId external file id of the target file
+   * @return current in-memory file size in pages, or {@code 0} if the file was
+   *     concurrently deleted / was never registered
+   */
+  long physicalSizeForBackupSnapshot(long fileId);
 
   long getExclusiveWriteCachePagesSize();
 
   void deleteFile(long fileId) throws IOException;
 
   void truncateFile(long fileId) throws IOException;
+
+  /**
+   * One-way shrink primitive: reduces the on-disk physical size of {@code fileId} to
+   * {@code targetBytes}, dropping any cached dirty page entries that sit at or above
+   * the target. Unlike {@link #truncateFile(long)} (which truncates to zero), this
+   * primitive carries an explicit target and never grows the file: callers passing a
+   * {@code targetBytes} greater than or equal to the current physical file size get a
+   * no-op.
+   *
+   * <p>Used by the recovery-time orphan-truncation pass to repair the
+   * {@code logical &lt;= physical} invariant on the four entry-point-equipped storage
+   * components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
+   * PaginatedCollectionV2) after a partial-flush crash leaves physical pages past the
+   * EP-stored logical counter.
+   *
+   * <p>The disk impl ({@code WOWCache}) acquires {@code filesLock.writeLock} so the
+   * truncate is mutually exclusive against concurrent file-table mutations; the
+   * write-back layer's dirty pages at {@code pageIndex >= targetBytes / pageSize} are
+   * dropped via the range-scoped {@code removeCachedPagesAtLeast} purge before the
+   * underlying {@code AsyncFile.shrink} runs, so a concurrent flush of an orphan
+   * dirty entry cannot re-extend the file past the target. Dirty entries below the
+   * target are preserved and will be persisted by the next periodic flush.
+   *
+   * <p>The in-memory impl ({@code DirectMemoryOnlyDiskCache}) is a no-op: an
+   * in-memory engine cannot produce on-disk orphans, so the recovery pass has
+   * nothing to repair.
+   *
+   * <p>Test-mock implementers throw {@link UnsupportedOperationException}; only the
+   * two production implementers (WOWCache and DirectMemoryOnlyDiskCache) need to
+   * participate in the recovery pass.
+   *
+   * @param fileId external file id of the target file
+   * @param targetBytes new physical size in bytes; must be {@code >= 0} and should be
+   *     a multiple of the page size (the recovery pass always supplies a
+   *     page-aligned value)
+   * @throws IOException if the underlying disk I/O fails during the truncate
+   */
+  void shrinkFile(long fileId, long targetBytes) throws IOException;
 
   void renameFile(long fileId, String newFileName) throws IOException;
 

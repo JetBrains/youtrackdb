@@ -57,9 +57,9 @@ public class LockFreeReadCacheConcurrentTestIT {
 
   /**
    * Concurrent reads + writes with eviction on a small cache. Multiple threads call
-   * loadForRead/loadForWrite on a 4MB cache (small enough to force frequent eviction). Verifies: no
-   * exceptions, no data corruption, cache internal consistency after all threads complete, and that
-   * memory usage stays within bounds.
+   * loadForRead/loadOrAddForWrite on a 4MB cache (small enough to force frequent
+   * eviction). Verifies: no exceptions, no data corruption, cache internal consistency
+   * after all threads complete, and that memory usage stays within bounds.
    */
   @Test
   public void concurrentReadsAndWritesWithEviction() throws Exception {
@@ -109,7 +109,7 @@ public class LockFreeReadCacheConcurrentTestIT {
                     int fileId = rng.nextInt(fileCount);
                     int pageIndex = rng.nextInt(pageLimit);
                     var cacheEntry =
-                        readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+                        readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
                     assertThat(cacheEntry).isNotNull();
                     assertThat(cacheEntry.getFileId()).isEqualTo(fileId);
                     assertThat(cacheEntry.getPageIndex()).isEqualTo(pageIndex);
@@ -149,7 +149,8 @@ public class LockFreeReadCacheConcurrentTestIT {
    * concurrent loadForRead across multiple files to stress the cache under heavy contention, then
    * stops readers and deletes all files one by one, verifying cache consistency at each stage.
    *
-   * <p>deleteFile cannot be called while readers hold entries (StorageException: page is in use), so
+   * <p>deleteFile cannot be called while readers hold entries (StorageException: page is in
+   * use), so
    * readers are stopped before deletion. The test validates: (1) concurrent load/release does not
    * corrupt internal state, (2) deleteFile correctly clears each file's entries from the cache, (3)
    * final state is consistent and empty.
@@ -233,6 +234,24 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
   }
 
+  /**
+   * The {@code MockedWriteCache} inner record is not exercised by the recovery-time
+   * orphan-truncation pass, so its {@code shrinkFile} override throws UOE. This assertion pins
+   * the contract — a regression to a silent no-op or a real truncate would hide a future test
+   * accidentally routing through this mock instead of the production WOWCache.
+   */
+  @Test
+  public void testShrinkFileMockThrowsUnsupportedOperation() {
+    final var pool = new ByteBufferPool(4 * 1024);
+    try {
+      final WriteCache writeCache = new MockedWriteCache(pool);
+      org.junit.Assert.assertThrows(
+          UnsupportedOperationException.class, () -> writeCache.shrinkFile(0L, 0L));
+    } finally {
+      pool.clear();
+    }
+  }
+
   /** Minimal WriteCache stub — allocates from ByteBufferPool, no disk I/O. */
   private record MockedWriteCache(ByteBufferPool byteBufferPool) implements WriteCache {
 
@@ -247,6 +266,26 @@ public class LockFreeReadCacheConcurrentTestIT {
           new CachePointer(pointer, byteBufferPool, fileId, (int) startPageIndex);
       cachePointer.incrementReadersReferrer();
       return cachePointer;
+    }
+
+    /**
+     * Stub for the new total primitive introduced in Track 1: delegates to the existing mock
+     * {@link #load} so this test class compiles while still exercising its original load path.
+     */
+    @Override
+    public CachePointer loadOrAdd(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
+    /**
+     * Stub for the non-extending silent-read probe: delegates to {@link #load} so the mock
+     * keeps its always-allocate semantics while satisfying the {@link WriteCache} contract.
+     */
+    @Override
+    public CachePointer loadIfPresent(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 
     @Override
@@ -323,11 +362,6 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
-    public int allocateNewPage(final long fileId) {
-      return 0;
-    }
-
-    @Override
     public void flush(final long fileId) {
     }
 
@@ -341,6 +375,12 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
+    public long physicalSizeForBackupSnapshot(final long fileId) {
+      // Mock parallel: delegates to getFilledUpTo for the cache-layer test fixture.
+      return getFilledUpTo(fileId);
+    }
+
+    @Override
     public long getExclusiveWriteCachePagesSize() {
       return 0;
     }
@@ -351,6 +391,14 @@ public class LockFreeReadCacheConcurrentTestIT {
 
     @Override
     public void truncateFile(final long fileId) {
+    }
+
+    @Override
+    public void shrinkFile(final long fileId, final long targetBytes) {
+      // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
+      // catches an accidental call from a future test that should use the production
+      // WriteCache impl instead.
+      throw new UnsupportedOperationException("shrinkFile is not supported by test mock");
     }
 
     @Override

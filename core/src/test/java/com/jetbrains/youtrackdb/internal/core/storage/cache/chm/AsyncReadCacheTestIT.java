@@ -211,7 +211,7 @@ public class AsyncReadCacheTestIT {
         final var pageIndex = random.nextInt(pageLimit);
 
         final var cacheEntry =
-            readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+            readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }
@@ -252,7 +252,7 @@ public class AsyncReadCacheTestIT {
       while (pageCounter < pageCount) {
         final var pageIndex = random.nextInt();
         assert pageIndex < pageLimit;
-        final var cacheEntry = readCache.loadForWrite(0, pageIndex, writeCache, true, null);
+        final var cacheEntry = readCache.loadOrAddForWrite(0, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }
@@ -278,6 +278,24 @@ public class AsyncReadCacheTestIT {
       }
 
       return null;
+    }
+  }
+
+  /**
+   * The {@code MockedWriteCache} inner record is not exercised by the recovery-time
+   * orphan-truncation pass, so its {@code shrinkFile} override throws UOE. This assertion pins
+   * the contract — a regression to a silent no-op or a real truncate would hide a future test
+   * accidentally routing through this mock instead of the production WOWCache.
+   */
+  @Test
+  public void testShrinkFileMockThrowsUnsupportedOperation() {
+    final var pool = new ByteBufferPool(4 * 1024);
+    try {
+      final WriteCache writeCache = new MockedWriteCache(pool);
+      org.junit.Assert.assertThrows(
+          UnsupportedOperationException.class, () -> writeCache.shrinkFile(0L, 0L));
+    } finally {
+      pool.clear();
     }
   }
 
@@ -356,11 +374,6 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public int allocateNewPage(final long fileId) {
-      return 0;
-    }
-
-    @Override
     public CachePointer load(
         final long fileId,
         final long startPageIndex,
@@ -371,6 +384,26 @@ public class AsyncReadCacheTestIT {
           new CachePointer(pointer, byteBufferPool, fileId, (int) startPageIndex);
       cachePointer.incrementReadersReferrer();
       return cachePointer;
+    }
+
+    /**
+     * Stub for the new total primitive introduced in Track 1: delegates to the existing mock
+     * {@link #load} so this test class compiles while still exercising its original load path.
+     */
+    @Override
+    public CachePointer loadOrAdd(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
+    /**
+     * Stub for the non-extending silent-read probe: delegates to {@link #load} so the mock
+     * keeps its always-allocate semantics while satisfying the {@link WriteCache} contract.
+     */
+    @Override
+    public CachePointer loadIfPresent(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 
     @Override
@@ -387,6 +420,12 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
+    public long physicalSizeForBackupSnapshot(final long fileId) {
+      // Mock parallel: delegates to getFilledUpTo for the cache-layer test fixture.
+      return getFilledUpTo(fileId);
+    }
+
+    @Override
     public long getExclusiveWriteCachePagesSize() {
       return 0;
     }
@@ -397,6 +436,14 @@ public class AsyncReadCacheTestIT {
 
     @Override
     public void truncateFile(final long fileId) {
+    }
+
+    @Override
+    public void shrinkFile(final long fileId, final long targetBytes) {
+      // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
+      // catches an accidental call from a future test that should use the production
+      // WriteCache impl instead.
+      throw new UnsupportedOperationException("shrinkFile is not supported by test mock");
     }
 
     @Override

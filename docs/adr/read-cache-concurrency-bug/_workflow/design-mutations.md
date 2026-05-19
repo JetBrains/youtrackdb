@@ -1,0 +1,436 @@
+# design.md mutation log
+
+## Mutation 1 — 2026-05-11 — content-edit (design.md)
+
+**Diff summary**: rewrote §"Allocation discovery surface" during the
+inline-replan that retired the original Track 3. The TL;DR now
+describes a dual approach (logical surface where one exists + Track 5
+gated helpers otherwise); the per-component table gained a
+`PaginatedCollectionStateV2` row and a post-table note stating that
+`FreeSpaceMap`, `CollectionDirtyPageBitSet`, and `IndexHistogramManager`
+have no EntryPoint at all (PSI-verified); Migration shape was
+restructured from a 2-group split (9 pure-sizing vs 7 probes) into a
+4-group partition (1 logical migration + 9 probe collapses + 6
+stay-on-physical via gated helper + 1 backup); Why addPage is deletable
+gained a parenthetical noting the 2 growth-loop probes absorbed from
+the retired Track 3; Edge cases / Gotchas gained four new bullets for
+the EP-less components, FSM-rebuild recovery, chicken-and-egg
+bootstrap, and the IndexHistogramManager defensive presence probe;
+References footer marks D2 and D4 as revised after the Track 3 audit.
+Triggered by the Phase A audit finding that 3 of 7 in-scope components
+have no EntryPoint and 4 sites are physical-by-design (technical /
+risk / adversarial reviews unanimous; user-approved ESCALATE →
+inline replan; plan + backlog already updated, design.md follows).
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — "Allocation discovery surface"
++ "Cache primitive: loadOrAdd" (preceding) + "Concurrency model"
+(following) + Overview): PASS — 0 blockers, 0 should-fix, 2
+suggestions.
+
+**Findings**:
+- suggestion: "≥ 7" → "7" in Migration shape probe-collapse bullet
+  header (the named-site enumeration that follows is exact).
+  **Applied** as a follow-up edit after the cold-read PASS.
+- suggestion: in §"Why `addPage` is deletable", a short clarifier
+  distinguishing the "19 external addPage sites" axis from the "2
+  growth-loop pure-sizing collapses" axis would prevent a reader
+  from double-counting on first read. **Deferred** — comprehension
+  survives without the clarifier; the next mutation-pass (or a
+  Phase 4 distillation if a `*-final` artifact rewrites the
+  section) can pick it up.
+
+**Iterations**: 1 of 3 (PASS).
+
+## Mutation 2 — 2026-05-11 — content-edit (design.md)
+
+**Diff summary**: two focused edits inside §"Allocation discovery
+surface", both arising from Phase 2 autonomous consistency review of
+the post-replan plan (iteration 1, findings CR1 + CR2). §"Migration
+shape" stay-on-physical bullet re-categorized from "4 EP-equipped + 2
+EP-less = 6" to "3 EP-equipped + 3 EP-less = 6" —
+`IndexHistogramManager.readSnapshotFromPage:1833` moved into the
+EP-less group (where the same section's "Logical-size surface per
+component" footer already places IHM); total site count unchanged.
+§"Why `addPage` is deletable" growth-loop framing rewritten — removed
+the "plus 2 sites previously labelled as pure-sizing reads" addendum
+that double-counted FSM:227/CDPB:194 as additional addPage call sites
+on top of the verified 19; the corrected split is ~9 fresh-file + ~8
+reuse-or-extend + 2 growth-loop = 19, with the growth-loops' separate
+`getFilledUpTo` reads at FSM:227/CDPB:194 collapsing alongside the
+addPage deletion. This also resolves the deferred suggestion from
+Mutation 1 (the double-count clarifier).
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — "Allocation discovery surface" +
+"Cache primitive: loadOrAdd" (preceding) + "Concurrency model"
+(following) + Overview): PASS — 0 blockers, 0 should-fix, 2
+suggestions.
+
+**Findings**:
+- suggestion: split the §"Migration shape" stay-on-physical bullet's
+  "EP-equipped: …" and "EP-less: …" into two sub-bullets so the 3+3
+  grouping is visually parallel to the header. **Deferred** —
+  readability nit, not a rule violation.
+- suggestion: §"Why `addPage` is deletable" growth-loop arithmetic
+  uses "~9 fresh-file + ~8 reuse-or-extend + 2 growth-loop = 19" —
+  the "~" implies uncertainty in the first two terms. **Deferred**
+  to Phase A of Track 4, which will pin the exact split.
+
+**Iterations**: 1 of 3 (PASS).
+
+## Mutation 3 — 2026-05-11 — content-edit (design.md)
+
+**Diff summary**: rewrote the Overview's third paragraph to remove a
+universality claim contradicted by §"Logical-size surface per
+component". Previously said "every storage component already
+maintains a logical page count..." — now reads "most storage
+components maintain a logical page count... Three components without
+an EntryPoint plus a handful of chicken-and-egg / recovery-rebuild
+sites route through Track 5's package-private gated helpers instead
+(see §'Allocation discovery surface' for the per-site breakdown).
+Together these two surfaces eliminate the only path by which a
+reader could learn about an in-flight pageIndex." While trimming
+back to the 40-line Overview cap, the cascade paragraph also lost
+an internal parenthetical about the 20th PSI hit being the
+recursive call inside `StorageComponent.loadOrAddPageForWrite`
+(that detail still appears verbatim in §"Why `addPage` is
+deletable"). Resolves Phase 2 structural review finding S6.
+
+**Mechanical checks** (target=design): PASS — 0 findings (first run
+flagged a should-fix on Overview length, 45/40 lines; resolved by
+the trim pass before cold-read).
+**Cold-read** (scope: bounded — "Overview" + "Class Design" +
+"Workflow" + "Allocation discovery surface"): PASS — 0 blockers, 0
+should-fix, 1 suggestion.
+
+**Findings**:
+- suggestion: open the third paragraph with "The enabling structure
+  on the read side is two pre-existing surfaces…" so the dual-surface
+  model is signalled before the "Most storage components…" sentence
+  rather than only at the closing "Together these two surfaces…"
+  sentence. **Deferred** — optional polish; current text is
+  technically correct and the §"Allocation discovery surface"
+  cross-reference compensates.
+
+**Iterations**: 1 of 3 (PASS, after one pre-cold-read mechanical trim).
+
+## Mutation 4 — 2026-05-11 — content-edit (design.md)
+
+**Diff summary**: rewrote the §"Class Design" paragraph below the
+class diagram to soften "every storage component already has" to
+"most storage components already carry" and added an explicit
+enumeration of the three EP-less components (`FreeSpaceMap`,
+`CollectionDirtyPageBitSet`, `IndexHistogramManager`) routed through
+Track 5's gated helpers. Resolves Phase 2 structural gate
+verification finding S8 — the sibling of S6 (Overview universality)
+that the iteration-1 structural review didn't surface but the
+iteration-2 gate caught. After this fix Overview, Class Design, and
+§"Allocation discovery surface" speak a single coherent two-surface
+story.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — "Class Design" + "Overview" anchor +
+"Allocation discovery surface" reference): PASS — 0 blockers, 0
+should-fix, 0 suggestions.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+
+
+## Mutation 5 — 2026-05-14 — content-edit (design.md)
+
+**Diff summary**: two staleness-reconciliation edits arising from
+Phase 2 autonomous consistency review (iteration 1) of the
+post-replan plan (inline replan commit `0a003588f7` added D6 / I6 /
+Track 7). (a) §"Crash safety" §"Edge cases / Gotchas" — first bullet
+rewritten from the stale "orphan disk pages from scenario A leak
+space until a vacuum / repack. Bounded today; a separate ticket
+tracks adding a post-replay alignment pass." to a full description of
+the D6 / Track 7 recovery-time pass: names the four EP-equipped
+components in scope, the `AbstractStorage.recoverIfNeeded()` insertion
+point between `restoreFromWAL()` and `flushAllData()`, the new
+`WriteCache.shrinkFile(fileId, targetBytes)` primitive, the I6
+invariant, and the EP-less + IHM out-of-scope set per the Non-Goals.
+(b) §"Allocation discovery surface" §"Logical-size surface per
+component" — appended one sentence to the IndexHistogramManager
+bullet noting the page-1 discriminator
+(`op.filledUpTo > 1 ? load : allocate`) also justifies IHM's
+exclusion from Track 7's EP-driven pass, with a cross-reference to
+Non-Goals in `implementation-plan.md`. Iteration 1 cold-read passed
+the comprehension check but flagged two should-fix footer-cite gaps:
+§"Crash safety" References missing D6 + I6, §"Allocation discovery
+surface" References missing D6. Both fixed in iteration 2; verified.
+
+**Mechanical checks** (target=design): PASS — 0 findings (both runs).
+**Cold-read** (scope: whole-doc — Mutation 5 → periodic whole-doc
+check fired): PASS — iteration 1 returned 2 should-fix footer-cite
+findings; iteration 2 verification PASS, 0 findings.
+
+**Findings**:
+- iter 1: should-fix — §"Crash safety" References footer missing D6
+  and I6. **Resolved** in iter 2 by appending `D6 (recovery-time
+  orphan truncation for EP-equipped components)` and `I6 (post-
+  recovery 'logical == physical' for EP-equipped components)`.
+- iter 1: should-fix — §"Allocation discovery surface" References
+  footer missing D6. **Resolved** in iter 2 by appending `D6
+  (recovery-time orphan truncation — anchors the IHM / EP-less
+  carve-out in the gotcha bullet)`.
+
+**Iterations**: 2 of 3 (PASS).
+
+
+
+
+## Mutation 6 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: two mechanical fixes from State 0 consistency
+review (iteration 1) of the post-replan plan — both classified
+`mechanical` (current-state claim, single unambiguous correct
+rendering, no design-intent change). (a) §"Crash safety" §"Edge cases
+/ Gotchas" — rewrote the Post-WAL-replay file truncation bullet to
+match the inline-replan placement correction (commit `fc9b448e02`):
+previously the bullet said the recovery-time pass "wires into
+`AbstractStorage.recoverIfNeeded()` between `restoreFromWAL()` and
+`flushAllData()`"; that placement was PSI-audited to iterate empty
+`collections` / `indexEngines` / `linkCollectionsBTreeManager` lists,
+since the catalogue load happens at `AbstractStorage.java:797-800`,
+AFTER `recoverIfNeeded` returns at `:764`. New text names the new
+`AbstractStorage.truncateOrphansAfterRecovery()` invoked from `open()`
+after the catalogue load (around `:801`) and from
+`DiskStorage.postProcessIncrementalRestore` between `:1671` (after
+`openIndexes`) and `:1673` (before `flushAllData()`). (b) IHM line-
+number drift at two sites — `IndexHistogramManager.readSnapshotFromPage:1833`
+→ `:1819` (method declaration line) with `discriminator at :1843`
+parenthetical added. Both sites at line ~396 and line ~483.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: whole-doc): PASS — 0 blockers, 0 should-fix, 2
+suggestions (both formatting polish; not retried per skill rules).
+
+**Findings**:
+- suggestion: Crash-safety Edge-cases bullet uses two side-by-side
+  parenthetical line-anchors ("`:1671` (after `openIndexes`) and
+  `:1673` (before `flushAllData()`)") — reads slightly dense. Could be
+  tightened in a follow-up polish pass.
+- suggestion: bullet-label at line ~484 has `**bold-close**.` followed
+  by parenthetical addendum styled `(discriminator at :1843)` — the
+  bold-close-period-bold-period reads slightly awkwardly. Could be
+  smoothed for sibling consistency.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+
+
+## Mutation 7 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: two batched mechanical fixes from State 0 structural
+review iter-1 — both classified `mechanical`, no design-intent change.
+(a) **S3e (rename propagation)** — Track 5's IDE Rename renamed the
+allocator helper from `loadOrAddPageForWrite` → `allocatePageForWrite`
+across all production code; design.md still carried the pre-rename
+name at 8 active sites (Overview narrative line 32; Class Design
+diagram lines 67, 73; Workflow sequence diagram line 135; Allocation
+discovery surface lines 386, 441, 444; Cache primitive recovery
+section line 637). All 8 sites renamed. Line 441's call-site narrative
+gained a clarifying parenthetical noting the rename history. (b) **S4
+(visibility framing)** — `WriteCache.getFilledUpTo` was framed as
+package-private at 5 sites total; Track 5 episode records that JLS
+§9.4 forbids a literal package-private downgrade on an interface
+abstract method, so the audit-grep contract is enforced by `@Deprecated`
++ Javadoc + helper-set naming rather than the access modifier. Five
+sites updated: Class Design diagram member (line 49: `~` package-
+private sigil → `+` public sigil); Class Design narrative bullet
+(lines 93-99) fully rewritten to state `@Deprecated(forRemoval=false)`
++ JLS §9.4 reason + helper-set naming + storage-quiesced caller;
+Allocation discovery surface TL;DR (line 336) replaced "non-public"
+with the JLS §9.4 + helper-set framing; plus iter-2 fix at Overview
+line 25 and Allocation TL;DR line 329 (both said "Track 5's package-
+private gated helpers" → "Track 5's named, audit-gated helpers" —
+caught by cold-read at iter-1 as self-contradictory with line 336).
+
+**Mechanical checks** (target=design): PASS — 0 findings (both
+iterations).
+**Cold-read** (scope: whole-doc): iter-1 found 2 blockers (stale
+"package-private gated helpers" at Overview line 25 and Allocation
+TL;DR line 329, self-contradictory with the freshly-rewritten line
+336). Iter-2 PASS — 0 findings.
+
+**Findings**:
+- iter-1 blocker (resolved): Overview line 25 carried "Track 5's
+  package-private gated helpers" contradicting the same-mutation
+  rewrite of line 336.
+- iter-1 blocker (resolved): Allocation discovery surface TL;DR line
+  329 carried the same stale phrasing.
+- Both fixed in iter-2 by replacing "package-private gated helpers" →
+  "named, audit-gated helpers" (one-word swap, no other prose change).
+
+**Iterations**: 2 of 3 (PASS).
+
+
+## Mutation 8 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: rewrote the "Edge cases / Gotchas" → Post-WAL-replay
+file truncation bullet inside §Crash safety to reflect the Track 7
+Phase A iter-1 v2 ESCALATE inline-replanning revision: (1)
+`DiskStorage.postProcessIncrementalRestore` wiring corrected from
+"between `:1671` and `:1673` (before `flushAllData()`)" to "AFTER
+`:1673` (`flushAllData()`)" — eliminates the flush-after-truncate
+orphan re-creation hazard; (2) replaced the prior incorrect "purges
+LFRC entries via `WriteCache.shrinkFile`" claim (factually wrong —
+`WOWCache.removeCachedPages` only purges `writeCachePages`) with the
+layered shrink architecture: `LockFreeReadCache.shrinkFile` orchestrates
+`WriteCache.shrinkFile` + range-scoped `clearFileRange`, mirroring the
+existing `LockFreeReadCache.truncateFile` two-phase pattern; (3) added
+per-component EP-page floor (`targetBytes = max(pageSize, …)`) and
+corruption-skip guard (`EP.pagesSize == 0 && fileSize > pageSize` →
+WARN-and-skip); (4) tightened I6 wording from `==` to `<=` (with
+equality after a successful truncate; pass does not auto-repair
+`logical > physical`).
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Crash safety + Concurrency model +
+Overview): PASS — 3 suggestions (no blockers, no should-fix).
+
+**Findings**:
+- suggestion: the truncation bullet is now ~30 lines — at the upper
+  end for an Edge-cases bullet but well below the section budget.
+  Consider promoting to a dedicated `### Recovery-time orphan
+  truncation` sub-section if it grows further.
+- suggestion: line anchors (`AbstractStorage.java:801`, `:1673`) will
+  drift; phrase anchors (`flushAllData()` already in place) are more
+  durable. Consider trimming line numbers at Phase 4 sync.
+- suggestion: the Crash safety References footer could expand the D6
+  entry to name the three sub-pieces (layered shrink, EP-floor,
+  corruption-skip) so a footer skim conveys the full mechanism.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 9 — 2026-05-17 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review mechanical fix CR12 —
+corrected `IndexHistogramManager.readSnapshotFromPage` line anchor at
+two sites in the Allocation discovery surface section (line 399 EP-less
+defensive physical-presence probe bullet; line 487 per-site breakdown
+heading). Anchor `:1819` → `:1823`; discriminator anchor `:1843`
+unchanged. Pure line-anchor correction (the prior pass's CR6
+mechanical fix shifted `:1833` → `:1819`, which over-corrected; current
+code position is `IndexHistogramManager.java:1823` for
+`private HistogramSnapshot readSnapshotFromPage(AtomicOperation op)`).
+No surrounding prose or rationale touched.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Allocation discovery surface + Overview
++ Cache primitive: loadOrAdd + Concurrency model): PASS — 0 findings.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 10 — 2026-05-18 — section-add (design.md)
+
+**Diff summary**: Phase 2 consistency-review user-resolved fix CR15 —
+added a new `### Recovery-time orphan-truncation path` sub-section
+under `## Workflow` (between `### Cross-TX read path` and
+`## Cache primitive: loadOrAdd`). The sub-section contains a 6-
+participant `sequenceDiagram` (AbstractStorage → StorageComponent →
+EntryPoint → LockFreeReadCache → WriteCache → AsyncFile) showing the
+recovery-time orphan-truncation flow (orchestrator → per-EP-equipped
+component helper → `LockFreeReadCache.shrinkFile` → `WriteCache.shrinkFile`
++ `clearFileRange` two-phase ordering, plus the corruption-skip branch),
+followed by one prose paragraph naming the entry-point ordering vs
+`recoverIfNeeded()` / `flushAllData()` and the EP-floor / corruption
+guard rationale. Also updated `## Workflow` intro paragraph from "three
+runtime paths" to "four runtime paths" with a one-sentence introduction
+of the new recovery-only path. Resolves the CR15 diagram-vs-prose
+asymmetry surfaced by the consistency review.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: whole-doc — N=5 periodic counter fired on
+mutation #10): PASS — 0 blockers, 0 should-fix, 2 suggestions.
+
+**Findings**:
+- suggestion (pre-existing): `## Crash safety` Edge cases / Gotchas
+  bullet line 772 phrases the `EP.pagesSize == 0 && fileSize > pageSize`
+  signature as `a \`logical > physical\`-like signature`; the new
+  sub-section phrases the same situation correctly as `logical == 0 <
+  physical` (a `logical < physical`-like signature). One-character
+  directional fix; out-of-scope for this mutation (Crash safety prose
+  not touched). Carry forward as known suggestion.
+- suggestion: new sub-section's loop caption uses the short-name
+  `SLBB` while §"Crash safety" prose spells out `SharedLinkBagBTree`.
+  No other use of `SLBB` in design.md. Trivial expand-the-abbreviation
+  fix; deferred to keep this mutation scoped to CR15. Carry forward.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 11 — 2026-05-18 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review gate-verification fixes
+CR16 + CR17 — revised the `### Recovery-time orphan-truncation path`
+sequence diagram added in Mutation 10 to (1) remove the spurious
+`SC->>WC: physicalSize(fileId)` call that contradicted Track 7's
+"independent of Track 5" claim (CR16, was should-fix). The file-size
+read now happens inside `WriteCache.shrinkFile`'s pre-flight
+(`WC->>AF: getFileSize()`), matching `track-7.md:39-58` and the
+Track 5 independence statement at `track-7.md:383-390`. The
+corruption guard moves to a `Note over SC` describing the rule and
+explicitly disclaiming Track 5 dependence. (2) Expand the loop
+caption's short-name `SLBB` to `SharedLinkBagBTree` for consistency
+with §"Crash safety" prose (CR17, was suggestion). Alt-branch labels
+now read `fileSize > targetBytes (orphan present)` / `fileSize <=
+targetBytes (clean)` matching the actual two-branch control flow
+(the corruption-skip case short-circuits before `shrinkFile` is
+called, so it's a Note rather than a third alt arm).
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Recovery-time orphan-truncation path
+sub-section + Cross-TX read path + Cache primitive + Crash safety
+cross-reference): PASS — 0 findings.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS).
+
+
+## Mutation 12 — 2026-05-18 — content-edit (design.md)
+
+**Diff summary**: Phase 2 structural-review user-resolved fix S14 —
+moved the per-checksum-mode failure-behaviour walk-throughs for the
+EP-less (FSM, CDPB) and IndexHistogramManager carve-out from the
+plan-file Non-Goals section into a new `**EP-less and IHM carve-out:
+per-mode failure behaviour**` bullet under `## Crash safety` → `###
+Edge cases / Gotchas` (between the Post-WAL-replay file truncation
+bullet and the DoubleWriteLog interaction bullet). The new bullet
+documents per-mode failure shapes (StoreAndThrow → loud
+`StorageException`; Off → silent bitmap overwrite for FSM/CDPB,
+best-effort cardinality drift for IHM), why expanding Track 7 to cover
+them is complex (FSM/CDPB need parent-PCV2-derived logical state; IHM
+needs page-0 `hllSize`-flag read), and where the symptom-surface
+coverage lives (Track 6 CS1 + HLL-spill regressions). Corresponds to
+the plan-file Non-Goals bullet trim from ~32 lines to one consolidated
+8-line scope-exclusion + pointer.
+
+**Mechanical checks** (target=design): PASS — 0 findings.
+**Cold-read** (scope: bounded — Crash safety + Allocation discovery
+surface cross-section): PASS — 0 blockers, 0 should-fix, 2 suggestions
+(both quality-of-life polishes: section-length-bound is comfortably
+under threshold; growth-loop term is established via the loop-shape
+quote inside the bullet itself).
+
+**Findings**:
+- suggestion: §"Edge cases / Gotchas" sub-section is approaching upper
+  bound for its enclosing §"Crash safety" mechanism prose (134 lines
+  cumulative, under the 200-line warn threshold). No action needed.
+- suggestion: a 4-word parenthetical naming the growth-loop shape on
+  first use in the carve-out would aid readers who navigate directly
+  to this gotcha. Not retried per discipline.
+
+**Iterations**: 1 of 3 (PASS).

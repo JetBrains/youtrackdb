@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -184,8 +185,21 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * Read-cache "load for write" entry point on the in-memory engine.
+   *
+   * <p><b>Divergence from the disk engine.</b> On the disk engine the read-cache wrappers
+   * route through {@code LockFreeReadCache.data.compute} and bottom out on the total
+   * {@code WriteCache.loadOrAdd} primitive (so the wrappers are total too). The in-memory
+   * engine bypasses {@code LockFreeReadCache} entirely &mdash; this method is a direct map
+   * probe via {@link #doLoad}, and it deliberately keeps {@code null}-on-miss semantics. The
+   * total contract is offered only on {@link #loadOrAdd} (write-cache primitive); read-cache
+   * misses against an unallocated page index continue to surface as {@code null} so existing
+   * callers that distinguish "page does not exist" from "page exists but is empty" keep
+   * working unchanged.
+   */
   @Nullable @Override
-  public CacheEntry loadForWrite(
+  public CacheEntry loadOrAddForWrite(
       final long fileId,
       final long pageIndex,
       final WriteCache writeCache,
@@ -202,6 +216,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
+  /**
+   * Read-cache "load for read" entry point on the in-memory engine.
+   *
+   * <p><b>Divergence from the disk engine.</b> See {@link #loadOrAddForWrite} for the rationale:
+   * the in-memory read-cache wrappers stay {@code null}-on-miss, while the write-cache
+   * primitive {@link #loadOrAdd} is total.
+   */
   @Nullable @Override
   public CacheEntry loadForRead(
       final long fileId,
@@ -240,24 +261,82 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
+  /**
+   * In-memory parallel of the disk engine's {@code WOWCache.loadOrAdd}: a total page-access
+   * primitive that returns a usable {@link CachePointer} for the given
+   * {@code (fileId, pageIndex)} regardless of whether the page already exists in the
+   * per-file map. The method never returns {@code null} for any open, non-deleted file.
+   *
+   * <p><b>Branch collapse.</b> The disk engine's three branches (load existing /
+   * one-page extend / multi-page gap-fill) collapse to a single conceptual operation here:
+   * the in-memory engine has no on-disk representation, so "load" and "extend / gap-fill"
+   * differ only in whether the per-file map already has an entry for the target page index.
+   * The atomic install-or-fetch is delegated to {@link MemoryFile#loadOrAddPage}, which
+   * builds each candidate eagerly and publishes via
+   * {@link java.util.concurrent.ConcurrentSkipListMap#putIfAbsent}; the loser of any
+   * concurrent install race releases its candidate's freshly-acquired {@code pageFrame} back
+   * to the pool before returning the winner's entry so no frame leaks under contention.
+   *
+   * <p><b>Gap-fill.</b> After this call returns, every index in
+   * {@code [currentSize, pageIndex]} has an installed entry; the gap loop installs pages
+   * {@code [currentSize, pageIndex - 1]} and the target page is installed afterwards. Only
+   * the target page's pointer is returned to the caller. This matches the disk engine's
+   * gap-fill contract (recovery-only path under normal callers) so the WAL replay loop can
+   * target arbitrary pageIndex values without divergence between engines.
+   *
+   * <p><b>Magic stamp.</b> Each freshly-installed page frame is zero-filled by
+   * {@code pageFramePool.acquire} and stamped with {@link LogSequenceNumber}{@code (-1,-1)}
+   * before publication, mirroring the magic-stamped empty-buffer contract on the disk
+   * engine's extend / gap-fill branches. Callers that read the LSN immediately after
+   * {@code loadOrAdd} on a fresh page see {@code (-1,-1)} on both engines uniformly.
+   *
+   * <p><b>Read-cache divergence.</b> Only this method (the {@code WriteCache} primitive)
+   * is total on the in-memory engine. The {@link ReadCache} entry points
+   * {@link #loadForRead} and {@link #loadOrAddForWrite} keep their {@code null}-on-miss
+   * semantics because the in-memory engine bypasses {@code LockFreeReadCache.data.compute}
+   * and so cannot fold the totality contract into the read-cache wrappers without
+   * rewriting unrelated callers. The disk engine's read-cache wrappers (which DO go through
+   * {@code data.compute}) inherit totality from {@link #loadOrAdd} on that engine; the
+   * in-memory engine does not.
+   *
+   * <p><b>Referrer accounting.</b> {@link MemoryFile#loadOrAddPage} bumps the returned
+   * {@link CachePointer}'s readers-referrer count exactly once before publication and
+   * before releasing the per-file {@code clearLock} read lock; no concurrent {@code clear()}
+   * / {@code deleteFile()} / {@code truncateFile()} can recycle the frame between
+   * publication and the increment. Callers must call
+   * {@link CachePointer#decrementReadersReferrer()} when they are done with the pointer.
+   *
+   * @param fileId external file id of the target page; must be open and registered
+   * @param pageIndex zero-based page index inside that file; must be non-negative
+   * @param verifyChecksums ignored on the in-memory engine (no on-disk image to verify)
+   * @return a non-null {@link CachePointer} positioned at the target page
+   * @throws IllegalArgumentException if {@code pageIndex < 0} or the file does not exist
+   */
   @Override
-  public CacheEntry allocateNewPage(
-      final long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN) {
-    final var intId = extractFileId(fileId);
-
-    final var memoryFile = getFile(intId);
-    final var cacheEntry = memoryFile.addNewPage(this);
-
-    synchronized (cacheEntry) {
-      cacheEntry.incrementUsages();
+  public CachePointer loadOrAdd(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) {
+    if (pageIndex < 0) {
+      throw new IllegalArgumentException("Illegal page index value " + pageIndex);
     }
-    cacheEntry.acquireExclusiveLock();
-    return cacheEntry;
-  }
-
-  @Override
-  public int allocateNewPage(final long fileId) {
-    throw new UnsupportedOperationException();
+    final var intId = extractFileId(fileId);
+    // Fail fast on a deleted/never-registered fileId. The contract for loadOrAdd matches
+    // WOWCache: an unknown fileId surfaces an IllegalArgumentException raw to the caller as
+    // a caller-bug signal; the totality contract holds only for open, non-deleted files.
+    // Probe the per-storage map directly rather than going through getFile() so the engine-
+    // specific StorageException does not leak into a contract that promises the disk-engine
+    // IllegalArgumentException shape.
+    final var memoryFile = files.get(intId);
+    if (memoryFile == null) {
+      throw new IllegalArgumentException(
+          "File with id " + intId + " not found in DirectMemoryOnlyDiskCache");
+    }
+    // The MemoryFile primitive returns the entry with its CachePointer's readers-referrer
+    // already incremented exactly once (and the increment ran under the per-file clearLock
+    // readLock so a concurrent clear()/deleteFile()/truncateFile() cannot recycle the frame
+    // between publication and the increment). The caller owns a single readers reference
+    // and must call decrementReadersReferrer() to release.
+    final var cacheEntry = memoryFile.loadOrAddPage(pageIndex, this);
+    return cacheEntry.getCachePointer();
   }
 
   private MemoryFile getFile(final int fileId) {
@@ -290,11 +369,26 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  // Retained internal site (in-memory engine impl): the override is part of the documented
+  // internal-caller set on WriteCache.getFilledUpTo and must stay so the Layer A helper
+  // body just below has a concrete delegation target.
+  @SuppressWarnings("deprecation")
   @Override
   public long getFilledUpTo(final long fileId) {
     final var intId = extractFileId(fileId);
     final var memoryFile = getFile(intId);
     return memoryFile.size();
+  }
+
+  // Layer A helper body (in-memory engine impl) — same retained-caller carve-out as the
+  // WOWCache delegator. Listed on WriteCache.getFilledUpTo's Javadoc.
+  @SuppressWarnings("deprecation")
+  @Override
+  public long physicalSizeForBackupSnapshot(final long fileId) {
+    // Mirrors the WOWCache delegator: same semantics as getFilledUpTo, with the named
+    // helper acting as the cross-component audit-grep target documented on the
+    // WriteCache interface method.
+    return getFilledUpTo(fileId);
   }
 
   @Override
@@ -351,6 +445,18 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
     final var file = getFile(intId);
     file.clear();
+  }
+
+  /**
+   * In-memory engine has no on-disk physical state, so a one-way shrink to a non-zero
+   * target has nothing to repair — the recovery-time orphan-truncation pass cannot
+   * fabricate an in-memory orphan because the page-table is the only source of truth.
+   * Implemented as a no-op so the orchestrator can dispatch polymorphically without
+   * a type-test.
+   */
+  @Override
+  public void shrinkFile(final long fileId, final long targetBytes) {
+    // No-op: in-memory engine cannot produce on-disk orphans.
   }
 
   @Override
@@ -575,6 +681,24 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     throw new UnsupportedOperationException();
   }
 
+  /**
+   * Non-extending probe primitive on the in-memory engine.
+   *
+   * <p>The in-memory engine's silent-read path (see
+   * {@link #silentLoadForRead}) bypasses {@code WriteCache.load} / {@code loadIfPresent}
+   * entirely: it goes through the {@code ReadCache} surface ({@link #loadForRead}) which
+   * probes the {@link MemoryFile} map directly. This implementation therefore mirrors the
+   * existing {@link #load} contract by throwing {@link UnsupportedOperationException} so a
+   * future caller that wires the in-memory engine into a code path expecting the
+   * {@code WriteCache} silent-probe primitive surfaces the unwired call site immediately
+   * rather than silently returning {@code null} and corrupting the diagnostic.
+   */
+  @Override
+  public CachePointer loadIfPresent(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) {
+    throw new UnsupportedOperationException();
+  }
+
   @Override
   public long getExclusiveWriteCachePagesSize() {
     return 0;
@@ -583,6 +707,27 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   @Override
   public void truncateFile(final long fileId, final WriteCache writeCache) {
     truncateFile(fileId);
+  }
+
+  /**
+   * In-memory engine has no on-disk physical state and no read-cache layer separate from
+   * the write cache, so the {@link ReadCache} orchestrator simply forwards to its argument
+   * {@code WriteCache.shrinkFile} no-op. Implemented so the polymorphic dispatch from the
+   * recovery-time orphan-truncation pass works uniformly across both engines.
+   *
+   * <p>Forwards to the supplied {@code writeCache} (not {@code this}) to honour the layering
+   * contract uniformly with {@code LockFreeReadCache.shrinkFile}. In production today both
+   * readCache and writeCache point at the same {@code DirectMemoryOnlyDiskCache} instance, so
+   * the call resolves to the 2-arg no-op on this object — but a hypothetical hybrid
+   * configuration that paired this read-cache with a different write-cache (e.g.,
+   * {@code WOWCache}) would correctly delegate the shrink to that write-cache rather than
+   * silently skip it. Discarding the {@code writeCache} argument here would have been a
+   * latent layering bug.
+   */
+  @Override
+  public void shrinkFile(final long fileId, final long targetBytes, final WriteCache writeCache)
+      throws IOException {
+    writeCache.shrinkFile(fileId, targetBytes);
   }
 
   @Override

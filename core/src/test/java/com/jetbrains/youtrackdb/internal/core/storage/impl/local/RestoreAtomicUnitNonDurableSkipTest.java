@@ -103,7 +103,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
   /**
    * Verifies that UpdatePageRecord for a non-durable file is skipped — no restoreFileById,
-   * no loadForWrite, no exception thrown.
+   * no loadOrAddForWrite, no exception thrown.
    */
   @Test
   public void testUpdatePageRecordSkippedForNonDurableFile() throws Exception {
@@ -119,9 +119,9 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
-    // Non-durable file should NOT trigger restoreFileById or loadForWrite
+    // Non-durable file should NOT trigger restoreFileById or loadOrAddForWrite
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
-    verify(readCache, never()).loadForWrite(
+    verify(readCache, never()).loadOrAddForWrite(
         eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
 
     assertFalse("No page update should occur for non-durable file only",
@@ -219,7 +219,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     // Configure writeCache for durable file processing
     when(writeCache.externalFileId(DURABLE_INTERNAL_ID)).thenReturn(DURABLE_EXTERNAL_ID);
 
-    // Configure readCache.loadForWrite to return a mock CacheEntry for the durable file.
+    // Configure readCache.loadOrAddForWrite to return a mock CacheEntry for the durable file.
     // The CacheEntry → CachePointer → ByteBuffer chain must be set up so DurablePage can
     // read the page LSN (needed by restoreAtomicUnit's comparison logic).
     final var cacheEntry =
@@ -230,7 +230,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
         java.nio.ByteBuffer.allocateDirect(PAGE_SIZE).order(java.nio.ByteOrder.nativeOrder());
     when(cacheEntry.getCachePointer()).thenReturn(cachePointer);
     when(cachePointer.getBuffer()).thenReturn(buffer);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), anyBoolean(), any()))
         .thenReturn(cacheEntry);
 
@@ -245,11 +245,11 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
     // Non-durable file must not trigger any cache operations
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
-    verify(readCache, never()).loadForWrite(
+    verify(readCache, never()).loadOrAddForWrite(
         eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
 
     // Durable file must be processed
-    verify(readCache).loadForWrite(
+    verify(readCache).loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any());
 
     assertTrue("Durable page update should set atLeastOnePageUpdate",

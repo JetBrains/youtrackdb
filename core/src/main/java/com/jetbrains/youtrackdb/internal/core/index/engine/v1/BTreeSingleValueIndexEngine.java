@@ -17,6 +17,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngin
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
@@ -267,6 +269,33 @@ public final class BTreeSingleValueIndexEngine
     if (mgr != null) {
       mgr.closeStatsFile();
     }
+  }
+
+  /**
+   * Recovery-time orphan-truncation hook dispatched by
+   * {@code AbstractStorage.truncateOrphansAfterRecovery()} during iteration over the
+   * storage's index engines. Delegates straight through to {@code sbTree}; the engine
+   * wrapper exists so the orchestrator can iterate the index engines polymorphically
+   * without violating the {@code private final CellBTreeSingleValue<CompositeKey> sbTree}
+   * encapsulation.
+   *
+   * <p>The histogram-manager stats file is deliberately out of scope: as a non-EP
+   * derived structure it follows the FSM / CDPB pattern (allocator-only, no
+   * logical/physical split) and the partial-flush orphan hazard cannot arise. The
+   * recovery pass is scoped to the four entry-point-equipped components (BTree,
+   * SharedLinkBagBTree, CollectionPositionMapV2, PaginatedCollectionV2).
+   *
+   * @param atomicOperation enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if the underlying BTree truncate fails
+   */
+  public void verifyAndTruncateOrphans(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    sbTree.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
   }
 
   @Override

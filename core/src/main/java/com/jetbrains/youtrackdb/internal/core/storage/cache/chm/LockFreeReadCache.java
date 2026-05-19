@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
-import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -147,14 +146,24 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public CacheEntry loadForWrite(
+  public CacheEntry loadOrAddForWrite(
       final long fileId,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    final var cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    final var cacheEntry =
+        doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ true);
 
+    // Defensive guard: doLoad delegates to the total WriteCache#loadOrAdd primitive,
+    // so the returned CacheEntry should never be null after the loadOrAdd collapse.
+    // The null check is retained as a belt-and-braces measure against future
+    // divergence in doLoad's miss-handling branches; if the contract ever weakens,
+    // callers still see a clean null instead of an NPE on the lock acquisition below.
+    assert cacheEntry != null
+        : "doLoad returned null on forWrite path"
+            + " fileId=" + fileId + " pageIndex=" + pageIndex
+            + "; WriteCache.loadOrAdd totality contract violated";
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
       writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
@@ -169,7 +178,7 @@ public final class LockFreeReadCache implements ReadCache {
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ false);
   }
 
   @Nullable @Override
@@ -196,9 +205,15 @@ public final class LockFreeReadCache implements ReadCache {
                 (fId, pIdx, entry) -> {
                   if (entry == null) {
                     try {
+                      // Non-extending probe: a silent reader must not stamp a fresh empty
+                      // buffer for an unallocated page. loadIfPresent honours the same
+                      // dirty-write-priority + on-disk-fallback discipline as the legacy
+                      // load() but returns null instead of magic-stamping a new page on
+                      // miss, so silentLoadForRead can faithfully report "no such page"
+                      // (the contract its diagnostic callers — backup, restore-mode probes
+                      // — depend on).
                       final var pointer =
-                          writeCache.load(
-                              fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+                          writeCache.loadIfPresent(fileId, pageIndex, verifyChecksums);
                       if (pointer == null) {
                         return null;
                       }
@@ -232,11 +247,17 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
-  @Nullable private CacheEntry doLoad(
+  // Documented internal caller of WriteCache.getFilledUpTo: the pre-call file-size snapshot
+  // at line 307 reads the physical extent under the data.compute segment write lock so the
+  // freshly-allocated branch can flag the resulting entry. See WriteCache.getFilledUpTo
+  // Javadoc for the full retained-caller list.
+  @SuppressWarnings("deprecation")
+  private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,
       final WriteCache writeCache,
-      final boolean verifyChecksums) {
+      final boolean verifyChecksums,
+      final boolean forWrite) {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
 
     var success = false;
@@ -268,15 +289,52 @@ public final class LockFreeReadCache implements ReadCache {
                   (fId, pIdx, entry) -> {
                     if (entry == null) {
                       try {
+                        // Snapshot the file's current logical page count BEFORE delegating
+                        // to loadOrAdd. If pageIndex >= filledUpTo, loadOrAdd will take the
+                        // one-page-extend or multi-page gap-fill branch and the resulting
+                        // CacheEntry must be flagged as freshly-allocated so that
+                        // releaseFromWrite's isNewlyAllocatedPage() check publishes it on
+                        // the dirty-page list. Reading filledUpTo is cheap (in-memory size
+                        // probe under filesLock.readLock).
+                        //
+                        // Staleness of the snapshot vs. loadOrAdd's own size read:
+                        // per-component locks (BTree mutex, position-map mutex, etc.)
+                        // serialize concurrent allocators on the same fileId, so two
+                        // transactions cannot concurrently target the same
+                        // (fileId, pageIndex). The cache primitive itself does not enforce
+                        // this — if a different component concurrently extends a
+                        // *different* pageIndex on the same fileId between this read and
+                        // loadOrAdd's own size read, the snapshot can become stale. The
+                        // benign worst case is a load-branch entry mis-flagged as
+                        // newly-allocated, which causes a single redundant clean-page
+                        // flush with no correctness impact (the page content came from
+                        // disk and is unmodified).
+                        final var preCallFilledUpTo = writeCache.getFilledUpTo(fileId);
                         final var pointer =
-                            writeCache.load(
-                                fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+                            writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
                         if (pointer == null) {
-                          return null;
+                          // The disk engine's loadOrAdd is total. Fail-fast in production
+                          // builds with the same diagnostic content the prior assert had so
+                          // a regressing impl (or a future in-memory variant routed through
+                          // this path) cannot install a CacheEntry around a null pointer
+                          // and surface the breakage frames later as an opaque NPE.
+                          throw new IllegalStateException(
+                              "WriteCache.loadOrAdd contract violation: null CachePointer for"
+                                  + " fileId=" + fileId + " pageIndex=" + pageIndex);
                         }
 
                         cacheSize.incrementAndGet();
-                        return new CacheEntryImpl(fileId, pageIndex, pointer, true, this);
+                        final var newEntry =
+                            new CacheEntryImpl(fileId, pageIndex, pointer, true, this);
+                        // markAllocated is a write-only contract: only the write-load
+                        // primitive may flag the entry as freshly-allocated so that
+                        // releaseFromWrite publishes it on the dirty-page list. Bleeding
+                        // the flag onto the read path would publish a clean read load as
+                        // dirty when the read happens to hit a fresh-extend race window.
+                        if (forWrite && pageIndex >= preCallFilledUpTo) {
+                          newEntry.markAllocated();
+                        }
+                        return newEntry;
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
                             new StorageException(writeCache.getStorageName(),
@@ -289,10 +347,6 @@ public final class LockFreeReadCache implements ReadCache {
                       return entry;
                     }
                   });
-
-          if (cacheEntry == null) {
-            return null;
-          }
 
           if (cacheEntry.acquireEntry()) {
             if (read[0]) {
@@ -434,20 +488,6 @@ public final class LockFreeReadCache implements ReadCache {
     // This can lead to the data loss after restore and corruption of data structures
     cacheEntry.releaseExclusiveLock();
     cacheEntry.releaseEntry();
-  }
-
-  @Override
-  public CacheEntry allocateNewPage(
-      long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN)
-      throws IOException {
-    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var newPageIndex = writeCache.allocateNewPage(fileId);
-    final var cacheEntry = addNewPagePointerToTheCache(fileId, newPageIndex);
-
-    cacheEntry.acquireExclusiveLock();
-    cacheEntry.markAllocated();
-    writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
-    return cacheEntry;
   }
 
   private void afterRead(final CacheEntry entry) {
@@ -631,6 +671,56 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
+  public void shrinkFile(long fileId, final long targetBytes, final WriteCache writeCache)
+      throws IOException {
+    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
+
+    // Two-phase orchestration mirroring truncateFile (above) and deleteFile (below):
+    // write-back layer + AsyncFile first, then read-cache purge. The ordering matters
+    // because doLoad readers consult the writeCachePages dirty map; a stale dirty
+    // entry surviving past the shrink would let a periodic flush re-extend the file
+    // past targetBytes. WriteCache.shrinkFile drops dirty entries at
+    // pageIndex >= minPageIndex BEFORE the AsyncFile truncate, so by the time the
+    // range-scoped clearFile call runs the write-back side is already settled.
+    // Defensive invariants on the targetBytes -> minPageIndex cast. There is no
+    // upstream argument guard at this orchestrator entry point (unlike
+    // WOWCache.shrinkFile which throws on negative targets, but that path is
+    // bypassed by DirectMemoryOnlyDiskCache.shrinkFile's no-op on the in-memory
+    // engine — without these guards a negative target slips through to the
+    // (int) cast below and the range filter purges every cached entry). The
+    // checks run under default JVM flags (no -ea) and fire BEFORE the
+    // writeCache delegate so a contract violation never lands a partial
+    // truncate at the WriteCache layer.
+    if (targetBytes < 0) {
+      throw new IllegalArgumentException(
+          "targetBytes must be non-negative: " + targetBytes);
+    }
+    if (targetBytes % pageSize != 0) {
+      throw new IllegalArgumentException(
+          "targetBytes must be a multiple of pageSize: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSize);
+    }
+    if (targetBytes / pageSize > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          "minPageIndex would overflow int: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSize);
+    }
+    writeCache.shrinkFile(fileId, targetBytes);
+    // LockFreeReadCache and its WriteCache always share the same page size by
+    // construction (the cache stores pages frame-for-frame), so this.pageSize is
+    // the right divisor. Using the local field avoids depending on the WriteCache
+    // impl returning a non-zero pageSize() — TrackingWriteCache returns 0, and a
+    // test-mock that stubs every method should not need to know the page size to
+    // reach the LFRC range-purge.
+    final int minPageIndex = (int) (targetBytes / pageSize);
+    clearFile(fileId, minPageIndex, writeCache);
+  }
+
+  @Override
   public void closeFile(long fileId, final boolean flush, final WriteCache writeCache) {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
 
@@ -753,25 +843,67 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
+  /**
+   * "Remove every cache entry for {@code fileId}" delegate. Forwards to the range-scoped
+   * overload with {@code minPageIndex = 0}, which matches every page index.
+   */
   private void clearFile(final long fileId, final WriteCache writeCache) {
+    clearFile(fileId, 0, writeCache);
+  }
+
+  /**
+   * Drops every cache entry whose {@code (fileId, pageIndex)} pair satisfies
+   * {@code pageIndex >= minPageIndex}; entries below the minimum survive (they belong to
+   * file regions the truncate does NOT drop and must remain reachable for ongoing
+   * readers). With {@code minPageIndex = 0} this is "remove every cache entry for this
+   * fileId" — the shape that {@code closeFile} / {@code deleteFile} /
+   * {@code truncateFile} use.
+   *
+   * <p>Same evictionLock acquisition, current-thread read batch flush, and freeze /
+   * onRemove / checkCacheOverflow loop in every case. Pinned-entry recovery follows
+   * {@link #drainAllEntries(WriteCache)}'s "re-insert un-frozen entries" pattern: on a
+   * freeze failure the loop continues, every un-frozen entry is re-inserted into the
+   * segment map, and the first-pinned exception is thrown only after the tail has been
+   * fully processed. This keeps {@code policy} and {@code cacheSize} in lockstep with
+   * the segment map even on partial failure — an earlier shape that threw on the first
+   * pinned entry orphaned the un-processed tail (removed from the map but never
+   * accounted for in the policy / cacheSize, leaking direct-memory references via the
+   * never-decremented CachePointer referrers).
+   *
+   * <p>Precondition: this method assumes no concurrent {@code doLoad} for the same
+   * fileId. A concurrent {@code doLoad} could re-insert an entry for a page of this
+   * file after {@code removeByFileId} completes. Callers coordinate file lifecycle at
+   * a higher level so no client TX can race the bulk removal:
+   *
+   * <ul>
+   *   <li>{@code closeFile} / {@code deleteFile} / {@code truncateFile} hold the
+   *       storage's exclusive lock.</li>
+   *   <li>{@code shrinkFile} is invoked only by the recovery-time orphan-truncation
+   *       pass, which runs under {@code stateLock.writeLock()}.</li>
+   * </ul>
+   *
+   * <p>With no concurrent {@code doLoad}, no pinned entries are expected on the
+   * recovery path — the re-insertion safety net is defensive against future callers
+   * (or interleavings) that violate the precondition.
+   */
+  private void clearFile(
+      final long fileId, final int minPageIndex, final WriteCache writeCache) {
     flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
 
-      // Bulk removal: removeByFileId sweeps each segment linearly under its write
-      // lock, collecting removed entries into a list. Entries are returned after
-      // the segment lock is released, so the processing below (freeze, onRemove,
-      // checkCacheOverflow) does not run under a segment write lock — avoiding
-      // StampedLock reentrancy deadlock if callbacks re-enter the map.
-      //
-      // Precondition: clearFile assumes no concurrent doLoad for the same fileId.
-      // A concurrent doLoad could re-insert an entry for a page of this file after
-      // removeByFileId completes. This is a pre-existing race (the old per-page
-      // loop had the same gap between remove and freeze). Callers ensure this by
-      // coordinating file lifecycle at a higher level.
-      final var removedEntries = data.removeByFileId(fileId);
+      // Bulk removal: removeByFileId sweeps each segment linearly under its write lock
+      // with a (fileId, pageIndex >= minPageIndex) match filter. Entries are returned
+      // after the segment lock is released; the freeze / onRemove / checkCacheOverflow
+      // loop below does not run under a segment write lock — avoiding StampedLock
+      // reentrancy deadlock if callbacks re-enter the map.
+      final var removedEntries = data.removeByFileId(fileId, minPageIndex);
 
+      // First entry that freeze() rejected (still pinned). We use it to build the
+      // exception message after re-inserting every un-frozen entry into the segment
+      // map. Null means every entry was frozen.
+      CacheEntry firstUnfrozen = null;
       for (final var cacheEntry : removedEntries) {
         if (cacheEntry.freeze()) {
           policy.onRemove(cacheEntry);
@@ -785,13 +917,22 @@ public final class LockFreeReadCache implements ReadCache {
                 e, writeCache.getStorageName());
           }
         } else {
-          throw new StorageException(writeCache.getStorageName(),
-              "Page with index "
-                  + cacheEntry.getPageIndex()
-                  + " for file id "
-                  + cacheEntry.getFileId()
-                  + " is used and cannot be removed");
+          if (firstUnfrozen == null) {
+            firstUnfrozen = cacheEntry;
+          }
+          // Re-insert so policy + cacheSize stay in lockstep with the segment map and
+          // a retry by the caller (after the pin is released) can drain this entry
+          // through the normal path.
+          data.put(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
         }
+      }
+      if (firstUnfrozen != null) {
+        throw new StorageException(writeCache.getStorageName(),
+            "Page with index "
+                + firstUnfrozen.getPageIndex()
+                + " for file id "
+                + firstUnfrozen.getFileId()
+                + " is used and cannot be removed");
       }
     } finally {
       evictionLock.unlock();

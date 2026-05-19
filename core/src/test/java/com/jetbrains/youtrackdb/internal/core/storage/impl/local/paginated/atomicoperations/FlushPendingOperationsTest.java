@@ -101,7 +101,8 @@ public class FlushPendingOperationsTest {
 
     long fileId = op.addFile(fileName);
 
-    var page = op.addPage(fileId);
+    // Fresh file: first allocation always targets pageIndex 0.
+    var page = op.allocatePageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
@@ -202,11 +203,11 @@ public class FlushPendingOperationsTest {
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("test.dat");
 
-    // Add two pages
-    var page0 = op.addPage(fileId);
+    // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
+    var page0 = op.allocatePageForWrite(fileId, 0);
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.addPage(fileId);
+    var page1 = op.allocatePageForWrite(fileId, 1);
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -254,7 +255,11 @@ public class FlushPendingOperationsTest {
     when(mockCacheEntry.getCachePointer()).thenReturn(mockPointer);
     when(mockCacheEntry.getPageIndex()).thenReturn(0);
     when(mockCacheEntry.getFileId()).thenReturn(fileId);
-    when(readCache.allocateNewPage(anyLong(), any(), any()))
+    // AOBT.commitChanges applies new-page entries via readCache.loadOrAddForWrite, which
+    // is total on both engines (disk: WriteCache.loadOrAdd gap-fills; in-memory: AOBT
+    // eagerly installs the page during the TX). The mock returns a non-null entry to
+    // satisfy that totality contract.
+    when(readCache.loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(mockCacheEntry);
 
     var txEndLsn = op.commitChanges(42L, wal);
@@ -272,6 +277,51 @@ public class FlushPendingOperationsTest {
   }
 
   /**
+   * Pins the totality contract enforced by {@code commitChanges}: when
+   * {@code readCache.loadOrAddForWrite} returns null for a page that has registered
+   * changes (e.g., the in-memory eager-install in {@code allocatePageForWrite} was
+   * bypassed, or the disk-engine {@code WriteCache.loadOrAdd} regressed), commit fails
+   * fast with an {@link IllegalStateException} citing the contract. The exception is
+   * thrown unconditionally (not behind a {@code -ea}-only assert) so the violation
+   * surfaces deterministically in production builds. The message must carry the
+   * {@code fileId}, {@code pageIndex}, and the contract name so the failing site is
+   * diagnosable without re-running under a debugger.
+   */
+  @Test
+  public void testCommitChangesThrowsWhenLoadOrAddForWriteReturnsNull() throws IOException {
+    var op = createOperation();
+    long fileId = setupNewFileWithPage(op, "test.dat");
+
+    var pageOp = new TestPageOperation(0, fileId, 0, new LogSequenceNumber(0, 0), 42);
+    op.registerPageOperation(fileId, 0, pageOp);
+
+    // Stub readCache.loadOrAddForWrite to return null for the page registered above.
+    // This simulates a regression in either engine's totality contract:
+    //   - In-memory: AOBT.allocatePageForWrite failed to eagerly install the page in
+    //     MemoryFile, so MemoryFile.loadPage returns null.
+    //   - Disk: WriteCache.loadOrAdd no longer gap-fills (hypothetical regression).
+    when(readCache.loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any()))
+        .thenReturn(null);
+
+    var thrown = Assert.assertThrows(
+        IllegalStateException.class, () -> op.commitChanges(42L, wal));
+    var message = thrown.getMessage();
+    Assert.assertNotNull("Exception message must be populated", message);
+    Assert.assertTrue(
+        "Message must contain fileId=" + fileId + ", was: " + message,
+        message.contains("fileId=" + fileId));
+    Assert.assertTrue(
+        "Message must contain pageIndex=0, was: " + message,
+        message.contains("pageIndex=0"));
+    Assert.assertTrue(
+        "Message must cite the totality contract, was: " + message,
+        message.contains("WriteCache.loadOrAdd totality contract violated"));
+    Assert.assertTrue(
+        "Message must include isNew diagnostic field, was: " + message,
+        message.contains("isNew="));
+  }
+
+  /**
    * Non-durable files are skipped during flush — no WAL records emitted for them.
    */
   @Test
@@ -283,7 +333,8 @@ public class FlushPendingOperationsTest {
     when(writeCache.bookFileId("nd-file.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("nd-file.dat", true);
 
-    var page = op.addPage(fileId);
+    // Fresh file: first allocation always targets pageIndex 0.
+    var page = op.allocatePageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 

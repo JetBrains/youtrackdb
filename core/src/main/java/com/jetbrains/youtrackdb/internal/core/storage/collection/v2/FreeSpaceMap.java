@@ -109,7 +109,8 @@ public final class FreeSpaceMap extends StorageComponent {
   }
 
   private void init(final AtomicOperation atomicOperation) throws IOException {
-    try (final var firstLevelCacheEntry = addPage(atomicOperation, fileId)) {
+    // Fresh file -- append the first-level page (statically known-new at pageIndex 0).
+    try (final var firstLevelCacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
       final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
       page.init();
     }
@@ -223,10 +224,21 @@ public final class FreeSpaceMap extends StorageComponent {
     // +1 because page 0 of the FSM file is the first-level page.
     final var secondLevelPageIndex = 1 + pageIndex / FreeSpaceMapPage.CELLS_PER_PAGE;
 
-    // Ensure all required pages exist (the FSM file may need to grow).
-    final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
-    for (var i = 0; i < secondLevelPageIndex - filledUpTo + 1; i++) {
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+    // Ensure all required pages exist (the FSM file may need to grow). Each
+    // loop iteration targets a strictly-new pageIndex (i >= filledUpTo), so
+    // allocatePageForWrite's allocator-only contract is trivially satisfied --
+    // the FSM has no entry-point page tracking a logical extent separate from
+    // the physical one, so physical orphans past filledUpTo are impossible
+    // by definition (the filledUpTo read IS the physical extent). Per-component
+    // lock (held transitively via PaginatedCollectionV2's component operation)
+    // serialises concurrent growers on the same fileId. The pre-read fixes the
+    // growth-loop starting point against current physical state.
+    // The same growth-loop pattern appears in CollectionDirtyPageBitSet.ensureCapacity;
+    // keep both sites in sync.
+    final var filledUpTo =
+        physicalSize(atomicOperation, fileId, PhysicalReadIntent.GROWTH_LOOP_PRE_READ);
+    for (var i = filledUpTo; i <= secondLevelPageIndex; i++) {
+      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, i)) {
         final var page = new FreeSpaceMapPage(cacheEntry);
         page.init();
       }

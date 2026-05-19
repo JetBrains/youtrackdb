@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -127,5 +129,29 @@ public interface CellBTreeSingleValue<K> {
    */
   default void setEngineId(long engineId) {
     // no-op by default
+  }
+
+  /**
+   * Recovery-time orphan-truncation hook invoked by
+   * {@code AbstractStorage.truncateOrphansAfterRecovery()} after WAL replay has settled
+   * logical state. Reads the entry-point's logical-pages counter, computes the expected
+   * physical file size as {@code max(pageSize, (epLogicalCounter + 1) * pageSize)}, and
+   * dispatches to {@link ReadCache#shrinkFile(long, long, WriteCache)} to drop any
+   * physical pages beyond the logical horizon (the partial-flush "orphan" pages that
+   * survive a crash between an allocator-only physical extend and the corresponding
+   * logical-counter advance).
+   *
+   * <p>Default body throws {@link UnsupportedOperationException}; only the production
+   * v3 {@code BTree} overrides it. Test stubs in {@code CellBTreeSingleValueDefaultTest}
+   * inherit the default — they are exempt because the recovery pass never iterates over
+   * test stubs.
+   */
+  default void verifyAndTruncateOrphans(
+      @Nonnull AtomicOperation atomicOperation,
+      @Nonnull ReadCache readCache,
+      @Nonnull WriteCache writeCache)
+      throws IOException {
+    throw new UnsupportedOperationException(
+        "verifyAndTruncateOrphans is not implemented by " + getClass().getName());
   }
 }
