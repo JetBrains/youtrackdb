@@ -130,6 +130,8 @@ All three are ASPIRATIONAL — Track 2 implements them. Each maps to a testable 
   > **Cross-track impact for Tracks 2-5:** the §1.5 heading slug `## 1.5 Writing style for Markdown and prose artifacts`, the relative path `../output-styles/house-style.md`, and the four banned-section names (`Banned vocabulary`, `Banned sentence patterns`, `Banned analysis patterns`, `Em-dash discipline`) are durable strings every downstream pointer must cite verbatim — the §1.5 locator grep depends on those exact section names to find pointer sites at future rename time. Tracks 3-5 cross-referencing the §1.5 tier table also inherit the new non-Markdown prose-surfaces row without needing a separate amendment.
   >
   > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: PreToolUse hook + settings + tests
   > Adds `.claude/hooks/house-style-write-reminder.sh` wired into `.claude/settings.json` under a `PreToolUse` matcher `Write|Edit|mcp__.+__steroid_apply_patch` (regex on the server-name segment so the hook fires regardless of how the MCP server is keyed in `~/.claude.json`). Implements extension-based tier matching (`*.md` → Tier A, `*.java|*.kt` → Tier B, else silent), per-session per-tier rate-limit, path blacklist for rule-source self-edits, apply-patch input parsing, and jq fallback. Adds Python tests under `.claude/scripts/tests/test_house_style_hook.py` covering tier matching, rate-limit semantics, apply-patch parsing, fallback paths.
