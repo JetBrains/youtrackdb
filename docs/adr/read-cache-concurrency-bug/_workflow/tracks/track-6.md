@@ -124,6 +124,10 @@ beyond the original poison-cascade test:
   `StorageBackupTest`. The MT path through `IncrementalBackupThread`
   is unreachable in CI today because of the `@Ignore`. Resurrection
   closes the only MT-recovery gap in the cumulative diff.
+  *(See Phase A review refinement 1 below: the actual fix keeps
+  `@Ignore` in place — the test body is a 90-minute stress-soak,
+  incompatible with CI runtime budgets — and introduces a NEW
+  short-duration MT test class instead.)*
 - **I4 per-component MT pins**. Today I4 ("per-component locks
   serialise concurrent allocators that share a `fileId`") rests
   entirely on code inspection — the Phase A audit verified each
@@ -143,16 +147,342 @@ beyond the original poison-cascade test:
   inside the operation, or a repeated-rounds shape, would tighten
   the contention window).
 
-Phase A of Track 6 picks the step decomposition. Suggested ordering:
-the original poison-cascade test first, then the I4 per-component
-MT pin step (the most load-bearing pre-merge gate), then CS1,
-StorageBackupMTStateTest, HLL-spill recovery as separate steps.
+## Phase C deferrals absorbed (from Track 7 review fan-out)
+
+Track 7's Phase C review surfaced three IT-coverage gaps that fold
+naturally into this track's existing CS1 and `StorageBackupMTStateTest`
+scopes. Plan-file commit `a6d3fe770c` records the absorption; this
+section mirrors it into the step file.
+
+- **`ChecksumMode` coverage matrix on CS1**. Track 7's
+  `TruncateOrphansAfterRecoveryIT` runs only under `ChecksumMode.Off`.
+  CS1's partial-flush-orphan scenarios should exercise both
+  `ChecksumMode.Off` and `ChecksumMode.StoreAndThrow` so the
+  "recovery pass never reads orphan bodies" claim is pinned under the
+  production CI default. The `WITHOUT_CHECKSUM` magic stamp is
+  accepted under StoreAndThrow without CRC verification
+  (`WOWCache.verifyMagicChecksumAndDecryptPage` at `:3577-3614`), so
+  the existing fabrication helper transfers unchanged — the value of
+  the matrix is to fail loud if a future change introduces an eager
+  orphan-page read pre-shrink.
+- **Multi-value engine `.nbt` null-tree orphan IT**. Track 7's unit
+  tests pin the `BTreeMultiValueIndexEngine` wrapper's svTree +
+  nullTree dispatch via mocks, but no IT exercises a real `.nbt` file
+  with an orphan tail (NOTUNIQUE index accumulating null-keyed
+  entries that grow the null-bucket past one page). Add an IT
+  scenario alongside the CS1 expansion.
+- **Executable `postProcessIncrementalRestore` wiring test**. Track 7
+  ships a source-text wiring sentinel
+  (`DiskStorageRestoreOrchestratorWiringTest`) pinning the
+  `executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)`
+  call shape after `flushAllData()`. Track 6's short-duration
+  incremental-backup IT (see Phase A refinement below) is the natural
+  home for an executable IR test that drives an orphan-bearing source
+  through `DiskStorage.incrementalRestore` and asserts
+  `physical == logical` on the destination — retiring the source-text
+  sentinel once executable coverage lands.
+
+## Phase A review refinements (iteration 1 consensus)
+
+Three Phase A reviews (technical, risk, adversarial) at iteration 1
+produced 1 blocker + 14 should-fix findings with substantial overlap
+across reviewers. The findings inform the step decomposition below and
+refine the deferral framings above. Consensus refinements:
+
+1. **`StorageBackupMTStateTest` is not "resurrected"** (blocker A4,
+   should-fix T4 + R2). The `@Ignore` was added in 2016 during the
+   OrientDB JUnit-4 migration; the test body sleeps **90 minutes** in
+   30-second increments (`StorageBackupMTStateTest.java:128-134`).
+   Removing `@Ignore` as-is would break CI runtime budgets. Reframe:
+   keep the original `@Ignore` in place (it's a stress-soak test, not
+   a unit/IT test); add a NEW short-duration MT incremental-backup
+   IT (≤ 120 s wall, deterministic orchestration) that drives the
+   collapsed `restoreFromIncrementalBackup` loop and the executable
+   IR-wiring assertion.
+2. **CS1 is not "drive on all four components"** (should-fix T1 + R5 +
+   A2). `TruncateOrphansAfterRecoveryIT` already covers `.pcl`, `.cpm`,
+   `.cbt` under `ChecksumMode.Off` with deterministic fabrication via
+   `RandomAccessFile` + `MAGIC_NUMBER_WITHOUT_CHECKSUM`. The actual
+   gaps are (a) `ChecksumMode.StoreAndThrow` parameterization across
+   existing scenarios; (b) `.nbt` (MV-engine null-tree) new file
+   shape; (c) `.bbt` (SLBB) new file shape; (d) zero-byte orphan
+   helper (extends file length without writing magic bytes) for the
+   production-equivalent shape of "crash between
+   `AsyncFile.allocateSpace` and `EnsurePageIsValidInFileTask`". The
+   step decomposition reflects extension+parameterization, not four
+   parallel re-implementations.
+3. **I4 MT test shape is split** (should-fix T3 + R3 + A3). The
+   production-shape allocator races (CPMV2.allocate, PCV2.allocateNewPage,
+   IHM `flushSnapshotToPage` vs `writeSnapshotToPage`) ARE reachable
+   from concurrent session-level TXes — these get a repeated-rounds
+   MT step. `BTree.create` runs once per index lifecycle and is not
+   reachable from concurrent TXes through normal session code; drop
+   it. `SLBB.splitRootBucket` is structurally similar — the two-page
+   recipe runs inside `executeInsideComponentOperation`, so a
+   same-instance two-TX test would either see thread B's
+   `sameKnownIndex` go stale (clean IllegalStateException) or fail
+   ambiguously without the lock. Encode I4 for `BTree` and `SLBB` as
+   Javadoc `@apiNote` contract on `WriteCache.loadOrAdd` /
+   `AtomicOperation.allocatePageForWrite` plus an audit reference,
+   not as an MT test.
+4. **Original poison-cascade adds a deterministic white-box
+   reproducer** (should-fix R1 + A1). The high-level
+   concurrent-insert workload reproduces the bug at a low rate
+   (microseconds-wide race window between `AsyncFile.allocateSpace`
+   and the in-memory `putIfAbsent`); keep it as a smoke test. Pair it
+   with a deterministic white-box reproducer that races two threads
+   against `WOWCache.loadOrAdd` under a `CyclicBarrier` synchronizing
+   them at the `allocateSpace` / `putIfAbsent` boundary. Add a
+   positive-evidence assertion (e.g., a debug counter on the
+   `WriteCache` shows `> N` allocator calls actually occurred) so the
+   test fails loud if a future change weakens it.
+5. **Verification protocol uses cherry-pick + capped threads** (T2 +
+   R4 + A7). Verify "fail on develop" by cherry-picking the new test
+   commit(s) onto `origin/develop` (commit SHA recorded), running ≥
+   10 consecutive times, requiring ≥ 90% reproduction rate. Cap the
+   thread count via `Math.min(availableProcessors() * 2, 16)` so dev
+   workstations and CI runners produce comparable timing profiles.
+   Calibration evidence (numbers from the actual reverted-baseline
+   run) goes verbatim into the step's commit message. Steps run in
+   isolation via `-Dtest=…` to avoid coupling with the pre-existing
+   `LocalPaginatedCollectionV2TestIT.testAddManyRecords` flake
+   recorded in Track 5's retrospective.
+6. **HLL-spill is split** (should-fix A5). Crash-then-second-spill
+   end-to-end is a multi-step orchestration (HLL threshold control,
+   WAL flush coordination, crash simulation, reopen, second-spill
+   drive). Split into (a) a unit-level discriminator test that mocks
+   `op.filledUpTo()` and pins the `> 1 ? load : allocate` branch
+   logic; (b) a fabrication-style IT mirroring
+   `TruncateOrphansAfterRecoveryIT`'s pattern that pre-fabricates the
+   page-1 state on `.ihm`, reopens, drives the second spill, and
+   asserts no `IllegalStateException`.
+7. **`inMemoryEagerInstallToleratesConcurrentOrphanReuse`
+   strengthening uses repeated-rounds, not in-production
+   `CyclicBarrier`** (suggestion T5 + R6). A `CyclicBarrier` inside
+   the production allocator path is not feasible without test-only
+   hooks; a repeated-rounds shape (run the contention ~100-1000
+   times in a loop, fresh `fileId` per round, fail on first round
+   that produces `IllegalStateException`) is the canonical fix.
+   Combined with the I4 production hot-path MT step.
+
+The remaining suggestion-class findings (T6 on `ConcurrentTestHelper`
+wording, T7 on `.nbt` NOTUNIQUE recipe, T8 on extracting a per-mode
+helper rather than `@Parameterized`, T9 on verifying backup-carries-
+orphans, R7 on optional LinkBag-driven sibling, R8 on
+fast-feedback test profile placement, R9 on per-component
+decomposition) are folded into the individual step descriptions
+below without standalone refinement notes.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 
 ## Reviews completed
+- [x] Technical: PASS at iteration 1 (10 findings: 4 should-fix accepted + 6 suggestions folded into step descriptions)
+- [x] Risk: PASS at iteration 1 (9 findings: 5 should-fix accepted + 3 suggestions accepted + 1 suggestion deferred with downstream check)
+- [x] Adversarial: PASS at iteration 2 (iter-1 7 findings: 1 blocker + 5 should-fix accepted + 1 suggestion deferred; iter-2 gate verification surfaced A8 should-fix and A9 suggestion — both applied to Step 1 and the historical deferrals section respectively, see commit context for details)
 
 ## Steps
+
+- [ ] Step: Original poison-cascade smoke test scaffolding plus deterministic white-box reproducer
+  > **Risk:** high — concurrency (introduces two MT test patterns: high-level concurrent-insert workload and synchronized two-thread `WOWCache.loadOrAdd` race)
+  >
+  > **What:** New JUnit 4 test class under `core/src/test/.../storage/impl/local/`
+  > containing (a) a high-level concurrent-insert smoke test (≥ 16 TXs
+  > inserting into an indexed class on a `CollectionPositionMapV2`-backed
+  > cluster under `checksumMode=StoreAndThrow`, capped to `Math.min(
+  > availableProcessors() * 2, 16)` threads, ≥ 100 iterations per thread,
+  > asserts no `IllegalStateException("Page X:Y was allocated in other
+  > thread")` / `StorageException("Page Y is broken")` / "Internal error
+  > happened in storage"; reopens storage and verifies all committed
+  > records readable); (b) a deterministic white-box MT test racing two
+  > threads against `WOWCache.loadOrAdd(fileId, pageIndex,
+  > verifyChecksums=true)` under a `CyclicBarrier(2)` synchronizing them
+  > at the `AsyncFile.allocateSpace` / `putIfAbsent` boundary, ≥ 100
+  > rounds, fresh fileId per round to avoid carry-over; asserts both
+  > threads observe the same `CachePointer`, `referrersCount` increments
+  > correctly, and the second caller does not see a partially-stamped
+  > page.
+  >
+  > **Positive-evidence assertion:** instrument debug counters on
+  > `WOWCache.loadOrAddExtendBranch` and `WOWCache.loadOrAddGapFillBranch`
+  > (the actual file-extending branches that the deterministic reproducer's
+  > `CyclicBarrier(2)` synchronizes against) that the smoke test reads
+  > post-completion; assert the combined count is `>= insertCount` to
+  > prove the allocator path was actually exercised. Without this, a
+  > future regression that makes inserts hit a different path would
+  > silently "pass" the absence-of-symptom smoke test. PSI-verified at
+  > Phase A iteration 2: `WOWCache.allocateNewPage` does NOT exist —
+  > the original Phase A draft cited it speculatively.
+  >
+  > **Verification protocol:** cherry-pick the test commit onto
+  > `origin/develop` (commit SHA captured in the step's commit message);
+  > run ≥ 10 consecutive times under
+  > `./mvnw -pl core clean test -Dtest=<NewClass>`; require ≥ 90%
+  > reproduction (per-test failure rate). Numbers go verbatim into the
+  > commit message. Then verify pass on this branch with the same
+  > command.
+  >
+  > **Key files:** new test class in `core/src/test/.../storage/impl/local/`
+  > (final path picked during implementation); uses pattern from
+  > `FreezeAndDBRecordInsertAtomicityTest` (canonical
+  > `Executors.newFixedThreadPool` + `CountDownLatch` shape); references
+  > `AllocatePageForWriteTest` for the two-thread race pattern;
+  > `WOWCache.loadOrAdd` (already public method) for the white-box probe.
+
+- [ ] Step: `ChecksumMode.StoreAndThrow` matrix on existing CS1 scenarios plus zero-byte orphan helper
+  > **Risk:** medium — test infrastructure (extends an existing IT with a new mode axis and a new fabrication shape)
+  >
+  > **What:** Extend `TruncateOrphansAfterRecoveryIT` with a per-method
+  > helper `runScenario(ChecksumMode mode, ...)` and add a sibling
+  > `@Test public void …UnderStoreAndThrow()` alongside each existing
+  > `…UnderChecksumOff()` method (no `@RunWith(Parameterized.class)` —
+  > would clash with `@Category(SequentialTest.class)`). Add a second
+  > fabrication helper `fabricateZeroByteOrphanPages(file, count)`
+  > that extends the file via `RandomAccessFile.setLength(size + count *
+  > pageSize)` without writing magic bytes — the production-equivalent
+  > shape for "JVM crash after `AsyncFile.allocateSpace` but before
+  > `EnsurePageIsValidInFileTask` ran". Run each existing CS1 scenario
+  > (`.pcl`, `.cpm`, `.cbt`, clean-shutdown no-op) under both
+  > ChecksumMode values and both fabrication shapes.
+  >
+  > **Key files:** `core/src/test/.../impl/local/TruncateOrphansAfterRecoveryIT.java`
+  > (extend); no production-code changes.
+
+- [ ] Step: SLBB `.bbt` and multi-value engine `.nbt` orphan-truncation IT scenarios
+  > **Risk:** medium — test infrastructure (adds two new file shapes to the existing IT pattern)
+  >
+  > **What:** Extend `TruncateOrphansAfterRecoveryIT` with two new
+  > scenario groups. **SLBB `.bbt`:** create a class with a LinkBag
+  > property; insert enough RIDs to grow the SLBB past one bucket
+  > page; close cleanly; fabricate orphan pages on the `.bbt` file;
+  > reopen; assert truncate and that the next LinkBag insertion
+  > completes without `IllegalStateException`. Run under both
+  > `ChecksumMode.Off` and `StoreAndThrow`. **MV-engine `.nbt`:**
+  > create a NOTUNIQUE index on a String property; insert ~500-1000
+  > entities with `null` for that property (calibrate during
+  > implementation to force `.nbt` past one bucket page); close;
+  > fabricate orphan pages on the `.nbt` file via the magic-stamped
+  > helper; reopen; assert truncate.
+  >
+  > **Key files:** `core/src/test/.../impl/local/TruncateOrphansAfterRecoveryIT.java`
+  > (extend); reference `BTreeMultiValueIndexEngine` for the wrapper's
+  > svTree + nullTree dispatch and the null-bucket file extension.
+
+- [ ] Step: IHM HLL-spill discriminator unit test plus fabrication-style recovery IT
+  > **Risk:** medium — test infrastructure plus crash-recovery semantics (no live concurrency; static orphan setup)
+  >
+  > **What:** Two test classes. **Unit:**
+  > `IndexHistogramManagerSpillDiscriminatorTest` mocks
+  > `AtomicOperation.filledUpTo(fileId)` and drives both
+  > `flushSnapshotToPage` and `writeSnapshotToPage` along the
+  > `op.filledUpTo > 1 ? loadPageForWrite : allocatePageForWrite`
+  > branch; pins the discriminator logic without crash simulation.
+  > **IT:** `IndexHistogramSpillRecoveryIT` builds an IHM with HLL
+  > state on page 0, drives the first spill to page 1 via real
+  > production calls, closes cleanly, then fabricates the recorded
+  > state by extending the `.ihm` file (or whatever extension IHM
+  > uses; confirm in implementation) so the post-replay path will
+  > observe `op.filledUpTo > 1`; reopens; drives a follow-up spill;
+  > asserts the existing-page branch fires without
+  > `IllegalStateException`.
+  >
+  > **Key files:** new test classes in
+  > `core/src/test/.../core/index/engine/`; references
+  > `IndexHistogramManager.java:1928` (write-path discriminator) and
+  > `:1997` (flush-path discriminator).
+
+- [ ] Step: I4 production hot-path MT pins plus `inMemoryEagerInstallToleratesConcurrentOrphanReuse` repeated-rounds strengthening
+  > **Risk:** high — concurrency (MT pins on three production hot paths plus repeated-rounds strengthening of an existing MT test)
+  >
+  > **What:** New test class `I4ProductionHotPathMTTest` with three
+  > MT pins, each using a repeated-rounds shape (≥ 100 rounds, fresh
+  > component instance per round, `CyclicBarrier(2)` for start
+  > synchronization, fail on first round that produces
+  > `IllegalStateException` in either thread): (a) `CollectionPositionMapV2.allocate`
+  > — two TXes from one session pool inserting into the same cluster
+  > drive the entry-point page write lock; (b)
+  > `PaginatedCollectionV2.allocateNewPage` — two TXes appending to
+  > the same paginated collection via the state-page write lock; (c)
+  > `IndexHistogramManager` `flushSnapshotToPage` vs
+  > `writeSnapshotToPage` on a shared IHM instance under
+  > `AtomicOperationsManager.acquireExclusiveLockTillOperationComplete`.
+  > Plus: modify `AllocatePageForWriteTest.inMemoryEagerInstallToleratesConcurrentOrphanReuse`
+  > to use the same repeated-rounds shape (≥ 100 rounds with a fresh
+  > `realCache` fileId per round under a `CyclicBarrier(2)`),
+  > replacing the existing single-release `CountDownLatch(1)` start
+  > gate.
+  >
+  > **Key files:** new MT test class in
+  > `core/src/test/.../core/storage/impl/local/paginated/atomicoperations/`;
+  > modify
+  > `AllocatePageForWriteTest.java:788` (existing test); references
+  > `CollectionPositionMapV2.java:225-287`,
+  > `PaginatedCollectionV2.java:2288-2304`,
+  > `IndexHistogramManager.java:1879-1932`.
+
+- [ ] Step: I4 lock-contract documentation via Javadoc `@apiNote`
+  > **Risk:** low — docs only (no code or test logic; no executable behavior change)
+  >
+  > **What:** Add `@apiNote` Javadoc blocks documenting the
+  > per-component-lock invariant on (a)
+  > `WriteCache.loadOrAdd(fileId, pageIndex, verifyChecksums)` —
+  > "Callers MUST hold the per-component exclusive lock (via
+  > `AtomicOperationsManager.executeInsideComponentOperation` or
+  > `acquireExclusiveLockTillOperationComplete`) for any `(fileId,
+  > pageIndex)` they intend to allocate-or-reuse; concurrent callers
+  > without the lock may race the allocator path and trip
+  > `IllegalStateException`."; (b)
+  > `AtomicOperation.allocatePageForWrite(fileId, knownIndex)` —
+  > mirror the same invariant. Reference the Phase A audit conclusion
+  > and the three production hot-path MT pins from the prior step as
+  > the load-bearing regression gates for callers that fall under the
+  > "production reachable from concurrent TXes" subset; document
+  > `BTree.create` and `SLBB.splitRootBucket` as covered by the
+  > Phase A audit alone (callers run once per component lifecycle and
+  > are not reachable from concurrent TXes through normal session
+  > code).
+  >
+  > **Key files:**
+  > `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/WriteCache.java`
+  > (interface),
+  > `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java`
+  > (interface).
+
+- [ ] Step: Short-duration MT incremental-backup IT plus executable IR-wiring test
+  > **Risk:** high — concurrency (new short-duration MT incremental-backup orchestration) plus crash-recovery semantics (orphan-bearing backup→restore round-trip)
+  >
+  > **What:** Keep `StorageBackupMTStateTest`'s `@Ignore` in place
+  > (90-minute stress-soak test, not a CI test). Add a NEW test class
+  > `StorageBackupMTRestoreIT` (or similar — final name picked in
+  > implementation) covering two concerns. **(1) Short-duration MT
+  > incremental-backup recovery:** drive concurrent inserts on a
+  > source storage during an active incremental-backup-then-restore
+  > cycle (≤ 120 s wall under `@Category(SequentialTest.class)`);
+  > assert no allocator exception on the source during inserts;
+  > assert `DatabaseCompare` between source and restored target after
+  > the cycle. Exercises the collapsed `DiskStorage.restoreFromIncrementalBackup`
+  > loop's MT path. **(2) Executable IR-wiring (replaces
+  > source-text sentinel `DiskStorageRestoreOrchestratorWiringTest`):**
+  > populate a source storage; fabricate orphan pages on a `.pcl`
+  > file using the IT helper from the second step above; take an
+  > incremental backup; restore into a fresh target; assert the
+  > target's `.pcl` file size equals the logical horizon (orphans
+  > truncated by `postProcessIncrementalRestore` → `truncateOrphansAfterRecovery`);
+  > assert next TX on target completes without `IllegalStateException`.
+  > Pre-flight: verify that `backup()` carries orphan pages forward
+  > by reading the backup contents — if `backup()` filters by
+  > logical pageSize, the IT becomes vacuous and the recipe needs to
+  > fabricate orphans on the source AFTER the backup is taken but
+  > BEFORE the restore runs (i.e., on the restore-target file's
+  > pre-allocated extent rather than the backup payload). Once
+  > executable coverage is in place, delete
+  > `DiskStorageRestoreOrchestratorWiringTest`.
+  >
+  > **Key files:** new test class in
+  > `core/src/test/.../core/storage/impl/local/paginated/`; references
+  > `DiskStorage.postProcessIncrementalRestore` at the
+  > `flushAllData()` + `truncateOrphansAfterRecovery` wiring;
+  > delete-on-success
+  > `core/src/test/.../core/storage/disk/DiskStorageRestoreOrchestratorWiringTest.java`.
