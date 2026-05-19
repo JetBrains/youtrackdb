@@ -76,7 +76,7 @@ Invariants to preserve: every file's existing frontmatter (`---` block) stays in
 
 ## Validation and Acceptance
 
-- Every prompt in scope and every review agent in scope contains the canonical house-style pointer (verified by `grep -L 'house-style' <files>` returning empty across the in-scope file set, per YTDB-837 acceptance bullet 3).
+- Every prompt in scope and every review agent in scope contains the canonical house-style pointer, verified by searching for a stable pointer-specific substring (e.g., `conventions.md § Writing style for Markdown and prose artifacts` — Phase A settles the exact substring) rather than the bare path `house-style` (which already appears incidentally in some in-scope files such as `agents/review-workflow-consistency.md:72`, and would false-positive the audit). The grep returns empty across the in-scope file set, per YTDB-837 acceptance bullet 3.
 - The pointer wording is identical across files (modulo agent / prompt naming) so a future audit can use a stable substring search.
 - The skipped files (`design-review.md`, `review-workflow-writing-style.md`) already contain a house-style reference, verified by `grep -l 'house-style' <those-files>` returning both paths.
 

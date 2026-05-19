@@ -48,9 +48,9 @@ Files in scope:
 
 The Tier-B-subset reference (per D3) names the four source sections explicitly:
 
-> Banned vocabulary (`.claude/output-styles/house-style.md § Banned vocabulary`); Banned sentence patterns (`§ Banned sentence patterns`); Banned analysis patterns (`§ Banned analysis patterns`); Em-dash discipline (`§ Em-dash discipline`).
+> Banned vocabulary (`.claude/output-styles/house-style.md § Banned vocabulary`, H2 at line 54); Banned sentence patterns (`§ Banned sentence patterns`, H2 at line 92); Banned analysis patterns (`§ Banned analysis patterns`, H2 at line 104); Em-dash discipline (`§ Em-dash discipline`, H3 at line 231, nested inside `## Punctuation and typography`).
 
-The pointer explicitly exempts structural rules (BLUF lead at `§ BLUF lead`, ≤200-word section cap at `§ Structural rules`, document-shape rules at `§ Document-shape rules`).
+The pointer explicitly exempts structural rules (BLUF lead at `§ BLUF lead`, ≤200-word section cap at `§ Structural rules`, document-shape rules at `§ Document-shape rules (design / ADR-specific)`). The bare-`grep` audit anchors on the stable substring of each heading (`Em-dash discipline`, `Document-shape rules`); a future heading rename would still surface via the substring search even though the H2/H3 depth varies.
 
 ## Plan of Work
 

@@ -47,7 +47,7 @@ flowchart TD
   STATE --> EMIT
 ```
 
-The hook reads the tool input from stdin as JSON, extracts every target path (`tool_input.file_path` for Write or Edit; `+++ b/<path>` lines from the patch text for `steroid_apply_patch`), and runs the decision pipeline above. Both tiers can fire from a single invocation when an apply-patch input mixes Markdown and source files. Both reminders concatenate into one `additionalContext` string because Claude Code accepts one hook output per call.
+The hook reads the tool input from stdin as JSON, extracts every target path (`tool_input.file_path` for Write or Edit; per-hunk `file_path` entries from the `tool_input.hunks` array for `steroid_apply_patch`), and runs the decision pipeline above. Both tiers can fire from a single invocation when an apply-patch input mixes Markdown and source files. Both reminders concatenate into one `additionalContext` string because Claude Code accepts one hook output per call.
 
 The hook never blocks the underlying tool invocation. Exit code is always 0, no `deny` decision, no stderr noise. Hook latency stays under the 5-second timeout configured in `.claude/settings.json` because every operation is local filesystem or in-process text parsing.
 
@@ -59,11 +59,11 @@ The full mapping:
 
 | Tier | Triggered by | Surfaces | Sections cited |
 |---|---|---|---|
-| A | `*.md` paths | Full house-style: BLUF lead, banned vocabulary, em-dash discipline, structural rules, document-shape rules | `house-style.md § BLUF lead`, `§ Voice and tone`, `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Punctuation and typography`, `§ Structural rules`, `§ Document-shape rules` |
-| B | `*.java`, `*.kt` paths | AI-tell subset: vocabulary, sentence patterns, analysis patterns, em-dash discipline (no structural rules; no document-shape rules) | `house-style.md § Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` |
+| A | `*.md` paths | Full house-style: BLUF lead, banned vocabulary, em-dash discipline, structural rules, document-shape rules | `house-style.md § BLUF lead`, `§ Voice and tone`, `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Punctuation and typography`, `§ Structural rules`, `§ Document-shape rules (design / ADR-specific)` |
+| B | `*.java`, `*.kt` paths | AI-tell subset: vocabulary, sentence patterns, analysis patterns, em-dash discipline (no structural rules; no document-shape rules) | `house-style.md § Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline (H3 nested in § Punctuation and typography)` |
 | Silent | every other extension | nothing | n/a |
 
-The four Tier-B sections are the rule fragments that apply equally at code-comment scale. Document-shape rules (Overview concept-first, Core Concepts, Edge-cases sub-sections, References footers) apply only to whole documents. Structural rules (BLUF, ≤200-word section cap) are document-scoped. Title-case heading checks fire on H2+ inside documents, not on prose lines inside a Java file.
+The four Tier-B sections are the rule fragments that apply equally at code-comment scale. Document-shape rules (Overview concept-first, Core Concepts, Edge-cases sub-sections, References footers) apply only to whole documents. Structural rules (BLUF, ≤200-word section cap) are document-scoped. Title-case heading checks fire on H2+ inside documents, not on prose lines inside a Java file. The four cited Tier-B headings live at different depths in `house-style.md` (three H2s plus one H3 under Punctuation and typography); pointers anchor on the stable heading-text substring so the H2/H3 mix does not break grep-based audits.
 
 D3 commits the pointers in Tracks 3-5 to citing these section names directly rather than via a synthetic anchor in `house-style.md`. The trade-off: if `house-style.md` is restructured and a section is renamed or merged, every Tier-B pointer plus the hook's stored strings must be updated in one commit. The mitigation is that the four section names are stable headings after YTDB-836, and a future rename can be detected mechanically through `grep` for the citation strings.
 
@@ -81,7 +81,7 @@ D3 commits the pointers in Tracks 3-5 to citing these section names directly rat
 
 ## Hook input parsing across three tool shapes
 
-**TL;DR.** `Write` and `Edit` pass the target path directly. The MCP Steroid apply-patch variant (matched at the dispatch site by the regex `mcp__.+__steroid_apply_patch` since the `<server>` segment depends on how the MCP server is keyed in `~/.claude.json`) passes a patch string that may name multiple files via `+++ b/<path>` lines. A single jq pipeline normalizes both invocation styles into a JSON array of paths.
+**TL;DR.** `Write` and `Edit` pass the target path directly. The MCP Steroid apply-patch variant (matched at the dispatch site by the regex `mcp__.+__steroid_apply_patch` since the `<server>` segment depends on how the MCP server is keyed in `~/.claude.json`) passes a `hunks` array where each element is a `{file_path, old_string, new_string}` object. A single jq pipeline normalizes both invocation styles into a JSON array of paths.
 
 The jq pipeline:
 
@@ -89,19 +89,19 @@ The jq pipeline:
 .tool_name as $t
 | if $t == "Write" or $t == "Edit" then [.tool_input.file_path]
   elif ($t | test("^mcp__.+__steroid_apply_patch$")) then
-    [.tool_input.patch | scan("(?m)^\\+\\+\\+ b/(.+)$") | .[0]]
+    [.tool_input.hunks[].file_path] | unique
   else [] end
 ```
 
 The settings.json matcher mirrors the regex shape (`"matcher": "Write|Edit|mcp__.+__steroid_apply_patch"`), so the dispatch-site regex and the hook-internal regex agree. The greedy `.+` covers server-name segments that contain double-underscores; `[^_]+` would be tighter but assumes server names never embed underscores.
 
-Output is a JSON array of target paths the hook iterates over. When jq is unavailable, the script falls back to a Python one-liner that reads stdin, parses JSON via the standard library, and emits the same array shape. The fallback never escalates to a non-zero exit code.
+Output is a JSON array of target paths the hook iterates over. When jq is unavailable, the script falls back to a Python one-liner that reads stdin, parses JSON via the standard library, walks `tool_input["hunks"]` (or returns `[tool_input["file_path"]]` for Write/Edit), and emits the same array shape. The fallback never escalates to a non-zero exit code.
 
-The apply-patch input field name (`tool_input.patch` versus another field such as `tool_input.input` or `tool_input.patchText`) is confirmed during Phase A by reading `mcp-steroid://skill/apply-patch-tool-description` via `steroid_fetch_resource`. The pipeline above uses `tool_input.patch` as the working assumption; the actual field name will be fixed before the hook ships.
+The apply-patch input shape (`tool_input.hunks` carrying an array of hunk objects with `file_path` per element) was confirmed during plan review by reading `mcp-steroid://skill/apply-patch-tool-description` via `steroid_fetch_resource`. An earlier working assumption of `tool_input.patch` with embedded `+++ b/<path>` lines turned out wrong; the tool uses a structured array, not unified-diff text.
 
 ### Edge cases / Gotchas
 
-- An apply-patch input that produces zero `+++` lines (malformed patch, stat-only patch) yields an empty array. The hook stays silent rather than emitting a fabricated reminder.
+- An apply-patch input with an empty `hunks` array (no-op patch, or input rejected upstream before the hook sees it) yields an empty path list. The hook stays silent rather than emitting a fabricated reminder.
 - An apply-patch input with mixed Tier-A and Tier-B target paths fires both reminders in one invocation. The decision flow handles this by emitting one JSON output whose `additionalContext` string concatenates both reminder bodies separated by a blank line.
 - A relative `tool_input.file_path` is normalized via `realpath -m` (GNU coreutils) or `python3 -c 'import os; print(os.path.realpath(p))'` as portable fallback. Extension matching applies to the basename after normalization.
 

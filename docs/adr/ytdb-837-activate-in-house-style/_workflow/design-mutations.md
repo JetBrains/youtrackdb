@@ -53,3 +53,19 @@ Touched: TL;DR (new wording around `session_id`), the 6-step state-file lifecycl
 **Findings (iteration 2)**: none — all issues resolved.
 
 **Iterations**: 2 of 3 (PASS)
+
+## Mutation 4 — 2026-05-19 — content-edit (design.md)
+
+**Diff summary**: Applied two mechanical fixes from the autonomous Phase 2 consistency review (findings CR1 blocker and CR4 should-fix). CR1: rewrote § "Hook input parsing across three tool shapes" so it describes the real `steroid_apply_patch` tool surface — `tool_input.hunks` array of `{file_path, old_string, new_string}` objects — instead of the earlier wrong working assumption of a `tool_input.patch` unified-diff string with `+++ b/<path>` lines. Touched five places in that section (TL;DR, jq pipeline `elif` body, Python-fallback paragraph, summary paragraph, Edge-cases first bullet) and one mirror reference in the prose paragraph following the Workflow mermaid diagram at line 50 (caught by the iteration-1 cold-read). The only remaining `tool_input.patch` / `+++` reference is the deliberate explanatory negation at line 100 framing why the assumption was wrong. CR4: updated the tier-mapping table to spell out the actual house-style.md heading text — Tier-A row ends with `§ Document-shape rules (design / ADR-specific)`, Tier-B row ends with `§ Em-dash discipline (H3 nested in § Punctuation and typography)` — and appended one clarifying sentence to the paragraph after the table noting that the four Tier-B headings live at different depths and pointers anchor on the stable substring.
+
+**Mechanical checks** (target=design): PASS — 0 findings on iteration 1 and iteration 2 (no mechanical regressions either iteration).
+
+**Cold-read** (scope: whole-doc): PASS on iteration 2 (1 blocker + 1 suggestion on iteration 1; blocker fixed, suggestion judged non-blocking).
+
+**Findings (iteration 1)**:
+- blocker (cold-read): Residual unified-diff contradiction at line 50 in `## Workflow` — the prose paragraph still read "`+++ b/<path>` lines from the patch text for `steroid_apply_patch`", contradicting the rewritten Hook-input-parsing section's `hunks` array. Resolved by rewriting the parenthetical to "per-hunk `file_path` entries from the `tool_input.hunks` array for `steroid_apply_patch`".
+- suggestion (cold-read): Trailing sentence in the paragraph at line 66 (heading-depth note) could be its own paragraph for navigability. Kept as a trailing sentence on the iteration-2 re-review; placement keeps the explanation adjacent to its motivating table row at line 63.
+
+**Findings (iteration 2)**: 1 suggestion (the line-66 paragraph split, non-blocking; prior judgment confirmed).
+
+**Iterations**: 2 of 3 (PASS)

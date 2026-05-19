@@ -12,7 +12,7 @@ Activate `.claude/output-styles/house-style.md` across the workflow surface afte
 Two complementary mechanisms close the gap:
 
 1. **PreToolUse hook** fires on `Write`, `Edit`, and any `mcp__<server>__steroid_apply_patch` invocation (server-name segment matched by regex, since the `~/.claude.json` registry key varies across installs) for tool inputs that target Markdown or Java/Kotlin source. Surfaces full house-style on Markdown (Tier A) and the AI-tell subset on Java/Kotlin (Tier B). Rate-limited per session per tier so the reminder lands once early in a writing burst, then stays silent.
-2. **In-prompt pointers** in `conventions.md`, the 11 workflow prompts, 16 prose-producing review agents, four implementer files, and nine orchestrator files. One-line cross-references by name; no rule restatement.
+2. **In-prompt pointers** in `conventions.md`, 10 of 11 workflow prompts, 18 of 19 prose-producing review agents, four implementer files, and nine orchestrator files. One-line cross-references by name; no rule restatement. (The two skipped files — `prompts/design-review.md` and `agents/review-workflow-writing-style.md` — already name house-style directly per YTDB-836.)
 
 ### Constraints
 
@@ -53,13 +53,21 @@ flowchart LR
 - **`.claude/output-styles/house-style.md`** — Existing file from YTDB-836. Unchanged by this plan. Section names (`Banned vocabulary`, `Banned sentence patterns`, `Banned analysis patterns`, `Em-dash discipline`, `Structural rules`, `Document-shape rules`) are stable headings every pointer references by name.
 - **`.claude/workflow/conventions.md`** — New § "Writing style for Markdown and prose artifacts" added by Track 1. Lists the tier mapping, names house-style.md as the rule source, and gives the citation every other pointer cross-refs. Loaded at every `/execute-tracks` startup.
 - **`.claude/hooks/house-style-write-reminder.sh`** — New PreToolUse hook added by Track 2. Bash script following the pattern of `mcp-steroid-grep-reminder.sh`: walks the process tree for the Claude pid, keeps per-session per-tier state, emits `hookSpecificOutput.additionalContext`.
-- **`.claude/settings.json`** — Modified by Track 2 to add a `PreToolUse` matcher entry for `Write|Edit|mcp__localhost-6315__steroid_apply_patch` wired to the new hook.
-- **`.claude/scripts/tests/test_house_style_hook.py`** — New pytest file added by Track 2. Fixture-driven coverage of tier matching, rate-limit, apply-patch input parsing, jq-fallback, path blacklist.
+- **`.claude/settings.json`** — Modified by Track 2 to add a `PreToolUse` matcher entry for `Write|Edit|mcp__.+__steroid_apply_patch` (regex on the server-name segment per D4) wired to the new hook.
+- **`.claude/scripts/tests/test_house_style_hook.py`** — New stand-alone Python test runner added by Track 2 (invoked as `python3 .claude/scripts/tests/test_house_style_hook.py`, matching the existing `test_dsc_ai_tell.py` pattern). Fixture-driven coverage of tier matching, rate-limit, apply-patch input parsing, jq-fallback, path blacklist.
 - **Workflow prompts** — `adversarial-review.md`, `consistency-gate-verification.md`, `consistency-review.md`, `create-final-design.md`, `dimensional-review-gate-check.md`, `review-gate-verification.md`, `risk-review.md`, `structural-gate-verification.md`, `structural-review.md`, `technical-review.md`. Track 3 adds one-line pointers. `design-review.md` already references house-style by name; skip.
 - **Review agents** — All 19 except `review-workflow-writing-style.md` (already names house-style). Track 3 adds one-line pointers.
 - **Implementer files** — Track 4 adds Tier-A pointer (log/commit/PR prose) and Tier-B pointer (code-comment prose) to the four named files.
 - **Orchestrator files** — Track 5 adds Tier-B subset pointers to `workflow.md`, the three top-level `SKILL.md` files, and the five mid-loop protocols.
 - **`CLAUDE.md § Writing Style`** — Track 1 broadens the scope from "ADR / design / issue / PR / YouTrack bodies" to "all Markdown files" so the project-level guidance mirrors the hook's broader Tier-A glob.
+
+#### Invariants
+
+All three are ASPIRATIONAL — Track 2 implements them. Each maps to a testable assertion in `.claude/scripts/tests/test_house_style_hook.py`.
+
+- **Invariant 1: hook latency under 5 seconds.** The PreToolUse hook completes within the 5-second timeout configured in `.claude/settings.json`, matching the existing `mcp-steroid-grep-reminder.sh` hook's runtime envelope. *Assertion*: each Track 2 test case measures end-to-end subprocess duration and fails if any single invocation exceeds 5 s.
+- **Invariant 2: each tier reminder fires at most once per Claude session.** Under one `session_id`, Tier A fires at most once and Tier B fires at most once regardless of how many tool invocations match. `/clear` or a fresh conversation issues a new `session_id` and the throttle resets. *Assertion*: Track 2 rate-limit test cases (a) confirm second-invocation-same-tier-same-session is silent; (b) confirm same-path-fresh-session re-fires the reminder.
+- **Invariant 3: rule-source files never trigger their own reminder.** The four blacklisted paths (`.claude/output-styles/house-style.md`, `.claude/skills/ai-tells/SKILL.md`, `.claude/scripts/design-mechanical-checks.py`, `.claude/scripts/tests/test_dsc_ai_tell.py`) stay silent regardless of extension or tier. *Assertion*: Track 2 blacklist test cases confirm each blacklisted path produces no reminder and does not burn the rate-limit window for the matching tier.
 
 #### D1: Extension-based tier matching, all `*.md` → Tier A
 
@@ -84,9 +92,9 @@ flowchart LR
 
 #### D4: MCP-server-agnostic matcher for `steroid_apply_patch`
 
-- **Alternatives considered**: (a) `Write|Edit` only — misses multi-file patches that the implementer routes through MCP Steroid per `.claude/workflow/conventions.md §1.4 *Other mcp-steroid routes*`. (b) Hardcode the literal tool name `mcp__localhost-6315__steroid_apply_patch` — works for the current `~/.claude.json` registry but silently stops firing when the server is registered under a different name (`mcp-steroid`, `intellij`, etc.). (c) Regex match `mcp__.+__steroid_apply_patch` (chosen) — covers every registry-name choice, anchored on the stable tool-name suffix. (d) Add `steroid_execute_code` too — too broad; that tool accepts arbitrary Kotlin code and target paths are not extractable.
+- **Alternatives considered**: (a) `Write|Edit` only — misses multi-file patches that the implementer routes through MCP Steroid per `.claude/workflow/conventions.md §1.4 *Tooling discipline* → "Other mcp-steroid routes"`. (b) Hardcode the literal tool name `mcp__localhost-6315__steroid_apply_patch` — works for the current `~/.claude.json` registry but silently stops firing when the server is registered under a different name (`mcp-steroid`, `intellij`, etc.). (c) Regex match `mcp__.+__steroid_apply_patch` (chosen) — covers every registry-name choice, anchored on the stable tool-name suffix. (d) Add `steroid_execute_code` too — too broad; that tool accepts arbitrary Kotlin code and target paths are not extractable.
 - **Rationale**: User flagged apply-patch coverage explicitly in research, then flagged the server-name fragility on re-read. The `mcp__<server>__<tool>` naming convention puts the user-global registry key in the middle segment; that key varies across teammates and installs. The tool-name suffix `steroid_apply_patch` is stable as long as the MCP Steroid plugin keeps its tool name. Claude Code's hook matcher is regex-based (the existing `"matcher": "Grep"` is one literal token in regex syntax), so `Write|Edit|mcp__.+__steroid_apply_patch` works.
-- **Risks/Caveats**: The hook's jq pipeline must mirror the regex form via `test("^mcp__.+__steroid_apply_patch$")` to keep settings.json and the script in agreement. Greedy `.+` survives server names with double-underscores; `[^_]+` would be tighter but assumes server names never include underscores. Apply-patch input shape is a patch string with embedded file paths, not a `file_path` field — hook parses `+++ b/<path>` lines from the patch text.
+- **Risks/Caveats**: The hook's jq pipeline must mirror the regex form via `test("^mcp__.+__steroid_apply_patch$")` to keep settings.json and the script in agreement. Greedy `.+` survives server names with double-underscores; `[^_]+` would be tighter but assumes server names never include underscores. Apply-patch input shape is `tool_input.hunks` — an array of `{file_path, old_string, new_string}` objects, not a single `file_path` or unified-diff string; the hook enumerates `hunks[].file_path` via `[.tool_input.hunks[].file_path] | unique` (jq) or the Python fallback's equivalent array walk. Confirmed against `mcp-steroid://skill/apply-patch-tool-description` during plan review.
 - **Implemented in**: Track 2
 
 #### D5: Acceptance via Python tests plus a manual smoke note
@@ -138,7 +146,11 @@ flowchart LR
   > **Depends on:** Track 1
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2 (consistency) + iteration 1 (structural)
+
+**Auto-fixed (mechanical)**: CR1 (apply-patch tool input shape — rewrote design.md § Hook input parsing + Workflow paragraph at line 50 + 5 mirror sites in track-2 + 2 sites in implementation-plan D4); CR2 (`16` → `18 of 19 prose-producing review agents` in plan line 15); CR3 (`the 11 workflow prompts` → `10 of 11 workflow prompts` in plan line 15 with skipped-files parenthetical); CR4 (house-style.md heading depth in tier-mapping table — H3 `Em-dash discipline` nested in Punctuation and typography, full H2 text `Document-shape rules (design / ADR-specific)`; mirrored in track-5 § Context); CR6 (track-3 acceptance grep tightened to a pointer-specific substring); CR7 (track-2 citation form for §1.4 Other mcp-steroid routes); CR8 (track-2 line 54 `tmp_path` → `tempfile.TemporaryDirectory()` to match stand-alone-runner framing); CR9 (D4 Risks/Caveats apply-patch description swept); CR10 (D4 Alternatives §1.4 anchor form swept); S2 (track-2 heading typo `Idempetence` → `Idempotence`); S4 (track-2 in-scope-files entry `PreToolUse[1]` → non-indexed wording).
+
+**Escalated (design decisions)**: CR5 — user chose stand-alone Python runner (matching `test_dsc_ai_tell.py`) over pytest framing; propagated into track-2 § Context, § Plan of Work, § Validation, and implementation-plan test-file bullet. S1 — user chose regex everywhere (matcher form `mcp__.+__steroid_apply_patch` per D4); applied to plan Component Map, track-2 deliverable, track-2 acceptance bullet (literal mentions in D4 alternative (b) and the historical mutation log left intact as deliberate examples). S3 — user chose to add a new `#### Invariants` subsection enumerating I1 (hook latency <5s), I2 (one reminder per tier per session), I3 (rule-source files silent), all ASPIRATIONAL with Track-2 test assertions.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
