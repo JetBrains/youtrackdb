@@ -1,0 +1,21 @@
+{
+  "session_id": "smoke-apply-patch-fixture-9c2e0481",
+  "transcript_path": "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-activate-in-house-style/smoke-apply-patch-fixture-9c2e0481.jsonl",
+  "cwd": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__localhost-6315__steroid_apply_patch",
+  "tool_input": {
+    "hunks": [
+      {
+        "file_path": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style/docs/adr/example/notes.md",
+        "old_string": "Draft text exercising the Tier-A reminder.",
+        "new_string": "Draft text exercising the Tier-A reminder via apply_patch."
+      },
+      {
+        "file_path": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style/core/src/main/java/com/jetbrains/youtrackdb/example/SmokeProbe.java",
+        "old_string": "  // placeholder",
+        "new_string": "  // placeholder for Tier-B reminder smoke test"
+      }
+    ]
+  }
+}

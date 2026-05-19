@@ -92,10 +92,12 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 The default LLM register is verbose, hedging, list-heavy, and full of "AI tells" (delve, leverage, robust, "It's not X — it's Y", em-dash overuse). Documents in this register are slow to read and reviewers ignore them. Use the **House Style** output style at `.claude/output-styles/house-style.md` whenever you draft:
 
-- ADR / design documents under `docs/adr/**` (including `_workflow/` drafts during a branch's lifetime, and the final `adr.md` and `design-final.md`).
-- GitHub issue bodies you write for the user to post (e.g., the `issue-*.md` scratch files at the repo root).
-- PR titles and descriptions (the squashed-commit message is built from these, so they go straight into git history).
-- YouTrack issue bodies created via the YouTrack MCP tools.
+- **All Markdown files in the repo** — every `*.md` surface is in scope. This includes ADR / design documents under `docs/adr/**` (the `_workflow/` drafts during a branch's lifetime, plus the final `adr.md` and `design-final.md` that survive the squash-merge), GitHub issue bodies you write for the user to post (e.g., the `issue-*.md` scratch files at the repo root), `CLAUDE.md` and module `README.md` files, workflow specifications under `.claude/workflow/**`, review reports, track files, status updates, and any other Markdown drafted during a session.
+- **PR titles and descriptions** — the squashed-commit message is built from these, so they go straight into git history.
+- **Commit message bodies** — durable git history; the imperative subject line stays terse, the body uses house-style prose.
+- **YouTrack issue bodies** created via the YouTrack MCP tools.
+
+The broader scope (all Markdown files plus the three non-Markdown surfaces above) mirrors the tier mapping in `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts`, which is the canonical anchor every workflow prompt, review agent, implementer file, and orchestrator file cross-references. Java and Kotlin source files get only the AI-tell subset at code-comment scale; see the conventions.md tier table for the specific sections that apply.
 
 The output style is **mandatory style guidance for these artifacts, not optional**. Apply its rules (BLUF lead, banned-vocabulary list, em-dash cap, 200-word section cap, repo-anchored voice) whether or not the user has activated the style with `/output-style`. Read the file once at the start of any session that will produce documents in those paths; treat its self-check list as a pre-return checklist for every draft.
 
