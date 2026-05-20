@@ -32,7 +32,7 @@ The rule lives in `.claude/output-styles/house-style.md`. Five declarative sites
 **In-scope files:**
 
 - `.claude/output-styles/house-style.md` — line 262 inside `## Structural rules` carries the rule body. Line 363 inside `## Self-check` step 7 carries the self-check restatement.
-- `.claude/agents/review-workflow-writing-style.md` — frontmatter `description:` (line 3, always loaded), key rules list (line 18), review criteria block (lines 70-72, `### Section length`).
+- `.claude/agents/review-workflow-writing-style.md` — frontmatter `description:` (line 3, always loaded), key rules list (line 18), review criteria block (lines 69-71, under the `### Section length` heading at line 69).
 - `.claude/workflow/episode-format-reference.md` — `## Episode length rule` at line 346. Add a one-line back-reference to the new house-style exemption.
 - `.claude/workflow/conventions-execution.md` — `## 2.2 Episode Formats` at line 284. Add a back-reference near the field-template description.
 

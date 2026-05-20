@@ -42,7 +42,7 @@ flowchart LR
 ```
 
 - **`.claude/output-styles/house-style.md`** — Single declarative source for the section length cap. The rule body (line 262 in `## Structural rules`) and the self-check (line 363 in `## Self-check`, step 7) both restate it. The exemption clause and the soft-cap rewording land here.
-- **`.claude/agents/review-workflow-writing-style.md`** — The Phase C track-level writing-style review agent. Restates the cap in three places: frontmatter `description:` (line 3, always loaded into every system reminder), key rules list (line 18), review criteria (lines 70-72). All three rewrite to match the new house-style wording.
+- **`.claude/agents/review-workflow-writing-style.md`** — The Phase C track-level writing-style review agent. Restates the cap in three places: frontmatter `description:` (line 3, always loaded into every system reminder), key rules list (line 18), review criteria (lines 69-71, under the `### Section length` heading). All three rewrite to match the new house-style wording.
 - **`.claude/workflow/episode-format-reference.md` § Episode length rule** — Already states "no hard line limit" for episodes, which is the contradiction YTDB-899 names. Gains a one-line back-reference to the new house-style exemption.
 - **`.claude/workflow/conventions-execution.md` §2.2 Episode Formats** — Forwards to `episode-format-reference.md` for the template. Gains a back-reference to the house-style exemption next to the field list.
 
@@ -64,7 +64,7 @@ flowchart LR
 #### D3: Update all five declarative sites in one atomic change
 
 - **Alternatives considered**: Stagger the rewrite — rule body first, reviewer-agent restatements in a follow-up commit.
-- **Rationale**: The reviewer agent's frontmatter `description:` is loaded into every system reminder ("...and 200-word-section cap per the house-style output style"). If the rule body says "soft cap with exemption" but the always-loaded description says "200-word section cap," reviewer behavior drifts toward the description because it is the part the agent always sees. The same logic applies to the key rules list (line 18) and review criteria (lines 70-72) — any one of them not updated re-introduces the bug. Atomic change forces consistency.
+- **Rationale**: The reviewer agent's frontmatter `description:` is loaded into every system reminder ("...and 200-word-section cap per the house-style output style"). If the rule body says "soft cap with exemption" but the always-loaded description says "200-word section cap," reviewer behavior drifts toward the description because it is the part the agent always sees. The same logic applies to the key rules list (line 18) and review criteria (lines 69-71) — any one of them not updated re-introduces the bug. Atomic change forces consistency.
 - **Risks/Caveats**: Larger commit touching five files. Mitigated by the change being mechanical (rule rewording) and reviewable as a single diff.
 - **Implemented in**: Track 1
 
@@ -89,11 +89,15 @@ flowchart LR
 
 ## Checklist
 - [ ] Track 1: Rewrite the section length cap and propagate
-  > Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap with a categorical exemption (template-bound content) plus a padding-based finding criterion for free-form prose. Propagate the wording to the four other declarative sites (`house-style.md § Self-check` step 7, `review-workflow-writing-style.md` frontmatter `description:`, key rules list, review criteria). Add back-references from `episode-format-reference.md § Episode length rule` and `conventions-execution.md §2.2`. Detailed description in `plan/track-1.md`.
+  > Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap with a categorical exemption (template-bound content) plus a padding-based finding criterion for free-form prose. Propagate the wording to the four other declarative sites (`house-style.md § Self-check` step 7, `review-workflow-writing-style.md` frontmatter `description:`, key rules list, review criteria). Add back-references from `episode-format-reference.md § Episode length rule` and `conventions-execution.md §2.2`.
   > **Scope:** ~2-3 steps covering rule rewrite + reviewer-agent restatement updates + back-references
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**: CR1 — line range for the `### Section length` review-criteria block in `review-workflow-writing-style.md` cited as "70-72" in Component Map and track Context and Orientation; corrected to "69-71" (heading at line 69, bullets at 70-71). CR2 — same residual "70-72" citation in D3 Rationale; corrected to "69-71". S1 — Track 1 plan-checklist intro paragraph ran 4 sentences (trailing pointer sentence pushed it past the 1-3 sentence budget); dropped the trailing "Detailed description in `plan/track-1.md`." pointer.
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
