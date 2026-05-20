@@ -358,3 +358,6 @@ is the criterion.
 The same principle applies to step episodes: a trivial rename needs
 one line; a step that uncovered a concurrency bug needs a full
 explanation.
+
+Episode structured-field paragraph blocks are exempt from the
+house-style 200-word section cap — see [`house-style.md § Structural rules`](../output-styles/house-style.md) "Section length cap exception" for the full exemption list and the padding-based finding criterion that replaces the word-count check for these template-bound shapes.
