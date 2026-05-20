@@ -10,14 +10,16 @@ Adds Tier-B subset pointer to `workflow.md` (top-level orchestrator), the three 
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-05-20T07:18Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T07:27Z [ctx=safe] Step 1 complete (commit c56fe1b0ce)
 - [x] 2026-05-20T07:30Z [ctx=safe] Step 2 complete (commit cfb46a162b)
 - [x] 2026-05-20T07:30Z [ctx=safe] Step implementation complete (2 steps, 0 failed)
 - [x] 2026-05-20T08:08Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations) — F1 fixed via Review fix 198b6996a2 (RESULT_MISSING commit-as-is)
+- [x] 2026-05-20T08:12Z [ctx=info] Track-level code review PASS — gate-check verdicts: WC1/WP1/WI1/WI2 VERIFIED, WP2/WP3/WI3/WI4/WI5/WB1 REJECTED, no STILL OPEN, no REGRESSION
+- [x] 2026-05-20T08:12Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 - 2026-05-20T07:27Z Step 1 surfaced: `.githooks/prepare-commit-msg` skips the subject prefix when the branch-derived YTDB ID appears anywhere in the message body. Commits whose body cites the ID literally land with an unprefixed subject. See Episodes §Step 1.
