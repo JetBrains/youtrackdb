@@ -15,6 +15,10 @@ Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap 
 - [ ] Track completion
 - [x] 2026-05-20T14:11Z [ctx=safe] Review + decomposition complete
 
+## Base commit
+
+b8dc3066d94a0abc75b08abe6afd5a889e3fecc8
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
 
