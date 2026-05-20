@@ -10,12 +10,13 @@ Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap 
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-20T14:11Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T14:34Z [ctx=safe] Step 1 complete (commit a0e6e0a9db)
 - [x] 2026-05-20T14:40Z [ctx=safe] Step 2 complete (commit 2914100c61)
+- [x] 2026-05-20T14:43Z [ctx=safe] Step 3 complete (commit e575e94156)
 
 ## Base commit
 
@@ -87,7 +88,7 @@ Three edits, each landing in a separate commit so each is independently reviewab
 
 1. Rewrite the `Section length cap` rule body in `house-style.md` (line 262) and the matching `## Self-check` step 7 (line 363) as a soft cap plus a categorical exemption clause and a padding-based finding criterion — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [x] commit: a0e6e0a9db
 2. Update all always-loaded and dispatcher restatements in one atomic commit: four sites in `.claude/agents/review-workflow-writing-style.md` (lines 3, 18, 69-71, 121), `CLAUDE.md:102`, and `.claude/skills/code-review/SKILL.md:313` — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [x] commit: 2914100c61
-3. Add back-references to the new house-style clause in `.claude/workflow/episode-format-reference.md § Episode length rule` (line 346) and `.claude/workflow/conventions-execution.md §2.2 Episode Formats` (line 284) — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
+3. Add back-references to the new house-style clause in `.claude/workflow/episode-format-reference.md § Episode length rule` (line 346) and `.claude/workflow/conventions-execution.md §2.2 Episode Formats` (line 284) — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [x] commit: e575e94156
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
@@ -111,6 +112,16 @@ Three edits, each landing in a separate commit so each is independently reviewab
 **What changed from the plan:** none.
 
 **Key files:** `.claude/agents/review-workflow-writing-style.md`, `CLAUDE.md`, `.claude/skills/code-review/SKILL.md` (all modified).
+
+### Step 3 — commit e575e94156, 2026-05-20T14:43Z [ctx=safe]
+
+**What was done:** Added back-references from two workflow docs to the new "Section length cap exception" clause in `.claude/output-styles/house-style.md § Structural rules`. In `.claude/workflow/episode-format-reference.md § Episode length rule` a new paragraph after the existing length-rule prose notes that episode structured-field paragraph blocks are exempt and points at the full exemption list and padding-based finding criterion. In `.claude/workflow/conventions-execution.md §2.2 Episode Formats` an inline sentence appended to the labeled-bold-paragraph template description carries the same anchor. Both back-references anchor on the clause label "Section length cap exception" rather than a line number, since Step 1 shifted house-style.md line numbers by +2 around the rule body. Applied atomically via `steroid_apply_patch` (2 hunks across 2 files).
+
+**What was discovered:** The validation grep recommended in the track file (`grep "house-style.*Section length cap exception\|house-style.md § Structural rules"`) captures only single-line matches. The conventions-execution.md back-reference wraps the link onto one line and the clause label onto the next; the second alternation in the regex catches the link line and the back-reference still resolves, but a future audit that wants both anchors on a single line would need a multi-line-aware tool. Acceptable as-is, since both anchors are present in both files, just on adjacent lines in conventions-execution.md.
+
+**What changed from the plan:** none.
+
+**Key files:** `.claude/workflow/episode-format-reference.md`, `.claude/workflow/conventions-execution.md` (both modified).
 
 ## Validation and Acceptance
 
