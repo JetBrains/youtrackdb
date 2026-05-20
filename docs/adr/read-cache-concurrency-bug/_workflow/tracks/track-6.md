@@ -276,7 +276,7 @@ below without standalone refinement notes.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (7/7 complete)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations applied; gate-check pending)
 
 ## Base commit
 `76d2939f0e88ee41c964d53abab70a3d0470a8e0`
