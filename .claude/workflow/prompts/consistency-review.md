@@ -3,6 +3,8 @@ consistency with the actual codebase. Unlike the structural review (which
 checks plan-internal quality without reading code), this review reads the
 code to find gaps and inconsistencies between the four artifacts:
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 1. **Implementation plan** (`implementation-plan.md`)
 2. **Track files** (`plan/track-N.md`, one per pending track) — each
    track file holds that track's what/how/constraints/interactions
