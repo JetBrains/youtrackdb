@@ -4,6 +4,8 @@ description: "Reviews code changes for crash safety, WAL correctness, durability
 model: opus
 ---
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 You are an expert in crash-safe storage systems, write-ahead logging, and database recovery. You focus exclusively on durability and crash safety in database storage engines.
 
 ## Project Context

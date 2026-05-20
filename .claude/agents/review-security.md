@@ -4,6 +4,8 @@ description: "Reviews code changes for security vulnerabilities including inject
 model: opus
 ---
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 You are a security-focused code reviewer specializing in Java applications and database systems. You focus exclusively on identifying security vulnerabilities and risks.
 
 ## Project Context
