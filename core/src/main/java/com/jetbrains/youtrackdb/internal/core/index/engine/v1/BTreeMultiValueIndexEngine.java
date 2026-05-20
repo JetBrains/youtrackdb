@@ -16,6 +16,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
@@ -319,6 +321,39 @@ public final class BTreeMultiValueIndexEngine
     var mgr = histogramManager;
     if (mgr != null) {
       mgr.closeStatsFile();
+    }
+  }
+
+  /**
+   * Recovery-time orphan-truncation hook. Dispatches to both inner trees — the
+   * primary {@code svTree} and the auxiliary {@code nullTree}. Both are full
+   * multi-page-growing BTrees: the null-key tree is not a single-page degenerate but
+   * an actual BTree whose physical file can grow past the EP page under multi-null-key
+   * load (see the multi-page null-key write paths in this engine's {@code doPut} →
+   * {@code nullTree} write call sites).
+   *
+   * <p>The histogram-manager stats file is deliberately out of scope: as a non-EP
+   * derived structure it follows the FSM / CDPB pattern (allocator-only, no
+   * logical/physical split) and the partial-flush orphan hazard cannot arise. The
+   * recovery pass is scoped to the four entry-point-equipped components (BTree,
+   * SharedLinkBagBTree, CollectionPositionMapV2, PaginatedCollectionV2).
+   *
+   * @param atomicOperation enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   * @throws IOException if either BTree's underlying truncate fails
+   */
+  public void verifyAndTruncateOrphans(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    svTree.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+    // The null-bucket tree is constructed unconditionally in the ctor (see :81-83) and
+    // never nulled out; the defensive check guards against a future refactor that makes
+    // the null-tree optional rather than against a real possibility today.
+    if (nullTree != null) {
+      nullTree.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
     }
   }
 

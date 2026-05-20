@@ -112,6 +112,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.zip.CRC32;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
@@ -364,6 +365,35 @@ public final class WOWCache extends AbstractWriteCache
    * Approximate amount of all pages contained by write cache at the moment
    */
   private final AtomicLong writeCacheSize = new AtomicLong();
+
+  /**
+   * Counts invocations of the single-page extend branch of {@link #loadOrAdd}
+   * ({@code pageIndex == currentSize}). Test-only positive-evidence probe: the
+   * regression suite for the original poison-cascade bug uses this counter to prove that a
+   * concurrent-insert workload genuinely exercised the file-extending allocator path, so a
+   * future change that re-routes inserts away from the allocator (and would silently make
+   * an absence-of-symptom assertion "pass" for the wrong reason) fails loud. Incremented at
+   * the end of {@link #loadOrAddExtendBranch} after the successful allocation completes;
+   * never decremented; overflow-safe on {@link LongAdder}'s 64-bit sum. Exposed via the
+   * public {@link #getLoadOrAddExtendBranchInvocationsForTest} accessor for cross-package
+   * test access; not part of the production API surface.
+   */
+  private final LongAdder loadOrAddExtendBranchInvocations = new LongAdder();
+
+  /**
+   * Counts invocations of the multi-page gap-fill branch of {@link #loadOrAdd}
+   * ({@code pageIndex > currentSize}). Test-only positive-evidence probe — see the
+   * {@link #loadOrAddExtendBranchInvocations} Javadoc above for the rationale. Incremented
+   * at the end of {@link #loadOrAddGapFillBranch} after the successful allocation completes.
+   * Primary use is WAL replay, which can reference page indices many pages past the current
+   * file size. Outside replay this counter should not scale with the workload — small
+   * non-zero counts are expected under concurrent inserts due to cross-component
+   * snapshot-window races between the cache-extension reads inside
+   * {@code LocalFreeRangeCache.loadOrAddForWrite} and the cache layer's own
+   * {@code filledUpTo} read. A counter that grows in proportion to workload size signals a
+   * regression in cache-extension coordination.
+   */
+  private final LongAdder loadOrAddGapFillBranchInvocations = new LongAdder();
 
   /**
    * Amount of exclusive pages are hold by write cache.
@@ -1323,37 +1353,370 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * Non-extending probe shared by the silent-read code path. Mirrors {@link #load}'s
+   * dirty-write-priority + on-disk-fallback semantics under the {@code lockManager}
+   * shared lock for the {@link PageKey}, but drops the {@code cacheHit} out-parameter
+   * (the silent reader does not track cache hits) and crucially never extends the file
+   * or returns a magic-stamped empty buffer on miss &mdash; that branch belongs to
+   * {@link #loadOrAdd}.
+   *
+   * <p><b>Returns null when:</b> the page is not in the dirty {@code writeCachePages}
+   * map and {@link #loadFileContent} reports the on-disk file is shorter than the
+   * requested {@code pageIndex} (and the double-write log has nothing for that page
+   * either).
+   *
+   * <p><b>Lock ordering:</b> identical to {@link #load} &mdash; acquire
+   * {@link #filesLock} read lock, then the per-{@link PageKey} {@code lockManager}
+   * shared lock; release in reverse order.
+   */
   @Override
-  public int allocateNewPage(final long fileId) throws IOException {
-    int pageIndex;
+  public CachePointer loadIfPresent(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+    final var intId = extractFileId(fileId);
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var entry = files.acquire(fileId);
-      try {
-        final var fileClassic = entry.get();
-        final var allocatedPosition = fileClassic.allocateSpace(pageSize);
-        final var allocationIndex = allocatedPosition / pageSize;
+      final var pageKey = new PageKey(intId, pageIndex);
+      final var pageLock = lockManager.acquireSharedLock(pageKey);
 
-        pageIndex = (int) allocationIndex;
-        if (pageIndex < 0) {
-          throw new IllegalStateException("Illegal page index value " + pageIndex);
+      // Dirty-write priority: a more recent in-memory pointer shadows the on-disk image.
+      final var pagePointer = writeCachePages.get(pageKey);
+
+      if (pagePointer == null) {
+        try {
+          // On-disk fallback. loadFileContent returns null when the file is shorter than
+          // the requested page (and the double-write log has no copy either) — propagate
+          // that null straight back to the caller. Unlike loadOrAdd, we do not extend.
+          final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+          if (filePagePointer != null) {
+            filePagePointer.incrementReadersReferrer();
+          }
+
+          return filePagePointer;
+        } finally {
+          pageLock.unlock();
         }
-
-      } finally {
-        files.release(entry);
       }
-    } catch (final java.lang.InterruptedException e) {
-      throw BaseException.wrapException(
-          new StorageException(storageName, "Allocation of page was interrupted"), e, storageName);
+
+      pagePointer.incrementReadersReferrer();
+      pageLock.unlock();
+
+      return pagePointer;
     } finally {
       filesLock.releaseReadLock();
     }
-    commitExecutor().submit(
-        new EnsurePageIsValidInFileTask(internalFileId(fileId), pageIndex, this));
+  }
 
-    return pageIndex;
+  /**
+   * Total page-access primitive: returns a usable {@link CachePointer} for the given
+   * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
+   *
+   * <p>The implementation reads the in-memory {@link AsyncFile} size once into
+   * {@code currentSize} (in pages) and dispatches to one of three branches:
+   *
+   * <ul>
+   *   <li>{@code pageIndex < currentSize} &mdash; <b>load existing</b>. Acquires the
+   *       per-{@link PageKey} shared lock from {@code lockManager} (the same lock today's
+   *       {@code load} takes to serialize against {@code doRemoveCachePages} and
+   *       {@code flushExclusiveWriteCache}), probes the dirty {@code writeCachePages} map
+   *       first &mdash; if a more recent dirty pointer is sitting there, returning it takes
+   *       priority over an older on-disk version &mdash; and falls through to
+   *       {@code loadFileContent} on miss. The {@code loadFileContent}-returns-null branch
+   *       is defensive dead code today: with {@code pageIndex < currentSize} the test
+   *       {@code fileClassic.getFileSize() < pageEndPosition} cannot fire, because both
+   *       sides read the same in-memory {@link AsyncFile#getFileSize}. The fallback is
+   *       preserved to absorb future divergence (sparse-region misses, DWL recovery flows
+   *       that surface a null) without breaking the totality contract.
+   *   <li>{@code pageIndex == currentSize} &mdash; <b>one-page extend</b>. Calls
+   *       {@link AsyncFile#allocateSpace} (atomic {@code getAndAdd}), submits a single
+   *       {@link EnsurePageIsValidInFileTask} on the {@code wowCacheFlushExecutor}
+   *       (single-threaded, FIFO order across submissions), and returns a freshly-allocated
+   *       empty {@link CachePointer}. The {@code lockManager} shared lock is <b>not</b>
+   *       taken here: a freshly-installed pointer cannot race with concurrent flush until
+   *       the caller's outer {@code data.compute} segment write lock publishes it.
+   *   <li>{@code pageIndex > currentSize} &mdash; <b>multi-page gap-fill</b> (recovery
+   *       only). Calls {@link AsyncFile#allocateSpace} once for {@code (pageIndex -
+   *       currentSize + 1) * pageSize} bytes, submits an
+   *       {@link EnsurePageIsValidInFileTask} for every gap page in
+   *       {@code [currentSize, pageIndex]}, and returns the {@link CachePointer} for the
+   *       requested {@code pageIndex} only. The intermediate gap pages are stamped on disk
+   *       but not held in the read cache. Like the extend branch, the {@code lockManager}
+   *       shared lock is not taken &mdash; once the cache rewiring step lands, the
+   *       caller's outer {@code data.compute} segment write lock publishes the
+   *       freshly-installed pointer before any concurrent flush could observe it.
+   * </ul>
+   *
+   * <p><b>Totality contract.</b> The method never returns {@code null} for any open,
+   * non-deleted file. The only way the contract breaks is if the file was concurrently
+   * deleted by an unrelated thread, in which case {@code loadFileContent} surfaces an
+   * {@link IllegalArgumentException} that propagates raw to the caller as a caller-bug
+   * signal &mdash; the totality contract holds for the documented usage (caller still owns
+   * the fileId). A defensive {@link IllegalArgumentException} guard at the dispatch prelude
+   * also fires when the dispatch prelude itself observes a missing entry for {@code fileId}
+   * before {@code loadFileContent} would have a chance to.
+   *
+   * <p><b>Caller precondition.</b> The post-rewiring design assumes the segment write lock
+   * for the {@code (fileId, pageIndex)} key is held by the caller (via
+   * {@code LockFreeReadCache.data.compute}). That rewiring lands in a follow-up step of the
+   * cache-primitive work; until it lands, the only callers exercising this method are the
+   * dedicated unit tests (no production callers yet). Lock ordering inside this method:
+   * acquire {@link #filesLock} read lock; on the load branch additionally acquire the
+   * {@code lockManager} shared lock for the {@link PageKey}; the dispatch prelude opens
+   * one {@code files.acquire(fileId)} cycle and the chosen branch reuses the same handle
+   * (load branch releases before delegating to {@code loadFileContent}, which re-acquires
+   * internally; extend / gap-fill branches keep the handle open across
+   * {@link AsyncFile#allocateSpace}).
+   *
+   * <p><b>Magic stamp.</b> The returned {@link CachePointer} on the extend / gap-fill
+   * branches contains an in-memory empty buffer with LSN {@code (-1,-1)}; the on-disk
+   * magic stamp is written asynchronously by {@link EnsurePageIsValidInFileTask}. The
+   * task is idempotent (it only writes when the underlying file is shorter than the page
+   * offset), so resubmissions on the gap-fill branch are safe.
+   */
+  @Override
+  public CachePointer loadOrAdd(
+      final long fileId, final long pageIndex, final boolean verifyChecksums)
+      throws IOException {
+    if (pageIndex < 0) {
+      throw new IllegalArgumentException("Illegal page index value " + pageIndex);
+    }
+    final var intId = extractFileId(fileId);
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+
+      // Single files.acquire / files.release cycle covers the whole call: the dispatch
+      // prelude reads AsyncFile.size for branch selection; the load branch releases before
+      // delegating to loadFileContent (which re-acquires internally); the extend / gap-fill
+      // branches keep the handle open across allocateSpace and release on the way out.
+      final var entry = files.acquire(fileId);
+      // Defensive guard against a concurrently-deleted / never-registered fileId. The
+      // ClosableLinkedContainer returns null for an unknown key; a subsequent entry.get()
+      // would NPE before the totality / IllegalArgumentException contract surfaces. Mirror
+      // loadFileContent's existing guard so the deleted-file caller-bug signal is symmetric
+      // across the two paths.
+      if (entry == null) {
+        throw new IllegalArgumentException(
+            "File with id " + intId + " not found in WOW Cache");
+      }
+      var entryConsumed = false;
+      try {
+        final var fileClassic = entry.get();
+        if (fileClassic == null) {
+          throw new IllegalArgumentException(
+              "File with id " + intId + " not found in WOW Cache");
+        }
+        // currentSize is in pages; the value is consistent within the call but other
+        // threads may extend the file concurrently (different pageIndex keys are not
+        // serialized by data.compute).
+        final var currentSize = fileClassic.getFileSize() / pageSize;
+        if (pageIndex < currentSize) {
+          // Release the dispatch handle before the load branch: loadFileContent re-acquires
+          // internally, so holding it across the call would double-acquire.
+          files.release(entry);
+          entryConsumed = true;
+          return loadOrAddLoadBranch(intId, pageIndex, verifyChecksums);
+        }
+        if (pageIndex == currentSize) {
+          return loadOrAddExtendBranch(intId, pageIndex, fileClassic);
+        }
+        // pageIndex > currentSize: gap-fill (recovery-only path under normal callers).
+        return loadOrAddGapFillBranch(intId, pageIndex, currentSize, fileClassic);
+      } finally {
+        if (!entryConsumed) {
+          files.release(entry);
+        }
+      }
+    } catch (final java.lang.InterruptedException e) {
+      throw BaseException.wrapException(
+          new StorageException(storageName, "loadOrAdd was interrupted"), e, storageName);
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
+  /**
+   * Load branch of {@link #loadOrAdd}: {@code pageIndex < currentSize}.
+   *
+   * <p>Probes the dirty-write map first (so a fresh in-memory page wins over its older
+   * on-disk image), then falls through to {@code loadFileContent}. The
+   * {@code loadFileContent}-returns-null branch is defensive dead code today: given
+   * {@code pageIndex < currentSize} and that both dispatch prelude and {@code loadFileContent}
+   * read the same in-memory {@link AsyncFile#getFileSize}, the
+   * {@code fileClassic.getFileSize() < pageEndPosition} test inside {@code loadFileContent}
+   * cannot fire on this path. The fallback is preserved to absorb future divergence
+   * (e.g., {@code loadFileContent} taught to surface sparse-region misses, or DWL
+   * recovery flows that return null) without breaking the totality contract.
+   */
+  private CachePointer loadOrAddLoadBranch(
+      final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+    final var pageKey = new PageKey(intId, pageIndex);
+    final var pageLock = lockManager.acquireSharedLock(pageKey);
+
+    // Dirty-write priority: a more recent in-memory pointer wins over the on-disk image.
+    final var pagePointer = writeCachePages.get(pageKey);
+    if (pagePointer != null) {
+      pagePointer.incrementReadersReferrer();
+      pageLock.unlock();
+      return pagePointer;
+    }
+
+    try {
+      final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+      if (filePagePointer != null) {
+        filePagePointer.incrementReadersReferrer();
+        return filePagePointer;
+      }
+      // Defensive totality fallback (dead code today; see method Javadoc): if
+      // loadFileContent ever returns null on this path, return a magic-stamped empty
+      // buffer without bumping AsyncFile.size so the totality contract holds.
+      //
+      // The assert surfaces a dispatch-prelude invariant regression in -ea test runs at
+      // zero production cost: pageIndex < currentSize and loadFileContent share the same
+      // AsyncFile.getFileSize read, so the loadFileContent-returns-null branch cannot fire
+      // under the current implementation. If a future change (sparse-region misses, DWL
+      // recovery flows, etc.) makes the fallback live, remove the assert.
+      assert false
+          : "loadFileContent returned null on load branch — dispatch prelude invariant"
+              + " violated; pageIndex < currentSize should always find a page on disk"
+              + " (intId=" + intId + " pageIndex=" + pageIndex + ")";
+      return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+    } finally {
+      pageLock.unlock();
+    }
+  }
+
+  /**
+   * One-page extend branch of {@link #loadOrAdd}: {@code pageIndex == currentSize}.
+   *
+   * <p>Allocates one page worth of space in the file (atomic {@code getAndAdd}), submits
+   * an idempotent {@link EnsurePageIsValidInFileTask} for the single allocated page,
+   * returns a magic-stamped empty {@link CachePointer}. No {@code lockManager} shared
+   * lock is taken: once the cache rewiring step lands, the caller's outer
+   * {@code data.compute} segment write lock publishes the freshly-installed pointer
+   * before any concurrent flush could observe it; until that step lands, the only
+   * callers exercising this branch are the dedicated unit tests.
+   *
+   * <p>The {@code fileClassic} reference is supplied by the dispatch prelude under a
+   * single {@code files.acquire(fileId)} handle held across this branch; the helper does
+   * not re-acquire.
+   */
+  private CachePointer loadOrAddExtendBranch(
+      final int intId, final long pageIndex, final File fileClassic) throws IOException {
+    final var allocatedPosition = fileClassic.allocateSpace(pageSize);
+    final long allocatedIndex = allocatedPosition / pageSize;
+    if (allocatedIndex < 0) {
+      throw new IllegalStateException("Illegal page index value " + allocatedIndex);
+    }
+    // Hard sanity: callers compute pageIndex as entryPoint.pagesSize + 1, which by the
+    // runtime invariant equals the current AsyncFile size in pages (no concurrent
+    // allocator on the same file). If a concurrent allocator on a different pageIndex
+    // raced ahead between our currentSize read and allocateSpace, the equality still
+    // holds because allocateSpace is monotonic getAndAdd: a different caller would
+    // already have seen our extension and routed to gap-fill instead. The check is a
+    // hard throw rather than a Java assert so that a violation of the per-component
+    // single-allocator invariant fails fast in production builds (no -ea).
+    if (allocatedIndex != pageIndex) {
+      throw new IllegalStateException(
+          "loadOrAdd extend branch: allocated pageIndex "
+              + allocatedIndex
+              + " does not match requested pageIndex "
+              + pageIndex);
+    }
+    commitExecutor()
+        .submit(new EnsurePageIsValidInFileTask(intId, (int) pageIndex, this));
+    // Positive-evidence probe — see field Javadoc. Counted at the end of the branch so a
+    // throw from allocateSpace, the hard sanity check above, or the EnsurePageIsValidInFileTask
+    // submission does not record a spurious increment.
+    loadOrAddExtendBranchInvocations.increment();
+    return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+  }
+
+  /**
+   * Multi-page gap-fill branch of {@link #loadOrAdd}: {@code pageIndex > currentSize}.
+   *
+   * <p>Recovery-only path under normal callers (WAL replay can reference page indices
+   * many pages beyond the current file size on a freshly-reopened storage). Allocates
+   * {@code (pageIndex - currentSize + 1)} pages in one batched
+   * {@link AsyncFile#allocateSpace} call, submits one
+   * {@link EnsurePageIsValidInFileTask} per gap page in {@code [currentSize, pageIndex]},
+   * and returns the {@link CachePointer} for the target page only. The intermediate gap
+   * pages are stamped on disk but never installed in the read cache by this method.
+   *
+   * <p>The {@code fileClassic} reference is supplied by the dispatch prelude under a
+   * single {@code files.acquire(fileId)} handle held across this branch; the helper does
+   * not re-acquire.
+   */
+  private CachePointer loadOrAddGapFillBranch(
+      final int intId, final long pageIndex, final long currentSize, final File fileClassic)
+      throws IOException {
+    final long pagesToAllocate = pageIndex - currentSize + 1L;
+    final long requestedBytes = pagesToAllocate * pageSize;
+    if (requestedBytes > Integer.MAX_VALUE) {
+      throw new StorageException(
+          storageName,
+          "loadOrAdd gap-fill: requested allocation "
+              + requestedBytes
+              + " bytes exceeds AsyncFile.allocateSpace int limit (currentSize="
+              + currentSize
+              + ", pageIndex="
+              + pageIndex
+              + ")");
+    }
+    final var allocatedPosition = fileClassic.allocateSpace((int) requestedBytes);
+    final long allocatedStartIndex = allocatedPosition / pageSize;
+    if (allocatedStartIndex < 0) {
+      throw new IllegalStateException("Illegal page index value " + allocatedStartIndex);
+    }
+    // Hard sanity: for the runtime caller invariant (single allocator per file at a time)
+    // the allocated start index equals currentSize. Concurrent allocators on different
+    // pageIndex keys would already have observed our gap-fill via AsyncFile.size and
+    // routed to a different branch. The check is a hard throw rather than a Java assert
+    // so that a violation of the per-component single-allocator invariant fails fast in
+    // production builds (no -ea).
+    if (allocatedStartIndex != currentSize) {
+      throw new IllegalStateException(
+          "loadOrAdd gap-fill branch: allocated start index "
+              + allocatedStartIndex
+              + " does not match currentSize "
+              + currentSize);
+    }
+    // Submit EnsurePageIsValidInFileTask for every gap page (including the target).
+    // The single-threaded wowCacheFlushExecutor preserves submission order so the gap
+    // pages stamp in ascending order. Each task is idempotent (writeValidPageInFile
+    // only writes if the underlying file is shorter than the page offset), so a
+    // resubmission against an already-stamped page is a no-op.
+    for (long gapPage = currentSize; gapPage <= pageIndex; gapPage++) {
+      commitExecutor()
+          .submit(new EnsurePageIsValidInFileTask(intId, (int) gapPage, this));
+    }
+    // Positive-evidence probe — see field Javadoc. Counted at the end of the branch so a
+    // throw from allocateSpace or the hard sanity check above does not record a spurious
+    // increment.
+    loadOrAddGapFillBranchInvocations.increment();
+    return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+  }
+
+  /**
+   * Returns a freshly-allocated, cleared {@link CachePointer} for the extend / gap-fill
+   * branches and for the load-branch totality fallback. The buffer is zero-filled; LSN
+   * is initialised to {@code (-1,-1)}; the readers-referrer count is incremented so the
+   * caller's release path balances correctly.
+   */
+  private CachePointer newEmptyCachePointer(final long fileId, final long pageIndex) {
+    // Use ADD_NEW_PAGE_IN_DISK_CACHE to match the legacy read-cache install pattern in
+    // LockFreeReadCache.addNewPagePointerToTheCache; the disk-stamp executor path uses
+    // ADD_NEW_PAGE_IN_FILE separately, and mixing the two would collapse memory-accounting
+    // buckets in profiling.
+    final var pageFrame =
+        pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
+    DurablePage.setLogSequenceNumberForPage(
+        pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
+    final var cachePointer = new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
+    cachePointer.incrementReadersReferrer();
+    return cachePointer;
   }
 
   @Override
@@ -1485,6 +1848,12 @@ public final class WOWCache extends AbstractWriteCache
         new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
   }
 
+  // Retained internal site: the WriteCache implementer must keep this override so the
+  // documented internal callers (LFRC.doLoad, AOBT.{allocatePageForWrite, filledUpTo},
+  // the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
+  // suppression silences the deprecation warning the override would otherwise inherit
+  // from the @Deprecated interface declaration.
+  @SuppressWarnings("deprecation")
   @Override
   public long getFilledUpTo(long fileId) {
     final var intId = extractFileId(fileId);
@@ -1509,9 +1878,53 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  // Layer A helper body: this is the named gated entry point for the post-unfreeze
+  // backup snapshot reader and wraps the @Deprecated getFilledUpTo. Listed on the
+  // WriteCache.getFilledUpTo Javadoc as a retained internal caller.
+  @SuppressWarnings("deprecation")
+  @Override
+  public long physicalSizeForBackupSnapshot(long fileId) {
+    // Thin delegator — the wrapped call re-acquires filesLock as a read lock and applies
+    // the null-file safety (returns 0 when the file was concurrently deleted). The
+    // semantic difference is the audit-grep contract documented on the WriteCache
+    // interface method, not the locking or branching shape.
+    return getFilledUpTo(fileId);
+  }
+
   @Override
   public long getExclusiveWriteCachePagesSize() {
     return exclusiveWriteCacheSize.get();
+  }
+
+  /**
+   * Test-only accessor: number of times the single-page extend branch of
+   * {@link #loadOrAdd} has run to completion (post-allocate, post-sanity-check) since this
+   * cache instance was constructed. The regression suite for the original poison-cascade
+   * bug uses this counter to prove a concurrent-insert workload actually exercised the
+   * file-extending allocator path (so a future change that re-routes inserts elsewhere
+   * fails loud rather than silently "passing" an absence-of-symptom assertion). Not part
+   * of the production API surface — callers outside the regression suite should not
+   * depend on this method.
+   *
+   * <p>The {@code ForTest} suffix is intentional: it makes the test-only intent visible at
+   * every call site (the production code never reads this counter; only the regression
+   * tests do).
+   */
+  public long getLoadOrAddExtendBranchInvocationsForTest() {
+    return loadOrAddExtendBranchInvocations.sum();
+  }
+
+  /**
+   * Test-only accessor: number of times the multi-page gap-fill branch of
+   * {@link #loadOrAdd} has run to completion (post-allocate, post-sanity-check) since this
+   * cache instance was constructed. Mirrors
+   * {@link #getLoadOrAddExtendBranchInvocationsForTest}. Outside WAL replay this counter
+   * should not scale with workload size — small non-zero counts are expected under
+   * concurrent inserts due to cross-component snapshot windows; a counter that grows in
+   * proportion to workload size signals a regression in cache-extension coordination.
+   */
+  public long getLoadOrAddGapFillBranchInvocationsForTest() {
+    return loadOrAddGapFillBranchInvocations.sum();
   }
 
   @Override
@@ -1576,6 +1989,97 @@ public final class WOWCache extends AbstractWriteCache
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "File truncation was interrupted"),
+          e, storageName);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  @Override
+  public void shrinkFile(long fileId, final long targetBytes) throws IOException {
+    // Argument-validity guards run BEFORE any locking or pre-flight no-op so a contract
+    // violation never lands a partial truncate and never racily competes with concurrent
+    // file writers for filesLock. These checks run under default JVM flags (no -ea) — the
+    // recovery-time orphan-truncation path runs once per storage open, so an unconditional
+    // IllegalArgumentException is cheaper than the cost of a silent half-page truncate or
+    // a runaway range purge.
+    //
+    //  - Non-negative: catches arithmetic underflow at the call site (a negative target
+    //    would either bottom out in AsyncFile.shrink or, after the (int) cast, produce a
+    //    negative minPageIndex that the downstream range filter (pageIndex >= minPageIndex)
+    //    treats as match-all).
+    //  - Page-aligned: a non-aligned target would silently truncate a half-page on disk
+    //    via AsyncFile.shrink while keeping the whole page cached, yielding a torn read on
+    //    the next reload.
+    //  - No int overflow: targetBytes / pageSize beyond Integer.MAX_VALUE would wrap the
+    //    (int) cast to a negative minPageIndex with the same match-all consequence above.
+    if (targetBytes < 0) {
+      throw new IllegalArgumentException(
+          "Target shrink size must be non-negative: " + targetBytes);
+    }
+    final var pageSizeLocal = (long) pageSize;
+    if (targetBytes % pageSizeLocal != 0) {
+      throw new IllegalArgumentException(
+          "targetBytes must be a multiple of pageSize: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSizeLocal);
+    }
+    if (targetBytes / pageSizeLocal > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          "minPageIndex would overflow int: targetBytes="
+              + targetBytes
+              + " pageSize="
+              + pageSizeLocal);
+    }
+    final var intId = extractFileId(fileId);
+    fileId = composeFileId(id, intId);
+
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+
+      final var entry = files.acquire(fileId);
+      // shrinkFile is only invoked by the recovery-time orphan-truncation orchestrator,
+      // which iterates already-open components. A null entry here means the orchestrator
+      // dispatched against a fileId that is no longer open — a contract violation worth
+      // signalling loudly rather than silently no-op'ing. The orchestrator (in
+      // AbstractStorage.truncateOrphansAfterRecovery) wraps each dispatch in a try/catch
+      // that absorbs StorageException with a WARN log so a single corrupted component
+      // does not poison recovery for the rest of the storage.
+      if (entry == null) {
+        throw new StorageException(
+            storageName,
+            "shrinkFile invoked on fileId="
+                + intId
+                + " but no file entry is open — recovery orchestrator must guarantee the"
+                + " file is open before dispatching orphan truncation");
+      }
+      try {
+        final var file = entry.get();
+        // Pre-flight no-op: a target greater than or equal to the current
+        // AsyncFile.getFileSize() has nothing to drop. The read of getFileSize() is
+        // serialised against concurrent allocateSpace / shrink writers by the surrounding
+        // filesLock writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
+        // stable for the duration of the call.
+        if (file.getFileSize() <= targetBytes) {
+          return;
+        }
+        // Drop write-back layer entries at pageIndex >= minPageIndex BEFORE
+        // truncating the AsyncFile. If we truncated first, a concurrent periodic
+        // flush could write a dirty orphan entry back to disk and re-extend the
+        // file past targetBytes. Dirty entries below minPageIndex are preserved
+        // (they belong to file regions the truncate does NOT drop and need to
+        // survive the next periodic flush).
+        final var minPageIndex = (int) (targetBytes / pageSizeLocal);
+        removeCachedPages(intId, minPageIndex);
+        file.shrink(targetBytes);
+      } finally {
+        files.release(entry);
+      }
+    } catch (final java.lang.InterruptedException e) {
+      throw BaseException.wrapException(
+          new StorageException(storageName, "File shrink was interrupted"),
           e, storageName);
     } finally {
       filesLock.releaseWriteLock();
@@ -2893,8 +3397,31 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * "Drop every {@code writeCachePages} dirty entry for this fileId" delegate. Forwards to
+   * the range-scoped overload with {@code minPageIndex = 0}, which matches every page index.
+   */
   private void removeCachedPages(final int fileId) {
-    final var future = commitExecutor().submit(new RemoveFilePagesTask(this, fileId));
+    removeCachedPages(fileId, 0);
+  }
+
+  /**
+   * Drops the {@code writeCachePages} entries at {@code pageIndex >= minPageIndex} for the
+   * given file via {@link RemoveFilePagesTask} on the single-threaded commit executor.
+   * Routing through the commit executor matters because the periodic-flush task runs on the
+   * same executor, so dispatching the purge there orders it cleanly against any in-flight
+   * flush.
+   *
+   * <p>With {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the
+   * shape used by {@code closeFile} / {@code truncateFile} / {@code deleteFile}. With a
+   * positive {@code minPageIndex} the entries below the minimum survive — the shape used by
+   * {@link #shrinkFile(long, long)} for the recovery-time orphan-truncation pass (those
+   * entries belong to file regions the truncate does NOT drop and must survive the next
+   * periodic flush).
+   */
+  private void removeCachedPages(final int fileId, final int minPageIndex) {
+    final var future =
+        commitExecutor().submit(new RemoveFilePagesTask(this, fileId, minPageIndex));
     try {
       future.get();
     } catch (final java.lang.InterruptedException e) {
@@ -3190,14 +3717,24 @@ public final class WOWCache extends AbstractWriteCache
     doubleWriteLog.truncate();
   }
 
-  void doRemoveCachePages(int internalFileId) {
+  /**
+   * Removes every {@code writeCachePages} entry whose {@code pageKey} matches
+   * {@code (fileId == internalFileId && pageIndex >= minPageIndex)}. With
+   * {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the shape
+   * used by {@code closeFile} / {@code truncateFile} / {@code deleteFile}. With a positive
+   * {@code minPageIndex} the dirty pages below the truncate target survive (they belong to
+   * file regions the truncate does NOT drop and must be persisted by the next periodic
+   * flush), while pages at or past the target are dropped before the underlying file
+   * shrink runs.
+   */
+  void doRemoveCachePages(int internalFileId, int minPageIndex) {
     final var entryIterator =
         writeCachePages.entrySet().iterator();
     while (entryIterator.hasNext()) {
       final var entry = entryIterator.next();
       final var pageKey = entry.getKey();
 
-      if (pageKey.fileId == internalFileId) {
+      if (pageKey.fileId == internalFileId && pageKey.pageIndex >= minPageIndex) {
         final var pagePointer = entry.getValue();
         final var groupLock = lockManager.acquireExclusiveLock(pageKey);
         try {
@@ -4393,7 +4930,7 @@ public final class WOWCache extends AbstractWriteCache
     final var internalFileId = extractFileId(externalFileId);
     final var fileId = composeFileId(id, internalFileId);
 
-    doRemoveCachePages(internalFileId);
+    doRemoveCachePages(internalFileId, 0);
 
     final var fileClassic = files.remove(fileId);
 

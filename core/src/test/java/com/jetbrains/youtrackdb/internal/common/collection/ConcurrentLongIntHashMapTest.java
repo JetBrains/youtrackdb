@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -1149,6 +1151,253 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(second).isEmpty();
     assertThat(map.size()).isEqualTo(1);
     assertThat(map.get(9L, 0)).isEqualTo("other");
+  }
+
+  // ---- removeByFileId(long, int) — range-scoped variant ----
+
+  // Empty-map case mirrors the removeByFileId equivalent — exercises the early
+  // "no entries removed" exit path without an entries scan dominating the
+  // assertion noise.
+  @Test
+  public void removeByFileIdWithRangeOnEmptyMapReturnsEmpty() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    var removed = map.removeByFileId(1L, 0);
+    assertThat(removed).isEmpty();
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  // minPageIndex=0 must match every page of the target file, identical to
+  // removeByFileId. The two-method symmetry lets callers default to the
+  // range-scoped variant without an upper-API switch.
+  @Test
+  public void removeByFileIdWithMinPageIndexZeroRemovesEverything() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int page = 0; page < 6; page++) {
+      map.put(7L, page, "f7-p" + page);
+      map.put(9L, page, "f9-p" + page);
+    }
+    var removed = map.removeByFileId(7L, 0);
+    assertThat(removed).hasSize(6);
+    for (int page = 0; page < 6; page++) {
+      assertThat(map.get(7L, page)).isNull();
+      assertThat(map.get(9L, page)).isEqualTo("f9-p" + page);
+    }
+    assertThat(map.size()).isEqualTo(6);
+  }
+
+  // Partial-range scope — entries below the cutoff survive, entries at or
+  // above are removed. This is the load-bearing semantic for the recovery-
+  // time orphan-truncation pass: pages below the EP-stored logical counter
+  // remain reachable, pages at or past the counter are dropped.
+  @Test
+  public void removeByFileIdPartialRangeKeepsEntriesBelowMin() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int page = 0; page < 10; page++) {
+      map.put(3L, page, "f3-p" + page);
+    }
+    // Drop pages [5, 10) — pages [0, 5) survive
+    var removed = map.removeByFileId(3L, 5);
+    assertThat(removed).hasSize(5);
+    for (int page = 0; page < 5; page++) {
+      assertThat(map.get(3L, page))
+          .as("page %d (< minPageIndex 5) must survive", page)
+          .isEqualTo("f3-p" + page);
+    }
+    for (int page = 5; page < 10; page++) {
+      assertThat(map.get(3L, page))
+          .as("page %d (>= minPageIndex 5) must be removed", page)
+          .isNull();
+    }
+    assertThat(map.size()).isEqualTo(5);
+  }
+
+  // Boundary check — when minPageIndex equals the lowest present pageIndex,
+  // the entire range is in scope. When minPageIndex is strictly greater than
+  // the highest present pageIndex, the result is empty and no compaction
+  // runs. Both shapes show up in the recovery pass (boundary-exact and clean-
+  // shutdown paths respectively).
+  @Test
+  public void removeByFileIdRangeBoundaryConditions() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 3, "v3");
+    map.put(1L, 4, "v4");
+    map.put(1L, 5, "v5");
+
+    // minPageIndex == lowest present pageIndex (3) → all three removed
+    var allRemoved = map.removeByFileId(1L, 3);
+    assertThat(allRemoved).containsExactlyInAnyOrder("v3", "v4", "v5");
+    assertThat(map.size()).isEqualTo(0);
+
+    // Re-populate and test the above-everyone case
+    map.put(1L, 0, "v0");
+    map.put(1L, 1, "v1");
+
+    var noneRemoved = map.removeByFileId(1L, 99);
+    assertThat(noneRemoved).isEmpty();
+    assertThat(map.size()).isEqualTo(2);
+    assertThat(map.get(1L, 0)).isEqualTo("v0");
+    assertThat(map.get(1L, 1)).isEqualTo("v1");
+  }
+
+  // Other files must be left untouched — the range filter is per-fileId AND
+  // per-pageIndex, not a global cutoff across the map. Important because a
+  // recovery shrink on one component must not perturb cached entries of
+  // unrelated components sharing the JVM cache.
+  @Test
+  public void removeByFileIdRangeDoesNotTouchOtherFiles() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int page = 0; page < 10; page++) {
+      map.put(1L, page, "f1-p" + page);
+      map.put(2L, page, "f2-p" + page);
+    }
+    var removed = map.removeByFileId(1L, 3);
+    assertThat(removed).hasSize(7);
+    // File 2 untouched
+    for (int page = 0; page < 10; page++) {
+      assertThat(map.get(2L, page)).isEqualTo("f2-p" + page);
+    }
+    // File 1: below-3 survives, at-3+ removed
+    for (int page = 0; page < 3; page++) {
+      assertThat(map.get(1L, page)).isEqualTo("f1-p" + page);
+    }
+    for (int page = 3; page < 10; page++) {
+      assertThat(map.get(1L, page)).isNull();
+    }
+  }
+
+  // Multi-section sweep — entries spread across all 16 sections by the
+  // hash function. Compaction must restore probe chains in every affected
+  // section, otherwise surviving below-cutoff entries become unreachable.
+  @Test
+  public void removeByFileIdRangeAcrossAllSections() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int pagesPerFile = 200;
+    for (int page = 0; page < pagesPerFile; page++) {
+      map.put(42L, page, "p" + page);
+    }
+    var removed = map.removeByFileId(42L, 100);
+    assertThat(removed).hasSize(100);
+    for (int page = 0; page < 100; page++) {
+      assertThat(map.get(42L, page))
+          .as("page %d (< 100) must survive multi-section compaction", page)
+          .isEqualTo("p" + page);
+    }
+    for (int page = 100; page < pagesPerFile; page++) {
+      assertThat(map.get(42L, page))
+          .as("page %d (>= 100) must be removed", page)
+          .isNull();
+    }
+    assertThat(map.size()).isEqualTo(100);
+  }
+
+  // fileId=0 / pageIndex=0 must not be confused with empty entry slots. The
+  // section's slot-empty check is `entries[i] == null`, but a brittle filter
+  // could regress to comparing fileId to a 0 sentinel.
+  @Test
+  public void removeByFileIdRangeWithFileIdZero() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(0L, 0, "f0-p0");
+    map.put(0L, 1, "f0-p1");
+    map.put(0L, 2, "f0-p2");
+    map.put(1L, 0, "f1-p0");
+
+    var removed = map.removeByFileId(0L, 1);
+    assertThat(removed).containsExactlyInAnyOrder("f0-p1", "f0-p2");
+    assertThat(map.get(0L, 0)).isEqualTo("f0-p0");
+    assertThat(map.get(0L, 1)).isNull();
+    assertThat(map.get(0L, 2)).isNull();
+    assertThat(map.get(1L, 0)).isEqualTo("f1-p0");
+  }
+
+  // Concurrent inserts into the same fileId while a partial-range sweep runs.
+  // The recovery pass holds higher-level locks that exclude concurrent
+  // allocations, but the primitive itself must still tolerate the race
+  // without corruption (each section uses a write-lock; concurrent put on
+  // a not-yet-swept section may survive, on a sweeping section it blocks).
+  //
+  // Synchronisation: a CyclicBarrier(2) pins both threads to enter their
+  // tight loops at the same wall-clock instant so the race window is
+  // exercised on every run — a bare start()/join() lets the inserter
+  // finish before the sweep starts (or vice versa) on a lightly-loaded host,
+  // hiding any future regression that drops the per-section write lock.
+  // An UncaughtExceptionHandler captures any throwable from the inserter so
+  // an assertion at the end can flag silent corruption (e.g., a NullPointer
+  // surfaced inside put() during a concurrent rehash). The post-run size()
+  // check pins the section-aggregated counter against a manual survivor
+  // count — a corrupted size counter would silently drift here.
+  @Test
+  public void removeByFileIdRangeWithConcurrentInsertsIsRaceFree() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>();
+    // Seed the map with pages [0, 1000) for the target file
+    for (int page = 0; page < 1000; page++) {
+      map.put(7L, page, "seed-" + page);
+    }
+
+    // Insert pages [1000, 2000) while the sweep runs. Concurrent inserts may
+    // race the sweep — those inserted in already-swept sections survive (they
+    // are at pageIndex >= minPageIndex but inserted after the sweep visited
+    // the section); those inserted in not-yet-swept sections may be dropped
+    // by the sweep. The contract is that no entry is corrupted and no segment
+    // lock is left in an inconsistent state.
+    var barrier = new CyclicBarrier(2);
+    var inserterFailure = new AtomicReference<Throwable>();
+    var inserter =
+        new Thread(
+            () -> {
+              try {
+                barrier.await();
+                for (int page = 1000; page < 2000; page++) {
+                  map.put(7L, page, "concurrent-" + page);
+                }
+              } catch (Throwable t) {
+                inserterFailure.set(t);
+              }
+            });
+    inserter.setUncaughtExceptionHandler((thread, throwable) -> inserterFailure.set(throwable));
+    inserter.start();
+    // Main thread: barrier-sync with the inserter, then start the sweep at the
+    // same instant. The await() returns once both parties reach the barrier; the
+    // sweep below races the inserter's tight put() loop on the very next
+    // instruction on both threads.
+    barrier.await();
+    map.removeByFileId(7L, 500);
+    inserter.join();
+
+    // Inserter must not have thrown silently — a NullPointer or
+    // ConcurrentModificationException leaking out would otherwise be lost.
+    assertThat(inserterFailure.get())
+        .as("inserter thread must not throw during concurrent put + sweep")
+        .isNull();
+
+    // Every surviving entry must be findable via get() — the probe chains
+    // are intact after compaction.
+    for (int page = 0; page < 500; page++) {
+      assertThat(map.get(7L, page))
+          .as("seeded page %d (< 500) must survive", page)
+          .isEqualTo("seed-" + page);
+    }
+    // Above-500 seed pages are all removed; concurrent inserts may or may not
+    // be present. Sanity-check that every survivor at pageIndex >= 500 (if
+    // any) has the "concurrent-" prefix, i.e. it was inserted after the sweep
+    // pass through that section.
+    int survivorsAboveCutoff = 0;
+    for (int page = 500; page < 2000; page++) {
+      var v = map.get(7L, page);
+      if (v != null) {
+        assertThat(v)
+            .as("any survivor at page %d (>= 500) must be a concurrent insert", page)
+            .startsWith("concurrent-");
+        survivorsAboveCutoff++;
+      }
+    }
+
+    // Aggregated size() must agree with the manual survivor count
+    // (500 below-cutoff seeds + above-cutoff concurrent inserts that won the race).
+    // A corrupted size counter — for example, one that double-decrements during
+    // a rehash race — would diverge here silently.
+    assertThat(map.size())
+        .as("section-aggregated size() must agree with the manual survivor count")
+        .isEqualTo(500 + survivorsAboveCutoff);
   }
 
   // ---- clear() ----

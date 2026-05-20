@@ -20,11 +20,14 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -34,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.Isolate
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValueSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
+import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -224,5 +228,45 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
    */
   public static String generateLockName(int collectionId) {
     return FILE_NAME_PREFIX + collectionId + FILE_EXTENSION;
+  }
+
+  /**
+   * Recovery-pass iteration delegate: invokes
+   * {@link SharedLinkBagBTree#verifyAndTruncateOrphans(AtomicOperation, ReadCache, WriteCache)}
+   * on every loaded {@link SharedLinkBagBTree} held in {@link #fileIdBTreeMap}.
+   *
+   * <p>Dispatches in undefined order — each per-component helper is independent (one
+   * {@code .grb} file per call, no shared state across SLBB instances) so iteration order
+   * does not affect the recovery outcome. When {@code fileIdBTreeMap} is empty (no
+   * collections loaded), the method returns without iterating.
+   *
+   * <p>Per-SLBB failure handling: each dispatch is wrapped in a try/catch that absorbs
+   * {@link StorageException} and {@link IOException} with a WARN log and continues with
+   * the next SLBB. The orphan-truncation pass is best-effort — one corrupted SLBB must
+   * not poison recovery for the rest.
+   *
+   * <p>This delegate is the orchestrator-facing surface for SLBB orphan truncation; the
+   * manager intentionally exposes no public iteration accessor over its internal map.
+   *
+   * @param atomicOperation the enclosing recovery-pass atomic operation
+   * @param readCache       read cache the truncate dispatches through
+   * @param writeCache      write cache backing the read cache
+   */
+  public void verifyAndTruncateAllOrphans(
+      final AtomicOperation atomicOperation,
+      final ReadCache readCache,
+      final WriteCache writeCache) {
+    for (final var bTree : fileIdBTreeMap.values()) {
+      try {
+        bTree.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
+      } catch (final StorageException | IOException e) {
+        LogManager.instance()
+            .warn(
+                this,
+                String.format(
+                    "Orphan-truncation skipped for SharedLinkBagBTree '%s' (fileId=%d): %s",
+                    bTree.getName(), bTree.getFileId(), e.getMessage()));
+      }
+    }
   }
 }

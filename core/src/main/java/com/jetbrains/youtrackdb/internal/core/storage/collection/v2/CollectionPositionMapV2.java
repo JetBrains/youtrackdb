@@ -133,9 +133,13 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileId = addFile(atomicOperation, getFullName());
 
-    if (getFilledUpTo(atomicOperation, fileId) == 0) {
-      // Fresh file -- append the entry-point page.
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+    // Bootstrap emptiness check on the EntryPoint page (chicken-and-egg): the page
+    // being inspected IS the EntryPoint itself, so logical bookkeeping (MapEntryPoint
+    // fileSize) is not yet available -- physical extent is the only source of truth.
+    if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
+        == 0) {
+      // Fresh file -- append the entry-point page (statically known-new at pageIndex 0).
+      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);
         mapEntryPoint.setFileSize(0);
       }
@@ -165,6 +169,27 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   public void delete(final AtomicOperation atomicOperation) throws IOException {
     deleteFile(atomicOperation, fileId);
+  }
+
+  @Override
+  protected int readLogicalPageCountFromEntryPoint(@Nonnull final AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var entryPointEntry = loadPageForRead(atomicOperation, fileId, 0)) {
+      final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
+      return mapEntryPoint.getFileSize();
+    }
+  }
+
+  @Override
+  protected String getComponentTypeName() {
+    return "CollectionPositionMapV2";
+  }
+
+  @Override
+  protected String getLogicalCountFieldName() {
+    // EP wrapper class MapEntryPoint stores the bucket-page count (NOT including the EP
+    // page itself) as fileSize; create() seeds it at 0. See create() at lines 133-153.
+    return "fileSize";
   }
 
   void rename(final String newName) throws IOException {
@@ -205,20 +230,19 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       final var lastPage = mapEntryPoint.getFileSize();
 
-      var filledUpTo = getFilledUpTo(atomicOperation, fileId);
-
-      assert lastPage <= filledUpTo - 1;
-
       if (lastPage == 0) {
-        // No bucket pages exist yet -- create the first one.
-        if (lastPage == filledUpTo - 1) {
-          // Physical file has no pages beyond the entry point -- append a new one.
-          cacheEntry = addPage(atomicOperation, fileId);
-          filledUpTo++;
-        } else {
-          // Reuse an existing-but-unclaimed page (recovery scenario).
-          cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
-        }
+        // No bucket pages exist yet -- create the first one. The per-component
+        // lock + entry-point page write lock + monotonic mapEntryPoint.fileSize
+        // bookkeeping guarantee lastPage + 1 sits at or above the in-progress
+        // allocation floor on entry, so the AO-layer allocator-only contract
+        // is satisfied. The partial-replay-orphan recovery hazard (a prior
+        // transaction physically extended the file via EnsurePageIsValidInFileTask
+        // but the WAL never committed, so the next allocator here would see
+        // pageIndex (= lastPage + 1) below writeCache.getFilledUpTo(fileId))
+        // surfaces as a hard IllegalStateException from the AO allocator rather
+        // than silent reuse; end-to-end coverage of that recovery flow lives in
+        // the integration regression test.
+        cacheEntry = allocatePageForWrite(atomicOperation, fileId, lastPage + 1);
         mapEntryPoint.setFileSize(lastPage + 1);
 
         clear = true;
@@ -235,15 +259,17 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
         if (bucket.isFull()) {
           // Current last bucket page is full -- allocate a new bucket page.
+          // Same invariant as the first-bucket branch above: per-component
+          // lock + entry-point page write lock + monotonic mapEntryPoint.fileSize
+          // keep lastPage + 1 at or above the in-progress allocation floor,
+          // so the AO-layer allocator-only contract holds. A partial-replay
+          // orphan (physical extent ahead of logical fileSize after a crash)
+          // would surface as a hard IllegalStateException from the AO allocator
+          // rather than silent reuse; end-to-end recovery coverage lives in the
+          // integration regression test.
           cacheEntry.close();
 
-          assert lastPage <= filledUpTo - 1;
-
-          if (lastPage == filledUpTo - 1) {
-            cacheEntry = addPage(atomicOperation, fileId);
-          } else {
-            cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
-          }
+          cacheEntry = allocatePageForWrite(atomicOperation, fileId, lastPage + 1);
 
           mapEntryPoint.setFileSize(lastPage + 1);
 
@@ -747,6 +773,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     return RID.COLLECTION_POS_INVALID;
   }
 
+  @Override
   public long getFileId() {
     return fileId;
   }

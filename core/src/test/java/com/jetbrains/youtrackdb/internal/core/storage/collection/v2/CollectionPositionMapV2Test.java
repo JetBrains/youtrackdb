@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,11 +66,17 @@ public class CollectionPositionMapV2Test {
 
   private CollectionPositionMapV2 positionMap;
 
+  // Page size used by both the buffer pool and the WriteCache mock. Aligned with the
+  // production default (DISK_CACHE_PAGE_SIZE=8 KB) so the in-test buffers match the
+  // shrink-target arithmetic the verifyAndTruncateOrphans tests pin.
+  private static final int PAGE_SIZE_BYTES = 8 * 1024;
+
   @Before
   public void setUp() throws IOException {
     bufferPool = ByteBufferPool.instance(null);
     mockReadCache = mock(ReadCache.class);
     mockWriteCache = mock(WriteCache.class);
+    when(mockWriteCache.pageSize()).thenReturn(PAGE_SIZE_BYTES);
     mockStorage = mock(AbstractStorage.class);
 
     var mockAtomicOperationsManager = mock(AtomicOperationsManager.class);
@@ -235,9 +242,12 @@ public class CollectionPositionMapV2Test {
     assertThat(overflowPos).isEqualTo((long) maxEntries);
   }
 
-  // When the bucket is full and a pre-existing (but unused) page follows in the file,
-  // that page should be reused instead of adding a brand-new page. This covers the
-  // allocate() branch where lastPage < filledUpTo-1 after bucket overflow.
+  // When the bucket is full and a pre-existing (but unused) page follows in the
+  // file, the cache-layer WriteCache.loadOrAdd allows that page to be reused
+  // instead of adding a brand-new page. This test pins the cache-layer behavior
+  // directly via the broadened Mockito stub above; the AOBT-layer wrapper would
+  // reject this orphan-reuse shape with IllegalStateException under the
+  // allocator-only contract (AllocatePageForWriteTest pins the rejection).
   @Test
   public void allocationReusesExistingPageAfterBucketOverflow() throws IOException {
     var maxEntries = CollectionPositionMapBucket.MAX_ENTRIES;
@@ -252,13 +262,16 @@ public class CollectionPositionMapV2Test {
     makePage(pageCount);
     pageCount++;
 
-    // Next allocation should reuse the pre-existing page rather than calling addPage.
+    // Next allocation should reuse the pre-existing page rather than allocating a new one.
     var overflowPos = positionMap.allocate(atomicOperation);
     assertThat(overflowPos).isEqualTo((long) maxEntries);
   }
 
-  // When lastPage == 0 and there is already a pre-existing page at index 1 (but the
-  // entry-point hasn't tracked it yet), allocate should load that page and reuse it.
+  // When lastPage == 0 and there is already a pre-existing page at index 1 (but
+  // the entry-point hasn't tracked it yet), the cache-layer WriteCache.loadOrAdd
+  // allows that page to be loaded and reused. As above, this test pins the
+  // cache-layer behavior via the broadened Mockito stub; the AOBT-layer wrapper
+  // would reject this orphan-reuse shape under the allocator-only contract.
   @Test
   public void firstAllocationReusesExistingPageWhenFilledUpToIsAhead() throws IOException {
     // The setUp() create() left pageCount == 1 (just the entry-point).
@@ -1102,6 +1115,114 @@ public class CollectionPositionMapV2Test {
   }
 
   // ---------------------------------------------------------------------------
+  // Recovery-time orphan truncation (verifyAndTruncateOrphans)
+  // ---------------------------------------------------------------------------
+  //
+  // Anchors: CollectionPositionMapV2.create() at :133-153 allocates page 0 then
+  // setFileSize(0), so a healthy fresh map has physical=1 (EP only) and fileSize=0.
+  // allocate() bumps fileSize when extending to a new bucket page; pages map 1:1 to
+  // bucket pages with the EP page sitting implicitly at index 0. The helper therefore
+  // expects physical pages == fileSize + 1 in steady state.
+
+  // Orphan-present branch: physical file has N pages past (fileSize + 1). The helper
+  // must invoke ReadCache.shrinkFile with targetBytes = (fileSize + 1) * pageSize.
+  @Test
+  public void verifyAndTruncateOrphansShrinksWhenPhysicalExceedsLogical() throws IOException {
+    // Allocate three bucket pages so the EP fileSize ticks up to 3 (pages 1..3 are
+    // bucket pages, EP at page 0). physical == fileSize + 1 == 4 here.
+    allocatePositions(3 * CollectionPositionMapBucket.MAX_ENTRIES);
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(3);
+    // Simulate two orphan pages tail-extending the file past the logical horizon.
+    makePage(4);
+    makePage(5);
+    pageCount = 6;
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    final long expectedTarget = 4L * PAGE_SIZE_BYTES; // (fileSize=3 + 1) * pageSize
+    verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
+  }
+
+  // Clean branch (physical == fileSize + 1): the helper still dispatches to
+  // ReadCache.shrinkFile, but with targetBytes equal to current physical bytes so the
+  // cache layer's pre-flight makes it a no-op. The helper does NOT skip the call —
+  // making the targetBytes match production-physical keeps the dispatch shape uniform
+  // across orphan-present, clean, and boundary-exact-target scenarios.
+  @Test
+  public void verifyAndTruncateOrphansNoOpOnCleanShape() throws IOException {
+    allocatePositions(2 * CollectionPositionMapBucket.MAX_ENTRIES);
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(2);
+    assertThat(pageCount).isEqualTo(3);
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    final long expectedTarget = 3L * PAGE_SIZE_BYTES;
+    verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
+  }
+
+  // Boundary case: physical file size exactly matches the helper-computed target.
+  // Catches off-by-one in the (fileSize + 1) * pageSize arithmetic — if the helper
+  // computed fileSize * pageSize by mistake, this test would observe a smaller target.
+  @Test
+  public void verifyAndTruncateOrphansBoundaryExactTarget() throws IOException {
+    allocatePositions(CollectionPositionMapBucket.MAX_ENTRIES);
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(1);
+    assertThat(pageCount).isEqualTo(2);
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    final long expectedTarget = 2L * PAGE_SIZE_BYTES;
+    verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
+  }
+
+  // Corruption-guard branch: EP fileSize == 0 but physical file holds more than the
+  // EP page. WAL replay should have prevented this shape; the helper skips the
+  // truncate rather than mask the inconsistency. ReadCache.shrinkFile MUST NOT be
+  // invoked.
+  //
+  // WARN-log emission is NOT pinned here. The BTree sibling suite
+  // (BTreeVerifyAndTruncateOrphansTest.verifyAndTruncateOrphansSkipsOnCorruptionSignal)
+  // carries the WARN-log capture sentinel for budget reasons — the corruption-skip code
+  // shape is identical across BTree / SLBB / CPMV2 / PCV2 (pre-format String.format +
+  // LogManager.instance().warn(this, msg)), so a regression that nukes the logger
+  // entirely or demotes the level would surface there. If the CPMV2-specific log
+  // substring changes (e.g., the format anchor diverges from "Storage corruption
+  // signal: CollectionPositionMapV2 '%s' EP reports fileSize=0 ..."), add a parallel
+  // capture rig here.
+  @Test
+  public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
+    // create() left pageCount == 1 (just the EP) with fileSize == 0. Add an orphan
+    // page at index 1 without bumping the EP fileSize counter — the corruption shape
+    // the guard detects.
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
+    makePage(1);
+    pageCount = 2;
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
+  }
+
+  // Fresh-map branch (legitimate post-create state): fileSize == 0 AND physical == 1
+  // (EP only). The corruption guard MUST NOT fire — both conditions of the
+  // (fileSize == 0 && physicalBytes > pageSize) test are required, and physical == 1
+  // page fails the second clause. The helper dispatches a no-op shrink (target =
+  // pageSize via the max(pageSize, ...) floor).
+  @Test
+  public void verifyAndTruncateOrphansFreshMapDispatchesWithFloorTarget() throws IOException {
+    // setUp() left pageCount == 1 (EP page only) and EP fileSize == 0 — the legitimate
+    // post-create state.
+    assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
+    assertThat(pageCount).isEqualTo(1);
+
+    positionMap.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    // max(pageSize, (0 + 1) * pageSize) == pageSize. The cache layer's pre-flight
+    // then makes the shrink itself a no-op at the WOWCache layer.
+    verify(mockReadCache).shrinkFile(FILE_ID, (long) PAGE_SIZE_BYTES, mockWriteCache);
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
@@ -1201,9 +1322,25 @@ public class CollectionPositionMapV2Test {
 
     when(op.filledUpTo(FILE_ID)).thenAnswer(inv -> (long) pageCount);
 
-    when(op.addPage(FILE_ID)).thenAnswer(inv -> {
-      var entry = getOrCreatePage(pageCount);
-      pageCount++;
+    // Production callers pass a statically-known fresh pageIndex: 0 from
+    // CollectionPositionMapV2.create on a brand-new file, and lastPage + 1 from
+    // allocate(), where lastPage tracks the monotonic logical fileSize under the
+    // per-component lock. The mock returns a CacheEntry for whatever index is
+    // requested and grows the simulated file to cover it; it deliberately
+    // broadens the AOBT allocator-only contract so two of the tests below
+    // (allocationReusesExistingPageAfterBucketOverflow,
+    // firstAllocationReusesExistingPageWhenFilledUpToIsAhead) can pin the
+    // cache-layer WriteCache.loadOrAdd totality directly. The structural fix
+    // converted partial-replay-orphan recovery from silent reuse at the
+    // AOBT-layer wrapper to a loud IllegalStateException — those two tests
+    // exercise the orphan-reuse shape the cache layer still supports, while
+    // the AOBT-layer rejection is pinned in AllocatePageForWriteTest.
+    when(op.allocatePageForWrite(eq(FILE_ID), anyLong())).thenAnswer(inv -> {
+      int pIdx = ((Long) inv.getArgument(1)).intValue();
+      var entry = getOrCreatePage(pIdx);
+      if (pIdx >= pageCount) {
+        pageCount = pIdx + 1;
+      }
       return entry;
     });
 

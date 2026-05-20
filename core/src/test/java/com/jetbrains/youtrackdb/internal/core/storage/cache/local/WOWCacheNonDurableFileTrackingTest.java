@@ -1442,7 +1442,9 @@ public class WOWCacheNonDurableFileTrackingTest {
    * Writes data to a page and stores it in the write cache.
    */
   private void writeAndStorePage(long fileId, int pageIndex, byte[] data) throws Exception {
-    wowCache.allocateNewPage(fileId);
+    // Extend the file to the target pageIndex via the total loadOrAdd primitive;
+    // release the temporary referrer immediately since the subsequent load() bumps its own.
+    wowCache.loadOrAdd(fileId, pageIndex, false).decrementReadersReferrer();
     var ptr = wowCache.load(fileId, pageIndex, new ModifiableBoolean(), false);
     long stamp = ptr.acquireExclusiveLock();
     var buf = ptr.getBuffer();

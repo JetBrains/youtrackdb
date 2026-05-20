@@ -132,7 +132,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long fileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     var ndCacheEntry = createCacheEntryWithBuffer(fileId, 0);
-    when(readCache.allocateNewPage(eq(fileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(fileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(ndCacheEntry);
 
     var result = op.commitChanges(42L, wal);
@@ -144,7 +144,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     verify(wal, never()).log(any());
 
     // Cache application still happens for non-durable pages
-    verify(readCache).allocateNewPage(eq(fileId), any(), isNull());
+    verify(readCache).loadOrAddForWrite(eq(fileId), anyLong(), any(), anyBoolean(), isNull());
     // endLSN must NOT be set on non-durable cache entries
     verify(ndCacheEntry, never()).setEndLSN(any());
   }
@@ -177,7 +177,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     var op = createOperationWithWAL();
     long fileId = setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
 
-    mockAllocateNewPage(fileId, 0);
+    mockLoadOrAddForWrite(fileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
@@ -219,7 +219,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Set commitTs (normally done by startToApplyOperations)
     op.startToApplyOperations(42L);
 
-    mockAllocateNewPage(fileId, 0);
+    mockLoadOrAddForWrite(fileId, 0);
 
     // commitChanges must succeed — the internal flushPendingOperations
     // should flush the pending op and set changeLSN
@@ -249,8 +249,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
-    mockAllocateNewPage(durableFileId, 0);
-    mockAllocateNewPage(ndFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
+    mockLoadOrAddForWrite(ndFileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
@@ -291,7 +291,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Delete the non-durable file
     op.deleteFile(existingFileId);
 
-    mockAllocateNewPage(durableFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
@@ -367,16 +367,23 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Also add a durable file so the operation isn't empty
     long durableFileId =
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
-    mockAllocateNewPage(durableFileId, 0);
 
-    // Mock cache application for the existing non-durable file's page
+    // Both the durable file and the existing non-durable file now route their cache
+    // application through readCache.loadOrAddForWrite (the AOBT.commitChanges primitive).
+    // Consolidate the per-file stubs into a single answer so the durable and non-durable
+    // paths each get a real-buffer-backed CacheEntry without one stub overriding the
+    // other.
+    var durableCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
     var ndCacheEntry = createCacheEntryWithBuffer(fullFileId, 0);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenAnswer(invocation -> {
           long fId = invocation.getArgument(0);
           if (fId == fullFileId) {
             return ndCacheEntry;
+          }
+          if (fId == durableFileId) {
+            return durableCacheEntry;
           }
           return null;
         });
@@ -408,16 +415,16 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long fileId1 = setupNewFileWithPage(op, "nd-file1.dat", true);
     long fileId2 = setupNewFileWithPage(op, "nd-file2.dat", true);
 
-    mockAllocateNewPage(fileId1, 0);
-    mockAllocateNewPage(fileId2, 0);
+    mockLoadOrAddForWrite(fileId1, 0);
+    mockLoadOrAddForWrite(fileId2, 0);
 
     var result = op.commitChanges(42L, wal);
 
     assertThat(loggedRecords).isEmpty();
     assertThat(result).isNull();
     // Cache application still happens for both non-durable files
-    verify(readCache).allocateNewPage(eq(fileId1), any(), isNull());
-    verify(readCache).allocateNewPage(eq(fileId2), any(), isNull());
+    verify(readCache).loadOrAddForWrite(eq(fileId1), anyLong(), any(), anyBoolean(), isNull());
+    verify(readCache).loadOrAddForWrite(eq(fileId2), anyLong(), any(), anyBoolean(), isNull());
   }
 
   /**
@@ -455,22 +462,22 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     var ndCacheEntry = createCacheEntryWithBuffer(ndFileId, 0);
-    when(readCache.allocateNewPage(eq(ndFileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(ndFileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(ndCacheEntry);
 
     op.commitChanges(42L, wal);
 
-    // allocateNewPage for non-durable file must receive null startLSN
-    verify(readCache).allocateNewPage(eq(ndFileId), any(), isNull());
+    // loadOrAddForWrite for non-durable file must receive null startLSN
+    verify(readCache).loadOrAddForWrite(eq(ndFileId), anyLong(), any(), anyBoolean(), isNull());
     // setEndLSN must NOT be called on non-durable cache entries
     verify(ndCacheEntry, never()).setEndLSN(any());
   }
 
   /**
-   * TB6 — Mixed operation must call setEndLSN(txEndLsn) on the durable cache
-   * entry but NOT on the non-durable entry. DurablePage.setLsn(changeLSN) is
-   * also guarded by the same condition but writes directly to a ByteBuffer, so
-   * it is not verifiable via Mockito — only setEndLSN is checked here.
+   * A mixed operation must call setEndLSN(txEndLsn) on the durable cache entry
+   * but NOT on the non-durable entry. DurablePage.setLsn(changeLSN) is also
+   * guarded by the same condition but writes directly to a ByteBuffer, so it
+   * is not verifiable via Mockito — only setEndLSN is checked here.
    */
   @Test
   public void mixedOperationSetsEndLSNOnlyOnDurableCacheEntry()
@@ -483,12 +490,12 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Durable cache entry — needs a real buffer for DurablePage.restoreChanges
     var durableCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
-    when(readCache.allocateNewPage(eq(durableFileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(durableFileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(durableCacheEntry);
 
     // Non-durable cache entry — also needs a real buffer
     var ndCacheEntry = createCacheEntryWithBuffer(ndFileId, 0);
-    when(readCache.allocateNewPage(eq(ndFileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(ndFileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(ndCacheEntry);
 
     var txEndLsn = op.commitChanges(42L, wal);
@@ -502,9 +509,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * TC6 — Truncating a non-durable file must not produce any WAL records
-   * (truncate doesn't use FileDeletedWALRecord — it has no WAL record type at
-   * all). The cache truncation (readCache.truncateFile) must still be applied.
+   * Truncating a non-durable file must not produce any WAL records (truncate
+   * doesn't use FileDeletedWALRecord — it has no WAL record type at all). The
+   * cache truncation (readCache.truncateFile) must still be applied.
    */
   @Test
   public void truncateNonDurableFileSkipsWALButAppliesCache()
@@ -524,7 +531,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Also add a durable change so the operation has something to commit
     long durableFileId =
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
-    mockAllocateNewPage(durableFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
 
     op.commitChanges(42L, wal);
 
@@ -557,9 +564,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * TY4 — WAL write-then-replay round-trip: create a mixed operation with both
-   * durable and non-durable files, capture the WAL records from commitChanges(),
-   * verify only durable-file records are emitted, then feed those records into
+   * WAL write-then-replay round-trip: create a mixed operation with both durable
+   * and non-durable files, capture the WAL records from commitChanges(), verify
+   * only durable-file records are emitted, then feed those records into
    * restoreAtomicUnit() and verify the durable file's page is restored.
    */
   @Test
@@ -572,8 +579,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
-    mockAllocateNewPage(durableFileId, 0);
-    mockAllocateNewPage(ndFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
+    mockLoadOrAddForWrite(ndFileId, 0);
 
     op.commitChanges(42L, wal);
 
@@ -609,9 +616,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     when(restoreWriteCache.fileNameById(durableFileId))
         .thenReturn("durable-file.dat");
 
-    // restoreAtomicUnit calls loadForWrite for PageOperation
+    // restoreAtomicUnit calls loadOrAddForWrite for PageOperation
     var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
-    when(restoreReadCache.loadForWrite(
+    when(restoreReadCache.loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), anyBoolean(), any()))
         .thenReturn(restoreCacheEntry);
 
@@ -633,7 +640,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     restoreMethod.invoke(storage, atomicUnit, atLeastOnePageUpdate);
 
     // Durable file's page must have been loaded for write (= restored)
-    verify(restoreReadCache).loadForWrite(
+    verify(restoreReadCache).loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), eq(true), any());
     assertThat(atLeastOnePageUpdate.getValue()).isTrue();
 
@@ -642,7 +649,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         "durable-file.dat", durableFileId, restoreWriteCache);
 
     // Non-durable file must NOT have been restored (no WAL records reference it)
-    verify(restoreReadCache, never()).loadForWrite(
+    verify(restoreReadCache, never()).loadOrAddForWrite(
         eq(ndFileId), anyLong(), eq(restoreWriteCache), anyBoolean(), any());
     verify(restoreReadCache, never()).addFile(
         eq("nd-file.dat"), anyLong(), any());
@@ -652,7 +659,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
    * SF9 — Verifies the deletedNonDurableFileIds skip path in restoreAtomicUnit():
    * when WAL records reference a non-durable file ID that was deleted during crash
    * recovery, restoreAtomicUnit() must skip those records without calling
-   * readCache.addFile, readCache.deleteFile, or readCache.loadForWrite for that file.
+   * readCache.addFile, readCache.deleteFile, or readCache.loadOrAddForWrite for that file.
    * This tests the last line of defense in crash recovery — even if stale WAL records
    * exist for non-durable files, they must not be replayed.
    */
@@ -744,10 +751,10 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         "durable-file.dat", durableFileId, restoreWriteCache);
 
     // Non-durable file must have been skipped entirely — no addFile, no
-    // loadForWrite, no deleteFile for the non-durable file ID
+    // loadOrAddForWrite, no deleteFile for the non-durable file ID
     verify(restoreReadCache, never()).addFile(
         eq("nd-file.dat"), anyLong(), any());
-    verify(restoreReadCache, never()).loadForWrite(
+    verify(restoreReadCache, never()).loadOrAddForWrite(
         eq(ndFileId), anyLong(), any(), anyBoolean(), any());
     verify(restoreReadCache, never()).deleteFile(eq(ndFileId), any());
 
@@ -803,8 +810,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     long fileId = op.addFile(fileName, nonDurable);
 
-    // Add a page to the new file
-    var page = op.addPage(fileId);
+    // Add page 0 to the new file (fresh-file: allocator-only contract uses
+    // allocationFloor=0).
+    var page = op.allocatePageForWrite(fileId, 0);
 
     // Make a change so hasChanges() returns true
     page.getChanges().setByteValue(null, (byte) 1, 100);
@@ -817,14 +825,18 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * Mocks readCache.allocateNewPage() to return a CacheEntry with a real
-   * direct ByteBuffer at the expected page index. Uses eq(fileId) to avoid
-   * overwriting stubs when called for multiple files.
+   * Mocks {@code readCache.loadOrAddForWrite()} (the primitive AOBT.commitChanges uses to
+   * apply new-page entries to the cache) to return a CacheEntry with a real direct
+   * ByteBuffer at the expected page index. Uses {@code eq(fileId)} to avoid overwriting
+   * stubs when called for multiple files. {@code loadOrAddForWrite} is total on both
+   * engines (disk: {@code WriteCache.loadOrAdd} gap-fills; in-memory: AOBT eagerly
+   * installs the page during the TX), so commitChanges expects a non-null return on every
+   * call.
    */
-  private void mockAllocateNewPage(long fileId, int pageIndex)
+  private void mockLoadOrAddForWrite(long fileId, int pageIndex)
       throws IOException {
     var cacheEntry = createCacheEntryWithBuffer(fileId, pageIndex);
-    when(readCache.allocateNewPage(eq(fileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(fileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(cacheEntry);
   }
 

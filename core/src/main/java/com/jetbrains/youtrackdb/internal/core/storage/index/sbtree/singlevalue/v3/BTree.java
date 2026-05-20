@@ -192,20 +192,28 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             fileId = addFile(atomicOperation, getFullName());
             nullBucketFileId = addFile(atomicOperation, getName() + nullFileExtension);
 
-            try (final var entryPointCacheEntry = addPage(atomicOperation, fileId)) {
+            // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
+            try (final var entryPointCacheEntry =
+                allocatePageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
               final var entryPoint =
                   new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
               entryPoint.init();
             }
 
-            try (final var rootCacheEntry = addPage(atomicOperation, fileId)) {
+            // Fresh file: root bucket lives at the well-known ROOT_INDEX (1),
+            // immediately after the entry point page.
+            try (final var rootCacheEntry =
+                allocatePageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
               @SuppressWarnings("unused")
               final var rootBucket =
                   new CellBTreeSingleValueBucketV3<K>(rootCacheEntry);
               rootBucket.init(true);
             }
 
-            try (final var nullCacheEntry = addPage(atomicOperation, nullBucketFileId)) {
+            // Null-bucket file is its own fresh file; the null bucket page lives at
+            // pageIndex 0.
+            try (final var nullCacheEntry =
+                allocatePageForWrite(atomicOperation, nullBucketFileId, 0)) {
               @SuppressWarnings("unused")
               final var nullBucket =
                   new CellBTreeSingleValueV3NullBucket(nullCacheEntry);
@@ -860,6 +868,42 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         });
   }
 
+  /**
+   * Returns the disk-cache file id of this BTree's primary data file. Used by the
+   * recovery-time orphan-truncation pass to iterate the four EP-equipped storage
+   * components polymorphically; the three sibling components
+   * ({@code SharedLinkBagBTree}, {@code CollectionPositionMapV2},
+   * {@code PaginatedCollectionV2}) expose the same accessor.
+   */
+  @Override
+  public long getFileId() {
+    return fileId;
+  }
+
+  @Override
+  protected int readLogicalPageCountFromEntryPoint(@Nonnull final AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var entryPointCacheEntry =
+        loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+      final var entryPoint =
+          new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+      return entryPoint.getPagesSize();
+    }
+  }
+
+  @Override
+  protected String getComponentTypeName() {
+    return "BTree";
+  }
+
+  @Override
+  protected String getLogicalCountFieldName() {
+    // EP wrapper class CellBTreeSingleValueEntryPointV3 stores the highest occupied
+    // data-page index as pagesSize; init() seeds it at 1 (root + EP). See create()
+    // at lines 170-226.
+    return "pagesSize";
+  }
+
   @Override
   public void load(
       final String name,
@@ -1386,14 +1430,24 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   private void doAssertFreePages(AtomicOperation atomicOperation) throws IOException {
     final var pages = new IntOpenHashSet();
-    final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
+    // -ea assertion path only (called from assertFreePages). Read the logical
+    // page-count horizon from the entry point so the bound matches what the
+    // allocator publishes via setPagesSize, rather than the cache's physical
+    // filledUpTo which can transiently include speculative cross-tx pages.
+    final int upperBound;
+    try (final var entryPointCacheEntry =
+        loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+      final var entryPoint =
+          new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+      upperBound = entryPoint.getPagesSize() + 1;
+    }
 
-    for (var i = 2; i < filledUpTo; i++) {
+    for (var i = 2; i < upperBound; i++) {
       pages.add(i);
     }
 
     removeUsedPages((int) ROOT_INDEX, pages, atomicOperation);
-    removePagesStoredInFreeList(atomicOperation, pages, filledUpTo);
+    removePagesStoredInFreeList(atomicOperation, pages, upperBound);
 
     assert pages.isEmpty();
   }
@@ -2152,17 +2206,22 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             new CellBTreeSingleValueBucketV3<>(rightBucketEntry);
         entryPoint.setFreeListHead(bucket.getNextFreeListPage());
       } else {
-        var pageSize = entryPoint.getPagesSize();
-        if (pageSize < getFilledUpTo(atomicOperation, fileId) - 1) {
-          pageSize++;
-          rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-          entryPoint.setPagesSize(pageSize);
-        } else {
-          assert pageSize == getFilledUpTo(atomicOperation, fileId) - 1;
-
-          rightBucketEntry = addPage(atomicOperation, fileId);
-          entryPoint.setPagesSize(rightBucketEntry.getPageIndex());
-        }
+        // allocatePageForWrite registers a fresh overlay for any new pageIndex at
+        // or above the in-progress allocation floor (the entry-point write lock
+        // plus the monotonic pagesSize bookkeeping keep entryPoint.pagesSize + 1
+        // above the floor here), so the per-component pre-probe that previously
+        // discriminated between "reuse the next pre-allocated pageIndex when
+        // filledUpTo is ahead of pagesSize" and "extend the file via addPage" is
+        // no longer required. The new pageIndex is dictated by the logical size
+        // bookkeeping carried on the entry point. A partial-replay orphan
+        // (physical extent ahead of logical pagesSize after a crash) would
+        // surface as a hard IllegalStateException from the AO allocator-only
+        // guard rather than silent reuse; end-to-end recovery coverage lives in
+        // the integration regression test.
+        final var newPageIndex = entryPoint.getPagesSize() + 1;
+        rightBucketEntry =
+            allocatePageForWrite(atomicOperation, fileId, newPageIndex);
+        entryPoint.setPagesSize(newPageIndex);
       }
     }
 

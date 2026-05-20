@@ -44,6 +44,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     this.serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
   }
 
+  @Override
   public long getFileId() {
     return fileId;
   }
@@ -56,12 +57,17 @@ public final class SharedLinkBagBTree extends StorageComponent {
           try {
             fileId = addFile(atomicOperation, getFullName());
 
-            try (final var entryPointCacheEntry = addPage(atomicOperation, fileId)) {
+            // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
+            try (final var entryPointCacheEntry =
+                allocatePageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
               final var entryPoint = new EntryPoint(entryPointCacheEntry);
               entryPoint.init();
             }
 
-            try (final var rootCacheEntry = addPage(atomicOperation, fileId)) {
+            // Fresh file: root bucket lives at pageIndex ROOT_INDEX, immediately
+            // after the entry point page.
+            try (final var rootCacheEntry =
+                allocatePageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
               final var rootBucket = new Bucket(rootCacheEntry);
               rootBucket.init(true);
             }
@@ -96,6 +102,28 @@ public final class SharedLinkBagBTree extends StorageComponent {
             releaseExclusiveLock();
           }
         });
+  }
+
+  @Override
+  protected int readLogicalPageCountFromEntryPoint(@Nonnull final AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var entryPointCacheEntry =
+        loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+      final var entryPoint = new EntryPoint(entryPointCacheEntry);
+      return entryPoint.getPagesSize();
+    }
+  }
+
+  @Override
+  protected String getComponentTypeName() {
+    return "SharedLinkBagBTree";
+  }
+
+  @Override
+  protected String getLogicalCountFieldName() {
+    // EP wrapper class ridbagbtree.EntryPoint stores the highest occupied data-page
+    // index as pagesSize; init() seeds it at 1 (root + EP). See create() at lines 51-77.
+    return "pagesSize";
   }
 
   /**
@@ -917,18 +945,19 @@ public final class SharedLinkBagBTree extends StorageComponent {
     try (final var entryPointCacheEntry =
         loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      var pageSize = entryPoint.getPagesSize();
-
-      if (pageSize < getFilledUpTo(atomicOperation, fileId) - 1) {
-        pageSize++;
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-        entryPoint.setPagesSize(pageSize);
-      } else {
-        assert pageSize == getFilledUpTo(atomicOperation, fileId) - 1;
-
-        rightBucketEntry = addPage(atomicOperation, fileId);
-        entryPoint.setPagesSize(rightBucketEntry.getPageIndex());
-      }
+      // allocatePageForWrite registers a fresh overlay for any new pageIndex at or
+      // above the in-progress allocation floor (the entry-point write lock plus the
+      // monotonic pagesSize bookkeeping keep entryPoint.pagesSize + 1 above the
+      // floor here), so the per-component pre-probe that previously discriminated
+      // between "reuse pre-allocated pageIndex" and "extend via addPage" is no
+      // longer required. A partial-replay orphan (physical extent ahead of logical
+      // pagesSize after a crash) would surface as a hard IllegalStateException from
+      // the AO allocator-only guard rather than silent reuse; end-to-end recovery
+      // coverage lives in the integration regression test.
+      final var newPageIndex = entryPoint.getPagesSize() + 1;
+      rightBucketEntry =
+          allocatePageForWrite(atomicOperation, fileId, newPageIndex);
+      entryPoint.setPagesSize(newPageIndex);
     }
 
     try {
@@ -1045,29 +1074,22 @@ public final class SharedLinkBagBTree extends StorageComponent {
     try (final var entryPointCacheEntry =
         loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      var pageSize = entryPoint.getPagesSize();
+      // Two-page allocation back-to-back. Each call must target a fresh
+      // pageIndex; reusing one "pagesSize + 1" value would hit the
+      // same-pageIndex early-return in
+      // AtomicOperationBinaryTracking#allocatePageForWrite, returning the
+      // SAME overlay to both bucket entries and silently corrupting the
+      // left-bucket writes once the right-bucket init() ran. A single
+      // setPagesSize at the end publishes the post-allocation horizon.
+      final var leftPageIndex = entryPoint.getPagesSize() + 1;
+      leftBucketEntry =
+          allocatePageForWrite(atomicOperation, fileId, leftPageIndex);
 
-      final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
+      final var rightPageIndex = leftPageIndex + 1;
+      rightBucketEntry =
+          allocatePageForWrite(atomicOperation, fileId, rightPageIndex);
 
-      if (pageSize < filledUpTo - 1) {
-        pageSize++;
-        leftBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-      } else {
-        assert pageSize == filledUpTo - 1;
-        leftBucketEntry = addPage(atomicOperation, fileId);
-        pageSize = leftBucketEntry.getPageIndex();
-      }
-
-      if (pageSize < filledUpTo) {
-        pageSize++;
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-      } else {
-        assert pageSize == filledUpTo;
-        rightBucketEntry = addPage(atomicOperation, fileId);
-        pageSize = rightBucketEntry.getPageIndex();
-      }
-
-      entryPoint.setPagesSize(pageSize);
+      entryPoint.setPagesSize(rightPageIndex);
     }
 
     try {

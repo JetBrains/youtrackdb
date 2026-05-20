@@ -1401,7 +1401,7 @@ public class DiskStorage extends AbstractStorage {
       long fileId = entry.getValue();
       fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-      final var filledUpTo = writeCache.getFilledUpTo(fileId);
+      final var filledUpTo = writeCache.physicalSizeForBackupSnapshot(fileId);
       final var zipEntry = new ZipEntry(fileName);
 
       stream.putNextEntry(zipEntry);
@@ -1672,6 +1672,13 @@ public class DiskStorage extends AbstractStorage {
 
     flushAllData();
 
+    // Recovery-time orphan-truncation pass on the incremental-restore path. Runs
+    // post-flush (mirrors the open() entry point): running the truncate after
+    // flushAllData() ensures writeCachePages cannot re-extend any in-scope file past
+    // targetBytes via a dirty WAL-replay entry past the logical horizon, silently
+    // re-creating the orphan the pass exists to remove.
+    atomicOperationsManager.executeInsideAtomicOperation(this::truncateOrphansAfterRecovery);
+
     atomicOperationsManager.executeInsideAtomicOperation(this::generateDatabaseInstanceId);
   }
 
@@ -1815,17 +1822,19 @@ public class DiskStorage extends AbstractStorage {
               Cipher.DECRYPT_MODE, aesKey, expectedFileId, pageIndex, data, encryptionIv);
         }
 
-        var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
-
-        if (cacheEntry == null) {
-          do {
-            if (cacheEntry != null) {
-              readCache.releaseFromWrite(cacheEntry, writeCache, true);
-            }
-
-            cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
-          } while (cacheEntry.getPageIndex() != pageIndex);
-        }
+        // loadOrAddForWrite is total on disk (delegates to WriteCache.loadOrAdd which
+        // gap-fills intermediate pages between currentSize and the recorded pageIndex);
+        // incremental-backup restore only runs on the disk engine, so the disk-engine
+        // totality is sufficient here.
+        final var cacheEntry =
+            readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+        // Incremental-backup restore is disk-only by construction, so an -ea assert
+        // is sufficient here; AtomicOperationBinaryTracking.commitChanges documents
+        // why the in-memory-reachable site throws instead.
+        assert cacheEntry != null
+            : "readCache.loadOrAddForWrite returned null during incremental backup restore"
+                + " for fileId=" + fileId + " pageIndex=" + pageIndex
+                + "; WriteCache.loadOrAdd totality contract violated";
 
         try {
           final var buffer = cacheEntry.getCachePointer().getBuffer();

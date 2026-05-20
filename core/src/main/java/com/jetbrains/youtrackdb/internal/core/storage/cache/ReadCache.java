@@ -58,7 +58,20 @@ public interface ReadCache {
     return addFile(fileName, fileId, writeCache);
   }
 
-  CacheEntry loadForWrite(
+  /**
+   * Loads the page at {@code pageIndex} in {@code fileId} for write access, allocating it on
+   * disk if it does not yet exist. Unlike a pure load, this primitive is total: it returns a
+   * usable {@link CacheEntry} for any open, non-deleted file regardless of whether
+   * {@code pageIndex} is already on disk. When the page is freshly extended (or sits in a
+   * just-filled gap), the returned entry is flagged as newly allocated so that
+   * {@link #releaseFromWrite} publishes it on the write cache's dirty-page list.
+   *
+   * <p>The caller receives the entry already write-pinned and with its dirty-pages-table
+   * record installed against {@code startLSN}.
+   *
+   * @see WriteCache#loadOrAdd
+   */
+  CacheEntry loadOrAddForWrite(
       long fileId,
       long pageIndex,
       WriteCache writeCache,
@@ -80,14 +93,41 @@ public interface ReadCache {
 
   void releaseFromWrite(CacheEntry cacheEntry, WriteCache writeCache, boolean changed);
 
-  CacheEntry allocateNewPage(long fileId, WriteCache writeCache, LogSequenceNumber startLSN)
-      throws IOException;
-
   long getUsedMemory();
 
   void clear();
 
   void truncateFile(long fileId, WriteCache writeCache) throws IOException;
+
+  /**
+   * Layered shrink primitive: reduces the physical size of {@code fileId} to
+   * {@code targetBytes} by first delegating to {@link WriteCache#shrinkFile(long, long)}
+   * (which settles the write-back layer and truncates the underlying file) and then
+   * dropping any read-cache entries that sit at or above the target. Unlike
+   * {@link #truncateFile(long, WriteCache)} (truncate-to-zero), this primitive carries an
+   * explicit target and never grows the file: a {@code targetBytes} greater than or equal
+   * to the current physical size is a clean no-op (the underlying WriteCache impl applies
+   * the pre-flight check and the read-cache range-purge is itself a no-op when no entry
+   * exists at or past the target).
+   *
+   * <p>Used by the recovery-time orphan-truncation pass to repair the
+   * {@code logical &lt;= physical} invariant on the four entry-point-equipped storage
+   * components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
+   * PaginatedCollectionV2) after a partial-flush crash leaves physical pages past the
+   * EP-stored logical counter. The two-phase ordering mirrors
+   * {@link #truncateFile(long, WriteCache)}'s {@code writeCache} ↦ {@code readCache} shape.
+   *
+   * <p>The in-memory implementation ({@code DirectMemoryOnlyDiskCache}) delegates to its
+   * own {@code shrinkFile} no-op; it does not maintain a separate read-cache layer and
+   * cannot produce on-disk orphans.
+   *
+   * @param fileId external file id of the target file
+   * @param targetBytes new physical size in bytes; must be {@code >= 0} and should be a
+   *     multiple of the page size
+   * @param writeCache the write cache backing this read cache
+   * @throws IOException if the underlying disk I/O fails during the truncate
+   */
+  void shrinkFile(long fileId, long targetBytes, WriteCache writeCache) throws IOException;
 
   void closeFile(long fileId, boolean flush, WriteCache writeCache);
 

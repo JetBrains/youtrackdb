@@ -38,6 +38,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
@@ -363,11 +365,19 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             fileId = openFile(atomicOperation, getFullName());
             collectionPositionMap.open(atomicOperation);
 
-            // Load the persistent approximate records count into the volatile field.
+            // Load the persistent approximate records count AND the logical data-page
+            // count from the state page in a single read. The state page's fileSize
+            // counter records the number of data pages in use (NOT including the state
+            // page itself); using it to bound the FSM-rebuild scan below avoids reading
+            // partial-flush orphans past the truncate target and keeps page 0 (the state
+            // page) out of the FSM, which would otherwise be wrapped as a CollectionPage
+            // and contribute a garbage maxRecordSize to the free-space map.
+            final int dataPageCount;
             try (final var stateCacheEntry =
                 loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
               final var state = new PaginatedCollectionStateV2(stateCacheEntry);
               approximateRecordsCount = state.getApproximateRecordsCount();
+              dataPageCount = state.getFileSize();
             }
 
             if (freeSpaceMap.exists(atomicOperation)) {
@@ -388,8 +398,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       additionalArgs1);
 
               freeSpaceMap.create(atomicOperation);
-              final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
-              for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+              // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
+              // Data pages live at indices 1..dataPageCount (page 0 is the state page).
+              // Bounding by logical fileSize avoids reading partial-flush orphans past
+              // the truncate target and keeps the rebuilt FSM consistent with the
+              // recovery-time orphan-truncation orchestrator
+              // (AbstractStorage.truncateOrphansAfterRecovery), which runs after open()
+              // and trims the file back to (fileSize + 1) * pageSize.
+              for (var pageIndex = 1; pageIndex <= dataPageCount; pageIndex++) {
 
                 try (final var cacheEntry =
                     loadPageForRead(atomicOperation, fileId, pageIndex)) {
@@ -401,7 +417,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 if (pageIndex > 0 && pageIndex % 1_000 == 0) {
                   final var additionalArgs =
                       new Object[] {
-                          pageIndex + 1, filledUpTo, 100L * (pageIndex + 1) / filledUpTo, getName()
+                          pageIndex, dataPageCount, 100L * pageIndex / dataPageCount, getName()
                       };
                   LogManager.instance()
                       .info(
@@ -462,6 +478,45 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             releaseExclusiveLock();
           }
         });
+  }
+
+  @Override
+  protected int readLogicalPageCountFromEntryPoint(@Nonnull final AtomicOperation atomicOperation)
+      throws IOException {
+    try (final var stateCacheEntry =
+        loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
+      final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+      return state.getFileSize();
+    }
+  }
+
+  @Override
+  protected String getComponentTypeName() {
+    return "PaginatedCollectionV2";
+  }
+
+  @Override
+  protected String getLogicalCountFieldName() {
+    // EP wrapper class PaginatedCollectionStateV2 stores the data-page count (NOT
+    // including the state page at STATE_ENTRY_INDEX = 0) as fileSize; initCollectionState()
+    // seeds it at 0.
+    return "state page fileSize";
+  }
+
+  /**
+   * Delegates recovery-time orphan truncation of the embedded {@code .cpm} position map.
+   * The position map has its own EP and can carry an independent partial-flush orphan
+   * tail; the parent collection owns the lifecycle of the embedded map, so the truncate
+   * dispatch lives here rather than in the orchestrator (which keeps the embedded map a
+   * private implementation detail of the collection).
+   */
+  @Override
+  protected void verifyAndTruncateOrphansSiblings(
+      @Nonnull final AtomicOperation atomicOperation,
+      @Nonnull final ReadCache readCache,
+      @Nonnull final WriteCache writeCache)
+      throws IOException {
+    collectionPositionMap.verifyAndTruncateOrphans(atomicOperation, readCache, writeCache);
   }
 
   @Override
@@ -2214,12 +2269,18 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * stored on the state page (page 0).
    *
    * <p>The collection tracks its own "logical" file size in
-   * {@link PaginatedCollectionStateV2#getFileSize()}, which may be less than the physical file
-   * size reported by the cache ({@code filledUpTo}). If the logical size equals the physical
-   * size minus 1 (accounting for page 0 being the state page), a truly new page is appended to
-   * the file. Otherwise, the next page after the current logical end is reused (it already
-   * exists on disk but was not yet claimed by this collection). This can happen after a crash
-   * where pages were physically allocated but the state counter was not yet updated.
+   * {@link PaginatedCollectionStateV2#getFileSize()}. The per-component lock plus the state-page
+   * write lock plus the monotonic logical fileSize bookkeeping below guarantee {@code fileSize + 1}
+   * is at or above the in-progress allocation floor when {@link AtomicOperation#allocatePageForWrite}
+   * is called, so its allocator-only contract is satisfied (it registers a fresh overlay for a
+   * strictly-new pageIndex).
+   *
+   * <p>If a previous transaction crashed after physically extending the file but before bumping
+   * the logical file-size counter, the physical file may carry an orphan past the logical end.
+   * The allocator-only contract would throw {@link IllegalStateException} for such a target
+   * rather than silently reuse it -- the structural fix moves the partial-replay-orphan recovery
+   * hazard from silent reuse to a loud failure surface. End-to-end coverage of that recovery
+   * flow lives in the integration regression test.
    *
    * @param atomicOperation the current atomic operation context
    * @return a {@link CacheEntry} for the newly allocated page (caller must close it)
@@ -2230,16 +2291,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
-      final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
 
-      if (fileSize == filledUpTo - 1) {
-        // Logical end matches physical end -- must physically append a new page.
-        cacheEntry = addPage(atomicOperation, fileId);
-      } else {
-        // Physical file has pages beyond the logical end -- reuse the next one.
-        assert fileSize < filledUpTo - 1;
-        cacheEntry = loadPageForWrite(atomicOperation, fileId, fileSize + 1, false);
-      }
+      // Per-component lock + state-page write lock + monotonic logical fileSize
+      // bookkeeping keep fileSize + 1 at or above the in-progress allocation
+      // floor, satisfying allocatePageForWrite's allocator-only contract: the
+      // call registers a fresh overlay and throws IllegalStateException if the
+      // target is below the floor (partial-replay-orphan recovery: physical
+      // extent ahead of logical fileSize after a crash now surfaces as a hard
+      // failure rather than silent reuse).
+      cacheEntry = allocatePageForWrite(atomicOperation, fileId, fileSize + 1);
 
       collectionState.setFileSize(fileSize + 1);
     }
@@ -2253,8 +2313,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
-    if (getFilledUpTo(atomicOperation, fileId) == 0) {
-      stateEntry = addPage(atomicOperation, fileId);
+    // Bootstrap emptiness check on the state page (chicken-and-egg): the page being
+    // inspected IS the collection-state page itself, so logical bookkeeping
+    // (PaginatedCollectionStateV2 fileSize) is not yet available -- physical extent
+    // is the only source of truth.
+    if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
+        == 0) {
+      // Fresh file -- append the state page (statically known-new at STATE_ENTRY_INDEX).
+      stateEntry = allocatePageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);
     } else {
       stateEntry = loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, false);
     }

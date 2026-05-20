@@ -391,6 +391,94 @@ public class AsyncFileTest {
   }
 
   @Test
+  public void testShrinkPartial() throws Exception {
+    // Scenario: a file holding K full pages (allocated and written, so the
+    // physical channel actually carries K pages of data) is partially shrunk
+    // to M pages (0 < M < K). The fix to AsyncFile.shrink must:
+    //   (a) report the new logical size as M*pageSize via getFileSize(),
+    //   (b) actually truncate the underlying file channel to
+    //       M*pageSize + HEADER_SIZE (so getUnderlyingFileSize() returns
+    //       M*pageSize, since the accessor subtracts HEADER_SIZE).
+    // Before the fix, shrink unconditionally reset the in-memory size to 0
+    // regardless of the target argument, so a subsequent allocateSpace would
+    // have returned a position that overlaps the still-physically-present
+    // pages 0..(mPages - 1) — silent data corruption.
+    final int pageSize = 512;
+    final int kPages = 4;
+    final int mPages = 2;
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    file.create();
+
+    // Allocate AND write K pages so the underlying file channel physically
+    // holds kPages * pageSize bytes (plus HEADER_SIZE). allocateSpace alone
+    // only bumps the in-memory size counter — the channel grows on write.
+    final var pageContent = new byte[pageSize];
+    new Random(42L).nextBytes(pageContent);
+    for (int i = 0; i < kPages; i++) {
+      final long position = file.allocateSpace(pageSize);
+      Assert.assertEquals((long) i * pageSize, position);
+      file.write(position, ByteBuffer.wrap(pageContent));
+    }
+    file.synch();
+    Assert.assertEquals(kPages * pageSize, file.getFileSize());
+    Assert.assertEquals(
+        "sanity: physical file (minus header) must equal logical before shrink",
+        (long) kPages * pageSize, file.getUnderlyingFileSize());
+
+    file.shrink((long) mPages * pageSize);
+
+    Assert.assertEquals(
+        "logical size must equal the partial shrink target",
+        (long) mPages * pageSize, file.getFileSize());
+    Assert.assertEquals(
+        "underlying file (minus the storage header) must be truncated to the target",
+        (long) mPages * pageSize, file.getUnderlyingFileSize());
+
+    file.close();
+  }
+
+  @Test
+  public void testShrinkNoOpWhenTargetGreaterOrEqual() throws Exception {
+    // Scenario: shrink() is called with a target >= current logical size.
+    // Expected outcome: the file is unchanged — both logical size and the
+    // underlying file channel size are preserved. This pins the pre-flight
+    // no-op guard added in the same commit; without it, shrink(2048) on a
+    // 1024-byte file would silently zero the in-memory counter while
+    // extending the channel via fileChannel.truncate, leaving the
+    // logical/physical accounting inconsistent (and on the equal-target
+    // path, would still zero the in-memory counter even though the file
+    // ought to remain untouched).
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    file.create();
+
+    // Allocate AND write so the physical channel actually carries the bytes
+    // — the no-op guard must preserve both the in-memory size counter and
+    // the on-disk file length.
+    final var pageContent = new byte[1024];
+    new Random(7L).nextBytes(pageContent);
+    final long position = file.allocateSpace(1024);
+    file.write(position, ByteBuffer.wrap(pageContent));
+    file.synch();
+    Assert.assertEquals(1024, file.getFileSize());
+    final long underlyingBefore = file.getUnderlyingFileSize();
+    Assert.assertEquals(1024, underlyingBefore);
+
+    // Equal target: must be a no-op.
+    file.shrink(1024);
+    Assert.assertEquals(1024, file.getFileSize());
+    Assert.assertEquals(underlyingBefore, file.getUnderlyingFileSize());
+
+    // Larger target: must also be a no-op (shrink is one-way).
+    file.shrink(2048);
+    Assert.assertEquals(1024, file.getFileSize());
+    Assert.assertEquals(underlyingBefore, file.getUnderlyingFileSize());
+
+    file.close();
+  }
+
+  @Test
   public void testRenameTo() throws Exception {
     // Verifies renameTo() closes the original file, moves it to the new path,
     // and reopens at the new location so subsequent reads succeed.

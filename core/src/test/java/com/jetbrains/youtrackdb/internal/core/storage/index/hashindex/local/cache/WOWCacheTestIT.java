@@ -188,8 +188,17 @@ public class WOWCacheTestIT {
 
       pageData[i] = data;
 
-      final var pageIndex = wowCache.allocateNewPage(fileId);
-      Assert.assertEquals(i, pageIndex);
+      // loadOrAdd takes the target pageIndex explicitly; an in-line extend at i
+      // materializes the same page that allocateNewPage(fileId) previously returned
+      // (sequential allocation). Release the temporary referrer immediately — the
+      // subsequent load() bumps its own.
+      final var allocPointer = wowCache.loadOrAdd(fileId, i, false);
+      // loadOrAdd returns a pointer for the requested pageIndex; pin that explicitly
+      // so a regression where the cache hands back a different pageIndex (e.g., under
+      // a future totality-contract change) is caught here rather than corrupting
+      // subsequent store() calls.
+      Assert.assertEquals(i, allocPointer.getPageIndex());
+      allocPointer.decrementReadersReferrer();
       final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
       long exclusiveStamp = cachePointer.acquireExclusiveLock();
 
@@ -293,8 +302,14 @@ public class WOWCacheTestIT {
 
       pageData[i] = data;
 
-      final var pageIndex = wowCache.allocateNewPage(fileId);
-      Assert.assertEquals(i, pageIndex);
+      // loadOrAdd takes the target pageIndex explicitly; an in-line extend at i
+      // materializes the same page that allocateNewPage(fileId) previously returned
+      // (sequential allocation). Release the temporary referrer immediately.
+      final var allocPointer = wowCache.loadOrAdd(fileId, i, false);
+      // Pin that loadOrAdd returns the requested pageIndex — a regression where
+      // the cache hands back a different index would corrupt subsequent store().
+      Assert.assertEquals(i, allocPointer.getPageIndex());
+      allocPointer.decrementReadersReferrer();
       final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
       long exclusiveStamp = cachePointer.acquireExclusiveLock();
 
@@ -359,7 +374,13 @@ public class WOWCacheTestIT {
     var random = new Random();
 
     for (var i = 0; i < 2048; i++) {
-      wowCache.allocateNewPage(fileId);
+      // Pre-extend the file to pageIndex i so the subsequent store() finds a slot.
+      // Pin that loadOrAdd returns the requested pageIndex — a regression where the
+      // cache hands back a different index would corrupt subsequent store() calls.
+      // Same shape as the other nine sequential-extension sites in this file.
+      final var allocPointer = wowCache.loadOrAdd(fileId, i, false);
+      Assert.assertEquals(i, allocPointer.getPageIndex());
+      allocPointer.decrementReadersReferrer();
 
       final var pointer = bufferPool.acquireDirect(true, Intention.TEST);
       final var cachePointer = new CachePointer(pointer, bufferPool, fileId, i);
@@ -517,8 +538,12 @@ public class WOWCacheTestIT {
     var random = new Random(seed);
 
     for (var i = 0; i < 2048; i++) {
-      final long position = wowCache.allocateNewPage(fileId);
-      Assert.assertEquals(i, position);
+      // Sequential extension via the total loadOrAdd primitive (one page at a time).
+      final var allocPointer = wowCache.loadOrAdd(fileId, i, false);
+      // Pin that loadOrAdd returns the requested pageIndex — a regression where
+      // the cache hands back a different index would corrupt subsequent store().
+      Assert.assertEquals(i, allocPointer.getPageIndex());
+      allocPointer.decrementReadersReferrer();
     }
 
     for (var i = 0; i < 600; i++) {
@@ -684,7 +709,12 @@ public class WOWCacheTestIT {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
     final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
+    // Extend the fresh file to page 0 via the total loadOrAdd primitive.
+    final var allocPointer = wowCache.loadOrAdd(fileId, 0, false);
+    // Pin that loadOrAdd returns the requested pageIndex — a regression where
+    // the cache hands back a different index would corrupt the subsequent load().
+    Assert.assertEquals(0, allocPointer.getPageIndex());
+    allocPointer.decrementReadersReferrer();
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
     long exclusiveStamp = cachePointer.acquireExclusiveLock();
@@ -725,7 +755,12 @@ public class WOWCacheTestIT {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
     final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
+    // Extend the fresh file to page 0 via the total loadOrAdd primitive.
+    final var allocPointer = wowCache.loadOrAdd(fileId, 0, false);
+    // Pin that loadOrAdd returns the requested pageIndex — a regression where
+    // the cache hands back a different index would corrupt the subsequent load().
+    Assert.assertEquals(0, allocPointer.getPageIndex());
+    allocPointer.decrementReadersReferrer();
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
     long exclusiveStamp = cachePointer.acquireExclusiveLock();
@@ -764,7 +799,12 @@ public class WOWCacheTestIT {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
     final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
+    // Extend the fresh file to page 0 via the total loadOrAdd primitive.
+    final var allocPointer = wowCache.loadOrAdd(fileId, 0, false);
+    // Pin that loadOrAdd returns the requested pageIndex — a regression where
+    // the cache hands back a different index would corrupt the subsequent load().
+    Assert.assertEquals(0, allocPointer.getPageIndex());
+    allocPointer.decrementReadersReferrer();
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
     long exclusiveStamp = cachePointer.acquireExclusiveLock();
@@ -800,7 +840,12 @@ public class WOWCacheTestIT {
     wowCache.setChecksumMode(ChecksumMode.Off);
 
     final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
+    // Extend the fresh file to page 0 via the total loadOrAdd primitive.
+    final var allocPointer = wowCache.loadOrAdd(fileId, 0, false);
+    // Pin that loadOrAdd returns the requested pageIndex — a regression where
+    // the cache hands back a different index would corrupt the subsequent load().
+    Assert.assertEquals(0, allocPointer.getPageIndex());
+    allocPointer.decrementReadersReferrer();
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
     long exclusiveStamp = cachePointer.acquireExclusiveLock();
@@ -836,7 +881,12 @@ public class WOWCacheTestIT {
     wowCache.setChecksumMode(ChecksumMode.Store);
 
     final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
+    // Extend the fresh file to page 0 via the total loadOrAdd primitive.
+    final var allocPointer = wowCache.loadOrAdd(fileId, 0, false);
+    // Pin that loadOrAdd returns the requested pageIndex — a regression where
+    // the cache hands back a different index would corrupt the subsequent load().
+    Assert.assertEquals(0, allocPointer.getPageIndex());
+    allocPointer.decrementReadersReferrer();
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
     long exclusiveStamp = cachePointer.acquireExclusiveLock();
@@ -872,7 +922,12 @@ public class WOWCacheTestIT {
     wowCache.setChecksumMode(ChecksumMode.Off);
 
     final var fileId = wowCache.addFile(fileName);
-    Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
+    // Extend the fresh file to page 0 via the total loadOrAdd primitive.
+    final var allocPointer = wowCache.loadOrAdd(fileId, 0, false);
+    // Pin that loadOrAdd returns the requested pageIndex — a regression where
+    // the cache hands back a different index would corrupt the subsequent load().
+    Assert.assertEquals(0, allocPointer.getPageIndex());
+    allocPointer.decrementReadersReferrer();
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
     long exclusiveStamp = cachePointer.acquireExclusiveLock();
