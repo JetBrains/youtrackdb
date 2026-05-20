@@ -9,7 +9,7 @@ Single citation paragraphs cross-referencing `house-style.md` (and the Track 1 c
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-19T16:28Z [ctx=safe] Review + decomposition complete
