@@ -94,9 +94,16 @@ flowchart LR
 - No changes to the `ai-tells` skill, which audits a different cross-section of house-style rules (vocabulary, sentence patterns, openers/closers, not section length).
 
 ## Checklist
-- [ ] Track 1: Rewrite the section length cap and propagate
+- [x] Track 1: Rewrite the section length cap and propagate
   > Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap with a categorical exemption (template-bound content) plus a padding-based finding criterion for free-form prose. Propagate the wording to all other declarative restatements (`house-style.md § Self-check` step 7; four sites in `review-workflow-writing-style.md`; `CLAUDE.md` line 102; `.claude/skills/code-review/SKILL.md` line 313). Add back-references from `episode-format-reference.md § Episode length rule` and `conventions-execution.md §2.2`.
-  > **Scope:** ~2-3 steps covering rule rewrite + reviewer-agent restatement updates + back-references
+  >
+  > **Track episode:** Rewrote the canonical Section length cap rule in `.claude/output-styles/house-style.md § Structural rules` as a soft cap with a 5-category template-bound exemption and a padding-based finding criterion for non-exempt prose. The new framing propagated to 6 declarative restatements across 4 files in Step 2 (the reviewer-agent's frontmatter description, key-rules bullet, review-criteria block, and output-format template; the always-loaded paragraph in `CLAUDE.md`; the `/code-review` dispatcher entry in `code-review/SKILL.md`) and gained 2 back-references in Step 3 (`episode-format-reference.md § Episode length rule`, `conventions-execution.md §2.2`).
+  >
+  > Phase C track-level review across five workflow dimensions surfaced seven cross-step findings, all fixed in a single `Review fix:` commit (`b9ca6afbd4`). Two are worth flagging: (a) the Phase A deferral rationale for T6 was factually incorrect — all four Tier-A pointer sites in `commit-conventions.md`, `episode-format-reference.md`, `step-implementation.md`, and `implementer-rules.md` carried the verbatim "≤200-word section cap" phrase (not just labeling it by name), and the gate-check picked it up; (b) the unit-of-evaluation for the new exemption clause needed a tie-breaker for mixed `## Episodes` parents containing both exempt structured-field blocks and non-exempt free-form prose, added as one sentence at `house-style.md`. The other five fixes were mechanical wording cleanups (`CLAUDE.md:102` back to a brief always-loaded paragraph pointing at the canonical clause; the two new back-references reframed from hard-cap to soft-cap; the two duplicate restatements in `code-review/SKILL.md:313` and `review-workflow-writing-style.md:18` collapsed to sibling-shape pointers; the agent's `## Process` step 3 rewritten to point at the new three-step section-length decision).
+  >
+  > No cross-track impact (single-track plan). No design-decision escalations, no implementer failures, no plan corrections. After this track lands, the next Phase C track-level review on a track with substantive multi-paragraph episodes should not produce a section-length finding against structured-field paragraph blocks — the rule, the always-loaded restatements, the dispatcher entries, and the Tier-A pointer sites all carry consistent soft-cap framing.
+  >
+  > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 2

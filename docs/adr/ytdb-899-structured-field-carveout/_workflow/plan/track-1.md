@@ -11,13 +11,14 @@ Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap 
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-05-20T14:11Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T14:34Z [ctx=safe] Step 1 complete (commit a0e6e0a9db)
 - [x] 2026-05-20T14:40Z [ctx=safe] Step 2 complete (commit 2914100c61)
 - [x] 2026-05-20T14:43Z [ctx=safe] Step 3 complete (commit e575e94156)
 - [x] 2026-05-20T16:45Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-20T16:47Z [ctx=safe] Track complete
 
 ## Base commit
 
@@ -39,6 +40,7 @@ b8dc3066d94a0abc75b08abe6afd5a889e3fecc8
 <!-- Continuous-log. Review iteration outcomes and the track-completion summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 2 (6 findings: T1, T2, T3 should-fix accepted and applied to plan + track file; T4 suggestion accepted and applied as the ≤150-char compression note in Step 2; T5 should-fix surfaced at gate check, applied as a one-sentence count correction in `design.md:11` with bypass rationale logged in the Decision Log; T6 suggestion deferred — Tier-A pointer sites in `commit-conventions.md`, `episode-format-reference.md`, `step-implementation.md`, `implementer-rules.md` label the house-style rule by name, they don't restate the 200-word cap independently).
+- [x] Track-level code review: PASS at iteration 1 (5 dimensions, 9 verdicts all VERIFIED). Seven in-scope findings (F1-F7) applied in `Review fix:` commit b9ca6afbd4 across 9 files: F1 compressed the `CLAUDE.md:102` always-loaded paragraph (-602 chars regained on the always-loaded surface); F2 added a unit-of-evaluation sentence to `house-style.md` resolving the block-vs-section ambiguity for mixed `## Episodes` parents; F3 updated `review-workflow-writing-style.md § Process` step 3 to reference the three-step section-length decision; F4 reopened T6 — replaced the verbatim "≤200-word section cap" phrase with "soft section length cap with template-bound exemptions" at all four Tier-A pointer sites (`episode-format-reference.md:24`, `commit-conventions.md:151`, `step-implementation.md:820`, `implementer-rules.md:938`), correcting the Phase A deferral rationale; F5 reframed the two back-references this track added (`conventions-execution.md`, `episode-format-reference.md`) from hard-cap to soft-cap framing; F6 + F7 compressed two duplicate restatements (the `code-review/SKILL.md:313` dispatcher entry and the `review-workflow-writing-style.md:18` key-rules bullet) to sibling shape. Three findings deferred (WI3 maintenance-handshake note, WI4 description-budget trade-off, WI5 output-format template polish) as suggestions outside this iteration's in-scope set. Two immutable-episode prose nits (149-vs-148-char count, "markedly" intensifier) flagged for record only — no action possible.
 
 ## Context and Orientation
 
