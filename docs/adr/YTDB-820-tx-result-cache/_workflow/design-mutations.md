@@ -283,3 +283,26 @@ No sections added, removed, renamed, or moved beyond the footer additions. No cl
 - (pre-existing, NOT addressed in this mutation): 14 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — pre-existing house-style debt, deferred to Phase 4 global sweep per recommendation in `implementation-plan.md` Plan Review note.
 
 **Iterations**: 1 of 3 (PASS — closes the 4 long-standing blockers; no NEW findings introduced)
+
+## Mutation 10 — 2026-05-20 — content-edit (design.md)
+
+**Diff summary**: Three fixes addressing Gemini code-review-bot comments on PR #1077 (review id surfaced 2026-05-20 via `gh api repos/JetBrains/youtrackdb/pulls/1077/comments`). **Files touched**: `design.md` (K0 wipe edge-case bullet clarified — primary target), `implementation-plan.md` (Component Map MergeKind enum + Non-Goals MATCH CREATED), `plan/track-3.md` (close lifecycle + test g).
+
+1. **HIGH severity — K0 wipe `exhausted` flag (design.md line 214 + plan/track-3.md step 4 + new test g).** Gemini flagged a latent NPE risk: `CachedResultSetView.hasNext()` reads `position < entry.results.size() || (!entry.exhausted && entry.stream.hasNext(entry.ctx))`. The original K0 wipe edge-case bullet said "entry's stream is closed immediately and the entry is removed from the cache" but did NOT specify that `exhausted` must flip to `true` as part of `CachedEntry.close()`. Without the flag flip, after close `stream == null` AND `exhausted == false`, so the `!exhausted && stream.hasNext(ctx)` branch would NPE on the null stream. Fix: design.md K0 wipe bullet now explicitly enumerates the three steps `close()` performs (close+null stream, set exhausted=true), with a paragraph explaining why the flag flip is load-bearing. Track 3 step 4 mirrors the rule into the close-lifecycle spec. New test (g) added to Track 3 step 6 covering: populate entry, open view, partial-pull, invoke `entry.close()` directly, assert no NPE, `view.hasNext()` returns false at end of frozen list, `view.next()` raises NoSuchElementException cleanly.
+2. **MEDIUM severity — Component Map `MergeKind` enum missing `MATCH_TUPLE` (implementation-plan.md line 52).** Track 8 adds `MATCH_TUPLE` as the 8th `MergeKind` discriminator (line 121 of `plan/track-8.md` enumerates the eighth value), but the Component Map bullet listed only seven (`RECORD | AGGREGATE_COUNT | ... | NONE`). Fix: extended the enumeration to include `MATCH_TUPLE` with an inline note that Track 8 introduces it while Track 4 introduces the other seven.
+3. **MEDIUM severity — Non-Goals MATCH CREATED stale (implementation-plan.md line 193).** Pre-Mutation-8 wording said "K1 for MATCH in v1 covers DELETED and UPDATED only; CREATED mutation on a class in the pattern still wipes the entry. v2 candidate." After Mutation 8 added Etap A (single-alias CREATED is now in scope), this bullet contradicted D8 and Track 8's revised CREATED branch. Fix: bullet now splits Etap B (multi-alias / cross-join / pattern-with-edges CREATED — v2 candidate, non-goal) from Etap A (single-alias CREATED — explicitly in scope per D8 and Track 8). Cross-references D8 and the Track 8 CREATED-branch dispatch.
+
+No sections added, removed, renamed, or moved. No class-diagram class added or removed. No new D-record (D8 already covers the Etap A / B split established in Mutation 8).
+
+**Mechanical checks** (target=design, scope=bounded; changed-section="Dirty-merge → Edge cases & Gotchas → K0 wipe bullet"): pre-existing baseline 14 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — unchanged. **No NEW findings introduced.** The expanded K0 wipe bullet adds prose without introducing unpaired em-dashes or fragmented headers (audited at write time; two existing em-dashes preserved, no new em-dashes added).
+
+**Cold-read** (scope: bounded — `design.md § Dirty-merge → Edge cases / Gotchas → K0 wipe bullet`; `implementation-plan.md § Architecture Notes → Component Map → MergeKind bullet` + `§ Non-Goals` MATCH bullet; `plan/track-3.md` step 4 + test (g)): PASS. Cross-checks:
+- design.md K0 wipe bullet's `hasNext()` formula matches the formula in plan/track-3.md step 2 (Track 3's view rewrite) — both read `position < entry.results.size() || (!entry.exhausted && entry.stream.hasNext(entry.ctx))`.
+- plan/track-3.md step 4 close-lifecycle now sets `exhausted=true`, consistent with the design.md edge-case prose and the new test (g) assertion.
+- Component Map `MergeKind` enumeration matches `plan/track-8.md` step 1 declaration of the `MATCH_TUPLE` enum value.
+- Non-Goals Etap A / Etap B split matches D8's revised wording (Mutation 8) and Track 8 Plan-of-Work step 5 CREATED branch logic.
+
+**Findings**:
+- (pre-existing, NOT addressed in this mutation): 14 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — pre-existing house-style debt, deferred to Phase 4 global sweep per recommendation in `implementation-plan.md` Plan Review note.
+
+**Iterations**: 1 of 3 (PASS — addresses all three Gemini findings; no NEW findings introduced)
