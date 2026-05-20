@@ -13,12 +13,13 @@ Single citation paragraphs cross-referencing `house-style.md` (and the Track 1 c
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-19T16:28Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-20T02:13Z [ctx=safe] Step 1 complete (commit 14c3d73fa3)
 
 ## Base commit
 cc53adccf4d78ac51329473e54af4dd5b197d195
 
 ## Surprises & Discoveries
-<!-- Empty at Phase 1. -->
+- mcp-steroid tools (including `steroid_apply_patch`) are not exposed in implementer sub-agent spawns; Track 3 pure-Markdown insertion steps use a native `Edit` fallback. Step 2 of this track and the Tier-A pointer steps in Tracks 4 and 5 will reuse the same fallback. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Empty at Phase 1. -->
@@ -76,11 +77,29 @@ Invariants to preserve: every review-agent file's existing YAML frontmatter (`--
 
 ## Concrete Steps
 
-1. Insert the §Context pointer paragraph into the 10 in-scope workflow prompts under `.claude/workflow/prompts/` via a single `steroid_apply_patch` call (10 hunks; one per file). Anchor each hunk on the closing line of the file's opening orientation paragraph plus the following blank line; append the pointer paragraph and a blank line. Run the §Validation greps after the patch lands and confirm 10 in-scope prompts contain the canonical substring and the two skipped files are untouched. — risk: low (default: pure documentation insertion; no semantic change)  [ ]
+1. Insert the §Context pointer paragraph into the 10 in-scope workflow prompts under `.claude/workflow/prompts/` via a single `steroid_apply_patch` call (10 hunks; one per file). Anchor each hunk on the closing line of the file's opening orientation paragraph plus the following blank line; append the pointer paragraph and a blank line. Run the §Validation greps after the patch lands and confirm 10 in-scope prompts contain the canonical substring and the two skipped files are untouched. — risk: low (default: pure documentation insertion; no semantic change)  [x] commit: 14c3d73fa3
 2. Insert the §Context pointer paragraph into the 18 in-scope review agents under `.claude/agents/` via a single `steroid_apply_patch` call (18 hunks; one per file). Anchor each hunk on the closing `---` line of the frontmatter plus the line that follows; insert the pointer paragraph between them, blank-separated. Run the §Validation greps and the §Idempotence and Recovery frontmatter-integrity check after the patch lands; expect 28 total pointer hits (including Step 1) and `2` for each agent's `awk` count. — risk: low (default: pure documentation insertion; frontmatter integrity preserved by anchoring strictly below the closing `---`)  [ ]
 
 ## Episodes
-<!-- Empty at Phase 1. -->
+
+### Step 1 — commit 14c3d73fa3b5c7c580e40ee74490af49f816b369, 2026-05-20T02:13Z [ctx=safe]
+**What was done:** Inserted the canonical house-style pointer paragraph into the 10 in-scope workflow prompts under `.claude/workflow/prompts/`. Pointer wording is byte-identical across all 10 files and cross-references `.claude/output-styles/house-style.md` plus the Track 1 `conventions.md §1.5` anchor, naming the four banned-section heading slugs verbatim. Validation grep returns 10 in-scope hits; `design-review.md` retains its prior self-reference to house-style.
+
+**What was discovered:** The mcp-steroid tool surface (including `steroid_apply_patch`) is not exposed to implementer sub-agent spawns. Implementer fell back to 10 native `Edit` calls. For pure-Markdown insertions with unique per-file anchors, the observable result is identical to a multi-hunk `steroid_apply_patch` (no PSI / VFS index dependency). Track 3 Step 2 and Tracks 4-5 will hit the same constraint and should use the same fallback.
+
+**What changed from the plan:** Execution mechanism changed from one `steroid_apply_patch` call (10 hunks) to 10 native `Edit` calls. No deliverable change: same pointer wording, same anchors, same validation grep outcome. Affects Step 2 of this track (same mechanism) and the Tier-A pointer steps in Tracks 4 and 5.
+
+**Key files:**
+- `.claude/workflow/prompts/adversarial-review.md` (modified)
+- `.claude/workflow/prompts/consistency-gate-verification.md` (modified)
+- `.claude/workflow/prompts/consistency-review.md` (modified)
+- `.claude/workflow/prompts/create-final-design.md` (modified)
+- `.claude/workflow/prompts/dimensional-review-gate-check.md` (modified)
+- `.claude/workflow/prompts/review-gate-verification.md` (modified)
+- `.claude/workflow/prompts/risk-review.md` (modified)
+- `.claude/workflow/prompts/structural-gate-verification.md` (modified)
+- `.claude/workflow/prompts/structural-review.md` (modified)
+- `.claude/workflow/prompts/technical-review.md` (modified)
 
 ## Validation and Acceptance
 
