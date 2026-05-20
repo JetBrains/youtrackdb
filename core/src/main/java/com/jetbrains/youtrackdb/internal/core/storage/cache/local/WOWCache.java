@@ -375,8 +375,8 @@ public final class WOWCache extends AbstractWriteCache
    * an absence-of-symptom assertion "pass" for the wrong reason) fails loud. Incremented at
    * the end of {@link #loadOrAddExtendBranch} after the successful allocation completes;
    * never decremented; overflow-safe on {@link LongAdder}'s 64-bit sum. Exposed via the
-   * public {@link #getLoadOrAddExtendBranchInvocations} accessor for cross-package test
-   * access; not part of the production API surface.
+   * public {@link #getLoadOrAddExtendBranchInvocationsForTest} accessor for cross-package
+   * test access; not part of the production API surface.
    */
   private final LongAdder loadOrAddExtendBranchInvocations = new LongAdder();
 
@@ -385,9 +385,13 @@ public final class WOWCache extends AbstractWriteCache
    * ({@code pageIndex > currentSize}). Test-only positive-evidence probe — see the
    * {@link #loadOrAddExtendBranchInvocations} Javadoc above for the rationale. Incremented
    * at the end of {@link #loadOrAddGapFillBranch} after the successful allocation completes.
-   * Recovery-only branch under normal callers (WAL replay can reference page indices many
-   * pages past the current file size); a healthy steady-state production workload should
-   * see this counter stay at 0 even under heavy contention.
+   * Primary use is WAL replay, which can reference page indices many pages past the current
+   * file size. Outside replay this counter should not scale with the workload — small
+   * non-zero counts are expected under concurrent inserts due to cross-component
+   * snapshot-window races between the cache-extension reads inside
+   * {@code LocalFreeRangeCache.loadOrAddForWrite} and the cache layer's own
+   * {@code filledUpTo} read. A counter that grows in proportion to workload size signals a
+   * regression in cache-extension coordination.
    */
   private final LongAdder loadOrAddGapFillBranchInvocations = new LongAdder();
 
@@ -1901,8 +1905,12 @@ public final class WOWCache extends AbstractWriteCache
    * fails loud rather than silently "passing" an absence-of-symptom assertion). Not part
    * of the production API surface — callers outside the regression suite should not
    * depend on this method.
+   *
+   * <p>The {@code ForTest} suffix is intentional: it makes the test-only intent visible at
+   * every call site (the production code never reads this counter; only the regression
+   * tests do).
    */
-  public long getLoadOrAddExtendBranchInvocations() {
+  public long getLoadOrAddExtendBranchInvocationsForTest() {
     return loadOrAddExtendBranchInvocations.sum();
   }
 
@@ -1910,10 +1918,12 @@ public final class WOWCache extends AbstractWriteCache
    * Test-only accessor: number of times the multi-page gap-fill branch of
    * {@link #loadOrAdd} has run to completion (post-allocate, post-sanity-check) since this
    * cache instance was constructed. Mirrors
-   * {@link #getLoadOrAddExtendBranchInvocations}. Recovery-only branch under normal
-   * callers; a healthy steady-state workload should see this counter stay at 0.
+   * {@link #getLoadOrAddExtendBranchInvocationsForTest}. Outside WAL replay this counter
+   * should not scale with workload size — small non-zero counts are expected under
+   * concurrent inserts due to cross-component snapshot windows; a counter that grows in
+   * proportion to workload size signals a regression in cache-extension coordination.
    */
-  public long getLoadOrAddGapFillBranchInvocations() {
+  public long getLoadOrAddGapFillBranchInvocationsForTest() {
     return loadOrAddGapFillBranchInvocations.sum();
   }
 

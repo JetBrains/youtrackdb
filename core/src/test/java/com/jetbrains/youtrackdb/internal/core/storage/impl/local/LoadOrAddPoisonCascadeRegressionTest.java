@@ -1,15 +1,3 @@
-/*
- *
- *  *  Copyright YouTrackDB
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,8 +78,8 @@ import org.junit.experimental.categories.Category;
  *       record is readable.
  *
  *       <p>Positive-evidence assertion: instrumented {@link LongAdder} counters on
- *       {@link WOWCache#getLoadOrAddExtendBranchInvocations} +
- *       {@link WOWCache#getLoadOrAddGapFillBranchInvocations} are split into two
+ *       {@link WOWCache#getLoadOrAddExtendBranchInvocationsForTest} +
+ *       {@link WOWCache#getLoadOrAddGapFillBranchInvocationsForTest} are split into two
  *       independent assertions. The extend branch is the steady-state allocator path
  *       under a healthy workload, so it must fire at least {@link #THREADS} times. The
  *       gap-fill branch must not scale with the workload — a low single-digit count
@@ -406,8 +394,8 @@ public class LoadOrAddPoisonCascadeRegressionTest {
     var diskStorage = (DiskStorage) session.getStorage();
     var wowCache = (WOWCache) diskStorage.getWriteCache();
     return new long[] {
-        wowCache.getLoadOrAddExtendBranchInvocations(),
-        wowCache.getLoadOrAddGapFillBranchInvocations()
+        wowCache.getLoadOrAddExtendBranchInvocationsForTest(),
+        wowCache.getLoadOrAddGapFillBranchInvocationsForTest()
     };
   }
 

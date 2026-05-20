@@ -1,23 +1,3 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +25,7 @@ import java.nio.ByteOrder;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -78,6 +59,17 @@ import org.junit.experimental.categories.Category;
  *
  * <p>Marked {@link SequentialTest} because it manipulates raw storage files
  * and cannot tolerate parallel JVMs touching the same build directory.
+ *
+ * <p><b>Caveat on the discriminator-branch assertion.</b> The
+ * {@code IndexHistogramManager.writeSnapshotToPage} discriminator block is gated on
+ * {@code snapshot.hllOnPage1() && snapshot.hllSketch() != null}. Whether the post-reopen
+ * flush actually sets {@code hllOnPage1=true} depends on the keys' total serialized
+ * boundary footprint and is workload-dependent. The positive-evidence assertions below
+ * (the fabricated orphan must survive reopen, and the file must not shrink below that
+ * size after the second ANALYZE INDEX) prove the structural premise the test depends on:
+ * if a future change makes IHM participate in {@code truncateOrphansAfterRecovery}, the
+ * fabricated orphan would be truncated on reopen, the first assertion would fail, and
+ * this IT must be revisited.
  */
 @Category(SequentialTest.class)
 public class IndexHistogramSpillRecoveryIT {
@@ -96,34 +88,80 @@ public class IndexHistogramSpillRecoveryIT {
   /** Index name registered on {@link #CLASS_NAME}.{@link #INDEX_KEY}. */
   private static final String INDEX_NAME = CLASS_NAME + "." + INDEX_KEY;
 
+  /**
+   * Fabrication shape for the trailing orphan page appended to a closed
+   * {@code .ixs} file. {@link #magicStamped()} mirrors the production gap-fill byte
+   * layout (magic stamp + LSN); {@link #zeroByte()} mirrors a strictly earlier crash
+   * window where the file was extended by {@code AsyncFile.allocateSpace} but
+   * {@code EnsurePageIsValidInFileTask} never ran.
+   */
+  @FunctionalInterface
+  private interface IxsOrphanFabricator {
+    void fabricate(java.io.File file, int pageSize) throws java.io.IOException;
+  }
+
   private YouTrackDBImpl youTrackDB;
 
   /**
-   * End-to-end flow:
-   * <ol>
-   *   <li>open fresh disk storage, create class + NOTUNIQUE index, populate so {@code .ixs}
-   *       holds a valid page-0 snapshot;</li>
-   *   <li>close cleanly so the snapshot lands on disk;</li>
-   *   <li>fabricate one magic-stamped orphan page on {@code .ixs} so the reopen sees
-   *       {@code op.filledUpTo(fileId) > 1};</li>
-   *   <li>reopen and drive more inserts plus {@code ANALYZE INDEX} so the IHM rebalance
-   *       path issues another {@code writeSnapshotToPage} call;</li>
-   *   <li>assert the follow-up operation does not surface {@link IllegalStateException}
-   *       — the discriminator must select the {@code loadPageForWrite(fileId, 1, …)} arm
-   *       when {@code hllOnPage1=true} on the new snapshot, and the allocator-only
-   *       contract on the disk engine rejects any {@code allocatePageForWrite(fileId, 1)}
-   *       at this file size.</li>
-   * </ol>
-   *
-   * <p>The post-reopen workload exercises the IHM lifecycle even when the new snapshot
-   * does not happen to set {@code hllOnPage1=true}, because every flush goes through the
-   * same {@code writeSnapshotToPage} / {@code flushSnapshotToPage} bodies and a regression
-   * that broke the discriminator (e.g., misreading {@code op.filledUpTo} or unconditionally
-   * calling {@code allocatePageForWrite}) would fail loudly here when the post-replay file
-   * already carries page 1.
+   * Defensive pre-clean: if a prior run crashed before {@link #after} fired (JVM kill,
+   * OOM, OS reboot), the next run's {@code youTrackDB.create(dbName, ...)} would throw
+   * "Database already exists". Mirrors the pre-clean pattern in
+   * {@code ProductionAllocatorConcurrencyMTTest.setUp}.
+   */
+  @Before
+  public void cleanupBeforeRun() throws Exception {
+    var path = DbTestBase.getBaseDirectoryPath(getClass());
+    if (java.nio.file.Files.exists(path)) {
+      FileUtils.deleteDirectory(path.toFile());
+    }
+  }
+
+  /**
+   * Magic-stamped variant: fabricates a {@link #MAGIC_NUMBER_WITHOUT_CHECKSUM}-stamped
+   * orphan page on the {@code .ixs} file. Mirrors the production gap-fill byte layout
+   * that {@code EnsurePageIsValidInFileTask.writeValidPageInFile} produces.
    */
   @Test
   public void spillRecoveryFromFabricatedPage1DoesNotThrow() throws Exception {
+    runSpillRecoveryScenario(magicStamped());
+  }
+
+  /**
+   * Zero-byte variant: extends the {@code .ixs} file via {@link RandomAccessFile#setLength(long)}
+   * without writing magic bytes — mirrors the crash window between
+   * {@code AsyncFile.allocateSpace} and {@code EnsurePageIsValidInFileTask}. The reopen
+   * must still observe {@code op.filledUpTo(fileId) > 1} regardless of byte layout,
+   * because the cache layer reads the file size from {@code file.getFileSize()} on
+   * initialization.
+   */
+  @Test
+  public void spillRecoveryFromFabricatedZeroByteTailDoesNotThrow() throws Exception {
+    runSpillRecoveryScenario(zeroByte());
+  }
+
+  /**
+   * Scenario body shared by the magic-stamped and zero-byte variants.
+   *
+   * <ol>
+   *   <li>open fresh disk storage, create class + NOTUNIQUE index, populate so
+   *       {@code .ixs} holds a valid page-0 snapshot;</li>
+   *   <li>close cleanly so the snapshot lands on disk;</li>
+   *   <li>fabricate one orphan page on {@code .ixs} so the reopen sees
+   *       {@code op.filledUpTo(fileId) > 1};</li>
+   *   <li>reopen and immediately capture the cache's
+   *       {@link WOWCache#physicalSizeForBackupSnapshot} (positive-evidence assertion
+   *       that the fabricated orphan survived reopen — the structural premise the
+   *       IT depends on);</li>
+   *   <li>drive more inserts plus {@code ANALYZE INDEX} so the IHM rebalance
+   *       path issues another {@code writeSnapshotToPage} call;</li>
+   *   <li>assert (a) the follow-up operation does not surface
+   *       {@link IllegalStateException} and (b) the file did not shrink below the
+   *       captured post-reopen size — proves the discriminator selected the load arm
+   *       (an allocate-arm regression would either trip the cache-layer fast-fail or
+   *       grow the file beyond the captured logical horizon).</li>
+   * </ol>
+   */
+  private void runSpillRecoveryScenario(IxsOrphanFabricator fabricator) throws Exception {
     var config = makeConfig();
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
@@ -186,15 +224,15 @@ public class IndexHistogramSpillRecoveryIT {
     }
     youTrackDB.close();
 
-    // Fabricate one magic-stamped orphan page on the .ixs file. This mirrors the
-    // production gap-fill page shape (see EnsurePageIsValidInFileTask.writeValidPageInFile):
-    // magic stamp at offset 0 + LSN (-1, -1), zero payload. The post-reopen
-    // filledUpTo(fileId) read will then report > 1, forcing the discriminator
-    // into the loadPageForWrite(fileId, 1, …) arm on the next flush that has
+    // Fabricate one orphan page on the .ixs file. Magic-stamped variant mirrors
+    // EnsurePageIsValidInFileTask.writeValidPageInFile; zero-byte variant mirrors a
+    // strictly earlier crash window. Either way, the post-reopen
+    // filledUpTo(fileId) read must report > 1, forcing the discriminator into the
+    // loadPageForWrite(fileId, 1, …) arm on any subsequent flush with
     // hllOnPage1=true.
     var ixsPath = storagePath.resolve(ixsNativeFileName).toFile();
     long sizeBeforeFabrication = ixsPath.length();
-    fabricateOrphanPage(ixsPath, pageSize);
+    fabricator.fabricate(ixsPath, pageSize);
     long sizeAfterFabrication = ixsPath.length();
     assertThat(sizeAfterFabrication)
         .as(".ixs file size must grow by exactly one pageSize after fabrication")
@@ -207,10 +245,33 @@ public class IndexHistogramSpillRecoveryIT {
     // IllegalStateException — neither from the cache-layer fail-fast on a
     // mis-routed allocator nor from the StorageComponent dispatch.
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long physicalSizeAfterReopen;
     try (var session = youTrackDB.open(
         IndexHistogramSpillRecoveryIT.class.getSimpleName(),
         "admin", "admin",
         YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      // Positive-evidence assertion #1: capture the cache's physical-page count
+      // for the .ixs file immediately after reopen, before any TX runs. This must
+      // be >= 2 — proves the fabricated orphan survived reopen and the structural
+      // premise of this IT (IHM is excluded from truncateOrphansAfterRecovery) still
+      // holds. If a future change adds IHM to the recovery pass, this assertion
+      // fails and the test must be revisited.
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      var ixsFileName = wowCache.files().keySet().stream()
+          .filter(name -> name.endsWith(IndexHistogramManager.IXS_EXTENSION))
+          .findFirst()
+          .orElseThrow(() -> new AssertionError(
+              "No .ixs file in the file map on reopen; the NOTUNIQUE histogram manager"
+                  + " appears to have lost its stats file across the restart"));
+      var fileId = wowCache.fileIdByName(ixsFileName);
+      physicalSizeAfterReopen = wowCache.physicalSizeForBackupSnapshot(fileId);
+      assertThat(physicalSizeAfterReopen)
+          .as("the fabricated orphan page must survive reopen; physicalSizeForBackupSnapshot"
+              + " must be >= 2. If a future change adds IHM to truncateOrphansAfterRecovery,"
+              + " this assertion fails and the IT must be revisited.")
+          .isGreaterThanOrEqualTo(2L);
+
       // More inserts so the next ANALYZE INDEX has dirty mutations to flush.
       session.executeInTx(transaction -> {
         for (var i = 0; i < 500; i++) {
@@ -234,6 +295,20 @@ public class IndexHistogramSpillRecoveryIT {
         var entity = transaction.newEntity(CLASS_NAME);
         entity.setProperty(INDEX_KEY, "final-sentinel");
       });
+
+      // Positive-evidence assertion #2: after the second ANALYZE INDEX, the file
+      // must not have shrunk below the captured post-reopen size. A regression that
+      // mis-routed the discriminator to the allocate arm (instead of load) would
+      // either trip the cache-layer fast-fail above OR grow the file beyond the
+      // captured horizon — never shrink. A shrink would mean some truncate fired
+      // unexpectedly, breaking the IT's premise.
+      var fileIdPost = wowCache.fileIdByName(ixsFileName);
+      var physicalSizePostAnalyze = wowCache.physicalSizeForBackupSnapshot(fileIdPost);
+      assertThat(physicalSizePostAnalyze)
+          .as("the .ixs file must not shrink below the captured post-reopen size"
+              + " across the second ANALYZE INDEX; a shrink means an unexpected"
+              + " truncate fired and the discriminator coverage is invalidated")
+          .isGreaterThanOrEqualTo(physicalSizeAfterReopen);
     }
   }
 
@@ -265,24 +340,40 @@ public class IndexHistogramSpillRecoveryIT {
   }
 
   /**
-   * Appends one magic-stamped page to {@code file} via {@link RandomAccessFile}.
-   * The byte layout mirrors {@code EnsurePageIsValidInFileTask.writeValidPageInFile}
-   * (the production gap-fill shape): {@link #MAGIC_NUMBER_WITHOUT_CHECKSUM} at
-   * offset 0 + LSN {@code (-1, -1)} placed by
-   * {@link DurablePage#setLogSequenceNumberForPage(ByteBuffer, LogSequenceNumber)}.
+   * Returns a fabricator that appends one magic-stamped page to {@code file}. The byte
+   * layout mirrors {@code EnsurePageIsValidInFileTask.writeValidPageInFile} (the
+   * production gap-fill shape): {@link #MAGIC_NUMBER_WITHOUT_CHECKSUM} at offset 0 + LSN
+   * {@code (-1, -1)} placed by {@link DurablePage#setLogSequenceNumberForPage(ByteBuffer, LogSequenceNumber)}.
    * The page payload is zeroed.
    */
-  private static void fabricateOrphanPage(java.io.File file, int pageSize) throws Exception {
-    var page = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
-    DurablePage.setLogSequenceNumberForPage(page, new LogSequenceNumber(-1, -1));
-    page.putLong(0, MAGIC_NUMBER_WITHOUT_CHECKSUM);
-    try (var raf = new RandomAccessFile(file, "rw")) {
-      raf.seek(raf.length());
-      var bytes = new byte[pageSize];
-      page.position(0);
-      page.get(bytes);
-      raf.write(bytes);
-    }
+  private static IxsOrphanFabricator magicStamped() {
+    return (file, pageSize) -> {
+      var page = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
+      DurablePage.setLogSequenceNumberForPage(page, new LogSequenceNumber(-1, -1));
+      page.putLong(0, MAGIC_NUMBER_WITHOUT_CHECKSUM);
+      try (var raf = new RandomAccessFile(file, "rw")) {
+        raf.seek(raf.length());
+        var bytes = new byte[pageSize];
+        page.position(0);
+        page.get(bytes);
+        raf.write(bytes);
+      }
+    };
+  }
+
+  /**
+   * Returns a fabricator that extends {@code file} by exactly {@code pageSize} bytes via
+   * {@link RandomAccessFile#setLength(long)}. The trailing bytes are filesystem-zeroed —
+   * no magic stamp, no LSN, no checksum. Mirrors a strictly earlier crash window than
+   * the magic-stamped variant: {@code AsyncFile.allocateSpace} extended the physical
+   * file counter but {@code EnsurePageIsValidInFileTask} never ran.
+   */
+  private static IxsOrphanFabricator zeroByte() {
+    return (file, pageSize) -> {
+      try (var raf = new RandomAccessFile(file, "rw")) {
+        raf.setLength(raf.length() + pageSize);
+      }
+    };
   }
 
   @After

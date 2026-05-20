@@ -1,14 +1,3 @@
-/*
-     *
-     *
-     *  *  Licensed under the Apache License, Version 2.0 (the "License");
-     *  *  you may not use this file except in compliance with the License.
-     *  *  You may obtain a copy of the License at
-     *  *
-     *  *       http://www.apache.org/licenses/LICENSE-2.0
-     *
-     */
-
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +25,7 @@ import java.nio.ByteOrder;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -72,28 +62,52 @@ import org.junit.experimental.categories.Category;
  *       a load attempt.</li>
  * </ul>
  *
- * <p>Six file shapes are exercised:
+ * <p>Six file shapes are exercised, mapping onto <b>four independent dispatch surfaces
+ * plus one sibling-hook surface</b>:
  *
- * <ol>
- *   <li><b>{@code .pcl}</b> — a paginated-collection cluster file.</li>
- *   <li><b>{@code .cpm}</b> — a {@code CollectionPositionMapV2} embedded position-map file.
- *       Pins the PCV2 sibling-truncation hook that internally drives the embedded
- *       {@code CollectionPositionMapV2.verifyAndTruncateOrphans} call.</li>
- *   <li><b>Clean shutdown / no-op.</b> Open, populate, close cleanly, reopen. Asserts no
- *       file shrunk (the per-component pre-flight makes the pass a no-op).</li>
- *   <li><b>{@code .cbt}</b> — a BTree single-value index engine's primary data file. Pins
- *       the engine-side dispatch through the orchestrator's
- *       {@code instanceof BTreeSingleValueIndexEngine} filter.</li>
- *   <li><b>{@code .grb}</b> — a {@code SharedLinkBagBTree} file (one per paginated
- *       collection, named {@code global_collection_<id>.grb}). Pins Group 3 of the
- *       orchestrator, where {@code LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans}
- *       iterates the manager's private {@code fileIdBTreeMap} — the only recovery-pass
- *       target with no public iteration accessor on the manager.</li>
- *   <li><b>Multi-value engine null sub-tree {@code <index>$null.cbt}</b> — the nullTree
- *       data file inside a {@code BTreeMultiValueIndexEngine}. Pins the previously
- *       IT-uncovered nullTree leg of {@code BTreeMultiValueIndexEngine.verifyAndTruncateOrphans}
- *       (svTree leg is already pinned by the {@code .cbt} scenarios above).</li>
- * </ol>
+ * <ul>
+ *   <li><b>Top-level orchestrator dispatch</b> covers four file shapes via four
+ *       independent code paths inside
+ *       {@code AbstractStorage.truncateOrphansAfterRecovery}:
+ *       <ul>
+ *         <li><b>{@code .pcl}</b> — a paginated-collection cluster file (PCV2's own
+ *             {@code verifyAndTruncateOrphans}).</li>
+ *         <li><b>{@code .cbt}</b> — a BTree single-value index engine's primary data
+ *             file. Pins the engine-side dispatch through the orchestrator's
+ *             {@code instanceof BTreeSingleValueIndexEngine} filter.</li>
+ *         <li><b>{@code .grb}</b> — a {@code SharedLinkBagBTree} file (one per
+ *             paginated collection, named {@code global_collection_<id>.grb}). Pins
+ *             Group 3 of the orchestrator, where
+ *             {@code LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans}
+ *             iterates the manager's private {@code fileIdBTreeMap} — the only
+ *             recovery-pass target with no public iteration accessor on the
+ *             manager.</li>
+ *         <li><b>Multi-value engine null sub-tree {@code <index>$null.cbt}</b> — the
+ *             nullTree data file inside a {@code BTreeMultiValueIndexEngine}. Pins
+ *             the previously IT-uncovered nullTree leg of
+ *             {@code BTreeMultiValueIndexEngine.verifyAndTruncateOrphans} (the svTree
+ *             leg is already pinned by the {@code .cbt} scenarios above).</li>
+ *       </ul>
+ *   </li>
+ *   <li><b>Sibling-hook dispatch</b> covers one additional file shape via
+ *       {@code PaginatedCollectionV2.verifyAndTruncateOrphansSiblings}, which the
+ *       PCV2 entry-point owner invokes internally:
+ *       <ul>
+ *         <li><b>{@code .cpm}</b> — a {@code CollectionPositionMapV2} embedded
+ *             position-map file. The {@code .cpm} scenarios pin this siblings-hook
+ *             delegation specifically; they are NOT an independent top-level
+ *             dispatch path — there is no orchestrator-direct CPMV2 branch. A
+ *             regression that broke the siblings-hook delegation would surface here
+ *             without affecting the {@code .pcl} assertion.</li>
+ *       </ul>
+ *   </li>
+ *   <li><b>Clean shutdown / no-op</b> matrix exercises the same dispatch surfaces
+ *       above (across {@code .pcl}, {@code .cbt}, {@code .grb}, and
+ *       {@code $null.cbt}) but on a clean shutdown rather than a fabrication
+ *       scenario — the per-component pre-flight must make the pass a strict no-op
+ *       on every file shape, catching an over-shrink regression that would drop
+ *       live pages on every reopen.</li>
+ * </ul>
  *
  * <p>The orphan fabrication uses {@link RandomAccessFile} after the DB is closed. The
  * magic-stamped helper writes {@link #MAGIC_NUMBER_WITHOUT_CHECKSUM} + LSN {@code (-1, -1)}
@@ -131,6 +145,20 @@ public class TruncateOrphansAfterRecoveryIT {
   }
 
   private YouTrackDBImpl youTrackDB;
+
+  /**
+   * Defensive pre-clean: if a prior run crashed before {@link #after} fired (JVM kill, OOM,
+   * OS reboot), the next run's {@code youTrackDB.create(dbName, ...)} would throw
+   * "Database already exists". Mirrors the pre-clean pattern in
+   * {@code ProductionAllocatorConcurrencyMTTest.setUp}.
+   */
+  @Before
+  public void cleanupBeforeRun() throws Exception {
+    var path = DbTestBase.getBaseDirectoryPath(getClass());
+    if (java.nio.file.Files.exists(path)) {
+      FileUtils.deleteDirectory(path.toFile());
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // .pcl (paginated collection) — full ChecksumMode × fabrication-shape matrix
@@ -361,27 +389,84 @@ public class TruncateOrphansAfterRecoveryIT {
   // Clean shutdown / no-op — ChecksumMode matrix only (no fabrication axis)
   // ---------------------------------------------------------------------------
 
-  /** See {@link #runCleanShutdownScenario}. */
-  @Test
-  public void noOpOnCleanShutdownReopenUnderChecksumOff() throws Exception {
-    runCleanShutdownScenario(ChecksumMode.Off);
+  /**
+   * File-shape selector for {@link #runCleanShutdownScenario}. Each entry picks a single
+   * native file off the storage's WOWCache that the no-op assertion should verify is
+   * unchanged across a clean reopen.
+   */
+  @FunctionalInterface
+  private interface CleanShutdownFileSelector {
+    /** Returns the cache-layer file name (NOT the native file name) of the file to assert. */
+    String select(WOWCache cache);
   }
 
   /** See {@link #runCleanShutdownScenario}. */
   @Test
-  public void noOpOnCleanShutdownReopenUnderStoreAndThrow() throws Exception {
-    runCleanShutdownScenario(ChecksumMode.StoreAndThrow);
+  public void noOpOnCleanShutdownReopenForPclUnderChecksumOff() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.Off, selectClusterPcl());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForPclUnderStoreAndThrow() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.StoreAndThrow, selectClusterPcl());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForCbtUnderChecksumOff() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.Off, selectIndexCbt());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForCbtUnderStoreAndThrow() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.StoreAndThrow, selectIndexCbt());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForGrbUnderChecksumOff() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.Off, selectAnyGrb());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForGrbUnderStoreAndThrow() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.StoreAndThrow, selectAnyGrb());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForNullCbtUnderChecksumOff() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.Off, selectAnyNullCbt());
+  }
+
+  /** See {@link #runCleanShutdownScenario}. */
+  @Test
+  public void noOpOnCleanShutdownReopenForNullCbtUnderStoreAndThrow() throws Exception {
+    runCleanShutdownScenario(ChecksumMode.StoreAndThrow, selectAnyNullCbt());
   }
 
   /**
-   * Scenario body shared by the two clean-shutdown variants. Asserts the recovery pass
+   * Scenario body shared by the clean-shutdown variants. Asserts the recovery pass
    * is a strict no-op after a clean close-reopen cycle: the per-component pre-flight
    * skips the shrink dispatch, so the file size must be identical across the boundary.
-   * Strict equality catches both the over-shrink direction (a buggy pass that drops live
-   * pages) and the no-op direction (the desired clean-case behaviour) — a relaxation to
-   * {@code >=} would make the latter unfalsifiable.
+   * Strict equality catches both the over-shrink direction (a buggy pass that drops
+   * live pages — the regression class this matrix guards against) and the no-op
+   * direction (the desired clean-case behaviour) — a relaxation to {@code >=} would
+   * make the latter unfalsifiable.
+   *
+   * <p>The {@code fileSelector} picks the native file the assertion runs against. The
+   * setup body provisions a schema rich enough for every selector to find its file:
+   * one class with a NOTUNIQUE String index produces {@code .pcl} (cluster),
+   * {@code .cpm} (position map), {@code .grb} (per-cluster SLBB), and the index's
+   * sub-files ({@code <index>.cbt} for the svTree leg and
+   * {@code <index>$null.cbt} for the nullTree leg — created by inserting at least
+   * one null-keyed entity).
    */
-  private void runCleanShutdownScenario(ChecksumMode checksumMode) throws Exception {
+  private void runCleanShutdownScenario(
+      ChecksumMode checksumMode, CleanShutdownFileSelector fileSelector) throws Exception {
     var config = makeConfig(checksumMode);
     var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
@@ -393,42 +478,104 @@ public class TruncateOrphansAfterRecoveryIT {
     java.nio.file.Path storagePath;
     try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
-      session.getMetadata().getSchema().createClass("CleanShutdown");
+      // Schema rich enough that every file-shape selector finds its file:
+      //   .pcl  — class's primary cluster
+      //   .cpm  — sibling of every .pcl (CollectionPositionMapV2)
+      //   .grb  — per-cluster SharedLinkBagBTree, created at addCollection()
+      //   .cbt  — svTree leg of the NOTUNIQUE index
+      //   $null.cbt — nullTree leg, created when at least one null-keyed entity exists
+      var schema = session.getMetadata().getSchema();
+      var clazz = schema.createClass("CleanShutdown");
+      clazz.createProperty("key",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+      clazz.createIndex("CleanShutdown.key",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
+          "key");
       session.executeInTx(transaction -> {
+        // 20 non-null-keyed entities populate the svTree.
         for (var i = 0; i < 20; i++) {
           var entity = transaction.newEntity("CleanShutdown");
-          entity.setProperty("value", "row-" + i);
+          entity.setProperty("key", "k-" + i);
+        }
+        // Two null-keyed entities populate the nullTree, so the
+        // <index>$null.cbt file actually exists on disk.
+        for (var i = 0; i < 2; i++) {
+          var entity = transaction.newEntity("CleanShutdown");
+          // Don't set "key" — the entity routes through the nullTree on commit.
         }
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "cleanshutdown", ".pcl");
-      var fileId = wowCache.fileIdByName(pclFileName);
+      var selectedFileName = fileSelector.select(wowCache);
+      var fileId = wowCache.fileIdByName(selectedFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       storagePath = storage.getStoragePath();
     }
     youTrackDB.close();
 
-    var pclPath = storagePath.resolve(nativeFileName).toFile();
-    long sizeBeforeReopen = pclPath.length();
+    var selectedPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeReopen = selectedPath.length();
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
         TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
-      sizeImmediatelyAfterReopen = pclPath.length();
+      sizeImmediatelyAfterReopen = selectedPath.length();
 
       session.executeInTx(transaction -> {
         var entity = transaction.newEntity("CleanShutdown");
-        entity.setProperty("value", "post-reopen");
+        entity.setProperty("key", "post-reopen");
       });
     }
 
     assertThat(sizeImmediatelyAfterReopen)
-        .as("clean reopen must leave the file size identical to the pre-reopen size under"
-            + " checksumMode=" + checksumMode)
+        .as("clean reopen must leave the file '%s' size identical to the pre-reopen"
+            + " size under checksumMode=%s; an over-shrink here would mean the"
+            + " per-component pre-flight dropped live pages on a clean shutdown",
+            nativeFileName, checksumMode)
         .isEqualTo(sizeBeforeReopen);
+  }
+
+  /** Selector: the {@code CleanShutdown} class's primary {@code .pcl} cluster. */
+  private static CleanShutdownFileSelector selectClusterPcl() {
+    return cache -> findFileName(cache, "cleanshutdown", ".pcl");
+  }
+
+  /**
+   * Selector: the {@code CleanShutdown.key} index's primary svTree {@code .cbt} data file
+   * (the NOTUNIQUE index produces both this and the {@code $null.cbt} nullTree).
+   */
+  private static CleanShutdownFileSelector selectIndexCbt() {
+    return cache -> cache.files().keySet().stream()
+        .filter(name -> name.endsWith(".cbt") && !name.endsWith("$null.cbt"))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError(
+            "No svTree .cbt file in the cache; clean-shutdown setup did not produce"
+                + " the expected index file shape"));
+  }
+
+  /** Selector: any per-cluster {@code SharedLinkBagBTree} ({@code .grb}) file. */
+  private static CleanShutdownFileSelector selectAnyGrb() {
+    return cache -> cache.files().keySet().stream()
+        .filter(name -> name.startsWith("global_collection_") && name.endsWith(".grb"))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError(
+            "No .grb file in the cache; clean-shutdown setup did not produce a SLBB"));
+  }
+
+  /**
+   * Selector: the multi-value engine's nullTree {@code $null.cbt} data file. Present only
+   * when the NOTUNIQUE index has at least one null-keyed entity (the setup body inserts
+   * two so this file exists reliably).
+   */
+  private static CleanShutdownFileSelector selectAnyNullCbt() {
+    return cache -> cache.files().keySet().stream()
+        .filter(name -> name.endsWith("$null.cbt"))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError(
+            "No <index>$null.cbt file in the cache; clean-shutdown setup did not"
+                + " produce a null-keyed entity to populate the nullTree"));
   }
 
   // ---------------------------------------------------------------------------

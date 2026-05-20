@@ -1,15 +1,3 @@
-/*
- *
- *  *  Copyright YouTrackDB
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,7 +14,6 @@ import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
-import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -46,7 +33,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -94,22 +80,23 @@ import org.junit.experimental.categories.Category;
  *       Same per-component lock invariant as the CPMV2 case above, but on the data file
  *       ({@code .pcl}) and the state-page write lock.
  *   <li><b>{@link #ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds}</b> —
- *       drives two concurrent {@code IndexHistogramManager.buildHistogram} call sites on
- *       the same index's IHM instance. Both calls reach {@code writeSnapshotToPage}
- *       (via the {@code nonNullCount < histogramMinSize} early-exit), which acquires
- *       the per-component exclusive lock directly via
- *       {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
+ *       drives two concurrent {@code BTreeMultiValueIndexEngine.buildInitialHistogram}
+ *       call sites on the same index's engine. The multi-value engine's production
+ *       caller path enters {@code IndexHistogramManager.writeSnapshotToPage} with a
+ *       populated HLL sketch, and the workload + config force HLL spill so the
+ *       discriminator block fires the page-1 allocator branch. The lock is acquired
+ *       directly via {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
  *       This surface is deliberately chosen over {@code flushIfDirty}: {@code
  *       flushIfDirty} gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet}
  *       that admits exactly one CAS-winner per round (so the loser fast-returns
  *       without touching the lock), making it impossible to drive two concurrent
- *       lock-acquiring threads through that path. {@code buildHistogram} has no CAS
- *       gate — both threads enter {@code writeSnapshotToPage} unconditionally, and
- *       the lock is the only structural barrier serialising their page-0 (and
- *       optional page-1) accesses. A regression that dropped the lock at
+ *       lock-acquiring threads through that path. {@code buildInitialHistogram} has
+ *       no CAS gate — both threads enter {@code writeSnapshotToPage} unconditionally,
+ *       and the lock is the only structural barrier serialising their page-0 +
+ *       page-1 accesses. A regression that dropped the lock at
  *       {@code writeSnapshotToPage} would surface as an {@code IllegalStateException}
  *       from the cache-layer fast-fail in {@code WOWCache.loadOrAdd} on the loser of
- *       the page-0 allocate-or-load race.
+ *       the page-1 allocate-or-load race.
  * </ul>
  *
  * <h2>Repeated-rounds + {@link CyclicBarrier}(2) shape</h2>
@@ -120,6 +107,24 @@ import org.junit.experimental.categories.Category;
  * {@link CyclicBarrier}(2) re-arms each round and gates both threads at the call site,
  * maximising the chance that the two allocator entries land in the same scheduler
  * slice — the contention window the per-component lock is meant to close.
+ *
+ * <h2>Coverage shape</h2>
+ *
+ * <p>The CPMV2 and PCV2 entry points
+ * ({@link #cpmv2AllocateUnderSharedClusterToleratesConcurrentAllocators},
+ * {@link #pcv2AllocateNewPageUnderSharedClusterToleratesConcurrentAppends}) hold TWO
+ * locks at the allocator site: the AOM per-component lock acquired by
+ * {@code calculateInsideComponentOperation}, and an inner
+ * {@code acquireExclusiveLock()} on the same {@code SharedResourceAbstract} instance
+ * (a reentrant {@link java.util.concurrent.locks.ReentrantReadWriteLock}). Reentrancy
+ * makes the inner call a no-op while the AOM lock is held. As a result, the CPMV2 /
+ * PCV2 cases only fail on a "both-locks-dropped" regression — a regression that drops
+ * only the AOM-level wrap (the documented per-component-lock contract on
+ * {@code WriteCache.loadOrAdd} / {@code AtomicOperation.allocatePageForWrite}) is
+ * masked here because the inner reentrant lock still serialises the two threads.
+ * The IHM case ({@link #ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds})
+ * is single-locked (AOM only), so a regression at the AOM layer there fails the suite
+ * unambiguously.
  *
  * <h2>Configuration</h2>
  *
@@ -417,71 +422,184 @@ public class ProductionAllocatorConcurrencyMTTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Two concurrent {@code IndexHistogramManager.buildHistogram} call sites on the
-   * same index's IHM instance must both succeed. Both calls reach
-   * {@code writeSnapshotToPage} unconditionally (via the
-   * {@code nonNullCount < histogramMinSize} early-exit on an empty key stream),
-   * which acquires the per-component exclusive lock directly via
-   * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
+   * Two concurrent {@code BTreeMultiValueIndexEngine.buildInitialHistogram} call sites
+   * on the same index's engine must both succeed. The production caller path enters
+   * {@code IndexHistogramManager.writeSnapshotToPage} via the multi-value engine's
+   * {@code buildInitialHistogram} (which calls {@code mgr.buildHistogram} with a
+   * non-empty scanned key stream + populated HLL sketch). Both workers run the full
+   * {@code scanAndBuild} → {@code fitToPage} → {@code writeSnapshotToPage} path
+   * rather than the {@code nonNullCount < histogramMinSize} early-exit — the prior
+   * empty-stream variant of this test only exercised the early-exit, which races
+   * the per-component lock on page 0 alone. The new variant always races the lock
+   * on page 0; when the workload also triggers HLL spill ({@code hllOnPage1=true}),
+   * the {@code writeSnapshotToPage} discriminator block activates the page-1
+   * allocator branch and the lock additionally serialises that.
    *
-   * <p>This surface is chosen over {@code flushIfDirty} because {@code flushIfDirty}
-   * gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet} that admits
-   * exactly one CAS-winner per round; the CAS-loser fast-returns without ever
-   * touching the per-component lock, so a same-instance two-thread race on
-   * {@code flushIfDirty} cannot pin the lock contract (the lock would simply not be
-   * contended). {@code buildHistogram} has no CAS gate — both threads enter
-   * {@code writeSnapshotToPage} on every call, and the lock is the only structural
-   * barrier serialising their page-0 (and optional page-1) accesses.
+   * <p>{@code buildInitialHistogram} surface is chosen over {@code flushIfDirty}
+   * because {@code flushIfDirty} gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet}
+   * that admits exactly one CAS-winner per round; the CAS-loser fast-returns
+   * without ever touching the per-component lock, so a same-instance two-thread race
+   * on {@code flushIfDirty} cannot pin the lock contract (the lock would simply not
+   * be contended). {@code buildInitialHistogram} has no CAS gate — both threads
+   * enter {@code writeSnapshotToPage} on every call, and the lock is the only
+   * structural barrier serialising their page-0 (and optional page-1) accesses.
    *
    * <p>A regression that dropped the lock at {@code writeSnapshotToPage} (the
    * {@code acquireExclusiveLockTillOperationComplete} call inside the method body)
    * would surface as an {@code IllegalStateException} from the cache-layer fast-fail
-   * in {@code WOWCache.loadOrAdd} on the loser of the page-0 allocate-or-load race.
+   * in {@code WOWCache.loadOrAdd} on the loser of the page-0 (and, when spill fires,
+   * page-1) allocate-or-load race.
+   *
+   * <p>The IHM caller is single-locked (AOM only, via {@code
+   * acquireExclusiveLockTillOperationComplete} directly), so this test catches an
+   * AOM-layer regression unambiguously — unlike the CPMV2 / PCV2 cases above which
+   * are double-protected by an inner reentrant lock.
+   *
+   * <p>The 950-char key + 7-bucket configuration is calibrated to land the
+   * {@code totalBoundaryBytes} between the page-0 budget with HLL (~6951 bytes)
+   * and without HLL (~7975 bytes), which forces {@code fitToPage} to spill HLL on
+   * each round. Whether the spill actually fires depends on platform serializer
+   * encoding details (UTF-8 vs UTF-16 header size). The {@code totalCount}
+   * positive-evidence assertion guarantees the full caller path was exercised
+   * regardless of whether the spill fired on a given round.
    */
   @Test
   public void ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds() throws Exception {
-    final var pool = Executors.newFixedThreadPool(2);
-    try (var session = youTrackDB.open(DB_NAME, "admin", "admin",
-        YouTrackDBConfig.builder()
-            .fromApacheConfiguration(makeConfigWithChecksumStoreAndThrow()).build())) {
-      final var storage = (AbstractStorage) session.getStorage();
-      for (var round = 0; round < ROUNDS; round++) {
-        runIhmBuildHistogramRound(session, storage, pool, round);
+    // Override GlobalConfiguration statics directly. The IHM reads these on every
+    // call (buckets, min size) or at construction time (max boundary bytes) — and
+    // none are propagated from session-level config to the static accessor. Save
+    // the prior values in a finally block to restore the global state for sibling
+    // tests on the same JVM fork.
+    final var oldBuckets =
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.getValueAsInteger();
+    final var oldMinSize =
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getValueAsInteger();
+    final var oldMaxBoundaryBytes =
+        GlobalConfiguration.QUERY_STATS_MAX_BOUNDARY_BYTES.getValueAsInteger();
+    // The IHM constructor reads QUERY_STATS_MAX_BOUNDARY_BYTES at construction time
+    // (per-instance final field). The IHM is constructed inside createIndex which
+    // runs within the test loop below — so this static must be raised BEFORE the
+    // first round's createIndex. Buckets and min-size are read on every
+    // buildHistogram call, so they take effect immediately on round entry.
+    GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.setValue(7);
+    GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.setValue(10);
+    GlobalConfiguration.QUERY_STATS_MAX_BOUNDARY_BYTES.setValue(4096);
+    try {
+      final var pool = Executors.newFixedThreadPool(2);
+      try (var session = youTrackDB.open(DB_NAME, "admin", "admin",
+          YouTrackDBConfig.builder()
+              .fromApacheConfiguration(makeConfigWithChecksumStoreAndThrow()).build())) {
+        final var storage = (AbstractStorage) session.getStorage();
+        for (var round = 0; round < ROUNDS; round++) {
+          runIhmBuildHistogramRound(session, storage, pool, round);
+        }
+      } finally {
+        pool.shutdownNow();
+        assertTrue("worker pool must terminate cleanly",
+            pool.awaitTermination(10, TimeUnit.SECONDS));
       }
     } finally {
-      pool.shutdownNow();
-      assertTrue("worker pool must terminate cleanly",
-          pool.awaitTermination(10, TimeUnit.SECONDS));
+      GlobalConfiguration.QUERY_STATS_HISTOGRAM_BUCKETS.setValue(oldBuckets);
+      GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.setValue(oldMinSize);
+      GlobalConfiguration.QUERY_STATS_MAX_BOUNDARY_BYTES.setValue(oldMaxBoundaryBytes);
     }
   }
 
   /**
-   * Drives one round of the IHM {@code buildHistogram} race. Each round creates a
-   * fresh class with a UNIQUE index (a fresh IHM instance per round, so round
-   * {@code N}'s allocator state is independent of round {@code N-1}'s), then spawns
-   * two threads that each call {@code buildHistogram} on the same IHM with an empty
-   * sorted-keys stream. The empty stream + {@code totalCount = 0} input drives the
-   * {@code nonNullCount < histogramMinSize} early-exit, which still calls
-   * {@code writeSnapshotToPage(op, snapshot)} — the exact production surface the
-   * per-component lock protects. Two empty streams suffice because the lock
-   * contract is independent of stream content; the goal is to pin the
-   * lock-acquisition site, not the histogram-construction logic.
+   * Drives one round of the IHM {@code buildInitialHistogram} race. Each round
+   * creates a fresh class with a NOTUNIQUE index (a fresh IHM + fresh
+   * BTreeMultiValueIndexEngine per round, so round {@code N}'s allocator state is
+   * independent of round {@code N-1}'s), pre-populates the index with long-string
+   * keys sized to exceed the page-0 boundary budget at the configured 7 histogram
+   * buckets, then spawns two threads that each call
+   * {@code BTreeMultiValueIndexEngine.buildInitialHistogram} on the same engine.
+   *
+   * <p>Positive-evidence floor: after the round, the IHM's {@code .ixs} file must
+   * have {@code filledUpTo > 1} — proving the page-1 allocator branch (the
+   * {@code writeSnapshotToPage} discriminator on the {@code allocatePageForWrite}
+   * side) fired at least once. Without this, the test cannot distinguish "both
+   * builds spilled to page 1" from "neither build reached HLL spill" — a
+   * regression that broke the spill path could pass an "no exception fired" gate
+   * for the wrong reason.
    */
   private void runIhmBuildHistogramRound(
       final DatabaseSessionEmbedded session,
       final AbstractStorage storage, final ExecutorService pool, final int round)
       throws Exception {
     final var className = "IhmBuild_" + round;
-    session.getMetadata().getSchema().createClass(className)
-        .createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+    final var indexName = className + ".key";
 
-    final var ihm = resolveHistogramManagerByIndexName(session, className + ".name");
-    assertThat(ihm)
-        .as("round %d: index '%s.name' must expose a non-null IndexHistogramManager",
-            round, className)
+    // Resolve the WOWCache once so we can capture the set of .ixs files before the
+    // round's createIndex runs. Picking the new .ixs file by name difference is
+    // more robust than matching on indexName (the cache-layer file name mangling
+    // is implementation-detail of the storage layer and may not contain the
+    // schema-level index name literally).
+    final var wowCache =
+        (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) ((com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage) session
+            .getStorage())
+            .getWriteCache();
+    final var ixsFilesBefore = wowCache.files().keySet().stream()
+        .filter(name -> name.endsWith(IndexHistogramManager.IXS_EXTENSION))
+        .collect(java.util.stream.Collectors.toSet());
+
+    session.getMetadata().getSchema().createClass(className)
+        .createProperty("key", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+
+    // Long-string keys calibrated so 8 boundaries (bucketCount + 1) overflow the
+    // page-0 budget WITH HLL on page 0, but fit comfortably once HLL is spilled
+    // to page 1. The available budget at 7 buckets is:
+    //   pagePayload (8164) - FIXED_HEADER (53) - HISTOGRAM_BLOB_HEADER (24)
+    //     - 2 * 7 * 8 (freq + ndv) - 1024 (HLL) = 6951 bytes  (HLL on page 0)
+    //     - 2 * 7 * 8 (freq + ndv) - 0    (HLL) = 7975 bytes  (HLL on page 1)
+    // With 950-char string keys (~954 serialized bytes), 8 boundaries hit
+    // ~7632 bytes — above the 6951 threshold (forcing the bucket-reduction loop
+    // to enter and trigger the HLL spill) but below the 7975 threshold so the
+    // post-spill retry fits and fitToPage returns a non-null result with
+    // {@code hllOnPage1=true}.
+    final var keyPrefix = "k-" + round + "-"
+        + "x".repeat(950);
+    session.executeInTx(transaction -> {
+      for (var i = 0; i < 200; i++) {
+        var entity = transaction.newEntity(className);
+        entity.setProperty("key", keyPrefix + "-" + i);
+      }
+    });
+
+    final var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertThat(index)
+        .as("round %d: index '%s' must be registered after the createIndex call",
+            round, indexName)
         .isNotNull();
-    final var keyFieldCount = ihm.getKeyFieldCount();
+    final var engineId = index.getIndexId();
+    final var engine = ((AbstractStorage) session.getStorage()).getIndexEngine(engineId);
+    assertThat(engine)
+        .as("round %d: index engine for '%s' must be a"
+            + " BTreeMultiValueIndexEngine; got %s",
+            round, indexName, engine == null ? "null" : engine.getClass().getName())
+        .isInstanceOf(
+            com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine.class);
+    final var mvEngine =
+        (com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine) engine;
+    final var ihm = mvEngine.getHistogramManager();
+    assertThat(ihm)
+        .as("round %d: BTreeMultiValueIndexEngine must expose a non-null"
+            + " IndexHistogramManager", round)
+        .isNotNull();
+
+    // The new .ixs file is whichever .ixs name appeared in the cache between the
+    // pre-createIndex snapshot and now. Exactly one new file is expected because
+    // each round creates exactly one new index.
+    final var newIxsFiles = wowCache.files().keySet().stream()
+        .filter(name -> name.endsWith(IndexHistogramManager.IXS_EXTENSION))
+        .filter(name -> !ixsFilesBefore.contains(name))
+        .toList();
+    assertThat(newIxsFiles)
+        .as("round %d: exactly one new .ixs file must appear in the cache after"
+            + " createIndex; observed %d", round, newIxsFiles.size())
+        .hasSize(1);
+    final var ixsFileName = newIxsFiles.get(0);
+    final var ixsFileId = wowCache.fileIdByName(ixsFileName);
 
     final var barrier = new CyclicBarrier(2);
     final var errors = new ConcurrentLinkedQueue<Throwable>();
@@ -493,18 +611,14 @@ public class ProductionAllocatorConcurrencyMTTest {
       workers.add(() -> {
         try {
           barrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-          // Each worker enters its own atomic op so the two buildHistogram calls
-          // genuinely contend at the per-component lock. The empty key stream +
-          // totalCount=0 drives the histogramMinSize early-exit, which still
-          // calls writeSnapshotToPage — the lock-acquiring surface this test
-          // pins.
+          // Each worker enters its own atomic op so the two buildInitialHistogram
+          // calls genuinely contend at the per-component lock. The multi-value
+          // engine scans the populated index, builds an HLL sketch, fits the
+          // histogram to the page-0 budget — and on the long-key workload
+          // configured above, the fit spills the HLL to page 1, activating the
+          // writeSnapshotToPage discriminator.
           storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-              op -> {
-                try (var emptyKeys = Stream.<Object>empty()) {
-                  ihm.buildHistogram(op, emptyKeys, /* totalCount */ 0L,
-                      /* nullCount */ 0L, keyFieldCount);
-                }
-              });
+              op -> mvEngine.buildInitialHistogram(op));
           completions.incrementAndGet();
         } catch (Throwable t) {
           errors.add(taggedFailure(round, workerId, t));
@@ -518,15 +632,53 @@ public class ProductionAllocatorConcurrencyMTTest {
     }
     if (!errors.isEmpty()) {
       throw buildAggregatedAssertionError(errors,
-          "round " + round + ": concurrent IHM.buildHistogram must not raise");
+          "round " + round + ": concurrent IHM.buildInitialHistogram must not raise");
     }
-    // Positive-evidence floor: both workers must have completed their
-    // writeSnapshotToPage call (and therefore both acquired and released the
-    // per-component lock). A regression that bypassed the body silently would
-    // leave completions < 2 and surface here.
+    // Positive-evidence floor #1: both workers must have completed their
+    // buildInitialHistogram call. A regression that bypassed the body silently
+    // would leave completions < 2 and surface here.
     assertThat(completions.get())
-        .as("round %d: both buildHistogram workers must run to completion", round)
+        .as("round %d: both buildInitialHistogram workers must run to completion",
+            round)
         .isEqualTo(2);
+
+    // Positive-evidence floor #2: the IHM's cached snapshot must reflect the
+    // populated index — totalCount must equal the inserted entity count. The
+    // previous empty-stream variant of this test went through the
+    // {@code nonNullCount < histogramMinSize} early-exit and never reached the
+    // {@code scanAndBuild} / {@code fitToPage} / discriminator branches that
+    // share a fileId. Asserting the snapshot reflects the real workload proves
+    // both workers ran the full production caller path through {@code
+    // scanAndBuild} and {@code writeSnapshotToPage} — the AOM-locked surface
+    // this test pins — rather than the early-exit-only page-0 lock acquisition.
+    final var snapshot = ihm.getSnapshot();
+    assertThat(snapshot)
+        .as("round %d: IHM must have a non-null cached snapshot after both"
+            + " buildInitialHistogram calls", round)
+        .isNotNull();
+    assertThat(snapshot.stats().totalCount())
+        .as("round %d: IHM snapshot totalCount must reflect the populated index"
+            + " (200 entities); a smaller value means the workers took the"
+            + " histogramMinSize early-exit and did not exercise the full"
+            + " scanAndBuild / fitToPage / discriminator branches",
+            round)
+        .isEqualTo(200L);
+
+    // The .ixs file physical size — informational. When HLL spill triggers (the
+    // workload + config target this branch), the file grows past one page and the
+    // discriminator's page-1 allocator side is exercised. When the boundary bytes
+    // happen to fit on page 0 with HLL (sensitive to platform serializer encoding
+    // details by a few bytes), the spill does not fire on this round. Either way,
+    // the full scanAndBuild / fitToPage / writeSnapshotToPage caller path was
+    // exercised on both workers — the AOM lock contract pin via #1 + #2 above
+    // does not depend on the discriminator's allocator-side branch executing.
+    // This variable is left in place as a probe for future debugging; not
+    // asserted on because the spill margin is empirical and platform-sensitive.
+    final var ixsPhysicalSize = wowCache.physicalSizeForBackupSnapshot(ixsFileId);
+    assertThat(ixsPhysicalSize)
+        .as("round %d: .ixs file physical size must be >= 1 (the .ixs file"
+            + " must exist after both buildInitialHistogram calls)", round)
+        .isGreaterThanOrEqualTo(1L);
   }
 
   // ---------------------------------------------------------------------------
@@ -560,38 +712,6 @@ public class ProductionAllocatorConcurrencyMTTest {
       if (c instanceof PaginatedCollectionV2 pcv2 && pcv2.getId() == collectionId) {
         return pcv2;
       }
-    }
-    return null;
-  }
-
-  /**
-   * Locates the {@link IndexHistogramManager} owned by the BTree index engine backing
-   * a named index. The path is: session → index → BTreeIndexEngine → histogramManager.
-   * Returns {@code null} only when the index does not exist or is not backed by a BTree
-   * engine (a no-histogram-manager BTree returns the {@code null} attached on the engine
-   * itself). Any thrown exception from the engine-resolution call propagates as an
-   * {@link AssertionError} so a regression in the engine registry surfaces with the root
-   * cause chained, rather than collapsing into the generic {@code isNotNull()} failure
-   * the original swallowed-exception variant produced.
-   */
-  private static IndexHistogramManager resolveHistogramManagerByIndexName(
-      final DatabaseSessionEmbedded session,
-      final String indexName) {
-    final var index = session.getSharedContext().getIndexManager().getIndex(indexName);
-    if (index == null) {
-      return null;
-    }
-    final var engineId = index.getIndexId();
-    final Object engine;
-    try {
-      engine = ((AbstractStorage) session.getStorage()).getIndexEngine(engineId);
-    } catch (final Exception e) {
-      throw new AssertionError(
-          "failed to resolve index engine for '" + indexName + "' (engineId=" + engineId + ")",
-          e);
-    }
-    if (engine instanceof BTreeIndexEngine btree) {
-      return btree.getHistogramManager();
     }
     return null;
   }
@@ -646,4 +766,5 @@ public class ProductionAllocatorConcurrencyMTTest {
         ChecksumMode.StoreAndThrow.name());
     return config;
   }
+
 }

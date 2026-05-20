@@ -242,8 +242,24 @@ public interface WriteCache {
    *     PaginatedCollectionV2.allocateNewPage}, and {@code
    *     IndexHistogramManager.writeSnapshotToPage} — are pinned by the {@code
    *     ProductionAllocatorConcurrencyMTTest} suite under {@code
-   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}; a regression
-   *     that drops the per-component lock on any of those callers fails that suite.
+   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}.
+   *
+   *     <p><b>Coverage shape of the MT pins.</b> The CPMV2 / PCV2 entry points
+   *     ({@code PaginatedCollectionV2.allocatePosition},
+   *     {@code PaginatedCollectionV2.createRecord} on the {@code allocateNewPage} branch)
+   *     hold TWO locks at the allocator site: the AOM per-component lock acquired by
+   *     {@code calculateInsideComponentOperation}, and an inner
+   *     {@code acquireExclusiveLock()} on the same {@code SharedResourceAbstract}
+   *     instance. Reentrancy makes the inner call a no-op while the AOM lock is held.
+   *     The MT pin therefore only fails on a "both-locks-dropped" regression — a
+   *     single-direction regression that drops only the AOM-level wrap (the documented
+   *     contract above) is masked by the inner {@code acquireExclusiveLock}, because
+   *     the inner per-component {@link java.util.concurrent.locks.ReentrantReadWriteLock}
+   *     still serialises the two threads and the test passes even though the contract
+   *     has been broken at the AOM layer. The IHM
+   *     ({@code IndexHistogramManager.writeSnapshotToPage}) caller is single-locked
+   *     (AOM only, via {@code acquireExclusiveLockTillOperationComplete} directly), so
+   *     a regression at the AOM layer there fails the suite without ambiguity.
    *     Component initialisers that run once per index/component lifecycle (e.g.
    *     {@code BTree.create}, {@code SharedLinkBagBTree.splitRootBucket}) are not
    *     reachable from concurrent session-level transactions and rely on the same

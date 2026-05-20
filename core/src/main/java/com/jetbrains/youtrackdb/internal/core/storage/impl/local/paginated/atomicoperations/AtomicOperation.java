@@ -121,12 +121,23 @@ public interface AtomicOperation {
    *     PaginatedCollectionV2.allocateNewPage}, and {@code
    *     IndexHistogramManager.writeSnapshotToPage} &mdash; are pinned by the {@code
    *     ProductionAllocatorConcurrencyMTTest} suite under {@code
-   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}; a regression
-   *     that drops the per-component lock on any of those callers fails that suite.
-   *     Component initialisers that run once per index/component lifecycle (e.g. {@code
-   *     BTree.create}, {@code SharedLinkBagBTree.splitRootBucket}) are not reachable from
-   *     concurrent session-level transactions and rely on the same per-component-lock
-   *     contract rather than on a dedicated MT regression gate.
+   *     core/src/test/.../storage/impl/local/paginated/atomicoperations/}.
+   *
+   *     <p><b>Coverage shape of the MT pins.</b> The CPMV2 / PCV2 entry points hold
+   *     TWO locks at the allocator site: the AOM per-component lock and an inner
+   *     {@code acquireExclusiveLock()} on the same {@code SharedResourceAbstract}
+   *     instance (a reentrant {@link java.util.concurrent.locks.ReentrantReadWriteLock}).
+   *     Reentrancy makes the inner call a no-op while the AOM lock is held. The MT
+   *     pin therefore only fails on a "both-locks-dropped" regression &mdash; a
+   *     single-direction regression that drops only the AOM-level wrap (the
+   *     documented contract above) is masked by the inner reentrant lock, because
+   *     it still serialises the two threads independently. The IHM
+   *     ({@code IndexHistogramManager.writeSnapshotToPage}) caller is single-locked
+   *     (AOM only), so a regression at the AOM layer there fails the suite without
+   *     ambiguity. Component initialisers that run once per index/component
+   *     lifecycle (e.g. {@code BTree.create}, {@code SharedLinkBagBTree.splitRootBucket})
+   *     are not reachable from concurrent session-level transactions and rely on the
+   *     same per-component-lock contract rather than on a dedicated MT regression gate.
    */
   CacheEntry allocatePageForWrite(long fileId, long pageIndex) throws IOException;
 

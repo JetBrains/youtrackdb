@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -58,28 +59,26 @@ import org.junit.experimental.categories.Category;
  *       during the backup window or mis-handles the multi-chunk restore on the
  *       target side. Positive evidence: the inserter threads must collectively
  *       exercise the file-extending allocator branch on {@link WOWCache#loadOrAdd}
- *       (via {@link WOWCache#getLoadOrAddExtendBranchInvocations()}) and the backup
+ *       (via {@link WOWCache#getLoadOrAddExtendBranchInvocationsForTest()}) and the backup
  *       worker must complete more than one incremental backup before stop is
  *       observed — so the test fails loud if a future change re-routes inserts off
  *       the allocator path or shortens the contention window. Wall-time bound under
  *       90 s on a stock dev workstation; runs under {@link SequentialTest} because
  *       the underlying storages share the test build directory.</li>
- *   <li><b>Post-recovery {@code physical == logical} smoke check on restored
- *       target.</b> Populates a source, takes a full backup and an incremental
- *       delta, restores into a fresh target, and asserts the post-restore target's
- *       on-disk {@code .pcl} files match what {@link WOWCache} reports for
- *       physical pages. This is a happy-path consistency check — page-alignment +
- *       header-size accounting on a clean restored file — not a structural pin on
- *       the IR-side {@code truncateOrphansAfterRecovery} dispatch (a regression
- *       that dropped that dispatch could leave the file at a larger
- *       page-aligned size and {@link WOWCache#physicalSizeForBackupSnapshot} would
- *       read back the larger size from disk on reopen, so the equation would
- *       still hold). The companion source-text sentinel
+ *   <li><b>Source-anchored physical-page equivalence on restored target.</b>
+ *       Populates a source, takes a full backup and an incremental delta, captures
+ *       each source-side {@code .pcl} file's
+ *       {@link WOWCache#physicalSizeForBackupSnapshot} BEFORE the source closes,
+ *       restores into a fresh target, and asserts the post-restore target carries
+ *       the same physical-page count per file as the source. The source-side
+ *       capture is the strengthening lever: a regression that left orphan pages on
+ *       the target would surface as target {@code physicalPages > source physicalPages}
+ *       on at least one file. The companion source-text sentinel
  *       {@code DiskStorageRestoreOrchestratorWiringTest} remains the load-bearing
- *       pin on the IR-side call shape; the executable structural assertion lives
- *       in the next test method, which fabricates orphans on the target side and
- *       reopens to drive the {@code AbstractStorage.open()} dispatch of
- *       {@code truncateOrphansAfterRecovery}.</li>
+ *       pin on the IR-side call shape; the executable structural assertion on the
+ *       open-side dispatch lives in the next test method, which fabricates orphans
+ *       on the target side and reopens to drive the {@code AbstractStorage.open()}
+ *       dispatch of {@code truncateOrphansAfterRecovery}.</li>
  *   <li><b>Open-side wiring of {@code truncateOrphansAfterRecovery} via
  *       target-side fabrication.</b> Builds a clean source, takes a backup,
  *       restores into a target, closes the target, fabricates orphan pages on the
@@ -127,6 +126,20 @@ public class StorageBackupMTRestoreIT {
   private YouTrackDBImpl youTrackDB;
   private final AtomicReference<Throwable> workerFailure = new AtomicReference<>();
   private volatile boolean stop;
+
+  /**
+   * Defensive pre-clean: if a prior run crashed before {@link #after} fired (JVM kill, OOM,
+   * OS reboot), the next run's {@code youTrackDB.create(dbName, ...)} would throw
+   * "Database already exists". Mirrors the pre-clean pattern in
+   * {@code ProductionAllocatorConcurrencyMTTest.setUp} and {@code LoadOrAddPoisonCascadeRegressionTest.setUp}.
+   */
+  @Before
+  public void cleanupBeforeRun() throws Exception {
+    var path = DbTestBase.getBaseDirectoryPath(getClass());
+    if (java.nio.file.Files.exists(path)) {
+      FileUtils.deleteRecursively(path.toFile());
+    }
+  }
 
   /**
    * Drives concurrent inserter threads on a source storage while a backup thread
@@ -220,10 +233,12 @@ public class StorageBackupMTRestoreIT {
           "Inserter or backup worker surfaced a fatal exception during the contention window",
           earlyFailure);
     }
+    // Bounded waits on every Future.get so a stuck worker on a regression surfaces as
+    // a TimeoutException + clear AssertionError rather than hanging the test forever.
     for (var f : inserterFutures) {
-      f.get();
+      f.get(INSERTER_SHUTDOWN_SECONDS, TimeUnit.SECONDS);
     }
-    backupFuture.get();
+    backupFuture.get(INSERTER_SHUTDOWN_SECONDS, TimeUnit.SECONDS);
 
     // Positive-evidence assertions: the contention window actually exercised the
     // file-extending allocator branch and the backup worker actually completed
@@ -232,11 +247,22 @@ public class StorageBackupMTRestoreIT {
     // entirely (e.g., a regression that re-routes inserts or cuts the contention
     // window short).
     var extendBranchAfter = readExtendBranchInvocations(dbName, config);
-    assertThat(extendBranchAfter - extendBranchBefore)
-        .as("WOWCache.loadOrAdd file-extending branch must run at least once per"
-            + " inserter thread during the contention window; a smaller delta means"
-            + " the inserts did not exercise the allocator path the MT pins target")
-        .isGreaterThanOrEqualTo((long) INSERTER_THREADS);
+    var extendDelta = extendBranchAfter - extendBranchBefore;
+    // Scale the floor with the contention window so the assertion catches a regression
+    // that cut contention to a tiny slice of the wall-time budget (e.g., backup thread
+    // blocking inserters for 19 of 20 seconds would still pass an INSERTER_THREADS-only
+    // floor by 1-2 orders of magnitude). Five extends/sec across the pool is a
+    // conservative floor for CI runners — on a healthy run the observed delta is
+    // typically in the hundreds-to-thousands range.
+    var extendFloor = CONTENTION_SECONDS * 5L;
+    assertThat(extendDelta)
+        .as("WOWCache.loadOrAdd file-extending branch must run at least %d times during"
+            + " the %d-second contention window (observed %d); a smaller delta means"
+            + " the inserts did not meaningfully exercise the allocator path the MT pins"
+            + " target — e.g., a regression that re-routes inserts off the allocator or"
+            + " serialises the inserters with the backup thread for most of the window",
+            extendFloor, CONTENTION_SECONDS, extendDelta)
+        .isGreaterThanOrEqualTo(extendFloor);
     // Two completed backups (rather than one) is the minimum that proves the
     // backup worker ran the periodic-snapshot loop at least once mid-contention
     // plus the final post-stop snapshot below. A single completed backup could
@@ -273,26 +299,22 @@ public class StorageBackupMTRestoreIT {
   }
 
   /**
-   * Happy-path consistency check on a restored target: drives a single-threaded
-   * incremental-backup -> restore round-trip and asserts that every
-   * {@code .pcl} file on the restored target satisfies the page-alignment +
-   * header-size accounting expected by {@link WOWCache#physicalSizeForBackupSnapshot}.
+   * Source-anchored consistency check on a restored target: drives a single-threaded
+   * incremental-backup -> restore round-trip, captures the SOURCE's per-{@code .pcl}
+   * physical-page count before the source closes, then asserts the restored target
+   * carries an identical per-file physical-page footprint.
    *
-   * <p>This test is NOT a structural pin on the IR-side
-   * {@code truncateOrphansAfterRecovery} dispatch. Both sides of the assertion
-   * trace back to the same on-disk file size: the source backup never carries
-   * orphans (because the public {@code backup()} API requires an open source and
-   * {@code AbstractStorage.open()} unconditionally truncates orphans on every
-   * open), and {@link WOWCache#physicalSizeForBackupSnapshot} computes
-   * {@code file.getFileSize() / pageSize}, so the equation
-   * {@code onDiskBytes == HEADER_SIZE + physicalPages * pageSize} simplifies to
-   * "the data area is page-aligned" — a property satisfied by any well-formed
-   * file. A regression dropping the IR-side dispatch would leave a larger
-   * page-aligned file, {@link WOWCache} would read back the larger physical
-   * count on reopen, and the assertion would still pass. The executable
-   * structural pin lives in
+   * <p>The source-side capture is the strengthening lever: the prior
+   * {@code onDiskBytes == HEADER + physical * pageSize} shape was tautological because
+   * both sides traced back to the target's on-disk file size. By comparing against the
+   * source's pre-close {@link WOWCache#physicalSizeForBackupSnapshot} (read on the
+   * open source, before the backup loop closes), a regression that left orphan pages
+   * on the target would surface as a target {@code physicalSize > source physicalSize}
+   * mismatch on at least one file. The companion
    * {@link #truncateOrphansAfterRecoveryFiresOnReopenAfterTargetSideFabrication()}
-   * below; this test stays as a happy-path smoke check.
+   * remains the executable structural pin on the open-side
+   * {@code truncateOrphansAfterRecovery} dispatch via target-side fabrication; this
+   * test pins the happy-path source-to-target equivalence.
    */
   @Test
   public void postProcessIncrementalRestoreLeavesTargetWithPhysicalEqualsLogical()
@@ -313,6 +335,10 @@ public class StorageBackupMTRestoreIT {
     youTrackDB.create(dbName, DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
+    // Captured before the source closes so we have a non-tautological reference for
+    // the post-restore target. Map: file name -> physical page count on the source's
+    // WOWCache after the second backup completed (its final on-disk state).
+    java.util.Map<String, Long> sourcePclPhysicalPages;
     try (var session = openSession(dbName, config)) {
       createBackupSchema(session);
 
@@ -348,6 +374,19 @@ public class StorageBackupMTRestoreIT {
       }
 
       session.backup(backupDir.toPath());
+
+      // Capture source-side per-.pcl physical sizes AFTER the final backup and
+      // BEFORE the source closes. These are the reference values the restored
+      // target must match (each .pcl on the target must carry the same physical
+      // page count as the source had at backup time).
+      var sourceStorage = (DiskStorage) session.getStorage();
+      var sourceWowCache = (WOWCache) sourceStorage.getWriteCache();
+      sourcePclPhysicalPages = sourceWowCache.files().entrySet().stream()
+          .filter(e -> e.getKey().endsWith(".pcl"))
+          .collect(java.util.stream.Collectors.toMap(
+              java.util.Map.Entry::getKey,
+              e -> sourceWowCache.physicalSizeForBackupSnapshot(
+                  sourceWowCache.fileIdByName(e.getKey()))));
     }
     youTrackDB.close();
 
@@ -365,13 +404,13 @@ public class StorageBackupMTRestoreIT {
       assertThat(pclEntries)
           .as("restored target must contain at least one .pcl file; an empty list"
               + " indicates a fundamental restore failure that would mask the"
-              + " page-alignment assertion below")
+              + " source-to-target comparison below")
           .isNotEmpty();
 
       // Workload-size floor: at least one .pcl must have grown well past the
-      // EP+root bootstrap (two pages). Without this check the page-alignment
-      // assertion is trivially satisfied on every brand-new cluster file,
-      // hiding any regression in workload sizing.
+      // EP+root bootstrap (two pages). Without this the source-to-target assertion
+      // is trivially satisfied on every brand-new cluster file, hiding any
+      // regression in workload sizing.
       var maxPhysicalPages = pclEntries.stream()
           .mapToLong(e -> wowCache.physicalSizeForBackupSnapshot(
               wowCache.fileIdByName(e.getKey())))
@@ -379,7 +418,7 @@ public class StorageBackupMTRestoreIT {
           .orElse(0);
       assertThat(maxPhysicalPages)
           .as("workload must grow at least one .pcl past the EP+root bootstrap"
-              + " footprint; a small max means the page-alignment assertion below"
+              + " footprint; a small max means the source-to-target assertion below"
               + " is trivially satisfied on a near-empty cluster")
           .isGreaterThan(2L);
 
@@ -389,9 +428,8 @@ public class StorageBackupMTRestoreIT {
         var physicalPages = wowCache.physicalSizeForBackupSnapshot(fileId);
         var nativeFileName = wowCache.nativeFileNameById(fileId);
         var onDiskBytes = storagePath.resolve(nativeFileName).toFile().length();
-        // Both sides of the equation read from the on-disk file size, so this
-        // is a page-alignment + header-size accounting check — not a pin on
-        // the IR-side truncate dispatch. See the test Javadoc above.
+        // First: page-alignment + header-size accounting check on the target's own
+        // file (catches a non-page-aligned partial write during restore).
         var expectedOnDiskBytes =
             (long) com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE
                 + (long) physicalPages * pageSize;
@@ -402,6 +440,23 @@ public class StorageBackupMTRestoreIT {
                 + " restore loop",
                 fileName, physicalPages, expectedOnDiskBytes)
             .isEqualTo(expectedOnDiskBytes);
+
+        // Second (load-bearing): the target's physical-page count must match the
+        // source's pre-close snapshot for this file. Regression that left orphan
+        // pages on the target would surface here as target > source mismatch.
+        var sourcePhysicalPages = sourcePclPhysicalPages.get(fileName);
+        assertThat(sourcePhysicalPages)
+            .as("source had a .pcl file '%s' that the restored target is missing",
+                fileName)
+            .isNotNull();
+        assertThat(physicalPages)
+            .as("post-restore target .pcl file %s physical page count must equal the"
+                + " source's pre-close physical page count (%d) — a larger target"
+                + " value indicates orphan pages were left on disk by a regression in"
+                + " the IR-side recovery dispatch; a smaller value indicates the"
+                + " restore loop missed pages that were on the source",
+                fileName, sourcePhysicalPages)
+            .isEqualTo(sourcePhysicalPages);
       }
 
       // Health check: a non-recovery TX on the restored target must complete
@@ -610,7 +665,7 @@ public class StorageBackupMTRestoreIT {
     try (var session = openSession(dbName, config)) {
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      return wowCache.getLoadOrAddExtendBranchInvocations();
+      return wowCache.getLoadOrAddExtendBranchInvocationsForTest();
     }
   }
 
