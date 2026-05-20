@@ -7,6 +7,8 @@ user-invocable: true
 
 Read and follow the workflow for Phase 3 (Execution).
 
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
+
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
    glossary, plan file structure, scope indicators, review iteration protocol

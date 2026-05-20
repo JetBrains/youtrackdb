@@ -25,6 +25,8 @@ are used for two distinct purposes:
    or Phase C — Maven, Spotless, source-file reads, and IDE traffic
    are absorbed by the implementer's context.
 
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level anchor and tier mapping.
+
 ### Terminology: Phases 0/1/2/3/4 vs Phases A/B/C
 
 The overall workflow has five phases:
