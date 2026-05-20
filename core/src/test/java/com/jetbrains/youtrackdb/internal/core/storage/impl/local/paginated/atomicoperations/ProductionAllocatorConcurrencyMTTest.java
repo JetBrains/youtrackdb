@@ -82,21 +82,33 @@ import org.junit.experimental.categories.Category;
  *   <li><b>{@link #ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds}</b> —
  *       drives two concurrent {@code BTreeMultiValueIndexEngine.buildInitialHistogram}
  *       call sites on the same index's engine. The multi-value engine's production
- *       caller path enters {@code IndexHistogramManager.writeSnapshotToPage} with a
- *       populated HLL sketch, and the workload + config force HLL spill so the
- *       discriminator block fires the page-1 allocator branch. The lock is acquired
- *       directly via {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
+ *       caller path enters {@code IndexHistogramManager.writeSnapshotToPage} via
+ *       {@code mgr.buildHistogram} with a non-empty scanned key stream + populated
+ *       HLL sketch. Both workers run the full
+ *       {@code scanAndBuild} → {@code fitToPage} → {@code writeSnapshotToPage} path
+ *       (positive-evidence: the IHM snapshot's {@code totalCount} equals the
+ *       inserted entity count after the round), and the lock is acquired directly
+ *       via {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete}.
  *       This surface is deliberately chosen over {@code flushIfDirty}: {@code
  *       flushIfDirty} gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet}
  *       that admits exactly one CAS-winner per round (so the loser fast-returns
  *       without touching the lock), making it impossible to drive two concurrent
  *       lock-acquiring threads through that path. {@code buildInitialHistogram} has
  *       no CAS gate — both threads enter {@code writeSnapshotToPage} unconditionally,
- *       and the lock is the only structural barrier serialising their page-0 +
- *       page-1 accesses. A regression that dropped the lock at
- *       {@code writeSnapshotToPage} would surface as an {@code IllegalStateException}
- *       from the cache-layer fast-fail in {@code WOWCache.loadOrAdd} on the loser of
- *       the page-1 allocate-or-load race.
+ *       and the lock is the only structural barrier serialising their page-0 access.
+ *       A regression that dropped the lock at {@code writeSnapshotToPage} would
+ *       surface as an {@code IllegalStateException} from the cache-layer fast-fail
+ *       in {@code WOWCache.loadOrAdd} on the loser of the page-0 allocate-or-load
+ *       race. <b>Coverage gap:</b> this test does NOT pin the page-1 allocator-side
+ *       discriminator branch at the {@code op.filledUpTo > 1 ? load : allocate} arm
+ *       inside {@code writeSnapshotToPage} — HLL-spill calibration is sensitive to
+ *       JVM-global static knobs (see Javadoc on the @Test method for the
+ *       propagation gap) and platform serializer encoding details, so spill firing
+ *       is not deterministic in this test. A narrow regression that broke spill
+ *       calibration (e.g., {@code fitToPage} returning early on the second pass)
+ *       would pass this test for the wrong reason on the spill dimension;
+ *       coverage of that branch is deferred to the dedicated unit test
+ *       {@code IndexHistogramManagerSpillDiscriminatorTest}.
  * </ul>
  *
  * <h2>Repeated-rounds + {@link CyclicBarrier}(2) shape</h2>
@@ -431,9 +443,9 @@ public class ProductionAllocatorConcurrencyMTTest {
    * rather than the {@code nonNullCount < histogramMinSize} early-exit — the prior
    * empty-stream variant of this test only exercised the early-exit, which races
    * the per-component lock on page 0 alone. The new variant always races the lock
-   * on page 0; when the workload also triggers HLL spill ({@code hllOnPage1=true}),
-   * the {@code writeSnapshotToPage} discriminator block activates the page-1
-   * allocator branch and the lock additionally serialises that.
+   * on page 0 across the full caller path; positive-evidence comes from asserting
+   * the IHM cached snapshot's {@code totalCount} equals the inserted entity count
+   * (200) after both workers complete, proving neither worker took the early-exit.
    *
    * <p>{@code buildInitialHistogram} surface is chosen over {@code flushIfDirty}
    * because {@code flushIfDirty} gates its body behind a {@code DIRTY_MUTATIONS.compareAndSet}
@@ -442,26 +454,52 @@ public class ProductionAllocatorConcurrencyMTTest {
    * on {@code flushIfDirty} cannot pin the lock contract (the lock would simply not
    * be contended). {@code buildInitialHistogram} has no CAS gate — both threads
    * enter {@code writeSnapshotToPage} on every call, and the lock is the only
-   * structural barrier serialising their page-0 (and optional page-1) accesses.
+   * structural barrier serialising their page-0 access.
    *
    * <p>A regression that dropped the lock at {@code writeSnapshotToPage} (the
    * {@code acquireExclusiveLockTillOperationComplete} call inside the method body)
    * would surface as an {@code IllegalStateException} from the cache-layer fast-fail
-   * in {@code WOWCache.loadOrAdd} on the loser of the page-0 (and, when spill fires,
-   * page-1) allocate-or-load race.
+   * in {@code WOWCache.loadOrAdd} on the loser of the page-0 allocate-or-load race.
    *
    * <p>The IHM caller is single-locked (AOM only, via {@code
    * acquireExclusiveLockTillOperationComplete} directly), so this test catches an
    * AOM-layer regression unambiguously — unlike the CPMV2 / PCV2 cases above which
    * are double-protected by an inner reentrant lock.
    *
-   * <p>The 950-char key + 7-bucket configuration is calibrated to land the
-   * {@code totalBoundaryBytes} between the page-0 budget with HLL (~6951 bytes)
-   * and without HLL (~7975 bytes), which forces {@code fitToPage} to spill HLL on
-   * each round. Whether the spill actually fires depends on platform serializer
-   * encoding details (UTF-8 vs UTF-16 header size). The {@code totalCount}
-   * positive-evidence assertion guarantees the full caller path was exercised
-   * regardless of whether the spill fired on a given round.
+   * <h3>Coverage gap on the page-1 allocator-side discriminator</h3>
+   *
+   * <p>This test does <b>not</b> pin the page-1 allocator-side discriminator branch
+   * at {@code op.filledUpTo > 1 ? load : allocate} inside {@code writeSnapshotToPage}.
+   * Whether HLL spills (and therefore whether the discriminator's allocate arm fires)
+   * depends on a combination of: (a) the JVM-global {@code QUERY_STATS_*} statics
+   * read at IHM construction time / per call (see propagation gap note below), and
+   * (b) platform serializer encoding details (UTF-8 vs UTF-16 header size) that
+   * shift {@code totalBoundaryBytes} by a few bytes around the page-0 budget
+   * threshold (~6951 bytes with HLL, ~7975 bytes without). The 950-char key +
+   * 7-bucket configuration aims at the spill window but is not deterministic.
+   * The {@code totalCount} positive-evidence assertion guarantees the full
+   * {@code scanAndBuild} / {@code fitToPage} / {@code writeSnapshotToPage}
+   * caller path was exercised on both workers regardless of whether spill fired
+   * on a given round — but a narrow regression that broke spill calibration
+   * (e.g., {@code fitToPage} returning early on the second pass and never
+   * setting {@code hllOnPage1=true}) would pass this test for the wrong reason
+   * on the spill dimension. Coverage of the discriminator branch itself is
+   * deferred to the dedicated unit test
+   * {@code IndexHistogramManagerSpillDiscriminatorTest} (mocked
+   * {@code AtomicOperation} with {@code op.filledUpTo} stubbed to drive each
+   * arm explicitly) and the lifecycle integration test
+   * {@code IndexHistogramSpillRecoveryIT} (fabricated post-recovery file shape).
+   *
+   * <p><b>Why the spill is not deterministic from the test's JVM:</b> the IHM
+   * reads {@code QUERY_STATS_HISTOGRAM_BUCKETS} / {@code _MIN_SIZE} on every
+   * {@code buildHistogram} call and {@code QUERY_STATS_MAX_BOUNDARY_BYTES} at
+   * IHM construction time — and none of these are propagated from the
+   * session-level configuration to the static accessor used by the manager.
+   * The test must therefore mutate the {@link GlobalConfiguration} statics
+   * directly (and restore them in {@code finally}), but the mutation only sets
+   * the inputs to the spill calibration; the {@code totalBoundaryBytes}
+   * comparison against the page-0 budget still hinges on serializer encoding
+   * choices that vary across JVMs.
    */
   @Test
   public void ihmBuildHistogramUnderSharedIndexToleratesConcurrentBuilds() throws Exception {
@@ -510,17 +548,19 @@ public class ProductionAllocatorConcurrencyMTTest {
    * creates a fresh class with a NOTUNIQUE index (a fresh IHM + fresh
    * BTreeMultiValueIndexEngine per round, so round {@code N}'s allocator state is
    * independent of round {@code N-1}'s), pre-populates the index with long-string
-   * keys sized to exceed the page-0 boundary budget at the configured 7 histogram
+   * keys sized to target the page-0 boundary budget at the configured 7 histogram
    * buckets, then spawns two threads that each call
    * {@code BTreeMultiValueIndexEngine.buildInitialHistogram} on the same engine.
    *
-   * <p>Positive-evidence floor: after the round, the IHM's {@code .ixs} file must
-   * have {@code filledUpTo > 1} — proving the page-1 allocator branch (the
-   * {@code writeSnapshotToPage} discriminator on the {@code allocatePageForWrite}
-   * side) fired at least once. Without this, the test cannot distinguish "both
-   * builds spilled to page 1" from "neither build reached HLL spill" — a
-   * regression that broke the spill path could pass an "no exception fired" gate
-   * for the wrong reason.
+   * <p>Positive-evidence floor: after the round, the IHM cached snapshot's
+   * {@code totalCount} must equal the inserted entity count (200) — proving both
+   * workers ran the full {@code scanAndBuild} / {@code fitToPage} /
+   * {@code writeSnapshotToPage} caller path (the AOM-locked surface this test
+   * pins) rather than the {@code nonNullCount < histogramMinSize} early-exit.
+   * See the @Test method's "Coverage gap" Javadoc section for what this floor
+   * does and does not pin (in particular, it does not pin the page-1
+   * allocator-side discriminator branch — that coverage lives in
+   * {@code IndexHistogramManagerSpillDiscriminatorTest}).
    */
   private void runIhmBuildHistogramRound(
       final DatabaseSessionEmbedded session,
@@ -660,20 +700,24 @@ public class ProductionAllocatorConcurrencyMTTest {
         .as("round %d: IHM snapshot totalCount must reflect the populated index"
             + " (200 entities); a smaller value means the workers took the"
             + " histogramMinSize early-exit and did not exercise the full"
-            + " scanAndBuild / fitToPage / discriminator branches",
+            + " scanAndBuild / fitToPage / writeSnapshotToPage caller path",
             round)
         .isEqualTo(200L);
 
-    // The .ixs file physical size — informational. When HLL spill triggers (the
-    // workload + config target this branch), the file grows past one page and the
-    // discriminator's page-1 allocator side is exercised. When the boundary bytes
-    // happen to fit on page 0 with HLL (sensitive to platform serializer encoding
-    // details by a few bytes), the spill does not fire on this round. Either way,
-    // the full scanAndBuild / fitToPage / writeSnapshotToPage caller path was
-    // exercised on both workers — the AOM lock contract pin via #1 + #2 above
-    // does not depend on the discriminator's allocator-side branch executing.
-    // This variable is left in place as a probe for future debugging; not
-    // asserted on because the spill margin is empirical and platform-sensitive.
+    // The .ixs file physical size — informational only. When HLL spill triggers
+    // (the workload + config target this branch), the file grows past one page
+    // and the discriminator's page-1 allocator side is exercised. When the
+    // boundary bytes happen to fit on page 0 with HLL (sensitive to platform
+    // serializer encoding details by a few bytes), the spill does not fire on
+    // this round and the file stays at one page. The full
+    // scanAndBuild / fitToPage / writeSnapshotToPage caller path is exercised on
+    // both workers regardless (proved by the totalCount assertion above) — the
+    // AOM lock contract pin does not depend on the discriminator's
+    // allocator-side branch executing. The >= 1 assertion below is a sanity
+    // check that the .ixs file exists; coverage of the page-1 allocator-side
+    // discriminator branch is deferred to
+    // IndexHistogramManagerSpillDiscriminatorTest (see the @Test method's
+    // "Coverage gap" Javadoc section for the rationale).
     final var ixsPhysicalSize = wowCache.physicalSizeForBackupSnapshot(ixsFileId);
     assertThat(ixsPhysicalSize)
         .as("round %d: .ixs file physical size must be >= 1 (the .ixs file"
