@@ -15,9 +15,11 @@ Adds Tier-A pointer to `implementer-rules.md § Tooling discipline` for log / co
 - [x] 2026-05-20T03:32Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T05:55Z [ctx=safe] Step 1 complete (commit 4a7b4fd770)
 - [x] 2026-05-20T06:08Z [ctx=safe] Step 2 complete (commit 233428524c)
+- [x] 2026-05-20T06:33Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 - 2026-05-20T06:08Z — Markdown-link-form pointers must keep the citation string `conventions.md §1.5 Writing style for Markdown and prose artifacts` un-wrapped on a single line. Line-wrapping at the surrounding paragraph's column splits the literal substring across two physical lines and breaks the line-oriented `grep -l` acceptance check without obvious failure feedback. Track 3's bare-backticked form is naturally single-line; Track 4 (and any future pointer track using the link form) must enforce single-line layout explicitly. Relevant to Track 5 if it touches any pointer text. See Episodes §Step 2.
+- 2026-05-20T06:33Z — Line-bounded grep audits over rule-doc paragraphs are brittle. The `## Idempotence and Recovery` audit `grep -B1 -A4 'conventions.md §1.5' implementer-rules.md | grep -c 'Tier A\|Tier B'` was designed to return `2` for the dual-tier bullet, but the implementer-rules.md pointer's tier labels sit 5-10 lines above the `§1.5` citation — outside the `-A4` window — so the audit returned `0` on the base commit, on the Step 1 commit, and after iteration 1 too. The invariant was never met. Per-paragraph (blank-line-split) audits would be more durable for any rule-doc check that asserts "feature X is cited in paragraph Y". Relevant to Track 5 for any audit it adds; relevant to future workflow-doc tracks generally. Promoted from iteration 1 implementer's `what_was_discovered`.
 
 ## Decision Log
 <!-- Empty at Phase 1. -->
@@ -26,6 +28,7 @@ Adds Tier-A pointer to `implementer-rules.md § Tooling discipline` for log / co
 
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 1 (4 findings, 4 accepted). T1 (should-fix, colon-list anchor trap) and T3 (suggestion, body-discipline anchor specificity) absorbed into the `## Concrete Steps` per-step descriptions — every step names a pre-scan for the colon-terminated-lead-in-before-list shape and the exact insertion anchor in each target file. T2 (should-fix, heading-slug marker form) and T4 (suggestion, sub-step numbering `6` → `7`) applied directly to `## Context and Orientation`.
+- [x] Track-level code review iteration 1, 2026-05-20T06:33Z: spawned the four dimensional reviewers selected by the workflow-machinery override case 1 (workflow-only diff): workflow-consistency, workflow-instruction-completeness, workflow-context-budget, workflow-writing-style. 16 raw findings synthesised down to 6 in-scope (2 should-fix WS1 + WC1, 1 should-fix cosmetic WC4 paired with WC1, 3 suggestion WS2 + WI4 + WI2) and 10 deferred (context-budget collapse-pointers triplet WB1-3 re-opens D3 design choice; instruction-completeness WI3 invocation language conflicts with WB1 direction; WI5 single-line-layout anchor and WI6 subject-line carve-out asymmetry belong in Phase 4; WI7 canonical-pointer-template is input to Track 5 Phase A; WC3 anchor-fragment applies to all 32 pointer sites at broader scope). Implementer iteration 1 commit `d4705f72e6` landed all six in-scope findings cleanly: acceptance grep returns 4, all four pointer files now carry the `### Em-dash discipline` verbatim slug citation, each new pointer paragraph stays within the one-em-dash cap, episode-format-reference.md and step-implementation.md now name field lists explicitly, implementer-rules.md binds the four slugs to the Tier-B AI-tell subset, and the colon replaces the AI-cadence em dash in episode-format-reference.md.
 
 ## Context and Orientation
 
