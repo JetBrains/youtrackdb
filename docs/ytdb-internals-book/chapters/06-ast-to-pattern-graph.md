@@ -44,7 +44,7 @@ Both problems have one solution: build a graph whose nodes are keyed by alias. A
 
 ## 6.2 Three small classes, one big idea
 
-The pattern graph is built from three container classes. Behavior lives in `MatchExecutionPlanner`; these classes carry data only.
+The pattern graph is built from three container classes listed below; these classes carry data only. Behavior lives in `MatchExecutionPlanner`.
 
 **`Pattern`** is the top-level adjacency map. Its central field is:
 
@@ -52,7 +52,7 @@ The pattern graph is built from three container classes. Behavior lives in `Matc
 public Map<String, PatternNode> aliasToNode = new LinkedHashMap<>();
 ```
 
-The map is insertion-ordered so that iteration over aliases is deterministic across planning runs. A second field, `numOfEdges`, tracks the total number of directed edges in the graph.
+The map is insertion-ordered so that iteration over aliases is deterministic across planning runs.
 
 (`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/Pattern.java:50–53`)
 
@@ -125,6 +125,46 @@ After this step, every node in every expression has a non-null alias string. All
 2. For each `SQLMatchPathItem` in `expression.items`, call `getOrCreateNode(item.filter)` to obtain the target node, then call `originNode.addEdge(item, nextNode)`. Advance `originNode` to `nextNode` and continue.
 
 (`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/Pattern.java:65–75`)
+
+```mermaid
+
+sequenceDiagram
+    participant BP as buildPatterns
+    participant P as Pattern
+    participant M as aliasToNode
+
+    BP->>P: addExpression(expr)
+
+    Note over P,M: Step 1: origin lookup\naliasToNode = {}
+
+    P->>M: getOrCreateNode(origin)
+
+    alt alias exists
+        M-->>P: existing node
+    else new alias
+        M-->>P: create node A
+        Note over M: aliasToNode = { origin: A }
+    end
+
+    loop for each item
+        Note over P,M: before step\noriginNode = current
+
+        P->>M: getOrCreateNode(filter)
+
+        alt exists
+            M-->>P: reuse node
+        else new
+            M-->>P: create node B
+            Note over M: aliasToNode += { filter: B }
+        end
+
+        P->>P: addEdge(originNode -> nextNode)
+
+        Note over P: edge added\nA -> B
+
+        P->>P: originNode = nextNode
+    end
+```
 
 `addEdge` creates a `PatternEdge`, sets `edge.out = this` and `edge.in = to`, then adds the edge to `this.out` and to `to.in` in a single call, returning `1` so `addExpression` can add it to `numOfEdges`.
 
