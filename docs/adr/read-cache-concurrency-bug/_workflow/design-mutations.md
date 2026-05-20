@@ -434,3 +434,47 @@ quote inside the bullet itself).
   to this gotcha. Not retried per discipline.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 13 — 2026-05-20 — phase4-creation (design-final.md)
+
+**Diff summary**: Phase 4 production of `design-final.md` reflecting
+the actually-implemented design. Sections: Overview, Core Concepts,
+Class Design, Workflow (4 sequence diagrams), Cache primitive: loadOrAdd,
+Allocation discovery surface, Concurrency model, Crash safety. Audience
+framing added to Overview tail; `D1`-`D6` / `I1`-`I6` records
+cross-referenced to `adr.md` (committed alongside this artifact); 9 Core
+Concepts entries seed the working vocabulary (`AtomicOperation`,
+`WriteCache`, `LockFreeReadCache`, `CachePointer`/`CacheEntry`,
+`EnsurePageIsValidInFileTask`, `AsyncFile.allocateSpace`, WAL atomic
+unit, `checksumMode`). Class diagram reflects post-fix shape including
+the deleted methods (`allocateNewPage`, `addPage`), the
+`@Deprecated(forRemoval=false)` `getFilledUpTo`, the
+`PhysicalReadIntent` 5-constant enum, and the
+`StorageComponent.verifyAndTruncateOrphans` template method. Workflow
+sequence diagrams cover the four post-fix runtime paths (write-side
+allocation, recovery gap-fill, cross-TX read, recovery-time orphan
+truncation). Engine-asymmetric `allocatePageForWrite` contract called
+out in Class Design Edge cases.
+
+**Mechanical checks** (target=design): PASS — 0 findings (after 3
+trim iterations on Overview length cap).
+**Cold-read** (scope: whole-doc, phase4-creation): PASS after Overview
+adjustments. Initial cold-read flagged 1 blocker (D/I records cited but
+not defined inside the artifact) + 3 should-fix (audience-fit missing,
+glossary-introduction gap, 3 TL;DRs over 5-line cap). All addressed in
+this mutation: audience block + `adr.md` cross-reference added to
+Overview; `## Core Concepts` section added between Overview and Class
+Design; TL;DRs on Allocation discovery surface / Concurrency model /
+Crash safety tightened to ≤5 lines. Suggestions on phase4 plan-deviation
+surfacing and navigability returned PASS without action (deviations
+already surface as final-state implementation; navigability acceptable
+at 6 top-level sections + Core Concepts).
+
+**Findings**:
+- (resolved) blocker → should-fix → resolved: D1-D6/I1-I6 cross-reference
+  to adr.md added to Overview tail.
+- (resolved) should-fix: audience-framing added.
+- (resolved) should-fix: Core Concepts section added.
+- (resolved) should-fix: 3 over-length TL;DRs tightened.
+
+**Iterations**: 1 of 3 (PASS, after intra-iteration cold-read fixes).
