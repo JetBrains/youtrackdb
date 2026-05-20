@@ -14,6 +14,7 @@ Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap 
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-20T14:11Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-20T14:34Z [ctx=safe] Step 1 complete (commit a0e6e0a9db)
 
 ## Base commit
 
@@ -21,6 +22,8 @@ b8dc3066d94a0abc75b08abe6afd5a889e3fecc8
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
+
+- 2026-05-20: Pre-commit ephemeral-identifier gate regex matches `H2+` and similar Markdown heading-level notation as if it were a `Track N` / `Step N` ephemeral identifier. The token already appears 5× in the unmodified base of `.claude/output-styles/house-style.md` and is a documented §Allowed pass-through. Future workflow-doc edits touching files with heading-level notation should expect the same false positive at the pre-commit gate. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices, scope-downs, dependency reveals, gate-override reasons. -->
@@ -81,12 +84,22 @@ Three edits, each landing in a separate commit so each is independently reviewab
 
 ## Concrete Steps
 
-1. Rewrite the `Section length cap` rule body in `house-style.md` (line 262) and the matching `## Self-check` step 7 (line 363) as a soft cap plus a categorical exemption clause and a padding-based finding criterion — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
+1. Rewrite the `Section length cap` rule body in `house-style.md` (line 262) and the matching `## Self-check` step 7 (line 363) as a soft cap plus a categorical exemption clause and a padding-based finding criterion — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [x] commit: a0e6e0a9db
 2. Update all always-loaded and dispatcher restatements in one atomic commit: four sites in `.claude/agents/review-workflow-writing-style.md` (lines 3, 18, 69-71, 121), `CLAUDE.md:102`, and `.claude/skills/code-review/SKILL.md:313` — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
 3. Add back-references to the new house-style clause in `.claude/workflow/episode-format-reference.md § Episode length rule` (line 346) and `.claude/workflow/conventions-execution.md §2.2 Episode Formats` (line 284) — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
+
+### Step 1 — commit a0e6e0a9db, 2026-05-20T14:34Z [ctx=safe]
+
+**What was done:** Rewrote two declarative sites inside `.claude/output-styles/house-style.md` in a single atomic patch. The "Section length cap" bullet under `## Structural rules` (line 262) was replaced with three bullets: a soft-cap default at ≤200 words framed as a heuristic trigger, a "Section length cap exception" clause enumerating the five template-bound exempt categories (ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, multi-step derivations under `design-mechanics.md`), and a padding-based finding criterion that cites `§ Banned vocabulary`, `§ Banned sentence patterns`, and `§ Elegant variation` by name. The `## Self-check` step 7 entry (line 363) was rewritten to mirror the same soft cap, the same five exempt categories, and the same three padding-pattern sections.
+
+**What was discovered:** The pre-commit ephemeral-identifier gate regex matches `H2+` (and would match `H3` / `H4` if they appeared on a `+` line), which is documentation notation for Markdown heading levels, not a workflow-internal `Track N` / `Step N` label or a YouTrack-issue-tracker ID. The token already appears 5× in the unmodified base file. This is a pre-existing pass-through case under the §Allowed list, not a finding for this step — but downstream tracks editing the same file should not be surprised by the same false positive. Cross-step note for Step 2 within this track: the rule-body rewrite added 2 lines to `house-style.md`, so position-relative line numbers in any downstream restatement should re-locate via the bullet labels ("Section length cap" / "Section length cap exception" / "Padding-based finding criterion") rather than line numbers; restatements in other files (reviewer agent, CLAUDE.md, code-review SKILL.md) are unaffected because they live in different files.
+
+**What changed from the plan:** none.
+
+**Key files:** `.claude/output-styles/house-style.md` (modified).
 
 ## Validation and Acceptance
 
