@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -18,6 +21,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -71,14 +76,20 @@ import org.junit.Test;
  *       a sibling test). Installer calls either succeed cleanly (destroyer waited)
  *       or surface {@link IllegalArgumentException} from the dispatch prelude; no
  *       other exception type is acceptable.
- *   <li><b>I4 negative defence</b>: two threads driven into the bare
- *       {@link WOWCache#loadOrAdd} call (bypassing
- *       {@link LockFreeReadCache#data}{@code .compute}) on the same {@code (fileId,
- *       pageIndex)} — exactly the I2/I4 violation the wrapper exists to prevent.
- *       At least one thread MUST observe the {@code "allocated pageIndex … does
- *       not match"} {@link IllegalStateException} (the I4 sentinel) added by
- *       Track 1 Step 2's review fix. Pins that the cache-internal fast-fail stays
- *       falsifiable.
+ *   <li><b>I4 negative defence</b>: the extend branch's
+ *       {@code allocatedIndex != pageIndex} sentinel and the negative-allocation
+ *       sentinel are exercised by direct reflective invocation of
+ *       {@code WOWCache.loadOrAddExtendBranch} with a Mockito-doctored
+ *       {@link com.jetbrains.youtrackdb.internal.core.storage.fs.File} whose
+ *       {@code allocateSpace} returns either a position past the requested
+ *       {@code pageIndex} or a negative position. The hard
+ *       {@link IllegalStateException} throw — the I4 sentinel added by Track 1
+ *       Step 2's review fix — must fire deterministically. Pins that the
+ *       cache-internal fast-fail stays falsifiable and that the existing
+ *       {@code loadOrAddExtendBranchInvocations} positive-evidence counter is
+ *       not bumped on the throw path. The production race shape (concurrent
+ *       allocators competing for the same {@code pageIndex}) is covered by
+ *       {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local.LoadOrAddPoisonCascadeRegressionTest}.
  * </ol>
  *
  * <p><b>Sequential class execution.</b> The tests run sequentially within this class
@@ -866,144 +877,192 @@ public class WOWCacheLoadOrAddConcurrentTest {
   }
 
   /**
-   * I4 negative defence — drive two threads directly into bare
-   * {@link WOWCache#loadOrAdd} on the same {@code (fileId, pageIndex)}.
-   *
-   * <p>The wrapper's {@code data.compute} segment write lock is what makes
-   * scenario 2 safe; bypassing the wrapper deliberately violates invariants I2 and
-   * I4 and exercises the cache-internal fast-fail. With currentSize=0 and N threads
-   * all calling {@code loadOrAdd(fileId, 0, false)}, the dispatch prelude routes
-   * all threads into the extend branch ({@code pageIndex == currentSize == 0}).
-   * Inside the extend branch, {@code AsyncFile.allocateSpace}'s monotonic
-   * {@code getAndAdd} serialises the page-byte allocation: one thread gets position
-   * 0 ({@code allocatedIndex == pageIndex == 0}) and completes; every other thread
-   * gets a position strictly above 0 ({@code allocatedIndex != pageIndex}) and the
-   * I4 sentinel — the hard {@link IllegalStateException} throw with the
+   * I4 negative defence — invoke {@code WOWCache.loadOrAddExtendBranch} directly
+   * with a {@link File} whose {@code allocateSpace} returns a position that does
+   * <i>not</i> match the requested {@code pageIndex}. The hard
+   * {@link IllegalStateException} throw with the
    * {@code "allocated pageIndex … does not match"} message added by Track 1
-   * Step 2's review fix — fires.
+   * Step 2's review fix — the I4 sentinel — must fire deterministically.
    *
-   * <p>The test pins:
+   * <p>The test pins falsifiability deterministically: if a future refactor
+   * relaxed the equality check (e.g. to a warning log), the mismatched allocation
+   * would no longer surface the {@link IllegalStateException} and this test would
+   * fail loudly. It also pins the ordering of the positive-evidence counter
+   * (incremented at the end of the branch only) by asserting
+   * {@code getLoadOrAddExtendBranchInvocationsForTest()} is unchanged across the
+   * throw — a refactor that moved the increment before the sanity check would be
+   * caught here.
    *
-   * <ul>
-   *   <li>At least one worker observes the I4 sentinel exception. If a future
-   *       refactor relaxed the equality check to a warning log, every worker would
-   *       succeed and the test would fail loudly.
-   *   <li>At least one worker succeeds (the {@code allocateSpace} winner).
-   *   <li>Every non-success is exactly the I4 sentinel — no other exception type.
-   * </ul>
+   * <p>The bug ticket's poison cascade was driven by a reader observing a
+   * partial allocator's pageIndex; the structural fix removes the discovery
+   * channel that allowed the misinterpretation, and the I4 sentinel is the
+   * production-build safety net for any residual I2/I4 violation if the segment
+   * lock is ever bypassed.
    *
-   * <p><b>Why this matters.</b> The bug ticket's poison cascade was driven by a
-   * reader observing a partial allocator's pageIndex. The structural fix removes
-   * the discovery channel that allowed the misinterpretation; the I4 sentinel is
-   * the production-build safety net that catches any residual I2/I4 violation if
-   * the segment lock is ever bypassed.
-   *
-   * <p>Two threads is the minimum to surface the I4 sentinel reliably (one winner,
-   * one loser); eight threads gives enough headroom that the I4 throw fires
-   * deterministically in CI without depending on scheduler luck.
+   * <p><b>Why direct invocation and not a thread race.</b> An earlier version of
+   * this test drove N parallel workers through the public {@code loadOrAdd} on a
+   * fresh file with {@code pageIndex == 0}, hoping at least one worker would
+   * observe the I4 sentinel within 50 attempts. The race window between
+   * {@code fileClassic.getFileSize()} and {@code allocateSpace} closed faster than
+   * 16 workers could wedge into it on dedicated CCX33 hardware: the first
+   * allocator's monotonic getAndAdd raced ahead of every other worker's
+   * currentSize read, all other workers fell through to the load branch, and the
+   * sentinel never fired. Direct invocation with a doctored {@link File}
+   * sidesteps the timing dependency while still pinning the exact equality check
+   * the sentinel guards. The production behaviour (workers seeing concurrent
+   * allocations) remains covered by
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local.LoadOrAddPoisonCascadeRegressionTest}.
    */
   @Test(timeout = PER_TEST_TIMEOUT_MS)
-  public void bareLoadOrAddOnSameKeySurfacesI4Sentinel() throws Exception {
-    final int threads = 16;
-    // The race window between fileClassic.getFileSize() and allocateSpace() inside
-    // loadOrAdd is tight enough that a single round of N parallel workers may not
-    // surface the I4 sentinel — only one thread typically wins the
-    // currentSize-read race per round before the others observe the bumped size and
-    // fall through to the load branch. Retry the race up to maxAttempts; the test
-    // passes as soon as at least one I4 sentinel observation is recorded. This
-    // converts the test from "expected to sometimes flake" to "expected to fire
-    // deterministically inside the maxAttempts bound" — empirically, 8-thread
-    // races trip the sentinel inside 3-5 attempts on a CI runner. The 60s @Test
-    // ceiling caps the total wall time regardless.
-    final int maxAttempts = 50;
-    boolean sentinelObserved = false;
-    int attempt = 0;
-    while (!sentinelObserved && attempt < maxAttempts) {
-      attempt++;
-      // Use a per-attempt fileId so each round starts from currentSize == 0 and
-      // every worker enters the extend branch contest fresh.
-      final var fileId = wowCache.addFile(FILE_NAME + "-attempt-" + attempt);
-      final var pool = Executors.newFixedThreadPool(threads);
-      try {
-        final var startBarrier = new CyclicBarrier(threads);
-        final List<Callable<CachePointer>> workers = new ArrayList<>(threads);
-        for (int i = 0; i < threads; i++) {
-          workers.add(
-              () -> {
-                startBarrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-                return wowCache.loadOrAdd(fileId, 0L, false);
-              });
-        }
-        final var futures = pool.invokeAll(workers);
-        int successes = 0;
-        int i4SentinelObservations = 0;
-        final List<CachePointer> winnerPointers = new ArrayList<>();
-        final List<Throwable> unexpected = new ArrayList<>();
-        // Drain every future before classifying — never break out of this loop on
-        // a non-ExecutionException so the finally below releases every winner's
-        // CachePointer. A TimeoutException on a slow CI runner or an
-        // InterruptedException on shutdown were previously propagated out of the
-        // loop, which left the rest of the futures undrained and leaked the
-        // workers' returned CachePointer refs.
-        for (final var future : futures) {
-          try {
-            final var pointer = future.get(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-            if (pointer != null) {
-              successes++;
-              winnerPointers.add(pointer);
-            }
-          } catch (final java.util.concurrent.ExecutionException e) {
-            final var cause = e.getCause();
-            if (cause instanceof IllegalStateException
-                && cause.getMessage() != null
-                && cause.getMessage().contains("allocated pageIndex")
-                && cause.getMessage().contains("does not match")) {
-              i4SentinelObservations++;
-            } else {
-              unexpected.add(cause);
-            }
-          } catch (final java.util.concurrent.TimeoutException
-              | InterruptedException te) {
-            unexpected.add(te);
-            if (te instanceof InterruptedException) {
-              Thread.currentThread().interrupt();
-            }
-          }
-        }
-        try {
-          if (!unexpected.isEmpty()) {
-            fail(
-                "I4 sentinel scenario surfaced unexpected exception type: "
-                    + unexpected.get(0));
-          }
-          assertTrue(
-              "at least one worker must succeed (the allocateSpace winner)",
-              successes >= 1);
-          assertEquals(
-              "every worker accounted for (successes + I4 throws == threads)",
-              threads,
-              successes + i4SentinelObservations);
-          if (i4SentinelObservations >= 1) {
-            sentinelObserved = true;
-          }
-        } finally {
-          for (final var winner : winnerPointers) {
-            winner.decrementReadersReferrer();
-          }
-        }
-      } finally {
-        pool.shutdownNow();
-        assertTrue(
-            "executor must terminate cleanly",
-            pool.awaitTermination(5, TimeUnit.SECONDS));
-      }
+  public void extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested()
+      throws Exception {
+    // pageIndex=0, allocatedIndex=2 — the most common shape, mirroring the original
+    // race-based test's setup but driven deterministically through reflection.
+    runExtendBranchI4SentinelAssertion(
+        /* pageIndex= */ 0L,
+        /* allocatedPosition= */ (long) PAGE_SIZE * 2L,
+        /* expectedAllocatedIndexInMessage= */ "2",
+        /* expectedRequestedPageIndexInMessage= */ "0");
+  }
+
+  /**
+   * I4 negative defence — symmetric direction. Drives {@code pageIndex == 5}
+   * while the mocked allocator returns position {@code 2 * pageSize}
+   * ({@code allocatedIndex == 2 < pageIndex}). Without this test, a regression
+   * that flipped {@code allocatedIndex != pageIndex} to a one-sided comparison
+   * (e.g. {@code allocatedIndex > pageIndex}) would still pass
+   * {@link #extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested} and
+   * land silently. Pairs with the above test to pin the equality check as
+   * bidirectional.
+   */
+  @Test(timeout = PER_TEST_TIMEOUT_MS)
+  public void extendBranchSurfacesI4SentinelWhenAllocatedIndexBelowRequested()
+      throws Exception {
+    runExtendBranchI4SentinelAssertion(
+        /* pageIndex= */ 5L,
+        /* allocatedPosition= */ (long) PAGE_SIZE * 2L,
+        /* expectedAllocatedIndexInMessage= */ "2",
+        /* expectedRequestedPageIndexInMessage= */ "5");
+  }
+
+  /**
+   * I4 negative defence — negative-allocation guard at the head of
+   * {@code loadOrAddExtendBranch} ({@code allocatedIndex < 0}). With a real
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile} this
+   * guard is unreachable, but the deterministic Mockito shape makes it cheap to
+   * pin: a regression that swapped the order of the negative-index check and
+   * the equality check, or that demoted the {@link IllegalStateException} to a
+   * logged warning, would otherwise be tolerated.
+   */
+  @Test(timeout = PER_TEST_TIMEOUT_MS)
+  public void extendBranchRejectsNegativeAllocatedPosition() throws Exception {
+    // wowCache.addFile registers an intId in the cache-internal nameIdMap so the
+    // post-success path (commitExecutor().submit(...)) sees a known id — load-bearing
+    // even though we never reach that path on the throw side. A literal int would
+    // work today, but keeping the real registration insulates the test from future
+    // refactors that move bookkeeping above the throw.
+    final var fileId = wowCache.addFile(FILE_NAME + "-i4-negative");
+    final var intId = WOWCache.extractFileId(fileId);
+    final var malformedFile = mock(File.class);
+    // allocatedPosition = -pageSize → allocatedIndex = -1 → trips the negative guard.
+    when(malformedFile.allocateSpace(anyInt())).thenReturn(-((long) PAGE_SIZE));
+
+    final long preInvocations = wowCache.getLoadOrAddExtendBranchInvocationsForTest();
+    final Method method =
+        WOWCache.class.getDeclaredMethod(
+            "loadOrAddExtendBranch", int.class, long.class, File.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(wowCache, intId, 0L, malformedFile);
+      fail("expected IllegalStateException for negative allocated position");
+    } catch (final InvocationTargetException e) {
+      final Throwable cause = e.getCause();
+      assertTrue(
+          "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
+          cause instanceof IllegalStateException);
+      final String message = cause.getMessage();
+      assertTrue(
+          "expected negative-allocation guard message, got: " + message,
+          message != null && message.contains("Illegal page index value"));
     }
-    assertTrue(
-        "at least one worker must observe the I4 sentinel "
-            + "(\"allocated pageIndex does not match\") inside "
-            + maxAttempts
-            + " attempts; cache-layer fast-fail must stay falsifiable",
-        sentinelObserved);
+    assertEquals(
+        "negative-allocation guard must NOT bump the positive-evidence probe "
+            + "(counter is bumped at the end of the branch on purpose)",
+        preInvocations,
+        wowCache.getLoadOrAddExtendBranchInvocationsForTest());
+  }
+
+  /**
+   * Shared body for the two equality-check tests. Drives
+   * {@code loadOrAddExtendBranch} reflectively with a mocked {@link File} whose
+   * {@code allocateSpace} returns {@code allocatedPosition}, then asserts:
+   *
+   * <ul>
+   *   <li>The exception is an {@link IllegalStateException} carrying the I4
+   *       sentinel message, including the actual {@code allocatedIndex} and
+   *       {@code requested pageIndex} integers — pins that a regression which
+   *       stripped the numeric interpolation (operator-facing diagnostic value)
+   *       would be caught.
+   *   <li>The positive-evidence counter
+   *       {@code getLoadOrAddExtendBranchInvocationsForTest} is unchanged across
+   *       the throw — pins the "counted at end of branch" ordering documented on
+   *       the production field.
+   * </ul>
+   */
+  private void runExtendBranchI4SentinelAssertion(
+      final long pageIndex,
+      final long allocatedPosition,
+      final String expectedAllocatedIndexInMessage,
+      final String expectedRequestedPageIndexInMessage)
+      throws Exception {
+    // wowCache.addFile registers an intId in the cache-internal nameIdMap; see
+    // extendBranchRejectsNegativeAllocatedPosition for the rationale.
+    final var fileId =
+        wowCache.addFile(
+            FILE_NAME + "-i4-direct-" + pageIndex + "-" + allocatedPosition);
+    final var intId = WOWCache.extractFileId(fileId);
+    final var mismatchedFile = mock(File.class);
+    when(mismatchedFile.allocateSpace(anyInt())).thenReturn(allocatedPosition);
+
+    final long preInvocations = wowCache.getLoadOrAddExtendBranchInvocationsForTest();
+    final Method method =
+        WOWCache.class.getDeclaredMethod(
+            "loadOrAddExtendBranch", int.class, long.class, File.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(wowCache, intId, pageIndex, mismatchedFile);
+      fail(
+          "expected IllegalStateException I4 sentinel "
+              + "(\"allocated pageIndex … does not match\") for pageIndex="
+              + pageIndex
+              + " allocatedPosition="
+              + allocatedPosition);
+    } catch (final InvocationTargetException e) {
+      final Throwable cause = e.getCause();
+      assertTrue(
+          "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
+          cause instanceof IllegalStateException);
+      final String message = cause.getMessage();
+      assertTrue(
+          "expected I4 sentinel message with allocated="
+              + expectedAllocatedIndexInMessage
+              + " and requested="
+              + expectedRequestedPageIndexInMessage
+              + ", got: "
+              + message,
+          message != null
+              && message.contains(
+                  "allocated pageIndex " + expectedAllocatedIndexInMessage)
+              && message.contains(
+                  "requested pageIndex " + expectedRequestedPageIndexInMessage)
+              && message.contains("does not match"));
+    }
+    assertEquals(
+        "I4 sentinel must NOT bump the positive-evidence probe "
+            + "(counter is bumped at the end of the branch on purpose; "
+            + "see WOWCache.loadOrAddExtendBranchInvocations field Javadoc)",
+        preInvocations,
+        wowCache.getLoadOrAddExtendBranchInvocationsForTest());
   }
 
   /**
@@ -1011,7 +1070,7 @@ public class WOWCacheLoadOrAddConcurrentTest {
    * {@link WOWCache#loadOrAdd} on a pageIndex that routes into the gap-fill branch
    * (pageIndex past the file's current high-watermark) on the same fresh file.
    *
-   * <p>Counterpart of {@link #bareLoadOrAddOnSameKeySurfacesI4Sentinel}: that test
+   * <p>Counterpart of {@link #extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested}: that test
    * exercises the I4 sentinel on the single-page extend branch
    * ({@code pageIndex == currentSize}); this test exercises the symmetric sentinel
    * on the gap-fill branch ({@code pageIndex &gt; currentSize}). The gap-fill branch
@@ -1069,7 +1128,7 @@ public class WOWCacheLoadOrAddConcurrentTest {
         final List<CachePointer> winnerPointers = new ArrayList<>();
         final List<Throwable> unexpected = new ArrayList<>();
         // Drain every future before classifying — mirror the BC2-hardened loop in
-        // bareLoadOrAddOnSameKeySurfacesI4Sentinel so a TimeoutException or
+        // extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested so a TimeoutException or
         // InterruptedException on one future does not leak the rest's pointers.
         for (final var future : futures) {
           try {
