@@ -37,6 +37,10 @@ flowchart LR
     Tx["FrontendTransactionImpl"] --> Cache
     Tx -.addRecordOperation.-> Cache
     SQLStmt["SQLStatement.isIdempotent / equals"] -.predicate.-> Cache
+    Sharp["SharpMergePredicate (NEW)"] -.classify.-> Entry
+    NDD["NonDeterministicQueryDetector (NEW)"] -.bypass-gate.-> Cache
+    Metrics["QueryCacheMetrics (NEW)"] --- Cache
+    OBC["OrderByComparator (NEW)"] -.splice.-> Entry
 ```
 
 - **`DatabaseSessionEmbedded`** (modified) — `query()` overloads gain a cache lookup before `statement.execute()`; cache miss path inserts and wraps in `CachedResultSetView`; `executeInternal()` non-idempotent branch calls `cache.invalidateAll()`. Read-only behavioral change: returned `ResultSet` is a view, not a fresh `LocalResultSet`.
@@ -47,6 +51,10 @@ flowchart LR
 - **`CacheKey` (new)** — record holding `(SQLStatement, normalizedParams)`; key type for `QueryResultCache`. Reuses `SQLStatement.equals()` / `hashCode()` for structural equality and a defensive-copied normalized parameter map for caller-mutation immunity.
 - **`MergeKind` (new enum)** — discriminator computed by `SharpMergePredicate.classify(stmt)`: `RECORD | AGGREGATE_COUNT | AGGREGATE_SUM | AGGREGATE_AVG | AGGREGATE_MIN | AGGREGATE_MAX | NONE`. Drives the `invalidateOnMutation` dispatch.
 - **`AggregateState` (new)** — per-entry container for aggregate-flavored caches: `currentScalar`, `contributingRids`, `contributingValues`, `count` (AVG only). Encapsulates the five aggregate-specific mutation handlers and the initial population loop. Held on `CachedEntry` only when `mergeKind ∈ AGGREGATE_*`.
+- **`SharpMergePredicate` (new)** — static `classify(SQLStatement) → MergeKind`; AST-only inspection (no execution) called once per entry at construction. Encodes the K1 RECORD / K1 AGGREGATE / K1 MATCH_TUPLE / K0 NONE decision used by `QueryResultCache.invalidateOnMutation`.
+- **`OrderByComparator` (new)** — builds `Comparator<Result>` from `SQLOrderBy`; used by K1 RECORD CREATED/UPDATED splice. Delegates per-item ranking to `SQLOrderByItem.compare(a, b, ctx)`, which in turn calls `modifier.execute(record, value, ctx)` so deterministic modifier-chain items (D9) work without comparator changes.
+- **`NonDeterministicQueryDetector` (new)** — denylist AST walker for `sysdate`/`random`/`uuid`/`eval` function calls and `$now`/`$current`/`$thread`/etc identifier nodes. Single static `contains(SQLStatement)`; gates cache lookup (Track 5) and the K1 RECORD ORDER-BY-modifier admission (D9).
+- **`QueryCacheMetrics` (new)** — operator telemetry: hit / miss / eviction counters owned by `QueryResultCache`. Surfaced via `FrontendTransactionImpl.getQueryCacheMetrics()`; sibling to the inline `TransactionMeters` record in `DatabaseSessionEmbedded`.
 - **`SQLStatement.isIdempotent()` + `equals()` + `hashCode()`** (existing, reused) — DML predicate and cache-key primitive. No changes to existing override semantics.
 - **`GlobalConfiguration`** (modified) — three new knobs: `QUERY_TX_RESULT_CACHE_ENABLED`, `QUERY_TX_RESULT_CACHE_MAX_ENTRIES`, `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY`.
 
@@ -110,12 +118,12 @@ flowchart LR
 - **Implemented in**: Track 8.
 - **Full design**: design.md § Dirty-merge policy → MATCH per-tuple merge (added in this revision).
 
-#### D9: Expression ORDER BY in K1 RECORD (gated on determinism)
+#### D9: Modifier-chain ORDER BY in K1 RECORD (gated on determinism)
 
-- **Alternatives considered**: plain-property-only ORDER BY (v1 baseline — loses K1 for `ORDER BY upper(name)`, `ORDER BY priority * 10`); allow any ORDER BY expression (would silently admit `ORDER BY sysdate()` — non-deterministic ranking poisons the cache); allow deterministic ORDER BY expressions (chosen).
-- **Rationale**: `SQLExpression.evaluate(record, ctx)` is the same call `OrderByStep` uses at execution time, so `OrderByComparator` calling it produces identical rank semantics. `NonDeterministicQueryDetector` (Track 5) already walks the AST for the cache-bypass gate; reusing the same walker on `SQLOrderBy.items` adds one method call. Gate becomes "ORDER BY expression is allowed iff `NonDeterministicQueryDetector.contains(expr) == false`".
-- **Risks/Caveats**: per-comparator-call `evaluate(rec, ctx)` adds CPU vs direct field lookup — bounded by `maxRecordsPerEntry` × LIMIT. For typical entries (≤100 records, LIMIT 10) the overhead is negligible. For pathological entries (10000 records) the splice path's evaluate calls dominate — acceptable trade-off for the cache hits saved.
-- **Implemented in**: Track 5 (classify-gate relaxation; `OrderByComparator` from Track 4 already calls `SQLExpression.evaluate`).
+- **Alternatives considered**: plain-identifier-only ORDER BY (v1 baseline — loses K1 for `ORDER BY name.upper()`, `ORDER BY name.toLowerCase().trim()`); allow any ORDER BY expression (would require grammar extension — current `YouTrackDBSql.jj` ORDER BY production accepts only `Identifier [Modifier]`, `Rid`, or `RECORD_ATTRIBUTE`; arithmetic forms like `ORDER BY priority * 10` and function-call forms like `ORDER BY lower(name)` are not grammar-supported); allow deterministic modifier-chain ORDER BY (chosen).
+- **Rationale**: `SQLOrderByItem` carries an alias `String` plus an optional `SQLModifier` chain. The modifier chain is exactly the AST slot already exercised by `SQLOrderByItem.compare` at execution time, which reaches into `modifier.execute(record, value, ctx)`. `NonDeterministicQueryDetector` (Track 5) already walks the AST for the cache-bypass gate; reusing the same walker on each item's `modifier` adds one method call. Gate: "ORDER BY item is admitted iff its `modifier` chain (when present) contains no non-deterministic function call or `$variable` reference". Plain-identifier items (no modifier) are always admitted; arithmetic / function-call ORDER BY is out of scope (would need grammar work — deferred to a future track or version).
+- **Risks/Caveats**: per-comparator-call `modifier.execute(...)` adds CPU vs direct field lookup — bounded by `maxRecordsPerEntry` × LIMIT. For typical entries (≤100 records, LIMIT 10) the overhead is negligible. For pathological entries (10000 records) the splice path's modifier-execute calls dominate; acceptable trade-off for the cache hits saved.
+- **Implemented in**: Track 5 (classify-gate relaxation; `OrderByComparator` from Track 4 already delegates ranking to `SQLOrderByItem.compare`).
 
 #### D10: SKIP support in K1 RECORD with prefix-cap
 
@@ -178,7 +186,7 @@ flowchart LR
   > **Depends on:** Tracks 2, 3
 
 - [ ] Track 5: Hardening — non-determinism, DML invalidation, memory bound, expression ORDER BY
-  > Production-readiness for correctness: AST denylist for non-deterministic functions/variables, `NOCACHE` hint extension, full-wipe on non-idempotent `executeInternal()` calls, LRU enforcement at `maxEntries`, per-entry overflow handling at `maxRecordsPerEntry`. Plus R-B: with `NonDeterministicQueryDetector` now in place, relax the K1 RECORD classify gate to admit ORDER BY expressions that the detector reports as deterministic. `OrderByComparator` (built in Track 4) already calls `SQLExpression.evaluate(record, ctx)` for each item, so no comparator changes are needed.
+  > Production-readiness for correctness: AST denylist for non-deterministic functions/variables, `NOCACHE` hint extension, full-wipe on non-idempotent `executeInternal()` calls, LRU enforcement at `maxEntries`, per-entry overflow handling at `maxRecordsPerEntry`. Plus R-B: with `NonDeterministicQueryDetector` now in place, relax the K1 RECORD classify gate to admit ORDER BY expressions that the detector reports as deterministic. `OrderByComparator` (built in Track 4) already calls `SQLExpression.execute(record, ctx)` for each item, so no comparator changes are needed.
   > **Scope:** ~5-6 steps covering `NonDeterministicQueryDetector` + wiring, `noCache` semantic extension, DML invalidation hook, per-entry overflow handling, expression-ORDER-BY gate relaxation, integration tests across all five surfaces.
   > **Depends on:** Tracks 1, 2, 3, 4
 
@@ -188,7 +196,7 @@ flowchart LR
   > **Depends on:** Track 5
 
 - [ ] Track 7: SKIP support in K1 RECORD — prefix-cap merge
-  > R-C: extend K1 RECORD to admit `SKIP n LIMIT m` shapes when `n + m <= maxRecordsPerEntry`. `CachedEntry` for SKIP queries caches the full prefix (records `0..n+m-1`) rather than just the visible window. `CachedResultSetView` returns records `[n, n+m)` from the prefix. Sharp-merge operates on the prefix list (CREATED splice, UPDATED re-splice, DELETED remove), then re-clips to `n + m`; the visible window shifts as the prefix changes. When `skip + limit > maxRecordsPerEntry`, classify returns NONE (K0 wipe — same as v1 baseline).
+  > R-C extension to Track 4's K1 RECORD: relax the `no SKIP` gate so paginated `SELECT … SKIP n LIMIT m` queries with `n + m <= maxRecordsPerEntry` survive in-tx mutations via prefix-cache splicing rather than wiping. Above the cap, classify falls back to NONE (K0 wipe — v1 baseline). Mechanics (prefix shape on `CachedEntry`, view offset/window, re-clip target) live in `plan/track-7.md` and `design.md` § SKIP support.
   > **Scope:** ~3-4 steps covering classify-gate relaxation with cap check, prefix-cache shape on `CachedEntry`, view offset/window logic, merge-on-prefix tests (paginated queries with mid-page inserts/deletes), cap-exceeded fallback test.
   > **Depends on:** Tracks 4, 6 (Track 6's JMH baseline serves as the "before SKIP" measurement; Track 7 adds a SKIP-specific JMH scenario)
 
@@ -198,15 +206,27 @@ flowchart LR
   > **Depends on:** Tracks 4, 6 (Track 6's JMH baseline + Track 8's MATCH JMH scenario)
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 2 (manual `/review-plan`, third re-run after K1-merge / K0-invalidate refinement)
+- [x] Plan review (consistency + structural) — passed at iteration 1 (manual `/review-plan`, post-Session-3 re-run after K1-merge / K0-invalidate refinement)
 
 **Auto-fixed (mechanical) — current session**:
-- CR1: removed phantom `SQLScriptStatement` from the bulk-bypass list in `design.md` § Cache invalidation, `implementation-plan.md` D3, and `plan/track-5.md` (Context, Plan-of-Work step 3, Validation, Library signatures). Scripts route through `DatabaseSessionEmbedded.computeScript(...)` — already a declared Non-Goal of the plan.
-- CR2: removed phantom `SQLTruncateClusterStatement` and `SQLTruncateRecordStatement` from the same locations. The SQL grammar at `YouTrackDBSql.jj:8260-8270` declares only `TRUNCATE CLASS`, so `SQLTruncateClassStatement` is the sole valid entry in the bulk-bypass list.
+- CR1: renamed stale `AggregateState.populateFromResultSet(rs)` to `populateFromRecordStream(stream, extractor)` in `design.md` § Class Design classDiagram (Session-3 rename already applied to § Aggregate sharp-merge prose and `plan/track-4.md`; the class-diagram method box was missed).
+- CR2: replaced phantom `SQLFromClause.items` (singular field — actual API is `SQLFromClause.getItem()` returning a single `SQLFromItem`) in `design.md` § Cache invalidation → fromClasses scope and `plan/track-4.md` Context + step 1.
+- CR3: replaced phantom `SQLExpression.evaluate(record, ctx)` with `SQLExpression.execute(record, ctx)` (actual method on `SQLExpression`; `evaluate` lives on `SQLBooleanExpression`) across `design.md` § Dirty-merge edge cases, `implementation-plan.md` D9 (rationale + risks + implemented-in line), and `plan/track-5.md` step 5 + Purpose intro + Library signatures.
+- CR5: replaced phantom `SQLBaseExpression.isDollar()` / `dollar=true` predicate with the actual identifier-node `charAt(0) == '$'` mechanism (see `SelectExecutionPlanner.java:932`, `SQLSuffixIdentifier.java:85`) in `plan/track-5.md` Context + step 1.
+- CR7: added cross-reference in `plan/track-4.md` `MergeKind` deliverable noting Track 8 extends the enum with `MATCH_TUPLE` (avoids confusion when reading track-4 alone vs design.md's eight-value enum).
+- S2: trimmed Track 7's plan-file intro paragraph from 5 sentences to 2 (per the 1–3 sentence cap); mechanics moved-to-track-file pointer added.
 
-**Escalated (design decisions) — current session**: none.
+**Escalated (design decisions) — current session, resolved by user**:
+- CR4: D9 scoped down to deterministic **modifier-chain** ORDER BY only. Grammar currently admits only `Identifier [Modifier]`, `Rid`, or `RECORD_ATTRIBUTE` in ORDER BY items; arithmetic forms (`ORDER BY priority * 10`) and function-call forms (`ORDER BY lower(name)`) would require grammar work and are out of scope for v1. Plan/track-5 step 5 now walks `item.modifier` for non-determinism; D9 alternatives and rationale rewritten to reflect the scope.
+- CR6: K1 polymorphism gate clarified — `RecordAbstract` doesn't expose `getSchemaClass()`; the real method lives on `Entity` (`Entity.java:289`). Gate is now `record instanceof Entity entity && entity.getSchemaClass() != null && entity.getSchemaClass().isSubClassOf(name)`. Non-`Entity` records (raw byte records, blobs, `RecordAbstract` subclasses that don't implement `Entity`) and entities with null schema class short-circuit to "skip entry" — they cannot bind into a `SELECT FROM Class` result. Applied in `design.md` § Dirty-merge polymorphism bullet, § MATCH per-tuple UPDATED bullet, `plan/track-4.md` Context + step 4.
+- S1: Component Map extended with four NEW classes: `SharpMergePredicate`, `OrderByComparator`, `NonDeterministicQueryDetector`, `QueryCacheMetrics`. Mermaid graph also extended with corresponding nodes (predicate edges + telemetry sibling edge).
+- S3: Track 4 sizing left as-is (~7 steps + step 6b + ~20 test cases). Plausible to split into 4a (K1 record + K0) + 4b (K1 aggregate); user accepted the current single-track shape.
 
-**Structural findings — current session**: none. All scope indicators, dependency annotations, Decision Records, Invariants, and Component Map entries verify cleanly.
+**Pre-existing structural debt observed (not in scope of this review)**:
+- `design.md` § Invariants and § Open questions deferred to execution are missing TL;DR + References footers (4 mechanical-check blockers carried forward from Phase 1 creation).
+- `design.md` em-dash density / fragmented-header findings (14 `dsc-ai-tell` should-fix) — pre-existing house-style debt in paragraphs untouched by this review's fixes.
+
+Recommended follow-up before Phase 4: a dedicated `content-edit` mutation per affected section to add the TL;DR + References footers, plus a global em-dash sweep against `house-style.md` § Em-dash discipline. Out of scope for Phase 2 per `implementation-review.md` (narrative quality is the mutation discipline's responsibility at write time).
 
 ---
 
