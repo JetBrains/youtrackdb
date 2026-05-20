@@ -257,33 +257,9 @@ Recommended follow-up before Phase 4 unchanged from prior iteration: a dedicated
 
 ---
 
-### Earlier audit-trail (preserved)
+### Earlier audit-trail
 
-**Iteration 1 (manual `/review-plan`, post-Session-3 re-run after K1-merge / K0-invalidate refinement)** — auto-fixed: CR1 (stale `AggregateState.populateFromResultSet(rs)` → `populateFromRecordStream(stream, extractor)` in design.md class diagram); CR2 (phantom `SQLFromClause.items` → `SQLFromClause.getItem()` in design.md fromClasses scope + track-4); CR3 (phantom `SQLExpression.evaluate` → `SQLExpression.execute` in design.md + plan D9 + track-5); CR5 (phantom `SQLBaseExpression.isDollar()` → identifier-node `charAt(0) == '$'` mechanism in track-5); CR7 (cross-reference noting Track 8 extends `MergeKind` with `MATCH_TUPLE` in track-4); S2 (trimmed Track 7 plan-file intro from 5 to 2 sentences). Escalated: CR4 (D9 scoped to deterministic **modifier-chain** ORDER BY only — grammar admits only `Identifier [Modifier]`, `Rid`, or `RECORD_ATTRIBUTE`); CR6 (K1 polymorphism gate now `instanceof Entity entity && entity.getSchemaClass() != null && entity.getSchemaClass().isSubClassOf(name)` — `RecordAbstract` doesn't expose `getSchemaClass()`); S1 (Component Map extended with `SharpMergePredicate`, `OrderByComparator`, `NonDeterministicQueryDetector`, `QueryCacheMetrics`); S3 (Track 4 kept as single track per user resolution).
-
-**Session 1 auto-fixed (mechanical)**:
-- CR2: appended `noCache` to D2 and design.md `SQLStatement.equals` field enumeration (was missing from the verbatim list, present in actual code).
-- CR4: replaced phantom `OClassImpl.isSubClassOf` reference with `SchemaClass.isSubClassOf` (delegated through `SchemaClassProxy`; concrete impl `SchemaClassImpl`) in `plan/track-4.md` and `design.md` § Dirty-merge.
-- S2: aligned `**Depends on:**` annotation on Track 5 with the track file's enumeration (Tracks 1, 2, 3, 4).
-- S3: added `CacheKey` bullet to Component Map's annotated component list.
-
-**Session 1 escalated (design decisions)**:
-- CR1: cache-lookup gate tightened from `isIdempotent()` to `instanceof SQLSelectStatement || SQLMatchStatement`. PROFILE/EXPLAIN/IF return `isIdempotent()==true` but their cache semantics are wrong (PROFILE/EXPLAIN return plan/timing metadata). D3 rewritten; `plan/track-2.md` Context + Plan-of-Work + Validation updated.
-- CR3: telemetry approach changed to a new sibling class `QueryCacheMetrics` (`internal/core/tx/QueryCacheMetrics.java`). `TransactionMeters` is an immutable inline record in `DatabaseSessionEmbedded.java:190` — extending it would force record-shape changes plus modifications to two constructor sites and a `TimeRate` type for counters. Sibling class is simpler. `plan/track-5.md` and `design.md` § Open questions updated.
-- S1: Track 4 declared as sequential after Track 3 (`**Depends on:** Tracks 2, 3`) rather than parallel — K0 wipe in Track 4 calls `entry.close()` whose `stream.close(ctx)` body is filled in Track 3.
-- S4: Track 5 split into Track 5 (Hardening — non-determinism, DML invalidation, memory bound) and Track 6 (Observability — `QueryCacheMetrics` + JMH benchmark). Track 5 now ~4-5 steps; Track 6 ~3-4 steps. New `plan/track-6.md` created.
-
-**Session 2 (after aggregate sharp-merge extension)**:
-- D5 broadened to "K1 record + K1 aggregate + K0 fallback". `SharpMergePredicate.isSharpMergeable` → `classify(stmt) → MergeKind` returning a seven-value discriminator (`RECORD | AGGREGATE_COUNT | AGGREGATE_SUM | AGGREGATE_AVG | AGGREGATE_MIN | AGGREGATE_MAX | NONE`). New `AggregateState` class added to Component Map and class diagram. Track 4 scope grew to `~7 steps`. Aggregate transition matrix added to Track 4 validation.
-- Session 2 auto-fixed: CR5 (stale `isSharpMergeable` mention replaced with `SharpMergePredicate.classify`), CR6 (`sharpMergeable: MergeKind` → `mergeKind: MergeKind` deliverable bullet), CR8 (AST walk recipe for aggregate-shape classifier added to Track 4 Plan-of-Work step 2).
-- Session 2 escalated: CR7 (blocker) — MIN/MAX `was_extremum = contributingValues.get(rid).equals(currentScalar)` silently wrong across `Number` boxed subtypes. Resolution: `AggregateState` for MIN/MAX carries an `extremumRid: @Nullable RID`; `was_extremum = rid.equals(extremumRid)` (boolean RID identity, no numeric comparison).
-- Session 2 structural: S5 (Track 5 `**Depends on:**` annotation re-aligned to `Tracks 1, 2, 3, 4`), S6 (dense AST-walk recipe in Track 4 Plan-of-Work step 2 left as-is — decision-bearing context).
-
-**Session 3 (current, after K1-merge / K0-invalidate refinement)**:
-- DML invalidation predicate narrowed from `!isIdempotent()` to an explicit bulk-bypass type list (DDL + `SQLTruncateClassStatement`). Regular `INSERT`/`UPDATE`/`DELETE` rely on `addRecordOperation` per-record sharp-merge from Track 4 — adding `invalidateAll()` on top would destroy K1-merged state. D3 rewritten; `design.md` § Cache invalidation and `plan/track-5.md` updated.
-- `fromClasses` scope subsection added in `design.md` § Cache invalidation: per-shape extraction rules for simple SELECT (`SQLFromClause.items`), MATCH (per-pattern-node `class:` annotations via `SQLMatchFilter.getClassName(ctx)`), `NONE` with subquery (recursive walk to catch nested SELECTs — correctness fix for `SELECT FROM A WHERE id IN (SELECT id FROM B)`), and the `fromClasses = null` fallback (unconditional wipe). Mirror added in `plan/track-4.md` polymorphism section.
-- K1 record paths refined: DELETED / UPDATED / CREATED split into three explicit bullets in `design.md` § Dirty-merge policy. UPDATED always removes + re-splices (no rank-change heuristic). CREATED dedup by RID before splice. Mirror in `plan/track-4.md`.
-- AggregateState population route corrected: populated from the inner record stream (side-tap before `AggregateProjectionCalculationStep`), not from the user-visible `ResultSet`. The collapsed `ResultSet` carries only the scalar with no per-RID material to seed `contributingValues`. Method renamed `populateFromResultSet(ResultSet)` → `populateFromRecordStream(Iterator<Record>, Function<Record, Number>)`. `design.md` § Aggregate sharp-merge and `plan/track-4.md` step 3 + deliverables + signatures updated.
+Sessions 1-3, Iteration 1, and the Track 8 introduction (the substantive K1 aggregate / MATCH per-tuple / DML-invalidation / fromClasses-scope shifts that predate Mutation 1 in the per-edit log) have been **relocated to `design-mutations.md § Pre-Mutation-1 History`** for consolidation: all design-evolution records (Pre-Mutation history + Mutations 1-N) now live in a single file. See `design-mutations.md` for the full chronological audit trail.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
