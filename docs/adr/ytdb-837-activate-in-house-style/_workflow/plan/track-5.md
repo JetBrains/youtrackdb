@@ -9,12 +9,14 @@ Adds Tier-B subset pointer to `workflow.md` (top-level orchestrator), the three 
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-05-20T07:18Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T07:27Z [ctx=safe] Step 1 complete (commit c56fe1b0ce)
+- [x] 2026-05-20T07:30Z [ctx=safe] Step 2 complete (commit cfb46a162b)
+- [x] 2026-05-20T07:30Z [ctx=safe] Step implementation complete (2 steps, 0 failed)
 
 ## Surprises & Discoveries
 - 2026-05-20T07:27Z Step 1 surfaced: `.githooks/prepare-commit-msg` skips the subject prefix when the branch-derived YTDB ID appears anywhere in the message body. Commits whose body cites the ID literally land with an unprefixed subject. See Episodes §Step 1.
@@ -77,7 +79,7 @@ The `<RELATIVE-PATH>` placeholder resolves to `conventions.md` for the five `.cl
 
 1. Insert the canonical pointer paragraph into the top-level orchestrator and the three user-invocable skill bodies (4 files). Anchors: `.claude/workflow/workflow.md` between line 26 (end of `## Overview` block) and line 28 (`### Terminology: Phases 0/1/2/3/4 vs Phases A/B/C` heading); `.claude/skills/create-plan/SKILL.md` between line 8 (`Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).`) and line 10 (`**Step 1 — Read workflow documents.**`); `.claude/skills/execute-tracks/SKILL.md` between line 8 (`Read and follow the workflow for Phase 3 (Execution).`) and line 10 (`Read these workflow documents in order before starting:`); `.claude/skills/review-plan/SKILL.md` between line 8 (`Read and follow the workflow for Phase 2 (Implementation Review).`) and line 10 (`> **Manual override.**` blockquote start). Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces (Track 3 F1 hazard, Track 4 strategy-refresh carryover). For SKILL.md files, the `<RELATIVE-PATH>` placeholder resolves to `../../workflow/conventions.md`; for `workflow.md` it resolves to `conventions.md`. Use native `Edit` per the Track 3 fallback — `steroid_apply_patch` is not exposed in implementer sub-agent spawns. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/workflow.md .claude/skills/create-plan/SKILL.md .claude/skills/execute-tracks/SKILL.md .claude/skills/review-plan/SKILL.md | wc -l` returns `4`. — risk: low (default: pure documentation insertion; no semantic change)  [x] commit: c56fe1b0ce
 
-2. Insert the canonical pointer paragraph into the five mid-loop protocols (5 files, all under `.claude/workflow/`). Anchors: `mid-phase-handoff.md` between line 7 (intro paragraph ends with `…research already on disk.`) and line 9 (`Loaded on-demand by:` colon-terminated lead-in); `inline-replanning.md` between line 6 (intro paragraph ends with `…notes.`) and line 8 (`## When ESCALATE triggers` heading); `review-mode.md` between line 8 (intro paragraph ends with `…does any side effect run.`) and line 10 (`## What review mode does` heading); `review-iteration.md` between line 8 (intro paragraph ends with `…not needed at session startup.`) and line 10 (`---` separator); `design-decision-escalation.md` between line 6 (intro paragraph ends with `…beyond what the plan specifies.`) and line 8 (`## When to pause and ask the user` heading). Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces. The `<RELATIVE-PATH>` placeholder resolves to `conventions.md` for all five files. Use native `Edit` per the Track 3 fallback. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/mid-phase-handoff.md .claude/workflow/inline-replanning.md .claude/workflow/review-mode.md .claude/workflow/review-iteration.md .claude/workflow/design-decision-escalation.md | wc -l` returns `5`; cumulative `grep -l '…' <all 9 files> | wc -l` returns `9`. — risk: low (default: pure documentation insertion; no semantic change)  [ ]
+2. Insert the canonical pointer paragraph into the five mid-loop protocols (5 files, all under `.claude/workflow/`). Anchors: `mid-phase-handoff.md` between line 7 (intro paragraph ends with `…research already on disk.`) and line 9 (`Loaded on-demand by:` colon-terminated lead-in); `inline-replanning.md` between line 6 (intro paragraph ends with `…notes.`) and line 8 (`## When ESCALATE triggers` heading); `review-mode.md` between line 8 (intro paragraph ends with `…does any side effect run.`) and line 10 (`## What review mode does` heading); `review-iteration.md` between line 8 (intro paragraph ends with `…not needed at session startup.`) and line 10 (`---` separator); `design-decision-escalation.md` between line 6 (intro paragraph ends with `…beyond what the plan specifies.`) and line 8 (`## When to pause and ask the user` heading). Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces. The `<RELATIVE-PATH>` placeholder resolves to `conventions.md` for all five files. Use native `Edit` per the Track 3 fallback. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/mid-phase-handoff.md .claude/workflow/inline-replanning.md .claude/workflow/review-mode.md .claude/workflow/review-iteration.md .claude/workflow/design-decision-escalation.md | wc -l` returns `5`; cumulative `grep -l '…' <all 9 files> | wc -l` returns `9`. — risk: low (default: pure documentation insertion; no semantic change)  [x] commit: cfb46a162b
 
 ## Episodes
 
@@ -91,6 +93,18 @@ The `<RELATIVE-PATH>` placeholder resolves to `conventions.md` for the five `.cl
 - `.claude/skills/create-plan/SKILL.md` (modified)
 - `.claude/skills/execute-tracks/SKILL.md` (modified)
 - `.claude/skills/review-plan/SKILL.md` (modified)
+
+### Step 2 — commit cfb46a162b, 2026-05-20T07:30Z [ctx=safe]
+**What was done:** Landed the canonical chat-scale prose pointer paragraph in the five mid-loop protocol files: `mid-phase-handoff.md` (between intro paragraph and the `Loaded on-demand by:` lead-in), `inline-replanning.md` (between intro paragraph and the `## When ESCALATE triggers` heading), `review-mode.md` (between intro paragraph and the `## What review mode does` heading), `review-iteration.md` (between intro paragraph and the `---` separator), and `design-decision-escalation.md` (between intro paragraph and the `## When to pause and ask the user` heading). Every pointer cites the four banned-section heading slugs verbatim, exempts the three structural-rule sections by name, and links the `conventions.md §1.5` anchor with the substring un-wrapped on one line. Each anchor was pre-scanned (±5 lines) for the colon-terminated-lead-in trap before patching; in `mid-phase-handoff.md` the pre-scan flagged line 9 itself as a lead-in for the bullet list below, and the chosen insertion point keeps the pointer cleanly outside the lead-in→list span. Cumulative validation grep across all 9 in-scope files returns `9`.
+
+**What was discovered:** The commit-body workaround for the prepare-commit-msg hook (Step 1 finding) was confirmed in both directions. Omitting the literal `YTDB-837` token from the body lets the hook prepend the subject prefix normally; citing it suppresses the prepend. Step 2's subject landed as `YTDB-837: Add house-style pointer to mid-loop protocols`.
+
+**Key files:**
+- `.claude/workflow/mid-phase-handoff.md` (modified)
+- `.claude/workflow/inline-replanning.md` (modified)
+- `.claude/workflow/review-mode.md` (modified)
+- `.claude/workflow/review-iteration.md` (modified)
+- `.claude/workflow/design-decision-escalation.md` (modified)
 
 ## Validation and Acceptance
 
