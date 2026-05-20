@@ -76,17 +76,20 @@ import org.junit.Test;
  *       a sibling test). Installer calls either succeed cleanly (destroyer waited)
  *       or surface {@link IllegalArgumentException} from the dispatch prelude; no
  *       other exception type is acceptable.
- *   <li><b>I4 negative defence</b>: the extend branch's
- *       {@code allocatedIndex != pageIndex} sentinel and the negative-allocation
- *       sentinel are exercised by direct reflective invocation of
- *       {@code WOWCache.loadOrAddExtendBranch} with a Mockito-doctored
+ *   <li><b>I4 negative defence</b>: both the extend branch's
+ *       {@code allocatedIndex != pageIndex} sentinel and the gap-fill branch's
+ *       {@code allocatedStartIndex != currentSize} sentinel — along with their
+ *       respective negative-allocation guards — are exercised by direct reflective
+ *       invocation of {@code WOWCache.loadOrAddExtendBranch} and
+ *       {@code WOWCache.loadOrAddGapFillBranch} with a Mockito-doctored
  *       {@link com.jetbrains.youtrackdb.internal.core.storage.fs.File} whose
- *       {@code allocateSpace} returns either a position past the requested
- *       {@code pageIndex} or a negative position. The hard
- *       {@link IllegalStateException} throw — the I4 sentinel added by Track 1
+ *       {@code allocateSpace} returns a position above, below, or negative of the
+ *       requested {@code pageIndex} / {@code currentSize}. The hard
+ *       {@link IllegalStateException} throws — the I4 sentinels added by Track 1
  *       Step 2's review fix — must fire deterministically. Pins that the
- *       cache-internal fast-fail stays falsifiable and that the existing
- *       {@code loadOrAddExtendBranchInvocations} positive-evidence counter is
+ *       cache-internal fast-fails stay falsifiable and that the
+ *       {@code loadOrAddExtendBranchInvocations} and
+ *       {@code loadOrAddGapFillBranchInvocations} positive-evidence counters are
  *       not bumped on the throw path. The production race shape (concurrent
  *       allocators competing for the same {@code pageIndex}) is covered by
  *       {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local.LoadOrAddPoisonCascadeRegressionTest}.
@@ -120,12 +123,6 @@ public class WOWCacheLoadOrAddConcurrentTest {
   // hold all of the test's working set comfortably (no eviction pressure inside the
   // scenarios — eviction is exercised by the wrapper-MT step's separate scenarios).
   private static final long READ_CACHE_MAX_MEMORY = 4L * 1024 * 1024;
-  // Retry cap for the gap-fill I4-sentinel test. The currentSize-vs-allocator race
-  // is tighter on the gap-fill branch than on the single-page extend branch, so a
-  // slightly higher cap is needed to keep the test deterministic within the 60s
-  // per-test timeout on the slowest CI runner. Empirically converges inside 5-10
-  // attempts.
-  private static final int I4_GAPFILL_MAX_ATTEMPTS = 50;
 
   private static Path storagePath;
   private static String storageName;
@@ -1066,133 +1063,199 @@ public class WOWCacheLoadOrAddConcurrentTest {
   }
 
   /**
-   * Gap-fill I4 negative defence — drive two threads directly into bare
-   * {@link WOWCache#loadOrAdd} on a pageIndex that routes into the gap-fill branch
-   * (pageIndex past the file's current high-watermark) on the same fresh file.
+   * Gap-fill I4 negative defence — invoke {@code WOWCache.loadOrAddGapFillBranch}
+   * directly with a {@link File} whose {@code allocateSpace} returns a position
+   * whose {@code allocatedStartIndex} does <i>not</i> match the {@code currentSize}
+   * argument. The hard {@link IllegalStateException} throw with the
+   * {@code "allocated start index … does not match currentSize"} message added by
+   * Track 1's review fix — the gap-fill I4 sentinel — must fire deterministically.
    *
-   * <p>Counterpart of {@link #extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested}: that test
-   * exercises the I4 sentinel on the single-page extend branch
+   * <p>Counterpart of
+   * {@link #extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested}: that
+   * test exercises the I4 sentinel on the single-page extend branch
    * ({@code pageIndex == currentSize}); this test exercises the symmetric sentinel
-   * on the gap-fill branch ({@code pageIndex &gt; currentSize}). The gap-fill branch
-   * sentinel — the {@code "allocated start index ... does not match currentSize"}
-   * {@link IllegalStateException} added by Track 1's review fix — is reachable in
-   * production but is only tolerated as one of several possible outcomes in the
-   * delete/truncate sibling tests above ({@code bareLoadOrAddOnSameGapFillKey ... }).
-   * No test deterministically pins this sentinel, so a regression that silently
-   * dropped the gap-fill branch's equality check would be tolerated everywhere.
+   * on the gap-fill branch ({@code pageIndex &gt; currentSize}).
    *
-   * <p>Race shape: pre-extend the file to {@code currentSize == 2}, then spawn N
-   * workers all targeting {@code pageIndex == 10} (well past currentSize), so every
-   * worker's dispatch routes into the gap-fill branch. {@code AsyncFile.allocateSpace}
-   * serialises the allocator — exactly one worker gets {@code allocatedStartIndex
-   * == 2 == currentSize} and proceeds; the others get higher start indices and the
-   * gap-fill I4 sentinel fires.
+   * <p>The test pins falsifiability deterministically: if a future refactor
+   * relaxed the equality check (e.g. to a warning log), the mismatched allocation
+   * would no longer surface the {@link IllegalStateException} and this test would
+   * fail loudly. It also pins the ordering of the positive-evidence counter
+   * (incremented at the end of the branch only) by asserting
+   * {@code getLoadOrAddGapFillBranchInvocationsForTest()} is unchanged across the
+   * throw — a refactor that moved the increment before the sanity check would be
+   * caught here.
    *
-   * <p>Retry up to {@link #I4_GAPFILL_MAX_ATTEMPTS} times; the per-attempt fileId is
-   * rotated so each round starts with a fresh currentSize=2. A regression that
-   * relaxed the gap-fill equality check to a warning log would let every worker
-   * "succeed" on every attempt and the assertion below would fail loudly.
+   * <p><b>Why direct invocation and not a thread race.</b> An earlier version of
+   * this test drove 16 parallel workers through the public {@code loadOrAdd} on a
+   * file pre-extended to {@code currentSize == 2}, all targeting
+   * {@code pageIndex == 10}, hoping at least one worker would observe the gap-fill
+   * I4 sentinel within 50 attempts. The race window between the workers'
+   * {@code currentSize} read and {@code AsyncFile.allocateSpace}'s monotonic
+   * getAndAdd closed faster than 16 workers could wedge into it on Linux arm
+   * JDK 25 CI runners: the first allocator's getAndAdd raced ahead of every other
+   * worker's currentSize read, all other workers fell through to the load branch,
+   * and the gap-fill sentinel never fired. Direct invocation with a doctored
+   * {@link File} sidesteps the timing dependency while still pinning the exact
+   * equality check the sentinel guards.
    */
   @Test(timeout = PER_TEST_TIMEOUT_MS)
-  public void bareLoadOrAddOnSameGapFillKeySurfacesI4GapFillSentinel() throws Exception {
-    final int threads = 16;
-    boolean sentinelObserved = false;
-    int attempt = 0;
-    while (!sentinelObserved && attempt < I4_GAPFILL_MAX_ATTEMPTS) {
-      attempt++;
-      // Per-attempt fileId: every round starts from currentSize == 0, then is
-      // pre-extended to currentSize == 2 so every worker targeting pageIndex == 10
-      // routes into the gap-fill branch (10 > 2).
-      final var fileId = wowCache.addFile(FILE_NAME + "-gapfill-attempt-" + attempt);
-      wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
-      wowCache.loadOrAdd(fileId, 1L, false).decrementReadersReferrer();
-      assertEquals(
-          "attempt " + attempt + ": pre-extend must seed currentSize == 2",
-          2L,
-          wowCache.getFilledUpTo(fileId));
+  public void gapFillBranchSurfacesI4SentinelWhenAllocatedStartIndexAboveCurrentSize()
+      throws Exception {
+    // pageIndex=10, currentSize=2, allocatedPosition=3*pageSize → allocatedStartIndex=3
+    // (above 2). Mirrors the original race-based test's setup (currentSize=2, pageIndex=10)
+    // but driven deterministically through reflection.
+    runGapFillBranchI4SentinelAssertion(
+        /* pageIndex= */ 10L,
+        /* currentSize= */ 2L,
+        /* allocatedPosition= */ (long) PAGE_SIZE * 3L,
+        /* expectedAllocatedStartIndexInMessage= */ "3",
+        /* expectedCurrentSizeInMessage= */ "2");
+  }
 
-      final var pool = Executors.newFixedThreadPool(threads);
-      try {
-        final var startBarrier = new CyclicBarrier(threads);
-        final List<Callable<CachePointer>> workers = new ArrayList<>(threads);
-        for (int i = 0; i < threads; i++) {
-          workers.add(
-              () -> {
-                startBarrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-                return wowCache.loadOrAdd(fileId, 10L, false);
-              });
-        }
-        final var futures = pool.invokeAll(workers);
-        int successes = 0;
-        int gapFillSentinelObservations = 0;
-        final List<CachePointer> winnerPointers = new ArrayList<>();
-        final List<Throwable> unexpected = new ArrayList<>();
-        // Drain every future before classifying — mirror the BC2-hardened loop in
-        // extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested so a TimeoutException or
-        // InterruptedException on one future does not leak the rest's pointers.
-        for (final var future : futures) {
-          try {
-            final var pointer =
-                future.get(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-            if (pointer != null) {
-              successes++;
-              winnerPointers.add(pointer);
-            }
-          } catch (final java.util.concurrent.ExecutionException e) {
-            final var cause = e.getCause();
-            if (cause instanceof IllegalStateException
-                && cause.getMessage() != null
-                && cause.getMessage().contains("allocated start index")
-                && cause.getMessage().contains("does not match")) {
-              gapFillSentinelObservations++;
-            } else {
-              unexpected.add(cause);
-            }
-          } catch (final java.util.concurrent.TimeoutException
-              | InterruptedException te) {
-            unexpected.add(te);
-            if (te instanceof InterruptedException) {
-              Thread.currentThread().interrupt();
-            }
-          }
-        }
-        try {
-          if (!unexpected.isEmpty()) {
-            fail(
-                "gap-fill I4 sentinel scenario surfaced unexpected exception type: "
-                    + unexpected.get(0));
-          }
-          assertTrue(
-              "at least one worker must succeed (the allocateSpace winner)",
-              successes >= 1);
-          assertEquals(
-              "every worker accounted for (successes + gap-fill I4 throws == threads)",
-              threads,
-              successes + gapFillSentinelObservations);
-          if (gapFillSentinelObservations >= 1) {
-            sentinelObserved = true;
-          }
-        } finally {
-          for (final var winner : winnerPointers) {
-            winner.decrementReadersReferrer();
-          }
-        }
-      } finally {
-        pool.shutdownNow();
-        assertTrue(
-            "executor must terminate cleanly",
-            pool.awaitTermination(5, TimeUnit.SECONDS));
-        // Per-attempt file cleanup so successive rotations do not retain pinned
-        // pages from prior attempts.
-        wowCache.deleteFile(fileId);
-      }
+  /**
+   * Gap-fill I4 negative defence — symmetric direction. Drives
+   * {@code pageIndex == 10} with {@code currentSize == 5} while the mocked
+   * allocator returns position {@code 2 * pageSize}
+   * ({@code allocatedStartIndex == 2 < currentSize == 5}). Without this test, a
+   * regression that flipped {@code allocatedStartIndex != currentSize} to a
+   * one-sided comparison (e.g. {@code allocatedStartIndex > currentSize}) would
+   * still pass
+   * {@link #gapFillBranchSurfacesI4SentinelWhenAllocatedStartIndexAboveCurrentSize}
+   * and land silently. Pairs with the above test to pin the equality check as
+   * bidirectional.
+   */
+  @Test(timeout = PER_TEST_TIMEOUT_MS)
+  public void gapFillBranchSurfacesI4SentinelWhenAllocatedStartIndexBelowCurrentSize()
+      throws Exception {
+    runGapFillBranchI4SentinelAssertion(
+        /* pageIndex= */ 10L,
+        /* currentSize= */ 5L,
+        /* allocatedPosition= */ (long) PAGE_SIZE * 2L,
+        /* expectedAllocatedStartIndexInMessage= */ "2",
+        /* expectedCurrentSizeInMessage= */ "5");
+  }
+
+  /**
+   * Gap-fill I4 negative defence — negative-allocation guard at the head of
+   * {@code loadOrAddGapFillBranch} ({@code allocatedStartIndex < 0}). With a real
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile} this
+   * guard is unreachable, but the deterministic Mockito shape makes it cheap to
+   * pin: a regression that swapped the order of the negative-index check and the
+   * equality check, or that demoted the {@link IllegalStateException} to a logged
+   * warning, would otherwise be tolerated.
+   */
+  @Test(timeout = PER_TEST_TIMEOUT_MS)
+  public void gapFillBranchRejectsNegativeAllocatedStartIndex() throws Exception {
+    // wowCache.addFile registers an intId in the cache-internal nameIdMap; see
+    // extendBranchRejectsNegativeAllocatedPosition for the rationale.
+    final var fileId = wowCache.addFile(FILE_NAME + "-gapfill-i4-negative");
+    final var intId = WOWCache.extractFileId(fileId);
+    final var malformedFile = mock(File.class);
+    // allocatedPosition = -pageSize → allocatedStartIndex = -1 → trips the negative guard.
+    when(malformedFile.allocateSpace(anyInt())).thenReturn(-((long) PAGE_SIZE));
+
+    final long preInvocations = wowCache.getLoadOrAddGapFillBranchInvocationsForTest();
+    final Method method =
+        WOWCache.class.getDeclaredMethod(
+            "loadOrAddGapFillBranch", int.class, long.class, long.class, File.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(wowCache, intId, /* pageIndex= */ 10L, /* currentSize= */ 2L, malformedFile);
+      fail("expected IllegalStateException for negative allocated start index");
+    } catch (final InvocationTargetException e) {
+      final Throwable cause = e.getCause();
+      assertTrue(
+          "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
+          cause instanceof IllegalStateException);
+      final String message = cause.getMessage();
+      assertTrue(
+          "expected negative-allocation guard message, got: " + message,
+          message != null && message.contains("Illegal page index value"));
     }
-    assertTrue(
-        "at least one worker must observe the gap-fill I4 sentinel "
-            + "(\"allocated start index does not match\") inside "
-            + I4_GAPFILL_MAX_ATTEMPTS
-            + " attempts; gap-fill branch fast-fail must stay falsifiable",
-        sentinelObserved);
+    assertEquals(
+        "negative-allocation guard must NOT bump the positive-evidence probe "
+            + "(counter is bumped at the end of the branch on purpose)",
+        preInvocations,
+        wowCache.getLoadOrAddGapFillBranchInvocationsForTest());
+  }
+
+  /**
+   * Shared body for the two gap-fill equality-check tests. Drives
+   * {@code loadOrAddGapFillBranch} reflectively with a mocked {@link File} whose
+   * {@code allocateSpace} returns {@code allocatedPosition}, then asserts:
+   *
+   * <ul>
+   *   <li>The exception is an {@link IllegalStateException} carrying the gap-fill
+   *       I4 sentinel message, including the actual {@code allocatedStartIndex}
+   *       and {@code currentSize} integers — pins that a regression which stripped
+   *       the numeric interpolation (operator-facing diagnostic value) would be
+   *       caught.
+   *   <li>The positive-evidence counter
+   *       {@code getLoadOrAddGapFillBranchInvocationsForTest} is unchanged across
+   *       the throw — pins the "counted at end of branch" ordering documented on
+   *       the production field.
+   * </ul>
+   */
+  private void runGapFillBranchI4SentinelAssertion(
+      final long pageIndex,
+      final long currentSize,
+      final long allocatedPosition,
+      final String expectedAllocatedStartIndexInMessage,
+      final String expectedCurrentSizeInMessage)
+      throws Exception {
+    final var fileId =
+        wowCache.addFile(
+            FILE_NAME
+                + "-gapfill-i4-direct-"
+                + pageIndex
+                + "-"
+                + currentSize
+                + "-"
+                + allocatedPosition);
+    final var intId = WOWCache.extractFileId(fileId);
+    final var mismatchedFile = mock(File.class);
+    when(mismatchedFile.allocateSpace(anyInt())).thenReturn(allocatedPosition);
+
+    final long preInvocations = wowCache.getLoadOrAddGapFillBranchInvocationsForTest();
+    final Method method =
+        WOWCache.class.getDeclaredMethod(
+            "loadOrAddGapFillBranch", int.class, long.class, long.class, File.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(wowCache, intId, pageIndex, currentSize, mismatchedFile);
+      fail(
+          "expected IllegalStateException gap-fill I4 sentinel "
+              + "(\"allocated start index … does not match currentSize\") for pageIndex="
+              + pageIndex
+              + " currentSize="
+              + currentSize
+              + " allocatedPosition="
+              + allocatedPosition);
+    } catch (final InvocationTargetException e) {
+      final Throwable cause = e.getCause();
+      assertTrue(
+          "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
+          cause instanceof IllegalStateException);
+      final String message = cause.getMessage();
+      assertTrue(
+          "expected gap-fill I4 sentinel message with allocatedStartIndex="
+              + expectedAllocatedStartIndexInMessage
+              + " and currentSize="
+              + expectedCurrentSizeInMessage
+              + ", got: "
+              + message,
+          message != null
+              && message.contains(
+                  "allocated start index " + expectedAllocatedStartIndexInMessage)
+              && message.contains("currentSize " + expectedCurrentSizeInMessage)
+              && message.contains("does not match"));
+    }
+    assertEquals(
+        "gap-fill I4 sentinel must NOT bump the positive-evidence probe "
+            + "(counter is bumped at the end of the branch on purpose; "
+            + "see WOWCache.loadOrAddGapFillBranchInvocations field Javadoc)",
+        preInvocations,
+        wowCache.getLoadOrAddGapFillBranchInvocationsForTest());
   }
 
   /**
