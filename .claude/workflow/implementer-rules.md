@@ -940,9 +940,10 @@ duplicate the routing tables here. Pointers:
   prose, `CROSS_TRACK_HINTS`, and any other durable artifact text the
   implementer produces. Tier B (AI-tell subset; structural rules do
   not apply) applies to code comments, Javadoc bodies, and test
-  method names / descriptions; the four section slugs to consult are
-  `## Banned vocabulary`, `## Banned sentence patterns`,
-  `## Banned analysis patterns`, and `### Em-dash discipline`.
+  method names / descriptions; the four section slugs that make up
+  the Tier-B AI-tell subset are `## Banned vocabulary`,
+  `## Banned sentence patterns`, `## Banned analysis patterns`, and
+  `### Em-dash discipline`.
   See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
 
 ---

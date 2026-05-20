@@ -819,13 +819,14 @@ Prose produced by this file follows the project house-style at
 `.claude/output-styles/house-style.md`. Tier A (full house-style:
 BLUF lead, banned vocabulary, em-dash discipline, ≤200-word section
 cap, structural rules) applies to the episode prose this protocol
-writes (the four episode fields the orchestrator finalises from
-`EPISODE_DRAFT` and merges with cross-track-impact observations),
-and the Progress / Surprises & Discoveries / Decision Log entries
-the orchestrator emits during sub-step 7. The four banned-section
-heading slugs to apply are `## Banned vocabulary`,
-`## Banned sentence patterns`, `## Banned analysis patterns`, and
-`### Em-dash discipline`.
+writes — the four `EPISODE_DRAFT`-sourced fields above
+(`What was done`, `What was discovered`, `What changed from the
+plan`, `Critical context`), merged with cross-track-impact
+observations, plus the Progress / Surprises & Discoveries /
+Decision Log entries the orchestrator emits during sub-step 7.
+The four banned-section heading slugs to apply are
+`## Banned vocabulary`, `## Banned sentence patterns`,
+`## Banned analysis patterns`, and `### Em-dash discipline`.
 See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
 
 Write the episode to the track file on disk. Detailed format and
