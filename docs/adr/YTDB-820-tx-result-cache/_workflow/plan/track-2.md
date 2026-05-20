@@ -31,7 +31,7 @@ The three `query()` overloads at `DatabaseSessionEmbedded.java:617`, `:648`, `:6
 - `close()` — for now (Track 2), close = mark this view closed but DO NOT close `entry.stream` (it might be needed by future views in Track 3). Mark the entry exhausted if we hit the end.
 - `getExecutionPlan()`, lifecycle listener support — delegate to existing infra where applicable.
 
-Where the AST metadata for sharp-merge gets captured: when constructing `CachedEntry` in `query()`-miss path, we extract `fromClasses` (from `SQLSelectStatement.target`), `whereClause`, `orderBy`. Track 4 uses these; Track 2 just records them.
+Where the AST metadata for sharp-merge gets captured: when constructing `CachedEntry` in `query()`-miss path, we extract raw `fromClasses` (from `SQLSelectStatement.target`) and expand to `effectiveFromClasses` (subclass closure per D11), plus `whereClause`, `orderBy`. Track 4 uses these; Track 2 just records them.
 
 Concrete deliverables:
 - New `CacheKey` record (or class) — `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CacheKey.java`.

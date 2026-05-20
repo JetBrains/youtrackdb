@@ -19,7 +19,7 @@ R-A extension: add `MATCH_TUPLE` to the `MergeKind` enum. `SharpMergePredicate.c
 
 ## Context and Orientation
 
-`SharpMergePredicate.classify(SQLMatchStatement)` currently returns `NONE` (Track 4). The K0 wipe path uses `entry.fromClasses` for the polymorphism gate (Track 4 polymorphism extraction extended in iteration 3 to walk pattern nodes for MATCH). This track replaces NONE for MATCH with a new `MATCH_TUPLE` discriminator and a new sharp-merge branch.
+`SharpMergePredicate.classify(SQLMatchStatement)` currently returns `NONE` (Track 4). The K0 wipe path uses `entry.effectiveFromClasses` for the polymorphism gate (Track 4 polymorphism extraction extended in iteration 3 to walk pattern nodes for MATCH; D11 added the subclass-closure expansion). This track replaces NONE for MATCH with a new `MATCH_TUPLE` discriminator and a new sharp-merge branch.
 
 `SQLMatchStatement` AST shape (verified in iter-3 consistency review):
 - `matchExpressions: List<SQLMatchExpression>` — each expression has an origin pattern node and a chain of subsequent `items`.
@@ -36,7 +36,7 @@ The cache entry for MATCH_TUPLE carries:
 - `aliasClasses: Map<String, Set<String>>` — per alias, the set of class names (and subclasses via `SchemaClass.isSubClassOf`). Used to figure out which alias a mutated record could bind to.
 - `aliasWheres: Map<String, SQLWhereClause>` — per alias, the WHERE clause from the pattern node.
 
-Polymorphism gate: `fromClasses` = union of all `aliasClasses` values (already specified in design.md § Cache invalidation → fromClasses scope). A mutation on a class outside this set skips the entry. A mutation on a class inside this set fires the per-tuple branch below.
+Polymorphism gate: `effectiveFromClasses` = union of all `aliasClasses` values (each `aliasClasses[a]` is already a subclass-closure per step 3 below; spec in design.md § Cache invalidation → effectiveFromClasses scope). A mutation on a class outside this set skips the entry. A mutation on a class inside this set fires the per-tuple branch below.
 
 Per-mutation handling for a mutated record `rec` with RID `rid` and status `s`:
 
@@ -130,7 +130,7 @@ Concrete deliverables:
 - Other graph-shape statements (`TRAVERSE`, gremlin-style `g.V()...`) — not in scope for YTDB-820.
 
 **Inter-track dependencies:**
-- Depends on Track 4 (uses `MergeKind` enum, `fromClasses` polymorphism gate, `SchemaClass.isSubClassOf`, `WHERE.matchesFilters`, `invalidateOnMutation` dispatch infrastructure).
+- Depends on Track 4 (uses `MergeKind` enum, `effectiveFromClasses` polymorphism gate per D11, `SchemaClass.isSubClassOf` / `getAllSubclasses` for the per-alias `aliasClasses` closure expansion, `WHERE.matchesFilters`, `invalidateOnMutation` dispatch infrastructure).
 - Depends on Track 6 (Track 6's JMH baseline + this track's MATCH-specific JMH scenarios).
 
 **Library / function signatures introduced:**
@@ -143,7 +143,7 @@ Concrete deliverables:
 flowchart TD
     Mut["addRecordOperation(rec, status)"] --> Cache["queryResultCache.invalidateOnMutation"]
     Cache --> Iter["for each entry"]
-    Iter --> Poly{"rec.class ∈ entry.fromClasses<br/>(union of aliasClasses)"}
+    Iter --> Poly{"rec.class ∈ entry.effectiveFromClasses<br/>(union of aliasClasses closures)"}
     Poly -->|no| Skip[skip entry]
     Poly -->|yes| Kind{"entry.mergeKind"}
     Kind -->|MATCH_TUPLE| MatchDispatch{"status"}
