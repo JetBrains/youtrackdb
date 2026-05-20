@@ -145,10 +145,15 @@ All three are ASPIRATIONAL — Track 2 implements them. Each maps to a testable 
   >
   > **Strategy refresh:** ADJUST — Track 3 pointer-wording template will be aligned to Track 2's conventions (`§1.5` no-space form, four banned-section heading slugs `## Banned vocabulary` / `## Banned sentence patterns` / `## Banned analysis patterns` / `### Em-dash discipline` named verbatim) during Phase A decomposition. No track-file disk content changes at the gate.
 
-- [ ] Track 3: Pointers in workflow prompts and review agents
+- [x] Track 3: Pointers in workflow prompts and review agents
   > One-line cross-references to `house-style.md` (and the Track 1 conventions.md anchor) in 10 workflow prompts (skip `design-review.md`, already verification-only per YTDB-836) and 18 prose-producing review agents (skip `review-workflow-writing-style.md`, already references house-style by name). Pointers cite the rule source and the tier that applies; no rule restatement.
-  > **Scope:** ~2 steps covering workflow prompts and review agents.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Landed the canonical house-style pointer paragraph in 10 of 11 workflow prompts under `.claude/workflow/prompts/` and 18 of 19 prose-producing review agents under `.claude/agents/` (28 in-scope files). Pointer wording is byte-identical across all 28 sites, cites `house-style.md` plus the Track 1 `conventions.md §1.5` anchor, and names the four banned-section heading slugs verbatim so the Track 2 `test_16_section_name_guard` drift check stays the canonical rename gate. Both intentionally-skipped files (`design-review.md`, `review-workflow-writing-style.md`) keep their prior self-references to `house-style.md`. Phase C iteration 1 PASS on five workflow-review dimensions: consistency surfaced one should-fix in `consistency-review.md` where the pointer paragraph landed between a colon-terminated lead-in (`...gaps and inconsistencies between the four artifacts:`) and its four-item enumerated list — readers hit the meta-note before the four artifacts the lead-in promises. `Review fix:` `05d0585bf6` moved the pointer past item 4 of the list, before the `## Workflow Context` heading; gate-check verified VERIFIED with no new findings. Five suggestion-level findings dropped at synthesis because each reopened the D3 reference-only design or the byte-identical-wording trade-off rather than catching a defect.
+  >
+  > **Cross-track impact for Tracks 4 and 5:** the mcp-steroid tool surface (including `steroid_apply_patch`) is not exposed in implementer sub-agent spawns; both Track 3 steps fell back to native `Edit` calls. For pure-Markdown insertions with unique per-file anchors the observable result is identical to a multi-hunk `steroid_apply_patch` — Track 4 (implementer + commit-convention pointer steps) and Track 5 (orchestrator + SKILL pointer steps) should plan the same fallback. Pointer insertion anchors must also not fall between a colon-terminated lead-in and the enumerated list the colon introduces; Tracks 4 and 5 should scan candidate files for this shape before patching, since the same insertion template otherwise breaks reader flow exactly the way F1 did in `consistency-review.md`.
+  >
+  > **Track file:** `plan/track-3.md` (2 steps, 0 failed)
 
 - [ ] Track 4: Pointers in implementer + commit-convention files (Tier A + Tier B split)
   > Adds Tier-A pointer to `implementer-rules.md § Tooling discipline` for log / commit / PR prose, and Tier-B pointer for code-comment prose. Adds matching pointers in `step-implementation.md` (continuous-log + step-episode writes — Tier A), `commit-conventions.md` (message-body discipline — Tier A), and `episode-format-reference.md` (episode prose — Tier A).
