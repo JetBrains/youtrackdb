@@ -304,7 +304,7 @@ Per-mutation handling for a mutated record `rec` with RID `rid`:
 
 ### fromClasses scope
 
-**Lifecycle.** `fromClasses` is computed **once** per `CachedEntry`, at construction time on the cache-miss path in `DatabaseSessionEmbedded.query()` (Track 2 wires entry construction; Track 4 step 1 captures `fromClasses`). It is then **read on every `FrontendTransactionImpl.addRecordOperation(record, status)` call** — `invalidateOnMutation` iterates a snapshot of entries and skips any whose `fromClasses` does not intersect `record`'s class via the Entity-guarded `isSubClassOf` gate (see Polymorphism gotcha under §"Dirty-merge policy" → Edge cases). The set is **never recomputed** after entry construction. This makes `fromClasses` the fast-path filter that keeps unrelated-class mutations from running per-entry sharp-merge work.
+**Lifecycle.** `fromClasses` is computed **once** at `CachedEntry` construction (Track 2 wires the cache-lookup helper; Track 4 step 1 captures `fromClasses`). It is then **read on every `FrontendTransactionImpl.addRecordOperation(record, status)` call** — `invalidateOnMutation` iterates a snapshot of entries and skips any whose `fromClasses` does not intersect `record`'s class via the Entity-guarded `isSubClassOf` gate (see Polymorphism gotcha under §"Dirty-merge policy" → Edge cases). The set is **never recomputed** after entry construction. This makes `fromClasses` the fast-path filter that keeps unrelated-class mutations from running per-entry sharp-merge work.
 
 `fromClasses` on each entry drives the polymorphism gate in path 1. Per-shape extraction:
 
