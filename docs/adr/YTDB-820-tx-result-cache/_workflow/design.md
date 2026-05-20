@@ -109,6 +109,8 @@ classDiagram
     DatabaseSessionEmbedded ..> CachedResultSetView : returns
 ```
 
+> Note: Tracks 7 (SKIP support) and 8 (MATCH per-tuple sharp-merge) extend `CachedEntry` with additional fields (`skip`, `limit`, `aliasClasses`, `aliasWheres`, `contributingRids`, `reverseIndex`) not shown above; see § SKIP support and § MATCH per-tuple sharp-merge below.
+
 **TL;DR.** Two new classes carry the design: `QueryResultCache` (the LRU bounded map on the transaction) and `CachedEntry` (one cache slot — results, paused stream, AST metadata for merge). `CachedResultSetView` is the consumer-facing `ResultSet` wrapper that reads from the cached list and falls through to the live stream. Everything else is hooks on existing types: `FrontendTransactionImpl` owns the cache and clears it; `DatabaseSessionEmbedded.query()` reads it; `addRecordOperation` triggers invalidation/sharp-merge. The cache is invisible behind the existing `ResultSet` API — consumers see no behavioral change other than speed.
 
 ### References
@@ -357,7 +359,7 @@ Together, worst-case per-tx memory is bounded at `maxEntries × maxRecordsPerEnt
 
 ## Concurrency and lifecycle
 
-**TL;DR.** All cache **mutation paths** (lookup, put, invalidateOnMutation, invalidateAll, begin-clear) run under `FrontendTransactionImpl.assertOnOwningThread()` — enforced via existing guards at line 165 (`beginInternal`), 224/250 (commit), 474 (`deleteRecord`), 511 (`addRecordOperation`), and the `executeInternal` path. The only cross-thread entry is `clear()` itself via tx-end paths (`close()`, `rollbackInternal()`), which are explicitly excluded from `assertOnOwningThread` to allow pool shutdown. Cache inherits the existing tx-shutdown best-effort semantics; no locking is added.
+**TL;DR.** All cache **mutation paths** (lookup, put, invalidateOnMutation, invalidateAll, begin-clear) run under `FrontendTransactionImpl.assertOnOwningThread()` — enforced via existing guards at line 165 (`beginInternal`), 224 (`commitInternalImpl`), 250 (`getRecord`), 474 (`deleteRecord`), 511 (`addRecordOperation`), and the `executeInternal` path. The only cross-thread entry is `clear()` itself via tx-end paths (`close()`, `rollbackInternal()`), which are explicitly excluded from `assertOnOwningThread` to allow pool shutdown. Cache inherits the existing tx-shutdown best-effort semantics; no locking is added.
 
 ### Single-thread invariant (ENFORCED)
 
@@ -412,7 +414,7 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 ## Invariants
 
 - **I1 — Cache cleared on every tx-end path.** `clearUnfinishedChanges()` calls `queryResultCache.clear()`. Test: induce commit, rollback, and exception-during-iterate; assert `cache.size()==0` after each.
-- **I2 — Cache MUTATION paths accessed only by owning thread.** `lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, and begin-time `clear()` are all reached through call sites protected by `FrontendTransactionImpl.assertOnOwningThread()` (lines 165, 224/250, 474, 511, plus the `executeInternal` path's `assertIfNotActive`). Tx-end `clear()` is the documented exception (see I6). Test: spawn another thread, attempt to invoke a mutation path via the tx (e.g., `addRecordOperation`), assert AssertionError.
+- **I2 — Cache MUTATION paths accessed only by owning thread.** `lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, and begin-time `clear()` are all reached through call sites protected by `FrontendTransactionImpl.assertOnOwningThread()` (lines 165, 224 (`commitInternalImpl`), 250 (`getRecord`), 474, 511, plus the `executeInternal` path's `assertIfNotActive`). Tx-end `clear()` is the documented exception (see I6). Test: spawn another thread, attempt to invoke a mutation path via the tx (e.g., `addRecordOperation`), assert AssertionError.
 - **I3 — Paused stream lives at most as long as its `CachedEntry`.** When the entry is evicted, wiped, or the tx ends, the stream is closed. Test: pause a stream, evict the entry, assert `stream.isClosed()`.
 - **I4 — Post-merge entry observes the same WHERE / ORDER BY / LIMIT contract as the original execution.** Test: cache a SELECT with `WHERE active=true ORDER BY name LIMIT 10`, mutate records, verify K1-merged entry still satisfies all three constraints.
 - **I5 — Cache only stores results of idempotent, deterministic statements.** Test: query with `sysdate()`, `random()`, and `noCache` hint; assert no entry is created.

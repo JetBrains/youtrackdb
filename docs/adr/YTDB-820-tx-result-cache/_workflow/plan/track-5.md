@@ -30,7 +30,7 @@ Walk uses the existing visitor pattern on the AST or a simple `toGenericStatemen
 
 DML invalidation: `DatabaseSessionEmbedded.executeInternal()` (line 702) routes statements that bypass per-record hooks through `invalidateAll()`. The trigger is an **explicit type list** (helper `isBulkBypass(SQLStatement)`), not `!isIdempotent()`:
 - Schema DDL: `SQLCreateClassStatement`, `SQLDropClassStatement`, `SQLAlterClassStatement`, `SQLCreatePropertyStatement`, `SQLDropPropertyStatement`, `SQLAlterPropertyStatement`, `SQLCreateIndexStatement`, `SQLDropIndexStatement`, `SQLRebuildIndexStatement`.
-- Class-level bulk ops: `SQLTruncateClassStatement`. (The SQL grammar at `YouTrackDBSql.jj:8260-8270` declares only `TRUNCATE CLASS` — no `TRUNCATE CLUSTER` / `TRUNCATE RECORD` productions exist.)
+- Class-level bulk ops: `SQLTruncateClassStatement`. (The canonical SQL grammar source at `YouTrackDBSql.jjt:3726-3729` declares only `TRUNCATE CLASS` — no `TRUNCATE CLUSTER` / `TRUNCATE RECORD` productions exist.)
 
 Regular `SQLInsertStatement`/`SQLUpdateStatement`/`SQLDeleteStatement` are **not** in this list. They flow through `addRecordOperation` per affected record, so per-entry sharp-merge from Track 4 handles them — adding `invalidateAll()` on top would destroy K1-merged state for zero benefit. Scripts (`computeScript(...)`) are outside `executeInternal()` entirely and are a Non-Goal of this plan. The hook fires before `statement.execute()` so subsequent queries within the same statement see a clean state. `invalidateAll()` iterates entries, closes each entry's stream via `entry.close()`, clears the map.
 

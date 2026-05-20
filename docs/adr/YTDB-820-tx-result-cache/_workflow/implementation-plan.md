@@ -135,7 +135,7 @@ flowchart LR
 ### Invariants
 
 - **I1** — Cache cleared on every tx-end path (commit, rollback, close). Enforced by single hook in `clearUnfinishedChanges()`. Test: T1.
-- **I2** — Cache MUTATION paths (`lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, begin-time `clear()`) accessed only by owning thread. Enforced via existing `assertOnOwningThread()` guards in `FrontendTransactionImpl` at lines 165 (`beginInternal`), 224/250 (commit), 474 (`deleteRecord`), 511 (`addRecordOperation`). Tx-end `clear()` is the explicit exception, covered by I6. Test: T1.
+- **I2** — Cache MUTATION paths (`lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, begin-time `clear()`) accessed only by owning thread. Enforced via existing `assertOnOwningThread()` guards in `FrontendTransactionImpl` at lines 165 (`beginInternal`), 224 (`commitInternalImpl`), 250 (`getRecord`), 474 (`deleteRecord`), 511 (`addRecordOperation`). Tx-end `clear()` is the explicit exception, covered by I6. Test: T1.
 - **I3** — Paused `ExecutionStream` in a `CachedEntry` is closed when the entry is evicted, invalidated, or the tx ends. Test: T3.
 - **I4** — Post-merge `CachedEntry` observes identical WHERE / ORDER BY / LIMIT contract as a fresh execution. Test: T4.
 - **I5** — Non-deterministic queries (denylist hit or `NOCACHE` hint) never produce a cache entry and never hit a cache entry. Test: T5.
@@ -206,31 +206,29 @@ flowchart LR
   > **Depends on:** Tracks 4, 6 (Track 6's JMH baseline + Track 8's MATCH JMH scenario)
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1 (manual `/review-plan`, post-Session-3 re-run after K1-merge / K0-invalidate refinement)
+- [x] Plan review (consistency + structural) — passed at iteration 1 (manual `/review-plan` re-validation, current session)
 
 **Auto-fixed (mechanical) — current session**:
-- CR1: renamed stale `AggregateState.populateFromResultSet(rs)` to `populateFromRecordStream(stream, extractor)` in `design.md` § Class Design classDiagram (Session-3 rename already applied to § Aggregate sharp-merge prose and `plan/track-4.md`; the class-diagram method box was missed).
-- CR2: replaced phantom `SQLFromClause.items` (singular field — actual API is `SQLFromClause.getItem()` returning a single `SQLFromItem`) in `design.md` § Cache invalidation → fromClasses scope and `plan/track-4.md` Context + step 1.
-- CR3: replaced phantom `SQLExpression.evaluate(record, ctx)` with `SQLExpression.execute(record, ctx)` (actual method on `SQLExpression`; `evaluate` lives on `SQLBooleanExpression`) across `design.md` § Dirty-merge edge cases, `implementation-plan.md` D9 (rationale + risks + implemented-in line), and `plan/track-5.md` step 5 + Purpose intro + Library signatures.
-- CR5: replaced phantom `SQLBaseExpression.isDollar()` / `dollar=true` predicate with the actual identifier-node `charAt(0) == '$'` mechanism (see `SelectExecutionPlanner.java:932`, `SQLSuffixIdentifier.java:85`) in `plan/track-5.md` Context + step 1.
-- CR7: added cross-reference in `plan/track-4.md` `MergeKind` deliverable noting Track 8 extends the enum with `MATCH_TUPLE` (avoids confusion when reading track-4 alone vs design.md's eight-value enum).
-- S2: trimmed Track 7's plan-file intro paragraph from 5 sentences to 2 (per the 1–3 sentence cap); mechanics moved-to-track-file pointer added.
+- CR1: relabeled `assertOnOwningThread` call-site citations `224/250 (commit)` → `224 (\`commitInternalImpl\`), 250 (\`getRecord\`)` across `implementation-plan.md` I2, `design.md` § Concurrency TL;DR, and `design.md` § Invariants I2. Line 224 is `commitInternalImpl`; line 250 is `getRecord(RID)`, not commit (verified at `FrontendTransactionImpl.java:248-256`).
+- CR2: added a one-line `> Note:` annotation immediately after the `design.md` § Class Design class diagram fence calling out that Tracks 7 and 8 extend `CachedEntry` with fields (`skip`, `limit`, `aliasClasses`, `aliasWheres`, `contributingRids`, `reverseIndex`) not enumerated in the Track-4-shaped diagram; cross-references § SKIP support and § MATCH per-tuple sharp-merge.
+- CR3: `plan/track-2.md` step 4 — `executeInternal idempotent branch (line 740)` → `the \`else\` block starting at line 740; the idempotent return is at line 742`. The actual return statement is at line 742; line 740 is just the `else` keyword.
+- CR4: `plan/track-5.md` Context — replaced citation of generated parser file `YouTrackDBSql.jj:8260-8270` with canonical grammar source `YouTrackDBSql.jjt:3726-3729` (project convention: don't edit / cite generated parser files).
 
-**Escalated (design decisions) — current session, resolved by user**:
-- CR4: D9 scoped down to deterministic **modifier-chain** ORDER BY only. Grammar currently admits only `Identifier [Modifier]`, `Rid`, or `RECORD_ATTRIBUTE` in ORDER BY items; arithmetic forms (`ORDER BY priority * 10`) and function-call forms (`ORDER BY lower(name)`) would require grammar work and are out of scope for v1. Plan/track-5 step 5 now walks `item.modifier` for non-determinism; D9 alternatives and rationale rewritten to reflect the scope.
-- CR6: K1 polymorphism gate clarified — `RecordAbstract` doesn't expose `getSchemaClass()`; the real method lives on `Entity` (`Entity.java:289`). Gate is now `record instanceof Entity entity && entity.getSchemaClass() != null && entity.getSchemaClass().isSubClassOf(name)`. Non-`Entity` records (raw byte records, blobs, `RecordAbstract` subclasses that don't implement `Entity`) and entities with null schema class short-circuit to "skip entry" — they cannot bind into a `SELECT FROM Class` result. Applied in `design.md` § Dirty-merge polymorphism bullet, § MATCH per-tuple UPDATED bullet, `plan/track-4.md` Context + step 4.
-- S1: Component Map extended with four NEW classes: `SharpMergePredicate`, `OrderByComparator`, `NonDeterministicQueryDetector`, `QueryCacheMetrics`. Mermaid graph also extended with corresponding nodes (predicate edges + telemetry sibling edge).
-- S3: Track 4 sizing left as-is (~7 steps + step 6b + ~20 test cases). Plausible to split into 4a (K1 record + K0) + 4b (K1 aggregate); user accepted the current single-track shape.
+**Escalated (design decisions) — current session**: none. All four consistency-review findings were mechanical citation/diagram-completeness fixes; the structural review surfaced zero findings.
 
-**Pre-existing structural debt observed (not in scope of this review)**:
+**Structural review**: PASS, zero findings — 0 blockers, 0 should-fix. Component Map, 10 DRs (D1-D10), 7 Invariants (I1-I7), Integration Points, Non-Goals all present. All 10 DRs within ~6-7 lines (cap ~30); all 7 invariants within 1-4 lines (cap ~5). Plan file 260 lines (cap ~1500). Track 4 retains its single-track shape (~7 steps + 6b + ~20 test cases) per the prior iteration's S3 user resolution — not re-raised.
+
+**Pre-existing structural debt observed (still not in scope of this review)**:
 - `design.md` § Invariants and § Open questions deferred to execution are missing TL;DR + References footers (4 mechanical-check blockers carried forward from Phase 1 creation).
 - `design.md` em-dash density / fragmented-header findings (14 `dsc-ai-tell` should-fix) — pre-existing house-style debt in paragraphs untouched by this review's fixes.
 
-Recommended follow-up before Phase 4: a dedicated `content-edit` mutation per affected section to add the TL;DR + References footers, plus a global em-dash sweep against `house-style.md` § Em-dash discipline. Out of scope for Phase 2 per `implementation-review.md` (narrative quality is the mutation discipline's responsibility at write time).
+Recommended follow-up before Phase 4 unchanged from prior iteration: a dedicated `content-edit` mutation per affected section to add the TL;DR + References footers, plus a global em-dash sweep against `house-style.md` § Em-dash discipline. Out of scope for Phase 2 per `implementation-review.md` (narrative quality is the mutation discipline's responsibility at write time).
 
 ---
 
 ### Earlier audit-trail (preserved)
+
+**Iteration 1 (manual `/review-plan`, post-Session-3 re-run after K1-merge / K0-invalidate refinement)** — auto-fixed: CR1 (stale `AggregateState.populateFromResultSet(rs)` → `populateFromRecordStream(stream, extractor)` in design.md class diagram); CR2 (phantom `SQLFromClause.items` → `SQLFromClause.getItem()` in design.md fromClasses scope + track-4); CR3 (phantom `SQLExpression.evaluate` → `SQLExpression.execute` in design.md + plan D9 + track-5); CR5 (phantom `SQLBaseExpression.isDollar()` → identifier-node `charAt(0) == '$'` mechanism in track-5); CR7 (cross-reference noting Track 8 extends `MergeKind` with `MATCH_TUPLE` in track-4); S2 (trimmed Track 7 plan-file intro from 5 to 2 sentences). Escalated: CR4 (D9 scoped to deterministic **modifier-chain** ORDER BY only — grammar admits only `Identifier [Modifier]`, `Rid`, or `RECORD_ATTRIBUTE`); CR6 (K1 polymorphism gate now `instanceof Entity entity && entity.getSchemaClass() != null && entity.getSchemaClass().isSubClassOf(name)` — `RecordAbstract` doesn't expose `getSchemaClass()`); S1 (Component Map extended with `SharpMergePredicate`, `OrderByComparator`, `NonDeterministicQueryDetector`, `QueryCacheMetrics`); S3 (Track 4 kept as single track per user resolution).
 
 **Session 1 auto-fixed (mechanical)**:
 - CR2: appended `noCache` to D2 and design.md `SQLStatement.equals` field enumeration (was missing from the verbatim list, present in actual code).
