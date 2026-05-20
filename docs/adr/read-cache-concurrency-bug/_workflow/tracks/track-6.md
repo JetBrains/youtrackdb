@@ -276,7 +276,7 @@ below without standalone refinement notes.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (7/7 complete)
-- [ ] Track-level code review (1/3 iterations applied; gate-check pending)
+- [ ] Track-level code review (1/3 iterations + gate-check complete; iter-2 pending — TX1 STILL OPEN on softened HLL-spill assertion)
 
 ## Base commit
 `76d2939f0e88ee41c964d53abab70a3d0470a8e0`
