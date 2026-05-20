@@ -14,6 +14,16 @@ The Concrete Steps roster carries only the plan fields (description,
 `risk:` tag, status checkbox, optional `commit:` annotation); the
 full episode content lives in `## Episodes`.
 
+Episode prose is Tier-A house-style content. The four episode fields
+(`What was done`, `What was discovered`, `What changed from the
+plan`, `Critical context`) and the matching `## Surprises &
+Discoveries` / `## Decision Log` promotion lines land in durable
+track-file Markdown and survive into the eventual ADR aggregation.
+Apply the full rule set in `.claude/output-styles/house-style.md`
+when drafting them — BLUF lead, banned vocabulary, em-dash
+discipline, ≤200-word section cap, structural rules.
+See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
+
 ---
 
 ## The four-section write checklist
