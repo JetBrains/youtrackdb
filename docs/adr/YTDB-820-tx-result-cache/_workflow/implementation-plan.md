@@ -1,0 +1,240 @@
+# YTDB-820 Transaction-scoped query result cache
+
+## Design Document
+[design.md](design.md)
+
+## High-level plan
+
+### Goals
+
+Restore Xodus `EntityIterable`-style query result caching that DNQ-on-YTDB lost when Hub migrated off OrientDB. The cache is transaction-scoped, opt-in, and transparent — consumers see normal `ResultSet` semantics with a speedup on duplicate idempotent queries within one transaction. Target: Hub transactions issuing thousands of duplicate-shape SELECT/MATCH queries return their second-and-later executions from memory.
+
+### Constraints
+
+- **Opt-in.** Disabled by default via `youtrackdb.query.txResultCache.enabled`. Existing deployments must observe zero behavioral change unless the knob is flipped.
+- **Transaction-scoped only.** Cache lives on `FrontendTransactionImpl` and is wiped on every tx-end path. No cross-tx leakage; no persistent or session-scoped variant in v1.
+- **Idempotent queries only.** `SQLStatement.isIdempotent()` gates entry. DML statements bypass and invalidate.
+- **Thread-affine.** `FrontendTransactionImpl` is single-threaded by design (`assertOnOwningThread`); cache inherits this — no locks.
+- **Memory bounded.** Two knobs (`maxEntries`, `maxRecordsPerEntry`) cap per-tx footprint to predictable limits.
+- **Result semantics preserved.** Cached views must return results identical to a fresh execution: same WHERE / ORDER BY / LIMIT contract, including post-mutation dirty-merge.
+- **Implementation in `core` module.** No changes required in `server`, `embedded`, or higher modules. Lucene module is excluded per project convention.
+
+### Architecture Notes
+
+#### Component Map
+
+```mermaid
+flowchart LR
+    App["DNQ / Hub / SQL user"] --> SessQ["DatabaseSessionEmbedded.query()"]
+    App --> SessE["DatabaseSessionEmbedded.executeInternal()"]
+    SessQ --> Cache["QueryResultCache (NEW)"]
+    SessE -.invalidate.-> Cache
+    Cache --> Entry["CachedEntry (NEW)"]
+    SessQ -.if miss.-> Stream["ExecutionStream (existing)"]
+    SessQ --> View["CachedResultSetView (NEW)"]
+    View --> Entry
+    View -.fall-through.-> Stream
+    Tx["FrontendTransactionImpl"] --> Cache
+    Tx -.addRecordOperation.-> Cache
+    SQLStmt["SQLStatement.isIdempotent / equals"] -.predicate.-> Cache
+```
+
+- **`DatabaseSessionEmbedded`** (modified) — `query()` overloads gain a cache lookup before `statement.execute()`; cache miss path inserts and wraps in `CachedResultSetView`; `executeInternal()` non-idempotent branch calls `cache.invalidateAll()`. Read-only behavioral change: returned `ResultSet` is a view, not a fresh `LocalResultSet`.
+- **`FrontendTransactionImpl`** (modified) — owns a lazily-allocated `QueryResultCache`. Defensive clear in `beginInternal()`. Final clear in `clearUnfinishedChanges()`. `addRecordOperation()` calls `cache.invalidateOnMutation()`.
+- **`QueryResultCache` (new)** — LRU-bounded map keyed by `CacheKey`, value `CachedEntry`. Holds the per-tx state. Public API: `lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, `clear`.
+- **`CachedEntry` (new)** — one cache slot: `List<Result>`, paused `ExecutionStream`, exhaustion flag, AST metadata (`fromClasses`, `whereClause`, `orderBy`) for sharp-merge.
+- **`CachedResultSetView` (new)** — `ResultSet` implementation backed by a `CachedEntry`. Owns its own `position`; falls through to `entry.stream` when local position outruns cached list.
+- **`CacheKey` (new)** — record holding `(SQLStatement, normalizedParams)`; key type for `QueryResultCache`. Reuses `SQLStatement.equals()` / `hashCode()` for structural equality and a defensive-copied normalized parameter map for caller-mutation immunity.
+- **`MergeKind` (new enum)** — discriminator computed by `SharpMergePredicate.classify(stmt)`: `RECORD | AGGREGATE_COUNT | AGGREGATE_SUM | AGGREGATE_AVG | AGGREGATE_MIN | AGGREGATE_MAX | NONE`. Drives the `invalidateOnMutation` dispatch.
+- **`AggregateState` (new)** — per-entry container for aggregate-flavored caches: `currentScalar`, `contributingRids`, `contributingValues`, `count` (AVG only). Encapsulates the five aggregate-specific mutation handlers and the initial population loop. Held on `CachedEntry` only when `mergeKind ∈ AGGREGATE_*`.
+- **`SQLStatement.isIdempotent()` + `equals()` + `hashCode()`** (existing, reused) — DML predicate and cache-key primitive. No changes to existing override semantics.
+- **`GlobalConfiguration`** (modified) — three new knobs: `QUERY_TX_RESULT_CACHE_ENABLED`, `QUERY_TX_RESULT_CACHE_MAX_ENTRIES`, `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY`.
+
+#### D1: Cache value type is `List<Result>`, not `List<RecordAbstract>`
+
+- **Alternatives considered**: literal `List<RecordAbstract>` per spec wording; `List<Result>` (chosen).
+- **Rationale**: `ResultSet.next()` returns `Result`. SELECT queries with projections (`SELECT name, age+1 FROM …`) produce `Result`s that wrap computed properties, not records. Caching `RecordAbstract` would exclude all projection queries — half of DNQ's emission according to the issue context. Issue's `List<RecordAbstract>` is informal phrasing; `Result` is the type that crosses the API boundary.
+- **Risks/Caveats**: `Result`s referencing the session must remain valid for replay — they don't carry session state directly, so safe.
+- **Implemented in**: Track 2.
+
+#### D2: Cache key = (parsed `SQLStatement`, normalized parameter map)
+
+- **Alternatives considered**: raw SQL text hash; AST + params (chosen); AST with toCanonicalString output.
+- **Rationale**: `SQLStatement.equals()` is already structural (verified on `SQLSelectStatement:380` over target/projection/where/groupBy/orderBy/unwind/skip/limit/fetchPlan/letClause/timeout/parallel/noCache). Reusing it gives whitespace/alias-invariant keys for free. Parsing already runs on the hot path; we don't pay extra parse cost. Parameter map is defensive-copied at lookup to immunize against caller mutation.
+- **Risks/Caveats**: AST equality is only as good as `equals()` overrides on every node type — bugs there give wrong cache hits. Mitigated by existing usage in `STATEMENT_CACHE_SIZE`.
+- **Implemented in**: Track 2.
+
+#### D3: Cache lookup gated on `instanceof SQLSelectStatement || SQLMatchStatement`; bulk-bypass types invalidate
+
+- **Alternatives considered**: cache all statements (wrong — DML is non-deterministic); cache via `isIdempotent()` predicate (too wide — `SQLProfileStatement`, `SQLExplainStatement`, `SQLIfStatement` also return true, and PROFILE/EXPLAIN cache hits would return stale plan/timing metadata); narrow type check (chosen).
+- **Rationale**: PROFILE and EXPLAIN return plan/timing metadata that changes per call — caching them would silently return stale debug info. `SQLIfStatement` whose body is idempotent is technically cacheable but adds a corner case for no Hub-workload benefit. A direct `instanceof` check against the two statement types whose cache semantics are actually desired (SELECT and MATCH) keeps the gate narrow and obvious. The **DML invalidation** path uses an explicit type list, **not** `!isIdempotent()`: regular `INSERT`/`UPDATE`/`DELETE` flow through `addRecordOperation` per affected record, so per-entry sharp-merge already covers them — wiping on top would destroy K1-merged state for zero benefit. `invalidateAll()` fires only for statements that bypass per-record hooks: schema DDL (`CREATE/DROP/ALTER CLASS|PROPERTY|INDEX`) and `TRUNCATE CLASS`. Scripts route through `computeScript(...)` — declared a Non-Goal, outside the cache surface entirely.
+- **Risks/Caveats**: New idempotent statement types added in the future (e.g., a hypothetical new query DSL) would need an explicit cache opt-in. Same for new bulk-bypass statement types — the type list in Track 5's `isBulkBypass` helper has to be extended explicitly. Trade-off accepted for predictability.
+- **Implemented in**: Track 2 (cache-lookup gate, narrow type check), Track 5 (DML invalidation hook, explicit bulk-bypass type list).
+
+#### D4: Pause/resume via shared `ExecutionStream` + per-view position counters
+
+- **Alternatives considered**: force-exhaust on first hit (consumer-unfriendly: pays for unused rows); materialize-on-demand without resume (spec violation: second consumer can't continue); pause/resume with shared stream (chosen).
+- **Rationale**: spec explicitly requires "continue iterating during the next execution of the same query". Holding the live stream in the cache entry achieves this; per-view position counters make multiple concurrent consumers safe (within the single-threaded tx). Pulls from stream append to the shared list, so later consumers see the full ordered result.
+- **Risks/Caveats**: storage cursor lifetime across `next()` calls — already exercised by normal consumer-paced iteration; the cache holds a longer-lived reference but no new failure mode. `LocalResultSetLifecycleDecorator` / `activeQueries` weak-value semantics: cache stores only the raw `ExecutionStream`, not the wrapper, so no interference.
+- **Implemented in**: Track 3.
+- **Full design**: design.md §"Pause/resume mechanics"
+
+#### D5: Dirty-merge hybrid — K1 sharp (record-returning + decomposable aggregate) and K0 wipe-on-mutation otherwise
+
+- **Alternatives considered**: K0-only (kills cache for read+write Hub tx — unacceptable); K1 record-only (loses aggregate cache hits); K1 record + K1 aggregate (chosen) with K0 fallback for non-decomposable shapes.
+- **Rationale**: Hub workload is read-heavy with sparse writes and emits both record-returning SELECTs (DNQ entity lookups) and simple aggregates (per-class counters, ranges). K1 record handles the first set via `SQLWhereClause.matchesFilters` + `ORDER BY` comparator. K1 aggregate handles `COUNT(*)`, `SUM(prop)`, `AVG(prop)`, `MIN(prop)`, `MAX(prop)` over a plain property — each is incrementally updatable from a per-record contribution snapshot held in `AggregateState`. K0 fallback covers GROUP BY, HAVING, expression-aggregates, MEDIAN/MODE/PERCENTILE/COUNT DISTINCT, subqueries, LET, expression-ORDER BY, and SKIP — shapes where incremental update is intractable.
+- **Risks/Caveats**: predicate `isSharpMergeable` returns one of seven discriminator values (`RECORD`, `AGGREGATE_COUNT`, `AGGREGATE_SUM`, `AGGREGATE_AVG`, `AGGREGATE_MIN`, `AGGREGATE_MAX`, `NONE`). False negatives (NONE when sharp would work) lose some cache hits but stay correct; false positives are silent-correctness bugs. MIN/MAX worst-case O(n) recompute when the extremum leaves — bounded by `maxRecordsPerEntry`.
+- **Implemented in**: Track 4.
+- **Full design**: design.md §"Dirty-merge policy" (+ §"Aggregate sharp-merge")
+
+#### D6: Non-determinism via denylist AST walk + reused `noCache` hint
+
+- **Alternatives considered**: `SQLFunction.isDeterministic()` SPI (adds API surface, requires touching every function class); denylist + opt-out (chosen); ignore problem (silently incorrect for sysdate-using queries).
+- **Rationale**: known set of non-deterministic primitives (`sysdate`, `random`, `uuid`, `eval`, zero-arg `date()`, `$now`, `$current`, `$thread`) is small and stable. A single `NonDeterministicQueryDetector.contains(SQLStatement)` walker handles it. `SQLSelectStatement.noCache` Boolean already parses and surfaces; we extend its semantics to "skip result cache" in addition to its existing "skip execution-plan cache" meaning.
+- **Risks/Caveats**: user-defined Java functions cannot be inspected — documented escape valve is `NOCACHE` hint. New non-deterministic stdlib functions (added in future) need an entry in the detector; coupling exists but is localized.
+- **Implemented in**: Track 5.
+- **Full design**: design.md §"Non-determinism handling"
+
+#### D7: Per-tx memory bound — LRU at `maxEntries` + per-entry `maxRecordsPerEntry`
+
+- **Alternatives considered**: unbounded (OOM on pathological tx); time-based eviction (per-tx timing is meaningless); LRU + per-entry cap (chosen).
+- **Rationale**: two-dimensional bound — entry count caps distinct queries; per-entry row count caps any single query's footprint. LRU eviction is the standard choice for working-set workloads. Defaults (200 entries × 10000 rows = 2M Result refs) are pessimistic-but-safe for typical Hub.
+- **Risks/Caveats**: knob tuning is workload-dependent — surface metrics for hit-rate / eviction-rate so operators can adjust. Hot-changeable per `GlobalConfiguration` convention.
+- **Implemented in**: Track 1 (knob declarations + LRU map), Track 5 (per-entry overflow handling).
+
+#### D8: MATCH per-tuple sharp-merge (DELETED + UPDATED only; CREATED still K0)
+
+- **Alternatives considered**: K0 always for MATCH (v1 baseline — loses cache for any tx with a mutation on a class in the pattern); partial K1 covering `DELETED` + `UPDATED` (chosen); full K1 including `CREATED` discovery (incremental pattern-walker — v2).
+- **Rationale**: Hub uses MATCH heavily for graph traversals; K0 baseline kills MATCH cache the moment any save touches a class in the pattern. Per-tuple RID-set tracking enables targeted invalidation: `DELETED` removes tuples containing the deleted RID (cheap reverse-index lookup); `UPDATED` re-evaluates the matching alias's WHERE and drops tuples that no longer match. `CREATED` would require running parts of the pattern walker incrementally on a single record — essentially partial query re-execution — and defers to v2.
+- **Risks/Caveats**: per-tuple `Set<RID> contributingRids` adds ~5-10% memory per MATCH entry. Reverse-index `Map<RID, Set<TupleIndex>>` adds O(distinct-RIDs × entry-size) bookkeeping. Multi-alias-same-class patterns (e.g., self-loops where a record could bind to both alias `u` and alias `g`) require re-evaluating every relevant alias's WHERE. Pattern WHEREs referencing cross-alias state (`$current`, `$matched`) defeat per-tuple re-eval — classify falls back to NONE.
+- **Implemented in**: Track 8.
+- **Full design**: design.md § Dirty-merge policy → MATCH per-tuple merge (added in this revision).
+
+#### D9: Expression ORDER BY in K1 RECORD (gated on determinism)
+
+- **Alternatives considered**: plain-property-only ORDER BY (v1 baseline — loses K1 for `ORDER BY upper(name)`, `ORDER BY priority * 10`); allow any ORDER BY expression (would silently admit `ORDER BY sysdate()` — non-deterministic ranking poisons the cache); allow deterministic ORDER BY expressions (chosen).
+- **Rationale**: `SQLExpression.evaluate(record, ctx)` is the same call `OrderByStep` uses at execution time, so `OrderByComparator` calling it produces identical rank semantics. `NonDeterministicQueryDetector` (Track 5) already walks the AST for the cache-bypass gate; reusing the same walker on `SQLOrderBy.items` adds one method call. Gate becomes "ORDER BY expression is allowed iff `NonDeterministicQueryDetector.contains(expr) == false`".
+- **Risks/Caveats**: per-comparator-call `evaluate(rec, ctx)` adds CPU vs direct field lookup — bounded by `maxRecordsPerEntry` × LIMIT. For typical entries (≤100 records, LIMIT 10) the overhead is negligible. For pathological entries (10000 records) the splice path's evaluate calls dominate — acceptable trade-off for the cache hits saved.
+- **Implemented in**: Track 5 (classify-gate relaxation; `OrderByComparator` from Track 4 already calls `SQLExpression.evaluate`).
+
+#### D10: SKIP support in K1 RECORD with prefix-cap
+
+- **Alternatives considered**: SKIP always K0 (v1 baseline — loses K1 for any paginated query); SKIP always K1 with unbounded prefix cache (memory blowup for `SKIP 1000000 LIMIT 10`); SKIP K1 conditional on `skip + limit <= maxRecordsPerEntry` (chosen).
+- **Rationale**: typical UI pagination has `skip + limit` in the 10-1000 range — well under the 10000 default cap. Hub list views reissue the same query shape repeatedly as the user pages. Caching the full prefix up to `skip + limit` records (not just the visible window) lets CREATED/UPDATED mutations re-splice into the prefix; the view returns records `[skip, skip+limit)` after each merge. The cap protects against pathological deep-pagination patterns.
+- **Risks/Caveats**: prefix cache is `skip + limit` records, not `limit` — slightly larger entry footprint than the visible window. Re-splice on CREATED operates on the prefix, then re-clips to `prefix.size() ≤ skip + limit`; if the window moves past a record on splice, the visible page changes (correct behavior). When `skip + limit > maxRecordsPerEntry`, classify returns NONE (K0).
+- **Implemented in**: Track 7.
+
+### Invariants
+
+- **I1** — Cache cleared on every tx-end path (commit, rollback, close). Enforced by single hook in `clearUnfinishedChanges()`. Test: T1.
+- **I2** — Cache MUTATION paths (`lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, begin-time `clear()`) accessed only by owning thread. Enforced via existing `assertOnOwningThread()` guards in `FrontendTransactionImpl` at lines 165 (`beginInternal`), 224/250 (commit), 474 (`deleteRecord`), 511 (`addRecordOperation`). Tx-end `clear()` is the explicit exception, covered by I6. Test: T1.
+- **I3** — Paused `ExecutionStream` in a `CachedEntry` is closed when the entry is evicted, invalidated, or the tx ends. Test: T3.
+- **I4** — Post-merge `CachedEntry` observes identical WHERE / ORDER BY / LIMIT contract as a fresh execution. Test: T4.
+- **I5** — Non-deterministic queries (denylist hit or `NOCACHE` hint) never produce a cache entry and never hit a cache entry. Test: T5.
+- **I6** — Tx-end `clear()` is idempotent and safe under cross-thread invocation. `QueryResultCache.clear()`, `CachedEntry.close()`, and `ExecutionStream.close()` are all idempotent — a second invocation is a no-op. Required because pool shutdown invokes `close() → cache.clear()` cross-thread, and because `closeActiveQueries()` (line 973) may reach the same stream as `cache.clear()` (line 993). Tests: T1 (cache + entry double-close), T3 (ExecutionStream double-close regression).
+- **I7** — Live `CachedResultSetView` fails fast on K1 merge of its underlying entry. K1 RECORD and K1 MATCH_TUPLE merges increment `entry.version`; view captures `expectedEntryVersion` at construction and throws `IllegalStateException` on mismatch in `next()`. K1 AGGREGATE does not bump version (single-row reads); K0 wipe does not bump version (view continues over the frozen list). Test: T4 (mid-iteration mutation on a cached entry → next `view.next()` throws).
+
+### Integration Points
+
+- `DatabaseSessionEmbedded.query(...)` and `executeInternal(...)` — cache lookup / population / invalidation hooks.
+- `FrontendTransactionImpl.beginInternal()` / `clearUnfinishedChanges()` / `addRecordOperation()` — lifecycle hooks.
+- `SQLStatement.isIdempotent()` and `equals()` — cache predicate and key.
+- `SQLWhereClause.matchesFilters(Identifiable | Result, CommandContext)` — dirty-merge primitive.
+- `SQLSelectStatement.noCache` — opt-out hint, semantics extended.
+
+### Non-Goals
+
+- Cross-transaction result sharing (between concurrent `FrontendTransaction` instances).
+- Persistent / disk-backed cache.
+- Cache for the `computeScript(...)` path or for Gremlin queries (separate engine in `embedded`).
+- Server-mode propagation (remote storage). Cache lives in the embedded session.
+- `FrontendTransactionNoTx` (auto-commit) support — single-statement tx have no replay potential.
+- Eviction tuning beyond LRU + caps (e.g., size-aware eviction, TTL).
+- Cache-aware query plans (planner reading the cache to pick join orders).
+- Sharp-merge for aggregates other than `COUNT(*)`, `SUM(prop)`, `AVG(prop)`, `MIN(prop)`, `MAX(prop)` over a plain property. `GROUP BY`, `HAVING`, expression-aggregates (`SUM(a+b)`), `COUNT(DISTINCT col)`, `MEDIAN`, `MODE`, `PERCENTILE` all fall back to K0 wipe on first matching mutation in v1.
+- MATCH `CREATED` per-tuple discovery — incremental pattern-walker execution on a single new record (would need to run parts of the pattern engine inline). K1 for MATCH in v1 covers `DELETED` and `UPDATED` only; `CREATED` mutation on a class in the pattern still wipes the entry. v2 candidate.
+- SKIP queries where `skip + limit > maxRecordsPerEntry` — the prefix cache for K1 SKIP is bounded by `maxRecordsPerEntry`, so paginated queries past that depth fall back to K0 wipe on first matching mutation.
+- LET-based unions (`SELECT EXPAND($u) LET ..., $u = unionall($a, $b)`) — `LET` is K0 in v1; relaxing it requires a separate "K1 for LET" effort. v2 candidate if DNQ generates this shape.
+
+## Checklist
+
+- [ ] Track 1: Skeleton — knobs, data structures, lifecycle wiring
+  > Lay down the foundational pieces with no behavioral change: three `GlobalConfiguration` knobs, new `QueryResultCache` and `CachedEntry` types (empty methods or no-op), `queryResultCache` field on `FrontendTransactionImpl`, and the begin/clear lifecycle hooks. After this track the cache exists, is allocated lazily when enabled, and is correctly wiped on every tx-end path — but no `query()` reads or writes it yet.
+  > **Scope:** ~4-5 steps covering knob declarations, `QueryResultCache` + `CachedEntry` skeleton, `FrontendTransactionImpl` field wiring, lifecycle invariant tests.
+
+- [ ] Track 2: Read path — cache key, lookup, population, `CachedResultSetView`
+  > Wire the cache into `DatabaseSessionEmbedded.query()` and `executeInternal()` idempotent branch. Build the cache key from the parsed AST + normalized parameters; on miss, execute normally and wrap the result in a `CachedResultSetView` that incrementally populates the entry as the consumer iterates; on hit, return a view over the existing entry. No dirty-merge, no pause/resume across queries yet — only the populate-and-replay path within one consumer's lifetime.
+  > **Scope:** ~5 steps covering `CacheKey`, `CachedResultSetView`, lookup at all three `query()` overloads + `executeInternal`, behavioral tests for second-query hit, idempotent-only gate.
+  > **Depends on:** Track 1
+
+- [ ] Track 3: Pause/resume — shared stream + per-view position
+  > Extend `CachedEntry` to hold the live `ExecutionStream` past the first consumer's iteration, and extend `CachedResultSetView` to fall through to it when the consumer outruns the cached list. Multiple `query()` calls within one tx return independent views sharing the same entry; the first view to pull a particular row is the one that pays the storage cost. Close the stream when exhausted, evicted, or invalidated.
+  > **Scope:** ~4-5 steps covering stream-hold in `CachedEntry`, fall-through in `CachedResultSetView`, exhaustion flip, stream-lifecycle tests including invalidation-mid-iteration.
+  > **Depends on:** Track 2
+
+- [ ] Track 4: Dirty-state merge — K1 record + K1 aggregate (COUNT/SUM/AVG/MIN/MAX) + K0 fallback
+  > Hook `addRecordOperation()` to call `invalidateOnMutation`. Implement `SharpMergePredicate.classify(stmt) → MergeKind` (seven discriminator values), K1 record-returning sharp-merge (UPDATED by-RID replace, DELETED by-RID remove, CREATED via `WHERE.matchesFilters` + `ORDER BY` splice + `LIMIT` re-clip), K1 aggregate sharp-merge via per-entry `AggregateState` (incremental scalar update for COUNT/SUM/AVG/MIN/MAX), and K0 wipe fallback for non-decomposable AST (GROUP BY, HAVING, expression-aggregates, MEDIAN/MODE/PERCENTILE/COUNT DISTINCT, subqueries, LET, expression-ORDER BY, SKIP). Capture AST metadata + classify at entry creation in Track 2's path — minor revisit.
+  > **Scope:** ~7 steps covering predicate, OrderByComparator, AggregateState, invalidateOnMutation dispatch, polymorphism, addRecordOperation hook, full test matrix (record paths + aggregate transition matrix + K0 fallbacks).
+  > **Depends on:** Tracks 2, 3
+
+- [ ] Track 5: Hardening — non-determinism, DML invalidation, memory bound, expression ORDER BY
+  > Production-readiness for correctness: AST denylist for non-deterministic functions/variables, `NOCACHE` hint extension, full-wipe on non-idempotent `executeInternal()` calls, LRU enforcement at `maxEntries`, per-entry overflow handling at `maxRecordsPerEntry`. Plus R-B: with `NonDeterministicQueryDetector` now in place, relax the K1 RECORD classify gate to admit ORDER BY expressions that the detector reports as deterministic. `OrderByComparator` (built in Track 4) already calls `SQLExpression.evaluate(record, ctx)` for each item, so no comparator changes are needed.
+  > **Scope:** ~5-6 steps covering `NonDeterministicQueryDetector` + wiring, `noCache` semantic extension, DML invalidation hook, per-entry overflow handling, expression-ORDER-BY gate relaxation, integration tests across all five surfaces.
+  > **Depends on:** Tracks 1, 2, 3, 4
+
+- [ ] Track 6: Observability — `QueryCacheMetrics` + JMH benchmark
+  > Operator-facing observability: new `QueryCacheMetrics` class with hit/miss/eviction counters held by `QueryResultCache`, accessible from `FrontendTransactionImpl`. JMH microbenchmark for cache-hit, cache-miss, sharp-merge, and wipe paths against the cache-disabled baseline. Integration tests assert counter increments under all relevant paths.
+  > **Scope:** ~3-4 steps covering `QueryCacheMetrics` class + accessor, counter increments at cache callsites, JMH benchmark scenarios, counter assertions in integration tests.
+  > **Depends on:** Track 5
+
+- [ ] Track 7: SKIP support in K1 RECORD — prefix-cap merge
+  > R-C: extend K1 RECORD to admit `SKIP n LIMIT m` shapes when `n + m <= maxRecordsPerEntry`. `CachedEntry` for SKIP queries caches the full prefix (records `0..n+m-1`) rather than just the visible window. `CachedResultSetView` returns records `[n, n+m)` from the prefix. Sharp-merge operates on the prefix list (CREATED splice, UPDATED re-splice, DELETED remove), then re-clips to `n + m`; the visible window shifts as the prefix changes. When `skip + limit > maxRecordsPerEntry`, classify returns NONE (K0 wipe — same as v1 baseline).
+  > **Scope:** ~3-4 steps covering classify-gate relaxation with cap check, prefix-cache shape on `CachedEntry`, view offset/window logic, merge-on-prefix tests (paginated queries with mid-page inserts/deletes), cap-exceeded fallback test.
+  > **Depends on:** Tracks 4, 6 (Track 6's JMH baseline serves as the "before SKIP" measurement; Track 7 adds a SKIP-specific JMH scenario)
+
+- [ ] Track 8: MATCH per-tuple merge — `MergeKind.MATCH_TUPLE`
+  > R-A: extend `MergeKind` enum with `MATCH_TUPLE`. `SharpMergePredicate.classify(SQLMatchStatement)` returns `MATCH_TUPLE` iff every pattern node carries a `class:` annotation, no LET/UNWIND in scope, and no pattern-node WHERE references cross-alias state. `CachedEntry` for MATCH_TUPLE carries: per-tuple `Set<RID> contributingRids`; reverse index `Map<RID, Set<TupleIndex>>`; per-alias maps `aliasClasses: Map<String, Set<String>>` and `aliasWheres: Map<String, SQLWhereClause>`. `invalidateOnMutation` for MATCH_TUPLE: DELETED drops all tuples in the reverse-index lookup; UPDATED re-evaluates `aliasWheres[alias].matchesFilters(rec)` for each tuple's matching alias and drops tuples whose WHERE now fails; CREATED still wipes the entry (incremental pattern discovery is v2 territory).
+  > **Scope:** ~5-6 steps covering `MergeKind.MATCH_TUPLE` addition, classify rules for MATCH, reverse-index + per-alias metadata population during entry construction, DELETED branch, UPDATED branch, MATCH-specific JMH scenario, test matrix (DELETE/UPDATE/CREATE × single-alias/multi-alias/self-loop patterns).
+  > **Depends on:** Tracks 4, 6 (Track 6's JMH baseline + Track 8's MATCH JMH scenario)
+
+## Plan Review
+- [x] Plan review (consistency + structural) — passed at iteration 2 (manual `/review-plan`, third re-run after K1-merge / K0-invalidate refinement)
+
+**Auto-fixed (mechanical) — current session**:
+- CR1: removed phantom `SQLScriptStatement` from the bulk-bypass list in `design.md` § Cache invalidation, `implementation-plan.md` D3, and `plan/track-5.md` (Context, Plan-of-Work step 3, Validation, Library signatures). Scripts route through `DatabaseSessionEmbedded.computeScript(...)` — already a declared Non-Goal of the plan.
+- CR2: removed phantom `SQLTruncateClusterStatement` and `SQLTruncateRecordStatement` from the same locations. The SQL grammar at `YouTrackDBSql.jj:8260-8270` declares only `TRUNCATE CLASS`, so `SQLTruncateClassStatement` is the sole valid entry in the bulk-bypass list.
+
+**Escalated (design decisions) — current session**: none.
+
+**Structural findings — current session**: none. All scope indicators, dependency annotations, Decision Records, Invariants, and Component Map entries verify cleanly.
+
+---
+
+### Earlier audit-trail (preserved)
+
+**Session 1 auto-fixed (mechanical)**:
+- CR2: appended `noCache` to D2 and design.md `SQLStatement.equals` field enumeration (was missing from the verbatim list, present in actual code).
+- CR4: replaced phantom `OClassImpl.isSubClassOf` reference with `SchemaClass.isSubClassOf` (delegated through `SchemaClassProxy`; concrete impl `SchemaClassImpl`) in `plan/track-4.md` and `design.md` § Dirty-merge.
+- S2: aligned `**Depends on:**` annotation on Track 5 with the track file's enumeration (Tracks 1, 2, 3, 4).
+- S3: added `CacheKey` bullet to Component Map's annotated component list.
+
+**Session 1 escalated (design decisions)**:
+- CR1: cache-lookup gate tightened from `isIdempotent()` to `instanceof SQLSelectStatement || SQLMatchStatement`. PROFILE/EXPLAIN/IF return `isIdempotent()==true` but their cache semantics are wrong (PROFILE/EXPLAIN return plan/timing metadata). D3 rewritten; `plan/track-2.md` Context + Plan-of-Work + Validation updated.
+- CR3: telemetry approach changed to a new sibling class `QueryCacheMetrics` (`internal/core/tx/QueryCacheMetrics.java`). `TransactionMeters` is an immutable inline record in `DatabaseSessionEmbedded.java:190` — extending it would force record-shape changes plus modifications to two constructor sites and a `TimeRate` type for counters. Sibling class is simpler. `plan/track-5.md` and `design.md` § Open questions updated.
+- S1: Track 4 declared as sequential after Track 3 (`**Depends on:** Tracks 2, 3`) rather than parallel — K0 wipe in Track 4 calls `entry.close()` whose `stream.close(ctx)` body is filled in Track 3.
+- S4: Track 5 split into Track 5 (Hardening — non-determinism, DML invalidation, memory bound) and Track 6 (Observability — `QueryCacheMetrics` + JMH benchmark). Track 5 now ~4-5 steps; Track 6 ~3-4 steps. New `plan/track-6.md` created.
+
+**Session 2 (after aggregate sharp-merge extension)**:
+- D5 broadened to "K1 record + K1 aggregate + K0 fallback". `SharpMergePredicate.isSharpMergeable` → `classify(stmt) → MergeKind` returning a seven-value discriminator (`RECORD | AGGREGATE_COUNT | AGGREGATE_SUM | AGGREGATE_AVG | AGGREGATE_MIN | AGGREGATE_MAX | NONE`). New `AggregateState` class added to Component Map and class diagram. Track 4 scope grew to `~7 steps`. Aggregate transition matrix added to Track 4 validation.
+- Session 2 auto-fixed: CR5 (stale `isSharpMergeable` mention replaced with `SharpMergePredicate.classify`), CR6 (`sharpMergeable: MergeKind` → `mergeKind: MergeKind` deliverable bullet), CR8 (AST walk recipe for aggregate-shape classifier added to Track 4 Plan-of-Work step 2).
+- Session 2 escalated: CR7 (blocker) — MIN/MAX `was_extremum = contributingValues.get(rid).equals(currentScalar)` silently wrong across `Number` boxed subtypes. Resolution: `AggregateState` for MIN/MAX carries an `extremumRid: @Nullable RID`; `was_extremum = rid.equals(extremumRid)` (boolean RID identity, no numeric comparison).
+- Session 2 structural: S5 (Track 5 `**Depends on:**` annotation re-aligned to `Tracks 1, 2, 3, 4`), S6 (dense AST-walk recipe in Track 4 Plan-of-Work step 2 left as-is — decision-bearing context).
+
+**Session 3 (current, after K1-merge / K0-invalidate refinement)**:
+- DML invalidation predicate narrowed from `!isIdempotent()` to an explicit bulk-bypass type list (DDL + `SQLTruncateClassStatement`). Regular `INSERT`/`UPDATE`/`DELETE` rely on `addRecordOperation` per-record sharp-merge from Track 4 — adding `invalidateAll()` on top would destroy K1-merged state. D3 rewritten; `design.md` § Cache invalidation and `plan/track-5.md` updated.
+- `fromClasses` scope subsection added in `design.md` § Cache invalidation: per-shape extraction rules for simple SELECT (`SQLFromClause.items`), MATCH (per-pattern-node `class:` annotations via `SQLMatchFilter.getClassName(ctx)`), `NONE` with subquery (recursive walk to catch nested SELECTs — correctness fix for `SELECT FROM A WHERE id IN (SELECT id FROM B)`), and the `fromClasses = null` fallback (unconditional wipe). Mirror added in `plan/track-4.md` polymorphism section.
+- K1 record paths refined: DELETED / UPDATED / CREATED split into three explicit bullets in `design.md` § Dirty-merge policy. UPDATED always removes + re-splices (no rank-change heuristic). CREATED dedup by RID before splice. Mirror in `plan/track-4.md`.
+- AggregateState population route corrected: populated from the inner record stream (side-tap before `AggregateProjectionCalculationStep`), not from the user-visible `ResultSet`. The collapsed `ResultSet` carries only the scalar with no per-RID material to seed `contributingValues`. Method renamed `populateFromResultSet(ResultSet)` → `populateFromRecordStream(Iterator<Record>, Function<Record, Number>)`. `design.md` § Aggregate sharp-merge and `plan/track-4.md` step 3 + deliverables + signatures updated.
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
