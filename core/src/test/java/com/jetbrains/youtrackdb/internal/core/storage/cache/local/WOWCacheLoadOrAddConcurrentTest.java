@@ -916,10 +916,11 @@ public class WOWCacheLoadOrAddConcurrentTest {
     // pageIndex=0, allocatedIndex=2 — the most common shape, mirroring the original
     // race-based test's setup but driven deterministically through reflection.
     runExtendBranchI4SentinelAssertion(
+        /* testCaseSuffix= */ "above-requested",
         /* pageIndex= */ 0L,
         /* allocatedPosition= */ (long) PAGE_SIZE * 2L,
-        /* expectedAllocatedIndexInMessage= */ "2",
-        /* expectedRequestedPageIndexInMessage= */ "0");
+        /* expectedMessageContains= */ List.of(
+            "allocated pageIndex 2", "requested pageIndex 0", "does not match"));
   }
 
   /**
@@ -936,10 +937,11 @@ public class WOWCacheLoadOrAddConcurrentTest {
   public void extendBranchSurfacesI4SentinelWhenAllocatedIndexBelowRequested()
       throws Exception {
     runExtendBranchI4SentinelAssertion(
+        /* testCaseSuffix= */ "below-requested",
         /* pageIndex= */ 5L,
         /* allocatedPosition= */ (long) PAGE_SIZE * 2L,
-        /* expectedAllocatedIndexInMessage= */ "2",
-        /* expectedRequestedPageIndexInMessage= */ "5");
+        /* expectedMessageContains= */ List.of(
+            "allocated pageIndex 2", "requested pageIndex 5", "does not match"));
   }
 
   /**
@@ -953,70 +955,58 @@ public class WOWCacheLoadOrAddConcurrentTest {
    */
   @Test(timeout = PER_TEST_TIMEOUT_MS)
   public void extendBranchRejectsNegativeAllocatedPosition() throws Exception {
-    // wowCache.addFile registers an intId in the cache-internal nameIdMap so the
-    // post-success path (commitExecutor().submit(...)) sees a known id — load-bearing
-    // even though we never reach that path on the throw side. A literal int would
-    // work today, but keeping the real registration insulates the test from future
-    // refactors that move bookkeeping above the throw.
-    final var fileId = wowCache.addFile(FILE_NAME + "-i4-negative");
-    final var intId = WOWCache.extractFileId(fileId);
-    final var malformedFile = mock(File.class);
-    // allocatedPosition = -pageSize → allocatedIndex = -1 → trips the negative guard.
-    when(malformedFile.allocateSpace(anyInt())).thenReturn(-((long) PAGE_SIZE));
-
-    final long preInvocations = wowCache.getLoadOrAddExtendBranchInvocationsForTest();
-    final Method method =
-        WOWCache.class.getDeclaredMethod(
-            "loadOrAddExtendBranch", int.class, long.class, File.class);
-    method.setAccessible(true);
-    try {
-      method.invoke(wowCache, intId, 0L, malformedFile);
-      fail("expected IllegalStateException for negative allocated position");
-    } catch (final InvocationTargetException e) {
-      final Throwable cause = e.getCause();
-      assertTrue(
-          "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
-          cause instanceof IllegalStateException);
-      final String message = cause.getMessage();
-      assertTrue(
-          "expected negative-allocation guard message, got: " + message,
-          message != null && message.contains("Illegal page index value"));
-    }
-    assertEquals(
-        "negative-allocation guard must NOT bump the positive-evidence probe "
-            + "(counter is bumped at the end of the branch on purpose)",
-        preInvocations,
-        wowCache.getLoadOrAddExtendBranchInvocationsForTest());
+    // pageIndex=0, allocatedPosition=-pageSize → allocatedIndex=-1 → trips the
+    // negative guard at the head of loadOrAddExtendBranch.
+    runExtendBranchI4SentinelAssertion(
+        /* testCaseSuffix= */ "negative-allocation",
+        /* pageIndex= */ 0L,
+        /* allocatedPosition= */ -((long) PAGE_SIZE),
+        /* expectedMessageContains= */ List.of("Illegal page index value -1"));
   }
 
   /**
-   * Shared body for the two equality-check tests. Drives
+   * Shared body for the extend-branch guard tests. Drives
    * {@code loadOrAddExtendBranch} reflectively with a mocked {@link File} whose
    * {@code allocateSpace} returns {@code allocatedPosition}, then asserts:
    *
    * <ul>
-   *   <li>The exception is an {@link IllegalStateException} carrying the I4
-   *       sentinel message, including the actual {@code allocatedIndex} and
-   *       {@code requested pageIndex} integers — pins that a regression which
-   *       stripped the numeric interpolation (operator-facing diagnostic value)
-   *       would be caught.
+   *   <li>The exception is an {@link IllegalStateException} whose message contains
+   *       every entry in {@code expectedMessageContains} — pins both the numeric
+   *       interpolation (operator-facing diagnostic value, e.g. {@code
+   *       "allocated pageIndex 2"}) and the discriminating phrase ({@code
+   *       "does not match"} for the I4 sentinel, {@code "Illegal page index value -1"}
+   *       for the negative-allocation guard).
    *   <li>The positive-evidence counter
    *       {@code getLoadOrAddExtendBranchInvocationsForTest} is unchanged across
    *       the throw — pins the "counted at end of branch" ordering documented on
    *       the production field.
    * </ul>
+   *
+   * <p><b>Caller precondition.</b> The chosen {@code allocatedPosition} MUST make
+   * one of the branch's guards fire (either {@code allocatedPosition / pageSize < 0}
+   * or {@code allocatedPosition / pageSize != pageIndex}); the helper does not
+   * validate the precondition and a value that satisfies the equality check would
+   * surface a misleading {@code fail("expected IllegalStateException ...")}.
+   *
+   * <p>Signature-drift failures inside the reflective invocation
+   * ({@link IllegalAccessException}, {@link IllegalArgumentException}) are
+   * translated into a clear test-failure message rather than bubbling as raw
+   * reflection exceptions, so a future signature change on
+   * {@code loadOrAddExtendBranch} surfaces as "fix the test" instead of an
+   * opaque reflection error.
    */
   private void runExtendBranchI4SentinelAssertion(
+      final String testCaseSuffix,
       final long pageIndex,
       final long allocatedPosition,
-      final String expectedAllocatedIndexInMessage,
-      final String expectedRequestedPageIndexInMessage)
+      final List<String> expectedMessageContains)
       throws Exception {
-    // wowCache.addFile registers an intId in the cache-internal nameIdMap; see
-    // extendBranchRejectsNegativeAllocatedPosition for the rationale.
-    final var fileId =
-        wowCache.addFile(
-            FILE_NAME + "-i4-direct-" + pageIndex + "-" + allocatedPosition);
+    // wowCache.addFile registers an intId in the cache-internal nameIdMap so the
+    // post-success path (commitExecutor().submit(...)) sees a known id — load-bearing
+    // even though we never reach that path on the throw side. A literal int would
+    // work today, but keeping the real registration insulates the test from future
+    // refactors that move bookkeeping above the throw.
+    final var fileId = wowCache.addFile(FILE_NAME + "-extend-" + testCaseSuffix);
     final var intId = WOWCache.extractFileId(fileId);
     final var mismatchedFile = mock(File.class);
     when(mismatchedFile.allocateSpace(anyInt())).thenReturn(allocatedPosition);
@@ -1029,8 +1019,9 @@ public class WOWCacheLoadOrAddConcurrentTest {
     try {
       method.invoke(wowCache, intId, pageIndex, mismatchedFile);
       fail(
-          "expected IllegalStateException I4 sentinel "
-              + "(\"allocated pageIndex … does not match\") for pageIndex="
+          "expected IllegalStateException from extend-branch guard ("
+              + testCaseSuffix
+              + "): pageIndex="
               + pageIndex
               + " allocatedPosition="
               + allocatedPosition);
@@ -1040,22 +1031,22 @@ public class WOWCacheLoadOrAddConcurrentTest {
           "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
           cause instanceof IllegalStateException);
       final String message = cause.getMessage();
-      assertTrue(
-          "expected I4 sentinel message with allocated="
-              + expectedAllocatedIndexInMessage
-              + " and requested="
-              + expectedRequestedPageIndexInMessage
-              + ", got: "
-              + message,
-          message != null
-              && message.contains(
-                  "allocated pageIndex " + expectedAllocatedIndexInMessage)
-              && message.contains(
-                  "requested pageIndex " + expectedRequestedPageIndexInMessage)
-              && message.contains("does not match"));
+      assertNotNull("expected non-null guard message", message);
+      for (final String expected : expectedMessageContains) {
+        assertTrue(
+            "expected extend-branch guard message to contain \""
+                + expected
+                + "\", got: "
+                + message,
+            message.contains(expected));
+      }
+    } catch (final IllegalAccessException | IllegalArgumentException e) {
+      fail(
+          "reflection setup broken — loadOrAddExtendBranch signature changed? "
+              + e);
     }
     assertEquals(
-        "I4 sentinel must NOT bump the positive-evidence probe "
+        "extend-branch guard must NOT bump the positive-evidence probe "
             + "(counter is bumped at the end of the branch on purpose; "
             + "see WOWCache.loadOrAddExtendBranchInvocations field Javadoc)",
         preInvocations,
@@ -1105,11 +1096,12 @@ public class WOWCacheLoadOrAddConcurrentTest {
     // (above 2). Mirrors the original race-based test's setup (currentSize=2, pageIndex=10)
     // but driven deterministically through reflection.
     runGapFillBranchI4SentinelAssertion(
+        /* testCaseSuffix= */ "above-currentSize",
         /* pageIndex= */ 10L,
         /* currentSize= */ 2L,
         /* allocatedPosition= */ (long) PAGE_SIZE * 3L,
-        /* expectedAllocatedStartIndexInMessage= */ "3",
-        /* expectedCurrentSizeInMessage= */ "2");
+        /* expectedMessageContains= */ List.of(
+            "allocated start index 3", "currentSize 2", "does not match"));
   }
 
   /**
@@ -1128,11 +1120,12 @@ public class WOWCacheLoadOrAddConcurrentTest {
   public void gapFillBranchSurfacesI4SentinelWhenAllocatedStartIndexBelowCurrentSize()
       throws Exception {
     runGapFillBranchI4SentinelAssertion(
+        /* testCaseSuffix= */ "below-currentSize",
         /* pageIndex= */ 10L,
         /* currentSize= */ 5L,
         /* allocatedPosition= */ (long) PAGE_SIZE * 2L,
-        /* expectedAllocatedStartIndexInMessage= */ "2",
-        /* expectedCurrentSizeInMessage= */ "5");
+        /* expectedMessageContains= */ List.of(
+            "allocated start index 2", "currentSize 5", "does not match"));
   }
 
   /**
@@ -1146,72 +1139,61 @@ public class WOWCacheLoadOrAddConcurrentTest {
    */
   @Test(timeout = PER_TEST_TIMEOUT_MS)
   public void gapFillBranchRejectsNegativeAllocatedStartIndex() throws Exception {
-    // wowCache.addFile registers an intId in the cache-internal nameIdMap; see
-    // extendBranchRejectsNegativeAllocatedPosition for the rationale.
-    final var fileId = wowCache.addFile(FILE_NAME + "-gapfill-i4-negative");
-    final var intId = WOWCache.extractFileId(fileId);
-    final var malformedFile = mock(File.class);
-    // allocatedPosition = -pageSize → allocatedStartIndex = -1 → trips the negative guard.
-    when(malformedFile.allocateSpace(anyInt())).thenReturn(-((long) PAGE_SIZE));
-
-    final long preInvocations = wowCache.getLoadOrAddGapFillBranchInvocationsForTest();
-    final Method method =
-        WOWCache.class.getDeclaredMethod(
-            "loadOrAddGapFillBranch", int.class, long.class, long.class, File.class);
-    method.setAccessible(true);
-    try {
-      method.invoke(wowCache, intId, /* pageIndex= */ 10L, /* currentSize= */ 2L, malformedFile);
-      fail("expected IllegalStateException for negative allocated start index");
-    } catch (final InvocationTargetException e) {
-      final Throwable cause = e.getCause();
-      assertTrue(
-          "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
-          cause instanceof IllegalStateException);
-      final String message = cause.getMessage();
-      assertTrue(
-          "expected negative-allocation guard message, got: " + message,
-          message != null && message.contains("Illegal page index value"));
-    }
-    assertEquals(
-        "negative-allocation guard must NOT bump the positive-evidence probe "
-            + "(counter is bumped at the end of the branch on purpose)",
-        preInvocations,
-        wowCache.getLoadOrAddGapFillBranchInvocationsForTest());
+    // pageIndex=10, currentSize=2, allocatedPosition=-pageSize → allocatedStartIndex=-1 →
+    // trips the negative guard at the head of loadOrAddGapFillBranch.
+    runGapFillBranchI4SentinelAssertion(
+        /* testCaseSuffix= */ "negative-allocation",
+        /* pageIndex= */ 10L,
+        /* currentSize= */ 2L,
+        /* allocatedPosition= */ -((long) PAGE_SIZE),
+        /* expectedMessageContains= */ List.of("Illegal page index value -1"));
   }
 
   /**
-   * Shared body for the two gap-fill equality-check tests. Drives
+   * Shared body for the gap-fill-branch guard tests. Drives
    * {@code loadOrAddGapFillBranch} reflectively with a mocked {@link File} whose
    * {@code allocateSpace} returns {@code allocatedPosition}, then asserts:
    *
    * <ul>
-   *   <li>The exception is an {@link IllegalStateException} carrying the gap-fill
-   *       I4 sentinel message, including the actual {@code allocatedStartIndex}
-   *       and {@code currentSize} integers — pins that a regression which stripped
-   *       the numeric interpolation (operator-facing diagnostic value) would be
-   *       caught.
+   *   <li>The exception is an {@link IllegalStateException} whose message contains
+   *       every entry in {@code expectedMessageContains} — pins both the numeric
+   *       interpolation (operator-facing diagnostic value, e.g. {@code
+   *       "allocated start index 3"}, {@code "currentSize 2"}) and the
+   *       discriminating phrase ({@code "does not match"} for the I4 sentinel,
+   *       {@code "Illegal page index value -1"} for the negative-allocation guard).
    *   <li>The positive-evidence counter
    *       {@code getLoadOrAddGapFillBranchInvocationsForTest} is unchanged across
    *       the throw — pins the "counted at end of branch" ordering documented on
    *       the production field.
    * </ul>
+   *
+   * <p><b>Caller precondition.</b> The chosen {@code allocatedPosition} MUST make
+   * one of the branch's guards fire (either {@code allocatedPosition / pageSize < 0}
+   * or {@code allocatedPosition / pageSize != currentSize}); the helper does not
+   * validate the precondition and a value that satisfies the equality check would
+   * surface a misleading {@code fail("expected IllegalStateException ...")}. The
+   * chosen {@code (pageIndex, currentSize)} pair must additionally satisfy
+   * {@code (pageIndex - currentSize + 1) * pageSize <= Integer.MAX_VALUE} so the
+   * {@code requestedBytes > Integer.MAX_VALUE} pre-check at the head of the gap-fill
+   * branch does not pre-empt the guard the test is targeting.
+   *
+   * <p>Signature-drift failures inside the reflective invocation
+   * ({@link IllegalAccessException}, {@link IllegalArgumentException}) are
+   * translated into a clear test-failure message rather than bubbling as raw
+   * reflection exceptions, so a future signature change on
+   * {@code loadOrAddGapFillBranch} surfaces as "fix the test" instead of an
+   * opaque reflection error.
    */
   private void runGapFillBranchI4SentinelAssertion(
+      final String testCaseSuffix,
       final long pageIndex,
       final long currentSize,
       final long allocatedPosition,
-      final String expectedAllocatedStartIndexInMessage,
-      final String expectedCurrentSizeInMessage)
+      final List<String> expectedMessageContains)
       throws Exception {
-    final var fileId =
-        wowCache.addFile(
-            FILE_NAME
-                + "-gapfill-i4-direct-"
-                + pageIndex
-                + "-"
-                + currentSize
-                + "-"
-                + allocatedPosition);
+    // wowCache.addFile registers an intId in the cache-internal nameIdMap; see
+    // runExtendBranchI4SentinelAssertion for the rationale.
+    final var fileId = wowCache.addFile(FILE_NAME + "-gapfill-" + testCaseSuffix);
     final var intId = WOWCache.extractFileId(fileId);
     final var mismatchedFile = mock(File.class);
     when(mismatchedFile.allocateSpace(anyInt())).thenReturn(allocatedPosition);
@@ -1224,8 +1206,9 @@ public class WOWCacheLoadOrAddConcurrentTest {
     try {
       method.invoke(wowCache, intId, pageIndex, currentSize, mismatchedFile);
       fail(
-          "expected IllegalStateException gap-fill I4 sentinel "
-              + "(\"allocated start index … does not match currentSize\") for pageIndex="
+          "expected IllegalStateException from gap-fill-branch guard ("
+              + testCaseSuffix
+              + "): pageIndex="
               + pageIndex
               + " currentSize="
               + currentSize
@@ -1237,21 +1220,22 @@ public class WOWCacheLoadOrAddConcurrentTest {
           "expected IllegalStateException, got " + (cause == null ? "null" : cause.getClass()),
           cause instanceof IllegalStateException);
       final String message = cause.getMessage();
-      assertTrue(
-          "expected gap-fill I4 sentinel message with allocatedStartIndex="
-              + expectedAllocatedStartIndexInMessage
-              + " and currentSize="
-              + expectedCurrentSizeInMessage
-              + ", got: "
-              + message,
-          message != null
-              && message.contains(
-                  "allocated start index " + expectedAllocatedStartIndexInMessage)
-              && message.contains("currentSize " + expectedCurrentSizeInMessage)
-              && message.contains("does not match"));
+      assertNotNull("expected non-null guard message", message);
+      for (final String expected : expectedMessageContains) {
+        assertTrue(
+            "expected gap-fill-branch guard message to contain \""
+                + expected
+                + "\", got: "
+                + message,
+            message.contains(expected));
+      }
+    } catch (final IllegalAccessException | IllegalArgumentException e) {
+      fail(
+          "reflection setup broken — loadOrAddGapFillBranch signature changed? "
+              + e);
     }
     assertEquals(
-        "gap-fill I4 sentinel must NOT bump the positive-evidence probe "
+        "gap-fill-branch guard must NOT bump the positive-evidence probe "
             + "(counter is bumped at the end of the branch on purpose; "
             + "see WOWCache.loadOrAddGapFillBranchInvocations field Javadoc)",
         preInvocations,

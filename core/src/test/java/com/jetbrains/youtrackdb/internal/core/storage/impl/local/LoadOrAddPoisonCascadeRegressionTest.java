@@ -109,13 +109,17 @@ import org.junit.experimental.categories.Category;
  *       <p>Going through the wrapper rather than the bare {@link WOWCache#loadOrAdd}
  *       surface is intentional: the wrapper-coordinated path is what production
  *       inserts traverse, and the test pins the success-mode contract on that path
- *       (one extend, one published pointer, both readers observe it). The bare-surface
- *       I4-sentinel failure-mode test (where two threads bypass the wrapper and
- *       observe the {@code "allocated pageIndex … does not match"}
- *       {@link IllegalStateException}) lives in
- *       {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCacheLoadOrAddConcurrentTest#bareLoadOrAddOnSameKeySurfacesI4Sentinel}.
- *       Together the two tests cover the cache-layer fast-fail (bare) and the
- *       wrapper-coordinated success path (here).
+ *       (one extend, one published pointer, both readers observe it). The cache-layer
+ *       I4 sentinels (the {@code "allocated pageIndex … does not match"} extend-branch
+ *       throw and the {@code "allocated start index … does not match currentSize"}
+ *       gap-fill-branch throw, both {@link IllegalStateException}) are exercised
+ *       deterministically by direct reflective invocation of the private branch
+ *       helpers with a Mockito-doctored {@code File} in
+ *       {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCacheLoadOrAddConcurrentTest#extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested}
+ *       and
+ *       {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCacheLoadOrAddConcurrentTest#gapFillBranchSurfacesI4SentinelWhenAllocatedStartIndexAboveCurrentSize}.
+ *       Together the two tests cover the cache-layer fast-fail (deterministic
+ *       reflection) and the wrapper-coordinated success path (here).
  * </ol>
  *
  * <p><b>Verification protocol (recorded in the commit message).</b> The smoke test was
@@ -546,10 +550,12 @@ public class LoadOrAddPoisonCascadeRegressionTest {
    *
    * <p>The {@code wowCache.loadOrAdd} primitive is exercised through the wrapper
    * here with {@code verifyChecksums = true} (the production setting under
-   * {@code checksumMode=StoreAndThrow}). The bare-surface I4 sentinel test (where
-   * two threads bypass the wrapper and race the bare {@code WOWCache.loadOrAdd}
-   * directly) lives in
-   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCacheLoadOrAddConcurrentTest#bareLoadOrAddOnSameKeySurfacesI4Sentinel}
+   * {@code checksumMode=StoreAndThrow}). The cache-layer I4 sentinels (extend and
+   * gap-fill branches) are exercised deterministically by reflection-driven
+   * Mockito mocks in
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCacheLoadOrAddConcurrentTest#extendBranchSurfacesI4SentinelWhenAllocatedIndexAboveRequested}
+   * and
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCacheLoadOrAddConcurrentTest#gapFillBranchSurfacesI4SentinelWhenAllocatedStartIndexAboveCurrentSize}
    * — see that class's Javadoc for the failure-mode coverage map. This test is the
    * production-shape counterpart: success-mode invariants on the wrapper-coordinated
    * path, repeated to catch intermittent regressions.
