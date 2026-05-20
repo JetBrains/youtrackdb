@@ -231,9 +231,9 @@ Cold-read sub-agent (whole-doc scope) caught one stale phrase in § MATCH per-tu
 
 **Iterations**: 2 of 3 (PASS — no NEW findings introduced; iteration 1 fixed 2 dsc-parenthetical-aside findings + 1 dsc-ai-tell em-dash density introduced by the initial draft; iteration 2 cold-read PASS with one MATCH-UPDATED clarification, then re-verified)
 
-## Mutation 8 — 2026-05-20 — structural-rewrite (design.md + implementation-plan.md + plan/track-4.md + plan/track-8.md)
+## Mutation 8 — 2026-05-20 — structural-rewrite (design.md)
 
-**Diff summary**: Multi-file rewrite responding to user-driven review-after-design-review session. Six distinct content changes; logged here as one mutation because they form a coherent optimization-pass rather than independent fixes:
+**Diff summary**: Multi-file rewrite responding to user-driven review-after-design-review session. Six distinct content changes; logged here as one mutation because they form a coherent optimization-pass rather than independent fixes. **Files touched**: `design.md` (primary target), `implementation-plan.md` (mirror D-records D8, D12-D14), `plan/track-4.md` (side-tap concretization mirror), `plan/track-8.md` (Etap A mirror).
 
 1. **D12 added** (`implementation-plan.md`): AST identity fast-path on cache lookup. `SQLEngine.parse()` returns the same `SQLStatement` instance from `STATEMENT_CACHE` for identical text — `CacheKey.equals` can short-circuit via `==` before falling through to deep `SQLStatement.equals`. Localized to `CacheKey.equals` body; correctness preserved (deep equals retained for the cross-eviction case). Implemented in Track 2.
 2. **D13 added** (`implementation-plan.md`): Hub-replay validation gate (pre-merge). Track 6 records anonymized DNQ-emission sample from Hub staging and replays it; pass criteria ≥70% K1 classify rate + post-merge state equivalence. Failures inform whether to widen K1 coverage before deployment. Implemented in Track 6.
@@ -262,9 +262,9 @@ Plan-file mirror updates beyond the D-record additions: `plan/track-4.md` Concre
 
 **Iterations**: 1 of 3 (PASS — pre-existing debt acknowledged per Mutation 1 precedent; new content audited for fresh debt and confirmed clean)
 
-## Mutation 9 — 2026-05-20 — content-edit (design.md + plan/track-8.md)
+## Mutation 9 — 2026-05-20 — content-edit (design.md)
 
-**Diff summary**: Two pre-review readiness fixes:
+**Diff summary**: Two pre-review readiness fixes. **Files touched**: `design.md` (primary target — TL;DR + References footers on § Invariants and § Open questions deferred, MATCH subquery-gate prose in § Dirty-merge), `plan/track-8.md` (mirror — subquery disqualifier added to classify step 2).
 
 1. **Subquery-in-MATCH-WHERE classify gap closed** (`plan/track-8.md` step 2 + `design.md` § Dirty-merge → MATCH per-tuple sharp-merge). Added explicit "no subquery in pattern-node WHERE" disqualifier to `SharpMergePredicate.classify(SQLMatchStatement)`, symmetric with the K1 RECORD / K1 AGGREGATE classify gate ("no subquery in `target` or `whereClause`" per D5). Without this, a `MATCH {as:u, class:User WHERE id IN (SELECT id FROM Active)} RETURN u` would have classified as MATCH_TUPLE, forcing `WHERE.matchesFilters` to re-execute the inner SELECT on every per-mutation eval. Detection: walk each `aliasWheres[a]`'s AST for any `SQLSelectStatement` descendant; if found, return NONE. Test added to Track 8 step 2.
 2. **TL;DR + References footers added** to `design.md § Invariants` and `design.md § Open questions deferred to execution` (closes 4 pre-existing mechanical-check blockers carried forward across Mutations 1-8). § Invariants TL;DR enumerates I1-I8 with one-line each + cross-references to D-records and tracks. § Open questions TL;DR rescopes the section to its current state (one bullet — MATCH Etap B) after the user-driven consolidation that moved Hub-replay / allocation-profile / MIN/MAX sorted index entries into D-records D13/D14 in `implementation-plan.md`. Section now correctly reflects what's IN this design's deferred queue (Etap B alone) vs what's documented in the plan's D-record series.
