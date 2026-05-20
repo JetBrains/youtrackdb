@@ -858,7 +858,7 @@ flowchart LR
   > fold these absorptions into the existing CS1 and StorageBackupMTStateTest
   > resurrection step scopes rather than adding separate steps.
 
-- [ ] Track 6: Integration regression test
+- [x] Track 6: Integration regression test
   > End-to-end concurrent-insert workload that reproduces the original
   > poison cascade: open a fresh disk-mode storage with
   > `checksumMode=StoreAndThrow`, create a class with an indexed
@@ -868,65 +868,137 @@ flowchart LR
   > no "Internal error happened in storage" cascade, and that all
   > committed records are readable on reopen.
   >
-  > **Phase C deferrals absorbed (Track 4 review fan-out):**
-  > - **Partial-flush-orphan recovery (CS1)** — drive the multi-page
-  >   partial-flush-orphan path on each of the four EP-equipped
-  >   components (`BTree`, `SLBB`, `CPMV2`, `PCV2`); restart the
-  >   storage; assert that the Track 7 recovery-time truncate pass
-  >   restored `physical == logical` and the next TX completes without
-  >   `IllegalStateException`. Pin both the truncate-needed and
-  >   no-op-clean-shutdown branches.
-  > - **HLL-spill recovery** — crash-then-second-spill regression for
-  >   the IHM HLL-page-1 discriminator (`op.filledUpTo > 1 ? load :
-  >   allocate`). Out of Track 7 scope because IHM uses a page-1
-  >   discriminator rather than EP-fileSize sizing.
-  > - **StorageBackupMTStateTest `@Ignore` resurrection** — concurrent
-  >   incremental-backup recovery test for the collapsed
-  >   `restoreFromIncrementalBackup` loop.
-  > - **I4 per-component MT pins** — IHM `flushSnapshotToPage` vs
-  >   `writeSnapshotToPage` lock contract; two-TX contention on
-  >   `op.allocatePageForWrite(fileId, sameKnownIndex)` at BTree.create,
-  >   SLBB.splitRootBucket, CPMV2.allocate, PCV2.allocateNewPage;
-  >   strengthen `inMemoryEagerInstallToleratesConcurrentOrphanReuse`
-  >   contention window.
+  > **Track episode:**
+  > Delivered the integration-regression-test deliverable that exercises
+  > the Tracks 1/4/5/7 read-cache concurrency fix end-to-end: 5 new test
+  > classes (`LoadOrAddPoisonCascadeRegressionTest`,
+  > `ProductionAllocatorConcurrencyMTTest`,
+  > `IndexHistogramManagerSpillDiscriminatorTest`,
+  > `IndexHistogramSpillRecoveryIT`, `StorageBackupMTRestoreIT`) plus a
+  > 22-test matrix expansion on `TruncateOrphansAfterRecoveryIT` covering
+  > 6 file shapes × {Off, StoreAndThrow} × {magic-stamped, zero-byte}
+  > fabrication. Production-side additions stayed minimal: `@apiNote`
+  > lock-contract blocks on `WriteCache.loadOrAdd` and
+  > `AtomicOperation.allocatePageForWrite`, plus two `LongAdder`
+  > test-only counters on `WOWCache.loadOrAddExtendBranch` /
+  > `loadOrAddGapFillBranch` (renamed with `ForTest` suffix at Phase C
+  > iter-1). The original poison-cascade smoke test runs ≥16 TXes
+  > inserting into a fresh indexed class under
+  > `checksumMode=StoreAndThrow`; the white-box reproducer races two
+  > threads on `(fileId, pageIndex=0)` under `CyclicBarrier(2)` with both
+  > `CacheEntry` and `CachePointer` identity pins. The CS1
+  > orphan-truncation IT matrix pins invariant I6
+  > (`physical == logical` after `open()` /
+  > `postProcessIncrementalRestore`) via both magic-stamped and
+  > zero-byte fabrication shapes on `.pcl`, `.cpm`, `.cbt`, `.grb`,
+  > `<index>$null.cbt`. The MT incremental-backup IT short-circuits the
+  > 90-min `StorageBackupMTStateTest` stress-soak with a 20-second
+  > deterministic contention window plus an executable IR-wiring
+  > fabrication test that pins the open()-side recovery dispatch via
+  > target-side orphan injection.
   >
-  > **Phase C deferrals absorbed (Track 7 review fan-out):**
-  > - **ChecksumMode coverage matrix** — Track 7's
-  >   `TruncateOrphansAfterRecoveryIT` runs only under
-  >   `ChecksumMode.Off`. Track 7's CS1 partial-flush-orphan scenarios
-  >   (already in Track 6 scope above) should exercise both
-  >   `ChecksumMode.Off` and `ChecksumMode.StoreAndThrow` so the
-  >   "orphan bodies are never read during truncate" claim is pinned
-  >   under the production CI default checksum mode. A future-track
-  >   regression that accidentally reads an orphan page during the
-  >   pass would trip checksum verification under StoreAndThrow.
-  > - **Multi-value engine `.nbt` null-tree orphan IT** — Track 7's
-  >   unit tests pin the `BTreeMultiValueIndexEngine` wrapper's
-  >   svTree + nullTree dispatch via mocks, but no IT exercises a
-  >   real `.nbt` file with an orphan tail (a NOTUNIQUE index
-  >   accumulating null-keyed entries that grow the null-bucket
-  >   past one page). Add an IT scenario alongside Track 6's CS1
-  >   coverage.
-  > - **Executable `postProcessIncrementalRestore` wiring test** —
-  >   Track 7 ships a tightened source-text wiring sentinel
-  >   (`DiskStorageRestoreOrchestratorWiringTest`) pinning the exact
-  >   `executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)`
-  >   call shape after `flushAllData()`. Track 6's
-  >   `StorageBackupMTStateTest` resurrection (above) is the natural
-  >   home for an executable IR test that drives an orphan-bearing
-  >   backup through `DiskStorage.incrementalRestore` and asserts
-  >   `physical == logical` on the destination — replacing the
-  >   stopgap source-text test once the executable coverage lands.
+  > **Key discoveries that shape future test design.**
   >
-  > **Scope:** ~5-7 steps covering: (a) original poison-cascade test
-  > scaffolding + fail-on-develop / pass-on-fix verification;
-  > (b) CS1 partial-flush-orphan scenario (post-Track-7 invariant
-  > assertion) under both checksum modes + multi-value null-tree
-  > variant; (c) HLL-spill recovery; (d) StorageBackupMTStateTest
-  > resurrection with executable IR-wiring coverage; (e) I4
-  > per-component MT pins across the four allocator sites +
-  > in-memory contention strengthening.
-  > **Depends on:** Track 1, Track 4, Track 7
+  > - **Step 1 — gap-fill counter empirically non-zero.** The
+  >   originally-planned `gap-fill == 0L` ceiling on the smoke test does
+  >   not hold empirically; gap-fill fires once or twice per workload
+  >   under heavy concurrent inserts due to benign cross-component
+  >   snapshot-window races between `LFRC.loadOrAddForWrite`'s
+  >   `filledUpTo` read and `WOWCache.loadOrAdd`'s own size read.
+  >   Production Javadoc on `loadOrAddGapFillBranchInvocations` was
+  >   softened in iter-1 to "should not scale with the workload" rather
+  >   than "stays at 0".
+  > - **Step 4 — IHM is deliberately excluded from
+  >   `truncateOrphansAfterRecovery`.** The `IndexHistogramSpillRecoveryIT`
+  >   correctly leverages this exclusion to fabricate an `.ixs` orphan
+  >   that persists across reopen — the post-recovery `filledUpTo > 1`
+  >   contract is permanent on that file. If a future track adds an EP
+  >   or EP-like metadata page to IHM, the IT's fabrication assumption
+  >   would break and the IT would need revision.
+  > - **Step 5 — iter-2 CAS short-circuit fix on the original IHM pin.**
+  >   The original two-worker race against `flushIfDirty(op)` /
+  >   `flushIfDirty()` was short-circuited by the
+  >   `DIRTY_MUTATIONS.compareAndSet(observed, 0L)` CAS at IHM:932-934 —
+  >   only the CAS-winner ever entered the lock-acquiring body. The
+  >   iter-2 review fix replaced the test body with two concurrent
+  >   `buildHistogram` calls (no CAS gate, both workers deterministically
+  >   reach `writeSnapshotToPage`). Without this fix, a regression
+  >   dropping the lock on either flush path would NOT have been caught.
+  > - **Step 5 — `BTree.create` / `SLBB.splitRootBucket` are not
+  >   concurrently reachable from session-level TXes.** Phase A audit
+  >   established these run once per component lifecycle. Both are
+  >   documented in the SPI `@apiNote` blocks as covered by audit rather
+  >   than MT regression gate.
+  > - **Step 7 — `StorageBackupMTStateTest`'s `@Ignore` is not
+  >   resurrectable** without breaking CI runtime budgets (the test body
+  >   sleeps 90 minutes in 30-second increments since 2016). The track
+  >   adds a NEW short-duration MT class instead, with a target-side
+  >   fabrication test that pins the equivalent open()-side recovery
+  >   dispatch — both `AbstractStorage.open()` and
+  >   `DiskStorage.postProcessIncrementalRestore` invoke the same
+  >   `executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)`.
+  > - **Step 7 — schema layer creates 8 default clusters per class.**
+  >   Raw-file fabrication tests must select the largest cluster by
+  >   `physicalSizeForBackupSnapshot` rather than `findFirst()` — an
+  >   empty cluster with fabricated orphans trips the corruption-guard
+  >   branch (`logicalPages==0 && physicalBytes>pageSize → WARN+skip`).
+  > - **Phase C iter-1 — IHM uses GlobalConfiguration statics directly,
+  >   not session ContextConfiguration.** `QUERY_STATS_HISTOGRAM_BUCKETS`
+  >   / `MIN_SIZE` / `MAX_BOUNDARY_BYTES` are read at IHM construction
+  >   as per-instance final fields. Tests that tune these knobs must set
+  >   the GlobalConfiguration statics and restore in `finally`. This
+  >   propagation gap explains why iter-1's HLL-spill calibration was
+  >   platform-sensitive.
+  > - **Phase C iter-1 — CPMV2/PCV2 entry points double-lock.** Both
+  >   `PCV2.allocatePosition` and `PCV2.createRecord` wrap BOTH
+  >   `calculateInsideComponentOperation` (the AOM per-component lock
+  >   the `@apiNote` contracts target) AND an inner `acquireExclusiveLock()`
+  >   on the same `ReentrantReadWriteLock`. Reentrancy makes the inner
+  >   call a no-op while the AOM lock is held, but the inner lock still
+  >   serialises the two threads if the AOM lock is dropped. The MT pin
+  >   therefore catches "both-locks-dropped" but NOT single-direction
+  >   AOM-only regressions on those entry points. The IHM caller is
+  >   single-locked. This is documented in the SPI `@apiNote` blocks
+  >   and the `ProductionAllocatorConcurrencyMTTest` class Javadoc as a
+  >   deliberate coverage carve-out — the Option A test-only-subclass
+  >   approach was rejected as >50 LoC of test scaffolding.
+  >
+  > **Phase C track-level review.** Iteration 1 spawned 9 dimensional
+  > reviewers in parallel (CQ, BC, TB, TC, CS, TY, PF, TX, TS); after
+  > dedup and synthesis, 13 in-scope should-fix findings landed in
+  > commit `6efebd4ade`. Gate-check fan-out across 7 dimensions (CS and
+  > PF skipped — no findings, no production-hot-path changes): 6/7 PASS
+  > at iteration 1, TX FAIL on TX1 (the HLL-spill calibration
+  > platform-sensitivity issue). Iter-2 chose Option B (Javadoc
+  > disclaimer pattern, mirroring TX2's resolution) — commit
+  > `767e61542a` rewrote three Javadoc blocks plus one inline comment to
+  > honestly disclaim the spill-discriminator coverage gap and point at
+  > `IndexHistogramManagerSpillDiscriminatorTest`'s existing mocked
+  > unit-level coverage as the deferred home. TX gate-check at iter-2:
+  > PASS. Loop closes at 2/3 iterations.
+  >
+  > **What changed from the plan.** Nothing structural; the plan
+  > correctly anticipated this track's scope. Step 5's I4 IHM pin was
+  > rewritten during Phase B iter-2 (CAS short-circuit fix), and the
+  > plan's `I4ProductionHotPathMTTest` name was changed to
+  > `ProductionAllocatorConcurrencyMTTest` per the ephemeral-identifier
+  > rule. Step 7's "delete `DiskStorageRestoreOrchestratorWiringTest`
+  > once executable coverage is in place" was reversed during Phase C
+  > iter-1 (the executable test pins open()-side dispatch via structural
+  > equivalence; the source-text sentinel remains the only direct pin
+  > on the IR-side `postProcessIncrementalRestore` call shape).
+  >
+  > **Cross-track impact.** Track 6 is the last implementation track.
+  > Phase C iter-1's deferred items fold cleanly into the existing
+  > "Track 4 Phase C unit-level test-hardening backlog" under Non-Goals
+  > (BC1/BC2/BC3 diagnostic polish, CQ3 inline FQN sweep, CQ7-CQ11/TS3
+  > minor patterns, TC-5/TC-6 additional MT shapes, TY3 pool ordering
+  > polish, F-series misc) — no new plan track required. The next
+  > session begins Phase 4 (final artifacts) on State D.
+  >
+  > **Step file:** `tracks/track-6.md` (7 steps, 0 failed; Phase C
+  > iter-1 fix `6efebd4ade` applying 13 findings; iter-2 fix
+  > `767e61542a` applying TX1 Javadoc disclaimer)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed 2026-05-18 at consistency iter 2 / structural iter 2 (Track 7 Phase A iter-1 v2 ESCALATE re-validation)

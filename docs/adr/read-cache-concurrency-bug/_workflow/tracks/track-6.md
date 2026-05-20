@@ -276,7 +276,7 @@ below without standalone refinement notes.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (7/7 complete)
-- [ ] Track-level code review (2/3 iterations applied; iter-2 gate-check pending — TX1 addressed via Option B Javadoc disclaimer)
+- [x] Track-level code review (2/3 iterations; iter-1 PASS on 6/7 dimensions, TX1 STILL OPEN; iter-2 Javadoc-disclaimer fix + TX gate-check PASS)
 
 ## Base commit
 `76d2939f0e88ee41c964d53abab70a3d0470a8e0`
