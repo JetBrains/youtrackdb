@@ -1,6 +1,6 @@
 ---
 name: review-workflow-writing-style
-description: "Reviews workflow markdown for AI-tell vocabulary, em-dash overuse, banned phrases, BLUF lead, and 200-word-section cap per the house-style output style. Dispatched by /code-review."
+description: "Workflow-markdown house-style review: AI-tells, em-dash cap, BLUF lead, soft section cap with template-bound exemptions. Dispatched by /code-review."
 model: opus
 ---
 
@@ -15,7 +15,7 @@ Read `.claude/output-styles/house-style.md` once at the start of the review to g
 - **BLUF lead** — first sentence states the conclusion, not background.
 - **Banned vocabulary** — apply the Tier 1-4 lists in `.claude/output-styles/house-style.md § Banned vocabulary` (read once at the start of the review per the Process below).
 - **Em-dash cap** — at most one em dash per paragraph; flag paragraphs with two or more.
-- **200-word section cap** — break or trim sections that exceed it.
+- **Section length** — ≤200 words per `###` subsection is a soft cap (heuristic trigger). The "Section length cap exception" clause in `house-style.md § Structural rules` exempts five template-bound shapes (ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, multi-step derivations under `design-mechanics.md`); a non-exempt section over the soft cap is a finding only when it also contains padding from `§ Banned vocabulary`, `§ Banned sentence patterns`, or `§ Elegant variation`. Length alone is not a finding.
 - **Repo-anchored voice** — concrete file paths, line numbers, identifiers; avoid abstractions when a path will do.
 - **No knowledge-cutoff disclaimers** ("as of my training", "I cannot verify").
 - **No bullet-everything** — flow prose for arguments and chains of reasoning; bullets for parallel lists only.
@@ -67,7 +67,9 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 - Skill / agent body opening sentences: should name what the file does, not preamble.
 
 ### Section length
-- Sections exceeding ~200 words should be split or trimmed. Heading hierarchy: split into `###` subsections, or move detail to `.claude/docs/`.
+- ≤200 words per `###` subsection is a soft cap — a heuristic trigger for closer review, not the metric enforced. When the soft cap is hit, heading hierarchy is one rewrite option: split into `###` subsections, or move detail to `.claude/docs/`.
+- "Section length cap exception" (per `house-style.md § Structural rules`): five template-bound shapes are exempt regardless of length — ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, and multi-step derivations under `design-mechanics.md`. The list is non-exhaustive; future template additions match an existing category or land an explicit addition.
+- "Padding-based finding criterion": for prose outside the exempt list, a section over the soft cap is a finding only when it also contains padding — a banned term from `§ Banned vocabulary`, a pattern from `§ Banned sentence patterns`, or restatement per `§ Elegant variation`. Length alone is not a finding; the finding's description must point at the padding pattern.
 - Long bulleted lists: > 8 bullets often means the structure is wrong; prefer a table or prose summary.
 
 ### Heading style
@@ -118,7 +120,7 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 [Hard violations — banned vocabulary in load-bearing position, "It's not X — it's Y" anti-pattern, knowledge-cutoff disclaimer in CLAUDE.md or a skill description]
 
 #### Recommended
-[Style drift — em-dash overuse, sections > 200 words, missing BLUF lead, Title Case headings]
+[Style drift — em-dash overuse, non-exempt sections over the soft section cap when accompanied by padding (banned vocabulary, banned sentence patterns, or elegant variation per `§ Banned vocabulary` / `§ Banned sentence patterns` / `§ Elegant variation`), missing BLUF lead, Title Case headings. Five template-bound shapes are exempt per `house-style.md § Structural rules` "Section length cap exception": ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, and multi-step derivations under `design-mechanics.md`.]
 
 #### Minor
 [Trim opportunities — "in order to", adjective triads, single-sentence bullet that should be inline prose]
