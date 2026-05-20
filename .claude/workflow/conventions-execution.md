@@ -297,7 +297,7 @@ remaining steps**, **Key files**.
 Episodes are immutable once written. Code is committed first, then the
 episode is written to the track file on disk. Episode length is proportional
 to cross-track impact. The labeled-bold-paragraph template is one of the
-template-bound shapes exempt from the house-style 200-word section cap —
+template-bound shapes exempt from the house-style soft section length cap —
 see [`house-style.md § Structural rules`](../output-styles/house-style.md)
 "Section length cap exception" for the exemption clause and the
 padding-based finding criterion that applies to these blocks.

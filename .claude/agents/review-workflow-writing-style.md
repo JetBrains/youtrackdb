@@ -15,7 +15,7 @@ Read `.claude/output-styles/house-style.md` once at the start of the review to g
 - **BLUF lead** — first sentence states the conclusion, not background.
 - **Banned vocabulary** — apply the Tier 1-4 lists in `.claude/output-styles/house-style.md § Banned vocabulary` (read once at the start of the review per the Process below).
 - **Em-dash cap** — at most one em dash per paragraph; flag paragraphs with two or more.
-- **Section length** — ≤200 words per `###` subsection is a soft cap (heuristic trigger). The "Section length cap exception" clause in `house-style.md § Structural rules` exempts five template-bound shapes (ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, multi-step derivations under `design-mechanics.md`); a non-exempt section over the soft cap is a finding only when it also contains padding from `§ Banned vocabulary`, `§ Banned sentence patterns`, or `§ Elegant variation`. Length alone is not a finding.
+- **Section length** — soft cap with template-bound exemptions; see § Review criteria → Section length below.
 - **Repo-anchored voice** — concrete file paths, line numbers, identifiers; avoid abstractions when a path will do.
 - **No knowledge-cutoff disclaimers** ("as of my training", "I cannot verify").
 - **No bullet-everything** — flow prose for arguments and chains of reasoning; bullets for parallel lists only.
@@ -103,7 +103,7 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 
 1. Read `.claude/output-styles/house-style.md` once.
 2. Grep the diff for each banned vocabulary item.
-3. For each changed file, scan paragraph by paragraph for em-dash count and section length.
+3. For each changed file, scan paragraph by paragraph for em-dash count and section length per the three-step decision in `### Section length` above (size threshold → exempt-category check → padding-pattern check).
 4. Spot-check section openings for BLUF.
 
 ## Output format
