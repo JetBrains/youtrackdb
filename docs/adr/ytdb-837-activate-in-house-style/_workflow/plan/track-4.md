@@ -127,3 +127,7 @@ The track-3.md re-runnable audit pattern is the precedent.
 - `commit-conventions.md` is read at every commit time by both the implementer and the orchestrator. The pointer is additive to existing rules.
 
 **Library / function signatures relevant to this track:** none — pure documentation edits.
+
+## Base commit
+
+77df0bd936cec7cc6c8cf8d9a29e06c34f48e685
