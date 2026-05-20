@@ -213,6 +213,7 @@ flowchart LR
 - CR2: added a one-line `> Note:` annotation immediately after the `design.md` § Class Design class diagram fence calling out that Tracks 7 and 8 extend `CachedEntry` with fields (`skip`, `limit`, `aliasClasses`, `aliasWheres`, `contributingRids`, `reverseIndex`) not enumerated in the Track-4-shaped diagram; cross-references § SKIP support and § MATCH per-tuple sharp-merge.
 - CR3: `plan/track-2.md` step 4 — `executeInternal idempotent branch (line 740)` → `the \`else\` block starting at line 740; the idempotent return is at line 742`. The actual return statement is at line 742; line 740 is just the `else` keyword.
 - CR4: `plan/track-5.md` Context — replaced citation of generated parser file `YouTrackDBSql.jj:8260-8270` with canonical grammar source `YouTrackDBSql.jjt:3726-3729` (project convention: don't edit / cite generated parser files).
+- CR5: `plan/track-4.md` Concrete deliverables bullet — stale `populateFrom(ResultSet, propertyName)` updated to `populateFromRecordStream(Iterator<Record>, Function<Record, Number> propertyExtractor)`. Pre-existing carry-over from Session-3 rename: the Plan-of-Work step 3 (line 84), Artifacts (line 123), and signatures (line 143) inside the same track file had already been migrated; the deliverables-list bullet on line 66 was missed. User-spotted during re-validation review.
 
 **Escalated (design decisions) — current session**: none. All four consistency-review findings were mechanical citation/diagram-completeness fixes; the structural review surfaced zero findings.
 

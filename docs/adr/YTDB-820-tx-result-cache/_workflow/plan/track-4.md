@@ -63,7 +63,7 @@ Concrete deliverables:
 - `CachedEntry` field changes: `mergeKind: MergeKind` enum (replaces the prior `sharpMergeable: boolean`); `fromClasses`, `whereClause`, `orderBy`, `limit` for record path; `aggregateState: AggregateState` for aggregate path. Populated at construction (revisits Track 2's entry-construction site).
 - `SharpMergePredicate.classify(SQLStatement) → MergeKind` static helper.
 - `OrderByComparator` extraction / utility for building the comparator.
-- `AggregateState` class with five aggregate-flavor handlers + `populateFrom(ResultSet, propertyName)` initializer.
+- `AggregateState` class with five aggregate-flavor handlers + `populateFromRecordStream(Iterator<Record>, Function<Record, Number> propertyExtractor)` initializer (side-tap before `AggregateProjectionCalculationStep`; see Plan-of-Work step 3 for the rationale).
 - Sharp-merge tests: per-mutation-type for both record and aggregate paths, polymorphism, LIMIT re-clip, WHERE-no-longer-matches drop, MIN/MAX recompute branch, aggregate transition matrix.
 - K0 fallback tests: GROUP BY query mixed with mutation → entry wiped; expression-aggregate (`SUM(age+bonus)`) → K0.
 
