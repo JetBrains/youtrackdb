@@ -10,6 +10,16 @@ The enabling primitives all exist already: `SQLStatement.equals()` is structural
 
 Disabled by default behind `youtrackdb.query.txResultCache.enabled`. Two more knobs bound memory (`maxEntries`, `maxRecordsPerEntry`). Non-deterministic queries (sysdate, random, uuid, $now, $current) are detected via a denylist AST walk and bypass the cache; `SQLSelectStatement.noCache` hint extends to opt-out per-query.
 
+### Known v1 limitations (deferred to v2 / hardening)
+
+Three correctness-bounded trade-offs accepted for v1, each tracked by a deferred D-record:
+
+- **LIMIT after DELETE may return a short list.** Sharp-merge on K1 RECORD entries removes a deleted record from `entry.results` and re-clips to LIMIT. There is no "backfill" from beyond the cached prefix — the next call returns up to LIMIT-1 records even if a fresh execution would have N records by promoting one from beyond the original window. Acceptable per I4's "same LIMIT contract — at most LIMIT, possibly less" framing. Tracked at § Dirty-merge → LIMIT-clipped entries.
+- **MIN/MAX worst-case O(n) recompute.** When the cached extremum element leaves (DELETED, transitions out of WHERE, or UPDATED away from the extremum), `AggregateState` re-scans `contributingValues` to find the new extremum — bounded by `maxRecordsPerEntry` (10000). D14 in `implementation-plan.md` proposes a `TreeMap` sorted-value index (O(log n)) as a deferred opt-in. Decision gate: D13 Hub-replay measurement.
+- **MATCH multi-alias CREATED → K0 wipe (Etap B).** Track 8 Etap A handles single-alias MATCH CREATED with an O(1) `matchesFilters` + append. Multi-alias / cross-join / pattern-with-edges CREATED still wipes the entry — incremental discovery requires constrained pattern re-execution plus edge-CREATED dispatch. v2 candidate; see § Open questions deferred to execution.
+
+`AST equals` fragility (D2 risk) and per-call allocation rate are tracked under § Open questions deferred to execution and validated pre-merge by D13.
+
 The rest of the document is structured as: Class Design → Workflow → Cache key composition → Pause/resume mechanics → Dirty-merge policy → Cache invalidation → Non-determinism handling → Memory bounds → Concurrency and lifecycle.
 
 ## Class Design
@@ -63,7 +73,7 @@ classDiagram
         -extremumRid: RID
         -contributingRids: Set~RID~
         -contributingValues: Map~RID, Number~
-        +populateFromRecordStream(stream, extractor) void
+        +observe(result) void  [called by AggregateCacheTapStep on each upstream record]
         +applyMutation(rec, status, matchAfter) void
         +toResult() Result
     }
@@ -237,7 +247,17 @@ When `SharpMergePredicate.classify(stmt)` returns one of the `AGGREGATE_*` flavo
 - `contributingValues` — `Map<RID, Number>` of the per-record contribution value at the time of inclusion (for COUNT this map is omitted)
 - For AVG: an extra `count` field alongside `currentScalar=sum` so the average can be recomputed on read.
 
-`AggregateState` is populated from the **inner record stream** feeding the aggregate step, not from the user-visible `ResultSet`. The collapsed `ResultSet` carries only the scalar and has no per-RID material to seed `contributingValues`. Implementation: insert a side-tap consumer before `AggregateProjectionCalculationStep` (or its equivalent) that records `(rid, propertyValue)` as records pass through on the main path. The cache derives `currentScalar` from the populated map (and `count` for AVG, `extremumRid` for MIN/MAX) once the underlying iterator drains. For `COUNT(*)` only `contributingRids` is populated; no value extraction.
+`AggregateState` is populated from the **inner record stream** feeding the aggregate step, not from the user-visible `ResultSet`. The collapsed `ResultSet` carries only the scalar and has no per-RID material to seed `contributingValues`.
+
+**Side-tap mechanism.** A new step class `AggregateCacheTapStep extends AbstractExecutionStep` (under `internal.core.tx`) is spliced into the plan chain immediately upstream of `AggregateProjectionCalculationStep` (`AggregateProjectionCalculationStep.java:121-137` shows the blocking aggregation loop: `prev.start(ctx)` → `while lastRs.hasNext: aggregate(lastRs.next, ctx, ...)`). The tap step's `internalStart(ctx)` calls `getPrev().start(ctx)` to obtain the upstream `ExecutionStream`, then returns a wrapping `ExecutionStream` whose `next(ctx)` invokes `aggregateState.observe(result)` before forwarding the unchanged `Result` to the consumer (which is `AggregateProjectionCalculationStep.aggregate`). `observe(result)` reads `result.getRecord().getIdentity()` for the RID and the projection-target property via the prebuilt extractor; for `COUNT(*)` it only adds to `contributingRids`. The tap is transparent to the downstream aggregate step — same `ExecutionStream` contract, identical record sequence.
+
+**Splice point.** Two implementation options considered:
+- **(a) Post-construction plan rewrite** — `DatabaseSessionEmbedded.query()` miss path obtains the constructed `InternalExecutionPlan` from `statement.execute(...)`, walks its `steps` list, finds the `AggregateProjectionCalculationStep`, and rewires `aggregateStep.prev` from its current upstream to a new `AggregateCacheTapStep` whose own `prev` is the original upstream. Local to cache code; no planner changes. Fragility: depends on the field name `prev` and on the planner emitting exactly one aggregate step.
+- **(b) Planner callback** — `SelectExecutionPlanner` accepts an optional `Consumer<AggregateProjectionCalculationStep>` from the cache; the planner invokes it after constructing the aggregate step, letting the cache splice in the tap during plan build. Cleaner long-term, requires planner-side API surface.
+
+**Chosen path: (a) for v1**, scoped entirely to cache code in `internal.core.tx`. The plan-rewrite happens once per cache-miss on an aggregate query, immediately before the first consumer `next()`; failure to find the expected aggregate step (e.g., planner emitted a different shape than `SharpMergePredicate.classify` predicted) downgrades the entry to `mergeKind=NONE` (K0 wipe on first mutation) rather than crashing. Track 4 step 3 owns the wiring; (b) is a v2 refactor candidate if the v1 rewrite proves fragile.
+
+The cache derives `currentScalar` from the populated map (and `count` for AVG, `extremumRid` for MIN/MAX) once the underlying iterator drains — i.e., when `AggregateProjectionCalculationStep.executeAggregation` finishes consuming `prev.start(ctx)`. At that moment the tap has observed every record that contributed to the aggregate, so `AggregateState` is complete before the user reads the single-row aggregate result.
 
 Per-mutation handling (where `match_before = contributingRids.contains(record.rid)`, `match_after = WHERE.matchesFilters(record, ctx)`):
 
@@ -271,11 +291,15 @@ Per-mutation handling for a mutated record `rec` with RID `rid`:
 
 - **DELETED**: from `reverseIndex.get(rid)` (may be empty), drop every referenced tuple — remove them from `results`, drop the `(rid → tuples)` entry, and for every other RID those tuples carried, prune the now-dead tuple indices from `reverseIndex`. Bounded by entry size.
 - **UPDATED**: from `reverseIndex.get(rid)`, for each tuple, identify which alias `a` bound `rid` by walking the tuple's `aliasClasses[a]` per alias and applying the Entity-guarded `isSubClassOf` gate `rec instanceof Entity entity && entity.getSchemaClass() != null && entity.getSchemaClass().isSubClassOf(name)` for each name in `aliasClasses[a]`. The per-alias `isSubClassOf` loop is used here (rather than the K1 RECORD path's single hash-set contains on `effectiveFromClasses`) because `aliasClasses` is alias-keyed: a record can bind to alias `u` but not alias `g`, so each alias's class set is consulted independently. Re-evaluate `aliasWheres[a].matchesFilters(rec, ctx)`. If the WHERE now fails for that alias, drop the tuple (same bookkeeping as DELETED). Otherwise leave the tuple in place — the updated record still satisfies the pattern position. Non-`Entity` records and entities with null schema class skip the entry entirely, same Entity-shape short-circuit as the K1 RECORD path.
-- **CREATED**: K0 wipe of the entry. Incremental pattern discovery — discovering new tuples that pass through `rec` as the entry-node of the pattern — would require running parts of the pattern walker on a single record, which is essentially partial query re-execution. v2 candidate.
+- **CREATED**: branch on `entry.singleAlias` (captured at entry construction; true when `matchExpressions.size() == 1 && matchExpressions[0].items.isEmpty()`):
+  - **Etap A — single-alias pattern** (`MATCH {as:u, class:User WHERE …} RETURN …`, one node, no edges): evaluate `aliasWheres[onlyAlias].matchesFilters(rec, ctx)`. If false, no-op. If true, invoke the entry-captured `returnProjector(rec, ctx)` to build a single-binding `Result` matching the original RETURN-clause shape, append to `entry.results`, update `contributingRids` + `reverseIndex` for the new tuple index, bump `entry.version`. O(1) — identical complexity profile to K1 RECORD CREATED.
+  - **Etap B — multi-alias / cross-join / pattern-with-edges** (anything else): K0 wipe. Discovering new tuples that pass through `rec` as an entry-node of a multi-node pattern would require constrained-pattern re-execution (synthesize `@rid = rec.rid` constraint on the binding alias, run the scoped pattern walker), plus dispatch on edge-CREATED to catch new tuples that emerge only when a freshly-created vertex gains its edges. Out of scope for v1; separate ADR / v2 candidate.
 
 **Multi-alias-same-class patterns** (e.g., `MATCH {as:u, class:User}.out('reportsTo'){as:m, class:User}`): a mutated `User` record may bind to multiple aliases in the same tuple. UPDATED re-evaluates every relevant alias's WHERE; if any fails, drop the tuple.
 
 **Cross-alias-state WHEREs** — pattern WHEREs referencing `$current`, `$matched`, or other-alias bindings (`where: 'name = $matched.u.name'`) — can't be re-evaluated on a single dirty record outside the original pattern context. `classify` returns `NONE` for any MATCH whose pattern WHEREs contain such references.
+
+**Subqueries in pattern WHEREs** — `classify` also returns `NONE` for any MATCH whose pattern WHEREs contain a nested `SQLSelectStatement` (e.g., `MATCH {as:u, class:User WHERE id IN (SELECT id FROM Active)} RETURN u`). Symmetric with the K1 RECORD / K1 AGGREGATE classify gate — subqueries in WHERE force re-execution of the inner SELECT on every per-mutation eval, defeating sharp-merge's cost model. Caught at classify time by walking each `aliasWheres[a]`'s AST for any `SQLSelectStatement` descendant.
 
 ### Edge cases / Gotchas
 - **Aggregate over expression** — `SUM(age + bonus)` is NOT sharp-mergeable (predicate returns NONE → K0). The map would have to cache the result of the expression, not the property value, which mixes evaluation context with cache storage. Not worth the complexity for v1.
@@ -417,6 +441,8 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 
 ## Invariants
 
+**TL;DR.** Eight load-bearing properties the v1 implementation must hold: I1 (clear on every tx-end), I2 (mutation-path thread-affinity), I3 (paused-stream lifetime ≤ entry lifetime), I4 (post-merge entry == fresh-execution WHERE/ORDER BY/LIMIT contract), I5 (no caching of non-deterministic or `NOCACHE`-hinted queries), I6 (idempotent tx-end clear under cross-thread invocation), I7 (live view fail-fast on K1 merge of its entry), I8 (schema immutable per tx — enforced upstream). Each invariant carries an explicit test assertion in the track that introduces the relevant primitive. Together they cover: lifecycle correctness (I1, I3, I6), concurrency contract (I2, I6), result-set equivalence after sharp-merge (I4, I7), non-determinism gate (I5), and the schema-stability assumption that justifies D11's `effectiveFromClasses` closure precompute (I8).
+
 - **I1 — Cache cleared on every tx-end path.** `clearUnfinishedChanges()` calls `queryResultCache.clear()`. Test: induce commit, rollback, and exception-during-iterate; assert `cache.size()==0` after each.
 - **I2 — Cache MUTATION paths accessed only by owning thread.** `lookup`, `put`, `invalidateOnMutation`, `invalidateAll`, and begin-time `clear()` are all reached through call sites protected by `FrontendTransactionImpl.assertOnOwningThread()` (lines 165, 224 (`commitInternalImpl`), 250 (`getRecord`), 474, 511, plus the `executeInternal` path's `assertIfNotActive`). Tx-end `clear()` is the documented exception (see I6). Test: spawn another thread, attempt to invoke a mutation path via the tx (e.g., `addRecordOperation`), assert AssertionError.
 - **I3 — Paused stream lives at most as long as its `CachedEntry`.** When the entry is evicted, wiped, or the tx ends, the stream is closed. Test: pause a stream, evict the entry, assert `stream.isClosed()`.
@@ -426,8 +452,16 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 - **I7 — Live `CachedResultSetView` fails fast on K1 merge of its entry.** K1 RECORD and K1 MATCH_TUPLE merges increment `entry.version`. Each view captures `expectedEntryVersion` at construction and re-checks on every `next()`; mismatch throws `IllegalStateException("Cache view invalidated by in-tx mutation; re-issue query()")`. K1 AGGREGATE does not bump the version (single-row read; no positional invariant). K0 wipe does not bump the version either (entry is dropped from the cache map, but the view's frozen list remains valid). Test: cache a `SELECT … ORDER BY … LIMIT n`, start iterating the view, mutate a matching record mid-iteration, assert next `view.next()` throws `IllegalStateException`.
 - **I8 — Schema is immutable for the lifetime of a transaction (ENFORCED upstream).** `SchemaShared.saveInternal` throws `SchemaException("Cannot change the schema while a transaction is active...")` at `SchemaShared.java:820-823` for every CREATE/DROP/ALTER CLASS|PROPERTY operation. `IndexManagerEmbedded` throws `IllegalStateException("Cannot create/drop an index inside a transaction")` at lines 307 (create) and 459 (drop). Therefore `effectiveFromClasses` (the subclass closure of the raw FROM names — see D11), `aliasClasses`, `aliasWheres`, and every other AST-derived metadata on `CachedEntry` is stable from `beginInternal` through the matching tx-end path; no recomputation is needed after entry construction. Test: with an active tx, invoke `CREATE CLASS X EXTENDS Person` via SQL DDL and `schemaClass.setSuperClasses(...)` via the programmatic API; assert both throw, the cache state is unchanged, and any subsequent INSERT of an `X` record (if `X` happens to already exist outside the tx) routes through the existing polymorphism gate's runtime `isSubClassOf` check.
 
+### References
+- D-records: D5 (post-merge contract → I4), D6 (non-determinism → I5), D11 (effectiveFromClasses closure depends on I8)
+- Tracks: T1 (I1, I2, I6), T3 (I3), T4 (I4, I7), T5 (I5), T8 (I7 MATCH_TUPLE half)
+
 ## Open questions deferred to execution
 
-- **Public-API plumbing for `getQueryResultCache()`.** Whether to expose this on the `FrontendTransaction` interface or keep it internal to `FrontendTransactionImpl` (with `DatabaseSessionEmbedded` casting). Initial choice: internal, since no caller outside `core` should poke at the cache directly.
-- **JMH benchmarks.** A microbenchmark for cache-hit / cache-miss / sharp-merge / wipe paths is in T5 hardening — exact shape TBD during Phase A of that track.
-- **Telemetry shape.** Resolved at plan review: a new sibling class `QueryCacheMetrics` (NEW file under `internal/core/tx/`) holds three `long` counters (hits, misses, evictions). `TransactionMeters` (the existing per-session metrics) is an immutable inline record in `DatabaseSessionEmbedded.java:190` over three `TimeRate` fields; extending it would change the record shape and all constructor sites and require new types. Sibling class is the cleaner path. Operator monitoring story: the metric is per-tx and accessed via `FrontendTransactionImpl.getQueryCacheMetrics()` — operators wire it through their own scaffold.
+**TL;DR.** One item punted from v1 design to a separate ADR: MATCH CREATED Etap B (multi-alias incremental tuple discovery). Track 8 covers Etap A (single-alias CREATED) in v1; Etap B requires constrained-pattern re-execution plus edge-CREATED dispatch — too large a scope-bump for v1. Other deferred items live in `implementation-plan.md` as D-records: D13 (Hub-replay validation gate, in Track 6 scope), D14 (MIN/MAX sorted-value index, v2 candidate gated on D13). Public-API plumbing, JMH benchmark shape, and telemetry surface were resolved during plan review and now live in their respective tracks (Track 6 for benchmarks + metrics).
+
+- **MATCH CREATED Etap B (multi-alias).** Track 8's CREATED branch handles single-alias `MATCH {as:u, class:X WHERE …} RETURN …` (Etap A, in scope). Multi-alias / cross-join / pattern-with-edges CREATED still wipes the entry (K0). v2 candidate: constrained-pattern execution (synthesize `@rid = rec.rid` on the binding alias, run scoped pattern walker) + edge-CREATED dispatch (a freshly-created vertex only appears in multi-alias tuples once its edges are created — each edge-create separately triggers `addRecordOperation`). Out of scope for v1; separate ADR.
+
+### References
+- D-records: D8 (MATCH per-tuple sharp-merge — Etap A in scope here; Etap B is the deferred extension), D13 (Hub-replay), D14 (MIN/MAX sorted index)
+- Tracks: T6 (JMH + metrics), T8 (Etap A delivery)
