@@ -14,6 +14,7 @@ Single citation paragraphs cross-referencing `house-style.md` (and the Track 1 c
 - [ ] Track completion
 - [x] 2026-05-19T16:28Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T02:13Z [ctx=safe] Step 1 complete (commit 14c3d73fa3)
+- [x] 2026-05-20T02:52Z [ctx=safe] Step 2 complete (commit 6b6f35edac)
 
 ## Base commit
 cc53adccf4d78ac51329473e54af4dd5b197d195
@@ -78,7 +79,7 @@ Invariants to preserve: every review-agent file's existing YAML frontmatter (`--
 ## Concrete Steps
 
 1. Insert the §Context pointer paragraph into the 10 in-scope workflow prompts under `.claude/workflow/prompts/` via a single `steroid_apply_patch` call (10 hunks; one per file). Anchor each hunk on the closing line of the file's opening orientation paragraph plus the following blank line; append the pointer paragraph and a blank line. Run the §Validation greps after the patch lands and confirm 10 in-scope prompts contain the canonical substring and the two skipped files are untouched. — risk: low (default: pure documentation insertion; no semantic change)  [x] commit: 14c3d73fa3
-2. Insert the §Context pointer paragraph into the 18 in-scope review agents under `.claude/agents/` via a single `steroid_apply_patch` call (18 hunks; one per file). Anchor each hunk on the closing `---` line of the frontmatter plus the line that follows; insert the pointer paragraph between them, blank-separated. Run the §Validation greps and the §Idempotence and Recovery frontmatter-integrity check after the patch lands; expect 28 total pointer hits (including Step 1) and `2` for each agent's `awk` count. — risk: low (default: pure documentation insertion; frontmatter integrity preserved by anchoring strictly below the closing `---`)  [ ]
+2. Insert the §Context pointer paragraph into the 18 in-scope review agents under `.claude/agents/` via a single `steroid_apply_patch` call (18 hunks; one per file). Anchor each hunk on the closing `---` line of the frontmatter plus the line that follows; insert the pointer paragraph between them, blank-separated. Run the §Validation greps and the §Idempotence and Recovery frontmatter-integrity check after the patch lands; expect 28 total pointer hits (including Step 1) and `2` for each agent's `awk` count. — risk: low (default: pure documentation insertion; frontmatter integrity preserved by anchoring strictly below the closing `---`)  [x] commit: 6b6f35edac
 
 ## Episodes
 
@@ -100,6 +101,33 @@ Invariants to preserve: every review-agent file's existing YAML frontmatter (`--
 - `.claude/workflow/prompts/structural-gate-verification.md` (modified)
 - `.claude/workflow/prompts/structural-review.md` (modified)
 - `.claude/workflow/prompts/technical-review.md` (modified)
+
+### Step 2 — commit 6b6f35edacb9e7b5eadf15479f18e819f8b48b87, 2026-05-20T02:52Z [ctx=safe]
+**What was done:** Inserted the canonical house-style pointer paragraph into the 18 in-scope review agents under `.claude/agents/`. Pointer wording matches Step 1 byte-for-byte. Each insertion is anchored strictly below the closing YAML frontmatter `---` line, so every agent's YAML block stays intact. All three §Validation audits pass: 28 total pointer hits across the 28 in-scope files, both skipped files (`design-review.md`, `review-workflow-writing-style.md`) retain their prior `house-style` self-references, every in-scope agent's `awk '/^---$/{c++} END{print c}'` reports `2`.
+
+**What was discovered:** Confirmed the Step 1 finding about mcp-steroid tool surface absence in implementer spawns. The native-`Edit`-per-file fallback produces byte-identical results to a planned multi-hunk `steroid_apply_patch` for pure-Markdown insertions with unique per-file anchors. Step 1's Surprises promotion already covers this for Tracks 4 and 5.
+
+**What changed from the plan:** Mechanism changed from one `steroid_apply_patch` call (18 hunks) to 18 native `Edit` calls. No deliverable change. Same affect-on-future-tracks note as Step 1.
+
+**Key files:**
+- `.claude/agents/code-reviewer.md` (modified)
+- `.claude/agents/pr-reviewer.md` (modified)
+- `.claude/agents/review-bugs-concurrency.md` (modified)
+- `.claude/agents/review-code-quality.md` (modified)
+- `.claude/agents/review-crash-safety.md` (modified)
+- `.claude/agents/review-performance.md` (modified)
+- `.claude/agents/review-security.md` (modified)
+- `.claude/agents/review-test-behavior.md` (modified)
+- `.claude/agents/review-test-completeness.md` (modified)
+- `.claude/agents/review-test-concurrency.md` (modified)
+- `.claude/agents/review-test-crash-safety.md` (modified)
+- `.claude/agents/review-test-structure.md` (modified)
+- `.claude/agents/review-workflow-consistency.md` (modified)
+- `.claude/agents/review-workflow-context-budget.md` (modified)
+- `.claude/agents/review-workflow-hook-safety.md` (modified)
+- `.claude/agents/review-workflow-instruction-completeness.md` (modified)
+- `.claude/agents/review-workflow-prompt-design.md` (modified)
+- `.claude/agents/test-quality-reviewer.md` (modified)
 
 ## Validation and Acceptance
 
