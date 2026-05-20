@@ -14,6 +14,9 @@ Single citation paragraphs cross-referencing `house-style.md` (and the Track 1 c
 - [ ] Track completion
 - [x] 2026-05-19T16:28Z [ctx=safe] Review + decomposition complete
 
+## Base commit
+cc53adccf4d78ac51329473e54af4dd5b197d195
+
 ## Surprises & Discoveries
 <!-- Empty at Phase 1. -->
 
