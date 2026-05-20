@@ -13,6 +13,8 @@ code to find gaps and inconsistencies between the four artifacts:
 3. **Design document** (`design.md`)
 4. **Actual codebase**
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 ## Workflow Context
 
 You are a sub-agent spawned during **Phase 2 (Implementation Review)**,

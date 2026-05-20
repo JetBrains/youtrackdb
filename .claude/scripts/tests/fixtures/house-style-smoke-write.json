@@ -1,0 +1,11 @@
+{
+  "session_id": "smoke-write-fixture-fbb6c8a4",
+  "transcript_path": "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-activate-in-house-style/smoke-write-fixture-fbb6c8a4.jsonl",
+  "cwd": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style/docs/adr/example/notes.md",
+    "content": "# Notes\n\nDraft text exercising the Tier-A reminder.\n"
+  }
+}

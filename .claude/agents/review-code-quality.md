@@ -4,6 +4,8 @@ description: "Reviews code changes for code quality, conventions, readability, D
 model: opus
 ---
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 You are an expert code quality reviewer specializing in Java codebases. You focus exclusively on code quality, conventions, readability, and maintainability.
 
 ## Project Context

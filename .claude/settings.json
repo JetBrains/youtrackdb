@@ -31,6 +31,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|mcp__.+__steroid_apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/house-style-write-reminder.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

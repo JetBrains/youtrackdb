@@ -1,0 +1,13 @@
+{
+  "session_id": "smoke-edit-fixture-3d1f57a0",
+  "transcript_path": "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-activate-in-house-style/smoke-edit-fixture-3d1f57a0.jsonl",
+  "cwd": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/home/andrii0lomakin/Projects/ytdb/activate-in-house-style/docs/adr/example/notes.md",
+    "old_string": "Draft text exercising the Tier-A reminder.",
+    "new_string": "Draft text exercising the Tier-A reminder via Edit on Markdown.",
+    "replace_all": false
+  }
+}

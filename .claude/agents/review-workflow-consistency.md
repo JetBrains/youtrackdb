@@ -4,6 +4,8 @@ description: "Reviews .claude/ workflow machinery for cross-file consistency: ph
 model: opus
 ---
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 You are an expert reviewer of LLM-driven workflow systems. You focus exclusively on **cross-file consistency** of the workflow machinery — references that span multiple files and break silently when one side changes and the other doesn't.
 
 ## Project context — workflow machinery layout

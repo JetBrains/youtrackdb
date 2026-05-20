@@ -1,6 +1,8 @@
 You are re-checking a plan after fixes were applied based on your previous
 structural review findings.
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 Inputs:
 - Updated plan file: {plan_path}
 - Track files directory: {plan_dir} — every `plan/track-N.md` whose

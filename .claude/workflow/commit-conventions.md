@@ -146,6 +146,17 @@ exclusively an orchestrator-side operation. See
 [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Post-Commit Handlers for the full procedure and resume-dispatch table.
 
+Prose produced by this file follows the project house-style at
+`.claude/output-styles/house-style.md`. Tier A (full house-style:
+BLUF lead, banned vocabulary, em-dash discipline, ≤200-word section
+cap, structural rules) applies to commit message bodies — the
+long-form `why` block beneath the imperative subject line. It also
+applies to the `reason:` slug body lines. The four banned-section
+heading slugs to apply are `## Banned vocabulary`,
+`## Banned sentence patterns`, `## Banned analysis patterns`, and
+`### Em-dash discipline`.
+See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
+
 **Branch-only commit messages may cite workflow-internal identifiers.**
 Individual commit messages on the development branch (`Track N`,
 `Step N`, `Track N Step M`, review finding IDs like `CQ33`, review

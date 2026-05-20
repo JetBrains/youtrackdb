@@ -4,6 +4,8 @@ description: "Reviews skill, agent, and workflow-prompt files for procedural com
 model: opus
 ---
 
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+
 You are an expert in procedural specification review. You focus exclusively on **completeness of the instructions** that drive an LLM through a multi-step workflow — every branch has its complement, every gate has a resume path, every output feeds an input.
 
 This is the procedural analogue of `review-test-completeness`: that agent looks for missing corner cases in test code, this one looks for missing corner cases in the procedure itself.

@@ -373,3 +373,31 @@ The recipe table is **illustrative, not exhaustive** — load only the
 recipe(s) the current step / iteration needs, never pre-load the
 whole catalogue. `.claude/docs/mcp-steroid/recipes.md` is the last
 authoritative source for the trigger list and use cases.
+
+---
+
+## 1.5 Writing style for Markdown and prose artifacts
+
+Every prose surface in this repo follows the rules in
+[`.claude/output-styles/house-style.md`](../output-styles/house-style.md).
+That file is the single declarative source: BLUF lead, banned
+vocabulary, banned sentence patterns, banned analysis patterns,
+punctuation and typography, structural rules, and document-shape rules
+for design / ADR artifacts. Every cross-reference from a workflow
+prompt, review agent, implementer file, or orchestrator file resolves
+to that file by repo-relative path.
+
+Rules apply at two tiers. Markdown gets the full rule set; Java and
+Kotlin source gets the AI-tell subset that applies at code-comment
+scale. Other extensions stay silent.
+
+| Surface | Tier | Sections that apply |
+|---|---|---|
+| All `*.md` files (design docs, ADRs, plans, track files, reviews, issue and PR bodies, status updates) | Full house-style | Every section of `house-style.md` |
+| PR titles and descriptions, commit message bodies, YouTrack issue bodies | Full house-style | Every section of `house-style.md` |
+| `*.java`, `*.kt` source (code comments, Javadoc rationale) | AI-tell subset | `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` (H3 nested under `§ Punctuation and typography`) |
+| Other extensions | Silent | n/a |
+
+The four Tier-B section names are stable headings after YTDB-836; a
+future rename in `house-style.md` requires updating every pointer in
+the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
