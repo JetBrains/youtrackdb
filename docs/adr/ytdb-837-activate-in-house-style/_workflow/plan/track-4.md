@@ -9,14 +9,15 @@ Adds Tier-A pointer to `implementer-rules.md § Tooling discipline` for log / co
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-20T03:32Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T05:55Z [ctx=safe] Step 1 complete (commit 4a7b4fd770)
+- [x] 2026-05-20T06:08Z [ctx=safe] Step 2 complete (commit 233428524c)
 
 ## Surprises & Discoveries
-<!-- Empty at Phase 1. -->
+- 2026-05-20T06:08Z — Markdown-link-form pointers must keep the citation string `conventions.md §1.5 Writing style for Markdown and prose artifacts` un-wrapped on a single line. Line-wrapping at the surrounding paragraph's column splits the literal substring across two physical lines and breaks the line-oriented `grep -l` acceptance check without obvious failure feedback. Track 3's bare-backticked form is naturally single-line; Track 4 (and any future pointer track using the link form) must enforce single-line layout explicitly. Relevant to Track 5 if it touches any pointer text. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Empty at Phase 1. -->
@@ -59,7 +60,7 @@ Invariants to preserve: every modified file's existing § headings stay intact. 
 
 1. Insert the canonical house-style pointer paragraph into `.claude/workflow/implementer-rules.md § Tooling discipline` (as a sixth bullet appended to the existing pointers list at the end of the section, immediately before the closing `---` separator that precedes `## Coverage gate command`) AND into `.claude/workflow/episode-format-reference.md` (appended to the intro block immediately before the first `---` separator that precedes `## Write checklist (commit-then-episode)`). The implementer-rules.md bullet carries both Tier-A and Tier-B language per the § Context template; the episode-format-reference.md pointer is Tier-A only. Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces (Track 3 F1 hazard). Use native `Edit` per the Track 3 fallback (steroid_apply_patch is not exposed in implementer spawns). Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/implementer-rules.md .claude/workflow/episode-format-reference.md | wc -l` returns `2`; `awk '/^---$/{c++} END{print c}'` on each file returns the pre-change separator count plus zero (insertions do not add `---` lines). — risk: low (default: pure documentation insertion; no semantic change)  [x]  commit: 4a7b4fd770
 
-2. Insert the canonical Tier-A house-style pointer paragraph into `.claude/workflow/step-implementation.md` (appended after the five-bullet "The episode includes:" list ends at line 816, before the paragraph "Write the episode to the track file …") AND into `.claude/workflow/commit-conventions.md` (appended after the `reason:` slug table inside `## Commit type prefixes` ends at line 148, before the "Branch-only commit messages may cite workflow-internal identifiers …" paragraph at line 149). Both pointers are Tier-A only per the § Context guidance — code-comment scale does not apply to per-step orchestration prose or commit-body discipline. Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces. Use native `Edit` per the Track 3 fallback. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/step-implementation.md .claude/workflow/commit-conventions.md | wc -l` returns `2`; `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/implementer-rules.md .claude/workflow/step-implementation.md .claude/workflow/commit-conventions.md .claude/workflow/episode-format-reference.md | wc -l` returns `4` (cumulative across both steps). — risk: low (default: pure documentation insertion; no semantic change)  [ ]
+2. Insert the canonical Tier-A house-style pointer paragraph into `.claude/workflow/step-implementation.md` (appended after the five-bullet "The episode includes:" list ends at line 816, before the paragraph "Write the episode to the track file …") AND into `.claude/workflow/commit-conventions.md` (appended after the `reason:` slug table inside `## Commit type prefixes` ends at line 148, before the "Branch-only commit messages may cite workflow-internal identifiers …" paragraph at line 149). Both pointers are Tier-A only per the § Context guidance — code-comment scale does not apply to per-step orchestration prose or commit-body discipline. Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces. Use native `Edit` per the Track 3 fallback. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/step-implementation.md .claude/workflow/commit-conventions.md | wc -l` returns `2`; `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/implementer-rules.md .claude/workflow/step-implementation.md .claude/workflow/commit-conventions.md .claude/workflow/episode-format-reference.md | wc -l` returns `4` (cumulative across both steps). — risk: low (default: pure documentation insertion; no semantic change)  [x]  commit: 233428524c
 
 ## Episodes
 
@@ -73,6 +74,19 @@ Invariants to preserve: every modified file's existing § headings stay intact. 
 **Key files:**
 - `.claude/workflow/implementer-rules.md` (modified) — sixth bullet at end of `§ Tooling discipline` before the closing `---`
 - `.claude/workflow/episode-format-reference.md` (modified) — paragraph appended to intro block before the first `---` separator
+
+**Critical context:** none.
+
+### Step 2 — commit 233428524c, 2026-05-20T06:08Z [ctx=safe]
+**What was done:** Inserted Tier-A-only house-style pointer paragraphs into the two remaining in-scope files. `.claude/workflow/step-implementation.md` gained the pointer after the five-bullet "The episode includes:" list at line 816 and before the "Write the episode to the track file on disk." paragraph; scope wording names the four episode fields the orchestrator finalises from `EPISODE_DRAFT` plus the Progress / Surprises & Discoveries / Decision Log entries emitted during sub-step 7. `.claude/workflow/commit-conventions.md` gained the pointer after the `reason:` slug discussion ends and before the "Branch-only commit messages may cite workflow-internal identifiers" paragraph; scope wording names commit message bodies (the long-form `why` block beneath the imperative subject line) and `reason:` slug body lines. Both pointers cite `.claude/output-styles/house-style.md`, name the four banned-section heading slugs verbatim, and use the link form `[conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md)` for in-track consistency with Step 1. Cumulative grep across all four in-scope files returns `4`.
+
+**What was discovered:** The implementer's first `Edit` pair wrapped the link text across a newline boundary inside the paragraph, breaking the literal-substring acceptance grep (matched 0 instead of 2). The fix kept the entire `See [conventions.md §1.5 …](conventions.md) for the workflow-level pointer.` clause on a single line, matching Step 1's layout. This is an operational constraint for any future Markdown-link-form pointer: the `conventions.md §1.5 Writing style for Markdown and prose artifacts` string must stay un-wrapped on one line so the literal-substring acceptance grep stays operational. Promoted to `## Surprises & Discoveries` as a cross-track signal for Track 5.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `.claude/workflow/step-implementation.md` (modified) — paragraph at the end of "Episode Production" subsection, after the five-bullet field list and before the "Write the episode" follow-on
+- `.claude/workflow/commit-conventions.md` (modified) — paragraph inside `## Commit type prefixes`, after the `reason:` slug discussion and before the "Branch-only commit messages" paragraph
 
 **Critical context:** none.
 
