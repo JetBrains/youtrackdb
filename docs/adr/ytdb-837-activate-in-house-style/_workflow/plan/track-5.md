@@ -8,10 +8,12 @@ After this track lands, the top-level orchestrator file, the three user-invocabl
 Adds Tier-B subset pointer to `workflow.md` (top-level orchestrator), the three top-level `SKILL.md` files (`create-plan`, `execute-tracks`, `review-plan`), and the five mid-loop protocols (`mid-phase-handoff.md`, `inline-replanning.md`, `review-mode.md`, `review-iteration.md`, `design-decision-escalation.md`). Pointer wording explicitly exempts structural rules (BLUF lead, ≤200-word section cap, document-shape) from chat-scale prose.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-05-20T07:18Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Empty at Phase 1. -->
@@ -22,7 +24,9 @@ Adds Tier-B subset pointer to `workflow.md` (top-level orchestrator), the three 
 <!-- Reserved for Move 1. -->
 
 ## Outcomes & Retrospective
-<!-- Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 1 (5 findings, 5 accepted). T1 (should-fix, pointer-template binding) and T4 (suggestion, line-number brittleness) absorbed into `## Context and Orientation` lines 49-52 — the Tier-B-subset reference now binds the four banned-section slug citations to their verbatim Markdown-heading form (`## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`) plus the Markdown-link form for the `conventions.md §1.5` cross-reference, and the brittle line numbers are dropped. T2 (should-fix, colon-terminated lead-in pre-scan) absorbed as a new invariant in the `## Plan of Work` invariants paragraph. T3 (suggestion, `track-skip.md` exclusion rationale) accepted as-is — the file's `**Skipped:** <reason>` prose is short Markdown already covered by the Track 2 PreToolUse Tier-A hook. T5 (suggestion, 2-step vs 1-step decomposition) accepted as-is — the 2-step shape matches the Track 3 and Track 4 cadence (one commit per file-role group) and keeps the per-commit blast radius small.
+- Risk: skipped (Track 5 is Simple, 2 steps; complexity table mandates Technical only).
+- Adversarial: skipped (same reason).
 
 ## Context and Orientation
 
@@ -46,11 +50,9 @@ Files in scope:
 - `.claude/workflow/review-iteration.md` — Review-iteration protocol; orchestrator generates iteration-summary prose. Tier-B pointer.
 - `.claude/workflow/design-decision-escalation.md` — Escalation prompts the orchestrator generates for the user. Tier-B pointer.
 
-The Tier-B-subset reference (per D3) names the four source sections explicitly:
+The Tier-B-subset reference (per D3) names the four source sections explicitly. Each landed pointer cites the four heading slugs verbatim in their full Markdown-heading form (`## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`) so the `conventions.md §1.5` locator-grep recipe enumerates the pointer site by literal slug strings, matching the Track 4 result and the Track 2 `test_16_section_name_guard` contract. The rule source is cited as `.claude/output-styles/house-style.md`; the conventions.md anchor is cited in Markdown-link form (`[conventions.md §1.5 Writing style for Markdown and prose artifacts](...)`) with the substring kept un-wrapped on one line per the Track 4 WI5 carryover.
 
-> Banned vocabulary (`.claude/output-styles/house-style.md § Banned vocabulary`, H2 at line 54); Banned sentence patterns (`§ Banned sentence patterns`, H2 at line 92); Banned analysis patterns (`§ Banned analysis patterns`, H2 at line 104); Em-dash discipline (`§ Em-dash discipline`, H3 at line 231, nested inside `## Punctuation and typography`).
-
-The pointer explicitly exempts structural rules (BLUF lead at `§ BLUF lead`, ≤200-word section cap at `§ Structural rules`, document-shape rules at `§ Document-shape rules (design / ADR-specific)`). The bare-`grep` audit anchors on the stable substring of each heading (`Em-dash discipline`, `Document-shape rules`); a future heading rename would still surface via the substring search even though the H2/H3 depth varies.
+The pointer explicitly exempts structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, and `§ Document-shape rules (design / ADR-specific)`). These exempt-section names are stable post-YTDB-836 but live outside the rename-gate grep enumeration, so the abbreviated short form is acceptable in the pointer prose. The `Em-dash discipline` slug is the H3 nested under `## Punctuation and typography`; the H3 depth survives a substring-only audit but the verbatim `### Em-dash discipline` form ties the citation to the rename-gate exactly.
 
 ## Plan of Work
 
@@ -62,27 +64,37 @@ Step 2 — Add the Tier-B pointer to the five mid-loop protocol files. These fir
 
 Ordering constraints: Track 1 must complete first (the pointer cites the conventions.md anchor). Tracks 2, 3, 4 are independent.
 
-Invariants to preserve: every file's existing frontmatter and § headings stay intact. The pointer never lands above frontmatter. No file gets more than one pointer.
+Invariants to preserve: every file's existing frontmatter and § headings stay intact. The pointer never lands above frontmatter. No file gets more than one pointer. Insertion-anchor pre-scan rule (Track 3 F1 lesson carried through Track 4): before landing a pointer in any file, scan paragraphs around the chosen anchor for a colon-terminated lead-in introducing an enumerated list. If the candidate anchor sits between such a lead-in and the list it introduces, pick a different anchor (typically one paragraph after the list).
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+The canonical pointer paragraph for every Track 5 site is byte-identical across all 9 files except for the relative path inside the `conventions.md §1.5` Markdown link (which varies by file location, see per-step anchor table):
+
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](<RELATIVE-PATH>) for the workflow-level anchor and tier mapping.
+
+The `<RELATIVE-PATH>` placeholder resolves to `conventions.md` for the five `.claude/workflow/` siblings and to `../../workflow/conventions.md` for the three `.claude/skills/<skill>/SKILL.md` files. `workflow.md` is itself a `.claude/workflow/` sibling, so its link target is `conventions.md`. The visible link text stays the literal substring `conventions.md §1.5 Writing style for Markdown and prose artifacts` un-wrapped on one line per Track 4 WI5.
+
+1. Insert the canonical pointer paragraph into the top-level orchestrator and the three user-invocable skill bodies (4 files). Anchors: `.claude/workflow/workflow.md` between line 26 (end of `## Overview` block) and line 28 (`### Terminology: Phases 0/1/2/3/4 vs Phases A/B/C` heading); `.claude/skills/create-plan/SKILL.md` between line 8 (`Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).`) and line 10 (`**Step 1 — Read workflow documents.**`); `.claude/skills/execute-tracks/SKILL.md` between line 8 (`Read and follow the workflow for Phase 3 (Execution).`) and line 10 (`Read these workflow documents in order before starting:`); `.claude/skills/review-plan/SKILL.md` between line 8 (`Read and follow the workflow for Phase 2 (Implementation Review).`) and line 10 (`> **Manual override.**` blockquote start). Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces (Track 3 F1 hazard, Track 4 strategy-refresh carryover). For SKILL.md files, the `<RELATIVE-PATH>` placeholder resolves to `../../workflow/conventions.md`; for `workflow.md` it resolves to `conventions.md`. Use native `Edit` per the Track 3 fallback — `steroid_apply_patch` is not exposed in implementer sub-agent spawns. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/workflow.md .claude/skills/create-plan/SKILL.md .claude/skills/execute-tracks/SKILL.md .claude/skills/review-plan/SKILL.md | wc -l` returns `4`. — risk: low (default: pure documentation insertion; no semantic change)  [ ]
+
+2. Insert the canonical pointer paragraph into the five mid-loop protocols (5 files, all under `.claude/workflow/`). Anchors: `mid-phase-handoff.md` between line 7 (intro paragraph ends with `…research already on disk.`) and line 9 (`Loaded on-demand by:` colon-terminated lead-in); `inline-replanning.md` between line 6 (intro paragraph ends with `…notes.`) and line 8 (`## When ESCALATE triggers` heading); `review-mode.md` between line 8 (intro paragraph ends with `…does any side effect run.`) and line 10 (`## What review mode does` heading); `review-iteration.md` between line 8 (intro paragraph ends with `…not needed at session startup.`) and line 10 (`---` separator); `design-decision-escalation.md` between line 6 (intro paragraph ends with `…beyond what the plan specifies.`) and line 8 (`## When to pause and ask the user` heading). Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces. The `<RELATIVE-PATH>` placeholder resolves to `conventions.md` for all five files. Use native `Edit` per the Track 3 fallback. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/mid-phase-handoff.md .claude/workflow/inline-replanning.md .claude/workflow/review-mode.md .claude/workflow/review-iteration.md .claude/workflow/design-decision-escalation.md | wc -l` returns `5`; cumulative `grep -l '…' <all 9 files> | wc -l` returns `9`. — risk: low (default: pure documentation insertion; no semantic change)  [ ]
 
 ## Episodes
 <!-- Empty at Phase 1. -->
 
 ## Validation and Acceptance
 
-- `workflow.md`, the three `SKILL.md` files, and the five mid-loop protocols each carry one Tier-B subset pointer (verified by `grep -l 'house-style' <files>` returning all nine).
-- The pointer wording names the four source sections explicitly (D3 compliance).
-- The pointer wording exempts structural rules from chat-scale prose explicitly.
+- All 9 in-scope files carry the canonical pointer paragraph: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/workflow.md .claude/skills/create-plan/SKILL.md .claude/skills/execute-tracks/SKILL.md .claude/skills/review-plan/SKILL.md .claude/workflow/mid-phase-handoff.md .claude/workflow/inline-replanning.md .claude/workflow/review-mode.md .claude/workflow/review-iteration.md .claude/workflow/design-decision-escalation.md | wc -l` returns `9`.
+- Each landed pointer cites the four banned-section heading slugs verbatim (`## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`) — confirmed by `grep -l '### Em-dash discipline' <9 files>` returning `9` (the rarest of the four slugs across the workflow surface, used as the rename-gate proxy per Track 2 `test_16_section_name_guard`).
+- Each landed pointer exempts structural rules (`§ BLUF lead`, `§ Structural rules`, `§ Document-shape rules`) from chat-scale prose — confirmed by per-file inspection that the exempt-rule clause appears verbatim.
+- No file picks up more than one pointer (`grep -c 'conventions.md §1.5 Writing style for Markdown and prose artifacts' <each file>` returns `1` for each).
+- D3 compliance (reference Tier-B subset sections by name) holds at every site.
 - YTDB-837 acceptance bullet 5 holds: "Orchestrator files name the Tier-B subset and explicitly exempt structural rules."
 
-<!-- Phase A placeholder. -->
-
-<!-- Reserved for Move 3. -->
-
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+
+- Each step's `Edit` invocations are file-scoped and idempotent — re-running the canonical-pointer insertion against a file that already carries the pointer reads as a Markdown-link-form duplicate that the `Edit` tool would refuse (no matching `old_string`). The validation grep `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts'` is the steady-state check; a re-run reads `4` for Step 1 and `5` for Step 2 either way.
+- Partial step failure (one of Step 1's 4 files committed, the others not): re-run Step 1 to commit the remaining files; the cumulative validation grep returns `4`. The implementer's revert path (`git reset --hard HEAD`) discards any uncommitted insertions.
+- Anchor drift on resume (a file's top section was edited between Phase A decomposition and Phase B implementation): the per-step anchor reads as line ranges plus context strings ("between line N (intro paragraph ends with `…`) and line M (heading `…`)"). The implementer pre-scans the chosen anchor in each candidate file before patching, picks a different anchor if the colon-terminated-lead-in trap appears, and records the actual line numbers in the step episode.
 
 ## Artifacts and Notes
 <!-- Empty at Phase 1. -->
