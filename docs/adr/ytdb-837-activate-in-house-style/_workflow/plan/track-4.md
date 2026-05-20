@@ -13,6 +13,7 @@ Adds Tier-A pointer to `implementer-rules.md § Tooling discipline` for log / co
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-20T03:32Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-20T05:55Z [ctx=safe] Step 1 complete (commit 4a7b4fd770)
 
 ## Surprises & Discoveries
 <!-- Empty at Phase 1. -->
@@ -56,12 +57,24 @@ Invariants to preserve: every modified file's existing § headings stay intact. 
 
 ## Concrete Steps
 
-1. Insert the canonical house-style pointer paragraph into `.claude/workflow/implementer-rules.md § Tooling discipline` (as a sixth bullet appended to the existing pointers list at the end of the section, immediately before the closing `---` separator that precedes `## Coverage gate command`) AND into `.claude/workflow/episode-format-reference.md` (appended to the intro block immediately before the first `---` separator that precedes `## Write checklist (commit-then-episode)`). The implementer-rules.md bullet carries both Tier-A and Tier-B language per the § Context template; the episode-format-reference.md pointer is Tier-A only. Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces (Track 3 F1 hazard). Use native `Edit` per the Track 3 fallback (steroid_apply_patch is not exposed in implementer spawns). Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/implementer-rules.md .claude/workflow/episode-format-reference.md | wc -l` returns `2`; `awk '/^---$/{c++} END{print c}'` on each file returns the pre-change separator count plus zero (insertions do not add `---` lines). — risk: low (default: pure documentation insertion; no semantic change)  [ ]
+1. Insert the canonical house-style pointer paragraph into `.claude/workflow/implementer-rules.md § Tooling discipline` (as a sixth bullet appended to the existing pointers list at the end of the section, immediately before the closing `---` separator that precedes `## Coverage gate command`) AND into `.claude/workflow/episode-format-reference.md` (appended to the intro block immediately before the first `---` separator that precedes `## Write checklist (commit-then-episode)`). The implementer-rules.md bullet carries both Tier-A and Tier-B language per the § Context template; the episode-format-reference.md pointer is Tier-A only. Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces (Track 3 F1 hazard). Use native `Edit` per the Track 3 fallback (steroid_apply_patch is not exposed in implementer spawns). Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/implementer-rules.md .claude/workflow/episode-format-reference.md | wc -l` returns `2`; `awk '/^---$/{c++} END{print c}'` on each file returns the pre-change separator count plus zero (insertions do not add `---` lines). — risk: low (default: pure documentation insertion; no semantic change)  [x]  commit: 4a7b4fd770
 
 2. Insert the canonical Tier-A house-style pointer paragraph into `.claude/workflow/step-implementation.md` (appended after the five-bullet "The episode includes:" list ends at line 816, before the paragraph "Write the episode to the track file …") AND into `.claude/workflow/commit-conventions.md` (appended after the `reason:` slug table inside `## Commit type prefixes` ends at line 148, before the "Branch-only commit messages may cite workflow-internal identifiers …" paragraph at line 149). Both pointers are Tier-A only per the § Context guidance — code-comment scale does not apply to per-step orchestration prose or commit-body discipline. Before patching each file, scan ±5 lines around the chosen anchor and confirm the insertion does NOT fall between a colon-terminated lead-in and the enumerated list the colon introduces. Use native `Edit` per the Track 3 fallback. Validation: `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/step-implementation.md .claude/workflow/commit-conventions.md | wc -l` returns `2`; `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts' .claude/workflow/implementer-rules.md .claude/workflow/step-implementation.md .claude/workflow/commit-conventions.md .claude/workflow/episode-format-reference.md | wc -l` returns `4` (cumulative across both steps). — risk: low (default: pure documentation insertion; no semantic change)  [ ]
 
 ## Episodes
-<!-- Empty at Phase 1. -->
+
+### Step 1 — commit 4a7b4fd770, 2026-05-20T05:55Z [ctx=safe]
+**What was done:** Appended a sixth bullet to `.claude/workflow/implementer-rules.md § Tooling discipline` carrying both Tier-A scope (commit message bodies, episode-draft and fix-notes prose, `CROSS_TRACK_HINTS`, durable artifact text) and Tier-B scope (code comments, Javadoc bodies, test method names and descriptions). Appended a Tier-A-only paragraph to the intro block of `.claude/workflow/episode-format-reference.md` before the first `---` separator. Both pointers reference `conventions.md §1.5` and name the four banned-section heading slugs verbatim (`## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`). Acceptance grep `grep -l 'conventions.md §1.5 Writing style for Markdown and prose artifacts'` over the two files returns `2`.
+
+**What was discovered:** The Step 1 implementer used the form `[conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md)` (Markdown link, relative path, no backticks) for the citation in both files. Track 3's 28 pointer sites use the bare-backticked form `` `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` `` (no link, single backticks around the whole reference). Both forms satisfy the literal-substring acceptance grep, so the rename gate stays operational, but Track 4's pointer wording is not byte-identical to Track 3's. The divergence is intentional: relative-path link form fits the surrounding pointer style of `implementer-rules.md § Tooling discipline` (sibling bullets use the same `[\`file\`](file)` shape), and `episode-format-reference.md` lives in the same directory as `conventions.md` so the relative path resolves cleanly. Step 2 of this track will follow the same link form for in-track consistency; Track 3's 28 sites stay as-is.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `.claude/workflow/implementer-rules.md` (modified) — sixth bullet at end of `§ Tooling discipline` before the closing `---`
+- `.claude/workflow/episode-format-reference.md` (modified) — paragraph appended to intro block before the first `---` separator
+
+**Critical context:** none.
 
 ## Validation and Acceptance
 
