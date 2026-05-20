@@ -15,6 +15,7 @@ Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap 
 - [ ] Track completion
 - [x] 2026-05-20T14:11Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-20T14:34Z [ctx=safe] Step 1 complete (commit a0e6e0a9db)
+- [x] 2026-05-20T14:40Z [ctx=safe] Step 2 complete (commit 2914100c61)
 
 ## Base commit
 
@@ -85,7 +86,7 @@ Three edits, each landing in a separate commit so each is independently reviewab
 ## Concrete Steps
 
 1. Rewrite the `Section length cap` rule body in `house-style.md` (line 262) and the matching `## Self-check` step 7 (line 363) as a soft cap plus a categorical exemption clause and a padding-based finding criterion — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [x] commit: a0e6e0a9db
-2. Update all always-loaded and dispatcher restatements in one atomic commit: four sites in `.claude/agents/review-workflow-writing-style.md` (lines 3, 18, 69-71, 121), `CLAUDE.md:102`, and `.claude/skills/code-review/SKILL.md:313` — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
+2. Update all always-loaded and dispatcher restatements in one atomic commit: four sites in `.claude/agents/review-workflow-writing-style.md` (lines 3, 18, 69-71, 121), `CLAUDE.md:102`, and `.claude/skills/code-review/SKILL.md:313` — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [x] commit: 2914100c61
 3. Add back-references to the new house-style clause in `.claude/workflow/episode-format-reference.md § Episode length rule` (line 346) and `.claude/workflow/conventions-execution.md §2.2 Episode Formats` (line 284) — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
 
 ## Episodes
@@ -100,6 +101,16 @@ Three edits, each landing in a separate commit so each is independently reviewab
 **What changed from the plan:** none.
 
 **Key files:** `.claude/output-styles/house-style.md` (modified).
+
+### Step 2 — commit 2914100c61, 2026-05-20T14:40Z [ctx=safe]
+
+**What was done:** Rewrote six always-loaded and dispatcher restatements of the section length cap rule in one atomic `steroid_apply_patch`. Four sites in `.claude/agents/review-workflow-writing-style.md` (frontmatter `description:` at line 3, key-rules bullet at line 18, review-criteria block under `### Section length` at lines 69-71, and the `Recommended` shape in the output-format template at line 121), plus `CLAUDE.md:102` (always-loaded house-style activation paragraph) and `.claude/skills/code-review/SKILL.md:313` (`/code-review` agent-dispatch list entry). Five of the six sites carry all three rule elements: the soft cap (≤200 words as a heuristic trigger), the exemption clause naming the five template-bound shapes, and the padding-based finding criterion citing `§ Banned vocabulary`, `§ Banned sentence patterns`, and `§ Elegant variation`. The frontmatter `description:` compresses the padding criterion out, landing at 149 chars (within the ≤ ~150 always-loaded budget) and keeping (a) the soft-cap signal and (b) the template-bound-exemptions signal.
+
+**What was discovered:** The frontmatter `description:` budget at ≤ ~150 chars is tight against the new three-element rule shape; the only way to fit was to drop the padding-criterion mention from the description and rely on the agent body and `house-style.md` itself to carry the full criterion. The dispatcher entry in `.claude/skills/code-review/SKILL.md:313` lives in a numbered list where every other agent entry is one short line; the new `review-workflow-writing-style` entry is now markedly longer than its siblings. Acceptable because the entry is parsed by humans during dispatch decisions, not by a strict per-bullet length rule, and the entry's length is structural (three load-bearing elements), not padded. Cross-step note for Step 3 within this track: anchor the back-references on the clause label "Section length cap exception" in `house-style.md § Structural rules` rather than line numbers, since Step 1 shifted house-style.md line numbers by +2 around the rule body.
+
+**What changed from the plan:** none.
+
+**Key files:** `.claude/agents/review-workflow-writing-style.md`, `CLAUDE.md`, `.claude/skills/code-review/SKILL.md` (all modified).
 
 ## Validation and Acceptance
 
