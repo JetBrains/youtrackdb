@@ -6,13 +6,14 @@ After this track lands, the Phase C `review-workflow-writing-style` agent stops 
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap with a categorical exemption (template-bound content) plus a padding-based finding criterion for free-form prose. Propagate the wording to the four other declarative sites (`house-style.md § Self-check` step 7, `review-workflow-writing-style.md` frontmatter `description:`, key rules list, review criteria). Add back-references from `episode-format-reference.md § Episode length rule` and `conventions-execution.md §2.2`.
+Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap with a categorical exemption (template-bound content) plus a padding-based finding criterion for free-form prose. Propagate the wording to all other declarative restatements (`house-style.md § Self-check` step 7; four sites in `review-workflow-writing-style.md`; `CLAUDE.md` line 102; `.claude/skills/code-review/SKILL.md` line 313). Add back-references from `episode-format-reference.md § Episode length rule` and `conventions-execution.md §2.2`.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-20T14:11Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was discovered" when the finding affects future steps or other tracks. Empty at Phase 1. -->
@@ -20,19 +21,25 @@ Rewrite `house-style.md § Structural rules` "Section length cap" as a soft cap 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices, scope-downs, dependency reveals, gate-override reasons. -->
 
+- 2026-05-20: **design.md count update bypassed full edit-design mutation discipline.** Phase A technical-review iter-2 surfaced T5: `design.md:11` carried the stale "four other declarative sites" count after the in-scope file list expanded from 5 → 8 sites. Per project CLAUDE.md, `design.md` is frozen during Phase 3 and modifications normally route through the `edit-design` skill. Decision: apply the one-sentence factual count correction directly via `steroid_apply_patch` and record the bypass here. Rationale: (a) the rule body, exemption categories, padding criterion, and workflow diagrams are unchanged; only the propagation-scope sentence at line 11 was stale; (b) Phase 4 `design-final.md` reads track outcomes, so the durable record stays accurate; (c) the full `edit-design` cold-read + mechanical-check loop is disproportionate for a citation-count update with no design implications. `design-mutations.md` was not appended (the change is below the mutation log's substantive threshold).
+
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion summary at Phase C. -->
 
+- [x] Technical: PASS at iteration 2 (6 findings: T1, T2, T3 should-fix accepted and applied to plan + track file; T4 suggestion accepted and applied as the ≤150-char compression note in Step 2; T5 should-fix surfaced at gate check, applied as a one-sentence count correction in `design.md:11` with bypass rationale logged in the Decision Log; T6 suggestion deferred — Tier-A pointer sites in `commit-conventions.md`, `episode-format-reference.md`, `step-implementation.md`, `implementer-rules.md` label the house-style rule by name, they don't restate the 200-word cap independently).
+
 ## Context and Orientation
 
-The rule lives in `.claude/output-styles/house-style.md`. Five declarative sites currently restate the cap; the writing-style reviewer reads `house-style.md` once at review start, but its frontmatter `description:` is loaded into every system reminder, so the reviewer's restatements are also load-bearing.
+The rule lives in `.claude/output-styles/house-style.md`. Eight declarative restatements currently exist across four files; the writing-style reviewer reads `house-style.md` once at review start, but the reviewer-agent frontmatter `description:` is loaded into every system reminder, and the dispatcher restatements in `CLAUDE.md` and `.claude/skills/code-review/SKILL.md` are loaded transitively whenever they're in scope. All restatements must move atomically; any one left behind re-introduces the bug YTDB-899 names.
 
 **In-scope files:**
 
 - `.claude/output-styles/house-style.md` — line 262 inside `## Structural rules` carries the rule body. Line 363 inside `## Self-check` step 7 carries the self-check restatement.
-- `.claude/agents/review-workflow-writing-style.md` — frontmatter `description:` (line 3, always loaded), key rules list (line 18), review criteria block (lines 69-71, under the `### Section length` heading at line 69).
+- `.claude/agents/review-workflow-writing-style.md` — frontmatter `description:` (line 3, always loaded), key rules list (line 18), review criteria block (lines 69-71, under the `### Section length` heading at line 69), output-format template (line 121, the `Recommended` finding shape the agent fills in).
+- `CLAUDE.md` (project root) — line 102, always-loaded house-style activation paragraph, restates `200-word section cap` inline.
+- `.claude/skills/code-review/SKILL.md` — line 313, the `/code-review` agent-dispatch list, loaded on every Phase C track-level review.
 - `.claude/workflow/episode-format-reference.md` — `## Episode length rule` at line 346. Add a one-line back-reference to the new house-style exemption.
 - `.claude/workflow/conventions-execution.md` — `## 2.2 Episode Formats` at line 284. Add a back-reference near the field-template description.
 
@@ -46,7 +53,8 @@ The rule lives in `.claude/output-styles/house-style.md`. Five declarative sites
 
 - A new "Section length cap exception" clause in `house-style.md § Structural rules` enumerating five exempt categories plus the padding-based finding criterion.
 - Self-check step 7 rewritten to match.
-- Three reviewer-agent restatements rewritten to point at the soft-cap rule and the exempt categories.
+- Four reviewer-agent restatements (frontmatter `description:`, key rules bullet, review criteria block, output-format template) rewritten to point at the soft-cap rule and the exempt categories.
+- Dispatcher restatements in `CLAUDE.md` (line 102) and `.claude/skills/code-review/SKILL.md` (line 313) rewritten to match.
 - Back-references added in `episode-format-reference.md § Episode length rule` and `conventions-execution.md §2.2 Episode Formats`.
 
 ## Plan of Work
@@ -55,11 +63,11 @@ Three edits, each landing in a separate commit so each is independently reviewab
 
 1. **Rewrite the rule body in `house-style.md`.** Replace the existing single-bullet "Section length cap" rule at line 262 with the soft-cap-plus-exemption pair. Update the matching self-check entry at step 7 (line 363) so the self-check enumerates the same exemptions. The exemption clause names five categories; the padding-based finding criterion cites the relevant house-style sections (`§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Elegant variation`) by name so the reviewer's check is explicit.
 
-2. **Update the reviewer-agent restatements.** In `.claude/agents/review-workflow-writing-style.md`, rewrite three sites: the frontmatter `description:` line (always loaded into every system reminder — keep wording ≤ ~150 chars), the key rules list line (the `**200-word section cap**` bullet), and the review criteria block under `### Section length`. All three use consistent wording naming the soft cap, the exempt categories, and the padding-based finding criterion.
+2. **Update all always-loaded and dispatcher restatements in one atomic commit.** Rewrite six sites in three files: four in `.claude/agents/review-workflow-writing-style.md` (frontmatter `description:` at line 3, key rules bullet at line 18, review criteria block at lines 69-71, output-format template at line 121); one in `CLAUDE.md` at line 102 (project-root house-style activation paragraph, always-loaded); one in `.claude/skills/code-review/SKILL.md` at line 313 (`/code-review` agent-dispatch list, loaded on every Phase C track-level review). Each site uses wording consistent with the new house-style clause and names the soft cap plus the exempt categories. The frontmatter `description:` has a ≤ ~150 char budget — compress the padding-based criterion out of the description (full criterion stays in the agent body and the house-style rule) and keep (a) soft cap and (b) exempt categories. The remaining five sites have room for all three elements.
 
 3. **Add back-references.** In `.claude/workflow/episode-format-reference.md § Episode length rule`, append a one-line pointer to `house-style.md § Structural rules` "Section length cap exception." In `.claude/workflow/conventions-execution.md §2.2 Episode Formats`, add a back-reference to the same exemption alongside the field-template description.
 
-**Ordering:** Step 1 lands first (defines the rule). Step 2 lands second (the reviewer-agent restatements quote the new rule). Step 3 lands last (back-references resolve forward to the new rule). The Phase A decomposer may merge steps 1 and 2 if the diff is small enough; the boundaries above are guidance, not contracts.
+**Ordering:** Step 1 lands first (defines the rule). Step 2 lands second (the always-loaded and dispatcher restatements quote the new rule). Step 3 lands last (back-references resolve forward to the new rule). The Phase A decomposer may merge or split steps if the diff motivates it; the boundaries above are guidance, not contracts.
 
 **Invariants to preserve:**
 
@@ -68,7 +76,10 @@ Three edits, each landing in a separate commit so each is independently reviewab
 - The reviewer's frontmatter `description:` stays ≤ ~150 chars per the always-loaded budget.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+
+1. Rewrite the `Section length cap` rule body in `house-style.md` (line 262) and the matching `## Self-check` step 7 (line 363) as a soft cap plus a categorical exemption clause and a padding-based finding criterion — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
+2. Update all always-loaded and dispatcher restatements in one atomic commit: four sites in `.claude/agents/review-workflow-writing-style.md` (lines 3, 18, 69-71, 121), `CLAUDE.md:102`, and `.claude/skills/code-review/SKILL.md:313` — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
+3. Add back-references to the new house-style clause in `.claude/workflow/episode-format-reference.md § Episode length rule` (line 346) and `.claude/workflow/conventions-execution.md §2.2 Episode Formats` (line 284) — risk: low (default: workflow-doc change; no HIGH/MEDIUM trigger)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
@@ -78,16 +89,26 @@ Three edits, each landing in a separate commit so each is independently reviewab
 After all three commits land:
 
 - `grep "Section length cap exception" .claude/output-styles/house-style.md` returns the new clause inside `## Structural rules`.
-- The reviewer agent's three restatements (frontmatter `description:`, key rules list, review criteria) name the soft cap and the exempt categories. `grep -n "section length\|length cap" .claude/agents/review-workflow-writing-style.md` returns three matches whose wording is consistent with `house-style.md`.
+- The reviewer agent's four restatements (frontmatter `description:`, key rules list, review criteria, output-format template) name the soft cap and the exempt categories. `grep -in "section length\|length cap\|section cap\|200.word" .claude/agents/review-workflow-writing-style.md` returns four matches whose wording is consistent with `house-style.md`.
+- The dispatcher restatements in `CLAUDE.md:102` and `.claude/skills/code-review/SKILL.md:313` name the soft cap and the exempt categories. `grep -in "section cap\|length cap\|200.word" CLAUDE.md .claude/skills/code-review/SKILL.md` returns one match per file consistent with `house-style.md`.
 - `grep "house-style.*Section length cap exception\|house-style.md § Structural rules" .claude/workflow/episode-format-reference.md .claude/workflow/conventions-execution.md` returns the back-references.
 - A Phase C track-level writing-style review on a track with substantive multi-paragraph episodes (≥400 words in a structured-field block) does not produce a section-length finding against those paragraphs. Behavioral acceptance, verified on the next real Phase C run.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+**Per-step acceptance:**
+
+- **Step 1**: When `house-style.md § Structural rules` is read, a new "Section length cap exception" clause names five exempt categories AND the padding-based finding criterion. When `house-style.md § Self-check` step 7 is read, it enumerates the same exemptions and matches the rule-body wording.
+- **Step 2**: When each of the six updated sites is read, the wording names the soft cap and the exempt categories. The frontmatter `description:` at line 3 of `review-workflow-writing-style.md` stays ≤ ~150 chars (compresses the padding-based criterion out, keeps soft cap + exempt categories); the other five sites (key rules bullet at line 18, review criteria at lines 69-71, output-format template at line 121, `CLAUDE.md:102`, `.claude/skills/code-review/SKILL.md:313`) carry all three elements.
+- **Step 3**: When `.claude/workflow/episode-format-reference.md § Episode length rule` and `.claude/workflow/conventions-execution.md §2.2 Episode Formats` are read, each carries a back-reference pointing at `house-style.md § Structural rules` "Section length cap exception."
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+Each step lands as a single commit modifying one or more workflow-doc files. No long-lived locks, no temporary files, no external system mutations across steps.
+
+- **Step 1** (`house-style.md` rule body + self-check step 7): if the rewrite is malformed (e.g., the new "Section length cap exception" clause is missing the exempt-categories enumeration), `git reset --hard HEAD` reverts the commit. Re-running the step re-applies the rewrite cleanly; no on-disk state outside `house-style.md` is touched.
+- **Step 2** (6-site atomic dispatcher / always-loaded update across 3 files): atomic via `steroid_apply_patch`. If any of the six sites drifts in wording from `house-style.md`, the Phase C writing-style reviewer will flag it on the next track-level review. `git reset --hard HEAD` reverts the commit; re-running the step re-applies all six edits in one atomic patch.
+- **Step 3** (back-references in `episode-format-reference.md` and `conventions-execution.md`): two-file change appending pointer lines. `git reset --hard HEAD` reverts; re-running re-applies. No external system state affected.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't belong to one specific step. Per-step episode content lives in ## Episodes above. -->

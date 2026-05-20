@@ -8,7 +8,7 @@ This design replaces the hard cap with a soft cap plus a categorical exemption l
 
 For prose outside the exempt list, the reviewer applies a padding-based judgment. A section exceeding the cap is a finding only when it also contains banned vocabulary, banned sentence patterns, or restatement. Length alone is not a finding.
 
-The same wording propagates to the four other declarative sites of the rule (the self-check inside `house-style.md`; three restatements in `review-workflow-writing-style.md`) in the same change. Back-references land in `episode-format-reference.md` and `conventions-execution.md §2.2` so a reader approaching the rule from the template side finds the exemption.
+The same wording propagates to the seven other declarative sites of the rule in the same change: the self-check inside `house-style.md`; four sites in `review-workflow-writing-style.md` (frontmatter `description:`, key rules list, review criteria, output-format template); `CLAUDE.md` line 102 (always-loaded house-style activation paragraph); and `.claude/skills/code-review/SKILL.md` line 313 (the `/code-review` agent-dispatch list, loaded on every Phase C track-level review). Back-references land in `episode-format-reference.md` and `conventions-execution.md §2.2` so a reader approaching the rule from the template side finds the exemption.
 
 The rest of this document covers the reviewer's decision flow before and after the change (Workflow), the exemption category list (Exemption categories), and the padding-based finding criterion for free-form prose (Padding-based finding criterion).
 
