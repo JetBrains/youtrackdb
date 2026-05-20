@@ -128,3 +128,7 @@ Mid-loop protocols:
 - `workflow.md` is loaded at every `/execute-tracks` startup; the pointer is additive context, not a behavior change.
 
 **Library / function signatures relevant to this track:** none — pure documentation edits.
+
+## Base commit
+
+346adff40f21873a45fcd445730969ab740119e2
