@@ -170,8 +170,10 @@ flowchart LR
 
 ### Integration Points
 
-- `gh pr view <ref> --json headRefOid,baseRepository,number,files` reads PR
-  metadata at session start and again at submission.
+- `gh pr view <ref> --json headRefOid,number,files` reads PR metadata at
+  session start and again at submission. `files`-element shape and the
+  `.path` access pattern are documented in design.md §"gh-api submission
+  payload".
 - `gh repo view --json nameWithOwner` resolves owner/repo for the API path.
 - `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews --input -` posts
   the bulk review with the composed JSON payload on stdin.
@@ -207,10 +209,10 @@ flowchart LR
   > without PR posting), so the runtime can be exercised end-to-end before
   > Track 2 adds the DR-audit sub-agent and the `gh api` submission
   > machinery.
-  > **Scope:** ~3-4 steps covering SKILL.md frontmatter and instructions,
+  > **Scope:** ~4-5 steps covering SKILL.md frontmatter and instructions,
   > `$ARGUMENTS` resolution and HEAD verification, workflow-doc and
-  > artifact discovery, and research-mode behavior and observation
-  > recording.
+  > artifact discovery, research-mode behavior and observation recording,
+  > and the end-of-session stub.
 
 - [ ] Track 2: DR-audit sub-agent and PR submission
   > Author the DR-focused sub-agent prompt under the skill directory and
@@ -240,7 +242,11 @@ flowchart LR
   > **Depends on:** Track 2
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**: CR1 (dropped invalid `baseRepository` field from `gh pr view --json` across plan, track-1, design.md sequenceDiagram; added separate `gh repo view --json nameWithOwner` call in design.md); CR2 (rewrote design.md `gh pr checkout` detached-HEAD claim to reflect default named-branch behavior); CR3 (rewrote track-2.md GitHub-required-fields paragraph to accurately separate GitHub's contract from what the skill sends); CR4 (clarified `files`-array element shape across plan and design.md); S2 (trimmed Integration Points first bullet from 4 lines to 3, deferred element-shape detail to design.md).
+
+**Escalated (design decisions)**: S1 — Track 1 scope `~3-4 steps` mismatched its 5-step Plan of Work enumeration. User chose to bump scope to `~4-5 steps` and align the scope line with the five planned work items.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

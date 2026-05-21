@@ -103,8 +103,10 @@ sequenceDiagram
 
     R->>Sh: gh pr checkout <N>
     R->>Sk: /review-workflow-pr <N>
-    Sk->>GH: gh pr view --json headRefOid,baseRepository,files
-    GH-->>Sk: head SHA, owner/repo, changed paths
+    Sk->>GH: gh pr view --json headRefOid,files
+    GH-->>Sk: head SHA, files array
+    Sk->>GH: gh repo view --json nameWithOwner
+    GH-->>Sk: owner/repo
     Sk->>Sh: git rev-parse HEAD
     Sh-->>Sk: local SHA
     Note over Sk: assert local SHA == head SHA
@@ -164,8 +166,10 @@ or (b) abort the submission and re-checkout. The default safe path is (b).
 
 ### Edge cases / Gotchas
 
-- `gh pr checkout` puts the working tree in detached-HEAD state. That is
-  fine for the verification check.
+- `gh pr checkout` typically creates a named local branch tracking the PR
+  head, and uses a detached HEAD only with `--detach`. Either case is fine
+  for the verification check: `git rev-parse HEAD` returns the head SHA
+  regardless of branch shape.
 - A reviewer who has cherry-picked or amended local commits on top of the
   PR checkout will fail verification. The skill's error message names both
   the expected head SHA and the local HEAD so the reviewer can decide
@@ -292,8 +296,10 @@ composed JSON on stdin. The skill prints the resulting review URL on success.
 
 - GitHub rejects a review if a comment's `path` is not in the PR's changed
   file set. The skill validates each observation's path against the `files`
-  field of `gh pr view` before posting and reports any mismatch with the
-  observation index so the reviewer can fix or remove it.
+  array of `gh pr view` (each element carries `path`, `additions`,
+  `deletions`, `changeType`; the skill reads `.path`) before posting and
+  reports any mismatch with the observation index so the reviewer can fix
+  or remove it.
 - GitHub rejects a review if a comment's `line` is outside the file's diff.
   For files newly added by the PR, `side=RIGHT` plus the file's current line
   numbers works without further translation. For files modified by the PR,

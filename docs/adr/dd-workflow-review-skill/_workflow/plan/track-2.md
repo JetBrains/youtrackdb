@@ -157,6 +157,12 @@ Inter-track dependencies:
 GitHub REST API contract (binding for the JSON payload):
 
 - Endpoint: `POST /repos/{owner}/{repo}/pulls/{N}/reviews`
-- Required fields: `event` (`APPROVE` | `REQUEST_CHANGES` | `COMMENT`),
-  `body` (string), `commit_id` (SHA matching the current PR head),
-  `comments[]` (each: `path`, `line`, `side`, `body`).
+- Required by GitHub: each `comments[]` element's `path` and `body`. Other
+  fields are optional in the API and acquire defaults when omitted
+  (`event` omitted yields a PENDING draft; `commit_id` omitted defaults
+  to the current PR head; `body` is required only when `event` is
+  `REQUEST_CHANGES` or `COMMENT`).
+- The skill sends all of `event` (`APPROVE` | `REQUEST_CHANGES`),
+  `body` (string), `commit_id` (SHA verified against the current PR
+  head), and each comment's `line` plus `side: "RIGHT"` so the review
+  is anchored, line-pinned, and never lands as a PENDING draft.

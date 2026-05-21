@@ -84,11 +84,11 @@ decompose the precise step boundaries):
    frontmatter and the top-level outline. Document the invocation contract:
    PR identifier as `$ARGUMENTS`, default to the current branch's PR.
 2. Write the preflight instructions: parse `$ARGUMENTS` (PR number, URL, or
-   branch), resolve to a PR number via `gh pr view <ref>`, fetch head SHA +
-   owner/repo + changed files via `gh pr view --json
-   headRefOid,baseRepository,number,files`, verify local HEAD matches with
-   `git rev-parse HEAD`, error out with a clear `gh pr checkout` command on
-   mismatch.
+   branch), resolve to a PR number via `gh pr view <ref>`, fetch head SHA
+   and changed files via `gh pr view --json headRefOid,number,files`,
+   resolve owner/repo via `gh repo view --json nameWithOwner`, verify local
+   HEAD matches with `git rev-parse HEAD`, error out with a clear
+   `gh pr checkout` command on mismatch.
 3. Write the artifact discovery instructions: resolve `<dir>` (branch-name
    default, list-and-pick fallback when missing), enumerate the workflow
    artifacts under `docs/adr/<dir>/_workflow/`, fail clearly if the
@@ -162,7 +162,7 @@ Existing files referenced but not modified:
 
 External tools the skill calls during this track:
 
-- `gh pr view --json headRefOid,baseRepository,files,number`
+- `gh pr view --json headRefOid,files,number`
 - `gh repo view --json nameWithOwner`
 - `git rev-parse HEAD`
 
