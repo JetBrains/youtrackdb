@@ -446,4 +446,65 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Override the sonatype-oss-release profile defined in the parent POM.
+      This module has no src/main/java so maven-source-plugin and
+      maven-javadoc-plugin are skipped (see the module-level <build> above);
+      Maven Central still requires -sources.jar and -javadoc.jar classifiers
+      on every published artifact, so we attach stub jars whose only payload
+      is release-stub/README.md (placed at the jar root for visibility) that
+      points consumers at youtrackdb-core for the real sources and Javadocs.
+      Bound to prepare-package to avoid an implicit ordering dependency on
+      maven-shade-plugin (which also runs in package and is declared first).
+    -->
+    <profile>
+      <id>sonatype-oss-release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jar-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>release-stub-sources-jar</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>sources</classifier>
+                  <classesDirectory>${project.basedir}/release-stub</classesDirectory>
+                  <!--
+                    Whitelist the README explicitly so that any file later
+                    added to release-stub/ does not silently ship inside the
+                    published artifact. Keep this list in sync with the
+                    release-stub/ contents.
+                  -->
+                  <includes>
+                    <include>README.md</include>
+                  </includes>
+                </configuration>
+              </execution>
+              <execution>
+                <id>release-stub-javadoc-jar</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>javadoc</classifier>
+                  <classesDirectory>${project.basedir}/release-stub</classesDirectory>
+                  <includes>
+                    <include>README.md</include>
+                  </includes>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
