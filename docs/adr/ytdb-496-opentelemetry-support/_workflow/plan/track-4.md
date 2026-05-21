@@ -40,46 +40,44 @@ db.command("SELECT ...") | db.query("...")
 Available state at hook time:
 - `stringStatement` (String): the raw SQL text. Null only on internal recursive call with pre-parsed statement; the fallback is `statement.getOriginalStatement()`.
 - `args` (Object): positional `Object[]` or named `Map<Object, Object>` parameters.
-- `currentTx` (FrontendTransaction): the active transaction. The `getTrackingId()` method lives on `YTDBTransaction`, not on `FrontendTransaction`, so the hook either casts when possible or generates a synthetic tracking ID from `currentTx`'s internal ID when no `YTDBTransaction` wraps it.
+- `currentTx` (FrontendTransaction): the active transaction. The existing `FrontendTransaction.getId(): long` accessor returns a stable internal ID; the hook uses `String.valueOf(currentTx.getId())` as the tracking ID — no new accessor is added (CR16 resolution).
 - `statement` (SQLStatement): the parsed AST, available after `SQLEngine.parse(...)`.
 
 OTel-module-side classes:
 - `SqlSanitizer`: pure function `sanitize(String rawSql) → String`. Replaces string literals (between single quotes), numeric literals, date literals, and boolean literals with `?`. Parameterized query text (already contains `?`) passes through unchanged. Conservative on edge cases: when uncertain, leaves the text as-is rather than corrupting it.
-- `SqlSyntaxClassifier`: implements `QueryClassifier` SPI. Method `classify(Object source) → Classification` receives the `SQLStatement` object passed by the hook. Returns operation name based on statement subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / CREATE / ALTER / DROP) and collection name from FROM / INTO / UPDATE target class.
+- `SqlSyntaxClassifier`: implements `QueryClassifier` SPI. Method `classify(Object source) → Classification` receives the `SQLStatement` object passed by the hook. Returns operation name based on statement subclass (`SQLSelectStatement` → SELECT, `SQLInsertStatement` → INSERT, `SQLUpdateStatement` → UPDATE, `SQLDeleteStatement` → DELETE, `SQLMatchStatement` → MATCH, `SQLCreateClassStatement` → CREATE, `SQLAlterClassStatement` → ALTER, `SQLDropClassStatement` → DROP) and collection name from FROM / INTO / UPDATE target class.
 
 Concrete deliverables:
 
-1. New listener fire site in `DatabaseSessionEmbedded.executeInternal()` wrapping `statement.execute(...)` with a timer and a `QueryDetails` construction. Reads the global registry snapshot from the current transaction (via the registry SPI from Track 1).
-2. A SQL-flavored `QueryDetails` implementation carrying raw SQL, sanitized SQL, operation name, collection name, tracking ID. Lives in `core` (close to the hook site) and uses the new `QueryClassifier` SPI to populate operation/collection lazily.
-3. `core` interface `QueryClassifier` with `classify(Object source) → Classification` (the source object is statement-source-specific: `Bytecode` for Gremlin, `SQLStatement` for SQL). ServiceLoader-discovered.
-4. `SqlSanitizer` in `youtrackdb-opentelemetry`, regex-based with carefully tested edge cases.
-5. `SqlSyntaxClassifier` in `youtrackdb-opentelemetry`, registered as a `QueryClassifier` service via `META-INF/services/`.
-6. Transaction-tracking-id resolution: add `getTrackingId(): Optional<String>` default method to the lower-level transaction interface that `currentTx` is typed as, with `YTDBTransaction` overriding it to return the actual tracking ID. Fallback to a synthetic ID from `currentTx.hashCode()` when no override is present.
+1. New listener fire site in `DatabaseSessionEmbedded.executeInternal()` wrapping `statement.execute(...)` with a timer and a `QueryDetails` construction. Reads the global registry snapshot from `currentTx` (captured at `beginInternal` time per Track 1).
+2. A SQL-flavored `QueryDetails` implementation carrying raw SQL, sanitized SQL, operation name, collection name, database name, tracking ID. Lives in `core` (close to the hook site) and uses the `QueryClassifier` SPI to populate operation/collection lazily; database name comes from `getDatabaseName()` on the session; tracking ID is `String.valueOf(currentTx.getId())`.
+3. `SqlSanitizer` in `youtrackdb-opentelemetry`, regex-based with carefully tested edge cases.
+4. `SqlSyntaxClassifier` in `youtrackdb-opentelemetry`, registered as a `QueryClassifier` service via `META-INF/services/`.
+
+The `QueryClassifier` interface and `Classification` record both land in Track 1 — Track 4 only adds the SQL impl on top of them. No new `FrontendTransaction.getTrackingId()` accessor is needed (CR16 resolution).
 
 ## Plan of Work
 
-Six edits.
+Five edits. The `QueryClassifier` SPI and `Classification` record both come from Track 1, so Track 4 only adds the SQL impl on top.
 
-The first edit defines the `QueryClassifier` SPI in `core` and refactors Track 3's `GremlinBytecodeClassifier` integration to use it (the SPI shape was introduced in Track 3 as ServiceLoader-discovered; this edit formalizes the interface into a named type in `core` so both classifier impls can implement it). The Classification record stays in `core` as a small value type.
+The first edit adds `SqlSanitizer` to the OTel module. Pure regex-based replacement for string literals (`'[^']*'` → `?`), numeric literals (`\b\d+(\.\d+)?\b` → `?`), date/timestamp literals (`DATE 'YYYY-MM-DD'`, `TIMESTAMP '...'`), and boolean literals. The implementation is conservative: when a sequence is ambiguous (e.g., string contains an escaped quote), it returns the input unchanged rather than producing a corrupted output. Unit-tested independently in this track (full coverage of statement-type variations runs in Track 6).
 
-The second edit adds `SqlSanitizer` to the OTel module. Pure regex-based replacement for string literals (`'[^']*'` → `?`), numeric literals (`\b\d+(\.\d+)?\b` → `?`), date/timestamp literals (`DATE 'YYYY-MM-DD'`, `TIMESTAMP '...'`), and boolean literals. The implementation is conservative: when a sequence is ambiguous (e.g., string contains an escaped quote), it returns the input unchanged rather than producing a corrupted output. Unit-tested independently in this track (full coverage of statement-type variations runs in Track 6).
-
-The third edit adds `SqlSyntaxClassifier implements QueryClassifier` to the OTel module. The implementation reads the `SQLStatement` subclass via `instanceof` checks and returns the operation name from a small lookup. Collection name comes from:
+The second edit adds `SqlSyntaxClassifier implements QueryClassifier` to the OTel module. The implementation reads the `SQLStatement` subclass via `instanceof` checks and returns the operation name from a small lookup. Collection name comes from:
 - `SQLSelectStatement.getTarget()` → first class name in FROM clause
 - `SQLMatchStatement` → first pattern node's class
 - `SQLInsertStatement.getTargetClass()` → INTO target
 - `SQLUpdateStatement.getTarget()` → UPDATE target
-- `SQLDeleteStatement.getTarget()` → DELETE target
-- DDL statements → class name from the statement subclass (CREATE CLASS X → "X", CREATE INDEX X.Y → "X")
+- `SQLDeleteStatement.getFromClause()` → DELETE target (first FROM class)
+- `SQLCreateClassStatement` / `SQLAlterClassStatement` / `SQLDropClassStatement` → class name read from the parsed statement
 - Returns `Optional.empty()` for shapes that don't fit (anonymous targets, multi-target).
 
-The fourth edit adds the `getTrackingId(): Optional<String>` method to `FrontendTransaction` interface (default returning `Optional.empty()`), with `YTDBTransaction` overriding it to return the existing tracking ID. This unblocks the hook from needing an instanceof check.
+The third edit adds the listener fire site in `DatabaseSessionEmbedded.executeInternal()`. Wraps `statement.execute(this, args, true)` with `System.nanoTime()` and `System.currentTimeMillis()` start measurements, fires `queryFinished(...)` on every listener in the per-TX snapshot held by `currentTx` after the call completes. The `QueryDetails` impl carries raw SQL (from `stringStatement` or `statement.getOriginalStatement()`), lazy-sanitized SQL (calls `SqlSanitizer.sanitize(...)` on first `getQuery()` call), lazy operation/collection (calls `QueryClassifier.classify(statement)` on first access), the session's database name as `getDatabaseName()`, and `String.valueOf(currentTx.getId())` as the tracking ID. Wrapped in try/catch (widened to `Throwable` per Track 1) so a listener throw does not propagate.
 
-The fifth edit adds the listener fire site in `DatabaseSessionEmbedded.executeInternal()`. Wraps `statement.execute(this, args, true)` with `System.nanoTime()` and `System.currentTimeMillis()` start measurements, fires `queryFinished(...)` on every listener in the global-registry snapshot held by `currentTx` after the call completes. The `QueryDetails` impl carries raw SQL (from `stringStatement` or `statement.getOriginalStatement()`), lazy-sanitized SQL (calls `SqlSanitizer.sanitize(...)` on first `getQuery()` call), and lazy operation/collection (calls `QueryClassifier.classify(statement)` on first access). Wrapped in try/catch so a listener throw does not propagate.
+The fourth edit registers `SqlSyntaxClassifier` in the OTel module's `META-INF/services/<QueryClassifier-FQN>` file alongside `GremlinBytecodeClassifier` (also registered there by Track 3).
 
-The sixth edit adds unit tests for `SqlSanitizer` and `SqlSyntaxClassifier` covering each statement type: SELECT with WHERE clause containing string and numeric literals; MATCH pattern; INSERT INTO ... VALUES; UPDATE ... SET; DELETE FROM; CREATE INDEX; ALTER CLASS. Tests confirm sanitization output and classifier output independently of the listener wiring (full end-to-end flows land in Track 6).
+The fifth edit adds unit tests for `SqlSanitizer` and `SqlSyntaxClassifier` covering each statement type: SELECT with WHERE clause containing string and numeric literals; MATCH pattern; INSERT INTO ... VALUES; UPDATE ... SET; DELETE FROM; CREATE CLASS / ALTER CLASS / DROP CLASS. Tests confirm sanitization output and classifier output independently of the listener wiring (full end-to-end flows land in Track 6).
 
-Ordering: edits 1 → 2,3 (parallel) → 4 → 5 → 6.
+Ordering: edits 1, 2 parallel → edit 3 → edit 4 → edit 5.
 
 ## Concrete Steps
 
@@ -113,14 +111,15 @@ After Track 4:
 ## Interfaces and Dependencies
 
 In scope:
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/QueryClassifier.java` (new SPI interface)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/Classification.java` (small value record)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (listener fire site in `executeInternal()`)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransaction.java` (or its parent interface; new `getTrackingId(): Optional<String>` default)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/YTDBTransaction.java` (override `getTrackingId()` returning the actual ID)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (listener fire site in `executeInternal()`, SQL-flavored `QueryDetails` inline impl)
 - `youtrackdb-opentelemetry/src/main/java/com/jetbrains/youtrackdb/opentelemetry/sql/SqlSanitizer.java`
 - `youtrackdb-opentelemetry/src/main/java/com/jetbrains/youtrackdb/opentelemetry/sql/SqlSyntaxClassifier.java`
-- `youtrackdb-opentelemetry/src/main/resources/META-INF/services/<QueryClassifier-FQN>` (extended to list both Gremlin and SQL classifier impls, or one service entry per implementation if the SPI permits multiple discovery)
+- `youtrackdb-opentelemetry/src/main/resources/META-INF/services/<QueryClassifier-FQN>` (extended to list `SqlSyntaxClassifier` alongside `GremlinBytecodeClassifier` from Track 3)
+
+Out of scope:
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransaction.java` — no new `getTrackingId()` accessor; the hook uses the existing `getId(): long` (CR16 resolution).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBTransaction.java` — not touched.
+- `core/.../QueryClassifier.java` and `core/.../Classification.java` — both land in Track 1.
 
 Out of scope:
 - Configuration parameters and lifecycle wiring (Track 5).
@@ -128,30 +127,13 @@ Out of scope:
 - Native SQL DDL semantics beyond extracting the target class name. The classifier does not validate DDL correctness.
 
 Inter-track dependencies:
-- Depends on Track 1 (TX SPI extensions, global listener registry, `QueryClassifier` SPI slot).
-- Depends on Track 3 (`OTelQueryMetricsListener` exists; the SQL hook feeds into the same listener instance).
+- Depends on Track 1 (TX SPI extensions, global listener registry, `QueryClassifier` SPI + `Classification` record, exception-wrapper widening to `Throwable`, snapshot fields on `FrontendTransactionImpl`).
+- Depends on Track 3 (`OTelQueryMetricsListener` exists; the SQL hook feeds into the same listener instance via the global registry snapshot).
 - Provides for Track 6: full SQL coverage in the test suite, including each statement type and the sanitizer edge cases.
 
-Library / function signatures introduced or modified:
+Library / function signatures introduced:
 
 ```java
-// core
-package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
-
-public interface QueryClassifier {
-  Classification classify(Object source);
-}
-
-public record Classification(
-    Optional<String> operationName,
-    Optional<String> collectionName) {
-  public static final Classification EMPTY =
-      new Classification(Optional.empty(), Optional.empty());
-}
-
-// core, FrontendTransaction interface
-default Optional<String> getTrackingId() { return Optional.empty(); }
-
 // youtrackdb-opentelemetry
 public final class SqlSanitizer {
   public static String sanitize(String rawSql);

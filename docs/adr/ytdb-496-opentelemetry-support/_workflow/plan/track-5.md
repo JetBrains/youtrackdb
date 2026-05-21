@@ -30,36 +30,39 @@ The track wires three lifecycle paths together:
 
 2. Embedded entry: the host application creates a `YouTrackDB` instance via `YourTracks.instance(...)`. There is no plugin SPI, so the host wires OTel by calling `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)` directly before opening transactions. When `OPENTELEMETRY_ENABLED=true` and the host has not wired anything (neither setter call nor `GlobalOpenTelemetry.set(...)`), the facade auto-configures its own SDK from the `OPENTELEMETRY_*` config entries on first listener fire. The facade tracks an `ownedByYtdb` boolean so `shutdown()` closes only the SDK YTDB created.
 
-3. Server entry: `YouTrackDBServer` calls registered `ServerLifecycleListener` implementations during startup and shutdown. The new module ships an `OpenTelemetryServerPlugin implements ServerLifecycleListener` that:
-   - In `onAfterActivate()`, reads `OPENTELEMETRY_*` config entries, builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk.builder().build()`, calls the internal `setOpenTelemetry(sdk, ownedByYtdb=true)` variant so shutdown closes the SDK, registers the OTel listeners with the global registry.
-   - In `onBeforeDeactivate()`, unregisters the listeners, calls `YouTrackDBOpenTelemetry.shutdown()`.
+3. Server entry: `YouTrackDBServer` today calls registered `ServerLifecycleListener` implementations during startup and shutdown — but only listeners explicitly added via `registerLifecycleListener(...)`. The existing code does not load implementations from `META-INF/services/`, so this track adds a `ServiceLoader.load(ServerLifecycleListener.class)` call inside `YouTrackDBServer.activate()` (CR3 resolution) appending every discovered impl to the existing `lifecycleListeners` list before the existing `for (var l : lifecycleListeners)` iteration runs. The new module ships an `OpenTelemetryServerPlugin implements ServerLifecycleListener` that:
+   - In `onAfterActivate()`, reads `OPENTELEMETRY_*` config entries, builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk.builder().build()`, calls the package-private 2-arg `setOpenTelemetry(sdk, ownedByYtdb=true)` variant so shutdown closes the SDK, then calls `YourTracks.registerGlobalQueryListener(otelQueryListener)` and `YourTracks.registerGlobalTransactionListener(otelTxListener)` to enrol the listeners with the process-global registry (CR9: static methods on `YourTracks`).
+   - In `onBeforeDeactivate()`, calls the matching `YourTracks.unregister...` methods, then `YouTrackDBOpenTelemetry.shutdown()`.
 
-The plugin is registered with the server via a `META-INF/services/` entry for `ServerLifecycleListener` (the standard ServiceLoader pattern documented in CLAUDE.md SPI section).
+The plugin is registered with the server via a `META-INF/services/com.jetbrains.youtrackdb.internal.server.ServerLifecycleListener` entry in the OTel module — the `ServiceLoader.load(...)` call added to `YouTrackDBServer.activate()` is what picks it up.
 
 Concrete deliverables:
 
 1. Four `GlobalConfiguration` entries: `OPENTELEMETRY_ENABLED` (Boolean, default false), `OPENTELEMETRY_EXPORTER_ENDPOINT` (String), `OPENTELEMETRY_EXPORTER_PROTOCOL` (String, default `grpc`), `OPENTELEMETRY_SERVICE_NAME` (String, default `youtrackdb`). All env-var capable.
-2. The `YouTrackDBOpenTelemetry` facade extended with three-step lazy resolution chain (explicit setter → `GlobalOpenTelemetry.get()` → auto-configure) gated by `OPENTELEMETRY_ENABLED`. Internal `ownedByYtdb` flag tracks who created the active SDK.
-3. `OpenTelemetryServerPlugin` implementing `ServerLifecycleListener`, ServiceLoader-registered.
-4. A `META-INF/services/com.jetbrains.youtrackdb.internal.server.ServerLifecycleListener` file in the OTel module listing the plugin.
-5. Idempotence: a setter call after auto-configure already ran closes the YTDB-built SDK and switches to the host's instance with `ownedByYtdb=false`. `shutdown` is safe to call multiple times and only closes the SDK when `ownedByYtdb=true`.
-6. An INFO log line on every ownership transition (auto-configure ran, setter override, shutdown) so operators have a breadcrumb trail.
+2. The `YouTrackDBOpenTelemetry` facade extended with three-step lazy resolution chain (explicit setter → `GlobalOpenTelemetry.get()` → auto-configure) gated by `OPENTELEMETRY_ENABLED`. Internal `ownedByYtdb` flag tracks who created the active SDK. A package-private 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` variant lets `OpenTelemetryServerPlugin` signal server-mode ownership; the public single-arg variant always sets `ownedByYtdb=false`.
+3. `ServiceLoader.load(ServerLifecycleListener.class)` call inside `YouTrackDBServer.activate()` appending discovered listeners to the existing `lifecycleListeners` list before the iteration that calls `onAfterActivate` (CR3).
+4. `OpenTelemetryServerPlugin` implementing `ServerLifecycleListener`, ServiceLoader-registered, register / unregister listeners through `YourTracks` static methods.
+5. A `META-INF/services/com.jetbrains.youtrackdb.internal.server.ServerLifecycleListener` file in the OTel module listing the plugin.
+6. Idempotence: a setter call after auto-configure already ran closes the YTDB-built SDK and switches to the host's instance with `ownedByYtdb=false`. `shutdown` is safe to call multiple times and only closes the SDK when `ownedByYtdb=true`.
+7. An INFO log line on every ownership transition (auto-configure ran, setter override, shutdown) so operators have a breadcrumb trail.
 
 ## Plan of Work
 
-Five edits.
+Six edits.
 
 The first edit adds the four `GlobalConfiguration` entries. They sit alphabetically with other config entries; the `isEnv=true` flag is set so `YOUTRACKDB_OPENTELEMETRY_ENABLED=true` works in containerized deployments.
 
-The second edit extends `YouTrackDBOpenTelemetry` with the lazy resolution chain. The `tracer()` accessor (called on first listener fire) runs a synchronized resolution: if `openTelemetry` field is already set, return its tracer; otherwise consult the global, then auto-configure from config. The auto-configure path uses `AutoConfiguredOpenTelemetrySdk.builder().addPropertiesSupplier(...)` to inject our config entries as OTel-conventional property names. Sets `ownedByYtdb=true`. The `setOpenTelemetry(otel)` public method closes the YTDB-built SDK (if any) before installing the new instance, flipping `ownedByYtdb=false`. Both methods register / re-register OTel listeners with the global registry from Track 1 when `OPENTELEMETRY_ENABLED=true`.
+The second edit extends `YouTrackDBOpenTelemetry` with the lazy resolution chain. The `tracer()` accessor (called on first listener fire) runs a synchronized resolution: if `openTelemetry` field is already set, return its tracer; otherwise consult the global, then auto-configure from config. The auto-configure path uses `AutoConfiguredOpenTelemetrySdk.builder().addPropertiesSupplier(...)` to inject our config entries as OTel-conventional property names. Sets `ownedByYtdb=true`. The public single-arg `setOpenTelemetry(OpenTelemetry)` method closes the YTDB-built SDK (if any) before installing the new instance, flipping `ownedByYtdb=false`. A package-private 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` variant lets `OpenTelemetryServerPlugin` install a YTDB-owned SDK without flipping ownership. Both variants register / re-register OTel listeners through `YourTracks.registerGlobalQueryListener(...)` / `registerGlobalTransactionListener(...)` (CR9) when `OPENTELEMETRY_ENABLED=true`.
 
-The third edit implements `OpenTelemetryServerPlugin`. The class lives in `youtrackdb-opentelemetry/.../server/OpenTelemetryServerPlugin.java`. `onAfterActivate` reads config, builds `AutoConfiguredOpenTelemetrySdk` with the OTLP exporter wired to the configured endpoint and protocol, calls the internal `setOpenTelemetry(sdk, ownedByYtdb=true)` variant of the facade. `onBeforeDeactivate` calls `shutdown()` which closes the SDK and unregisters listeners.
+The third edit adds `ServiceLoader.load(ServerLifecycleListener.class)` to `YouTrackDBServer.activate()`. The call sits before the existing `for (var listener : lifecycleListeners) listener.onBeforeActivate(...)` loop and appends every discovered impl to the existing `lifecycleListeners` list. This is the single core/server-side edit Track 5 makes outside the OTel module; without it the `META-INF/services` entry in step 5 would be inert (CR3).
 
-The fourth edit creates the ServiceLoader manifest file pointing to the plugin.
+The fourth edit implements `OpenTelemetryServerPlugin`. The class lives in `youtrackdb-opentelemetry/.../server/OpenTelemetryServerPlugin.java`. `onAfterActivate` reads config, builds `AutoConfiguredOpenTelemetrySdk` with the OTLP exporter wired to the configured endpoint and protocol, calls the package-private 2-arg `setOpenTelemetry(sdk, ownedByYtdb=true)` variant of the facade. `onBeforeDeactivate` calls `shutdown()` which closes the SDK and unregisters listeners via `YourTracks.unregister...`.
 
-The fifth edit adds INFO log lines on ownership transitions (auto-configure resolved endpoint X; setter override replaced YTDB-owned SDK; shutdown closed YTDB-owned SDK / left host SDK untouched), so operators see exactly which path ran on each transition.
+The fifth edit creates the ServiceLoader manifest file pointing to the plugin.
 
-Ordering: edits 1 and 2 are sequential (2 reads config from 1). Edits 3-4 are sequential and depend on edit 2's facade shape. Edit 5 follows edit 2.
+The sixth edit adds INFO log lines on ownership transitions (auto-configure resolved endpoint X; setter override replaced YTDB-owned SDK; shutdown closed YTDB-owned SDK / left host SDK untouched), so operators see exactly which path ran on each transition.
+
+Ordering: edits 1 and 2 are sequential (2 reads config from 1). Edits 3, 4, 5 sequential (5 depends on 4's class). Edit 6 follows edit 2.
 
 ## Concrete Steps
 
@@ -93,7 +96,8 @@ After Track 5:
 
 In scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` (four new enum entries).
-- `youtrackdb-opentelemetry/.../YouTrackDBOpenTelemetry.java` (extended with registration side-effects).
+- `server/src/main/java/com/jetbrains/youtrackdb/internal/server/YouTrackDBServer.java` (add `ServiceLoader.load(ServerLifecycleListener.class)` inside `activate()` per CR3).
+- `youtrackdb-opentelemetry/.../YouTrackDBOpenTelemetry.java` (extended with registration side-effects through `YourTracks` static methods plus the package-private 2-arg `setOpenTelemetry` variant).
 - `youtrackdb-opentelemetry/.../server/OpenTelemetryServerPlugin.java` (new).
 - `youtrackdb-opentelemetry/src/main/resources/META-INF/services/com.jetbrains.youtrackdb.internal.server.ServerLifecycleListener` (new).
 
