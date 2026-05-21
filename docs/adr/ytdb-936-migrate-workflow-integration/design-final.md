@@ -4,11 +4,11 @@
 
 YouTrackDB feature branches carry per-branch `_workflow/**` artifacts whose required shape is dictated by current `develop`: section names, mandatory artifacts, step-file schema. Workflow-format changes land on `develop` while branches run, and the branch's artifacts silently drift. The mismatch surfaces as confused reviewers in Phase C, missing required sections during track completion, or auto-resume tripping on a schema field the branch never gained.
 
-This design adds a turn-1 detection gate to `/execute-tracks` startup. The gate fetches `origin develop` and runs one `git log` against `.claude/workflow/**` and `.claude/skills/**` between the branch's fork point and current `develop` HEAD. If the diff is empty, the gate skips silently and startup continues. If non-empty, the user picks one of three resolutions (migrate now, defer, or suppress) before any phase work begins.
+This design adds a turn-1 detection gate to `/execute-tracks` startup. The gate fetches `origin develop` and runs one `git log` between the branch's fork point and the post-fetch `origin/develop` HEAD, scoped to `.claude/workflow/**` and `.claude/skills/**`. Every command after the fetch reads `origin/develop` rather than the local `develop` branch, because `git fetch origin develop` updates `refs/remotes/origin/develop` (and `FETCH_HEAD`) but leaves any local `develop` ref untouched. If the diff is empty, the gate skips silently and startup continues. If non-empty, the user picks one of three resolutions (migrate now, defer, or suppress) before any phase work begins.
 
 The enabling primitive is the new file `.claude/workflow/workflow-drift-check.md`, modeled on `branch-divergence-check.md`: same detection-then-resolutions shape, same "no silent default" contract. The migration itself stays in the existing `/migrate-workflow` skill; the gate detects, the skill replays. Touch surface is four files: the new gate, `workflow.md` (Step 3a, session-end residue, on-demand list), `conventions.md` (glossary plus §1.2 pointer), and the skill's preamble (one-line cross-reference). No Java code, no automated tests.
 
-The final implementation matched the approved plan: all five design decisions (dedicated gate file, detection-only scope, skill unchanged, gate stays dumb, three resolutions kept distinct) landed as written, and the four-file touch surface above is identical to the planned surface. Three small refinements emerged during execution and live in the prose below: (1) the detection bash adds an explicit `git fetch origin develop` because the Branch Divergence Check's fetch targets the branch's upstream rather than `develop`; (2) the Defer marker is recorded as a TaskCreate todo with a specific title shape, with in-conversation memory as fallback (the original draft had left the state-shape underspecified); (3) the gate's `## After the choice` section documents the Remote-authoritative re-entry contract as one-sided pending a symmetric edit to `branch-divergence-check.md`, an integration gap the planning surface had not surfaced.
+The final implementation matched the approved plan: all five design decisions (dedicated gate file, detection-only scope, skill unchanged, gate stays dumb, three resolutions kept distinct) landed as written, and the four-file touch surface above is identical to the planned surface. Four small refinements emerged during execution and live in the prose below: (1) the detection bash adds an explicit `git fetch origin develop` because the Branch Divergence Check's fetch targets the branch's upstream rather than `develop`; (2) every post-fetch command reads `origin/develop` rather than the local `develop` ref, since the fetch updates `refs/remotes/origin/develop` only and the local branch (if it exists) stays stale; (3) the Defer marker is recorded as a TaskCreate todo with a specific title shape, with in-conversation memory as fallback (the original draft had left the state-shape underspecified); (4) the gate's `## After the choice` section documents the Remote-authoritative re-entry contract as one-sided pending a symmetric edit to `branch-divergence-check.md`, an integration gap the planning surface had not surfaced.
 
 The intended reader is a contributor running `/execute-tracks` on a long-lived feature branch and the workflow maintainer who keeps the gate in sync with future format changes. This design assumes familiarity with the existing Branch Divergence Check, the `/migrate-workflow` skill, and the D-record / Invariant convention used in the References footers (each References block names the design decisions and invariants the section relates to).
 
@@ -51,23 +51,23 @@ sequenceDiagram
     E->>U: phase work begins
 ```
 
-The detection command runs once at startup. The Branch Divergence Check's `git fetch` targets the branch's upstream (typically `origin/<branch>`), not `develop`, so the gate fetches `origin develop` itself before the `git log`. The fetch tolerates failure silently for offline or no-remote cases, mirroring the divergence check's offline-tolerance pattern. The pathspecs are `.claude/workflow .claude/skills`, both passed to `git log` after the `--` separator.
+The detection command runs once at startup. The Branch Divergence Check's `git fetch` targets the branch's upstream (typically `origin/<branch>`), not `develop`, so the gate fetches `origin develop` itself before the `git log`. The fetch tolerates failure silently for offline or no-remote cases, mirroring the divergence check's offline-tolerance pattern. The post-fetch comparison reads `origin/develop` rather than the local `develop` branch, because `git fetch origin develop` updates `refs/remotes/origin/develop` only — the local ref stays at whatever it was before the fetch (or never existed at all). The pathspecs are `.claude/workflow/ .claude/skills/`, both passed to `git log` after the `--` separator; the trailing slashes make the directory intent explicit.
 
 Position rationale: Step 3a runs after divergence so detection uses the post-fetch tip, and before the handoff scan because a migration would change the on-disk shape of `_workflow/**`. Steps 4 and 5 both read those files, so running drift first means the rest of startup reads consistent files after any user-driven migration.
 
 ### Edge cases / Gotchas
 
 - The branch has no upstream. `git fetch` was skipped in Step 3; the drift check's own `git fetch origin develop` runs independently. The session-end summary names this fact the same way the divergence check does.
-- The branch is ahead of `develop` on `.claude/workflow/**` (workflow changes authored on the branch itself, not yet on `develop`). The detection range `$FORK..develop` only looks at commits reachable from `develop` but not from the fork point; the branch's own commits are correctly invisible.
-- The fork point equals current `develop` HEAD. The diff is empty and the gate skips silently. No special case.
-- Multiple `_workflow/` directories under `docs/adr/` on the branch (two plan dirs share a branch). The gate fires once regardless; the skill's existing "pick one" prompt handles which subtree to migrate.
-- The `develop` ref is missing locally (bare repository, detached checkout, or develop branch absent). The detection bash short-circuits via `git rev-parse --verify refs/heads/develop || exit` before any other work runs.
-- The fork point is empty (`git merge-base develop HEAD` returns nothing because HEAD and `develop` share no common ancestor). The detection bash guards this case with `test -n "$FORK" || exit` and the gate skips silently — drift detection against a non-shared history is meaningless.
+- The branch is ahead of `develop` on `.claude/workflow/**` (workflow changes authored on the branch itself, not yet on `develop`). The detection range `$FORK..origin/develop` only looks at commits reachable from `origin/develop` but not from the fork point; the branch's own commits are correctly invisible.
+- The fork point equals current `origin/develop` HEAD. The diff is empty and the gate skips silently. No special case.
+- Multiple `_workflow/` directories under `docs/adr/` on the branch (two plan dirs share a branch). The gate fires once regardless; the skill's existing "pick one" prompt handles which subtree to migrate. Skip condition #2 (plan complete plus Phase 4 active) takes the conservative reading on this case: it fires only when every plan in every `_workflow/` directory is complete and in Phase 4; any in-flight plan flips the skip off so drift still surfaces.
+- The `origin/develop` ref is missing (no fetch ever ran, bare repository, detached checkout without a tracked develop). The detection bash short-circuits via `git rev-parse --verify origin/develop || exit` immediately after the fetch.
+- The fork point is empty (`git merge-base origin/develop HEAD` returns nothing because HEAD and `origin/develop` share no common ancestor). The detection bash guards this case with `test -n "$FORK" || exit` and the gate skips silently — drift detection against a non-shared history is meaningless.
 
 ### References
 
 - D-records: D1 (dedicated gate file), D2 (detection only), D3 (skill unchanged), D4 (gate stays dumb), D5 (three resolutions kept distinct).
-- Invariants: detection is one `git fetch origin develop` followed by one `git log` against the two pathspecs; the gate runs in turn 1 before any phase work or handoff resolution; per-commit replay logic stays in the skill.
+- Invariants: detection is one `git fetch origin develop` followed by one `git log "$FORK..origin/develop" -- .claude/workflow/ .claude/skills/`; the gate runs in turn 1 before any phase work or handoff resolution; per-commit replay logic stays in the skill.
 
 ## Three-resolution gate
 
@@ -111,7 +111,7 @@ The Defer and Suppress paths both continue startup at Step 4. They differ in the
 
 ## Skip conditions
 
-**TL;DR.** The gate skips silently in three cases, all derivable from cheap on-disk checks before the detection command runs: no `_workflow/` subtree under `docs/adr/`, every track marked `[x]` or `[~]` with Phase 4 already in flight or done, and an empty `git log` diff against the two pathspecs.
+**TL;DR.** The gate skips silently in three cases, all derivable from cheap on-disk checks before the detection command runs: no `_workflow/` subtree under `docs/adr/`, every plan complete with Phase 4 already in flight or done, and an empty `git log` diff against the two pathspecs.
 
 Order matters for cheap fail-fast. Check 1 (no `_workflow/`) is the cheapest: a single `ls -d docs/adr/*/_workflow/ 2>/dev/null`. Check 2 (plan complete plus Phase 4 active) requires reading the plan file's `## Final Artifacts` marker. Check 3 (empty diff) is the `git log` itself.
 
@@ -119,9 +119,9 @@ The first match returns silent skip; the gate emits no prose and startup continu
 
 Skip-condition rationale per case:
 
-- **No `_workflow/` subtree.** The branch has nothing to migrate. Matches the skill's zero-match halt path; running detection would be wasted work even if commits exist on `develop`.
-- **Plan complete plus Phase 4 active.** Migrating right before the Phase 4 cleanup commit is wasted work: the `_workflow/` subtree is about to be removed regardless. The check fires when every checklist entry is `[x]` or `[~]` **and** the `## Final Artifacts` checklist entry is `[>]` or `[x]`. Pre-`[>]` (Phase 4 not yet started) does not skip; tracks complete but Phase 4 not begun is still a window where the user may want to migrate before producing the final artifacts.
-- **Empty diff.** `git log --reverse --oneline "$FORK..develop" -- .claude/workflow .claude/skills` returns nothing. Either the branch was forked from the current `develop` tip, or `develop` has moved forward only on code paths the gate does not watch.
+- **No `_workflow/` subtree.** The branch has nothing to migrate. Matches the skill's zero-match halt path; running detection would be wasted work even if commits exist on `origin/develop`.
+- **Plan complete plus Phase 4 active.** Migrating right before the Phase 4 cleanup commit is wasted work: the `_workflow/` subtree is about to be removed regardless. The check reads `implementation-plan.md` from each `_workflow/` directory returned by check 1 and fires only when **every** plan has every checklist entry `[x]` or `[~]` **and** the `## Final Artifacts` checklist entry `[>]` or `[x]`. Any plan that is missing, unreadable, or still has open tracks (or Pre-`[>]` Final Artifacts) falls through to check 3 — Pre-`[>]` is still a window where the user may want to migrate before producing the final artifacts.
+- **Empty diff.** `git log --reverse --oneline "$FORK..origin/develop" -- .claude/workflow/ .claude/skills/` returns nothing. Either the branch was forked from the current `origin/develop` tip, or `origin/develop` has moved forward only on code paths the gate does not watch.he gate does not watch.
 
 ### Edge cases / Gotchas
 

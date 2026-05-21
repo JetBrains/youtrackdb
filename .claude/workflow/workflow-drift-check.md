@@ -12,14 +12,18 @@ artifacts, step-file schema. Workflow-format commits land on
 `develop` while the branch runs, and the branch's artifacts silently
 drift.
 
-Detection is one `git log` against the `develop` tip. The Branch
-Divergence Check's `git fetch` targets the branch's upstream
-(typically `origin/<branch>`), not `develop`, so this gate fetches
-`origin develop` independently before the `git log`. Migration
-itself stays in the `/migrate-workflow` skill — the gate detects and
-gates, the skill replays. The skill assumes a fresh session, so the
-Migrate now resolution ends this session and asks the user to
-re-invoke from a `develop` worktree.
+Detection is one `git log` against the post-fetch `origin/develop`
+tip. The Branch Divergence Check's `git fetch` targets the branch's
+upstream (typically `origin/<branch>`), not `develop`, so this gate
+fetches `origin develop` independently before the `git log`. The
+fetch updates `refs/remotes/origin/develop` rather than the local
+`refs/heads/develop`, so every command after the fetch reads
+`origin/develop` to ensure the comparison is against the post-fetch
+state, not a stale local branch. Migration itself stays in the
+`/migrate-workflow` skill — the gate detects and gates, the skill
+replays. The skill assumes a fresh session, so the Migrate now
+resolution ends this session and asks the user to re-invoke from a
+`develop` worktree.
 
 ---
 
@@ -28,26 +32,37 @@ re-invoke from a `develop` worktree.
 Run, in order:
 
 ```bash
-git rev-parse --verify refs/heads/develop >/dev/null 2>&1 || exit
 # Duplicate fetch: the Branch Divergence Check fetched the branch's
 # upstream (typically origin/<branch>), not develop. Tolerate failure
 # silently for offline / no-remote cases, mirroring the divergence
-# check's offline-tolerance pattern.
+# check's offline-tolerance pattern. The fetch updates origin/develop
+# (and FETCH_HEAD), not the local develop branch.
 git fetch origin develop 2>/dev/null || true
-FORK="$(git merge-base develop HEAD)"
-# merge-base returns empty when HEAD and develop share no common
-# ancestor — a degenerate state where drift detection is meaningless;
-# skip silently.
+# Verify the post-fetch tip exists. origin/develop is the canonical
+# ref used by every command below; if the user has never fetched
+# develop (bare repository, brand-new clone, develop never tracked)
+# the gate skips silently.
+git rev-parse --verify origin/develop >/dev/null 2>&1 || exit
+FORK="$(git merge-base origin/develop HEAD)"
+# merge-base returns empty when HEAD and origin/develop share no
+# common ancestor — a degenerate state where drift detection is
+# meaningless; skip silently.
 test -n "$FORK" || exit
-git log --reverse --oneline "$FORK..develop" -- .claude/workflow .claude/skills | head -10
+git log --reverse --oneline "$FORK..origin/develop" -- .claude/workflow/ .claude/skills/ | head -10
 ```
 
-The first command short-circuits when `develop` is missing locally.
-Pathspecs `.claude/workflow` and `.claude/skills` go to `git log`
-after `--`. `--reverse … | head -10` produces the oldest-first
-top-ten directly; run a separate
-`git log --oneline "$FORK..develop" -- … | wc -l` to count the full
-range when the prompt also needs the total.
+The verify command short-circuits when `origin/develop` is missing
+(no fetch ever ran, bare repository, detached checkout without a
+tracked develop). Using `origin/develop` rather than the local
+`develop` ref means the gate works even on contributors who never
+created a local `develop` branch and guarantees the comparison uses
+the post-fetch state. Pathspecs `.claude/workflow/` and
+`.claude/skills/` go to `git log` after `--`; the trailing slashes
+make the directory intent explicit and prevent accidental matches
+against a same-named file in a sibling location. `--reverse … |
+head -10` produces the oldest-first top-ten directly; run a separate
+`git log --oneline "$FORK..origin/develop" -- … | wc -l` to count
+the full range when the prompt also needs the total.
 
 The branch has drift iff the `git log` output is non-empty. Empty
 output skips the gate silently and startup continues to step 4.
@@ -68,17 +83,18 @@ fail-fast — check the cheapest first:
 
 2. **Plan complete plus Phase 4 active.** The `_workflow/` subtree is
    about to be removed by the Phase 4 cleanup commit. Read
-   `implementation-plan.md` from the same directory resolved in #1;
-   on missing or unreadable plan, fall through to #3. Fires when
-   every track checklist entry is `[x]` or `[~]` **and** the
-   `## Final Artifacts` entry is `[>]` or `[x]`. Pre-`[>]` does
-   **not** skip — that window still allows a user migration before
-   final artifacts land.
+   `implementation-plan.md` from each `_workflow/` directory
+   returned by #1; the skip fires only when **every** plan matches
+   — all track entries `[x]` or `[~]` **and** the `## Final
+   Artifacts` entry `[>]` or `[x]`. Any plan that is missing,
+   unreadable, or still has open tracks (or Pre-`[>]` Final
+   Artifacts) falls through to #3. Pre-`[>]` is still a window for
+   a user migration before final artifacts land.
 
 3. **Empty diff.** The detection command above returns nothing.
-   Either the branch was forked from the current `develop` tip, or
-   `develop` has moved forward only on code paths the gate does not
-   watch.
+   Either the branch was forked from the current `origin/develop`
+   tip, or `origin/develop` has moved forward only on code paths the
+   gate does not watch.
 
 First match returns silent skip; the gate emits no prose and startup
 continues to step 4. None matching falls through to the
