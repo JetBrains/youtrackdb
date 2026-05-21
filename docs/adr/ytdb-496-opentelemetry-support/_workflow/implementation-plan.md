@@ -149,7 +149,7 @@ flowchart TB
 - **Alternatives considered**: omit both attributes (loses span-name quality and grouping); plugin layer with `QueryClassifier` SPI + `ServiceLoader` (rejected — buys no polymorphism for a single impl per input type and forces an `Object`-typed signature plus a `META-INF/services` manifest); pre-compute on query parse (Gremlin has no parse hook in current code, SQL parses inside `executeInternal`).
 - **Rationale**: for Gremlin the bytecode is available in `YTDBQueryMetricsStep` (line 131 `traversal.getBytecode()`); the classifier identifies the start step (`V`/`E`/`addV`/`addE`/...) and the first `hasLabel` or `addV`/`addE` label argument. For SQL the parsed `SQLStatement` is available in `executeInternal` after `SQLEngine.parse()`; the classifier reads the statement subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the FROM / INTO / UPDATE clause target class. Both yield low-cardinality values that drive `{db.operation.name} {db.collection.name}` span names per sem-conv. Two static-utility classifiers in `core` (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) piggyback on parsing the fire sites already perform — `produceScript()`'s instruction walk for Gremlin, `SQLEngine.parse(...)`'s unconditional AST production for SQL — and return a `Classification(operationName, collectionName)` value record consumed directly by the fire site.
 - **Risks/Caveats**: complex Gremlin traversals (multi-class, no label) and complex SQL (no FROM clause, anonymous tables, multi-target UPDATE / MATCH chains) won't yield clean values. Both accessors return `Optional.empty()` and the span name falls back to `db.system.name`. Documented and tested.
-- **Implemented in**: Track 1 (QueryDetails extension + both classifier helpers + Classification record, all in `core`, called directly from the existing fire sites).
+- **Implemented in**: Track 1 (QueryDetails extension + both classifier helpers + Classification record, all in `core`), Track 3 (Gremlin fire-site wiring at `YTDBQueryMetricsStep.close()`), Track 4 (SQL fire-site wiring at `DatabaseSessionEmbedded.executeInternal()`).
 - **Full design**: design.md §"Gremlin bytecode classification" and §"SQL execution layer hook"
 
 #### D10: TX lifecycle fires consolidated in `FrontendTransactionImpl`
@@ -240,23 +240,19 @@ flowchart TB
   > **Depends on:** Track 3, Track 4, Track 5
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — re-validation needed after inline replan dropped `QueryClassifier` SPI in favor of static helpers in `core` (see Mutation 8 in `design-mutations.md`). The prior pass below stamped a plan that no longer matches the artifacts; the next `/execute-tracks` invocation will re-run Phase 2 against the revised plan.
+- [x] Plan review (consistency + structural) — passed at iteration 1 (manual `/review-plan` re-run after Mutation 8 dropped the `QueryClassifier` SPI in favor of static helpers in `core`).
+
+**Auto-fixed (mechanical)**:
+- S15: replaced the stale "Out of scope" bullet in `plan/track-1.md` L117 that claimed Track 1 "only exposes the SPI slot" with a bullet that scopes Track 1's out-of-scope to the fire-site wiring (Track 3 wires Gremlin, Track 4 wires SQL) and asserts Track 1 ships the classifier helpers themselves. Resolves the contradiction Mutation 8 left behind.
+- S16: extended D9's "Implemented in" line in `implementation-plan.md` from "Track 1" only to "Track 1 (helpers + record + extension), Track 3 (Gremlin fire-site wiring), Track 4 (SQL fire-site wiring)" so the decision-traceability link points at every track that contributes code D9 depends on.
+
+**Escalated (design decisions)**: none.
 
 **Prior plan-review history (preserved for traceability):**
 
-- Iteration 1 (manual `/review-plan` re-run after Mutation 7) — passed.
-
-**Auto-fixed (mechanical)**:
-- CR1: corrected `assertOnOwningThread` call-site enumeration in `design.md` § "Context propagation in embedded" from "lines 165, 224, 250, 432" to the full seven sites "declared at line 133, invoked from seven sites: lines 165, 224, 250, 432, 452, 474, 511" per actual grep on `FrontendTransactionImpl.java`.
-- CR2: disambiguated `YTDBQueryMetricsStrategy.apply()` line citations in `plan/track-1.md` L44 and L62 from "line 36" to "declared at line 23; the gate check at line 36" so readers do not conflate method declaration with the gate-check line inside it.
-- S12: merged duplicate `Out of scope:` heading blocks in `plan/track-4.md` § "Interfaces and Dependencies" into one consolidated block of six bullets.
-- S14: trimmed Track 1's intro paragraph in `implementation-plan.md` from a 155-word single-sentence list of nine sub-clauses to a 65-word two-sentence intro, restoring word-count parity across all six track intros.
-
-**Escalated (design decisions)**: S13 (user resolved "leave as-is" — accepted that the `design.md` § "Class Design" diagram having 13 classes sits one over the ~12 soft cap and that the integrated view is more valuable than splitting it; no edit applied, no downstream impact).
-
-**Prior manual `/review-plan` round 1 fixes (preserved)**: CR-R1, CR-R3, CR-R4, S7, S8, S9, S11 (mechanical); CR-R2, S10 (escalated). See commit `3a579afa8e Plan review autonomous fixes for ytdb-496-opentelemetry-support` for the per-finding resolutions.
-
-**Prior autonomous Phase 2 fixes (preserved from the earlier run)**: CR2, CR6, CR7, CR8, CR10, CR11, CR13, CR14, CR15, CR17, CR18, S1, S2, S3, S5 (mechanical); CR1, CR3, CR4, CR5, CR9, CR12, CR16, S4, S6 (escalated). See the prior commit history (`805dc04ab3 [YTDB-496] Add initial implementation plan and design` and `ca7f5231c6 Plan review autonomous fixes for ytdb-496-opentelemetry-support`) for the per-finding resolutions of those entries.
+- Manual `/review-plan` re-run after Mutation 7 — passed. Auto-fixed: CR1 (`assertOnOwningThread` call-site enumeration in `design.md`), CR2 (`YTDBQueryMetricsStrategy.apply()` line citations in `plan/track-1.md`), S12 (duplicate `Out of scope:` blocks in `plan/track-4.md`), S14 (Track 1 intro paragraph word count). Escalated: S13 (user resolved "leave as-is" on the `design.md` § "Class Design" diagram class count; Mutation 8 later brought the count back to 12 anyway).
+- Prior manual `/review-plan` round 1 fixes: CR-R1, CR-R3, CR-R4, S7, S8, S9, S11 (mechanical); CR-R2, S10 (escalated). See commit `3a579afa8e Plan review autonomous fixes for ytdb-496-opentelemetry-support` for the per-finding resolutions.
+- Prior autonomous Phase 2 fixes: CR2, CR6, CR7, CR8, CR10, CR11, CR13, CR14, CR15, CR17, CR18, S1, S2, S3, S5 (mechanical); CR1, CR3, CR4, CR5, CR9, CR12, CR16, S4, S6 (escalated). See `805dc04ab3 [YTDB-496] Add initial implementation plan and design` and `ca7f5231c6 Plan review autonomous fixes for ytdb-496-opentelemetry-support`.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
