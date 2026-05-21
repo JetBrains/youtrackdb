@@ -6,7 +6,7 @@ This design adds a new optional Maven module `youtrackdb-opentelemetry` that tur
 
 This design assumes familiarity with the existing `QueryMetricsListener` and `TransactionMetricsListener` firing sites in `YTDBQueryMetricsStep` and `FrontendTransactionImpl`, and with the `YTDBTransaction` open / commit / rollback lifecycle. The audience is contributors maintaining the metrics and transaction subsystems in `core`.
 
-Today YTDB has an internal `QueryMetricsListener` SPI that fires only on Gremlin traversal close, plus a `TransactionMetricsListener` that fires on write-transaction commit, but the listeners are per-transaction and the project ships no OTel binding. Native SQL queries (the path used for `db.command(...)`, MATCH, and DDL) currently fire neither listener. The design closes that gap with four load-bearing additions: a global listener registry in `core` so an OTel listener registered once at startup auto-applies to every subsequent transaction; two new default-no-op methods on `TransactionMetricsListener` (`transactionStarted`, `transactionRolledBack`) so the OTel module can emit a TX-lifetime parent span covering queries and commit as children; a new listener fire site at `DatabaseSessionEmbedded.executeInternal()` so every SQL statement type (SELECT, INSERT, UPDATE, DELETE, MATCH, DDL) flows through the same listener API; and a pair of classifiers (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) sharing a `QueryClassifier` SPI that extracts `db.operation.name` and `db.collection.name` so spans carry sem-conv v1.33.0 attributes.
+Today YTDB has an internal `QueryMetricsListener` SPI that fires only on Gremlin traversal close, plus a `TransactionMetricsListener` that fires on write-transaction commit, but the listeners are per-transaction and the project ships no OTel binding. Native SQL queries (the path used for `db.command(...)`, MATCH, and DDL) currently fire neither listener. The design closes that gap with four load-bearing additions: a global listener registry in `core` so an OTel listener registered once at startup auto-applies to every subsequent transaction; two new default-no-op methods on `TransactionMetricsListener` (`transactionStarted`, `transactionRolledBack`) so the OTel module can emit a TX-lifetime parent span covering queries and commit as children; a new listener fire site at `DatabaseSessionEmbedded.executeInternal()` so every SQL statement type (SELECT, INSERT, UPDATE, DELETE, MATCH, DDL) flows through the same listener API; and a pair of static-utility classifiers in `core` (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`), called directly from their respective fire sites, that extract `db.operation.name` and `db.collection.name` so spans carry sem-conv v1.33.0 attributes.
 
 Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), `FrontendTransactionImpl.beginInternal()` and `rollbackInternal()` fire the new TX lifecycle calls (covering both Gremlin and native-SQL paths through one chokepoint), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to `Throwable` to cover the new fire sites, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method), and `GlobalConfiguration` gains four `OPENTELEMETRY_*` entries that drive the server-mode SDK init.
 
@@ -28,7 +28,7 @@ This design introduces six load-bearing ideas. Each is named and used without re
 
 **Sem-conv v1.33.0.** OpenTelemetry's stable semantic conventions for database client spans, dictating attribute names (`db.system.name`, `db.query.text`, etc.), their requirement levels (Required / Conditionally Required / Recommended / Opt-In), and the span-name fallback chain. Replaces "no vendor-neutral attribute schema". → §"Sem-conv attribute mapping".
 
-**Query source classification.** Two parallel classifiers sharing a `QueryClassifier` SPI extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
+**Query source classification.** Two static-helper classifiers in `core` extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Called directly from the existing fire sites (`YTDBQueryMetricsStep` and `DatabaseSessionEmbedded.executeInternal()`) — no SPI or ServiceLoader; both fire sites already parse these structures, so the classifiers piggyback on parsing that runs anyway. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
 
 ## Class Design
 
@@ -80,15 +80,13 @@ classDiagram
         +shutdown() void
         ~tracer() Tracer
     }
-    class QueryClassifier {
-        <<interface>>
-        +classify(Object source) Classification
-    }
     class GremlinBytecodeClassifier {
-        +classify(Object source) Classification
+        <<utility>>
+        +classify(Bytecode) Classification$
     }
     class SqlSyntaxClassifier {
-        +classify(Object source) Classification
+        <<utility>>
+        +classify(SQLStatement) Classification$
     }
     class SqlSanitizer {
         +sanitize(String rawSql) String
@@ -105,8 +103,6 @@ classDiagram
     TransactionMetricsListener ..> TransactionDetails : nests
     QueryMetricsListener <|.. OTelQueryMetricsListener
     TransactionMetricsListener <|.. OTelTransactionMetricsListener
-    QueryClassifier <|.. GremlinBytecodeClassifier
-    QueryClassifier <|.. SqlSyntaxClassifier
     OTelQueryMetricsListener --> YouTrackDBOpenTelemetry : tracer()
     OTelTransactionMetricsListener --> YouTrackDBOpenTelemetry : tracer()
     OTelQueryMetricsListener --> QueryDetails : reads operation / collection / namespace
@@ -115,7 +111,7 @@ classDiagram
     OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry(.., ownedByYtdb=true) / shutdown
 ```
 
-The diagram covers the production classes the design introduces. Three interfaces in `core` are extended (`QueryMetricsListener` unchanged but consumed by a new impl; `TransactionMetricsListener` and `QueryDetails` extended with default methods, and a new `QueryClassifier` SPI added); six classes in the new module implement the integration; one server plugin wires server lifecycle. Both classifier impls are loaded via ServiceLoader from `core` (`YTDBQueryMetricsStep` for the Gremlin source, `DatabaseSessionEmbedded.executeInternal()` for the SQL source), so the static dependency arrow runs only one way (`youtrackdb-opentelemetry` → `core`). Each classifier returns a `Classification(operationName, collectionName)` record that the producer copies into the `QueryDetails` accessors before the listener fires.
+The diagram covers the production classes the design introduces. Two interfaces in `core` are extended (`TransactionMetricsListener` and `QueryDetails` gain default methods; `QueryMetricsListener` itself stays unchanged but is consumed by a new impl). Two new static-utility classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and one value record (`Classification`) land in `core` next to the existing parsing infrastructure — Gremlin's classifier piggybacks on the bytecode walk `YTDBQueryMetricsStep.produceScript()` already performs, and the SQL classifier dispatches on the `SQLStatement` AST that `DatabaseSessionEmbedded.executeInternal()` already produces via `SQLEngine.parse(...)`. The classifiers are pure functions, called directly from the existing fire sites; no SPI, no ServiceLoader. Five classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`). The producer copies each `Classification(operationName, collectionName)` value into the `QueryDetails` accessors before the listener fires.
 
 The `ThreadLocal<Context>` field on `OTelTransactionMetricsListener` stores the current TX span without calling `Context.makeCurrent()` (which would leak the context across listener boundaries). The query listener reads the ThreadLocal directly when both listeners are co-registered, so query spans nest correctly as children of the TX span regardless of whether the query came in through Gremlin or SQL.
 
@@ -184,7 +180,7 @@ sequenceDiagram
     OTL->>OTL: ThreadLocal.remove()
 ```
 
-The participant box represents `FrontendTransactionImpl` because the listener fires happen inside `beginInternal()` / `rollbackInternal()` / `notifyMetricsListener()`. `YTDBTransaction.doOpen()` / `doRollback()` delegate to those methods, so the Gremlin path and the native-SQL path (`db.command(...)` flows that don't cross `YTDBTransaction` at all) share the same fire site.
+The participant box represents `FrontendTransactionImpl` because the listener fires happen inside `beginInternal()` / `rollbackInternal()` / `notifyMetricsListener()`. `YTDBTransaction.doOpen()` / `doRollback()` delegate to those methods, so the Gremlin path and the native-SQL path (`db.command(...)` flows that bypass the Gremlin `YTDBTransaction` wrapper but still reach `FrontendTransactionImpl` via `session.begin()`) share the same fire site.
 
 The TX listener stores the context-carrying-TX-span in a `ThreadLocal<Context>` (not via `Context.makeCurrent()`) because the listener callback returns before any user code runs; `makeCurrent()` would leak into surrounding host code. The query listener consults the ThreadLocal directly via a package-private accessor when both listeners are registered together.
 
@@ -325,7 +321,7 @@ Classification rules:
 | step chain ending with `drop()` | `DELETE` | first `hasLabel(X)` argument before the drop, else `Optional.empty()` |
 | anything else | `Optional.empty()` | `Optional.empty()` |
 
-Implementation lives in `youtrackdb-opentelemetry/.../classifier/GremlinBytecodeClassifier.java`. The classifier is loaded by `core.YTDBQueryMetricsStep` via `ServiceLoader<QueryClassifier>`, where `QueryClassifier` is a new SPI interface in `core`. When the OTel module is not on the classpath, the ServiceLoader returns an empty stream and `QueryDetails.getOperationName()` / `getCollectionName()` keep their default `Optional.empty()`.
+Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility (`Classification classify(Bytecode)`). `YTDBQueryMetricsStep.close()` calls it directly when building the inline `QueryDetails` and stashes the returned `Classification` in two `Optional<String>` fields read back by `QueryDetails.getOperationName()` / `getCollectionName()`. When no listener consults those accessors the work is paid (the call is unconditional inside the fire site), but the cost is one bytecode walk reusing the same instruction-list traversal pattern as the existing `produceScript()` sanitization — measured in microseconds, dominated by the listener call itself.
 
 ### Edge cases / Gotchas
 
@@ -356,7 +352,7 @@ Hook anatomy at `executeInternal(String stringStatement, SQLStatement parsedStat
    — wrapped in try/catch so listener exceptions don't break the query
 ```
 
-The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(rawSql)` on first access; `getOperationName()` and `getCollectionName()` call the ServiceLoader-loaded `QueryClassifier` (the `SqlSyntaxClassifier` impl from the OTel module) on first access. Hosts that don't read these accessors pay no sanitization or classification cost.
+The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(rawSql)` (from the OTel module) on first access; `getOperationName()` and `getCollectionName()` call `SqlSyntaxClassifier.classify(statement)` (a static utility in `core`) on first access. Hosts that don't read these accessors pay no sanitization or classification cost — the parsed `SQLStatement` is already available because `SQLEngine.parse(...)` runs unconditionally to execute the query.
 
 The `SqlSyntaxClassifier` dispatches on the `SQLStatement` subclass:
 

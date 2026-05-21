@@ -76,3 +76,31 @@
 **Findings**: none
 
 **Iterations**: 1 of 3 (PASS)
+
+## Mutation 7 — 2026-05-21 — content-edit (design.md)
+
+**Diff summary**: Reworded the participant-box note under §"Workflow / Transaction lifecycle with full hierarchy" (line 187). The prior phrasing "the native-SQL path (`db.command(...)` flows that don't cross `YTDBTransaction` at all) share the same fire site" could be misread as "SQL bypasses transactions entirely." Replaced with "the native-SQL path (`db.command(...)` flows that bypass the Gremlin `YTDBTransaction` wrapper but still reach `FrontendTransactionImpl` via `session.begin()`)" so the reader sees explicitly that SQL skips only the Gremlin wrapper, not the underlying transaction object. No structural or semantic change to the design.
+
+Side-effect (user-authorized, outside edit-design scope): reformatted `implementation-plan.md:244` `**Auto-fixed (mechanical)**` paragraph into per-fix bullets (CR1, CR2, S12, S14). Iteration 1 surfaced a `full-design-link-resolution` blocker on that line — a script false positive caused by the regex binding all `§"..."` quotes on a line to the first `design*.md` filename it sees. The plan line jointly described four prior fixes; the real referent for `"Interfaces and Dependencies"` was `plan/track-4.md` (S12), but the regex misattributed it to `design.md`. Per-fix bullets place each filename adjacent to its own quote so the regex binds locally; no narrative change.
+
+**Mechanical checks** (target=design, scope=bounded, changed-section="Workflow"): PASS (after iteration 2 — see side-effect note).
+**Cold-read** (scope: bounded): SKIPPED — single-clause parenthetical reword in a subsection already covered by Mutation 1's whole-doc cold-read; the change clarifies one phrase without altering the diagram, the rest of the paragraph, or any structural claim, parallel to Mutation 6's skip rationale. The plan-file side-effect is a mechanical reformat (paragraph → bulleted list) with no semantic change. Whole-doc periodic check counter at 7 / 5 — count=7 % 5=2, no escalation.
+
+**Findings**:
+- blocker (resolved in iteration 2): `implementation-plan.md:244` — script false-positive `full-design-link-resolution`. Root cause: regex misattribution across a multi-fix narrative. Resolved by reformatting line 244 into per-fix bullets, with the user's explicit authorization that this side-effect step the skill out of its normal scope.
+
+**Iterations**: 2 of 3 (PASS)
+
+## Mutation 8 — 2026-05-21 — structural-rewrite (design.md)
+
+**Diff summary**: User-approved inline replan dropping the `QueryClassifier` SPI + ServiceLoader dispatch layer. The two classifiers (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) move from the OTel module into `core` as static-utility classes called directly from the existing fire sites (`YTDBQueryMetricsStep.close()` for Gremlin, `DatabaseSessionEmbedded.executeInternal()` for SQL). The `Classification` value record stays as the return type. Rationale: the parsing the classifiers perform piggybacks on parsing the fire sites already do (`SQLEngine.parse(...)` produces the `SQLStatement` AST unconditionally; `produceScript()` walks the Gremlin `Bytecode` instruction list). A plugin layer with one impl per input type buys no polymorphism and forces an `Object`-typed signature plus a `META-INF/services` manifest. Sections rewritten: §"Overview" para 3 (additions list), §"Core Concepts" → "Query source classification" entry, §"Class Design" diagram (dropped `QueryClassifier` interface class and its two `<|..` arrows; marked the classifier classes `<<utility>>` with typed signatures `classify(Bytecode)` / `classify(SQLStatement)`; kept `Classification` as the return type — diagram now 12 classes, sitting at the soft cap), §"Class Design" prose para after the diagram (helpers-in-core layout + piggyback argument), §"Gremlin bytecode classification" implementation paragraph (location moved to `core/.../profiler/monitoring/`, dispatch is direct call), §"SQL execution layer hook" lazy-impl paragraph (classifier is a core static, sanitizer remains in OTel module). Iteration 1 cold-read flagged one blocker: the Overview para 3 still named "sharing a `QueryClassifier` SPI" which contradicted the rest of the rewrite. Iteration 2 replaced that phrase with "a pair of static-utility classifiers in `core` … called directly from their respective fire sites", matching the wording in §"Core Concepts" and §"Class Design".
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS
+**Cold-read** (scope: whole-doc): PASS — iteration 1 NEEDS REVISION on the Overview blocker (stale "sharing a QueryClassifier SPI"); iteration 2 fix matches the consistent wording in §"Core Concepts" L31 and §"Class Design" L114 (both already cold-read-approved as part of iteration 1's PARTIAL verdict). Whole-doc periodic check counter at 8 / 5 — count=8 % 5=3, no escalation.
+
+**Findings**:
+- blocker (resolved in iteration 2): §Overview para 3 — stale "a pair of classifiers (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) sharing a `QueryClassifier` SPI" contradicted the SPI-removal in §Core Concepts and §Class Design. Replaced with the consistent wording.
+- suggestion (logged, not applied): Class Design diagram has no arrow showing `OTelQueryMetricsListener --> SqlSanitizer` (sanitizer is used only on the SQL path). The §Sem-conv attribute mapping prose names the role explicitly, so the omission is not load-bearing; deferred to keep the diagram at 12 classes / fewer edges.
+- out-of-band (logged): plan-file Component Map and several Track files still reference `QueryClassifier` SPI. Propagation happens in the orchestrator's follow-up pass to `implementation-plan.md`, `plan/track-1.md`, `plan/track-3.md`, `plan/track-4.md` — not part of this design-only mutation.
+
+**Iterations**: 2 of 3 (PASS)
