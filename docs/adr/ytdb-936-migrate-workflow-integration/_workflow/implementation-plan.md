@@ -67,7 +67,7 @@ flowchart TD
 
 - **Alternatives considered**: Option B from the issue — generalize the skill to accept "current worktree is the migration target" mode and resolve `develop` via git refs alone, removing the worktree-resolution step.
 - **Rationale**: smallest viable change. The cross-reference added to the skill is one line; behavior is unchanged. The two-worktree dance is a real but minor friction; if user feedback says it bites, generalization can come as a follow-up.
-- **Risks/Caveats**: users still have to `cd ../develop && /migrate-workflow <branch>` from a develop worktree. Documented in the "Migrate now" resolution prose.
+- **Risks/Caveats**: users still have to switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>` from there. Documented in the "Migrate now" resolution prose.
 - **Implemented in**: Track 1
 
 #### D4: Gate stays dumb; classification belongs in the skill
@@ -113,10 +113,14 @@ flowchart TD
 
 - [ ] Track 1: Wire workflow-drift detection gate into `/execute-tracks` startup
   > Create the new `workflow-drift-check.md` gate file mirroring the branch-divergence pattern (detection / three-resolution / after-the-choice / skip rules). Wire it into `workflow.md` § Startup Protocol as Step 3a, append the session-end residue clause for deferred drift, add the on-demand reference list entry, add the conventions §1.1 glossary entry plus §1.2 pointer, and add a one-line cross-reference in the `migrate-workflow` skill preamble.
-  > **Scope:** ~3-4 steps covering new gate file, workflow.md wiring (Step 3a + session-end residue + on-demand list), conventions updates (glossary + §1.2 pointer), and skill cross-reference.
+  > **Scope:** ~4-6 steps covering new gate file, workflow.md wiring (Step 3a + session-end residue + on-demand list), conventions updates (glossary + §1.2 pointer), and skill cross-reference. The three `workflow.md` edits may land as one combined commit or split across several; Phase A picks.
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**: CR1 — reword the `cd ../develop && /migrate-workflow <branch>` instruction across five sites (two design.md, one plan, two track-1.md) so `../develop` reads as a convention rather than a tool contract; CR2 — widen the scope indicator from `~3-4 steps` to `~4-6 steps` and add a combining note to match the track's six-unit Plan-of-Work enumeration. Two pre-existing fragmented-header should-fix findings in design.md (lines 70 and 131) were caught by the mutation discipline's mechanical-checks pass and resolved in the same content-edit by rephrasing the TL;DR openings.
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

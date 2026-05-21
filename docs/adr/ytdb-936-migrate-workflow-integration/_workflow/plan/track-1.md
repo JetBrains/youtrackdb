@@ -63,7 +63,7 @@ The track produces one new file and three small additions to existing files. The
 
 2. **Wire Step 3a into `workflow.md` § Startup Protocol.** Insert one paragraph between the existing Step 3 (Branch Divergence Check) and Step 4 (handoff scan), modeled on Step 3's shape: a one-paragraph rationale and a `Load [workflow-drift-check.md] and follow it` instruction. Renumbering of subsequent steps is not required; the existing steps stay as 4, 5, 6.
 
-3. **Append the session-end residue clause** to `workflow.md` § What to do before ending a session. One short sentence stating that if the drift gate was deferred this session, the session-end summary includes the count and the `cd ../develop && /migrate-workflow <branch>` instruction. The sentence sits near the existing "Report unpushed commits" bullet.
+3. **Append the session-end residue clause** to `workflow.md` § What to do before ending a session. One short sentence stating that if the drift gate was deferred this session, the session-end summary includes the count and an instruction to switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>`. The sentence sits near the existing "Report unpushed commits" bullet.
 
 4. **Add the on-demand reference entry** to `workflow.md` § Conventions. One-line entry naming `workflow-drift-check.md` and its trigger (loaded by the Startup Protocol step 3a).
 
@@ -100,7 +100,7 @@ Track-level acceptance criteria (verified manually since the change is docs-only
 - Running `/execute-tracks` on a freshly-forked branch (or one already in sync with `develop`) prints no drift prose and proceeds straight to Step 4 (handoff scan).
 - Running `/execute-tracks` on a branch with no `_workflow/` subtree skips the gate silently.
 - Running `/execute-tracks` on a branch with all tracks complete and Phase 4 marker `[>]` or `[x]` skips the gate silently.
-- Choosing Migrate now ends the current `/execute-tracks` session and the session-end message names the `cd ../develop && /migrate-workflow <branch>` command.
+- Choosing Migrate now ends the current `/execute-tracks` session and the session-end message tells the user to switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>` there.
 - Choosing Defer continues the session; the session-end summary includes the deferred drift count and the same command.
 - Choosing Suppress continues the session; the session-end summary does not mention drift.
 

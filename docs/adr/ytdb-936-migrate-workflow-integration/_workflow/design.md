@@ -67,7 +67,7 @@ Position rationale: Step 3a runs after divergence so detection uses the post-fet
 
 ## Three-resolution gate
 
-**TL;DR.** When drift is detected, the gate presents three options and forces an explicit choice: Migrate now (end session, run the skill in a fresh invocation), Defer (continue this session, surface in session-end summary), or Suppress (continue, no session-end residue). No silent default.
+**TL;DR.** When drift surfaces, startup forces an explicit pick: Migrate now (end session, run the skill in a fresh invocation), Defer (continue this session, surface in session-end summary), or Suppress (continue, no session-end residue). No silent default.
 
 The gate prints the commit count and the first ten subject lines (oldest first) so the user can decide whether the drift looks routine or breaking. Approximate prompt format:
 
@@ -95,7 +95,7 @@ The Defer and Suppress paths both continue startup at Step 4. They differ in the
 ### Edge cases / Gotchas
 
 - The user provides a malformed answer ("yes", "ok"). The gate re-prompts using the same shape as the Branch Divergence Check.
-- The user picks Migrate now but is not in a develop worktree. The instruction names the `cd ../develop && /migrate-workflow <branch>` pattern explicitly so the user does not invoke the skill in-place.
+- The user picks Migrate now but is not in a develop worktree. The instruction tells the user to switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>` there, so the user does not invoke the skill in-place. The `../develop` path is a convention; users with a different layout substitute their own develop-worktree path.
 - The user picks Defer mid-session and a non-fast-forward push later triggers the divergence gate. The two gates are independent; the divergence resolution does not change the drift state.
 
 ### References
@@ -128,9 +128,9 @@ Skip-condition rationale per case:
 
 ## Session-end residue
 
-**TL;DR.** The Defer resolution records a deferred-drift marker in the session's transient state; the session-end protocol reads the marker and appends a line to the summary alongside the unpushed-commit report. Suppress and Migrate now do not write the marker. The mechanism is in-conversation state, not an on-disk sentinel.
+**TL;DR.** The Defer resolution records a deferred-drift marker in the agent's in-conversation state; the end-of-turn protocol reads the marker and appends a line to the wrap-up summary alongside the unpushed-commit report. Suppress and Migrate now do not write the marker. The mechanism is conversation memory, not an on-disk sentinel.
 
-The hook lives in `workflow.md` § What to do before ending a session, as one appended sentence stating that the agent must include the deferred drift count and the `cd ../develop && /migrate-workflow <branch>` instruction in the session-end summary when the gate was deferred.
+The hook lives in `workflow.md` § What to do before ending a session, as one appended sentence stating that the agent must include the deferred drift count and an instruction to switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>` there in the session-end summary when the gate was deferred.
 
 The in-conversation state choice is deliberate. The session-end summary runs in the same `/execute-tracks` invocation as the gate. The agent retains the deferred-drift count from the gate's prompt round and recites it verbatim at session end. An on-disk sentinel would survive across `/execute-tracks` invocations and double-report against the next session's gate re-prompt.
 
