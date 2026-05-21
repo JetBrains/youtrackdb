@@ -18,10 +18,11 @@ is shown the observation list as plain text without PR posting; Track 2 adds
 the DR-audit sub-agent and the `gh api` submission machinery.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-21T09:48Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -38,6 +39,8 @@ scope-downs, dependency reveals, gate-override reasons. -->
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
 
+- [x] Technical: PASS at iteration 1 (7 findings; 6 accepted and applied as track-file edits, 1 negative finding confirmed). T1–T3 were `should-fix` (missing-PR error path, `design-mutations.md` enumeration, wrap-up trigger and empty-list rendering); T4, T5, T7 were `suggestion`-tier polish (in-memory warning, code-file question scope, workflow-doc trigger conditions); T6 was a negative finding (Non-Goals respected).
+
 ## Context and Orientation
 
 The skill lives under `.claude/skills/review-workflow-pr/`. At Phase 1 that
@@ -49,20 +52,34 @@ head. Workflow artifacts under review live at `docs/adr/<dir>/_workflow/`:
 
 - `implementation-plan.md` (required)
 - `design.md` (required)
-- `design-mechanics.md` (optional)
+- `design-mechanics.md` (optional, length-triggered per `conventions.md` §1.2)
 - `plan/track-*.md` (one per planned track)
+
+Companion files the workflow may also write under the same directory:
+`design-mutations.md` (append-only mutation log, present whenever
+`design.md` has been mutated) and optional `handoff-*.md` (transient
+pause state). The skill enumerates these for visibility but does not
+load them into the review context unless the reviewer asks.
 
 `<dir>` defaults to the branch name (matching the `/create-plan` default).
 When the branch-name directory does not exist, the skill lists
 `docs/adr/*/_workflow/` directories present in the local checkout that
 contain an `implementation-plan.md` and asks the reviewer to pick.
 
-Workflow docs the skill reaches for on demand (no preload):
+Workflow docs the skill reaches for on demand (no preload), each tagged
+with the trigger that loads it:
 
-- `.claude/workflow/conventions.md`
-- `.claude/workflow/research.md` (the skill's own behavior follows this)
-- `.claude/workflow/design-document-rules.md`
-- `.claude/workflow/planning.md`
+- `.claude/workflow/conventions.md` — when the reviewer asks about plan
+  file structure, scope indicators, or naming conventions.
+- `.claude/workflow/research.md` — defines the skill's own research-mode
+  behavior; loaded once at session start.
+- `.claude/workflow/design-document-rules.md` — when the reviewer asks
+  whether a design section has the right shape (TL;DR, mechanism
+  overview, edge cases, References footer).
+- `.claude/workflow/planning.md` — when the reviewer asks about Decision
+  Record format expectations (alternatives, rationale, risks, track ref).
+  Track 2's DR-audit sub-agent reads this independently; the orchestrator
+  may still need it for free-form questions outside that audit.
 
 Concrete deliverables of this track:
 
@@ -88,7 +105,10 @@ decompose the precise step boundaries):
    and changed files via `gh pr view --json headRefOid,number,files`,
    resolve owner/repo via `gh repo view --json nameWithOwner`, verify local
    HEAD matches with `git rev-parse HEAD`, error out with a clear
-   `gh pr checkout` command on mismatch.
+   `gh pr checkout` command on mismatch. If `gh pr view` exits non-zero
+   (no PR for the current branch, or the ref does not resolve), surface
+   its stderr and tell the reviewer to either pass an explicit PR
+   number/URL as `$ARGUMENTS` or open a PR first.
 3. Write the artifact discovery instructions: resolve `<dir>` (branch-name
    default, list-and-pick fallback when missing), enumerate the workflow
    artifacts under `docs/adr/<dir>/_workflow/`, fail clearly if the
@@ -96,10 +116,19 @@ decompose the precise step boundaries):
 4. Write the research-mode section: how the skill enters Q&A, how it
    presents itself to the reviewer at session start, how observations are
    recorded mid-conversation, how the skill behaves when the reviewer asks
-   artifact-specific questions vs broad audits.
-5. Write the end-of-session stub: show the observation list as a numbered
-   table (index, `path:line`, source, body), note that Track 2 will add the
-   real submission, exit cleanly.
+   artifact-specific questions vs broad audits. The session-start prelude
+   includes a one-line warning that observations live in-conversation and
+   are lost on `/clear` until Track 3's checkpoint mechanism lands. When
+   the reviewer asks about code files in the PR (not under `_workflow/`),
+   the skill answers the question using `Read`/`Grep` but does not record
+   observations against those files — the observation list scope stays
+   workflow-artifact-only.
+5. Write the end-of-session stub: when the reviewer signals wrap-up
+   (`wrap up`, `done`, `submit`, or `finish`), show the observation list
+   as a numbered table (index, `path:line`, source, body), note that
+   Track 2 will add the real submission, and exit cleanly. If the list
+   is empty, replace the table with a single line: `No observations
+   recorded. Track 2 will add the submission step.`
 
 Ordering: step 1 first (the file must exist before later steps add to it).
 Steps 2-3 are independent of 4 within the same file but flow naturally in
@@ -114,7 +143,12 @@ Invariants this track preserves:
 - House-style applies to the skill's own Markdown.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the step roster here. -->
+
+1. Seed `.claude/skills/review-workflow-pr/SKILL.md` with frontmatter (`name`, `description`, `argument-hint`, `user-invocable: true`) and the section-header outline (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub). — risk: low (default: Markdown-only skill scaffold; no production code)  [ ]
+2. Write the Preflight section: `$ARGUMENTS` resolution, `gh pr view --json headRefOid,number,files`, `gh repo view --json nameWithOwner`, `git rev-parse HEAD`, HEAD-SHA mismatch remediation, and the non-zero-`gh pr view` exit fallback (no PR for the current branch or unresolved ref). — risk: low (default: Markdown instruction prose)  [ ]
+3. Write the Artifact discovery section: `<dir>` resolution and list-and-pick fallback, canonical artifact enumeration, companion-file acknowledgment (`design-mutations.md`, optional `handoff-*.md`), and the missing-canonical-file error. — risk: low (default: Markdown instruction prose)  [ ]
+4. Write the Research mode section: session-start prelude with the in-memory observation warning, free-form Q&A behavior, observation auto-recording, the four workflow-doc trigger conditions, and the scope rule for code-file questions (answer but do not record). — risk: low (default: Markdown instruction prose)  [ ]
+5. Write the End-of-session stub section: the four wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering (index, `path:line`, source, body), the empty-list one-line fallback, and the deferred-submission note pointing to Track 2. — risk: low (default: Markdown instruction prose; Track 2 replaces this section)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -127,17 +161,34 @@ After this track lands, a reviewer can:
   and reach the research-mode prompt within one turn.
 - Get a clear error message and `gh pr checkout` remediation when the local
   HEAD does not match the PR head.
+- Get a clear error message naming the failing `gh pr view` invocation
+  when no PR exists for the current branch and no explicit ref was passed.
 - Get a clear error message when the canonical workflow artifacts are
   missing under `docs/adr/<dir>/_workflow/`.
-- Ask to wrap up and see the full observation list printed as a numbered
-  table; the skill notes that submission is not yet implemented.
+- Ask to wrap up (`wrap up`, `done`, `submit`, `finish`) and see the
+  full observation list printed as a numbered table — or a single
+  `No observations recorded.` line when the list is empty; the skill
+  notes that submission is not yet implemented.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+All five steps write to `.claude/skills/review-workflow-pr/SKILL.md`
+(step 1 also creates the parent directory). Each step owns one named
+`##` section in that file; section boundaries are stable enough that
+re-running a step replaces only its own section.
+
+- **Idempotence.** Re-running a step rewrites its target section with
+  the same content. Intermediate state from an interrupted write is
+  overwritten on retry; cross-section state is untouched.
+- **Recovery.** Roll back a failed step with
+  `git checkout -- .claude/skills/review-workflow-pr/SKILL.md`. If
+  step 1 failed after creating the directory, also run
+  `git clean -fd .claude/skills/review-workflow-pr/`. Then re-run the
+  step from `mode=INITIAL`.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
