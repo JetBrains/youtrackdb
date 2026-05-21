@@ -39,3 +39,29 @@
 - suggestion (addressed): Core Concepts cross-ref now points readers at both the Gremlin rules table and the SQL rules table by name.
 
 **Iterations**: 2 of 3 (PASS)
+
+## Mutation 5 — 2026-05-21 — content-edit (design.md)
+
+**Diff summary**: One-line tightening of §"Sem-conv attribute mapping" span-kinds-per-role sentence to include the negative case "no SERVER / PRODUCER / CONSUMER spans are emitted by YTDB", matching the invariant tightening in `implementation-plan.md` driven by Phase 2 structural-review finding S6 (user resolved option 2). Bounded scope — single sentence in a single section, no cross-section consequences. Cold-read skipped per protocol: bounded `content-edit` with a one-sentence change in a section already covered by Mutation 1's whole-doc cold-read.
+
+**Mechanical checks** (target=design): PASS
+**Cold-read** (scope: bounded — §"Sem-conv attribute mapping"): SKIPPED — one-sentence content-edit; surrounding sections untouched.
+
+**Findings**: none
+
+**Iterations**: 1 of 3 (PASS)
+
+## Mutation 4 — 2026-05-21 — content-edit (design.md)
+
+**Diff summary**: Consistency-review batch — 12 sub-edits aligning design.md with the actual codebase and seven user-resolved design decisions from Phase 2's consistency review. TX-lifecycle fires moved from `YTDBTransaction.doOpen/doRollback` to `FrontendTransactionImpl.beginInternal/rollbackInternal` (covers both Gremlin and native-SQL through one chokepoint; CR1 option 3). Class diagram now shows `QueryDetails` and `TransactionDetails` as nested under their parent listeners (matching real code; CR6, CR7). Added `getDatabaseName(): Optional<String>` to both nested interfaces (CR12 option 1). `OTelTransactionMetricsListener` field retyped from `ThreadLocal<SpanContext>` to `ThreadLocal<Context>` (CR11). Added 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` overload (CR10). Listener registration narrowed to static methods on `YourTracks` only (process-global, `YouTrackDB` interface gets no new methods; CR9 option 1, CR8). Workflow sequence diagram participant renamed from `YTDBTransaction` to `FrontendTransactionImpl` with clarifying note. `assertOnOwningThread` correctly attributed to `FrontendTransactionImpl` (CR14). Sem-conv `db.namespace` source clarified to `QueryDetails.getDatabaseName()`. SQL hook DDL parser class names corrected to `SQLCreateClassStatement` / `SQLAlterClassStatement` / `SQLDropClassStatement` (CR15). Server-mode SDK lifecycle clarifies that Track 5 adds `ServiceLoader.load(ServerLifecycleListener.class)` to `YouTrackDBServer.activate()` (CR3 option 1). Dropped `FrontendTransaction.getTrackingId()` requirement; reuses existing `getId(): long` (CR16 option 2). Exception isolation contract clarified: existing wrappers catch `Exception` today, Track 1 widens to `Throwable` (CR4 option 1); new TX-lifecycle fires live in `FrontendTransactionImpl` so the existing private wrapper is reused without hoisting a helper (CR5 eliminated by CR1 option 3). Iteration 1 cold-read found one blocker (§Listener registration TL;DR still named `YTDBTransaction.doOpen` as the snapshot site, contradicting §Overview / §Core Concepts / §Workflow) plus two should-fix (missing D10 and D11 D-record citations in References footers). Iteration 2 rewrote the TL;DR, added D10 to §Workflow References, added D11 to §Exception isolation contract References.
+
+**Mechanical checks** (target=design): PASS
+**Cold-read** (scope: whole-doc): PASS with 1 low-severity suggestion (deferred to log)
+
+**Findings**:
+- blocker (addressed in iteration 2): §Listener registration TL;DR named `YTDBTransaction.doOpen()` as the snapshot site, contradicting four other sections that named `FrontendTransactionImpl.beginInternal()`. Resolved by rewriting the TL;DR to name `FrontendTransactionImpl.beginInternal()` with explicit "doOpen delegates to beginInternal" wording.
+- should-fix (addressed in iteration 2): §Workflow References footer missing D10. Added.
+- should-fix (addressed in iteration 2): §Exception isolation contract References footer cited "none specific" but should cite D11. Replaced.
+- suggestion (logged, not applied): §Listener registration edge-case bullet at line 451 names `doOpen` rather than `beginInternal`. Acceptable because the TL;DR established the delegation; uniform naming would polish but isn't load-bearing.
+
+**Iterations**: 2 of 3 (PASS)
