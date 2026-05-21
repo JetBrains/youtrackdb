@@ -262,7 +262,7 @@ Span kinds per role: query span is CLIENT, TX span is INTERNAL, commit span is C
 The verification:
 - `YTDBQueryMetricsStep.close()` calls `listener.queryFinished(...)` directly (no executor wrapping).
 - `FrontendTransactionImpl.notifyMetricsListener()` (commit success and failure paths) runs on the committing thread.
-- `FrontendTransactionImpl.assertOnOwningThread()` is called by every TX operation entry point (a `private` method on `FrontendTransactionImpl`, with call sites at lines 165, 224, 250, 432).
+- `FrontendTransactionImpl.assertOnOwningThread()` is called by every TX operation entry point (a `private` method declared at line 133, invoked from seven sites: lines 165, 224, 250, 432, 452, 474, 511).
 - Result: when a host wraps a YTDB transaction inside `tracer.spanBuilder("host-op").startSpan().makeCurrent()`, `Context.current()` inside the YTDB listener returns the host's context with the host span as the active span.
 
 The async caveat: if a future refactor moves traversal close (or commit) to a worker pool, `Context.current()` on that worker would not see the host span, and the YTDB span would attach to the root of a new trace. The test suite includes a propagation test that fails loudly if this happens; the failure mode (orphan YTDB spans) is also operator-visible in the trace viewer.
