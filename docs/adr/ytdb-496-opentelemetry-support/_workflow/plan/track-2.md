@@ -116,3 +116,5 @@ Key dependency versions (pinned via OTel BOM, current stable as of early 2026):
   <dependency><groupId>io.youtrackdb</groupId><artifactId>youtrackdb-server</artifactId><version>${project.version}</version><scope>provided</scope><optional>true</optional></dependency>
 </dependencies>
 ```
+
+The `youtrackdb-server` declaration uses `<scope>provided</scope><optional>true</optional>` so the server artifact is available on this module's compile and test classpath (the `OpenTelemetryServerPlugin` source needs server APIs at compile time, and Track 6's `ServerPluginTest` boots a real `YouTrackDBServer` at test time) without forcing downstream consumers of `youtrackdb-opentelemetry` to pull `youtrackdb-server` in transitively. No separate `<scope>test</scope>` entry is required for `ServerPluginTest` — `provided` already covers it.

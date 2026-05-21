@@ -37,7 +37,7 @@ Concrete deliverables:
 1. `OTelQueryMetricsListener implements QueryMetricsListener`: translates one `queryFinished` callback into one CLIENT span with sem-conv attributes.
 2. `OTelTransactionMetricsListener implements TransactionMetricsListener`: translates `transactionStarted` into an INTERNAL TX span; `writeTransactionCommitted` into a child CLIENT commit span; `writeTransactionFailed` and `transactionRolledBack` into proper end states.
 3. `YouTrackDBOpenTelemetry`: static facade. `setOpenTelemetry(OpenTelemetry)`, `shutdown()`. Holds the `Tracer` instance built via `getTracer("com.jetbrains.youtrackdb", YouTrackDBConstants.getRawVersion())`.
-4. `GremlinBytecodeClassifier`: utility class with one method `classify(Bytecode): Classification` returning `{Optional<String> operationName, Optional<String> collectionName}`.
+4. `GremlinBytecodeClassifier implements QueryClassifier`: one method `classify(Object source)` where the runtime type of `source` is TinkerPop `Bytecode`. Returns the `Classification` record from Track 1 (`{Optional<String> operationName, Optional<String> collectionName}`).
 
 ## Plan of Work
 
@@ -93,11 +93,11 @@ In scope:
 - `youtrackdb-opentelemetry/src/main/java/com/jetbrains/youtrackdb/opentelemetry/listener/OTelQueryMetricsListener.java`
 - `youtrackdb-opentelemetry/src/main/java/com/jetbrains/youtrackdb/opentelemetry/listener/OTelTransactionMetricsListener.java`
 - `youtrackdb-opentelemetry/src/main/java/com/jetbrains/youtrackdb/opentelemetry/classifier/GremlinBytecodeClassifier.java`
-- `youtrackdb-opentelemetry/src/main/resources/META-INF/services/<QueryClassifier-FQN>` (ServiceLoader manifest)
-- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/QueryClassifier.java` (SPI interface, default ServiceLoader-discovered impl)
+- `youtrackdb-opentelemetry/src/main/resources/META-INF/services/<QueryClassifier-FQN>` (ServiceLoader manifest listing `GremlinBytecodeClassifier`)
 - Updated `core/.../YTDBQueryMetricsStep.java`, integrating ServiceLoader-loaded classifier.
 
 Out of scope:
+- `core/.../QueryClassifier.java` SPI interface and `core/.../Classification.java` record — both land in Track 1.
 - SQL execution layer hook + SQL sanitizer + SQL classifier (Track 4).
 - Configuration parameters (Track 5).
 - Server lifecycle wiring (Track 5).
@@ -129,8 +129,10 @@ public final class OTelTransactionMetricsListener implements TransactionMetricsL
   public void transactionRolledBack(TransactionDetails txDetails);
 }
 
-public final class GremlinBytecodeClassifier {
-  public record Classification(Optional<String> operationName, Optional<String> collectionName) {}
-  public static Classification classify(Bytecode bytecode);
+public final class GremlinBytecodeClassifier implements QueryClassifier {
+  // The argument is the TinkerPop Bytecode; the SPI types it as Object for
+  // language neutrality. Returns the top-level Classification record from
+  // core/.../Classification.java (created in Track 1).
+  public Classification classify(Object source);
 }
 ```
