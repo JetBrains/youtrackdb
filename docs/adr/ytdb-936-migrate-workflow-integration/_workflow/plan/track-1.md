@@ -10,7 +10,7 @@ Create the new `workflow-drift-check.md` gate file mirroring the branch-divergen
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-21T09:09Z [ctx=info] Review + decomposition complete (technical review PASS at iteration 2; 4 steps decomposed, 1 medium + 3 low)
