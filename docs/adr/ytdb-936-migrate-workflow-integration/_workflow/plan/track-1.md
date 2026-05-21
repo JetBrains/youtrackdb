@@ -15,6 +15,7 @@ Create the new `workflow-drift-check.md` gate file mirroring the branch-divergen
 - [ ] Track completion
 - [x] 2026-05-21T09:09Z [ctx=info] Review + decomposition complete (technical review PASS at iteration 2; 4 steps decomposed, 1 medium + 3 low)
 - [x] 2026-05-21T09:27Z [ctx=safe] Step 1 complete (commit 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7)
+- [x] 2026-05-21T09:32Z [ctx=safe] Step 2 complete (commit 39a52e299c81d184fd68c411b144650d748fe741)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -88,7 +89,7 @@ Phase A step sequencing: the six conceptual actions above bundle into four commi
 ## Concrete Steps
 
 1. Create `.claude/workflow/workflow-drift-check.md` with Detection, Skip conditions, Resolutions (Migrate / Defer / Suppress), and After the choice sections per `## Plan of Work` action 1, including the Remote-authoritative re-entry contract — risk: low (default: new markdown file not yet referenced by `workflow.md`; no behavioral change until Step 2 wires it)  [x] commit: 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7
-2. Wire the gate into `.claude/workflow/workflow.md`: insert Step 3a in `## Startup Protocol`, append the session-end residue clause in `## What to do before ending a session`, and add the on-demand reference entry in `## Conventions`. Bundled because all three edits reference the new gate file by name — risk: medium (multi-section workflow-machinery change that activates new turn-1 gate behavior in every `/execute-tracks` session)  [ ]
+2. Wire the gate into `.claude/workflow/workflow.md`: insert Step 3a in `## Startup Protocol`, append the session-end residue clause in `## What to do before ending a session`, and add the on-demand reference entry in `## Conventions`. Bundled because all three edits reference the new gate file by name — risk: medium (multi-section workflow-machinery change that activates new turn-1 gate behavior in every `/execute-tracks` session)  [x] commit: 39a52e299c81d184fd68c411b144650d748fe741
 3. Update `.claude/workflow/conventions.md`: add the "Workflow drift" glossary row to §1.1 and the one-line pointer to §1.2 naming the gate file as the resolution mechanism — risk: low (default: documentation update; glossary row and cross-reference only)  [ ]
 4. Update `.claude/skills/migrate-workflow/SKILL.md` with the one-line preamble note cross-referencing `workflow-drift-check.md` as the auto-detection entry point; manual invocation unchanged — risk: low (default: one-line documentation update; no behavioral change to the skill)  [ ]
 
@@ -104,6 +105,12 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `.claude/workflow/workflow-drift-check.md` (new)
+
+### Step 2 — commit 39a52e299c81d184fd68c411b144650d748fe741, 2026-05-21T09:32Z [ctx=safe]
+**What was done:** Wired the gate into `.claude/workflow/workflow.md` with three additions in one commit. Step 3a inserted between the Branch Divergence Check (Step 3) and the handoff scan (Step 4); the new paragraph mirrors Step 3's shape and documents the post-fetch ordering, the pre-handoff ordering, and the Remote-authoritative re-entry contract from the Phase A T1 finding. Session-end residue clause appended next to the unpushed-commit bullet under `## What to do before ending a session`, naming the deferred drift count and the `cd ../develop` plus `/migrate-workflow <branch>` instruction for the Defer path. On-demand reference entry added alongside `branch-divergence-check.md` under `## Conventions`. All three hunks landed atomically via `steroid_apply_patch`.
+
+**Key files:**
+- `.claude/workflow/workflow.md` (modified)
 
 ## Validation and Acceptance
 
