@@ -19,8 +19,8 @@ otherwise).
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-05-21T12:53Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-21T13:16Z [ctx=safe] Step 1 complete (commit 828700b0672d26d422ed827f618da5397fd94981)
 - [x] 2026-05-21T13:23Z [ctx=info] Step 2 complete (commit 84806a16a101a802b4b1a1712e2169e1395ecd8d)
@@ -29,6 +29,8 @@ otherwise).
 - [x] 2026-05-21T13:33Z [ctx=info] Step implementation complete
 - [x] 2026-05-21T13:58Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-05-21T14:07Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
+- [x] 2026-05-21T14:09Z [ctx=info] Track-level code review complete (2/3 iterations used; all dimensions PASS, no carry-forwards)
+- [x] 2026-05-21T14:09Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->

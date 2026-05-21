@@ -217,7 +217,7 @@ flowchart LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 1's three durable discoveries (`.claude/skills/**` ephemeral-identifier scope, `steroid_execute_code` triple-quoted-string indentation hazard, `findProjectFile` null on in-project absolute paths) propagate to Track 2 via `prior_episodes`. Phase C deferrals (WP7 `dr-audit.md` directory pin, WI4 sub-agent source, WB4 body length cap, drop-by-source-tag numeric-name ambiguity, `path:line` table-escape) land naturally in Track 2's planned DR-audit prompt + observation validation + prune step.
 
-- [ ] Track 2: DR-audit sub-agent and PR submission
+- [x] Track 2: DR-audit sub-agent and PR submission
   > Author the DR-focused sub-agent prompt under the skill directory and
   > add the gh-api submission machinery. The DR audit walks each Decision
   > Record in `implementation-plan.md` and surfaces gaps in alternatives,
@@ -225,11 +225,11 @@ flowchart LR
   > JSON payload for the `pulls/{N}/reviews` endpoint, asks the reviewer to
   > confirm once, and POSTs the review (approve when the observation list
   > is empty, request-changes otherwise).
-  > **Scope:** ~3-4 steps covering DR-audit prompt authoring, observation
-  > validation against the PR's changed-file set, JSON payload composition
-  > and `gh api` invocation, and end-of-session confirmation flow with
-  > approve/request-changes branching.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Delivered the DR-audit sub-agent and the line-anchored `gh api` submission machinery across four step commits (`828700b067`, `84806a16a1`, `b3c217ee15`, `ba73287e9c`) plus two Phase C `Review fix:` iterations (`46a7ce223f`, `1e85d8cecf`). Iteration 1 cleared 5 blockers + 3 should-fixes + 3 suggestions across two files and made one architectural deviation from the Phase A plan: the DR-audit prompt was relocated from `.claude/skills/review-workflow-pr/dr-audit.md` to `.claude/agents/dr-audit.md` and registered as a proper sub-agent with `name`, `description`, `model: opus` frontmatter, so the `**Spawn call.**` block now documents a literal `Agent({subagent_type: "dr-audit", prompt: "plan_path: ..."})` invocation. This deviation makes the dispatch executable from a clean-context orchestrator; the original in-skill prompt path would not have resolved via `subagent_type` at all. Iteration 2 tightened 12 spec-completeness items (prune-command edge cases; POST 422-vs-other failure branches; `gh pr diff` empty / errored fallback to the `pulls/{N}/files --paginate` `patch` field; head-SHA cache revert on POST failure; explicit `[STALE: verify line]` marking mechanism; case-sensitive bolded-prefix matching in dr-audit rule 2 with explicit examples). Cross-track impact for Track 3: (a) the new `Sub-agent dispatch failure` rules define five outcomes that either suppress or partially-suppress the `dispatchLog` append, so Track 3's resume must treat a missing entry as "audit never ran to completion" rather than "audit completed with zero findings"; (b) the latest entry per `sub-agent name` is the authoritative "last run" and the reviewer prunes duplicates at wrap-up, so Track 3 should not auto-dedup; (c) the head-SHA cache must be re-derivable from `gh pr view`, not persisted across `/clear`. Two stale historical artifacts in the track file are deliberately left untouched per the episode-append-only convention: the Step 4 episode's "lead-in enumerates every sub-block" claim re-lists ten items when the post-iter-1 lead-in lists eleven, and the Plan of Work step 2 cites `.claude/skills/review-workflow-pr/dr-audit.md` after the file moved. Deferred (informational only, not fixed this track): the 200-word section-cap suggestions on `## Wrap-up and submission` (1134 words), `### Sub-agent dispatch — DR audit` (497 words), and the dr-audit prompt's `## Parse rules` / `## Output format`; continues the pre-existing project pattern (`## Research mode` is already 977 words), so cross-skill convention rather than a Track 2 fix. The `dispatchLog` growth bound is a future-tracks concern.
+  >
+  > **Track file:** `plan/track-2.md` (4 steps, 0 failed)
 
 - [ ] Track 3: Handoff writer and resume path
   > Add the reviewer-driven handoff mechanism. The skill writes a Markdown
