@@ -476,6 +476,15 @@
                 <configuration>
                   <classifier>sources</classifier>
                   <classesDirectory>${project.basedir}/release-stub</classesDirectory>
+                  <!--
+                    Whitelist the README explicitly so that any file later
+                    added to release-stub/ does not silently ship inside the
+                    published artifact. Keep this list in sync with the
+                    release-stub/ contents.
+                  -->
+                  <includes>
+                    <include>README.md</include>
+                  </includes>
                 </configuration>
               </execution>
               <execution>
@@ -487,6 +496,9 @@
                 <configuration>
                   <classifier>javadoc</classifier>
                   <classesDirectory>${project.basedir}/release-stub</classesDirectory>
+                  <includes>
+                    <include>README.md</include>
+                  </includes>
                 </configuration>
               </execution>
             </executions>
