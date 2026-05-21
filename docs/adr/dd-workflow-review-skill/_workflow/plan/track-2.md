@@ -17,10 +17,11 @@ the review (approve when the observation list is empty, request-changes
 otherwise).
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-21T12:53Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -32,6 +33,8 @@ otherwise).
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
+
+- [x] Technical: PASS at iteration 2 (11 findings; all 11 accepted and applied as track-file edits to Plan of Work steps 1-4 plus the Inter-track dependencies pointer). T1 added the `gh pr view --json files` 100-entry pagination fallback. T2 routed the mid-session head-SHA-moved case through `design.md` §"HEAD-SHA verification" with abort as the default. T3 added the `dispatchLog` producer Track 3 will consume. T4 standardized prune commands on `drop` and pinned bare numeric arguments to the index column. T5 reordered line validation to put diff-hunk membership first. T6 named the section rename (`## End-of-session stub` → `## Wrap-up and submission`). T7 placed the DR-audit dispatch wiring under `## Research mode` as a new `### Sub-agent dispatch — DR audit` subsection. T8–T11 (suggestion-tier) tightened the DR bullet-key form, translation-rule citation, 50-entry pre-flight warning, and the `dr-audit.md` house-style + ephemeral-identifier discipline. No new findings, no regressions.
 
 ## Context and Orientation
 
@@ -66,26 +69,66 @@ Roughly (Phase A decomposes the exact step boundaries):
 
 1. Author `dr-audit.md`. The prompt instructs the sub-agent to read
    `implementation-plan.md`, enumerate `#### D<n>:` blocks, verify the
-   four-bullet shape, verify `Implemented in: Track X` matches an existing
-   track in the checklist, verify optional `Full design: design.md §...`
-   links resolve, and return findings in a structured Markdown format the
-   orchestrator can parse.
-2. Extend `SKILL.md` to spawn the DR-audit sub-agent on reviewer request,
-   translate findings into observations, and append to the list.
-3. Implement the submission payload composer in `SKILL.md`: compose `body`
-   (auto-generated summary), pick `event` (zero observations → `APPROVE`,
-   otherwise `REQUEST_CHANGES`), build `comments[]` from the observation
-   list, validate each comment's `path` against the PR's changed file list
-   and each `line` against the current file content (cross-checked against
-   `gh pr diff` for modified files so only added or modified lines are
-   targeted).
-4. Implement the wrap-up flow in `SKILL.md`: present the observation list
-   as a numbered table, accept prune commands (`remove 3, 7`, `remove all
-   from dr-audit`, `keep all`), re-fetch the head SHA via `gh pr view
-   --json headRefOid` so the JSON references the current PR head, build
-   the JSON payload, show a one-line confirmation prompt (for example
-   `REQUEST_CHANGES with 12 comments to PR <N>?`), and on confirmation POST
-   via `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews --input -`.
+   four-bullet shape (canonical bolded keys `**Alternatives considered**`,
+   `**Rationale**`, `**Risks/Caveats**`, `**Implemented in**` per
+   `.claude/workflow/planning.md` §Decision Records; optional
+   `**Full design**`), verify `**Implemented in**: Track X` matches an
+   existing track in the checklist, verify the optional
+   `**Full design**: design.md §...` link resolves, and return findings in
+   a structured Markdown format the orchestrator can parse. The prompt
+   opens with the same `> **House style …**` blockquote `SKILL.md`
+   carries (per `.claude/output-styles/house-style.md`) and instructs the
+   sub-agent to cite findings by file path and heading anchor, never by
+   ephemeral identifiers (Track / Step / finding numbers), per the
+   `.claude/skills/**`-is-durable-content discovery recorded in Track 1's
+   Surprises & Discoveries (track-1.md:40).
+2. Extend `SKILL.md` with a `### Sub-agent dispatch — DR audit`
+   subsection under `## Research mode` covering (a) the reviewer trigger
+   phrases ("audit the DRs", "check the decision records"), (b) the
+   spawn call with `plan_path` argument, (c) the finding-to-observation
+   translation per `design.md` §"DR-audit sub-agent and findings
+   translation" (Translation paragraph plus the three anchoring edge-case
+   bullets), and (d) an in-conversation `dispatchLog` structure (a list
+   of `{sub-agent name, timestamp, summary}` entries appended whenever
+   the orchestrator spawns a sub-agent). The dispatch log is the slot
+   Track 3 reads on resume to skip re-spending on the same audit;
+   producing it here keeps the inter-track boundary honest.
+3. Implement the submission payload composer in `SKILL.md`. Compose
+   `body` (auto-generated summary), pick `event` (zero observations →
+   `APPROVE`, otherwise `REQUEST_CHANGES`), build `comments[]` from the
+   observation list. Validate each comment's `path` against
+   `.files[].path` from `gh pr view --json files`; when `files.length
+   == 100`, the gh CLI has silently truncated the array (upstream cap,
+   `cli/cli#5368`), so re-fetch the full list via
+   `gh api repos/{owner}/{repo}/pulls/{N}/files --paginate -q '.[] |
+   {path: .filename, changeType: .status}'` and use that. Validate each
+   comment's `line` against the file's diff hunks parsed from
+   `gh pr diff`: for `ADDED` files every line of current content is
+   valid; for `MODIFIED` / `RENAMED` / `COPIED` / `CHANGED` files only
+   the added or modified lines are valid comment targets. A `line`
+   outside both the diff hunks and the current file content marks the
+   observation as stale; the skill surfaces it to the reviewer at prune
+   time rather than silently dropping.
+4. Implement the wrap-up flow in `SKILL.md`. Rename the existing
+   `## End-of-session stub` section to `## Wrap-up and submission` when
+   the body lands (the four wrap-up trigger words from Track 1 carry
+   forward unchanged). Present the observation list as a numbered table
+   and accept prune commands using the verb `drop` (matching Track 1's
+   mid-session `drop 3` / `drop reviewer` shape in `SKILL.md`):
+   `drop 3, 7`, `drop all from dr-audit`, `keep all`. Bare numeric
+   arguments always reference the displayed index column, never a
+   source-tag — this resolves the drop-by-source-tag numeric-name
+   ambiguity Track 1 deferred. When the pruned list exceeds 50 entries,
+   print a warning naming the count and ask the reviewer to confirm
+   before composing the JSON payload. Re-fetch the head SHA via
+   `gh pr view --json headRefOid`; when it differs from the cached value,
+   follow `design.md` §"HEAD-SHA verification" and ask the reviewer to
+   choose between aborting (the default safe path) or accepting the new
+   SHA after re-verifying observation line numbers against the refreshed
+   content. Build the JSON payload, show a one-line confirmation prompt
+   (for example `REQUEST_CHANGES with 12 comments to PR <N>?`), and on
+   confirmation POST via
+   `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews --input -`.
    Print the resulting review URL.
 5. Handle the empty-list path: `event=APPROVE`, body is a one-line "All
    workflow artifacts review clean.", no `comments[]` in the payload.
@@ -105,7 +148,11 @@ Invariants this track preserves:
   the PR diff (added or modified lines).
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. Create `.claude/skills/review-workflow-pr/dr-audit.md` with the DR-audit prompt: frontmatter (no `user-invocable`, since the prompt is sub-agent-only), the canonical bolded-key parse rules (`**Alternatives considered**`, `**Rationale**`, `**Risks/Caveats**`, `**Implemented in**`, optional `**Full design**` per `.claude/workflow/planning.md` §Decision Records), the `**Implemented in**: Track X` resolution against the plan's `## Checklist`, the optional `**Full design**: design.md §...` heading-resolution, the structured Markdown output format the orchestrator parses, and the opening `> **House style …**` blockquote plus the ephemeral-identifier discipline (cite by file path / heading anchor, never Track/Step/finding numbers). — risk: low (default: new Markdown sub-agent prompt; no production code, no concurrency, no API surface)  [ ]
+2. Modify `.claude/skills/review-workflow-pr/SKILL.md`: insert a new `### Sub-agent dispatch — DR audit` subsection under `## Research mode` covering the reviewer trigger phrases (`audit the DRs`, `check the decision records`), the spawn call with the `plan_path` argument, the finding-to-observation translation per `design.md` §"DR-audit sub-agent and findings translation" (Translation paragraph plus the three anchoring edge-case bullets), and an in-conversation `dispatchLog` structure (a list of `{sub-agent name, timestamp, summary}` entries appended whenever the orchestrator spawns a sub-agent; consumed by Track 3 on resume). — risk: low (default: Markdown instruction prose; no production code)  [ ]
+3. Modify `.claude/skills/review-workflow-pr/SKILL.md`: rename `## End-of-session stub` to `## Wrap-up and submission` and rewrite the section body's submission-payload half. Compose `body` (auto-generated summary), pick `event` (zero observations → `APPROVE`; otherwise `REQUEST_CHANGES`), build `comments[]` from the observation list, validate each comment's `path` against `.files[].path` from `gh pr view --json files` with the `gh api repos/{owner}/{repo}/pulls/{N}/files --paginate -q '.[] | {path: .filename, changeType: .status}'` fallback when `files.length == 100` (gh CLI upstream cap `cli/cli#5368`), and validate each comment's `line` against the file's diff hunks parsed from `gh pr diff` (every line of current content valid for `ADDED` files; only added or modified lines for `MODIFIED` / `RENAMED` / `COPIED` / `CHANGED` files; a `line` outside both the diff hunks and the current file content is surfaced to the reviewer at prune time rather than silently dropped). — risk: low (default: Markdown instruction prose; the heading rename is a single-section edit)  [ ]
+4. Modify `.claude/skills/review-workflow-pr/SKILL.md`: complete the `## Wrap-up and submission` section body's user-facing flow. Present the observation list as a numbered table; accept `drop`-verb prune commands (`drop 3, 7`, `drop all from dr-audit`, `keep all`) with bare numeric arguments pinned to the displayed index column (resolves the drop-by-source-tag numeric-name ambiguity Track 1 deferred); print a warning and ask the reviewer to confirm when the pruned list exceeds 50 entries; re-fetch the head SHA via `gh pr view --json headRefOid` and follow `design.md` §"HEAD-SHA verification" when it differs from the cached value (abort is the default safe path); show a one-line confirmation prompt (for example `REQUEST_CHANGES with 12 comments to PR <N>?`); on confirmation POST via `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews --input -` and print the resulting review URL; and document the empty-list APPROVE branch (`event=APPROVE`, one-line body "All workflow artifacts review clean.", no `comments[]` in the payload). — risk: low (default: Markdown instruction prose; user-facing flow documentation only)  [ ]
 
 ## Episodes
 <!-- Empty at Phase 1. -->
@@ -130,7 +177,11 @@ After this track lands, a reviewer can:
 <!-- Reserved for Move 3. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+
+Step 1 creates one new file (`.claude/skills/review-workflow-pr/dr-audit.md`). Steps 2-4 modify `.claude/skills/review-workflow-pr/SKILL.md`. Step 2 owns the new `### Sub-agent dispatch — DR audit` subsection under `## Research mode`. Steps 3 and 4 share ownership of the renamed `## Wrap-up and submission` section: step 3 rewrites the submission-payload half (composer + path/line validation); step 4 rewrites the user-facing-flow half (table render + prune + pre-flight + head-SHA re-fetch + confirmation + POST + empty-list branch).
+
+- **Idempotence.** Re-running step 1 rewrites `dr-audit.md` in full. Re-running step 2 replaces the `### Sub-agent dispatch — DR audit` subsection. Re-running step 3 rewrites the section heading and the payload-half body. Re-running step 4 rewrites the user-facing-flow half of the renamed section. Cross-section state is untouched.
+- **Recovery.** Roll back a failed step with `git checkout -- .claude/skills/review-workflow-pr/SKILL.md` (steps 2-4) or `git clean -fd .claude/skills/review-workflow-pr/dr-audit.md` plus `git checkout -- .claude/skills/review-workflow-pr/SKILL.md` (step 1, in case the SKILL.md scaffolding is touched). Then re-run the failed step from `mode=INITIAL`.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). -->
@@ -151,8 +202,8 @@ Inter-track dependencies:
 
 - Depends on Track 1's `SKILL.md` scaffolding (preflight, artifact
   discovery, research-mode entry, observation list).
-- Track 3's handoff machinery consumes the sub-agent dispatch log added
-  in this track.
+- Track 3's handoff machinery consumes the `dispatchLog` produced by
+  step 2's `### Sub-agent dispatch — DR audit` subsection in `SKILL.md`.
 
 GitHub REST API contract (binding for the JSON payload):
 
