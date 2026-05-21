@@ -41,10 +41,11 @@ Concrete deliverables:
 5. `LifecycleTest`: `setOpenTelemetry` registers listeners; `shutdown` unregisters and flushes; idempotent shutdown.
 6. `ServerPluginTest`: boots `YouTrackDBServer` with `OPENTELEMETRY_ENABLED=true`, runs a query, asserts span emission. Closes server, asserts SDK shutdown.
 7. `ExceptionIsolationTest`: installs a listener that throws on every callback; runs queries and commits; asserts the transaction completes normally and the exporter received no spans (or only those from other registered listeners).
+8. `OTelTimingModeTest`: asserts the timing-mode uniformity invariant. Two scenarios: (a) TX with default `LIGHTWEIGHT` mode runs one Gremlin query and one SQL query; assert that the durations on both spans come from `GranularTicker` (test by setting a `Ticker` test double with a known fixed tick value via `YouTrackDBEnginesManager` and asserting durations are integer multiples of the tick). (b) TX with `withQueryMonitoringMode(EXACT)` runs the same; assert durations are NOT clamped to the tick granularity. Covers Track 1's `getQueryMonitoringMode()` accessor wiring and Track 4's mode-routing inside `executeInternal()`.
 
 ## Plan of Work
 
-Seven edits, one per test class. Each class is independently runnable.
+Eight edits, one per test class. Each class is independently runnable.
 
 The first edit creates `OTelTestBase` plus `OTelGremlinQueryTest`. Tests follow the pattern: build SDK with InMemorySpanExporter, register, run Gremlin query, find emitted span, assert on attributes. The class covers the full attribute matrix from sem-conv §"Span definition" plus the span-name fallback chain (querySummary → operation+collection → collection → system).
 
@@ -60,7 +61,9 @@ The sixth edit adds `ServerPluginTest`. Boots `YouTrackDBServer` via `ServerMain
 
 The seventh edit adds `ExceptionIsolationTest`. Registers a deliberately-throwing listener alongside the OTel listeners; asserts the transaction completes; asserts the OTel exporter still received the expected spans (because the OTel listeners are isolated from the bad one's exceptions). Exercises both Gremlin and SQL paths.
 
-Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-7 are independent.
+The eighth edit adds `OTelTimingModeTest`. Asserts the Timing-mode uniformity invariant by injecting a `Ticker` test double via `YouTrackDBEnginesManager` with a known fixed tick value (e.g., 10 ms granularity). Scenario A runs one Gremlin query + one SQL query inside a default TX (LIGHTWEIGHT mode); asserts both span durations are integer multiples of the tick value. Scenario B repeats with `g.tx().withQueryMonitoringMode(EXACT)`; asserts durations are NOT clamped to tick granularity (some sub-tick value appears). Covers Track 1's `getQueryMonitoringMode()` accessor and Track 4's mode-routing inside `executeInternal()`.
+
+Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-8 are independent.
 
 ## Concrete Steps
 
@@ -99,6 +102,7 @@ In scope:
 - `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/LifecycleTest.java`
 - `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/server/ServerPluginTest.java`
 - `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/ExceptionIsolationTest.java`
+- `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/OTelTimingModeTest.java`
 
 Out of scope:
 - Any production code (Tracks 1-5 own that).
@@ -121,6 +125,8 @@ Invariant "Span kind by role" → OTelGremlinQueryTest, OTelSqlQueryTest, and
   OTelTransactionMetricsListenerTest all assert on SpanData.getKind().
 Invariant "db.system.name = youtrackdb" → OTelGremlinQueryTest and
   OTelSqlQueryTest attribute assertions.
+Invariant "Timing-mode uniformity" → OTelTimingModeTest asserts both
+  Gremlin and SQL fire sites in the same TX honor the snapshotted mode.
 Invariant "One-way dependency" → enforced by Maven enforcer rule in Track 2,
   no Track 6 test needed.
 ```
