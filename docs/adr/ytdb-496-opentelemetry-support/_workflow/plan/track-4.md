@@ -128,6 +128,7 @@ Out of scope:
 
 Inter-track dependencies:
 - Depends on Track 1 (TX SPI extensions, global listener registry, `QueryClassifier` SPI + `Classification` record, exception-wrapper widening to `Throwable`, snapshot fields on `FrontendTransactionImpl`).
+- Depends on Track 2 (the `youtrackdb-opentelemetry` Maven module where `SqlSanitizer`, `SqlSyntaxClassifier`, and the ServiceLoader manifest extension live).
 - Depends on Track 3 (`OTelQueryMetricsListener` exists; the SQL hook feeds into the same listener instance via the global registry snapshot).
 - Provides for Track 6: full SQL coverage in the test suite, including each statement type and the sanitizer edge cases.
 

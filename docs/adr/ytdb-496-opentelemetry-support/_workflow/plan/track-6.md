@@ -30,7 +30,7 @@ The tests live in `youtrackdb-opentelemetry/src/test/java/`. JUnit 5 is the test
 
 Test infrastructure pieces:
 - Base test class `OTelTestBase` providing setUp/tearDown that creates a fresh in-memory `OpenTelemetrySdk`, registers it with the facade, and unregisters in tearDown.
-- An embedded YTDB instance per test class (or per test if isolation cost is acceptable) using `YourTracks.embedded(":memory:")` or equivalent.
+- An embedded YTDB instance per test class (or per test if isolation cost is acceptable). The standing pattern in existing tests is `YourTracks.instance(<dir>)` followed by `ytdb.create(<name>, DatabaseType.MEMORY, <credential>)` and `ytdb.open(<name>, "admin", <password>)`; see `core/src/test/java/.../storage/memory/MemoryStorageDropTest.java` for the canonical setup.
 
 Concrete deliverables:
 
