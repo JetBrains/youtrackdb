@@ -81,8 +81,12 @@ The skill enters research-mode Q&A driven by the reviewer once preflight and art
 
 ## End-of-session stub
 
-<!-- Placeholder. To be filled with: the four wrap-up trigger words
-(`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering
-(index, `path:line`, source, body), the empty-list one-line fallback,
-and a deferred-submission note pointing readers at the eventual real
-`gh api` submission flow. -->
+The skill prints the recorded observations and exits without posting anything to the PR. The real `gh api` submission lands in a follow-up track; this section is the placeholder until then.
+
+**Wrap-up trigger words.** Treat any one of `wrap up`, `done`, `submit`, or `finish` from the reviewer as the wrap-up cue. Match case-insensitively against the reviewer's last message.
+
+**Non-empty observation list.** Render the list as a numbered Markdown table with four columns: index (1-based), `path:line` (or `path:start-end` for range observations), `source` (the tag set during auto-recording: `skill-analysis`, `reviewer`, or the sub-agent name), and `body` (first ~120 chars; line-wrap longer bodies inside the cell). After the table, print one line noting that the follow-up track replaces this stub with the real submission flow; this stub does not call `gh api`.
+
+**Empty observation list.** Replace the table with one line: `No observations recorded. The submission step lands in a follow-up track.` Then exit cleanly.
+
+**No submission.** This stub posts nothing to the PR. The submission machinery (JSON payload composition, `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews`, approve-vs-request-changes branching keyed on the observation list) lands in the follow-up track.
