@@ -65,3 +65,14 @@
 - suggestion (logged, not applied): §Listener registration edge-case bullet at line 451 names `doOpen` rather than `beginInternal`. Acceptable because the TL;DR established the delegation; uniform naming would polish but isn't load-bearing.
 
 **Iterations**: 2 of 3 (PASS)
+
+## Mutation 6 — 2026-05-21 — content-edit (design.md)
+
+**Diff summary**: One-line correction in §"Context propagation in embedded" verification bullet for `FrontendTransactionImpl.assertOnOwningThread()`. The prior text enumerated four call sites (165, 224, 250, 432); the actual code has the method declared at line 133 and invoked from seven sites (165, 224, 250, 432, 452, 474, 511). Edit applied per Phase 2 manual `/review-plan` consistency-review finding CR1. The argument the bullet makes — "every TX operation entry point calls it, so callbacks run on the owner thread" — is unaffected by the count correction; only the line enumeration changes. Bounded scope — single bullet in a single section.
+
+**Mechanical checks** (target=design): PASS
+**Cold-read** (scope: bounded — §"Context propagation in embedded"): SKIPPED — single-bullet factual correction in a section already covered by Mutation 1's whole-doc cold-read; the change updates a numeric enumeration without altering narrative, parallel to Mutation 3 and Mutation 5's skip rationale. Whole-doc periodic check counter at 6 / 5 — count=6 % 5=1, no escalation.
+
+**Findings**: none
+
+**Iterations**: 1 of 3 (PASS)

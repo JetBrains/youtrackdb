@@ -120,8 +120,6 @@ Out of scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransaction.java` — no new `getTrackingId()` accessor; the hook uses the existing `getId(): long` (CR16 resolution).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBTransaction.java` — not touched.
 - `core/.../QueryClassifier.java` and `core/.../Classification.java` — both land in Track 1.
-
-Out of scope:
 - Configuration parameters and lifecycle wiring (Track 5).
 - End-to-end integration tests with the OTel SDK (Track 6).
 - Native SQL DDL semantics beyond extracting the target class name. The classifier does not validate DDL correctness.
