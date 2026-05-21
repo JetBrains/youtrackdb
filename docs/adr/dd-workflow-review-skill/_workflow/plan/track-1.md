@@ -26,6 +26,7 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 - [x] 2026-05-21T10:03Z [ctx=safe] Step 1 complete (commit 079bdd761a6c192e91bfff30c981cde0533d3ed0)
 - [x] 2026-05-21T10:06Z [ctx=info] Step 2 complete (commit 1f7e4acac244028532e0323d71f4bbffb11db1a7)
 - [x] 2026-05-21T10:09Z [ctx=info] Step 3 complete (commit de2a801295cd7fd994afd1d33da73155b2d2143e)
+- [x] 2026-05-21T10:15Z [ctx=info] Step 4 complete (commit e6d202788eaa9c69ae99375b5a73c461eb634d22)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -33,6 +34,7 @@ discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 
 - 2026-05-21T10:03Z `.claude/skills/**` is durable content outside the ephemeral-identifier rule's exclude list (the rule excludes only `docs/adr/*/_workflow/**` and `.claude/workflow/**`). Tracks 2 and 3 must avoid Track/Step/finding-ID labels in skill bodies, comments, and the `dr-audit.md` prompt; cite by file path, class/method, or stable workflow-doc anchor. See Episodes §Step 1.
+- 2026-05-21T10:15Z `steroid_execute_code` with a Kotlin triple-quoted multi-line string preserves the code-side indentation in the written file, corrupting Markdown prose (leading whitespace renders as indented code blocks). Use `listOf(...).joinToString("\n")` instead when injecting multi-line Markdown via `VfsUtil.saveText`. Affects Tracks 2 and 3 implementers who land further skill prose through steroid scripts. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -152,7 +154,7 @@ Invariants this track preserves:
 1. Seed `.claude/skills/review-workflow-pr/SKILL.md` with frontmatter (`name`, `description`, `argument-hint`, `user-invocable: true`) and the section-header outline (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub). — risk: low (default: Markdown-only skill scaffold; no production code)  [x] commit: 079bdd761a6c192e91bfff30c981cde0533d3ed0
 2. Write the Preflight section: `$ARGUMENTS` resolution, `gh pr view --json headRefOid,number,files`, `gh repo view --json nameWithOwner`, `git rev-parse HEAD`, HEAD-SHA mismatch remediation, and the non-zero-`gh pr view` exit fallback (no PR for the current branch or unresolved ref). — risk: low (default: Markdown instruction prose)  [x] commit: 1f7e4acac244028532e0323d71f4bbffb11db1a7
 3. Write the Artifact discovery section: `<dir>` resolution and list-and-pick fallback, canonical artifact enumeration, companion-file acknowledgment (`design-mutations.md`, optional `handoff-*.md`), and the missing-canonical-file error. — risk: low (default: Markdown instruction prose)  [x] commit: de2a801295cd7fd994afd1d33da73155b2d2143e
-4. Write the Research mode section: session-start prelude with the in-memory observation warning, free-form Q&A behavior, observation auto-recording, the four workflow-doc trigger conditions, and the scope rule for code-file questions (answer but do not record). — risk: low (default: Markdown instruction prose)  [ ]
+4. Write the Research mode section: session-start prelude with the in-memory observation warning, free-form Q&A behavior, observation auto-recording, the four workflow-doc trigger conditions, and the scope rule for code-file questions (answer but do not record). — risk: low (default: Markdown instruction prose)  [x] commit: e6d202788eaa9c69ae99375b5a73c461eb634d22
 5. Write the End-of-session stub section: the four wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering (index, `path:line`, source, body), the empty-list one-line fallback, and the deferred-submission note pointing to Track 2. — risk: low (default: Markdown instruction prose; Track 2 replaces this section)  [ ]
 
 ## Episodes
@@ -185,6 +187,18 @@ Invariants this track preserves:
 **What was done:** Filled the `## Artifact discovery` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming the four moves (resolve `<dir>`, enumerate canonical artifacts, acknowledge companion files, abort on missing canonical file) and restates the read-only invariant. Four labelled phases follow: `<dir>` resolution from `git branch --show-current` with the list-and-pick fallback over `docs/adr/*/_workflow/` directories containing an `implementation-plan.md`; canonical enumeration of required `implementation-plan.md` plus `design.md` and optional `design-mechanics.md` plus `plan/track-*.md`; companion-file acknowledgment for `design-mutations.md` and any transient `handoff-*.md`; and the missing-canonical-file abort. Section body sits at 182 words.
 
 **What was discovered:** none
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/review-workflow-pr/SKILL.md` (modified)
+
+**Critical context:** none
+
+### Step 4 — commit e6d202788eaa9c69ae99375b5a73c461eb634d22, 2026-05-21T10:15Z [ctx=info]
+**What was done:** Filled the `## Research mode` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming what research mode does, then walks five labelled phases: session-start prelude with the in-memory observation warning citing the follow-up checkpoint mechanism, free-form Q&A driven by the reviewer with `Read`/`Grep`/`Bash`, observation auto-recording with the four-field shape (`path`, `line`, `body`, `source`) plus the post-record confirmation line, four workflow-doc trigger conditions (`conventions.md`, `research.md`, `design-document-rules.md`, `planning.md`) loaded lazily on the named trigger, and the code-file scope rule (answer but do not record). Section body sits at 356 words, under the 400-word cap.
+
+**What was discovered:** `steroid_execute_code` with a Kotlin triple-quoted multi-line string preserved a 4-space indent on every line of the replacement block on the first write, rendering the new section as a Markdown indented code block and pulling the next `##` header into the same block. The same script with `listOf(...).joinToString("\n")` wrote clean lines. Tracks 2 and 3 will land more skill prose via steroid scripts (`dr-audit.md`, submission-section rewrite, handoff prose); prefer the joined-list form for multi-line Markdown injection through `VfsUtil.saveText`. The bad write was overwritten in-place by the second script call before stage or commit, so no rollback was needed.
 
 **What changed from the plan:** none
 
