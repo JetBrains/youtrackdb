@@ -16,10 +16,11 @@ re-presents the list to the reviewer. The file is deleted on successful
 submission.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-05-21T14:58Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -36,6 +37,8 @@ scope-downs, dependency reveals, gate-override reasons. -->
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
 
+- [x] Technical: PASS at iteration 2 (10 findings, all 10 accepted and applied as light track-file edits to `## Context and Orientation` and `## Plan of Work`). T1–T3 closed Track 2's three cross-track impacts (dispatch-log tri-state on resume, no-auto-dedup contract, snapshot-vs-cache head-SHA distinction). T4 reworded Plan of Work step 1 to edit the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` rather than appending a second warning. T5 added per-branch consequences for the HEAD-mismatch three-way choice. T6 added the 422-mutation corner case to the Cleanup paragraph. T7 added mtime semantics to the many-match discovery clause. T8 aligned the state-list ordering with `design.md` §"Handoff and resume". T9–T10 (iter-2 suggestions) reordered the consequences block to match the lead-paragraph order and added a cross-reference from `## Interfaces and Dependencies` cleanup to the `## Context and Orientation` cleanup paragraph. No regressions; no risk or adversarial review needed (track is Markdown-only, Moderate complexity, no critical-path or architectural-decision characteristics).
+
 ## Context and Orientation
 
 Track 1 has scaffolded the skill and the observation list. Track 2 has added
@@ -43,14 +46,20 @@ the DR-audit sub-agent and the `gh api` submission machinery. This track
 adds the persistence layer that lets the reviewer pause a session and resume
 it later without re-running expensive sub-agent dispatches.
 
-State the handoff captures, by origin track:
+State the handoff captures, by origin track (ordering matches `design.md`
+§"Handoff and resume" — workflow-state-ordered, audit log before user output):
 
 - PR ref, owner/repo, head SHA at session start — Track 1
 - Local checkout path, HEAD at handoff time — Track 1
 - `<dir>` resolved, artifact paths — Track 1
-- Observation list — Track 1
 - Sub-agent dispatch log — Track 2
+- Observation list — Track 1
 - Reviewer notes — Track 3 (new free-form field)
+
+The persisted head SHA is the session-start *snapshot*, used at resume only
+for HEAD-drift detection. Track 2's in-memory wrap-up head-SHA cache (the
+one that reverts to session-start on POST failure per `SKILL.md:141`) is
+NOT persisted; resume re-derives it from a fresh `gh pr view` at preflight.
 
 Filesystem contract:
 
@@ -60,7 +69,12 @@ Filesystem contract:
   the file).
 - Cleanup: deleted on successful `gh api` POST; persists across any failure
   path until the next successful submission or until the reviewer deletes
-  it manually.
+  it manually. After a `422 Unprocessable Entity` POST result (Track 2's
+  partial-success branch — the offending observation gets a
+  `[REJECTED: <reason>]` tag and the skill returns to prune mode), the
+  handoff file is not auto-updated to reflect the mutation. The reviewer
+  must re-checkpoint before `/clear` if they want the rejection state to
+  survive across sessions.
 
 Concrete deliverables of this track:
 
@@ -78,17 +92,25 @@ Roughly (Phase A decomposes the exact step boundaries):
 1. Extend `SKILL.md` with the handoff-write instructions: reviewer-command
    triggers (e.g. "checkpoint", "save state", "we're about to /clear"),
    the Markdown structure (PR context, local checkout, workflow directory,
-   sub-agent dispatch log, observation list, reviewer notes), the file
-   location (`/tmp/claude-code-review-workflow-pr-<N>-$PPID.md`), and the
-   announcement of the resulting path to the reviewer. Add the session-
-   start warning that observations are in-memory unless checkpointed.
+   sub-agent dispatch log, observation list, reviewer notes — order
+   matches `design.md` §"Handoff and resume"), the file location
+   (`/tmp/claude-code-review-workflow-pr-<N>-$PPID.md`), and the
+   announcement of the resulting path to the reviewer. **Edit** (do not
+   append to) the existing `**Session-start prelude.**` paragraph at
+   `SKILL.md:69`: drop the "follow-up track" qualifier and the
+   plain-text-stub fallback, add the handoff-checkpoint trigger phrases
+   and the resulting-path announcement, preserve the existing
+   "Observations live in this conversation only" sentence so the
+   in-memory-state warning still surfaces.
 
 2. Extend `SKILL.md` with the resume discovery: on
    `/review-workflow-pr <N>` invocation, glob
    `/tmp/claude-code-review-workflow-pr-<N>-*.md`. Branch on zero, one, or
    many matches. On one match offer to resume and ask the reviewer to
-   confirm; on many, list candidates with mtimes and ask the reviewer to
-   pick; on zero, proceed as a fresh session.
+   confirm; on many, list candidates with mtimes (mtime = last checkpoint
+   write for that PR) sorted newest-first and recommend the newest unless
+   the reviewer explicitly wants an older state; on zero, proceed as a
+   fresh session.
 
 3. Extend `SKILL.md` with the resume reload and HEAD re-verification:
    re-read the chosen handoff file, parse the six sections, ask the
@@ -96,6 +118,35 @@ Roughly (Phase A decomposes the exact step boundaries):
    observations / abort + re-checkout / proceed without revalidation). On
    successful submission, delete the handoff file. On any failure path,
    leave it in place.
+
+   **Dispatch-log re-presentation rules** (Track 2 cross-track impacts
+   (a) and (b)):
+
+   - Treat a missing `dispatchLog` section in the handoff as "audit never
+     ran to completion", distinct from "audit ran and produced zero
+     findings" (the latter is a `dispatchLog` entry with
+     `findings_count=0` per `SKILL.md:121`). The re-presentation surfaces
+     all three states distinctly so the reviewer can decide whether to
+     re-run the audit.
+   - Replay the `dispatchLog` entries as-written; do not auto-dedup
+     repeated spawns of the same `sub-agent name`. The latest entry per
+     `sub-agent name` is treated as the authoritative "last run" for the
+     summary line, but earlier entries are preserved so the reviewer sees
+     the spawn history.
+
+   **HEAD-mismatch three-way choice consequences** (surface each in the
+   reviewer-facing prompt, not just the choice labels):
+
+   - **Refresh observations**: reuse the wrap-up `**Head-SHA re-fetch.**`
+     refresh procedure verbatim (`SKILL.md:137`) — do not invent a
+     parallel resume-specific procedure.
+   - **Abort + re-checkout**: the in-memory state from the just-resumed
+     session is preserved, so the reviewer can re-checkpoint before
+     clearing if they want a fresh snapshot.
+   - **Proceed without revalidation**: observation `line` values reference
+     the saved HEAD's file content, but the wrap-up line validation runs
+     against the new HEAD; most or all observations may be marked
+     `[STALE: verify line]` at wrap-up.
 
 Ordering: step 1 first — the write path must exist before resume has
 anything to read. Steps 2 and 3 form a single conceptual flow and can land
@@ -112,10 +163,10 @@ Invariants this track preserves:
   current content.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster
-here: one entry per step with description, `risk:` tag, and a `[ ]` status
-checkbox. Per-step episodes do NOT live here; they live in `## Episodes`
-below. -->
+
+1. Add `## Handoff and resume` to `SKILL.md` with the handoff-write subsection (reviewer-command trigger phrases, six-section file format matching `design.md` §"Handoff and resume" ordering, `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` write path, post-write path announcement to the reviewer) and **edit** the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` per Plan of Work step 1 (drop the "follow-up track" qualifier and plain-text-stub fallback, add the handoff-checkpoint trigger phrases, preserve the "Observations live in this conversation only" sentence) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
+2. Add the resume-discovery subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 2: glob `/tmp/claude-code-review-workflow-pr-<N>-*.md`; branch on zero (fresh session) / one (offer to resume with reviewer confirmation) / many (list candidates with mtimes sorted newest-first, recommend the newest unless the reviewer explicitly wants an older state) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
+3. Add the resume-reload subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 3: re-read the chosen handoff file and parse the six sections; HEAD re-verification with the three-way choice (refresh observations reusing `**Head-SHA re-fetch.**` at `SKILL.md:137` / abort + re-checkout preserving in-memory state / proceed without revalidation acknowledging the `[STALE: verify line]` risk); dispatch-log tri-state re-presentation (missing entry vs `findings_count=0` entry vs `findings_count>0` entry per `SKILL.md:121`); no-auto-dedup contract for the dispatch log; snapshot-vs-cache head-SHA distinction; cleanup discipline (delete on successful POST, persist on any failure, 422-mutation corner case needing re-checkpoint before `/clear` to survive across sessions) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -148,8 +199,30 @@ After this track lands, a reviewer can:
 as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths
-once steps are decomposed. -->
+
+All three steps are Markdown-only edits to one file
+(`.claude/skills/review-workflow-pr/SKILL.md`). No on-disk runtime state
+is created at commit time; the handoff-write, resume-discovery, and
+resume-reload behaviours documented in those edits only execute when a
+reviewer invokes the skill at run time.
+
+- **Step 1.** Idempotent — re-applying the SKILL.md edits fails when the
+  `old_string` anchor no longer matches (signalling the implementer that
+  the change already landed). Recovery: `git revert` the step commit; the
+  handoff-write logic is not yet exercised by any reviewer session.
+- **Step 2.** Same shape as Step 1. The resume-discovery glob is not
+  fired until a reviewer invokes `/review-workflow-pr <N>` after Step 2
+  lands. Recovery: `git revert` the step commit.
+- **Step 3.** Same shape as Step 1. The resume-reload logic is not fired
+  until a reviewer invokes `/review-workflow-pr <N>` against a PR that
+  already has a handoff file on disk. Recovery: `git revert` the step
+  commit.
+
+Cross-step dependency. Steps 2 and 3 both add subsections to the
+`## Handoff and resume` section that Step 1 creates; their `Edit`
+anchors target the post-Step-1 file state. A revert of Step 1 forces a
+revert of any later Steps 2 / 3 commits in reverse order (Step 3 first,
+then Step 2).
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
@@ -170,7 +243,8 @@ Filesystem contract:
 
 - Handoff write target: `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md`
 - Resume discovery glob: `/tmp/claude-code-review-workflow-pr-<N>-*.md`
-- Cleanup: deleted on successful `gh api` POST.
+- Cleanup: deleted on successful `gh api` POST. See `## Context and
+  Orientation` Cleanup paragraph for the 422-mutation corner case.
 
 Inter-track dependencies:
 
