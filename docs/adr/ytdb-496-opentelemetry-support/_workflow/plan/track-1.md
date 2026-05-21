@@ -2,11 +2,11 @@
 
 ## Purpose / Big Picture
 
-After this track lands, `core` carries the four SPI surfaces the OTel module needs: a global listener registry on `YouTrackDB`, two new no-op default methods on `TransactionMetricsListener` (begin and rollback), and two new accessors on `QueryDetails`. No behavior changes for existing users.
+After this track lands, `core` carries the SPI surfaces the OTel module needs: a process-global listener registry exposed as static methods on `YourTracks`, two new default no-op methods on `TransactionMetricsListener` (begin and rollback), three new default accessors on `QueryMetricsListener.QueryDetails` (operation / collection / namespace), one new accessor on `TransactionMetricsListener.TransactionDetails` (namespace), and a `QueryClassifier` SPI slot. The TX lifecycle fires consolidate inside `FrontendTransactionImpl.beginInternal()` / `rollbackInternal()` so both Gremlin and native-SQL paths emit the same callbacks. The existing exception-isolation wrappers widen from `Exception` to `Throwable`. No behavior changes for transactions without registered listeners.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Extend the existing listener SPI with the hooks the OTel module needs: two new default-no-op methods on `TransactionMetricsListener` (begin / rollback), a global listener registry on `OYouTrackDB`, and `QueryDetails` accessors for the bytecode-derived operation/collection. No behavior change yet; every existing call path stays green.
+Extend the existing listener SPI with the hooks the OTel module needs: two new default-no-op methods on `TransactionMetricsListener` (begin / rollback), a process-global listener registry exposed as static methods on `YourTracks`, accessors on the nested `QueryDetails` and `TransactionDetails` interfaces for the classifier-derived operation/collection plus the database name, a `QueryClassifier` SPI slot, and a strategy-gate update so globally-registered listeners actually receive callbacks. No behavior change yet; every existing call path stays green.
 
 ## Progress
 - [ ] Review + decomposition
@@ -26,35 +26,46 @@ Extend the existing listener SPI with the hooks the OTel module needs: two new d
 
 The relevant code lives entirely under `core/src/main/java/com/jetbrains/youtrackdb/`:
 
-- `internal/common/profiler/monitoring/QueryMetricsListener.java` carries the existing `QueryDetails` nested interface and the single `queryFinished` callback.
-- `internal/common/profiler/monitoring/TransactionMetricsListener.java` carries the two existing default no-op methods `writeTransactionCommitted` and `writeTransactionFailed`.
-- `internal/common/profiler/monitoring/YTDBQueryMetricsStep.java` is the TinkerPop step injected by `YTDBQueryMetricsStrategy`. Its `close()` method (around line 116) builds an anonymous `QueryDetails` and fires the listener.
-- `internal/core/tx/YTDBTransaction.java` is the public-facing transaction. `doOpen()` (around line 154) calls `activeSession.begin()`; `doRollback()` (around line 186) calls `activeSession.rollback()`.
-- `api/YourTracks.java` and the public `YouTrackDB` interface are the factory entry points the host application uses.
+- `internal/common/profiler/monitoring/QueryMetricsListener.java` carries the existing nested interface `QueryMetricsListener.QueryDetails` and the single `queryFinished` callback. Today `queryFinished` fires only when `ytdbTx.getQueryMetricsListener()` is non-NO_OP — a single per-TX listener.
+- `internal/common/profiler/monitoring/TransactionMetricsListener.java` carries the existing nested `TransactionMetricsListener.TransactionDetails` interface and two existing default no-op methods (`writeTransactionCommitted`, `writeTransactionFailed`).
+- `internal/common/profiler/monitoring/YTDBQueryMetricsStep.java` is the TinkerPop step injected by `YTDBQueryMetricsStrategy`. Its `close()` method (around line 116) builds an anonymous `QueryDetails` and fires the listener inside a `try { ... } catch (Exception e) { ... }` (line 148). The step itself is injected only when `YTDBQueryMetricsStrategy.apply()` sees `ytdbTx.isQueryMetricsEnabled()` return true — and that method returns true only when a per-TX `withQueryListener` was set, so a globally-registered listener with no per-TX wiring never sees the step at all.
+- `internal/core/gremlin/YTDBTransaction.java` is the Gremlin-side TX wrapper (a `final` subclass of TinkerPop's `AbstractTransaction`). Its `doOpen()` (line 154) calls `activeSession.begin()`; `doRollback()` (line 186) calls `activeSession.rollback()`. Both delegate to the underlying `FrontendTransactionImpl`. This track does not touch `YTDBTransaction` — the new TX-lifecycle fires live in `FrontendTransactionImpl` so both Gremlin and native-SQL paths emit them.
+- `internal/core/tx/FrontendTransactionImpl.java` is the underlying TX manager. `beginInternal()` (line 164) and `rollbackInternal()` (line 356) are the single chokepoints for every TX begin and rollback in the codebase (Gremlin delegates here; `DatabaseSessionEmbedded` calls them directly from six call sites). The existing private `notifyMetricsListener()` (line 712) carries an `Exception`-only try/catch wrapper for commit success/failure fires.
+- `api/YourTracks.java` is a `final` utility class with a private constructor and only static factory methods. The public `YouTrackDB` interface is the factory product. The process-global registry exposes static methods on `YourTracks` only; the `YouTrackDB` interface gets no new methods (so `YouTrackDBRemote` and any other implementors keep compiling unchanged).
 
-The track touches none of the actual emission code (that lives in Track 3). It adds API surfaces and wires the transaction factory to consult the global registry when constructing a new `YTDBTransaction`. Concrete deliverables:
+The track touches none of the actual emission code (that lives in Track 3). It adds API surfaces, consolidates the TX-lifecycle fires inside `FrontendTransactionImpl`, refactors the existing single-listener call sites to iterate the per-TX snapshot, and widens the existing exception-isolation wrappers from `Exception` to `Throwable`. Concrete deliverables:
 
-1. Two new default-no-op methods on `TransactionMetricsListener`: `transactionStarted(TransactionDetails)` fired from `YTDBTransaction.doOpen()`; `transactionRolledBack(TransactionDetails)` fired from `YTDBTransaction.doRollback()`.
-2. Two new accessors on `QueryDetails`: `Optional<String> getOperationName()` and `Optional<String> getCollectionName()`. Both default to `Optional.empty()` in the existing inline implementation so unrelated tests keep passing; `YTDBQueryMetricsStep` populates them only when the classifier resolves a value (the classifier itself lands in Track 3, this track exposes the slot).
-3. A global listener registry on `YouTrackDB`: `registerGlobalQueryListener(QueryMetricsListener)`, `unregisterGlobalQueryListener(QueryMetricsListener)`, and the matching pair for `TransactionMetricsListener`. The registry is a `CopyOnWriteArrayList` so reads are lock-free.
-4. Snapshot wiring in the transaction factory: when `YTDBTransaction` is constructed, it copies the current registry snapshot into its own per-TX listener list. Per-TX `withQueryListener` adds on top of the snapshot.
-5. Exception isolation extension: the existing try/catch around `writeTransactionCommitted` / `writeTransactionFailed` (in `FrontendTransactionImpl`) is extended to wrap the new `transactionStarted` and `transactionRolledBack` calls.
+1. Two new default-no-op methods on `TransactionMetricsListener`: `transactionStarted(TransactionDetails)` and `transactionRolledBack(TransactionDetails)`. Fires happen in `FrontendTransactionImpl.beginInternal()` (after the `txStartCounter == 0` outermost branch enters BEGUN status) and `rollbackInternal()` (gated by `txStartCounter == 0` so nested rollbacks don't double-fire).
+2. Three new default accessors on `QueryMetricsListener.QueryDetails`: `Optional<String> getOperationName()`, `Optional<String> getCollectionName()`, `Optional<String> getDatabaseName()`. All default to `Optional.empty()` so existing inline implementations keep working; `YTDBQueryMetricsStep` populates them only when the classifier resolves a value (the classifier itself lands in Track 3, this track exposes the slot) and from `session.getDatabaseName()` for the namespace.
+3. One new default accessor on `TransactionMetricsListener.TransactionDetails`: `Optional<String> getDatabaseName()`. Populated at the fire site in `FrontendTransactionImpl` from `session.getDatabaseName()`.
+4. A `QueryClassifier` SPI interface plus a `Classification` record in `core/.../profiler/monitoring/` so both Gremlin (Track 3) and SQL (Track 4) classifiers register through one ServiceLoader manifest.
+5. A process-global listener registry: a package-private static holder under `internal/common/profiler/monitoring/` (e.g., `GlobalListenerRegistry`) with `CopyOnWriteArrayList` per listener type, exposed via static methods on `YourTracks`: `registerGlobalQueryListener(QueryMetricsListener)`, `unregisterGlobalQueryListener(QueryMetricsListener)`, plus the transaction-listener pair.
+6. Snapshot wiring at TX begin: `FrontendTransactionImpl.beginInternal()` captures the global registry snapshots (`List<QueryMetricsListener>` and `List<TransactionMetricsListener>`) into new fields before incrementing `txStartCounter` so nested begins reuse the outermost snapshot. The fields are cleared on outermost commit / rollback.
+7. Strategy gate update: `YTDBQueryMetricsStrategy.apply()` (around line 36) and `YTDBTransaction.isQueryMetricsEnabled()` widen to also return true when the global query snapshot is non-empty, so a globally-registered listener actually causes the step to inject.
+8. Existing single-listener call sites refactored to iterate the per-TX snapshot: `YTDBQueryMetricsStep.close()` (fires `queryFinished` against every registered query listener instead of a single per-TX one), `FrontendTransactionImpl.notifyMetricsListener()` (same for commit success/failure). Per-TX `withQueryListener` continues to work by inserting one entry into the same snapshot.
+9. Exception-isolation widening: the existing `} catch (Exception e) {` blocks in `FrontendTransactionImpl.notifyMetricsListener:730` and `YTDBQueryMetricsStep:148` widen to `} catch (Throwable t) {`. The two new TX-lifecycle fires reuse the same wrapper shape in `FrontendTransactionImpl`.
 
 ## Plan of Work
 
-The track lands in five edits, sequenced so each commit leaves the test suite green.
+The track lands in eight edits, sequenced so each commit leaves the test suite green.
 
-The first edit adds the two new methods to `TransactionMetricsListener` as `default` no-ops. Because both have default implementations, every existing call site and every existing test class compiles unchanged.
+The first edit adds the two new methods to `TransactionMetricsListener` as `default` no-ops, plus the `getDatabaseName()` default accessor on the nested `TransactionDetails`. Because both have default implementations, every existing call site and every existing test class compiles unchanged.
 
-The second edit extends `QueryDetails` with the two `Optional<String>` accessors as default methods returning `Optional.empty()`. The inline impl in `YTDBQueryMetricsStep` does not need to override yet.
+The second edit extends `QueryMetricsListener.QueryDetails` with the three `Optional<String>` accessors (`getOperationName`, `getCollectionName`, `getDatabaseName`) as default methods returning `Optional.empty()`. The inline impl in `YTDBQueryMetricsStep` does not need to override yet.
 
-The third edit creates the global registry. The natural home is a static holder under `internal/common/profiler/monitoring/` (kept package-private with public accessor methods on `YouTrackDB` and `YourTracks`). Reading the registry is a `List.copyOf(...)` snapshot to avoid concurrent modification during transaction construction.
+The third edit defines the `QueryClassifier` SPI interface and the `Classification` record under `internal/common/profiler/monitoring/`. The interface carries a single `Classification classify(Object source)` method; the record is `(Optional<String> operationName, Optional<String> collectionName)`. ServiceLoader-discovered (no implementations yet — Track 3 and Track 4 add them).
 
-The fourth edit wires `YTDBTransaction`'s constructor to take the registry snapshot. It also wires `doOpen()` to fire `transactionStarted` for every listener in the snapshot, and `doRollback()` to fire `transactionRolledBack`. The two new fire sites reuse the exception-isolation wrapper from `FrontendTransactionImpl.notifyMetricsListener`.
+The fourth edit creates the process-global registry: a package-private static holder (e.g., `GlobalListenerRegistry`) under `internal/common/profiler/monitoring/` with a `CopyOnWriteArrayList` per listener type, plus `snapshotQueryListeners()` / `snapshotTransactionListeners()` returning immutable `List.copyOf(...)` snapshots. `YourTracks` gains four public static methods (`registerGlobalQueryListener` / `unregisterGlobalQueryListener` plus the transaction-listener pair) that delegate to the holder.
 
-The fifth edit adds JUnit 4 tests under `core/src/test/java/.../profiler/monitoring/`: a test class proving that registering a listener globally causes it to receive begin / commit / rollback callbacks for a transaction, and a test class proving that an exception thrown from any listener method does not break the transaction.
+The fifth edit wires `FrontendTransactionImpl.beginInternal()` to capture the global query and transaction snapshots into two new fields before `txStartCounter` increments. The same method then iterates the transaction snapshot calling `transactionStarted(details)` against each listener, inside the existing exception-isolation wrapper shape. `rollbackInternal()` iterates the snapshot calling `transactionRolledBack(details)` when `txStartCounter == 0` (so nested rollbacks don't double-fire). On outermost commit / rollback the snapshots clear.
 
-Ordering matters because the registry is consumed by the transaction constructor. The first two edits are independent and could swap order without consequence; the third must precede the fourth; the fifth follows the fourth.
+The sixth edit updates the strategy gate: `YTDBQueryMetricsStrategy.apply()` (line 36) and `YTDBTransaction.isQueryMetricsEnabled()` widen the gate to also return true when the global query snapshot is non-empty. Without this edit a globally-registered listener never sees `queryFinished` because the step is never injected.
+
+The seventh edit refactors the single-listener call sites: `YTDBQueryMetricsStep.close()` now iterates every query listener in the per-TX snapshot (which includes any per-TX `withQueryListener` plus the global snapshot taken at begin), and `FrontendTransactionImpl.notifyMetricsListener()` iterates the transaction snapshot for commit success/failure. Each per-iteration call sits inside the existing try/catch wrapper, widened to `Throwable`.
+
+The eighth edit adds JUnit 4 tests under `core/src/test/java/.../profiler/monitoring/`: a test class proving that registering a listener globally causes it to receive begin / commit / rollback callbacks for a transaction (covering both Gremlin and native-SQL paths through one shared fire site), a test class proving that `Throwable` thrown from any listener method does not break the transaction, and a test class proving that listeners registered after a transaction begins are not seen by that transaction.
+
+Ordering: edits 1, 2, 3 are independent (any order). Edit 4 must precede edits 5, 6, 7. Edit 5 precedes edit 7 (snapshot field exists). Edit 6 is independent of edit 5 but precedes edit 8. Edit 8 last.
 
 ## Concrete Steps
 
@@ -66,11 +77,13 @@ Ordering matters because the registry is consumed by the transaction constructor
 
 After Track 1, the following behaviors hold:
 
-- Registering a `QueryMetricsListener` via `YouTrackDB.registerGlobalQueryListener(listener)` causes that listener to receive `queryFinished` callbacks for every subsequent query in every newly-opened transaction. Listeners registered after a transaction is open do not fire for that transaction.
-- Registering a `TransactionMetricsListener` via the matching global method causes that listener to receive `transactionStarted`, then exactly one of `writeTransactionCommitted`, `writeTransactionFailed`, or `transactionRolledBack` for every newly-opened transaction.
-- An exception thrown from any listener callback does not propagate to the application. The transaction continues; subsequent listeners in the registry still fire.
+- Registering a `QueryMetricsListener` via `YourTracks.registerGlobalQueryListener(listener)` causes that listener to receive `queryFinished` callbacks for every subsequent query in every newly-opened transaction, on both the Gremlin path (`YTDBQueryMetricsStep.close()`) and (once Track 4 wires it in) the native-SQL path. Listeners registered after a transaction is open do not fire for that transaction.
+- Registering a `TransactionMetricsListener` via `YourTracks.registerGlobalTransactionListener(listener)` causes that listener to receive `transactionStarted` (fired from `FrontendTransactionImpl.beginInternal()` on the outermost begin), then exactly one of `writeTransactionCommitted` / `writeTransactionFailed` / `transactionRolledBack` for every newly-opened transaction, regardless of whether it originated from Gremlin or native SQL.
+- Nested begins do not emit a second `transactionStarted` and nested rollbacks do not emit a second `transactionRolledBack` — both fires are gated by `txStartCounter == 0`.
+- A `Throwable` (including `Error`) thrown from any listener callback is caught and logged at WARN; the transaction continues; subsequent listeners in the snapshot still fire.
 - Per-TX `withQueryListener` continues to work for transactions that have been started, adding listeners on top of the global-registry snapshot.
-- `QueryDetails.getOperationName()` and `getCollectionName()` return `Optional.empty()` for every query (the classifier wiring lands in Track 3).
+- `QueryMetricsListener.QueryDetails.getOperationName()`, `getCollectionName()`, and `getDatabaseName()` are reachable; the first two return `Optional.empty()` until Track 3 / Track 4 wire classifiers; `getDatabaseName()` returns the session's database name when the fire site populates it, else `Optional.empty()`.
+- `YTDBQueryMetricsStrategy.apply()` injects `YTDBQueryMetricsStep` when the global query snapshot is non-empty even without a per-TX `withQueryListener` call.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -85,43 +98,68 @@ After Track 1, the following behaviors hold:
 ## Interfaces and Dependencies
 
 In scope:
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/QueryMetricsListener.java`
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/TransactionMetricsListener.java`
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/YTDBQueryMetricsStep.java` (slot enrichment only; classifier in Track 3)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/YTDBTransaction.java`
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransactionImpl.java` (extend existing try/catch wrappers)
-- `core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java`
-- `core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java`
-- New static holder file under `internal/common/profiler/monitoring/` for the global registry.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/QueryMetricsListener.java` (extend nested `QueryDetails`)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/TransactionMetricsListener.java` (extend nested `TransactionDetails`; add two new no-op methods on the outer interface)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/YTDBQueryMetricsStep.java` (slot enrichment, iterate per-TX snapshot at `close()`, widen catch to `Throwable`)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/YTDBQueryMetricsStrategy.java` (gate widening so the step injects when the global query snapshot is non-empty)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransactionImpl.java` (snapshot capture in `beginInternal`, lifecycle fires in `beginInternal` + `rollbackInternal`, iterate transaction snapshot in `notifyMetricsListener`, widen wrappers to `Throwable`)
+- `core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java` (four new static methods delegating to the new registry holder)
+- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/GlobalListenerRegistry.java` (package-private holder; `CopyOnWriteArrayList` per listener type plus snapshot methods)
+- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/QueryClassifier.java` (SPI interface)
+- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/Classification.java` (small value record)
 
 Out of scope:
+- `core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java` — no new methods; the registry is process-global on `YourTracks` only (CR9 resolution).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBTransaction.java` — `doOpen()` / `doRollback()` are untouched; the new TX-lifecycle fires live in `FrontendTransactionImpl` so both Gremlin and native-SQL paths emit them.
 - Every file in `server/`, `embedded/`, `tests/`. Foundation does not need to know about server lifecycle or embedded host.
 - The OTel module (does not exist yet, lands in Track 2).
-- The Gremlin bytecode classifier implementation (Track 3 owns it; this track only exposes the `QueryDetails` accessor slot).
+- The Gremlin bytecode classifier and SQL syntax classifier implementations (Tracks 3 and 4 own them; this track only exposes the SPI slot).
 
 Inter-track dependencies:
-- Provides for Track 3: the listener SPI extensions and the `QueryDetails` accessor slots.
-- Provides for Track 4: the `QueryClassifier` SPI slot the SQL classifier registers through.
-- Provides for Track 5: the global registry SPI used by `YouTrackDBOpenTelemetry.setOpenTelemetry()` to install the OTel listeners.
+- Provides for Track 3: the listener SPI extensions, the `QueryDetails` / `TransactionDetails` accessor slots, the `QueryClassifier` SPI slot, the iteration shape in `YTDBQueryMetricsStep.close()`.
+- Provides for Track 4: the `QueryClassifier` SPI slot the SQL classifier registers through; the global query snapshot accessible from `currentTx` inside `DatabaseSessionEmbedded.executeInternal()`.
+- Provides for Track 5: the global registry static methods used by `YouTrackDBOpenTelemetry.setOpenTelemetry()` to install the OTel listeners.
 
 Library / function signatures introduced:
 
 ```java
+// existing nested interface, three new default accessors
+public interface QueryMetricsListener {
+  interface QueryDetails {
+    default Optional<String> getOperationName() { return Optional.empty(); }
+    default Optional<String> getCollectionName() { return Optional.empty(); }
+    default Optional<String> getDatabaseName() { return Optional.empty(); }
+    // existing methods unchanged
+  }
+  // existing method unchanged
+}
+
+// existing nested interface, one new default accessor; two new outer methods
 public interface TransactionMetricsListener {
+  interface TransactionDetails {
+    default Optional<String> getDatabaseName() { return Optional.empty(); }
+    // existing methods unchanged
+  }
   default void transactionStarted(TransactionDetails txDetails) {}
   default void transactionRolledBack(TransactionDetails txDetails) {}
   // existing methods unchanged
 }
 
-public interface QueryDetails {
-  default Optional<String> getOperationName() { return Optional.empty(); }
-  default Optional<String> getCollectionName() { return Optional.empty(); }
-  // existing methods unchanged
+// new SPI in core
+public interface QueryClassifier {
+  Classification classify(Object source);
 }
 
-// on YouTrackDB / YourTracks
-void registerGlobalQueryListener(QueryMetricsListener listener);
-void unregisterGlobalQueryListener(QueryMetricsListener listener);
-void registerGlobalTransactionListener(TransactionMetricsListener listener);
-void unregisterGlobalTransactionListener(TransactionMetricsListener listener);
+public record Classification(
+    Optional<String> operationName,
+    Optional<String> collectionName) {
+  public static final Classification EMPTY =
+      new Classification(Optional.empty(), Optional.empty());
+}
+
+// static methods on the existing final utility class YourTracks
+public static void registerGlobalQueryListener(QueryMetricsListener listener);
+public static void unregisterGlobalQueryListener(QueryMetricsListener listener);
+public static void registerGlobalTransactionListener(TransactionMetricsListener listener);
+public static void unregisterGlobalTransactionListener(TransactionMetricsListener listener);
 ```
