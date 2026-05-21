@@ -1,0 +1,473 @@
+# YTDB-496 OpenTelemetry support — Design
+
+## Overview
+
+This design adds a new optional Maven module `youtrackdb-opentelemetry` that turns the existing YTDB listener callbacks into OpenTelemetry spans, so a host running embedded YTDB and an operator running a standalone server both get database telemetry visible in any OTel-compatible trace viewer.
+
+This design assumes familiarity with the existing `QueryMetricsListener` and `TransactionMetricsListener` firing sites in `YTDBQueryMetricsStep` and `FrontendTransactionImpl`, and with the `YTDBTransaction` open / commit / rollback lifecycle. The audience is contributors maintaining the metrics and transaction subsystems in `core`.
+
+Today YTDB has an internal `QueryMetricsListener` SPI that fires only on Gremlin traversal close, plus a `TransactionMetricsListener` that fires on write-transaction commit, but the listeners are per-transaction and the project ships no OTel binding. Native SQL queries (the path used for `db.command(...)`, MATCH, and DDL) currently fire neither listener. The design closes that gap with four load-bearing additions: a global listener registry in `core` so an OTel listener registered once at startup auto-applies to every subsequent transaction; two new default-no-op methods on `TransactionMetricsListener` (`transactionStarted`, `transactionRolledBack`) so the OTel module can emit a TX-lifetime parent span covering queries and commit as children; a new listener fire site at `DatabaseSessionEmbedded.executeInternal()` so every SQL statement type (SELECT, INSERT, UPDATE, DELETE, MATCH, DDL) flows through the same listener API; and a pair of classifiers (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) sharing a `QueryClassifier` SPI that extracts `db.operation.name` and `db.collection.name` so spans carry sem-conv v1.33.0 attributes.
+
+Other subsystems restructured to fit: `QueryDetails` gains two `Optional<String>` accessors, `YTDBTransaction.doOpen()` and `doRollback()` fire the new TX lifecycle calls, the existing exception-isolation try/catch in `FrontendTransactionImpl` extends to cover the new fire sites, `FrontendTransaction` gains an `Optional<String> getTrackingId()` default so the SQL hook can identify the active transaction, and `GlobalConfiguration` gains four `OPENTELEMETRY_*` entries that drive the server-mode SDK init.
+
+In embedded mode the SDK resolution chain has three steps in priority order: host-provided via `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, then `GlobalOpenTelemetry.get()` if the host configured the global, then a YTDB-built SDK auto-configured from `OPENTELEMETRY_*` config when neither of the first two yielded a real instance. The flag is never inert; ownership is tracked so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process; an `OpenTelemetrySdk` built from the same config entries wires through a `ServerLifecycleListener`-based plugin.
+
+The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, transaction-lifetime span semantics, Gremlin bytecode classification, SQL execution layer hook, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
+
+## Core Concepts
+
+This design introduces six load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
+
+**Span.** An OpenTelemetry record covering one unit of work with a start timestamp, an end timestamp, a name, a kind (CLIENT / SERVER / INTERNAL / PRODUCER / CONSUMER), a status (OK / ERROR), and arbitrary key/value attributes. Replaces "nothing in YTDB" (no prior telemetry primitive). → §"Sem-conv attribute mapping" and §"Class Design".
+
+**Trace and Context.** A trace is a tree of spans bound by a shared `traceId`; each child span carries a `parentSpanId`. `Context` is the OTel mechanism for propagating the current span through the call stack so that a span created inside a method automatically attaches as a child of the surrounding span. Replaces "no parent/child relationship between operations". → §"Context propagation in embedded".
+
+**Listener registry (global).** A `CopyOnWriteArrayList` of `QueryMetricsListener` and `TransactionMetricsListener` instances held in `core`, snapshotted into every newly-opened `YTDBTransaction`. Replaces "per-TX `withQueryListener` only", which made the config flag inert. → §"Listener registration and ordering".
+
+**TX-lifetime span.** The INTERNAL span the OTel TX listener opens on `transactionStarted` and closes on commit / failed-commit / rollback. Acts as the parent of every query span and the commit span emitted between begin and close. Replaces "no transaction-scoped grouping in the trace viewer". → §"Transaction-lifetime span semantics".
+
+**Sem-conv v1.33.0.** OpenTelemetry's stable semantic conventions for database client spans, dictating attribute names (`db.system.name`, `db.query.text`, etc.), their requirement levels (Required / Conditionally Required / Recommended / Opt-In), and the span-name fallback chain. Replaces "no vendor-neutral attribute schema". → §"Sem-conv attribute mapping".
+
+**Query source classification.** Two parallel classifiers sharing a `QueryClassifier` SPI extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
+
+## Class Design
+
+```mermaid
+classDiagram
+    class QueryMetricsListener {
+        <<interface>>
+        +queryFinished(QueryDetails, long, long) void
+    }
+    class TransactionMetricsListener {
+        <<interface>>
+        +transactionStarted(TransactionDetails) void
+        +writeTransactionCommitted(TransactionDetails, long, long) void
+        +writeTransactionFailed(TransactionDetails, long, long, Exception) void
+        +transactionRolledBack(TransactionDetails) void
+    }
+    class QueryDetails {
+        <<interface>>
+        +getQuery() String
+        +getQuerySummary() String
+        +getTransactionTrackingId() String
+        +getOperationName() Optional~String~
+        +getCollectionName() Optional~String~
+    }
+    class OTelQueryMetricsListener {
+        -Tracer tracer
+        +queryFinished(QueryDetails, long, long) void
+    }
+    class OTelTransactionMetricsListener {
+        -Tracer tracer
+        -ThreadLocal~SpanContext~ activeTxSpan
+        +transactionStarted(TransactionDetails) void
+        +writeTransactionCommitted(TransactionDetails, long, long) void
+        +writeTransactionFailed(TransactionDetails, long, long, Exception) void
+        +transactionRolledBack(TransactionDetails) void
+    }
+    class YouTrackDBOpenTelemetry {
+        -OpenTelemetry openTelemetry
+        -Tracer tracer
+        +setOpenTelemetry(OpenTelemetry) void
+        +shutdown() void
+        ~tracer() Tracer
+    }
+    class QueryClassifier {
+        <<interface>>
+        +classify(Object source) Classification
+    }
+    class GremlinBytecodeClassifier {
+        +classify(Object source) Classification
+    }
+    class SqlSyntaxClassifier {
+        +classify(Object source) Classification
+    }
+    class SqlSanitizer {
+        +sanitize(String rawSql) String
+    }
+    class Classification {
+        +operationName Optional~String~
+        +collectionName Optional~String~
+    }
+    class OpenTelemetryServerPlugin {
+        +onAfterActivate() void
+        +onBeforeDeactivate() void
+    }
+    QueryMetricsListener <|.. OTelQueryMetricsListener
+    TransactionMetricsListener <|.. OTelTransactionMetricsListener
+    QueryClassifier <|.. GremlinBytecodeClassifier
+    QueryClassifier <|.. SqlSyntaxClassifier
+    OTelQueryMetricsListener --> YouTrackDBOpenTelemetry : tracer()
+    OTelTransactionMetricsListener --> YouTrackDBOpenTelemetry : tracer()
+    OTelQueryMetricsListener --> QueryDetails : reads operation / collection
+    GremlinBytecodeClassifier --> Classification : returns
+    SqlSyntaxClassifier --> Classification : returns
+    OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry / shutdown
+```
+
+The diagram covers the production classes the design introduces. Three interfaces in `core` are extended (`QueryMetricsListener` unchanged but consumed by a new impl; `TransactionMetricsListener` and `QueryDetails` extended with default methods, and a new `QueryClassifier` SPI added); six classes in the new module implement the integration; one server plugin wires server lifecycle. Both classifier impls are loaded via ServiceLoader from `core` (`YTDBQueryMetricsStep` for the Gremlin source, `DatabaseSessionEmbedded.executeInternal()` for the SQL source), so the static dependency arrow runs only one way (`youtrackdb-opentelemetry` → `core`). Each classifier returns a `Classification(operationName, collectionName)` record that the producer copies into the `QueryDetails` accessors before the listener fires.
+
+The `ThreadLocal<SpanContext>` field on `OTelTransactionMetricsListener` stores the current TX span without calling `Context.makeCurrent()` (which would leak the context across listener boundaries). The query listener reads the ThreadLocal directly when both listeners are co-registered, so query spans nest correctly as children of the TX span regardless of whether the query came in through Gremlin or SQL.
+
+### References
+- D-records: D1, D2, D3, D5, D8, D9
+- Mechanics: none (single-file design)
+
+## Workflow
+
+### Query span lifecycle in embedded
+
+```mermaid
+sequenceDiagram
+    participant Host as Host app code
+    participant TS as host Tracer
+    participant G as GraphTraversalSource
+    participant Step as YTDBQueryMetricsStep
+    participant CLS as GremlinBytecodeClassifier
+    participant OQL as OTelQueryMetricsListener
+    participant TR as OTel Tracer
+    participant EXP as Span exporter
+
+    Host->>TS: spanBuilder("host-op").startSpan()
+    Host->>TS: span.makeCurrent()
+    Host->>G: g.V().hasLabel("User").toList()
+    G->>Step: traversal close
+    Step->>CLS: classify(bytecode)
+    CLS-->>Step: Classification(SELECT, User)
+    Step->>OQL: queryFinished(details, startMs, durNs)
+    OQL->>TR: spanBuilder("SELECT User").setParent(Context.current()).startSpan(startMs)
+    OQL->>TR: span.end(startMs + durNs/1e6)
+    TR-->>EXP: span data
+    Host->>TS: hostSpan.end()
+    TS-->>EXP: span data
+```
+
+The flow shows that the host code's active span becomes the parent of the YTDB query span automatically, because `Context.current()` resolves on the same thread the host called `makeCurrent()` on. The classifier runs in `YTDBQueryMetricsStep` before the listener fires, populating `QueryDetails.getOperationName()` and `getCollectionName()`; the listener uses them to build the sem-conv span name `SELECT User`.
+
+The SQL path is symmetric. `DatabaseSessionEmbedded.executeInternal()` plays the role of `YTDBQueryMetricsStep` as the listener fire site, and `SqlSyntaxClassifier` replaces `GremlinBytecodeClassifier` for the accessor population. Span name construction, attribute mapping, and parent-context resolution are identical from the listener's point of view, because the listener reads `QueryDetails` accessors that have already been populated by whichever classifier ran. See §"SQL execution layer hook" for the SQL-side anatomy.
+
+### Transaction lifecycle with full hierarchy
+
+```mermaid
+sequenceDiagram
+    participant Host as Host code
+    participant TX as YTDBTransaction
+    participant OTL as OTelTransactionMetricsListener
+    participant OQL as OTelQueryMetricsListener
+    participant TR as OTel Tracer
+
+    Host->>TX: tx.begin()
+    TX->>OTL: transactionStarted(details)
+    OTL->>TR: spanBuilder("tx <trackingId>").setSpanKind(INTERNAL).startSpan()
+    OTL->>OTL: store (txSpan, ctxWithTxSpan) in ThreadLocal
+    Host->>TX: g.V()...toList()  [query 1]
+    TX->>OQL: queryFinished(details, ms, ns)
+    OQL->>OTL: getActiveTxContext()
+    OTL-->>OQL: ctxWithTxSpan
+    OQL->>TR: spanBuilder("SELECT X").setParent(ctxWithTxSpan).startSpan(...)
+    TR-->>OQL: span (child of txSpan)
+    Host->>TX: tx.commit()
+    TX->>OTL: writeTransactionCommitted(details, ms, ns)
+    OTL->>TR: spanBuilder("commit").setSpanKind(CLIENT).setParent(ctxWithTxSpan).startSpan(ms)
+    OTL->>TR: span.end(ms + ns/1e6)
+    OTL->>TR: txSpan.setStatus(OK).end()
+    OTL->>OTL: ThreadLocal.remove()
+```
+
+The TX listener stores the context-carrying-TX-span in a `ThreadLocal` (not via `Context.makeCurrent()`) because the listener callback returns before any user code runs; `makeCurrent()` would leak into surrounding host code. The query listener consults the ThreadLocal directly via a package-private accessor when both listeners are registered together.
+
+### Server-mode SDK lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Main as ServerMain.create()
+    participant Srv as YouTrackDBServer
+    participant Plugin as OpenTelemetryServerPlugin
+    participant Cfg as GlobalConfiguration
+    participant Sdk as AutoConfiguredSdk
+    participant Fac as YouTrackDBOpenTelemetry
+
+    Main->>Srv: activate()
+    Srv->>Plugin: onAfterActivate()
+    Plugin->>Cfg: OPENTELEMETRY_ENABLED?
+    alt enabled
+        Plugin->>Cfg: read endpoint, protocol, service.name
+        Plugin->>Sdk: builder().setEndpoint(...).build()
+        Plugin->>Fac: setOpenTelemetry(sdk.openTelemetry)
+    end
+    Note over Srv: server runs, transactions emit spans
+    Main->>Srv: shutdown()
+    Srv->>Plugin: onBeforeDeactivate()
+    Plugin->>Fac: shutdown()
+    Fac->>Sdk: close()
+    Note over Sdk: flushes pending spans
+```
+
+The plugin is ServiceLoader-discovered. When the new module is not on the classpath, the plugin doesn't load and the server runs with no OTel cost.
+
+### References
+- D-records: D1, D2, D3, D4
+- Mechanics: none
+
+## Sem-conv attribute mapping
+
+**TL;DR.** Every emitted query span carries `db.system.name="youtrackdb"` plus a fallback chain of sem-conv attributes filled in to the extent the source allows. Span name follows the v1.33.0 chain: `db.query.summary` → `db.operation.name db.collection.name` → `db.collection.name` → `db.system.name`. Query text comes from the source-appropriate sanitizer: `ValueAnonymizingTypeTranslator` for Gremlin (existing), `SqlSanitizer` for SQL (Track 4).
+
+The full mapping per attribute:
+
+| Attribute | Requirement | Source | Notes |
+|---|---|---|---|
+| `db.system.name` | Required | constant `"youtrackdb"` | sem-conv §"Notes" allows custom value when not on well-known list |
+| `db.namespace` | Conditionally Required | `YouTrackDB` database name | set when extractable from the transaction context |
+| `db.collection.name` | Conditionally Required | classifier result `.collectionName` | absent for multi-class traversals / anonymous SQL FROM subqueries |
+| `db.operation.name` | Conditionally Required | classifier result `.operationName` | one of `SELECT` / `INSERT` / `UPDATE` / `DELETE` / `MATCH` / `CREATE` / `ALTER` / `DROP` |
+| `db.query.text` | Recommended | `QueryDetails.getQuery()` | already sanitized: Gremlin via `ValueAnonymizingTypeTranslator`, SQL via `SqlSanitizer` |
+| `db.query.summary` | Recommended | `QueryDetails.getQuerySummary()` if set, else `"{operation} {collection}"` if both present | client-provided summary wins |
+| `db.response.status_code` | Conditionally Required | YTDB error code if available | currently no canonical YTDB error-code field; omitted in YTDB-496 |
+| `error.type` | Conditionally Required (on failure) | exception class FQN | set on TX span at `writeTransactionFailed`, on query span when `statement.execute(...)` throws |
+| `server.address` / `server.port` | Recommended | from server config in server mode | embedded mode omits |
+| `db.response.returned_rows` | Opt-In | omitted in YTDB-496 | requires counting traversal / result-set results |
+
+Span name fallback examples. Gremlin: a query labeled with `g.with(YTDBQueryConfigParam.querySummary, "findActiveUsers")...` produces `findActiveUsers`. An unlabeled `g.V().hasLabel("User").has("active", true).toList()` produces `SELECT User`. SQL: `db.command("SELECT FROM User WHERE active = true")` produces `SELECT User`. `db.command("MATCH {class:User, as:u}-knows->{class:User, as:f} RETURN u, f")` produces `MATCH User`. A shape that defies classification (Gremlin `g.V().union(...).path()` or SQL `SELECT FROM (SELECT FROM ...)`) produces `youtrackdb`.
+
+Span kinds per role: query span is CLIENT, TX span is INTERNAL, commit span is CLIENT.
+
+### Edge cases / Gotchas
+
+- An empty `db.query.text` (e.g., the rare case where `stringStatement` is null on the SQL path and `statement.getOriginalStatement()` also returns null) is acceptable; the attribute is Recommended, not Required.
+- Classifiers MUST NOT throw. Any unexpected bytecode or `SQLStatement` subclass returns `Classification(Optional.empty(), Optional.empty())`. Gremlin tests cover at least: `V`-only, `addV`, `addE`, `drop()`, chained `hasLabel("A").hasLabel("B")` (first label wins), and `V().union(...)` (no clean classification). SQL tests cover each statement type plus FROM-with-subquery and multi-target FROM.
+- `db.query.summary` cardinality stays low because the classifier output is low-cardinality. A host that sets `querySummary` to a per-request string defeats this; documented as a host responsibility.
+- `db.namespace` resolution depends on the database name being readily available from the transaction context. If unavailable, the attribute is omitted, which is allowed by sem-conv ("if available").
+
+### References
+- D-records: D5, D6, D7, D8, D9
+- Mechanics: none
+
+## Context propagation in embedded
+
+**TL;DR.** The host application's active span automatically becomes the parent of every YTDB query span. `Context.current()` resolves to the host's span because the listener fires synchronously on the caller's thread per existing YTDB semantics, and transaction operations are pinned to the owner thread via `assertOnOwningThread`. No extra plumbing is needed for the common case; a regression test guards against future threading changes.
+
+The verification:
+- `YTDBQueryMetricsStep.close()` calls `listener.queryFinished(...)` directly (no executor wrapping).
+- `FrontendTransactionImpl.notifyMetricsListener()` (commit success and failure paths) runs on the committing thread.
+- `YTDBTransaction.assertOnOwningThread()` is called by every TX operation entry point.
+- Result: when a host wraps a YTDB transaction inside `tracer.spanBuilder("host-op").startSpan().makeCurrent()`, `Context.current()` inside the YTDB listener returns the host's context with the host span as the active span.
+
+The async caveat: if a future refactor moves traversal close (or commit) to a worker pool, `Context.current()` on that worker would not see the host span, and the YTDB span would attach to the root of a new trace. The test suite includes a propagation test that fails loudly if this happens; the failure mode (orphan YTDB spans) is also operator-visible in the trace viewer.
+
+Explicit propagation is not exposed in this design. A host that needs to fan out a YTDB query to a custom executor must propagate the OTel `Context` itself per OTel's standard pattern (`Context.taskWrapping(executor)` or `Context.wrap(runnable)`). YTDB does not bridge that case.
+
+### Edge cases / Gotchas
+
+- A host that never opens an outer span sees the YTDB span as the trace root, with a synthetic `traceId`. This is correct OTel behavior.
+- Mid-transaction context changes (host pushes a span between two queries) are observed: subsequent queries attach to the newer span. This is OTel's contract.
+- The TX-lifetime span (see §"Transaction-lifetime span semantics") uses a `ThreadLocal` to carry its context to subsequent query spans rather than calling `Context.makeCurrent()`. The ThreadLocal is scoped to the TX listener instance and cleared on every TX termination path, guaranteeing no cross-transaction leakage.
+
+### References
+- D-records: D4
+- Invariants: TX span boundedness
+- Mechanics: none
+
+## Transaction-lifetime span semantics
+
+**TL;DR.** Every transaction gets one INTERNAL span covering `begin → close`. Successful write transactions add a CLIENT commit span as a child, overlapping the tail of the TX span. Failed commits set the TX span to ERROR with `error.type` populated. User rollbacks close the TX span with OK status and no commit child. Read-only transactions emit a TX span with query children and no commit child.
+
+Lifecycle states the TX span moves through:
+
+| Trigger | Action |
+|---|---|
+| `TransactionMetricsListener.transactionStarted` | Open INTERNAL span, store `(span, contextWithSpan)` in `ThreadLocal` |
+| `writeTransactionCommitted` | Open CLIENT child commit span at `commitAtMillis`, end at `commitAtMillis + commitTimeNanos/1e6`; end TX span with OK; clear ThreadLocal |
+| `writeTransactionFailed` | End TX span with ERROR, `error.type=<cause class FQN>`, `db.response.status_code` if available; no commit span emitted; clear ThreadLocal |
+| `transactionRolledBack` | End TX span with OK (rollback is not a failure); no commit span emitted; clear ThreadLocal |
+| read-only close | Fires `transactionRolledBack` per existing YTDB semantics; same behavior as above |
+
+The ThreadLocal is the carrier for context propagation to query spans inside the transaction. It holds the OTel `Context` that has the TX span set as current, but the listener does not call `Context.makeCurrent()` because that would leak the context outside YTDB. Instead, the query listener consults a package-private accessor (`OTelTransactionMetricsListener.getActiveTxContext()`) when both listeners are co-registered.
+
+The TX span name uses the `transactionTrackingId` from `TransactionDetails`: `"tx <trackingId>"`. The tracking ID is either client-supplied via `withTrackingId(...)` or YTDB-generated from the internal transaction ID.
+
+### Edge cases / Gotchas
+
+- Nested transactions: per existing YTDB semantics, `TransactionMetricsListener` does not fire for nested (reentrant) inner commits. Only the outermost transaction emits a TX span.
+- A listener exception during `transactionStarted` does not register the ThreadLocal; subsequent query spans attach to `Context.current()` (host's context), losing the TX-as-parent relationship. The test suite confirms the transaction completes correctly in this case, and the operator sees orphan query spans, which is the expected fail-safe behavior.
+- An OTel SDK shutdown mid-transaction causes the `end()` call to silently drop the span. Acceptable; recovery requires a host-side reconfiguration.
+
+### References
+- D-records: D3, D5
+- Invariants: TX span boundedness, Span kind by role
+- Mechanics: none
+
+## Gremlin bytecode classification
+
+**TL;DR.** The classifier walks the TinkerPop `Bytecode` instruction list to identify the start step (`V`/`E`/`addV`/`addE`/`drop`) and the first label-bearing operator (`hasLabel`, `addV(X)` argument, `addE(X)` argument). Maps the start step to an operation name and the label to a collection name. Returns `Optional.empty()` for both fields when the shape doesn't yield clean values; never throws.
+
+Classification rules:
+
+| First source step | Operation name | Collection name source |
+|---|---|---|
+| `V()` | `SELECT` | first `hasLabel(X)` argument, else `Optional.empty()` |
+| `E()` | `SELECT` | first `hasLabel(X)` argument, else `Optional.empty()` |
+| `addV(X)` | `INSERT` | `X` (label argument of addV) |
+| `addV()` (no label) | `INSERT` | `Optional.empty()` |
+| `addE(X)` | `INSERT` | `X` (label argument of addE) |
+| step chain ending with `drop()` | `DELETE` | first `hasLabel(X)` argument before the drop, else `Optional.empty()` |
+| anything else | `Optional.empty()` | `Optional.empty()` |
+
+Implementation lives in `youtrackdb-opentelemetry/.../classifier/GremlinBytecodeClassifier.java`. The classifier is loaded by `core.YTDBQueryMetricsStep` via `ServiceLoader<QueryClassifier>`, where `QueryClassifier` is a new SPI interface in `core`. When the OTel module is not on the classpath, the ServiceLoader returns an empty stream and `QueryDetails.getOperationName()` / `getCollectionName()` keep their default `Optional.empty()`.
+
+### Edge cases / Gotchas
+
+- `g.V().hasLabel("A").hasLabel("B")`: returns `collectionName = "A"` (first wins). This matches sem-conv guidance to capture a single low-cardinality value rather than concatenating.
+- `g.V().union(__.hasLabel("A"), __.hasLabel("B"))`: returns `collectionName = Optional.empty()` because the label is inside a sub-traversal, not a top-level instruction. The classifier does not descend into sub-traversals.
+- `g.addV().property("label", "X")`: returns `collectionName = Optional.empty()` because the label is not a positional argument of `addV()`. Properties are not inspected.
+- Numeric or non-string `hasLabel` argument (TinkerPop allows it via mutation in untyped code): the classifier checks `instanceof String` and returns `Optional.empty()` for non-String arguments.
+
+### References
+- D-records: D9
+- Invariants: none specific (the classifier is fail-safe by contract)
+- Mechanics: none
+
+## SQL execution layer hook
+
+**TL;DR.** A single method on `DatabaseSessionEmbedded` (around lines 702-751) funnels every native database statement. The new fire site wraps `statement.execute(...)` with timer measurements and emits a `QueryDetails` carrying the raw text, a sanitized form (literals replaced with `?` placeholders), and the operation / collection extracted from the parsed AST. Covers SELECT, INSERT, UPDATE, DELETE, MATCH, and DDL (CREATE / ALTER / DROP).
+
+Hook anatomy at `executeInternal(String stringStatement, SQLStatement parsedStatement, Object args)`:
+
+```text
+1. Read currentTx.getGlobalQueryListeners()  ← snapshot from registry (Track 1)
+2. If empty, skip everything below — zero overhead when OTel is off
+3. Capture startMillis = System.currentTimeMillis(); startNanos = System.nanoTime()
+4. statement = parsedStatement ?? SQLEngine.parse(stringStatement, this)
+5. Run statement.execute(this, args, true) inside the existing try/catch
+6. elapsedNanos = System.nanoTime() - startNanos
+7. Build QueryDetails (rawSql, args, statement, trackingId), fire listeners.queryFinished(...)
+   — wrapped in try/catch so listener exceptions don't break the query
+```
+
+The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(rawSql)` on first access; `getOperationName()` and `getCollectionName()` call the ServiceLoader-loaded `QueryClassifier` (the `SqlSyntaxClassifier` impl from the OTel module) on first access. Hosts that don't read these accessors pay no sanitization or classification cost.
+
+The `SqlSyntaxClassifier` dispatches on the `SQLStatement` subclass:
+
+| Statement subclass | Operation name | Collection name source |
+|---|---|---|
+| `SQLSelectStatement` | `SELECT` | first FROM target class, else `Optional.empty()` |
+| `SQLInsertStatement` | `INSERT` | INTO target class |
+| `SQLUpdateStatement` | `UPDATE` | UPDATE target class |
+| `SQLDeleteStatement` | `DELETE` | DELETE target class |
+| `SQLMatchStatement` | `MATCH` | first pattern node's class, else `Optional.empty()` |
+| `CreateClassStatement` (or subclass of `DDLStatement` for CREATE) | `CREATE` | class name from the statement |
+| `AlterClassStatement` (DDL ALTER) | `ALTER` | class name from the statement |
+| `DropClassStatement` (DDL DROP) | `DROP` | class name from the statement |
+| anything else | `Optional.empty()` | `Optional.empty()` |
+
+The `SqlSanitizer` runs a conservative regex pass over the raw SQL: replaces single-quoted string literals (handling escaped quotes), numeric literals, boolean literals, and date / timestamp literals with `?`. Already-parameterized text passes through unchanged because the literal patterns don't match `?` placeholders.
+
+### Edge cases / Gotchas
+
+- `stringStatement` can be null when an internal recursive call passes a pre-parsed `SQLStatement`. The hook falls back to `statement.getOriginalStatement()` for the raw SQL. If both are null (unusual), the hook emits `db.query.text=""` and the span still carries operation / collection.
+- DDL statements have no literals to sanitize. `CREATE INDEX User.email UNIQUE` passes through `SqlSanitizer` unchanged.
+- A statement with multi-target FROM (`SELECT FROM User, Order WHERE ...`) yields `collectionName = "User"` (first wins) per sem-conv guidance to keep cardinality low. An anonymous FROM subquery yields `Optional.empty()`.
+- The transaction tracking ID requires a `FrontendTransaction.getTrackingId(): Optional<String>` method (added in Track 4). Default returns empty; `YTDBTransaction` overrides to return the real tracking ID. When empty, the listener generates a synthetic ID from `currentTx.hashCode()`.
+- An exception thrown by `statement.execute(...)` propagates as before. The hook still fires the listener with the elapsed time and the SQL, with the span status set to ERROR and `error.type` populated, before the exception re-throws. The fire is wrapped so a listener exception during error handling doesn't mask the original.
+
+### References
+- D-records: D8, D9
+- Invariants: TX span boundedness, Listener exception isolation
+- Mechanics: none
+
+## SDK lifecycle: embedded vs server
+
+**TL;DR.** Hybrid ownership model. The host owns the `OpenTelemetry` instance when it has wired one (either explicitly through the setter or globally via `GlobalOpenTelemetry.set(...)`). When `OPENTELEMETRY_ENABLED=true` and the host has wired nothing, YTDB auto-configures its own SDK from `OPENTELEMETRY_*` config entries — the same path server mode takes. The facade tracks ownership so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process.
+
+Embedded path — three-step resolution on first listener fire:
+
+1. **Explicit setter wins**: if the host called `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, use that instance. Ownership = host. `shutdown()` will not close it.
+2. **GlobalOpenTelemetry fallback**: if the host called `GlobalOpenTelemetry.set(otel)` somewhere in its bootstrap (the standard OTel pattern), `GlobalOpenTelemetry.get()` returns the real SDK. Use that instance. Ownership = host. `shutdown()` will not close it.
+3. **YTDB auto-configure**: if neither of the above produced a real SDK and `OPENTELEMETRY_ENABLED=true`, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries (endpoint, protocol, service name). Ownership = YTDB. `shutdown()` closes this SDK.
+
+If `OPENTELEMETRY_ENABLED=false` (default), step 3 is skipped and the facade returns no-op tracer; YTDB emits nothing regardless of any host wiring. The flag is the master switch.
+
+Server path:
+
+1. `ServerMain.create()` builds a `YouTrackDBServer` and calls `activate()`.
+2. The server discovers `ServerLifecycleListener` implementations via ServiceLoader and calls `onBeforeActivate` on each.
+3. After databases load, the server calls `onAfterActivate` on each lifecycle listener.
+4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` with the configured endpoint, protocol, and service name; calls `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk())` with ownership=YTDB (the plugin signals server-mode ownership through an internal method variant).
+5. Transactions run, spans emit.
+6. On shutdown, `server.shutdown()` calls `onBeforeDeactivate` on every plugin. `OpenTelemetryServerPlugin.onBeforeDeactivate()` calls `YouTrackDBOpenTelemetry.shutdown()`, which unregisters listeners and closes the SDK (`OpenTelemetrySdk.close()` flushes pending spans).
+
+Idempotence and ownership transitions:
+- `setOpenTelemetry` called when YTDB has already auto-configured its own SDK: the facade closes the YTDB-owned SDK first, then installs the host's instance and flips ownership to host.
+- `setOpenTelemetry` called twice with host-owned SDKs in a row: the facade does not close anything (host owns lifecycle for both); it just swaps the reference and re-registers listeners against the new tracer.
+- `shutdown` called twice is a no-op the second time.
+- An exception during SDK shutdown is logged but does not propagate.
+
+### Edge cases / Gotchas
+
+- A host that sets `OPENTELEMETRY_ENABLED=true` without wiring any OTel sees YTDB open a network connection to the configured endpoint (default `http://localhost:4317`) on first listener fire. The flag is an explicit opt-in so this is acceptable; the auto-configure path logs one INFO line with the resolved endpoint so the operator sees what happened. Hosts that do not want this MUST keep `OPENTELEMETRY_ENABLED=false`.
+- Embedded host that calls `YouTrackDB.close()` without calling `YouTrackDBOpenTelemetry.shutdown()`: when ownership is YTDB the SDK keeps running until the JVM exits and OTel's own shutdown hook flushes pending spans. When ownership is host, the SDK was never ours to close.
+- Server with `OPENTELEMETRY_ENABLED=false` (default): the plugin's `onAfterActivate` returns immediately. Zero OTel runtime cost. The listeners never register.
+- Race on auto-configure: the facade synchronizes the resolution chain so two concurrent first-listener-fires produce exactly one SDK build.
+- An invalid endpoint in `OPENTELEMETRY_EXPORTER_ENDPOINT`: the autoconfigure builder fails fast with a clear log message. In server mode the server does not start; in embedded mode the listener fire fails once (the exception is caught by the isolation wrapper), and subsequent fires re-attempt resolution (which fails the same way until the operator fixes config).
+
+### References
+- D-records: D2
+- Mechanics: none
+
+## Listener registration and ordering
+
+**TL;DR.** A global registry in `core` (a pair of `CopyOnWriteArrayList`s for query and transaction listeners) holds listeners installed before transactions begin. Each `YTDBTransaction` takes a snapshot of the registry at `doOpen()` and uses that snapshot for its lifetime. Per-TX `withQueryListener` continues to work, adding listeners on top of the snapshot for that transaction only. The OTel module installs its listeners through this registry; nothing about the existing per-TX API changes.
+
+Ordering rules:
+- Within the registry, listeners fire in insertion order.
+- For a given transaction, registry-snapshot listeners fire before per-TX listeners added via `withQueryListener`.
+- A listener registered after a transaction has begun is not seen by that transaction; it takes effect from the next transaction onward.
+
+Registration API additions (on `YouTrackDB` and `YourTracks` for embedded ergonomics):
+
+```java
+void registerGlobalQueryListener(QueryMetricsListener listener);
+void unregisterGlobalQueryListener(QueryMetricsListener listener);
+void registerGlobalTransactionListener(TransactionMetricsListener listener);
+void unregisterGlobalTransactionListener(TransactionMetricsListener listener);
+```
+
+`YouTrackDBOpenTelemetry.setOpenTelemetry(otel)` registers a `OTelQueryMetricsListener` and an `OTelTransactionMetricsListener` instance. Subsequent `setOpenTelemetry` calls first `unregister` the previously-registered instances before registering fresh ones tied to the new SDK. `YouTrackDBOpenTelemetry.shutdown()` unregisters them.
+
+### Edge cases / Gotchas
+
+- Concurrent `register` and transaction `doOpen`: the registry uses `CopyOnWriteArrayList`, so a `doOpen` reads a consistent snapshot even if a `register` is in flight. The behavior is "either the listener is in the snapshot or it isn't", deterministic per transaction.
+- A listener implementation that holds a reference to the YTDB transaction: the listener outlives the transaction (it lives in the global registry). The listener MUST NOT cache transaction-scoped state; if it needs per-TX state, use `TransactionDetails.getTransactionTrackingId()` as the keying value.
+- Duplicate registration of the same listener instance: the registry deduplicates by reference identity. A second `register` of the same instance is a no-op.
+
+### References
+- D-records: D1
+- Invariants: TX span boundedness
+- Mechanics: none
+
+## Exception isolation contract
+
+**TL;DR.** Every listener callback fires inside a try/catch in the YTDB firing site. A throw from any listener (a bug, a misconfigured OTel SDK, an OOM in span allocation) is logged at WARN and swallowed, so the transaction lifecycle continues. The protection extends to the two new methods `transactionStarted` and `transactionRolledBack` introduced in Track 1.
+
+Current isolation sites:
+- `YTDBQueryMetricsStep.close()` wraps `listener.queryFinished(...)` in try/catch (existing).
+- `FrontendTransactionImpl.notifyMetricsListener()` wraps the success and failure paths (existing).
+
+New isolation sites in this design:
+- `YTDBTransaction.doOpen()` wraps the loop calling `listener.transactionStarted(...)` per registered listener.
+- `YTDBTransaction.doRollback()` wraps the loop calling `listener.transactionRolledBack(...)` per registered listener.
+
+The wrapper catches `Throwable` (not just `Exception`), because an `Error` from an OOM during span allocation would otherwise unwind the transaction. The log entry uses the listener class name to point the operator at the responsible component.
+
+When one listener in the snapshot throws, subsequent listeners in the iteration still fire. This is important because the OTel listener may be installed alongside a custom host listener; a bug in the host listener must not prevent OTel emission, and vice versa.
+
+### Edge cases / Gotchas
+
+- A listener that throws on every call generates one log line per call. At LDBC benchmark loads (~10k qps) this is a log flood. Acceptable in YTDB-496; if it becomes operationally painful, a follow-up adds rate limiting on the log.
+- The TX span's ThreadLocal is set inside the try/catch wrapper. If `transactionStarted` throws after the ThreadLocal is set but before the listener returns, the ThreadLocal remains set for the duration of the transaction. The `clear` paths in `writeTransactionCommitted` / `writeTransactionFailed` / `transactionRolledBack` run inside their own try/catch and clear the ThreadLocal in a `finally`.
+- An exception in `OpenTelemetrySdk.close()` during server shutdown is logged but not propagated; the server shutdown completes regardless.
+
+### References
+- D-records: none specific (this is an engineering contract, not a decision)
+- Invariants: Listener exception isolation
+- Mechanics: none
