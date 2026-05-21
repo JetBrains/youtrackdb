@@ -14,11 +14,13 @@ Create the new `workflow-drift-check.md` gate file mirroring the branch-divergen
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-21T09:09Z [ctx=info] Review + decomposition complete (technical review PASS at iteration 2; 4 steps decomposed, 1 medium + 3 low)
+- [x] 2026-05-21T09:27Z [ctx=safe] Step 1 complete (commit 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- 2026-05-21T09:27Z Triple-quoted Kotlin string literals inside `steroid_execute_code` keep host-script indentation; future docs-track steps that write a fresh markdown file via `VfsUtil.saveText` should use `buildString { appendLine(...) }` to decouple file content from the host script. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -85,7 +87,7 @@ Phase A step sequencing: the six conceptual actions above bundle into four commi
 
 ## Concrete Steps
 
-1. Create `.claude/workflow/workflow-drift-check.md` with Detection, Skip conditions, Resolutions (Migrate / Defer / Suppress), and After the choice sections per `## Plan of Work` action 1, including the Remote-authoritative re-entry contract — risk: low (default: new markdown file not yet referenced by `workflow.md`; no behavioral change until Step 2 wires it)  [ ]
+1. Create `.claude/workflow/workflow-drift-check.md` with Detection, Skip conditions, Resolutions (Migrate / Defer / Suppress), and After the choice sections per `## Plan of Work` action 1, including the Remote-authoritative re-entry contract — risk: low (default: new markdown file not yet referenced by `workflow.md`; no behavioral change until Step 2 wires it)  [x] commit: 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7
 2. Wire the gate into `.claude/workflow/workflow.md`: insert Step 3a in `## Startup Protocol`, append the session-end residue clause in `## What to do before ending a session`, and add the on-demand reference entry in `## Conventions`. Bundled because all three edits reference the new gate file by name — risk: medium (multi-section workflow-machinery change that activates new turn-1 gate behavior in every `/execute-tracks` session)  [ ]
 3. Update `.claude/workflow/conventions.md`: add the "Workflow drift" glossary row to §1.1 and the one-line pointer to §1.2 naming the gate file as the resolution mechanism — risk: low (default: documentation update; glossary row and cross-reference only)  [ ]
 4. Update `.claude/skills/migrate-workflow/SKILL.md` with the one-line preamble note cross-referencing `workflow-drift-check.md` as the auto-detection entry point; manual invocation unchanged — risk: low (default: one-line documentation update; no behavioral change to the skill)  [ ]
@@ -94,6 +96,14 @@ Phase A step sequencing: the six conceptual actions above bundle into four commi
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7, 2026-05-21T09:27Z [ctx=safe]
+**What was done:** Created `.claude/workflow/workflow-drift-check.md` (180 lines) mirroring `branch-divergence-check.md`. The file owns turn-1 detection (`git log --oneline FORK..develop -- .claude/workflow .claude/skills`), the three skip conditions in fail-fast order (no `_workflow/` subtree, plan complete plus Phase 4 active, empty diff), the three resolutions (Migrate now / Defer / Suppress) with a no-default contract, and the After-the-choice section that documents the Remote-authoritative re-entry contract per the Phase A T1 should-fix finding.
+
+**What was discovered:** Triple-quoted Kotlin string literals in `steroid_execute_code` preserve their host-script indentation, so writing a markdown file via `val content = """..."""` produced 4-space leading whitespace on every line and would have rendered the body as one code block. Switched to `buildString { appendLine(...) }` to decouple file content from the host script's indentation. The hazard applies to any future docs-track step that writes a fresh markdown file through IDE-routed `VfsUtil.saveText`.
+
+**Key files:**
+- `.claude/workflow/workflow-drift-check.md` (new)
 
 ## Validation and Acceptance
 
