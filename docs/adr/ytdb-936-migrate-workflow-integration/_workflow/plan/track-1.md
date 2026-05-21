@@ -16,12 +16,14 @@ Create the new `workflow-drift-check.md` gate file mirroring the branch-divergen
 - [x] 2026-05-21T09:09Z [ctx=info] Review + decomposition complete (technical review PASS at iteration 2; 4 steps decomposed, 1 medium + 3 low)
 - [x] 2026-05-21T09:27Z [ctx=safe] Step 1 complete (commit 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7)
 - [x] 2026-05-21T09:32Z [ctx=safe] Step 2 complete (commit 39a52e299c81d184fd68c411b144650d748fe741)
+- [x] 2026-05-21T09:35Z [ctx=safe] Step 3 complete (commit 41fe0b32c1008bbd8b46048ca5c6ca762ce74327)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 - 2026-05-21T09:27Z Triple-quoted Kotlin string literals inside `steroid_execute_code` keep host-script indentation; future docs-track steps that write a fresh markdown file via `VfsUtil.saveText` should use `buildString { appendLine(...) }` to decouple file content from the host script. See Episodes §Step 1.
+- 2026-05-21T09:35Z Commits made through `steroid_execute_code` (JGit / IntelliJ VCS API) bypass the project's `prepare-commit-msg` hook in `.githooks/`, so the YTDB-936 prefix does not auto-prepend. The squash-merge PR title still carries the prefix, but per-commit history shows unprefixed subjects on IDE-routed implementer commits. Future Phase B implementers should either commit via shell `git` or pre-format the subject. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -90,7 +92,7 @@ Phase A step sequencing: the six conceptual actions above bundle into four commi
 
 1. Create `.claude/workflow/workflow-drift-check.md` with Detection, Skip conditions, Resolutions (Migrate / Defer / Suppress), and After the choice sections per `## Plan of Work` action 1, including the Remote-authoritative re-entry contract — risk: low (default: new markdown file not yet referenced by `workflow.md`; no behavioral change until Step 2 wires it)  [x] commit: 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7
 2. Wire the gate into `.claude/workflow/workflow.md`: insert Step 3a in `## Startup Protocol`, append the session-end residue clause in `## What to do before ending a session`, and add the on-demand reference entry in `## Conventions`. Bundled because all three edits reference the new gate file by name — risk: medium (multi-section workflow-machinery change that activates new turn-1 gate behavior in every `/execute-tracks` session)  [x] commit: 39a52e299c81d184fd68c411b144650d748fe741
-3. Update `.claude/workflow/conventions.md`: add the "Workflow drift" glossary row to §1.1 and the one-line pointer to §1.2 naming the gate file as the resolution mechanism — risk: low (default: documentation update; glossary row and cross-reference only)  [ ]
+3. Update `.claude/workflow/conventions.md`: add the "Workflow drift" glossary row to §1.1 and the one-line pointer to §1.2 naming the gate file as the resolution mechanism — risk: low (default: documentation update; glossary row and cross-reference only)  [x] commit: 41fe0b32c1008bbd8b46048ca5c6ca762ce74327
 4. Update `.claude/skills/migrate-workflow/SKILL.md` with the one-line preamble note cross-referencing `workflow-drift-check.md` as the auto-detection entry point; manual invocation unchanged — risk: low (default: one-line documentation update; no behavioral change to the skill)  [ ]
 
 ## Episodes
@@ -111,6 +113,14 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `.claude/workflow/workflow.md` (modified)
+
+### Step 3 — commit 41fe0b32c1008bbd8b46048ca5c6ca762ce74327, 2026-05-21T09:35Z [ctx=safe]
+**What was done:** Added the "Workflow drift" row to the `## 1.1 Glossary` table in `.claude/workflow/conventions.md` (positioned after the existing "Mid-phase handoff" row) and appended a one-paragraph pointer to §1.2 next to the existing `_workflow/` lifecycle prose. The glossary row names both ends of the split: the detection trigger (turn-1 gate at `workflow-drift-check.md`) and the migration owner (`/migrate-workflow` skill). The §1.2 pointer names `workflow-drift-check.md` as the resolution mechanism and explains that drift may shift the on-disk shape of `_workflow/**` between sessions. Two-hunk edit applied atomically via `steroid_apply_patch`.
+
+**What was discovered:** Commits made through `steroid_execute_code` (JGit or IntelliJ VCS API) bypass the project's `prepare-commit-msg` hook in `.githooks/`, so the implementer's commit (`41fe0b32c1`) landed with the subject `Document workflow drift in conventions glossary` instead of the expected `YTDB-936: ...` prefix. The PR title and squash-merge commit still carry the prefix, so the merged history into `develop` is unaffected, but per-commit subjects in the draft PR show the gap. Recorded in `## Surprises & Discoveries` so future Phase B implementers either route commits through shell `git` or pre-format the subject with the YTDB-936 prefix.
+
+**Key files:**
+- `.claude/workflow/conventions.md` (modified)
 
 ## Validation and Acceptance
 
