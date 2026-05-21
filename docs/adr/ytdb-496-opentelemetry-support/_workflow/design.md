@@ -16,7 +16,7 @@ The rest of this document covers: Core Concepts (vocabulary primer), Class Desig
 
 ## Core Concepts
 
-This design introduces six load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
+This design introduces seven load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
 
 **Span.** An OpenTelemetry record covering one unit of work with a start timestamp, an end timestamp, a name, a kind (CLIENT / SERVER / INTERNAL / PRODUCER / CONSUMER), a status (OK / ERROR), and arbitrary key/value attributes. Replaces "nothing in YTDB" (no prior telemetry primitive). → §"Sem-conv attribute mapping" and §"Class Design".
 
@@ -27,6 +27,8 @@ This design introduces six load-bearing ideas. Each is named and used without re
 **TX-lifetime span.** The INTERNAL span the OTel TX listener opens on `transactionStarted` and closes on commit / failed-commit / rollback. Acts as the parent of every query span and the commit span emitted between begin and close. Replaces "no transaction-scoped grouping in the trace viewer". → §"Transaction-lifetime span semantics".
 
 **Sem-conv v1.33.0.** OpenTelemetry's stable semantic conventions for database client spans, dictating attribute names (`db.system.name`, `db.query.text`, etc.), their requirement levels (Required / Conditionally Required / Recommended / Opt-In), and the span-name fallback chain. Replaces "no vendor-neutral attribute schema". → §"Sem-conv attribute mapping".
+
+**QueryMonitoringMode.** A per-transaction enum on the existing `QueryMetricsListener` API selecting timing precision. `LIGHTWEIGHT` (default) reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()` for sub-millisecond precision at the cost of two syscalls per measurement. Hosts opt into `EXACT` per transaction via `YTDBTransaction.withQueryMonitoringMode(EXACT)`. Snapshotted by `FrontendTransactionImpl.beginInternal()` so every fire site in the transaction reports consistent precision. Replaces "always-EXACT timing" implied by the original design. → §"SQL execution layer hook" and §"Gremlin bytecode classification".
 
 **Query source classification.** Two static-helper classifiers in `core` extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Called directly from the existing fire sites (`YTDBQueryMetricsStep` and `DatabaseSessionEmbedded.executeInternal()`) — no SPI or ServiceLoader; both fire sites already parse these structures, so the classifiers piggyback on parsing that runs anyway. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
 
@@ -321,7 +323,9 @@ Classification rules:
 | step chain ending with `drop()` | `DELETE` | first `hasLabel(X)` argument before the drop, else `Optional.empty()` |
 | anything else | `Optional.empty()` | `Optional.empty()` |
 
-Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility (`Classification classify(Bytecode)`). `YTDBQueryMetricsStep.close()` calls it directly when building the inline `QueryDetails` and stashes the returned `Classification` in two `Optional<String>` fields read back by `QueryDetails.getOperationName()` / `getCollectionName()`. When no listener consults those accessors the work is paid (the call is unconditional inside the fire site), but the cost is one bytecode walk reusing the same instruction-list traversal pattern as the existing `produceScript()` sanitization — measured in microseconds, dominated by the listener call itself.
+Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility (`Classification classify(Bytecode)`). `YTDBQueryMetricsStep.close()` calls it directly when building the inline `QueryDetails` and stashes the returned `Classification` in two `Optional<String>` fields read back by `QueryDetails.getOperationName()` / `getCollectionName()`. When no listener consults those accessors the work is paid (the call is unconditional inside the fire site), but the cost is one bytecode walk reusing the same instruction-list traversal pattern as the existing `produceScript()` sanitization, measured in microseconds and dominated by the listener call itself.
+
+Timing capture in `YTDBQueryMetricsStep.close()` follows the same per-TX `QueryMonitoringMode` snapshot as the SQL hook (see §"SQL execution layer hook"), so a Gremlin span and the underlying SQL spans for the same query report consistent precision.
 
 ### Edge cases / Gotchas
 
@@ -337,22 +341,33 @@ Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.
 
 ## SQL execution layer hook
 
-**TL;DR.** A single method on `DatabaseSessionEmbedded` (around lines 702-751) funnels every native database statement. The new fire site wraps `statement.execute(...)` with timer measurements and emits a `QueryDetails` carrying the raw text, a sanitized form (literals replaced with `?` placeholders), and the operation / collection extracted from the parsed AST. Covers SELECT, INSERT, UPDATE, DELETE, MATCH, and DDL (CREATE / ALTER / DROP).
+**TL;DR.** A single method on `DatabaseSessionEmbedded` (around lines 702-751) funnels every native database statement. The new fire site wraps `statement.execute(...)` with timer measurements whose precision follows the per-TX `QueryMonitoringMode` snapshot (LIGHTWEIGHT default, EXACT opt-in), and emits a `QueryDetails` carrying the raw text, a sanitized form (literals replaced with `?` placeholders), and the operation / collection extracted from the parsed AST. Covers SELECT, INSERT, UPDATE, DELETE, MATCH, and DDL (CREATE / ALTER / DROP).
 
 Hook anatomy at `executeInternal(String stringStatement, SQLStatement parsedStatement, Object args)`:
 
 ```text
 1. Read currentTx.getGlobalQueryListeners()  ← snapshot from registry (Track 1)
 2. If empty, skip everything below — zero overhead when OTel is off
-3. Capture startMillis = System.currentTimeMillis(); startNanos = System.nanoTime()
+3. Read mode = currentTx.getQueryMonitoringMode() (snapshot field added by Track 1; default LIGHTWEIGHT)
+   if LIGHTWEIGHT:
+     ticker = YouTrackDBEnginesManager.instance().getTicker()
+     startMillis = ticker.approximateCurrentTimeMillis()
+     startNanos  = ticker.approximateNanoTime()         // no syscalls
+   else (EXACT):
+     startMillis = System.currentTimeMillis()
+     startNanos  = System.nanoTime()                    // two syscalls
 4. statement = parsedStatement ?? SQLEngine.parse(stringStatement, this)
 5. Run statement.execute(this, args, true) inside the existing try/catch
-6. elapsedNanos = System.nanoTime() - startNanos
+6. elapsedNanos = (mode == LIGHTWEIGHT)
+                    ? ticker.approximateNanoTime() - startNanos
+                    : System.nanoTime() - startNanos
 7. Build QueryDetails (rawSql, args, statement, trackingId), fire listeners.queryFinished(...)
    — wrapped in try/catch so listener exceptions don't break the query
 ```
 
 The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(rawSql)` (from the OTel module) on first access; `getOperationName()` and `getCollectionName()` call `SqlSyntaxClassifier.classify(statement)` (a static utility in `core`) on first access. Hosts that don't read these accessors pay no sanitization or classification cost — the parsed `SQLStatement` is already available because `SQLEngine.parse(...)` runs unconditionally to execute the query.
+
+Timing capture follows the per-TX `QueryMonitoringMode` snapshotted at `beginInternal()` time (Track 1 adds the snapshot field on `FrontendTransactionImpl` alongside the listener snapshot). LIGHTWEIGHT (default per the existing listener API) reads from `GranularTicker` at 10 ms granularity, with no syscall on the hot path. EXACT reads from `System.nanoTime()` / `System.currentTimeMillis()`, paying two syscalls per query for sub-millisecond precision. The same pattern lives in `FrontendTransactionImpl.doCommit` lines 650-722 for commit timing and in `YTDBQueryMetricsStep.close()` for Gremlin query timing, so a single per-TX mode setting governs every fire site in the transaction. A Gremlin-over-SQL query that fires two callbacks (one at the Gremlin step, one at the SQL hook) reports both with the same precision.
 
 The `SqlSyntaxClassifier` dispatches on the `SQLStatement` subclass:
 
@@ -377,10 +392,11 @@ The `SqlSanitizer` runs a conservative regex pass over the raw SQL: replaces sin
 - A statement with multi-target FROM (`SELECT FROM User, Order WHERE ...`) yields `collectionName = "User"` (first wins) per sem-conv guidance to keep cardinality low. An anonymous FROM subquery yields `Optional.empty()`.
 - The transaction tracking ID comes from `String.valueOf(currentTx.getId())` — `FrontendTransaction.getId(): long` already exists at line 215 and returns a stable internal ID. No new accessor is added in Track 4.
 - An exception thrown by `statement.execute(...)` propagates as before. The hook still fires the listener with the elapsed time and the SQL, with the span status set to ERROR and `error.type` populated, before the exception re-throws. The fire is wrapped so a listener exception during error handling doesn't mask the original.
+- Under LIGHTWEIGHT (default), query durations shorter than the ticker's granularity (~10 ms) round to zero or one tick. Acceptable for trace viewers, which render at millisecond resolution anyway. A host that needs sub-millisecond precision must opt into EXACT via `YTDBTransaction.withQueryMonitoringMode(EXACT)` for that transaction.
 
 ### References
 - D-records: D8, D9
-- Invariants: TX span boundedness, Listener exception isolation
+- Invariants: TX span boundedness, Listener exception isolation, Timing-mode uniformity (every fire site in a transaction uses the snapshot mode)
 - Mechanics: none
 
 ## SDK lifecycle: embedded vs server
