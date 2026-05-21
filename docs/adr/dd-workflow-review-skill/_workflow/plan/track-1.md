@@ -23,11 +23,14 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-21T09:48Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-21T10:03Z [ctx=safe] Step 1 complete (commit 079bdd761a6c192e91bfff30c981cde0533d3ed0)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-05-21T10:03Z `.claude/skills/**` is durable content outside the ephemeral-identifier rule's exclude list (the rule excludes only `docs/adr/*/_workflow/**` and `.claude/workflow/**`). Tracks 2 and 3 must avoid Track/Step/finding-ID labels in skill bodies, comments, and the `dr-audit.md` prompt; cite by file path, class/method, or stable workflow-doc anchor. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -144,14 +147,25 @@ Invariants this track preserves:
 
 ## Concrete Steps
 
-1. Seed `.claude/skills/review-workflow-pr/SKILL.md` with frontmatter (`name`, `description`, `argument-hint`, `user-invocable: true`) and the section-header outline (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub). — risk: low (default: Markdown-only skill scaffold; no production code)  [ ]
+1. Seed `.claude/skills/review-workflow-pr/SKILL.md` with frontmatter (`name`, `description`, `argument-hint`, `user-invocable: true`) and the section-header outline (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub). — risk: low (default: Markdown-only skill scaffold; no production code)  [x] commit: 079bdd761a6c192e91bfff30c981cde0533d3ed0
 2. Write the Preflight section: `$ARGUMENTS` resolution, `gh pr view --json headRefOid,number,files`, `gh repo view --json nameWithOwner`, `git rev-parse HEAD`, HEAD-SHA mismatch remediation, and the non-zero-`gh pr view` exit fallback (no PR for the current branch or unresolved ref). — risk: low (default: Markdown instruction prose)  [ ]
 3. Write the Artifact discovery section: `<dir>` resolution and list-and-pick fallback, canonical artifact enumeration, companion-file acknowledgment (`design-mutations.md`, optional `handoff-*.md`), and the missing-canonical-file error. — risk: low (default: Markdown instruction prose)  [ ]
 4. Write the Research mode section: session-start prelude with the in-memory observation warning, free-form Q&A behavior, observation auto-recording, the four workflow-doc trigger conditions, and the scope rule for code-file questions (answer but do not record). — risk: low (default: Markdown instruction prose)  [ ]
 5. Write the End-of-session stub section: the four wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering (index, `path:line`, source, body), the empty-list one-line fallback, and the deferred-submission note pointing to Track 2. — risk: low (default: Markdown instruction prose; Track 2 replaces this section)  [ ]
 
 ## Episodes
-<!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 079bdd761a6c192e91bfff30c981cde0533d3ed0, 2026-05-21T10:03Z [ctx=safe]
+**What was done:** Seeded `.claude/skills/review-workflow-pr/SKILL.md` with YAML frontmatter (`name`, `description`, `argument-hint`, `user-invocable: true`) and the five `##` section-header outline (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub). Each section carries a placeholder HTML comment naming what the section-fill steps will land. Added a house-style blockquote pointing chat-scale prose at the AI-tell-subset section list in `house-style.md`, mirroring the convention from `create-plan/SKILL.md` and `review-plan/SKILL.md`.
+
+**What was discovered:** Skills under `.claude/skills/` are durable content outside the ephemeral-identifier rule's exclude list (the rule excludes only `docs/adr/*/_workflow/**` and `.claude/workflow/**`). The first placeholder comments cited Track/Step labels and were rewritten before staging. Tracks 2 and 3 will land more skill content (`dr-audit.md`, the submission-section rewrite, handoff prose) and must follow the same discipline: cite by file path, class/method name, or stable workflow-doc anchor instead of Track/Step/finding-ID labels.
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/review-workflow-pr/SKILL.md` (new)
+
+**Critical context:** none
 
 ## Validation and Acceptance
 
