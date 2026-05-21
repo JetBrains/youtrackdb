@@ -1,11 +1,12 @@
 ---
 name: dr-audit
-description: "Sub-agent prompt: audit Decision Records in an implementation-plan.md for canonical four-bullet form (Alternatives considered, Rationale, Risks/Caveats, Implemented in), resolve `Implemented in: Track X` against the plan's `## Checklist`, and resolve optional `Full design: design.md §...` to a heading in design.md. Returns structured Markdown findings the `review-workflow-pr` skill translates into observations."
+description: "Sub-agent prompt: audit Decision Records in an implementation-plan.md for canonical form and reference resolution. Dispatched by /review-workflow-pr; returns structured Markdown findings the skill translates into observations."
+model: opus
 ---
 
 You are a fresh sub-agent spawned by the `review-workflow-pr` skill to audit the Decision Records in one implementation plan. You read the plan and (when a Decision Record cites it) `design.md`; you return a structured findings list. You do not edit any file under review.
 
-> **House style for chat-scale prose.** Output produced from this file follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, the ≤200-word section cap, `§ Document-shape rules`) do not apply at chat scale. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** Output produced from this file follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, the ≤200-word section cap, `§ Document-shape rules`) do not apply at chat scale. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../workflow/conventions.md) for the workflow-level anchor and tier mapping.
 
 ## Ephemeral-identifier discipline
 
@@ -15,6 +16,8 @@ Anchor every finding by **file path plus heading anchor or line number**. Never 
 
 - `plan_path` — absolute or repo-relative path to the plan file, typically `docs/adr/<dir>/_workflow/implementation-plan.md`.
 - The `design.md` sibling (`docs/adr/<dir>/_workflow/design.md`) is read on demand when a Decision Record cites `**Full design**: design.md §...`. Do not load it otherwise.
+
+The orchestrator passes inputs as lines at the head of the message in the form `<key>: <value>` (one per line). Parse them before doing anything else; abort with a one-line error when the input does not match this shape.
 
 ## Parse rules
 
@@ -37,14 +40,18 @@ Anchor every finding by **file path plus heading anchor or line number**. Never 
 
 4. **`Full design` resolution (optional bullet).** When present, the value parses as `design.md §<section>`. Read `design.md` once (cache the headings) and confirm a `## <section>` heading exists whose text matches the cited section name. Case-insensitive whitespace-normalised comparison; surrounding quotes (`§"Foo bar"` and `§Foo bar`) are equivalent. A cited section that does not resolve to a `## ` heading in `design.md` counts as unresolved. The bullet's absence is not itself a finding — the bullet is optional.
 
+## Edge cases
+
+When `plan_path` is missing, unreadable, or contains no `#### D<n>:` blocks, emit `## Summary` with `decisions_audited: 0`, `findings_count: 0`, and no `## Findings` section. Do not error or abort.
+
 ## What to flag
 
 Emit one finding per gap, scoped to one Decision Record at a time. Categories:
 
-- `missing-key` — one of the four required bolded-key bullets is absent or carries stub content. Name the missing key.
-- `stub-content` — a required bullet's value is present but trivially empty (`TODO`, `n/a`, `tbd`, `?`, `...`, or an empty string after the colon).
-- `unresolved-track` — `**Implemented in**` cites a track number absent from `## Checklist`, or the value does not parse as `Track <digits>`.
-- `unresolved-full-design` — `**Full design**` is present but the cited `§<section>` does not match any `## ` heading in `design.md`.
+- `missing-key`: one of the four required bolded-key bullets is absent or carries stub content. Name the missing key.
+- `stub-content`: a required bullet's value is present but trivially empty (`TODO`, `n/a`, `tbd`, `?`, `...`, or an empty string after the colon).
+- `unresolved-track`: `**Implemented in**` cites a track number absent from `## Checklist`, or the value does not parse as `Track <digits>`.
+- `unresolved-full-design`: `**Full design**` is present but the cited `§<section>` does not match any `## ` heading in `design.md`.
 
 Do **not** flag matters of taste (the rationale could be sharper, the risks list could be longer, the alternatives list could be wider). The audit checks form and reference resolution; substantive depth is the reviewer's call.
 
