@@ -28,11 +28,17 @@ one-turn handshake into research mode. -->
 
 ## Preflight
 
-<!-- Placeholder. To be filled with: `$ARGUMENTS` resolution, PR
-detection via `gh pr view --json headRefOid,number,files`, owner/repo
-via `gh repo view --json nameWithOwner`, local HEAD verification via
-`git rev-parse HEAD`, HEAD-SHA mismatch remediation, and the non-zero
-`gh pr view` exit fallback. -->
+The skill resolves the PR, fetches its head SHA and changed files, and confirms the local checkout matches before loading any artifact.
+
+**Resolve `$ARGUMENTS`.** Accepts a PR number (`42`), a PR URL, or a branch name. When empty, the skill targets the current branch's PR.
+
+**Fetch PR metadata.** Run `gh pr view <ref> --json headRefOid,number,files` to read the head SHA, PR number, and the changed-files array (each element carries `path`, `additions`, `deletions`, `changeType`; the skill reads `.path`). Run `gh repo view --json nameWithOwner` separately to resolve owner/repo for the API path.
+
+**Verify local HEAD.** Run `git rev-parse HEAD` and compare against `headRefOid`. On match, proceed to artifact discovery.
+
+**HEAD-SHA mismatch.** Abort and print both the expected and local SHAs along with the remediation: `gh pr checkout <ref>`. The command typically creates a named local branch tracking the PR head; only `--detach` produces a detached HEAD, and `git rev-parse HEAD` returns the head SHA in either case.
+
+**Non-zero `gh pr view` exit.** When no PR exists for the current branch or the ref does not resolve, surface the command's stderr and tell the reviewer to either pass an explicit PR number or URL as `$ARGUMENTS` or open a PR first.
 
 ## Artifact discovery
 
