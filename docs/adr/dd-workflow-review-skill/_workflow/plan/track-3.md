@@ -23,6 +23,7 @@ submission.
 - [x] 2026-05-21T14:58Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-21T15:33Z [ctx=safe] Step 1 complete (commit 45d7960af4)
 - [x] 2026-05-21T15:38Z [ctx=safe] Step 2 complete (commit a5aa6cc436)
+- [x] 2026-05-21T15:43Z [ctx=safe] Step 3 complete (commit 58a5f9193a)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -30,6 +31,7 @@ discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 
 - 2026-05-21T15:33Z — Pre-commit ephemeral-identifier gate fires on writer-side `SKILL.md` prose under `.claude/skills/`. Step 1 leaked one Track-by-label reference that the gate caught; the fix anchored on the existing `**POST and URL**` sub-block name plus the cache's observable behavior, both of which are stable identifiers. Steps 2 and 3 also write durable content under the same path and should expect the same rewrite-on-detection loop. See Episodes §Step 1.
+- 2026-05-21T15:43Z — The `**POST and URL.**` sub-block in `## Wrap-up and submission` now owns the handoff-delete action that the design and the resume-reload cleanup contract both call out. The `### Edge cases / Gotchas` block in `design.md` §"Handoff and resume" describes the cleanup abstractly ("file is deleted automatically on successful submission") but does not name which sub-block owns the deletion. The Phase 4 `design-final.md` writer may want to pin the action-owner explicitly so the implementation-design correspondence stays unambiguous for future maintainers. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -170,7 +172,7 @@ Invariants this track preserves:
 
 1. Add `## Handoff and resume` to `SKILL.md` with the handoff-write subsection (reviewer-command trigger phrases, six-section file format matching `design.md` §"Handoff and resume" ordering, `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` write path, post-write path announcement to the reviewer) and **edit** the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` per Plan of Work step 1 (drop the "follow-up track" qualifier and plain-text-stub fallback, add the handoff-checkpoint trigger phrases, preserve the "Observations live in this conversation only" sentence) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [x] commit: 45d7960af4
 2. Add the resume-discovery subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 2: glob `/tmp/claude-code-review-workflow-pr-<N>-*.md`; branch on zero (fresh session) / one (offer to resume with reviewer confirmation) / many (list candidates with mtimes sorted newest-first, recommend the newest unless the reviewer explicitly wants an older state) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [x] commit: a5aa6cc436
-3. Add the resume-reload subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 3: re-read the chosen handoff file and parse the six sections; HEAD re-verification with the three-way choice (refresh observations reusing `**Head-SHA re-fetch.**` at `SKILL.md:137` / abort + re-checkout preserving in-memory state / proceed without revalidation acknowledging the `[STALE: verify line]` risk); dispatch-log tri-state re-presentation (missing entry vs `findings_count=0` entry vs `findings_count>0` entry per `SKILL.md:121`); no-auto-dedup contract for the dispatch log; snapshot-vs-cache head-SHA distinction; cleanup discipline (delete on successful POST, persist on any failure, 422-mutation corner case needing re-checkpoint before `/clear` to survive across sessions) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
+3. Add the resume-reload subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 3: re-read the chosen handoff file and parse the six sections; HEAD re-verification with the three-way choice (refresh observations reusing `**Head-SHA re-fetch.**` at `SKILL.md:137` / abort + re-checkout preserving in-memory state / proceed without revalidation acknowledging the `[STALE: verify line]` risk); dispatch-log tri-state re-presentation (missing entry vs `findings_count=0` entry vs `findings_count>0` entry per `SKILL.md:121`); no-auto-dedup contract for the dispatch log; snapshot-vs-cache head-SHA distinction; cleanup discipline (delete on successful POST, persist on any failure, 422-mutation corner case needing re-checkpoint before `/clear` to survive across sessions) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [x] commit: 58a5f9193a
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -195,6 +197,18 @@ does not populate. -->
 **What was discovered:** The pre-commit ephemeral-identifier gate fired a second time on writer-side `SKILL.md` prose, this time on a standards-suffix token (`ISO-8601`). The regex `\b[A-Z]{1,3}-?[0-9]+\b` matches any short-uppercase-prefix + digit-suffix shape, which sweeps in self-contained tokens (ISO standards, RFC IDs, file-format versions) alongside the actual Track / Step / finding label leaks the rule targets. The §Allowed list's "self-contained references" reading covers the standards case; inspect-then-rewrite stays cheap. Step 3 should expect the same gate firing on plausible-looking durable-content tokens.
 
 **What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/review-workflow-pr/SKILL.md` (modified)
+
+**Critical context:** none
+
+### Step 3 — commit 58a5f9193a, 2026-05-21T15:43Z [ctx=safe]
+**What was done:** Added the resume-reload subsection to `## Handoff and resume` in `SKILL.md` across four sub-blocks: **Resume reload.** (re-read the chosen handoff, parse the six sections, restore observation list and `dispatchLog` with `[STALE: verify line]` and `[REJECTED: <reason>]` prefixes preserved, run artifact discovery against the recorded workflow directory, then enter research mode); **HEAD re-verification.** (three-way choice with each consequence surfaced inline — refresh observations reusing the wrap-up `**Head-SHA re-fetch.**` procedure verbatim as the named safe default, abort + re-checkout preserving in-memory state for re-checkpoint, proceed without revalidation acknowledging the `[STALE: verify line]` risk); **Dispatch-log re-presentation.** (tri-state handling: missing entry, `findings_count=0` entry, `findings_count>0` entry; no-auto-dedup contract preserved); **Cleanup discipline.** (delete only on successful POST, persist on every failure path, 422-mutation corner case calling out re-checkpoint before `/clear` so the rejection tag survives across sessions). Also tightened the existing `**POST and URL.**` sub-block in `## Wrap-up and submission` to own the handoff-delete action on the `.html_url`-returning success branch, since the resume-reload cleanup contract cross-references that sub-block as the load-bearing action that does the deletion.
+
+**What was discovered:** The pre-existing `**POST and URL.**` sub-block did not document the handoff-delete action that the design and the Plan of Work step 3 both call out. The cleanup discipline cross-references the POST sub-block, so the cross-reference required the sub-block to own the delete step in prose. The pre-commit ephemeral-identifier gate did not fire on this step's diff, breaking the per-step-firing pattern from Steps 1 and 2; the new prose anchored on stable sub-block names (`**POST and URL.**`, `**Head-SHA re-fetch.**`, `**Path validation.**`, `**Line validation.**`, `**Sub-agent dispatch failure.**`) plus the `dispatchLog` and `findings_count` field labels documented elsewhere in `SKILL.md`, all stable identifiers.
+
+**What changed from the plan:** Step 3 also touched `## Wrap-up and submission` (the `**POST and URL.**` sub-block) so the cleanup cross-reference resolves. The original step description only named `## Handoff and resume`. The expansion is within Track 3's purpose (the Plan of Work step 3 lists "delete on successful POST" as a cleanup-discipline item) and is recorded here so the Phase C track-level review and the Phase 4 `design-final.md` writer see the scope ahead of time. No upcoming steps are affected — this is the last step in the track.
 
 **Key files:**
 - `.claude/skills/review-workflow-pr/SKILL.md` (modified)
