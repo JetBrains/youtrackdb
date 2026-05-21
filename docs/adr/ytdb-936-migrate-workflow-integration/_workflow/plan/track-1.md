@@ -158,3 +158,7 @@ External dependencies the gate's bash relies on:
 - `git log --oneline FORK..develop -- <pathspecs>` — the cheap detection command. Cost is proportional to the commit range; on a long-lived branch with thousands of develop commits this is still sub-second on typical hardware.
 
 Library / function signatures relevant to this track: none beyond the bash above. The new file owns its prose; the existing workflow files own theirs.
+
+## Base commit
+
+a008d4866849f2c19872f14bde0769ed401de84a
