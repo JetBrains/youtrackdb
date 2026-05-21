@@ -68,8 +68,8 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 
 ### Section length
 - ≤200 words per `###` subsection is a soft cap — a heuristic trigger for closer review, not the metric enforced. When the soft cap is hit, heading hierarchy is one rewrite option: split into `###` subsections, or move detail to `.claude/docs/`.
-- "Section length cap exception" (per `house-style.md § Structural rules`): five template-bound shapes are exempt regardless of length — ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, and multi-step derivations under `design-mechanics.md`. The list is non-exhaustive; future template additions match an existing category or land an explicit addition.
-- "Padding-based finding criterion": for prose outside the exempt list, a section over the soft cap is a finding only when it also contains padding — a banned term from `§ Banned vocabulary`, a pattern from `§ Banned sentence patterns`, or restatement per `§ Elegant variation`. Length alone is not a finding; the finding's description must point at the padding pattern.
+- "Section length cap exception" (per `house-style.md § Structural rules`): five template-bound shapes are exempt regardless of length — ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block containing the prose, so a mixed-content parent contributes one unit per labeled block. The list is non-exhaustive; future template additions match an existing category or land an explicit addition.
+- "Padding-based finding criterion": for prose outside the exempt list, a unit over the soft cap is a finding only when it also contains padding — a banned term from `§ Banned vocabulary`, a pattern from `§ Banned sentence patterns`, or restatement per `§ Elegant variation`. Length alone is not a finding; the finding's description must point at the padding pattern.
 - Long bulleted lists: > 8 bullets often means the structure is wrong; prefer a table or prose summary.
 
 ### Heading style
@@ -103,7 +103,7 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 
 1. Read `.claude/output-styles/house-style.md` once.
 2. Grep the diff for each banned vocabulary item.
-3. For each changed file, scan paragraph by paragraph for em-dash count and section length per the three-step decision in `### Section length` above (size threshold → exempt-category check → padding-pattern check).
+3. For each changed file, scan paragraph by paragraph for em-dash count and length per unit per the three-step decision in `### Section length` above (size threshold → exempt-category check → padding-pattern check).
 4. Spot-check section openings for BLUF.
 
 ## Output format
@@ -120,7 +120,7 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 [Hard violations — banned vocabulary in load-bearing position, "It's not X — it's Y" anti-pattern, knowledge-cutoff disclaimer in CLAUDE.md or a skill description]
 
 #### Recommended
-[Style drift — em-dash overuse, non-exempt sections over the soft section cap when accompanied by padding (banned vocabulary, banned sentence patterns, or elegant variation per `§ Banned vocabulary` / `§ Banned sentence patterns` / `§ Elegant variation`), missing BLUF lead, Title Case headings. Five template-bound shapes are exempt per `house-style.md § Structural rules` "Section length cap exception": ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections, full state-machine tables, file:line citation blocks, and multi-step derivations under `design-mechanics.md`.]
+[Style drift — em-dash overuse, non-exempt units over the soft section cap when accompanied by padding (banned vocabulary, banned sentence patterns, or elegant variation per `§ Banned vocabulary` / `§ Banned sentence patterns` / `§ Elegant variation`), missing BLUF lead, Title Case headings. Five template-bound shapes are exempt per `house-style.md § Structural rules` "Section length cap exception": ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block.]
 
 #### Minor
 [Trim opportunities — "in order to", adjective triads, single-sentence bullet that should be inline prose]
