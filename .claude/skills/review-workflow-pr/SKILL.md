@@ -42,11 +42,23 @@ The skill resolves the PR, fetches its head SHA and changed files, and confirms 
 
 ## Artifact discovery
 
-<!-- Placeholder. To be filled with: `<dir>` resolution (branch-name
-default, list-and-pick fallback), enumeration of canonical artifacts
-under `docs/adr/<dir>/_workflow/`, companion-file acknowledgment
-(`design-mutations.md`, optional `handoff-*.md`), and the
-missing-canonical-file error. -->
+The skill resolves `<dir>`, enumerates the canonical workflow artifacts under `docs/adr/<dir>/_workflow/`, acknowledges any companion files, and aborts when a required file is missing. The skill is read-only against everything it finds: it never edits the artifacts under review.
+
+**Resolve `<dir>`.** Default to the current branch name from `git branch --show-current`, matching the `/create-plan` default. When `docs/adr/<branch>/_workflow/` does not exist in the local checkout, fall back to the list-and-pick path: enumerate every `docs/adr/*/_workflow/` directory that contains an `implementation-plan.md`, present the names, and ask the reviewer to pick one. Use the picked name as `<dir>`.
+
+**Enumerate canonical artifacts.** Required under `docs/adr/<dir>/_workflow/`:
+
+- `implementation-plan.md`
+- `design.md`
+
+Optional, load only when present:
+
+- `design-mechanics.md` (length-triggered per `.claude/workflow/conventions.md` §1.2)
+- `plan/track-*.md` (one file per planned track)
+
+**Acknowledge companion files.** List `design-mutations.md` (present whenever `design.md` has been mutated) and any transient `handoff-*.md` for visibility. Do not load them into the review context unless the reviewer asks.
+
+**Missing canonical file.** When `implementation-plan.md` or `design.md` is missing under the resolved `<dir>`, abort with an error naming both expected paths and pointing the reviewer at the list-and-pick fallback.
 
 ## Research mode
 
