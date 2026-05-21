@@ -217,3 +217,7 @@ GitHub REST API contract (binding for the JSON payload):
   `body` (string), `commit_id` (SHA verified against the current PR
   head), and each comment's `line` plus `side: "RIGHT"` so the review
   is anchored, line-pinned, and never lands as a PENDING draft.
+
+## Base commit
+
+fbfbdd8a137cc10ba7234b2bcd3b2b0016267fbb
