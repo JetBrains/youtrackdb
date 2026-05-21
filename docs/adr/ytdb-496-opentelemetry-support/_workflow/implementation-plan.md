@@ -35,9 +35,12 @@ flowchart TB
         QD["QueryMetricsListener.QueryDetails<br/>(extended: +getOperationName,<br/>+getCollectionName, +getDatabaseName)"]
         YOU["YourTracks<br/>(+ static global listener registry)"]
         TX["FrontendTransactionImpl<br/>(+ TX lifecycle fires in<br/>beginInternal / rollbackInternal)"]
-        STEP["YTDBQueryMetricsStep<br/>(Gremlin source; bytecode classification)"]
+        STEP["YTDBQueryMetricsStep<br/>(Gremlin source; calls Gremlin classifier)"]
         STRAT["YTDBQueryMetricsStrategy<br/>(gate widened so globally-registered<br/>listeners cause injection)"]
-        DSE["DatabaseSessionEmbedded<br/>(SQL source; new listener fire site)"]
+        DSE["DatabaseSessionEmbedded<br/>(SQL source; new listener fire site;<br/>calls SQL classifier)"]
+        GCLS["GremlinBytecodeClassifier<br/>(static utility; new)"]
+        SCLS["SqlSyntaxClassifier<br/>(static utility; new)"]
+        CLR["Classification<br/>(value record; new)"]
         GC["GlobalConfiguration<br/>(+ OPENTELEMETRY_* entries)"]
     end
 
@@ -49,23 +52,22 @@ flowchart TB
         OTQ["OTelQueryMetricsListener"]
         OTT["OTelTransactionMetricsListener"]
         FAC["YouTrackDBOpenTelemetry<br/>(facade + lifecycle)"]
-        GCLS["GremlinBytecodeClassifier"]
         SQLS["SqlSanitizer"]
-        SCLS["SqlSyntaxClassifier"]
     end
 
     OTQ -.implements.-> QML
     OTT -.implements.-> TML
-    OTQ --> GCLS
-    OTQ --> SCLS
     OTQ --> FAC
     OTT --> FAC
+    OTQ --> QD
     FAC -- "registers listeners with" --> YOU
     SLL -- "starts / stops" --> FAC
     STEP --> GCLS
     STRAT -- "injects" --> STEP
-    DSE --> SQLS
     DSE --> SCLS
+    DSE --> SQLS
+    GCLS --> CLR
+    SCLS --> CLR
     GC -. read by .-> FAC
 ```
 
@@ -73,15 +75,14 @@ flowchart TB
 - **`QueryMetricsListener.QueryDetails` (core, existing; extended)**: gains `getOperationName()`, `getCollectionName()`, and `getDatabaseName()` returning `Optional<String>`. Populated by both query sources: `YTDBQueryMetricsStep` for Gremlin via the bytecode classifier (operation/collection) and `session.getDatabaseName()` (namespace); `DatabaseSessionEmbedded` for SQL via the syntax classifier (operation/collection) and the session's own database name (namespace).
 - **`YourTracks` (core)**: gains static methods `registerGlobalQueryListener` / `unregisterGlobalQueryListener` / `registerGlobalTransactionListener` / `unregisterGlobalTransactionListener`. The registry is process-global (a static holder in `core/.../profiler/monitoring/`); the transaction factory consults the snapshot at `FrontendTransactionImpl.beginInternal()` time and uses that snapshot for the TX's lifetime. Per-TX `withQueryListener` continues to add listeners on top of the snapshot. The `YouTrackDB` interface gets no new methods, keeping `YouTrackDBRemote` and other implementors untouched.
 - **`FrontendTransactionImpl` (core)**: `beginInternal()` captures the registry snapshot into a new `txListenerSnapshot` field and iterates it firing `transactionStarted`; `rollbackInternal()` iterates the same snapshot firing `transactionRolledBack` (gated by `txStartCounter == 0` so nested rollbacks don't double-fire). The existing private `notifyMetricsListener` wrapper covers commit success/failure unchanged; the same try/catch shape applies to the two new fires. `YTDBTransaction.doOpen()` / `doRollback()` are not touched — they delegate to the underlying impl, so Gremlin and SQL paths both go through the same fire sites.
-- **`YTDBQueryMetricsStep` (core)**: classifies the traversal bytecode via `GremlinBytecodeClassifier` and exposes the result through the enriched `QueryDetails` to the listener callback. Existing fire site, augmented.
+- **`YTDBQueryMetricsStep` (core)**: classifies the traversal bytecode by calling the new `GremlinBytecodeClassifier.classify(Bytecode)` static utility (also in `core`) and exposes the result through the enriched `QueryDetails` to the listener callback. Existing fire site, augmented.
 - **`YTDBQueryMetricsStrategy` (core)**: TinkerPop strategy that injects `YTDBQueryMetricsStep` into Gremlin traversals. Today the gate routes only on the per-TX listener; Track 1 widens it so a non-empty global query-listener snapshot also causes injection. Without this edit, a host that registers only the OTel listener via the global registry would see no Gremlin spans because the step never gets injected.
-- **`DatabaseSessionEmbedded` (core)**: SQL execution entry point at `executeInternal()` (lines 702-751). New listener fire site wraps `statement.execute(...)` with a timer and emits a `QueryDetails` carrying the raw SQL, the sanitized text, the operation name, and the target collection. Covers SELECT / INSERT / UPDATE / DELETE / MATCH / DDL through one method.
+- **`DatabaseSessionEmbedded` (core)**: SQL execution entry point at `executeInternal()` (lines 702-751). New listener fire site wraps `statement.execute(...)` with a timer and emits a `QueryDetails` carrying the raw SQL, the sanitized text, plus operation name and target collection populated from `SqlSyntaxClassifier.classify(SQLStatement)` (a new static utility in `core`, called on the AST `SQLEngine.parse(...)` already produces). Covers SELECT / INSERT / UPDATE / DELETE / MATCH / DDL through one method.
+- **`GremlinBytecodeClassifier` / `SqlSyntaxClassifier` / `Classification` (core, new)**: two static-utility classes plus a shared value record. Each classifier reads its source-specific input (`Bytecode` for Gremlin, `SQLStatement` for SQL) and returns a `Classification(operationName, collectionName)` value the fire site copies into the `QueryDetails` accessors. Called directly — no SPI, no ServiceLoader.
 - **`GlobalConfiguration` (core)**: new entries `OPENTELEMETRY_ENABLED`, `OPENTELEMETRY_EXPORTER_ENDPOINT`, `OPENTELEMETRY_EXPORTER_PROTOCOL`, `OPENTELEMETRY_SERVICE_NAME` for the server-mode SDK init.
 - **`OTelQueryMetricsListener` / `OTelTransactionMetricsListener` (new module)**: translate listener callbacks into OTel spans, taking the parent from `Context.current()` so embedded propagation is automatic.
 - **`YouTrackDBOpenTelemetry` (new module)**: static facade. `setOpenTelemetry(OpenTelemetry)` for explicit host wiring; falls back to `GlobalOpenTelemetry.get()`. Registers the listeners with the global registry. Idempotent shutdown.
-- **`GremlinBytecodeClassifier` (new module)**: maps a TinkerPop `Bytecode` to `{operationName, collectionName}` for sem-conv attributes.
-- **`SqlSanitizer` (new module)**: replaces string / numeric / date literals in raw SQL with `?` placeholders for `db.query.text` sanitization. Parameterized queries pass through unchanged.
-- **`SqlSyntaxClassifier` (new module)**: walks the parsed SQL statement AST to extract `db.operation.name` (SELECT / INSERT / UPDATE / DELETE / MATCH / CREATE / ALTER / DROP) and `db.collection.name` (target class from FROM / INTO / UPDATE clauses).
+- **`SqlSanitizer` (new module)**: replaces string / numeric / date literals in raw SQL with `?` placeholders for `db.query.text` sanitization. Parameterized queries pass through unchanged. The only classifier-adjacent helper that stays in the OTel module — its output (`db.query.text`) is OTel-specific.
 
 #### D1: Global listener registry
 
@@ -145,10 +146,10 @@ flowchart TB
 
 #### D9: Extract `db.operation.name` and `db.collection.name` from both Gremlin bytecode and SQL AST
 
-- **Alternatives considered**: omit both attributes (loses span-name quality and grouping); pre-compute on query parse (Gremlin has no parse hook in current code, SQL parses inside `executeInternal`).
-- **Rationale**: for Gremlin the bytecode is available in `YTDBQueryMetricsStep` (line 131 `traversal.getBytecode()`); the classifier identifies the start step (`V`/`E`/`addV`/`addE`/...) and the first `hasLabel` or `addV`/`addE` label argument. For SQL the parsed `SQLStatement` is available in `executeInternal` after `SQLEngine.parse()`; the classifier reads the statement subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the FROM / INTO / UPDATE clause target class. Both yield low-cardinality values that drive `{db.operation.name} {db.collection.name}` span names per sem-conv. Two parallel classifier impls share the same `QueryClassifier` SPI loaded via ServiceLoader from `core`.
+- **Alternatives considered**: omit both attributes (loses span-name quality and grouping); plugin layer with `QueryClassifier` SPI + `ServiceLoader` (rejected — buys no polymorphism for a single impl per input type and forces an `Object`-typed signature plus a `META-INF/services` manifest); pre-compute on query parse (Gremlin has no parse hook in current code, SQL parses inside `executeInternal`).
+- **Rationale**: for Gremlin the bytecode is available in `YTDBQueryMetricsStep` (line 131 `traversal.getBytecode()`); the classifier identifies the start step (`V`/`E`/`addV`/`addE`/...) and the first `hasLabel` or `addV`/`addE` label argument. For SQL the parsed `SQLStatement` is available in `executeInternal` after `SQLEngine.parse()`; the classifier reads the statement subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the FROM / INTO / UPDATE clause target class. Both yield low-cardinality values that drive `{db.operation.name} {db.collection.name}` span names per sem-conv. Two static-utility classifiers in `core` (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) piggyback on parsing the fire sites already perform — `produceScript()`'s instruction walk for Gremlin, `SQLEngine.parse(...)`'s unconditional AST production for SQL — and return a `Classification(operationName, collectionName)` value record consumed directly by the fire site.
 - **Risks/Caveats**: complex Gremlin traversals (multi-class, no label) and complex SQL (no FROM clause, anonymous tables, multi-target UPDATE / MATCH chains) won't yield clean values. Both accessors return `Optional.empty()` and the span name falls back to `db.system.name`. Documented and tested.
-- **Implemented in**: Track 1 (QueryDetails extension, classifier SPI slot), Track 3 (Gremlin classifier impl), Track 4 (SQL classifier impl).
+- **Implemented in**: Track 1 (QueryDetails extension + both classifier helpers + Classification record, all in `core`, called directly from the existing fire sites).
 - **Full design**: design.md §"Gremlin bytecode classification" and §"SQL execution layer hook"
 
 #### D10: TX lifecycle fires consolidated in `FrontendTransactionImpl`
@@ -197,7 +198,7 @@ flowchart TB
 - `QueryMetricsListener.QueryDetails#getOperationName(): Optional<String>`, `#getCollectionName(): Optional<String>`, and `#getDatabaseName(): Optional<String>`, new default accessors on the existing nested interface.
 - `TransactionMetricsListener.TransactionDetails#getDatabaseName(): Optional<String>`, new default accessor on the existing nested interface.
 - `DatabaseSessionEmbedded.executeInternal()`, new listener fire site wrapping `statement.execute(...)` for the SQL path. Uses `currentTx.getId()` (existing) as the tracking ID via `String.valueOf(...)`; no new `FrontendTransaction.getTrackingId()` accessor is added.
-- `QueryClassifier` SPI in core (ServiceLoader-discovered), one impl per source language in the OTel module.
+- `GremlinBytecodeClassifier.classify(Bytecode): Classification` and `SqlSyntaxClassifier.classify(SQLStatement): Classification`, two static-utility classes in `core` called directly from `YTDBQueryMetricsStep.close()` and `DatabaseSessionEmbedded.executeInternal()` respectively. No SPI, no ServiceLoader; the `Classification` value record is the shared return type.
 - `YouTrackDBOpenTelemetry.setOpenTelemetry(OpenTelemetry)` and `shutdown()`, new module entry points. A package-private 2-arg variant `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` exists for `OpenTelemetryServerPlugin` to signal server-mode ownership.
 - `YouTrackDBServer.activate()` extended with `ServiceLoader.load(ServerLifecycleListener.class)` so the new `OpenTelemetryServerPlugin` auto-registers without explicit operator wiring (CR3: existing code uses only manual `registerLifecycleListener`; Track 5 adds the ServiceLoader call).
 - `ServerLifecycleListener.onAfterActivate()` / `onBeforeDeactivate()`, bound by a new `OpenTelemetryServerPlugin` in the new module.
@@ -211,21 +212,21 @@ flowchart TB
 ## Checklist
 
 - [ ] Track 1: Foundation extension in `core` for OTel-readiness
-  > Extend the listener SPI in `core` so the OTel module can install against it: new default methods on `TransactionMetricsListener`, new `Optional<String>` accessors on `QueryDetails` and `TransactionDetails`, a `QueryClassifier` SPI slot, a process-global listener registry on `YourTracks`, TX-lifecycle fires inside `FrontendTransactionImpl`, a strategy-gate widening, snapshot iteration at call sites, and Throwable-widened exception wrappers. No behavior change for transactions without registered listeners. Detailed description in `plan/track-1.md`.
-  > **Scope:** ~8 steps covering SPI extension, registry holder, QueryDetails/TransactionDetails enrichment, QueryClassifier SPI slot, TX lifecycle fires in `FrontendTransactionImpl`, strategy gate, snapshot iteration, exception-wrapper widening.
+  > Extend the listener SPI in `core` so the OTel module can install against it: new default methods on `TransactionMetricsListener`, new `Optional<String>` accessors on `QueryDetails` and `TransactionDetails`, a `Classification` value record, two static-utility classifier classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) living next to the existing parsing infrastructure, a process-global listener registry on `YourTracks`, TX-lifecycle fires inside `FrontendTransactionImpl`, a strategy-gate widening, snapshot iteration at call sites, and Throwable-widened exception wrappers. No behavior change for transactions without registered listeners. Detailed description in `plan/track-1.md`.
+  > **Scope:** ~8 steps covering SPI extension, registry holder, QueryDetails/TransactionDetails enrichment, `Classification` record + two classifier helpers, TX lifecycle fires in `FrontendTransactionImpl`, strategy gate, snapshot iteration, exception-wrapper widening.
 
 - [ ] Track 2: `youtrackdb-opentelemetry` Maven module skeleton
   > Create the new module under the root reactor with parent inheritance, OTel BOM-driven dependencies, Spotless config, and an empty package layout ready for the listener implementations. Adds a Maven dependency-arrow check so `core` never gains an OTel import. Detailed description in `plan/track-2.md`.
   > **Scope:** ~3 steps covering module pom, root reactor wiring, dependency direction check.
 
-- [ ] Track 3: OTel listener implementations and Gremlin bytecode classifier
-  > Implement `OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, the `YouTrackDBOpenTelemetry` facade, and the Gremlin bytecode classifier inside the new module. Maps every Gremlin callback to sem-conv-compliant spans with the right kind, attributes, and parent context. SQL source wiring lands in Track 4; registration logic in Track 5. Detailed description in `plan/track-3.md`.
-  > **Scope:** ~6 steps covering query listener, TX listener, facade, Gremlin classifier, sem-conv attribute mapping, span-name fallback.
+- [ ] Track 3: OTel listener implementations
+  > Implement `OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, and the `YouTrackDBOpenTelemetry` facade inside the new module. Maps every Gremlin callback to sem-conv-compliant spans with the right kind, attributes, and parent context — Gremlin classification is owned by Track 1, the listener just reads pre-populated `QueryDetails` accessors. SQL source wiring lands in Track 4; registration logic in Track 5. Detailed description in `plan/track-3.md`.
+  > **Scope:** ~5 steps covering query listener, TX listener, facade, sem-conv attribute mapping, span-name fallback.
   > **Depends on:** Track 1, Track 2
 
-- [ ] Track 4: SQL execution layer hook, sanitizer, and syntax classifier
-  > Add a listener fire site at `DatabaseSessionEmbedded.executeInternal()` so every native SQL statement (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) flows through `QueryMetricsListener.queryFinished(...)`, and implement `SqlSanitizer` (literal-to-`?` replacement) plus `SqlSyntaxClassifier` (operation + collection from the parsed AST) inside the OTel module; both classifier impls register through the `QueryClassifier` SPI from Track 1. Detailed description in `plan/track-4.md`.
-  > **Scope:** ~5 steps covering executeInternal hook, SQL-flavored QueryDetails impl, sanitizer rules, syntax classifier per statement type (using `SQLSelectStatement` / `SQLInsertStatement` / `SQLUpdateStatement` / `SQLDeleteStatement` / `SQLMatchStatement` / `SQLCreateClassStatement` / `SQLAlterClassStatement` / `SQLDropClassStatement` subclasses), tests for each statement type. Tracking ID comes from the existing `currentTx.getId()` via `String.valueOf(...)`; no new `FrontendTransaction.getTrackingId()` accessor needed.
+- [ ] Track 4: SQL execution layer hook and SQL query sanitizer
+  > Add a listener fire site at `DatabaseSessionEmbedded.executeInternal()` so every native SQL statement (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) flows through `QueryMetricsListener.queryFinished(...)`, and implement `SqlSanitizer` (literal-to-`?` replacement) inside the OTel module. The SQL classifier lands in Track 1 (as a `core` static utility); Track 4's fire site calls it directly to populate the `QueryDetails` operation/collection accessors. Detailed description in `plan/track-4.md`.
+  > **Scope:** ~4 steps covering executeInternal hook, SQL-flavored QueryDetails impl that calls `core.SqlSyntaxClassifier.classify(...)`, sanitizer rules in the OTel module, tests for each statement type. Tracking ID comes from the existing `currentTx.getId()` via `String.valueOf(...)`; no new `FrontendTransaction.getTrackingId()` accessor needed.
   > **Depends on:** Track 1, Track 2, Track 3
 
 - [ ] Track 5: Configuration parameters and lifecycle integration
@@ -239,9 +240,17 @@ flowchart TB
   > **Depends on:** Track 3, Track 4, Track 5
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1 (manual `/review-plan` re-run; supersedes the prior manual round and the autonomous Phase 2 pass)
+- [ ] Plan review (consistency + structural) — re-validation needed after inline replan dropped `QueryClassifier` SPI in favor of static helpers in `core` (see Mutation 8 in `design-mutations.md`). The prior pass below stamped a plan that no longer matches the artifacts; the next `/execute-tracks` invocation will re-run Phase 2 against the revised plan.
 
-**Auto-fixed (mechanical)**: CR1 (corrected `assertOnOwningThread` call-site enumeration in `design.md` § "Context propagation in embedded" from "lines 165, 224, 250, 432" to the full seven sites "declared at line 133, invoked from seven sites: lines 165, 224, 250, 432, 452, 474, 511" per actual grep on `FrontendTransactionImpl.java`); CR2 (disambiguated `YTDBQueryMetricsStrategy.apply()` line citations in `plan/track-1.md` L44 and L62 from "line 36" to "declared at line 23; the gate check at line 36" so readers do not conflate method declaration with the gate-check line inside it); S12 (merged duplicate `Out of scope:` heading blocks in `plan/track-4.md` § "Interfaces and Dependencies" into one consolidated block of six bullets); S14 (trimmed Track 1's intro paragraph in `implementation-plan.md` from a 155-word single-sentence list of nine sub-clauses to a 65-word two-sentence intro, restoring word-count parity across all six track intros).
+**Prior plan-review history (preserved for traceability):**
+
+- Iteration 1 (manual `/review-plan` re-run after Mutation 7) — passed.
+
+**Auto-fixed (mechanical)**:
+- CR1: corrected `assertOnOwningThread` call-site enumeration in `design.md` § "Context propagation in embedded" from "lines 165, 224, 250, 432" to the full seven sites "declared at line 133, invoked from seven sites: lines 165, 224, 250, 432, 452, 474, 511" per actual grep on `FrontendTransactionImpl.java`.
+- CR2: disambiguated `YTDBQueryMetricsStrategy.apply()` line citations in `plan/track-1.md` L44 and L62 from "line 36" to "declared at line 23; the gate check at line 36" so readers do not conflate method declaration with the gate-check line inside it.
+- S12: merged duplicate `Out of scope:` heading blocks in `plan/track-4.md` § "Interfaces and Dependencies" into one consolidated block of six bullets.
+- S14: trimmed Track 1's intro paragraph in `implementation-plan.md` from a 155-word single-sentence list of nine sub-clauses to a 65-word two-sentence intro, restoring word-count parity across all six track intros.
 
 **Escalated (design decisions)**: S13 (user resolved "leave as-is" — accepted that the `design.md` § "Class Design" diagram having 13 classes sits one over the ~12 soft cap and that the integrated view is more valuable than splitting it; no edit applied, no downstream impact).
 
