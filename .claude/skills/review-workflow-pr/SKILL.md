@@ -22,7 +22,7 @@ PR.
 
 ## Invocation contract
 
-`/review-workflow-pr $ARGUMENTS` accepts three argument shapes — a PR number (`42`), a PR URL (`https://github.com/owner/repo/pull/42`), or a branch name (`feature/foo`) — and defaults to the current branch's PR when `$ARGUMENTS` is empty. The shape is resolved by `## Preflight`; this section is the contract the reviewer sees at invocation time.
+`/review-workflow-pr $ARGUMENTS` accepts three argument shapes (a PR number such as `42`, a PR URL like `https://github.com/owner/repo/pull/42`, or a branch name such as `feature/foo`) and defaults to the current branch's PR when `$ARGUMENTS` is empty. The shape is resolved by `## Preflight`; this section is the contract the reviewer sees at invocation time.
 
 The handshake is single-turn. On the same turn that runs preflight and artifact discovery, the skill emits a one-line greeting naming the PR number, head SHA, and resolved `<dir>`, then asks what to investigate. The reviewer's next message is the first research-mode question; no separate acknowledgment is required. When preflight or discovery fails, the skill emits the error and exits without entering research mode.
 
