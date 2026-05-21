@@ -5,7 +5,9 @@ argument-hint: "<migration-branch-name>"
 user-invocable: true
 ---
 
-Diff `.claude/workflow/**` and `.claude/skills/**` between the branch's fork point and current `develop` HEAD, then apply each format-relevant commit to the corresponding artifact files in the migration worktree. The skill runs from the `develop` worktree; the migration branch lives in a separate worktree.
+Auto-detection runs in `/execute-tracks` startup via [`workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
+
+Diff `.claude/workflow/` and `.claude/skills/` between the branch's fork point and current `develop` HEAD, then apply each format-relevant commit to the corresponding artifact files in the migration worktree. The skill runs from the `develop` worktree; the migration branch lives in a separate worktree.
 
 The skill edits files in place in the migration worktree and leaves it dirty for the user to review and commit. No automatic commits.
 

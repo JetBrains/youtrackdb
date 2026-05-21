@@ -144,6 +144,15 @@ cross-track impact.
    resolutions (local-authoritative, remote-authoritative, defer);
    no default is picked.
 
+3a. **Run the Workflow Drift Check.** Load
+   [`workflow-drift-check.md`](workflow-drift-check.md) and follow it.
+   This step runs after the divergence check and before the handoff
+   scan, so any user-driven migration changes the on-disk shape of
+   `_workflow/**` before steps 4 and 5 read those files. The gate
+   file owns the resolution detail (Migrate now / Defer / Suppress)
+   and the Remote-authoritative re-entry note — see
+   `workflow-drift-check.md`.
+
 4. **Check for active handoffs.** Run:
    ```bash
    ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
@@ -404,6 +413,18 @@ work when context consumption is at `warning` level or above.
   commit). If the branch has no upstream, substitute
   `origin/<branch>` and warn the user that upstream tracking is not
   configured.
+- **Report deferred workflow drift.** If the Workflow Drift Check
+  (see `workflow-drift-check.md`) recorded a Defer resolution in
+  this session, read the `Deferred workflow drift: <count> commits
+  since <short-fork-SHA>` TaskCreate todo (or, if TaskCreate was
+  unavailable, the same two fields held in in-context conversation
+  memory) and recite the title verbatim, followed by an instruction
+  to switch to a `develop` worktree (e.g., `cd ../develop`) and run
+  `/migrate-workflow <branch>` there. The todo carries only the count
+  and the short fork SHA — no subject lines; the user can re-run the
+  detection bash for full context. Suppress and Migrate now leave no
+  residue; the marker lives in conversation memory (or the todo, if
+  one was created) and is discarded when the session ends.
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -549,6 +570,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 3; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
+- **`workflow-drift-check.md`** — turn-1 workflow-format drift detection and three-resolution gate (loaded by the Startup Protocol step 3a, immediately after the Branch Divergence Check; the Remote-authoritative re-entry contract is one-sided pending a symmetric edit to `branch-divergence-check.md` — see the gate file's `## After the choice` section, *Remote-authoritative re-entry — forward-looking note* paragraph)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step inline `risk:` token from the `## Concrete Steps` roster line directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
