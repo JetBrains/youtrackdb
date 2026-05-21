@@ -21,12 +21,24 @@
 
   <name>YouTrackDB</name>
   <description>YouTrackDB NoSQL document graph DB</description>
+  <url>https://github.com/JetBrains/youtrackdb</url>
+  <organization>
+    <name>JetBrains</name>
+    <url>https://www.jetbrains.com</url>
+  </organization>
   <licenses>
     <license>
       <name>Apache 2</name>
       <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
     </license>
   </licenses>
+  <developers>
+    <developer>
+      <id>jetbrains</id>
+      <name>JetBrains Team</name>
+      <url>https://github.com/JetBrains/youtrackdb</url>
+    </developer>
+  </developers>
 
   <modules>
     <module>test-commons</module>
