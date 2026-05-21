@@ -2,11 +2,11 @@
 
 ## Purpose / Big Picture
 
-After this track lands, `core` carries the SPI surfaces the OTel module needs: a process-global listener registry exposed as static methods on `YourTracks`, two new default no-op methods on `TransactionMetricsListener` (begin and rollback), three new default accessors on `QueryMetricsListener.QueryDetails` (operation / collection / namespace), one new accessor on `TransactionMetricsListener.TransactionDetails` (namespace), and a `QueryClassifier` SPI slot. The TX lifecycle fires consolidate inside `FrontendTransactionImpl.beginInternal()` / `rollbackInternal()` so both Gremlin and native-SQL paths emit the same callbacks. The existing exception-isolation wrappers widen from `Exception` to `Throwable`. No behavior changes for transactions without registered listeners.
+After this track lands, `core` carries the SPI surfaces the OTel module needs: a process-global listener registry exposed as static methods on `YourTracks`, two new default no-op methods on `TransactionMetricsListener` (begin and rollback), three new default accessors on `QueryMetricsListener.QueryDetails` (operation / collection / namespace), one new accessor on `TransactionMetricsListener.TransactionDetails` (namespace), a `Classification` value record plus two static-utility classifiers (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) called directly from the existing fire sites. The TX lifecycle fires consolidate inside `FrontendTransactionImpl.beginInternal()` / `rollbackInternal()` so both Gremlin and native-SQL paths emit the same callbacks. The existing exception-isolation wrappers widen from `Exception` to `Throwable`. No behavior changes for transactions without registered listeners.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Extend the existing listener SPI with the hooks the OTel module needs: two new default-no-op methods on `TransactionMetricsListener` (begin / rollback), a process-global listener registry exposed as static methods on `YourTracks`, accessors on the nested `QueryDetails` and `TransactionDetails` interfaces for the classifier-derived operation/collection plus the database name, a `QueryClassifier` SPI slot, and a strategy-gate update so globally-registered listeners actually receive callbacks. No behavior change yet; every existing call path stays green.
+Extend the existing listener SPI with the hooks the OTel module needs: two new default-no-op methods on `TransactionMetricsListener` (begin / rollback), a process-global listener registry exposed as static methods on `YourTracks`, accessors on the nested `QueryDetails` and `TransactionDetails` interfaces for the classifier-derived operation/collection plus the database name, two static-utility classifier classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and a `Classification` value record living in `core` next to the existing parsing code, and a strategy-gate update so globally-registered listeners actually receive callbacks. No behavior change yet; every existing call path stays green.
 
 ## Progress
 - [ ] Review + decomposition
@@ -38,7 +38,7 @@ The track touches none of the actual emission code (that lives in Track 3). It a
 1. Two new default-no-op methods on `TransactionMetricsListener`: `transactionStarted(TransactionDetails)` and `transactionRolledBack(TransactionDetails)`. Fires happen in `FrontendTransactionImpl.beginInternal()` (after the `txStartCounter == 0` outermost branch enters BEGUN status) and `rollbackInternal()` (gated by `txStartCounter == 0` so nested rollbacks don't double-fire).
 2. Three new default accessors on `QueryMetricsListener.QueryDetails`: `Optional<String> getOperationName()`, `Optional<String> getCollectionName()`, `Optional<String> getDatabaseName()`. All default to `Optional.empty()` so existing inline implementations keep working; `YTDBQueryMetricsStep` populates them only when the classifier resolves a value (the classifier itself lands in Track 3, this track exposes the slot) and from `session.getDatabaseName()` for the namespace.
 3. One new default accessor on `TransactionMetricsListener.TransactionDetails`: `Optional<String> getDatabaseName()`. Populated at the fire site in `FrontendTransactionImpl` from `session.getDatabaseName()`.
-4. A `QueryClassifier` SPI interface plus a `Classification` record in `core/.../profiler/monitoring/` so both Gremlin (Track 3) and SQL (Track 4) classifiers register through one ServiceLoader manifest.
+4. A `Classification` value record plus two static-utility classifier classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) in `core/.../profiler/monitoring/`. Each classifier exposes one static method (`Classification classify(Bytecode)` / `Classification classify(SQLStatement)`); the fire sites call them directly. No SPI, no `ServiceLoader`, no `META-INF/services` manifest — the parsing logic the classifiers contain is already happening at the fire sites (`produceScript()` already walks the bytecode for Gremlin sanitization; `SQLEngine.parse(...)` already produces the AST for SQL execution), so piggybacking on existing parsing costs almost nothing and avoids a plugin layer for code that has exactly one impl per input type.
 5. A process-global listener registry: a package-private static holder under `internal/common/profiler/monitoring/` (e.g., `GlobalListenerRegistry`) with `CopyOnWriteArrayList` per listener type, exposed via static methods on `YourTracks`: `registerGlobalQueryListener(QueryMetricsListener)`, `unregisterGlobalQueryListener(QueryMetricsListener)`, plus the transaction-listener pair.
 6. Snapshot wiring at TX begin: `FrontendTransactionImpl.beginInternal()` captures the global registry snapshots (`List<QueryMetricsListener>` and `List<TransactionMetricsListener>`) into new fields before incrementing `txStartCounter` so nested begins reuse the outermost snapshot. The fields are cleared on outermost commit / rollback.
 7. Strategy gate update: `YTDBQueryMetricsStrategy.apply()` (declared at line 23; the gate check at line 36) and `YTDBTransaction.isQueryMetricsEnabled()` widen to also return true when the global query snapshot is non-empty, so a globally-registered listener actually causes the step to inject.
@@ -53,7 +53,7 @@ The first edit adds the two new methods to `TransactionMetricsListener` as `defa
 
 The second edit extends `QueryMetricsListener.QueryDetails` with the three `Optional<String>` accessors (`getOperationName`, `getCollectionName`, `getDatabaseName`) as default methods returning `Optional.empty()`. The inline impl in `YTDBQueryMetricsStep` does not need to override yet.
 
-The third edit defines the `QueryClassifier` SPI interface and the `Classification` record under `internal/common/profiler/monitoring/`. The interface carries a single `Classification classify(Object source)` method; the record is `(Optional<String> operationName, Optional<String> collectionName)`. ServiceLoader-discovered (no implementations yet — Track 3 and Track 4 add them).
+The third edit defines the `Classification` record plus the two static-utility classifier classes under `internal/common/profiler/monitoring/`. The record is `(Optional<String> operationName, Optional<String> collectionName)` with a `Classification.EMPTY` constant. `GremlinBytecodeClassifier` exposes `static Classification classify(Bytecode bytecode)`, walking the instruction list to extract the start step and the first `hasLabel`/`addV`/`addE` label. `SqlSyntaxClassifier` exposes `static Classification classify(SQLStatement statement)`, dispatching on the AST subclass. Both helpers are pure functions, fail-safe (any unexpected input returns `Classification.EMPTY`), and unit-testable in isolation without spinning up a transaction. Track 3 wires the Gremlin classifier into `YTDBQueryMetricsStep.close()`; Track 4 wires the SQL classifier into `DatabaseSessionEmbedded.executeInternal()`.
 
 The fourth edit creates the process-global registry: a package-private static holder (e.g., `GlobalListenerRegistry`) under `internal/common/profiler/monitoring/` with a `CopyOnWriteArrayList` per listener type, plus `snapshotQueryListeners()` / `snapshotTransactionListeners()` returning immutable `List.copyOf(...)` snapshots. `YourTracks` gains four public static methods (`registerGlobalQueryListener` / `unregisterGlobalQueryListener` plus the transaction-listener pair) that delegate to the holder.
 
@@ -105,8 +105,9 @@ In scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransactionImpl.java` (snapshot capture in `beginInternal`, lifecycle fires in `beginInternal` + `rollbackInternal`, iterate transaction snapshot in `notifyMetricsListener`, widen wrappers to `Throwable`)
 - `core/src/main/java/com/jetbrains/youtrackdb/api/YourTracks.java` (four new static methods delegating to the new registry holder)
 - New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/GlobalListenerRegistry.java` (package-private holder; `CopyOnWriteArrayList` per listener type plus snapshot methods)
-- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/QueryClassifier.java` (SPI interface)
-- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/Classification.java` (small value record)
+- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/Classification.java` (small value record + `EMPTY` constant)
+- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/GremlinBytecodeClassifier.java` (static utility — `Classification classify(Bytecode)`)
+- New `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/SqlSyntaxClassifier.java` (static utility — `Classification classify(SQLStatement)`)
 
 Out of scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/api/YouTrackDB.java` — no new methods; the registry is process-global on `YourTracks` only (CR9 resolution).
@@ -116,8 +117,8 @@ Out of scope:
 - The Gremlin bytecode classifier and SQL syntax classifier implementations (Tracks 3 and 4 own them; this track only exposes the SPI slot).
 
 Inter-track dependencies:
-- Provides for Track 3: the listener SPI extensions, the `QueryDetails` / `TransactionDetails` accessor slots, the `QueryClassifier` SPI slot, the iteration shape in `YTDBQueryMetricsStep.close()`.
-- Provides for Track 4: the `QueryClassifier` SPI slot the SQL classifier registers through; the global query snapshot accessible from `currentTx` inside `DatabaseSessionEmbedded.executeInternal()`.
+- Provides for Track 3: the listener SPI extensions, the `QueryDetails` / `TransactionDetails` accessor slots, the `GremlinBytecodeClassifier` static helper called by `YTDBQueryMetricsStep.close()` to populate operation/collection on the inline `QueryDetails`, the iteration shape in `YTDBQueryMetricsStep.close()`.
+- Provides for Track 4: the `SqlSyntaxClassifier` static helper called by `DatabaseSessionEmbedded.executeInternal()` to populate operation/collection on the inline SQL `QueryDetails`; the global query snapshot accessible from `currentTx`.
 - Provides for Track 5: the global registry static methods used by `YouTrackDBOpenTelemetry.setOpenTelemetry()` to install the OTel listeners.
 
 Library / function signatures introduced:
@@ -145,16 +146,22 @@ public interface TransactionMetricsListener {
   // existing methods unchanged
 }
 
-// new SPI in core
-public interface QueryClassifier {
-  Classification classify(Object source);
-}
-
+// new value record + two static-utility classifiers in core
 public record Classification(
     Optional<String> operationName,
     Optional<String> collectionName) {
   public static final Classification EMPTY =
       new Classification(Optional.empty(), Optional.empty());
+}
+
+public final class GremlinBytecodeClassifier {
+  private GremlinBytecodeClassifier() {}
+  public static Classification classify(Bytecode bytecode);  // never throws; returns EMPTY for unrecognized shapes
+}
+
+public final class SqlSyntaxClassifier {
+  private SqlSyntaxClassifier() {}
+  public static Classification classify(SQLStatement statement);  // never throws; returns EMPTY for unrecognized shapes
 }
 
 // static methods on the existing final utility class YourTracks
