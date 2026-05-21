@@ -21,7 +21,8 @@ Discoveries` / `## Decision Log` promotion lines land in durable
 track-file Markdown and survive into the eventual ADR aggregation.
 Apply the full rule set in `.claude/output-styles/house-style.md`
 when drafting them: BLUF lead, banned vocabulary, em-dash
-discipline, ≤200-word section cap, structural rules. The four
+discipline, soft section length cap with template-bound exemptions,
+structural rules. The four
 banned-section heading slugs to apply are `## Banned vocabulary`,
 `## Banned sentence patterns`, `## Banned analysis patterns`, and
 `### Em-dash discipline`.
@@ -358,3 +359,6 @@ is the criterion.
 The same principle applies to step episodes: a trivial rename needs
 one line; a step that uncovered a concurrency bug needs a full
 explanation.
+
+Episode structured-field paragraph blocks are exempt from the
+house-style soft section length cap — see [`house-style.md § Structural rules`](../output-styles/house-style.md) "Section length cap exception" for the full exemption list and the padding-based finding criterion that replaces the word-count check for these template-bound shapes.

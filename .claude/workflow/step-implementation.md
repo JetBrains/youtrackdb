@@ -817,9 +817,10 @@ The episode includes:
 
 Prose produced by this file follows the project house-style at
 `.claude/output-styles/house-style.md`. Tier A (full house-style:
-BLUF lead, banned vocabulary, em-dash discipline, ≤200-word section
-cap, structural rules) applies to the episode prose this protocol
-writes — the four `EPISODE_DRAFT`-sourced fields above
+BLUF lead, banned vocabulary, em-dash discipline, soft section
+length cap with template-bound exemptions, structural rules)
+applies to the episode prose this protocol writes — the four
+`EPISODE_DRAFT`-sourced fields above
 (`What was done`, `What was discovered`, `What changed from the
 plan`, `Critical context`), merged with cross-track-impact
 observations, plus the Progress / Surprises & Discoveries /

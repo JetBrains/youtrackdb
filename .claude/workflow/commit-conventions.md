@@ -148,8 +148,9 @@ exclusively an orchestrator-side operation. See
 
 Prose produced by this file follows the project house-style at
 `.claude/output-styles/house-style.md`. Tier A (full house-style:
-BLUF lead, banned vocabulary, em-dash discipline, ≤200-word section
-cap, structural rules) applies to commit message bodies — the
+BLUF lead, banned vocabulary, em-dash discipline, soft section
+length cap with template-bound exemptions, structural rules)
+applies to commit message bodies — the
 long-form `why` block beneath the imperative subject line. It also
 applies to the `reason:` slug body lines. The four banned-section
 heading slugs to apply are `## Banned vocabulary`,
