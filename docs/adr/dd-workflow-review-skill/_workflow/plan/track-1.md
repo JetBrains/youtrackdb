@@ -210,7 +210,7 @@ Invariants this track preserves:
 **Critical context:** none
 
 ### Step 4 — commit e6d202788eaa9c69ae99375b5a73c461eb634d22, 2026-05-21T10:15Z [ctx=info]
-**What was done:** Filled the `## Research mode` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming what research mode does, then walks five labelled phases: session-start prelude with the in-memory observation warning citing the follow-up checkpoint mechanism, free-form Q&A driven by the reviewer with `Read`/`Grep`/`Bash`, observation auto-recording with the four-field shape (`path`, `line`, `body`, `source`) plus the post-record confirmation line, four workflow-doc trigger conditions (`conventions.md`, `research.md`, `design-document-rules.md`, `planning.md`) loaded lazily on the named trigger, and the code-file scope rule (answer but do not record). Section body sits at 356 words, under the 400-word cap.
+**What was done:** Filled the `## Research mode` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming what research mode does, then walks five labelled phases: session-start prelude with the in-memory observation warning citing the follow-up checkpoint mechanism, free-form Q&A driven by the reviewer with `Read`/`Grep`/`Bash`, observation auto-recording with the four-field shape (`path`, `line`, `body`, `source`) plus the post-record confirmation line, four workflow-doc trigger conditions (`conventions.md`, `research.md`, `design-document-rules.md`, `planning.md`) loaded lazily on the named trigger, and the code-file scope rule (answer but do not record). Section body runs to 356 words at the `##` level; the house-style 200-word cap binds `###` subsections per `house-style.md` § Structural rules → Section length cap, so the prose-heavy enumeration of triggers and the observation schema stays at `##` rather than being split into `###` children.
 
 **What was discovered:** `steroid_execute_code` with a Kotlin triple-quoted multi-line string preserved a 4-space indent on every line of the replacement block on the first write, rendering the new section as a Markdown indented code block and pulling the next `##` header into the same block. The same script with `listOf(...).joinToString("\n")` wrote clean lines. Tracks 2 and 3 will land more skill prose via steroid scripts (`dr-audit.md`, submission-section rewrite, handoff prose); prefer the joined-list form for multi-line Markdown injection through `VfsUtil.saveText`. The bad write was overwritten in-place by the second script call before stage or commit, so no rollback was needed.
 
@@ -281,7 +281,7 @@ Existing files referenced but not modified:
 
 External tools the skill calls during this track:
 
-- `gh pr view --json headRefOid,files,number`
+- `gh pr view --json headRefOid,number,files`
 - `gh repo view --json nameWithOwner`
 - `git rev-parse HEAD`
 

@@ -103,7 +103,7 @@ sequenceDiagram
 
     R->>Sh: gh pr checkout <N>
     R->>Sk: /review-workflow-pr <N>
-    Sk->>GH: gh pr view --json headRefOid,files
+    Sk->>GH: gh pr view --json headRefOid,number,files
     GH-->>Sk: head SHA, files array
     Sk->>GH: gh repo view --json nameWithOwner
     GH-->>Sk: owner/repo
