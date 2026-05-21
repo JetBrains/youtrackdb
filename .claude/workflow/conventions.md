@@ -25,6 +25,7 @@ during Phase 3 execution.
 | **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See [`implementer-rules.md`](implementer-rules.md). |
 | **Track file** | `plan/track-N.md` — the per-track ExecPlan working file. Created during Phase 1 alongside `implementation-plan.md` with the four Phase 1 track-level sections populated (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) plus any track-level Mermaid diagram; the remaining sections are filled by Phase A → C. See `conventions-execution.md` §2.1 *Track file content* for the full 14-section ExecPlan shape and the workflow-specific `## Base commit` sibling. Lives under `_workflow/plan/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
 | **Mid-phase handoff** | An on-disk file `_workflow/handoff-*.md` written when a session pauses with un-derivable mid-phase state (research notes, verbatim re-present text, partial reviews). Distinct from the implementer-return "handoff" — see [`mid-phase-handoff.md`](mid-phase-handoff.md) for the protocol. Resolved and deleted on resume; otherwise removed by the Phase 4 cleanup commit. |
+| **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the current `develop` workflow format (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected in turn 1 of `/execute-tracks` by the gate at [`workflow-drift-check.md`](workflow-drift-check.md); the migration itself is owned by the `/migrate-workflow` skill. |
 
 ---
 
@@ -98,6 +99,12 @@ At Phase 4, after `design-final.md` and `adr.md` are committed, the entire
 `_workflow/` directory is removed in a single cleanup commit so only the two
 durable artifacts survive the squash-merge into `develop`. See
 `workflow.md` § Final Artifacts for the cleanup procedure.
+
+The on-disk shape of `_workflow/**` may shift between sessions when
+workflow-format commits land on `develop` while the branch runs. The
+turn-1 gate at [`workflow-drift-check.md`](workflow-drift-check.md) detects
+such drift at every `/execute-tracks` startup and routes the user through
+the `/migrate-workflow` skill to realign.
 
 ### Plan file content (`implementation-plan.md`)
 
