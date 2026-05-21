@@ -199,7 +199,7 @@ flowchart LR
 
 ## Checklist
 
-- [ ] Track 1: Skill scaffolding and research-mode runtime
+- [x] Track 1: Skill scaffolding and research-mode runtime
   > Deliver a usable skill stub that resolves the PR identifier, verifies
   > the local checkout matches the PR head, loads the workflow review
   > context, discovers the workflow artifacts, and enters research-mode Q&A
@@ -209,10 +209,11 @@ flowchart LR
   > without PR posting), so the runtime can be exercised end-to-end before
   > Track 2 adds the DR-audit sub-agent and the `gh api` submission
   > machinery.
-  > **Scope:** ~4-5 steps covering SKILL.md frontmatter and instructions,
-  > `$ARGUMENTS` resolution and HEAD verification, workflow-doc and
-  > artifact discovery, research-mode behavior and observation recording,
-  > and the end-of-session stub.
+  >
+  > **Track episode:**
+  > Landed the user-invocable skill `.claude/skills/review-workflow-pr/SKILL.md` with frontmatter and five filled sections (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub) across five clean steps. Phase C surfaced one four-way-convergent blocker: the `## Invocation contract` section was an unfilled placeholder that no Phase A step owned (the decomposition assigned only "section-header outline" to Step 1 and four prose-fill steps to the other four sections, leaving the invocation contract orphaned). The fix landed inline in Phase C iteration 1 rather than spawning a new step or deferring to Tracks 2 / 3. Two `steroid_execute_code` hazards surfaced during implementation are durable for Tracks 2 and 3 skill-prose-injection spawns: triple-quoted Kotlin multi-line strings preserve code-side indentation in the written file (corrupts Markdown), and `findProjectFile(<absolute-path>)` returned null inside the open project's root on one spawn while `LocalFileSystem.getInstance().refreshAndFindFileByPath(<abs>)` worked on the same path. Use the joined-list form for multi-line Markdown injection and the `LocalFileSystem` path resolver. Phase C also tightened the `research.md` lazy-load discipline; the prior eager session-start load was replaced with an inline research-mode rubric so all four cited workflow docs now load lazily on their named triggers.
+  >
+  > **Track file:** `plan/track-1.md` (5 steps, 0 failed)
 
 - [ ] Track 2: DR-audit sub-agent and PR submission
   > Author the DR-focused sub-agent prompt under the skill directory and

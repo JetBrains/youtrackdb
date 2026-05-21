@@ -20,8 +20,8 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-05-21T09:48Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-21T10:03Z [ctx=safe] Step 1 complete (commit 079bdd761a6c192e91bfff30c981cde0533d3ed0)
 - [x] 2026-05-21T10:06Z [ctx=info] Step 2 complete (commit 1f7e4acac244028532e0323d71f4bbffb11db1a7)
@@ -30,6 +30,7 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 - [x] 2026-05-21T10:18Z [ctx=info] Step 5 complete (commit c6eea00f9d0dc468a3f0f1840ac0054710e6c359)
 - [x] 2026-05-21T10:43Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-05-21T10:49Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
+- [x] 2026-05-21T10:50Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -51,6 +52,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
 summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 1 (7 findings; 6 accepted and applied as track-file edits, 1 negative finding confirmed). T1–T3 were `should-fix` (missing-PR error path, `design-mutations.md` enumeration, wrap-up trigger and empty-list rendering); T4, T5, T7 were `suggestion`-tier polish (in-memory warning, code-file question scope, workflow-doc trigger conditions); T6 was a negative finding (Non-Goals respected).
+- [x] Track-level code review: PASS at iteration 2/3 (5 workflow-review dimensions; 13 in-scope merged findings across both iterations). Iteration 1 applied 12 findings: 1 blocker (M1, four-way-convergent `## Invocation contract` placeholder), 7 should-fix (M2 design.md `gh pr view` field list, M4 PSI annotation for code-file questions, M5 wrap-up substring false-positive, M6 Markdown table pipe escaping, M7 invented §B 400-word citation in Step 4 episode, M10 `research.md` eager-load, M11 `/clear` warning no resume path, M12 mid-session observation drop operations), and 4 suggestions (M3 JSON field ordering, M8 description trim, M9 tilde removal). Iteration 2 cleared the carry-over should-fix M13 (em-dash density in the newly written `## Invocation contract` paragraph). Deferred to plan corrections or natural Track 2 / Track 3 cleanup: WP7 (sub-agent directory pin — Track 2 lands `dr-audit.md`), WI4 (sub-agent source has no Track 1 producer — Track 2 clarifies), WB4 (observation `body` length cap — Track 2 prune step), WB3 / WC4 (cross-skill house-style and blockquote-anchor consistency — out of this track's scope), and three gate-check suggestion-level new findings on the iteration-1 fix (drop-by-source-tag numeric-name ambiguity, table-escape inside `path:line` cells, checkpoint plain-text format unspecified).
 
 ## Context and Orientation
 
