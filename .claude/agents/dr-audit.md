@@ -34,11 +34,11 @@ The orchestrator passes inputs as lines at the head of the message in the form `
 
    - `**Full design**: design.md §<section>` (present only when the decision drives non-trivial design that needs a long-form section)
 
-   Match each key literally on the bolded prefix (`**Alternatives considered**`, `**Rationale**`, `**Risks/Caveats**`, `**Implemented in**`, `**Full design**`) — the colon plus value follows. A bullet missing its bolded prefix, or carrying stub content like `TODO`, `n/a`, `tbd`, or an empty value after the colon, counts as missing.
+   Match the bolded prefix literally: the bolded text must be exactly one of `**Alternatives considered**`, `**Rationale**`, `**Risks/Caveats**`, `**Implemented in**`, or (optional) `**Full design**`, case-sensitive, no extra whitespace inside the bolds. The colon plus value follows. Variants like `**alternatives considered**` (lowercase) or `** Alternatives considered **` (extra inner whitespace) count as missing — the canonical spellings in `.claude/workflow/planning.md` §Decision Records are the source of truth. A bullet missing its bolded prefix, or carrying stub content like `TODO`, `n/a`, `tbd`, or an empty value after the colon, also counts as missing. This rule is intentionally stricter than the heading canonicalisation in rule 4 below: bolded keys are a small fixed set authored by hand and should be exact, while design headings can vary in casing and whitespace across documents.
 
-3. **`Implemented in` resolution.** Extract the value of `**Implemented in**`. It must name an existing track under the plan's `## Checklist` section. The Checklist entries have the form `- [ ] Track N: <title>` or `- [x] Track N: <title>`. Match the cited track number against this list (the track title is informational; the number is the binding identifier). A track number that does not appear in `## Checklist`, or a value that does not parse as `Track <digits>` plus optional step-reference tail, counts as unresolved.
+3. **`Implemented in` resolution.** Extract the value of `**Implemented in**`. It must name an existing track under the plan's `## Checklist` section. The Checklist entries have the form `- [ ] Track N: <title>` or `- [x] Track N: <title>`. Match the cited track number against this list (the track title is informational; the number is the binding identifier). The value must parse as `Track <digits>` plus optional trailing parenthetical or step-reference tail. The track number is the only load-bearing field; any prose, parenthetical, or step-reference list after it is informational and does not affect the resolution check. A track number that does not appear in `## Checklist`, or a value whose leading token does not parse as `Track <digits>`, counts as unresolved.
 
-4. **`Full design` resolution (optional bullet).** When present, the value parses as `design.md §<section>`. Read `design.md` once (cache the headings) and confirm a `## <section>` heading exists whose text matches the cited section name. Case-insensitive whitespace-normalised comparison; surrounding quotes (`§"Foo bar"` and `§Foo bar`) are equivalent. A cited section that does not resolve to a `## ` heading in `design.md` counts as unresolved. The bullet's absence is not itself a finding — the bullet is optional.
+4. **`Full design` resolution (optional bullet).** When present, the value parses as `design.md §<section>`. Read `design.md` once (cache the headings) and confirm a `## <section>` heading exists whose text matches the cited section name. Surrounding quotes (`§"Foo bar"` and `§Foo bar`) are equivalent. Canonicalisation for the comparison: trim leading/trailing whitespace; collapse runs of internal whitespace to a single space; treat one ASCII hyphen-minus (`-`) as equivalent to one space; lower-case both sides. Any other punctuation (colons, ampersands, parentheses) is compared literally. A cited section that does not resolve to a `## ` heading in `design.md` under that comparison counts as unresolved. The bullet's absence is not itself a finding — the bullet is optional.
 
 ## Edge cases
 
@@ -59,22 +59,26 @@ Do **not** flag matters of taste (the rationale could be sharper, the risks list
 
 Return one Markdown document with two top-level sections. The orchestrator parses it; everything outside the structured blocks is ignored.
 
-    ## Summary
-    
-    decisions_audited: <N>
-    findings_count: <N>
-    plan_path: <repo-relative path>
-    design_path_loaded: yes | no
-    
-    ## Findings
-    
-    ### F<i>
-    decision: D<n>
-    category: missing-key | stub-content | unresolved-track | unresolved-full-design
-    plan_line: <integer line in plan_path that anchors this finding>
-    quote: <one short literal quote from the cited line, ≤120 chars, used by the orchestrator to map back to a line in the artifact when the surrounding prose has been edited>
-    body: |
-      <one short paragraph naming the gap and grounding it in the cited file. Cite by file path and the heading / line you read, not by `Track N` / `Step N` / finding numbers.>
+Return the document with `## Summary` and `## Findings` as top-level (column-1) Markdown headings, not inside any code block. The schema below is shown fenced for readability only — your actual return is plain Markdown.
+
+```
+## Summary
+
+decisions_audited: <N>
+findings_count: <N>
+plan_path: <repo-relative path>
+design_path_loaded: yes | no
+
+## Findings
+
+### F<i>
+decision: D<n>
+category: missing-key | stub-content | unresolved-track | unresolved-full-design
+plan_line: <integer line in plan_path that anchors this finding>
+quote: <one short literal quote from the cited line, ≤120 chars, used by the orchestrator to map back to a line in the artifact when the surrounding prose has been edited>
+body: |
+  <one short paragraph naming the gap and grounding it in the cited file. Cite by file path and the heading / line you read, not by `Track N` / `Step N` / finding numbers.>
+```
 
 Field rules:
 
