@@ -114,7 +114,7 @@ Out of scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBTransaction.java` — `doOpen()` / `doRollback()` are untouched; the new TX-lifecycle fires live in `FrontendTransactionImpl` so both Gremlin and native-SQL paths emit them.
 - Every file in `server/`, `embedded/`, `tests/`. Foundation does not need to know about server lifecycle or embedded host.
 - The OTel module (does not exist yet, lands in Track 2).
-- The Gremlin bytecode classifier and SQL syntax classifier implementations (Tracks 3 and 4 own them; this track only exposes the SPI slot).
+- The fire-site wiring that calls the classifiers (Track 3 wires `GremlinBytecodeClassifier` into `YTDBQueryMetricsStep.close()`; Track 4 wires `SqlSyntaxClassifier` into `DatabaseSessionEmbedded.executeInternal()`). Track 1 ships the classifier helpers themselves; the consumer tracks wire them at the fire sites.
 
 Inter-track dependencies:
 - Provides for Track 3: the listener SPI extensions, the `QueryDetails` / `TransactionDetails` accessor slots, the `GremlinBytecodeClassifier` static helper called by `YTDBQueryMetricsStep.close()` to populate operation/collection on the inline `QueryDetails`, the iteration shape in `YTDBQueryMetricsStep.close()`.
