@@ -899,7 +899,7 @@ Each entry names the entry point and the hand-off; per-step walk-throughs live i
 
 ## Checklist
 
-Track summaries are intentionally short. Per-track edit lists, file/line citations, and step ordering live in per-track step files at `tracks/track-<id>.md` (loaded on demand by `/execute-tracks`).
+Track summaries are intentionally short. Per-track edit lists, file/line citations, and step ordering live in per-track step files at `plan/track-<id>.md` (loaded on demand by `/execute-tracks`).
 
 - [ ] Track 0: Load-test harness + expected MT scalability declarations
   > Builds the L1/L2/L3 load-test harness (JMH primitive + `ConcurrentTestHelper` + integration-test scaffolding) and **declares expected scalability factors per scenario** as falsifiable architectural predictions (D37). Phase 4's same-node A/B comparison (Hetzner CCX33) flags any divergence > 2× as bottleneck-detected. No baselines committed in this track — only the harness and predictions.
