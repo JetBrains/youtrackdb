@@ -62,10 +62,22 @@ Optional, load only when present:
 
 ## Research mode
 
-<!-- Placeholder. To be filled with: session-start prelude with the
-in-memory observation warning, free-form Q&A behavior, observation
-auto-recording, the four workflow-doc trigger conditions, and the scope
-rule for code-file questions (answer but do not record). -->
+The skill enters research-mode Q&A driven by the reviewer once preflight and artifact discovery succeed. The reviewer drives the conversation; the skill answers questions about the loaded artifacts, auto-records observations when its own analysis surfaces a gap, and loads workflow rule files on demand.
+
+**Session-start prelude.** After preflight and artifact discovery, the skill greets the reviewer with a one-line summary naming the PR number, the head SHA, and the resolved `<dir>`, then asks what to investigate. The prelude carries one warning: `Observations live in this conversation only. A /clear mid-session loses them unless you ask the skill to checkpoint` (the checkpoint mechanism lands in a follow-up track).
+
+**Free-form Q&A.** No fixed walkthrough order. The reviewer asks questions about any loaded artifact and the skill answers using `Read`, `Grep`, and `Bash`. The skill loads `.claude/workflow/research.md` once at session start because it defines the research-mode behavior in use here.
+
+**Observation auto-recording.** When the skill's own analysis surfaces an issue mid-conversation, it records a structured observation with `path` (an artifact path under `_workflow/`), `line` (or a start/end range), `body` (one paragraph naming the gap and grounding it in the cited file or section), and `source` (`skill-analysis`). When a sub-agent returns findings, the skill translates each finding into one observation tagged with the sub-agent's name. When the reviewer asks the skill to record something directly, `source` is `reviewer`. After each new observation the skill prints a one-line confirmation: index, `path:line`, source, and the first ~80 chars of the body.
+
+**Workflow-doc trigger conditions.** Load lazily on the named trigger; do not preload.
+
+- `.claude/workflow/conventions.md` when the reviewer asks about plan file structure, scope indicators, or naming conventions.
+- `.claude/workflow/research.md` once at session start (defines this skill's own research-mode behavior).
+- `.claude/workflow/design-document-rules.md` when the reviewer asks whether a design section has the right shape (TL;DR, mechanism overview, edge cases, References footer).
+- `.claude/workflow/planning.md` when the reviewer asks about Decision Record format expectations.
+
+**Scope rule for code-file questions.** When the reviewer asks about code files in the PR (paths not under `docs/adr/<dir>/_workflow/`), the skill answers using `Read` and `Grep` but does not record observations against those files. The observation list scope stays workflow-artifact-only.
 
 ## End-of-session stub
 
