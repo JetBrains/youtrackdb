@@ -21,11 +21,14 @@ submission.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-21T14:58Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-21T15:33Z [ctx=safe] Step 1 complete (commit 45d7960af4)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-05-21T15:33Z — Pre-commit ephemeral-identifier gate fires on writer-side `SKILL.md` prose under `.claude/skills/`. Step 1 leaked one Track-by-label reference that the gate caught; the fix anchored on the existing `**POST and URL**` sub-block name plus the cache's observable behavior, both of which are stable identifiers. Steps 2 and 3 also write durable content under the same path and should expect the same rewrite-on-detection loop. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -164,7 +167,7 @@ Invariants this track preserves:
 
 ## Concrete Steps
 
-1. Add `## Handoff and resume` to `SKILL.md` with the handoff-write subsection (reviewer-command trigger phrases, six-section file format matching `design.md` §"Handoff and resume" ordering, `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` write path, post-write path announcement to the reviewer) and **edit** the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` per Plan of Work step 1 (drop the "follow-up track" qualifier and plain-text-stub fallback, add the handoff-checkpoint trigger phrases, preserve the "Observations live in this conversation only" sentence) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
+1. Add `## Handoff and resume` to `SKILL.md` with the handoff-write subsection (reviewer-command trigger phrases, six-section file format matching `design.md` §"Handoff and resume" ordering, `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` write path, post-write path announcement to the reviewer) and **edit** the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` per Plan of Work step 1 (drop the "follow-up track" qualifier and plain-text-stub fallback, add the handoff-checkpoint trigger phrases, preserve the "Observations live in this conversation only" sentence) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [x] commit: 45d7960af4
 2. Add the resume-discovery subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 2: glob `/tmp/claude-code-review-workflow-pr-<N>-*.md`; branch on zero (fresh session) / one (offer to resume with reviewer confirmation) / many (list candidates with mtimes sorted newest-first, recommend the newest unless the reviewer explicitly wants an older state) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
 3. Add the resume-reload subsection to `## Handoff and resume` in `SKILL.md` per Plan of Work step 3: re-read the chosen handoff file and parse the six sections; HEAD re-verification with the three-way choice (refresh observations reusing `**Head-SHA re-fetch.**` at `SKILL.md:137` / abort + re-checkout preserving in-memory state / proceed without revalidation acknowledging the `[STALE: verify line]` risk); dispatch-log tri-state re-presentation (missing entry vs `findings_count=0` entry vs `findings_count>0` entry per `SKILL.md:121`); no-auto-dedup contract for the dispatch log; snapshot-vs-cache head-SHA distinction; cleanup discipline (delete on successful POST, persist on any failure, 422-mutation corner case needing re-checkpoint before `/clear` to survive across sessions) — risk: low (default: documentation/instruction prose only; one Markdown file; no production code, no tests)  [ ]
 
@@ -172,6 +175,18 @@ Invariants this track preserves:
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
 step, identified by step number + commit SHA. Empty at Phase 1; Phase A
 does not populate. -->
+
+### Step 1 — commit 45d7960af4, 2026-05-21T15:33Z [ctx=safe]
+**What was done:** Added `## Handoff and resume` to `SKILL.md` with the handoff-write subsection: reviewer-driven trigger phrases (`checkpoint`, `save state`, `we're about to /clear`), the `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` write path keyed by PR number and parent shell PID, the six-section file format matching `design.md` §"Handoff and resume" ordering, and the post-write path announcement. Rewrote the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` to drop the "follow-up track" qualifier and the plain-text-stub fallback, add the handoff-checkpoint trigger phrases, and announce the resulting `/tmp` path, while preserving the "Observations live in this conversation only" sentence so the in-memory-state warning still surfaces.
+
+**What was discovered:** The pre-commit ephemeral-identifier gate caught one durable-content track-label leak in the new prose where Track 2 was cited by label rather than by behavior. The fix anchored on the existing `**POST and URL**` sub-block name plus the cache's observable behavior, which are both stable in `SKILL.md`. This is the first gate firing on writer-side `SKILL.md` prose this track; Steps 2 and 3 also write durable content under `.claude/skills/`, so the same rewrite-on-detection loop is likely to fire again.
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/review-workflow-pr/SKILL.md` (modified)
+
+**Critical context:** none
 
 ## Validation and Acceptance
 
