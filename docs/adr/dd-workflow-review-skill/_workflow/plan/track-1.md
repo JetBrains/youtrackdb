@@ -19,7 +19,7 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-21T09:48Z [ctx=safe] Review + decomposition complete
@@ -27,6 +27,7 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 - [x] 2026-05-21T10:06Z [ctx=info] Step 2 complete (commit 1f7e4acac244028532e0323d71f4bbffb11db1a7)
 - [x] 2026-05-21T10:09Z [ctx=info] Step 3 complete (commit de2a801295cd7fd994afd1d33da73155b2d2143e)
 - [x] 2026-05-21T10:15Z [ctx=info] Step 4 complete (commit e6d202788eaa9c69ae99375b5a73c461eb634d22)
+- [x] 2026-05-21T10:18Z [ctx=info] Step 5 complete (commit c6eea00f9d0dc468a3f0f1840ac0054710e6c359)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -35,6 +36,7 @@ at Phase 1. -->
 
 - 2026-05-21T10:03Z `.claude/skills/**` is durable content outside the ephemeral-identifier rule's exclude list (the rule excludes only `docs/adr/*/_workflow/**` and `.claude/workflow/**`). Tracks 2 and 3 must avoid Track/Step/finding-ID labels in skill bodies, comments, and the `dr-audit.md` prompt; cite by file path, class/method, or stable workflow-doc anchor. See Episodes §Step 1.
 - 2026-05-21T10:15Z `steroid_execute_code` with a Kotlin triple-quoted multi-line string preserves the code-side indentation in the written file, corrupting Markdown prose (leading whitespace renders as indented code blocks). Use `listOf(...).joinToString("\n")` instead when injecting multi-line Markdown via `VfsUtil.saveText`. Affects Tracks 2 and 3 implementers who land further skill prose through steroid scripts. See Episodes §Step 4.
+- 2026-05-21T10:18Z `findProjectFile(<absolute-path>)` returned null on a Step 5 spawn against a path inside the open project's root. `LocalFileSystem.getInstance().refreshAndFindFileByPath(<abs>)` worked on the same path. Tracks 2 and 3 implementers writing skill prose through steroid scripts should prefer the `LocalFileSystem`-rooted form. See Episodes §Step 5.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -155,7 +157,7 @@ Invariants this track preserves:
 2. Write the Preflight section: `$ARGUMENTS` resolution, `gh pr view --json headRefOid,number,files`, `gh repo view --json nameWithOwner`, `git rev-parse HEAD`, HEAD-SHA mismatch remediation, and the non-zero-`gh pr view` exit fallback (no PR for the current branch or unresolved ref). — risk: low (default: Markdown instruction prose)  [x] commit: 1f7e4acac244028532e0323d71f4bbffb11db1a7
 3. Write the Artifact discovery section: `<dir>` resolution and list-and-pick fallback, canonical artifact enumeration, companion-file acknowledgment (`design-mutations.md`, optional `handoff-*.md`), and the missing-canonical-file error. — risk: low (default: Markdown instruction prose)  [x] commit: de2a801295cd7fd994afd1d33da73155b2d2143e
 4. Write the Research mode section: session-start prelude with the in-memory observation warning, free-form Q&A behavior, observation auto-recording, the four workflow-doc trigger conditions, and the scope rule for code-file questions (answer but do not record). — risk: low (default: Markdown instruction prose)  [x] commit: e6d202788eaa9c69ae99375b5a73c461eb634d22
-5. Write the End-of-session stub section: the four wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering (index, `path:line`, source, body), the empty-list one-line fallback, and the deferred-submission note pointing to Track 2. — risk: low (default: Markdown instruction prose; Track 2 replaces this section)  [ ]
+5. Write the End-of-session stub section: the four wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering (index, `path:line`, source, body), the empty-list one-line fallback, and the deferred-submission note pointing to Track 2. — risk: low (default: Markdown instruction prose; Track 2 replaces this section)  [x] commit: c6eea00f9d0dc468a3f0f1840ac0054710e6c359
 
 ## Episodes
 
@@ -187,6 +189,18 @@ Invariants this track preserves:
 **What was done:** Filled the `## Artifact discovery` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming the four moves (resolve `<dir>`, enumerate canonical artifacts, acknowledge companion files, abort on missing canonical file) and restates the read-only invariant. Four labelled phases follow: `<dir>` resolution from `git branch --show-current` with the list-and-pick fallback over `docs/adr/*/_workflow/` directories containing an `implementation-plan.md`; canonical enumeration of required `implementation-plan.md` plus `design.md` and optional `design-mechanics.md` plus `plan/track-*.md`; companion-file acknowledgment for `design-mutations.md` and any transient `handoff-*.md`; and the missing-canonical-file abort. Section body sits at 182 words.
 
 **What was discovered:** none
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/review-workflow-pr/SKILL.md` (modified)
+
+**Critical context:** none
+
+### Step 5 — commit c6eea00f9d0dc468a3f0f1840ac0054710e6c359, 2026-05-21T10:18Z [ctx=info]
+**What was done:** Filled the `## End-of-session stub` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming what the stub does (print observations, no `gh api` call, real submission deferred to a follow-up track), then four labelled paragraphs: wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`, case-insensitive); non-empty list rendering as a numbered Markdown table with four columns (index, `path:line` or `path:start-end`, source, body first ~120 chars); empty-list one-line fallback; and an explicit no-submission paragraph that enumerates the deferred machinery (JSON payload composition, `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews`, approve-vs-request-changes branching). Section body sits at 184 words.
+
+**What was discovered:** `findProjectFile(<absolute-path>)` from `steroid_execute_code` returned null on this spawn even though the path is inside the open project's root. `LocalFileSystem.getInstance().refreshAndFindFileByPath(<abs>)` worked on the same path. Tracks 2 and 3 implementers who land further skill prose through steroid scripts should prefer the `LocalFileSystem`-rooted form to skip the same diagnostic round-trip.
 
 **What changed from the plan:** none
 
