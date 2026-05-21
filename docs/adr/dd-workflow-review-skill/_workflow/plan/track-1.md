@@ -25,6 +25,7 @@ the DR-audit sub-agent and the `gh api` submission machinery.
 - [x] 2026-05-21T09:48Z [ctx=safe] Review + decomposition complete
 - [x] 2026-05-21T10:03Z [ctx=safe] Step 1 complete (commit 079bdd761a6c192e91bfff30c981cde0533d3ed0)
 - [x] 2026-05-21T10:06Z [ctx=info] Step 2 complete (commit 1f7e4acac244028532e0323d71f4bbffb11db1a7)
+- [x] 2026-05-21T10:09Z [ctx=info] Step 3 complete (commit de2a801295cd7fd994afd1d33da73155b2d2143e)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -150,7 +151,7 @@ Invariants this track preserves:
 
 1. Seed `.claude/skills/review-workflow-pr/SKILL.md` with frontmatter (`name`, `description`, `argument-hint`, `user-invocable: true`) and the section-header outline (Invocation contract, Preflight, Artifact discovery, Research mode, End-of-session stub). — risk: low (default: Markdown-only skill scaffold; no production code)  [x] commit: 079bdd761a6c192e91bfff30c981cde0533d3ed0
 2. Write the Preflight section: `$ARGUMENTS` resolution, `gh pr view --json headRefOid,number,files`, `gh repo view --json nameWithOwner`, `git rev-parse HEAD`, HEAD-SHA mismatch remediation, and the non-zero-`gh pr view` exit fallback (no PR for the current branch or unresolved ref). — risk: low (default: Markdown instruction prose)  [x] commit: 1f7e4acac244028532e0323d71f4bbffb11db1a7
-3. Write the Artifact discovery section: `<dir>` resolution and list-and-pick fallback, canonical artifact enumeration, companion-file acknowledgment (`design-mutations.md`, optional `handoff-*.md`), and the missing-canonical-file error. — risk: low (default: Markdown instruction prose)  [ ]
+3. Write the Artifact discovery section: `<dir>` resolution and list-and-pick fallback, canonical artifact enumeration, companion-file acknowledgment (`design-mutations.md`, optional `handoff-*.md`), and the missing-canonical-file error. — risk: low (default: Markdown instruction prose)  [x] commit: de2a801295cd7fd994afd1d33da73155b2d2143e
 4. Write the Research mode section: session-start prelude with the in-memory observation warning, free-form Q&A behavior, observation auto-recording, the four workflow-doc trigger conditions, and the scope rule for code-file questions (answer but do not record). — risk: low (default: Markdown instruction prose)  [ ]
 5. Write the End-of-session stub section: the four wrap-up trigger words (`wrap up`, `done`, `submit`, `finish`), the numbered-table rendering (index, `path:line`, source, body), the empty-list one-line fallback, and the deferred-submission note pointing to Track 2. — risk: low (default: Markdown instruction prose; Track 2 replaces this section)  [ ]
 
@@ -170,6 +171,18 @@ Invariants this track preserves:
 
 ### Step 2 — commit 1f7e4acac244028532e0323d71f4bbffb11db1a7, 2026-05-21T10:06Z [ctx=info]
 **What was done:** Filled the `## Preflight` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming the three preflight steps (resolve PR, fetch head SHA and changed files, confirm local checkout matches), then walks five labelled phases: `$ARGUMENTS` resolution (PR number, URL, branch, empty default to current PR), `gh pr view <ref> --json headRefOid,number,files` plus the separate `gh repo view --json nameWithOwner` call, `git rev-parse HEAD` verification against `headRefOid`, HEAD-SHA mismatch remediation citing `gh pr checkout <ref>` with the detached-HEAD note, and the non-zero `gh pr view` exit fallback. Section body sits at 199 words, inside the 200-word cap.
+
+**What was discovered:** none
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/review-workflow-pr/SKILL.md` (modified)
+
+**Critical context:** none
+
+### Step 3 — commit de2a801295cd7fd994afd1d33da73155b2d2143e, 2026-05-21T10:09Z [ctx=info]
+**What was done:** Filled the `## Artifact discovery` section in `.claude/skills/review-workflow-pr/SKILL.md`. The body opens with a BLUF lead naming the four moves (resolve `<dir>`, enumerate canonical artifacts, acknowledge companion files, abort on missing canonical file) and restates the read-only invariant. Four labelled phases follow: `<dir>` resolution from `git branch --show-current` with the list-and-pick fallback over `docs/adr/*/_workflow/` directories containing an `implementation-plan.md`; canonical enumeration of required `implementation-plan.md` plus `design.md` and optional `design-mechanics.md` plus `plan/track-*.md`; companion-file acknowledgment for `design-mutations.md` and any transient `handoff-*.md`; and the missing-canonical-file abort. Section body sits at 182 words.
 
 **What was discovered:** none
 
