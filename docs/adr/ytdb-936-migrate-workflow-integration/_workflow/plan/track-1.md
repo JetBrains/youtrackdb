@@ -17,6 +17,7 @@ Create the new `workflow-drift-check.md` gate file mirroring the branch-divergen
 - [x] 2026-05-21T09:27Z [ctx=safe] Step 1 complete (commit 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7)
 - [x] 2026-05-21T09:32Z [ctx=safe] Step 2 complete (commit 39a52e299c81d184fd68c411b144650d748fe741)
 - [x] 2026-05-21T09:35Z [ctx=safe] Step 3 complete (commit 41fe0b32c1008bbd8b46048ca5c6ca762ce74327)
+- [x] 2026-05-21T09:37Z [ctx=safe] Step 4 complete (commit 531e283340b2124bbf4073b7c1378a46eefcdf74)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -24,6 +25,7 @@ discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 - 2026-05-21T09:27Z Triple-quoted Kotlin string literals inside `steroid_execute_code` keep host-script indentation; future docs-track steps that write a fresh markdown file via `VfsUtil.saveText` should use `buildString { appendLine(...) }` to decouple file content from the host script. See Episodes §Step 1.
 - 2026-05-21T09:35Z Commits made through `steroid_execute_code` (JGit / IntelliJ VCS API) bypass the project's `prepare-commit-msg` hook in `.githooks/`, so the YTDB-936 prefix does not auto-prepend. The squash-merge PR title still carries the prefix, but per-commit history shows unprefixed subjects on IDE-routed implementer commits. Future Phase B implementers should either commit via shell `git` or pre-format the subject. See Episodes §Step 3.
+- 2026-05-21T09:37Z Implementer's `RESULT.COMMIT` returned a 40-char SHA that diverged from the actual commit SHA after the first 10 characters (returned `531e2833409e87ed00f4ca0bab1c30b8acd6e22c`; real value `531e283340b2124bbf4073b7c1378a46eefcdf74`). The first 10 chars matched, so a short-SHA workflow would have caught it; the orchestrator's defensive push check using the full SHA caught it via `git fetch` returning `fatal: bad object`. Future orchestrators should re-resolve `RESULT.COMMIT` via `git rev-parse` before trusting the full SHA. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -93,7 +95,7 @@ Phase A step sequencing: the six conceptual actions above bundle into four commi
 1. Create `.claude/workflow/workflow-drift-check.md` with Detection, Skip conditions, Resolutions (Migrate / Defer / Suppress), and After the choice sections per `## Plan of Work` action 1, including the Remote-authoritative re-entry contract — risk: low (default: new markdown file not yet referenced by `workflow.md`; no behavioral change until Step 2 wires it)  [x] commit: 8f56f1919dde2f78ef20be9cf8a43db70a80d9a7
 2. Wire the gate into `.claude/workflow/workflow.md`: insert Step 3a in `## Startup Protocol`, append the session-end residue clause in `## What to do before ending a session`, and add the on-demand reference entry in `## Conventions`. Bundled because all three edits reference the new gate file by name — risk: medium (multi-section workflow-machinery change that activates new turn-1 gate behavior in every `/execute-tracks` session)  [x] commit: 39a52e299c81d184fd68c411b144650d748fe741
 3. Update `.claude/workflow/conventions.md`: add the "Workflow drift" glossary row to §1.1 and the one-line pointer to §1.2 naming the gate file as the resolution mechanism — risk: low (default: documentation update; glossary row and cross-reference only)  [x] commit: 41fe0b32c1008bbd8b46048ca5c6ca762ce74327
-4. Update `.claude/skills/migrate-workflow/SKILL.md` with the one-line preamble note cross-referencing `workflow-drift-check.md` as the auto-detection entry point; manual invocation unchanged — risk: low (default: one-line documentation update; no behavioral change to the skill)  [ ]
+4. Update `.claude/skills/migrate-workflow/SKILL.md` with the one-line preamble note cross-referencing `workflow-drift-check.md` as the auto-detection entry point; manual invocation unchanged — risk: low (default: one-line documentation update; no behavioral change to the skill)  [x] commit: 531e283340b2124bbf4073b7c1378a46eefcdf74
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -121,6 +123,14 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `.claude/workflow/conventions.md` (modified)
+
+### Step 4 — commit 531e283340b2124bbf4073b7c1378a46eefcdf74, 2026-05-21T09:37Z [ctx=safe]
+**What was done:** Added a one-line preamble paragraph to `.claude/skills/migrate-workflow/SKILL.md`, between the frontmatter close and the existing first body paragraph. The new line names `workflow-drift-check.md` as the auto-detection entry point and reaffirms that manual `/migrate-workflow` invocation remains the migration entry point. No other content in the skill was touched; the skill's behavior is unchanged. The implementer routed the commit through shell `git commit` so the `.githooks/prepare-commit-msg` hook auto-prepended the YTDB-936 prefix; this resolved the Step 3 surprise.
+
+**What was discovered:** The implementer's `RESULT.COMMIT` field returned a 40-character SHA whose tail (after the first 10 characters) diverged from the actual git object (`531e2833409e87ed00f4ca0bab1c30b8acd6e22c` returned vs `531e283340b2124bbf4073b7c1378a46eefcdf74` actual). The defensive push check using the full SHA caught it via `git fetch && git merge-base --is-ancestor` returning `fatal: bad object`; re-resolving with `git rev-parse 531e283340` produced the correct full SHA. The hallucination affects every implementer spawn where the RESULT block is composed from working memory rather than read back from `git log`. Recorded under `## Surprises & Discoveries` so future orchestrators always re-resolve `RESULT.COMMIT` via `git rev-parse` before downstream use.
+
+**Key files:**
+- `.claude/skills/migrate-workflow/SKILL.md` (modified)
 
 ## Validation and Acceptance
 
