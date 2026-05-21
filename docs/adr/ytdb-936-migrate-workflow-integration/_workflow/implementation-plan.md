@@ -111,9 +111,13 @@ flowchart TD
 
 ## Checklist
 
-- [ ] Track 1: Wire workflow-drift detection gate into `/execute-tracks` startup
+- [x] Track 1: Wire workflow-drift detection gate into `/execute-tracks` startup
   > Create the new `workflow-drift-check.md` gate file mirroring the branch-divergence pattern (detection / three-resolution / after-the-choice / skip rules). Wire it into `workflow.md` § Startup Protocol as Step 3a, append the session-end residue clause for deferred drift, add the on-demand reference list entry, add the conventions §1.1 glossary entry plus §1.2 pointer, and add a one-line cross-reference in the `migrate-workflow` skill preamble.
-  > **Scope:** ~4-6 steps covering new gate file, workflow.md wiring (Step 3a + session-end residue + on-demand list), conventions updates (glossary + §1.2 pointer), and skill cross-reference. The three `workflow.md` edits may land as one combined commit or split across several; Phase A picks.
+  >
+  > **Track episode:**
+  > Wired a turn-1 workflow-drift detection gate into `/execute-tracks` Startup Protocol as Step 3a, with the new `workflow-drift-check.md` gate file (detection / three-resolution / after-the-choice / skip conditions), the Defer-path session-end residue clause, the conventions §1.1 glossary entry plus §1.2 pointer, and a one-sentence cross-reference in the `migrate-workflow` skill preamble. Phase C iteration 1 applied 13 review findings across the three implementation files; iteration 2 fixed one gate-check regression (the `workflow.md` on-demand reference parenthetical still asserted present-tense re-fire). Two follow-up YouTrack issues recommended: (a) close the Remote-authoritative re-entry contract via the symmetric edit to `branch-divergence-check.md` (the gate file's `## After the choice` and `workflow.md` line 573 are now co-worded as a forward-looking note pending this edit), and (b) settle the workflow-wide question of malformed-answer iteration caps on three-resolution gates. Cross-track hazards from earlier steps: `steroid_execute_code`-routed commits bypass `.githooks/prepare-commit-msg` (Phase B implementers should route through shell `git` if the YTDB-* prefix matters per-commit), and implementer `RESULT.COMMIT` SHA tails have hallucinated past the first ~10 characters (orchestrators should re-resolve via `git rev-parse`).
+  >
+  > **Track file:** `plan/track-1.md` (4 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 2
