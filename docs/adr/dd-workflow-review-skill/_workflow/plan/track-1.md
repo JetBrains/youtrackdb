@@ -223,3 +223,7 @@ Inter-track dependencies:
   end-of-session section to replace the stub with the real submission flow.
 
 No library or function signatures to declare; this is a Markdown skill.
+
+## Base commit
+
+a3ef497332359f1a7f5a3b8f44e1fbf22460d6fb
