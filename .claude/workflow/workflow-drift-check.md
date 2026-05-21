@@ -2,21 +2,24 @@
 
 Runs in turn 1 of every `/execute-tracks` session, immediately after
 the Branch Divergence Check (workflow.md § Startup Protocol step 3)
-and before the handoff scan (step 4). The branch carries per-branch
-`_workflow/**` artifacts whose required shape is dictated by current
-`develop`: section names, mandatory artifacts, step-file schema.
-Workflow-format commits land on `develop` while the branch runs,
-and the branch's artifacts silently drift. Undetected drift surfaces
-later as confused reviewers in Phase C, missing required sections
-during track completion, or auto-resume tripping on a schema field
-the branch never gained — exactly the failure mode this gate prevents.
+and before the handoff scan (step 4). Undetected drift surfaces later
+as confused reviewers in Phase C, missing required sections during
+track completion, or auto-resume tripping on a schema field the
+branch never gained — exactly the failure mode this gate prevents.
+The branch carries per-branch `_workflow/**` artifacts whose required
+shape is dictated by current `develop`: section names, mandatory
+artifacts, step-file schema. Workflow-format commits land on
+`develop` while the branch runs, and the branch's artifacts silently
+drift.
 
-Detection is one `git log` against the post-fetch `develop` tip; the
-Branch Divergence Check already ran (or skipped) `git fetch`, so no
-fetch repeats here. Migration itself stays in the `/migrate-workflow`
-skill — the gate detects and gates, the skill replays. The skill
-assumes a fresh session, so the Migrate now resolution ends this
-session and asks the user to re-invoke from a `develop` worktree.
+Detection is one `git log` against the `develop` tip. The Branch
+Divergence Check's `git fetch` targets the branch's upstream
+(typically `origin/<branch>`), not `develop`, so this gate fetches
+`origin develop` independently before the `git log`. Migration
+itself stays in the `/migrate-workflow` skill — the gate detects and
+gates, the skill replays. The skill assumes a fresh session, so the
+Migrate now resolution ends this session and asks the user to
+re-invoke from a `develop` worktree.
 
 ---
 
@@ -26,24 +29,30 @@ Run, in order:
 
 ```bash
 git rev-parse --verify refs/heads/develop >/dev/null 2>&1 || exit
+# Duplicate fetch: the Branch Divergence Check fetched the branch's
+# upstream (typically origin/<branch>), not develop. Tolerate failure
+# silently for offline / no-remote cases, mirroring the divergence
+# check's offline-tolerance pattern.
+git fetch origin develop 2>/dev/null || true
 FORK="$(git merge-base develop HEAD)"
-git log --oneline "$FORK..develop" -- .claude/workflow .claude/skills
+# merge-base returns empty when HEAD and develop share no common
+# ancestor — a degenerate state where drift detection is meaningless;
+# skip silently.
+test -n "$FORK" || exit
+git log --reverse --oneline "$FORK..develop" -- .claude/workflow .claude/skills | head -10
 ```
 
-The first command short-circuits when `develop` does not exist
-locally (bare repository, detached checkout, or `develop` missing).
-The pathspecs are `.claude/workflow` and `.claude/skills`, both
-passed to `git log` after the `--` separator. No additional
-pathspecs; no `git fetch`.
+The first command short-circuits when `develop` is missing locally.
+Pathspecs `.claude/workflow` and `.claude/skills` go to `git log`
+after `--`. `--reverse … | head -10` produces the oldest-first
+top-ten directly; run a separate
+`git log --oneline "$FORK..develop" -- … | wc -l` to count the full
+range when the prompt also needs the total.
 
-The branch has drift iff the `git log` output is non-empty. When
-non-empty, count the commits and capture the first ten subject lines
-(oldest first) for the user prompt.
-
-When the output is empty, the gate skips silently — startup continues
-to step 4 with no prose. Skip the gate via the same silent path when
-any condition in § Skip conditions matches before the detection
-command runs.
+The branch has drift iff the `git log` output is non-empty. Empty
+output skips the gate silently and startup continues to step 4.
+Any matched condition in § Skip conditions takes the same silent
+path before the detection command runs.
 
 ---
 
@@ -53,29 +62,27 @@ The gate skips silently in three cases, all derivable from cheap
 on-disk reads before the detection command runs. Order matters for
 fail-fast — check the cheapest first:
 
-1. **No `_workflow/` subtree.** The branch has nothing to migrate.
-   Single-shot check: `ls -d docs/adr/*/_workflow/ 2>/dev/null`.
-   Matches the `/migrate-workflow` skill's zero-match halt path;
-   running detection would be wasted work even if commits exist on
-   `develop`.
+1. **No `_workflow/` subtree.** Nothing to migrate. Check:
+   `ls -d docs/adr/*/_workflow/ 2>/dev/null`. Matches the
+   `/migrate-workflow` skill's zero-match halt path.
 
-2. **Plan complete plus Phase 4 active.** Migrating right before the
-   Phase 4 cleanup commit is wasted work — the `_workflow/` subtree
-   is about to be removed regardless. The check fires when every
-   track checklist entry is `[x]` or `[~]` **and** the `## Final
-   Artifacts` checklist entry is `[>]` (in flight) or `[x]` (done).
-   Pre-`[>]` (Phase 4 not yet started) does **not** skip; tracks
-   complete but Phase 4 unstarted is still a window where the user
-   may want to migrate before producing the final artifacts.
+2. **Plan complete plus Phase 4 active.** The `_workflow/` subtree is
+   about to be removed by the Phase 4 cleanup commit. Read
+   `implementation-plan.md` from the same directory resolved in #1;
+   on missing or unreadable plan, fall through to #3. Fires when
+   every track checklist entry is `[x]` or `[~]` **and** the
+   `## Final Artifacts` entry is `[>]` or `[x]`. Pre-`[>]` does
+   **not** skip — that window still allows a user migration before
+   final artifacts land.
 
 3. **Empty diff.** The detection command above returns nothing.
    Either the branch was forked from the current `develop` tip, or
    `develop` has moved forward only on code paths the gate does not
    watch.
 
-The first match returns silent skip; the gate emits no prose and
-startup continues to step 4. If none of the three match, the gate
-proceeds to the three-resolution prompt below.
+First match returns silent skip; the gate emits no prose and startup
+continues to step 4. None matching falls through to the
+three-resolution prompt below.
 
 ---
 
@@ -96,7 +103,7 @@ First commits (oldest first):
   ...
 
 Resolutions:
-  [migrate]   end this session; run /migrate-workflow <branch> from a develop worktree
+  [migrate]   end session; user runs /migrate-workflow <branch> from a develop worktree
   [defer]     continue this session; deferred drift will appear in the session-end summary
   [suppress]  continue this session; no session-end reminder
 
@@ -113,10 +120,10 @@ Branch Divergence Check.
 End the current session and instruct the user to re-invoke the
 migration skill from a `develop` worktree:
 
-> End this session, switch to a `develop` worktree (e.g.,
-> `cd ../develop`), and run `/migrate-workflow <branch>` there. The
-> `../develop` path is a convention; users with a different layout
-> substitute their own develop-worktree path.
+> Switch to a `develop` worktree (e.g., `cd ../develop`) and run
+> `/migrate-workflow <branch>` there. The `../develop` path is a
+> convention; users with a different layout substitute their own
+> develop-worktree path.
 
 The Migrate now branch deliberately does not run the skill inline.
 The skill assumes a fresh session and runs its own context-check
@@ -125,20 +132,35 @@ protocols in one session risks a mid-migration context warning that
 triggers the wrong handoff path. Ending the session and asking the
 user to re-invoke is the cleaner boundary.
 
+End the session before reaching `workflow.md § What to do before
+ending a session` — this is the only Startup-Protocol-side early
+exit. No phase work has run, so there are no episodes to commit, no
+unpushed-commit residue beyond what the Branch Divergence Check may
+have produced, and self-improvement reflection has nothing to record.
+The session-end output is the single instruction line above.
+
 ### Defer
 
-Continue this session. Record the deferred-drift count in the
-agent's in-conversation state so the end-of-turn protocol can recite
-it at session end. Per-phase work proceeds normally for the rest of
-the session.
+Continue this session. Record the deferred-drift count so the
+end-of-turn protocol can recite it at session end. Per-phase work
+proceeds normally.
 
-The session-end summary appends one line naming the deferred drift
-count and the same `cd ../develop` + `/migrate-workflow <branch>`
-instruction shown in the prompt — see `workflow.md` § What to do
-before ending a session for the residue contract. The in-conversation
-state is intentional: an on-disk sentinel would survive across
+State shape: a TaskCreate todo titled `Deferred workflow drift:
+<count> commits since <short-fork-SHA>`, where `<count>` is the full
+commit range total and `<short-fork-SHA>` is the seven-character
+abbreviation of `$FORK`. Subject lines are omitted — the user re-runs
+the detection bash for full context. The session-end summary reads
+the todo title verbatim. If TaskCreate is unavailable, hold the same
+two fields in in-context memory and recite the same line shape; the
+todo is preferred because in-context memory is unreliable across
+long sessions.
+
+The session-end summary appends the title line plus the same
+`cd ../develop` + `/migrate-workflow <branch>` instruction shown in
+the prompt — see `workflow.md` § What to do before ending a session
+for the residue contract. An on-disk sentinel would survive across
 `/execute-tracks` invocations and double-report against the next
-session's gate re-prompt.
+session's gate re-prompt, so the marker stays in-conversation only.
 
 ### Suppress
 
@@ -161,20 +183,21 @@ the session ends. After Defer or Suppress, startup continues to
 step 4 (handoff scan) and the auto-resume decision proceeds against
 the unchanged on-disk shape of `_workflow/**`.
 
-**Remote-authoritative re-entry contract.** The Branch Divergence
-Check's Remote-authoritative resolution runs
-`git reset --hard origin/<branch>`, which can shift the branch's
-fork point against `develop` and therefore the drift detection
-range. When the Startup Protocol re-enters from a Remote-authoritative
-reset (see `branch-divergence-check.md` § Remote-authoritative), the
-Workflow Drift Check re-fires on the post-reset HEAD before the
-handoff scan runs — the prior session's choice does not carry over,
-because the prior session's HEAD no longer exists. Local-authoritative
-and Defer resolutions in the divergence gate do not move HEAD, so
-they do not trigger re-entry into this gate.
+**Remote-authoritative re-entry — forward-looking note.** A
+`git reset --hard origin/<branch>` from the divergence gate's
+Remote-authoritative resolution shifts the fork point and therefore
+the drift detection range. The divergence gate currently routes
+post-reset only to workflow.md § Startup Protocol step 3, not back
+into this gate (step 3a); the re-entry contract is one-sided. Until
+that gap closes, an orchestrator resolving Remote-authoritative
+within a session should treat the post-reset drift state as
+unverified and re-invoke `/execute-tracks` in a fresh session. Once
+symmetric, this gate will re-fire on the post-reset HEAD with any
+prior Defer state discarded first. Local-authoritative and Defer in
+the divergence gate do not move HEAD and are unaffected.
 
-A subsequent in-session non-fast-forward push that re-routes to the
-Branch Divergence Check (per `commit-conventions.md` § Push failure
-handling) does not re-fire the drift check. The drift gate is a
-startup-only gate; mid-session re-entry only happens via the
-Remote-authoritative reset path described above.
+An in-session non-fast-forward push that re-routes to the Branch
+Divergence Check (per `commit-conventions.md` § Push failure handling)
+does not re-fire this gate. The drift gate is startup-only;
+mid-session re-entry only happens via the Remote-authoritative reset
+path above.

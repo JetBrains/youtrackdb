@@ -146,19 +146,12 @@ cross-track impact.
 
 3a. **Run the Workflow Drift Check.** Load
    [`workflow-drift-check.md`](workflow-drift-check.md) and follow it.
-   This step runs after the divergence check (so detection uses the
-   post-fetch `develop` tip) and before the handoff scan (so any
-   user-driven migration changes the on-disk shape of `_workflow/**`
-   before steps 4 and 5 read those files). The gate detects whether
-   workflow-format commits have landed on `develop` since the branch's
-   fork point and, when drift exists with no skip condition matching,
-   forces an explicit pick between Migrate now (end this session and
-   run `/migrate-workflow <branch>` from a develop worktree), Defer
-   (continue this session, surface the count at session end), and
-   Suppress (continue, no session-end residue); no default is picked.
-   The Branch Divergence Check's Remote-authoritative resolution
-   resets HEAD to `origin/<branch>` and re-enters this step on the
-   post-reset HEAD — see `workflow-drift-check.md` § After the choice.
+   This step runs after the divergence check and before the handoff
+   scan, so any user-driven migration changes the on-disk shape of
+   `_workflow/**` before steps 4 and 5 read those files. The gate
+   file owns the resolution detail (Migrate now / Defer / Suppress)
+   and the Remote-authoritative re-entry note — see
+   `workflow-drift-check.md`.
 
 4. **Check for active handoffs.** Run:
    ```bash
@@ -422,12 +415,16 @@ work when context consumption is at `warning` level or above.
   configured.
 - **Report deferred workflow drift.** If the Workflow Drift Check
   (see `workflow-drift-check.md`) recorded a Defer resolution in
-  this session's in-conversation state, the session-end summary MUST
-  name the deferred drift count and instruct the user to switch to a
-  `develop` worktree (e.g., `cd ../develop`) and run
-  `/migrate-workflow <branch>` there. Suppress and Migrate now leave
-  no residue; the marker lives in conversation memory and is
-  discarded when the session ends.
+  this session, read the `Deferred workflow drift: <count> commits
+  since <short-fork-SHA>` TaskCreate todo (or, if TaskCreate was
+  unavailable, the same two fields held in in-context conversation
+  memory) and recite the title verbatim, followed by an instruction
+  to switch to a `develop` worktree (e.g., `cd ../develop`) and run
+  `/migrate-workflow <branch>` there. The todo carries only the count
+  and the short fork SHA — no subject lines; the user can re-run the
+  detection bash for full context. Suppress and Migrate now leave no
+  residue; the marker lives in conversation memory (or the todo, if
+  one was created) and is discarded when the session ends.
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
