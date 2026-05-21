@@ -18,6 +18,7 @@ Create the new `workflow-drift-check.md` gate file mirroring the branch-divergen
 - [x] 2026-05-21T09:32Z [ctx=safe] Step 2 complete (commit 39a52e299c81d184fd68c411b144650d748fe741)
 - [x] 2026-05-21T09:35Z [ctx=safe] Step 3 complete (commit 41fe0b32c1008bbd8b46048ca5c6ca762ce74327)
 - [x] 2026-05-21T09:37Z [ctx=safe] Step 4 complete (commit 531e283340b2124bbf4073b7c1378a46eefcdf74)
+- [x] 2026-05-21T10:00Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
