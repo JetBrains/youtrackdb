@@ -257,3 +257,7 @@ GitHub state interactions:
 - None new in this track. The handoff captures already-fetched PR state;
   resume re-fetches the head SHA via Track 1's preflight code path to
   re-verify, but does not introduce new `gh` calls.
+
+## Base commit
+
+469ca1e7f693dec359b47b9beeb2d82edf671049
