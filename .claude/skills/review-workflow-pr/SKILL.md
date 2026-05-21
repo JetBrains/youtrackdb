@@ -83,6 +83,24 @@ The skill enters research-mode Q&A driven by the reviewer once preflight and art
 
 **Scope rule for code-file questions.** When the reviewer asks about code files in the PR (paths not under `docs/adr/<dir>/_workflow/`), the skill answers using `Read` and `Grep` but does not record observations against those files. For Java symbol-reference questions (callers, overrides, find-usages, "is X still used?"), use mcp-steroid PSI find-usages when reachable; fall back to `Grep` only when mcp-steroid is unreachable and flag the result as grep-only in the answer. The observation list scope stays workflow-artifact-only.
 
+### Sub-agent dispatch — DR audit
+
+The skill spawns the DR-audit sub-agent on the reviewer's request to audit the Decision Records in the loaded `implementation-plan.md`. The sub-agent returns a structured findings block; the orchestrator translates each finding into one observation and appends an entry to the in-conversation `dispatchLog`.
+
+**Trigger phrases.** Treat any of the following from the reviewer as the cue to spawn DR audit: `audit the DRs`, `audit the decision records`, `check the decision records`, `check the DRs`, `run the DR audit`. Match case-insensitively. When the reviewer's intent is unclear, ask one clarifying question rather than spawning speculatively.
+
+**Spawn call.** Spawn the sub-agent defined at `.claude/skills/review-workflow-pr/dr-audit.md` with one argument: `plan_path` set to the repo-relative path of the plan loaded by `## Artifact discovery` (typically `docs/adr/<dir>/_workflow/implementation-plan.md`). The sub-agent reads `design.md` on its own when a Decision Record cites `**Full design**: design.md §...`; the orchestrator does not pre-pass `design.md`.
+
+**Finding-to-observation translation.** Parse the sub-agent's `## Findings` blocks. For each `### F<i>` block, extract `decision`, `category`, `plan_line`, `quote`, and `body`. Build one observation `{path, line, body, source}` where `path` is the `plan_path` echoed in the sub-agent's `## Summary`, `line` is the integer `plan_line` from the finding, `body` is the finding's `body` paragraph (verbatim, no rewrap), and `source` is the literal string `dr-audit`. Append each observation to the running list via the auto-recording rules in `## Research mode` above; the one-line confirmation prints the same way it does for `skill-analysis` observations.
+
+Three anchoring edge cases override the verbatim mapping:
+
+- **No explicit file citation.** When a finding's `plan_line` is absent or non-positive, anchor the observation at the artifact the sub-agent was reviewing (the `plan_path` echoed in `## Summary`) at the nearest `##` heading line at or above the implied location. The source tag stays `dr-audit`.
+- **Quoted prose edited since the sub-agent's read.** When the finding's `quote` does not match the current content at `plan_line`, search the artifact for the literal `quote` string and use the matched line if exactly one match is found. When zero or multiple matches are found, record the observation at the sub-agent's reported `plan_line` and prepend `[STALE: verify line]` to the body so the reviewer sees the flag at prune time.
+- **Reviewer wants a broader cold-read.** A request for design cold-read (as opposed to DR audit) is out of scope here. Tell the reviewer to invoke the existing cold-read flow as a separate skill in the same session; that skill's output does not flow back into this observation list automatically.
+
+**`dispatchLog` structure.** The orchestrator maintains a single in-conversation `dispatchLog`: an ordered list of `{sub-agent name, timestamp, summary}` entries. `sub-agent name` is the literal sub-agent identifier (`dr-audit`); `timestamp` is the ISO-8601 UTC instant at spawn time (e.g., `2026-05-21T13:45Z`); `summary` echoes the sub-agent's `## Summary` block as a one-line digest (`decisions_audited=<N>, findings_count=<N>`). Append one entry on every sub-agent spawn, including spawns that return zero findings. The follow-up handoff-writer track reads `dispatchLog` on resume to skip re-spending on the same audit unless the reviewer asks; producing it here keeps the inter-track boundary honest.
+
 ## End-of-session stub
 
 The skill prints the recorded observations and exits without posting anything to the PR. The real `gh api` submission lands in a follow-up track; this section is the placeholder until then.
