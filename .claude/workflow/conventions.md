@@ -101,6 +101,15 @@ At Phase 4, after `design-final.md` and `adr.md` are committed, the entire
 durable artifacts survive the squash-merge into `develop`. See
 `workflow.md` § Final Artifacts for the cleanup procedure.
 
+Every ephemeral `_workflow/**` artifact in the listing above (`implementation-plan.md`,
+`design.md`, optional `design-mechanics.md`, and each `plan/track-*.md`)
+carries a line-1 workflow-SHA stamp recording the workflow-format commit
+reachable from HEAD at creation time. The stamp format, canonical parser
+idioms, SHA computation rule, stamp range definition, unstamped-artifact
+protocol, and the positive list of stamped artifact types (plus the Phase 4
+final-artifact and `design-mutations.md` exclusions) live in [§1.6](#16-workflow-sha-stamps-on-_workflow-artifacts);
+the §1.1 glossary row "Workflow-SHA stamp" gives the one-line definition.
+
 The on-disk shape of `_workflow/**` may shift between sessions when
 workflow-format commits land on `develop` while the branch runs. The
 turn-1 gate at [`workflow-drift-check.md`](workflow-drift-check.md) detects
