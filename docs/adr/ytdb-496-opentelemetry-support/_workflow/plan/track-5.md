@@ -38,7 +38,7 @@ The plugin is registered with the server via a `META-INF/services/com.jetbrains.
 
 Concrete deliverables:
 
-1. Four `GlobalConfiguration` entries: `OPENTELEMETRY_ENABLED` (Boolean, default false), `OPENTELEMETRY_EXPORTER_ENDPOINT` (String), `OPENTELEMETRY_EXPORTER_PROTOCOL` (String, default `grpc`), `OPENTELEMETRY_SERVICE_NAME` (String, default `youtrackdb`). All env-var capable.
+1. Five `GlobalConfiguration` entries: `OPENTELEMETRY_ENABLED` (Boolean, default false), `OPENTELEMETRY_EXPORTER_ENDPOINT` (String), `OPENTELEMETRY_EXPORTER_PROTOCOL` (String, default `grpc`), `OPENTELEMETRY_SERVICE_NAME` (String, default `youtrackdb`), and `OPENTELEMETRY_QUERY_MODE_TAG_RULES` (String, default empty — consumed by Track 1's `QueryMonitoringModeResolver` at startup; format documented in design.md §"Query tagging and per-tag rule resolution"). All env-var capable.
 2. The `YouTrackDBOpenTelemetry` facade extended with three-step lazy resolution chain (explicit setter → `GlobalOpenTelemetry.get()` → auto-configure) gated by `OPENTELEMETRY_ENABLED`. Internal `ownedByYtdb` flag tracks who created the active SDK. A package-private 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` variant lets `OpenTelemetryServerPlugin` signal server-mode ownership; the public single-arg variant always sets `ownedByYtdb=false`.
 3. `ServiceLoader.load(ServerLifecycleListener.class)` call inside `YouTrackDBServer.activate()` appending discovered listeners to the existing `lifecycleListeners` list before the iteration that calls `onAfterActivate` (CR3).
 4. `OpenTelemetryServerPlugin` implementing `ServerLifecycleListener`, ServiceLoader-registered, register / unregister listeners through `YourTracks` static methods.
@@ -50,7 +50,7 @@ Concrete deliverables:
 
 Six edits.
 
-The first edit adds the four `GlobalConfiguration` entries. They sit alphabetically with other config entries; the `isEnv=true` flag is set so `YOUTRACKDB_OPENTELEMETRY_ENABLED=true` works in containerized deployments.
+The first edit adds the five `GlobalConfiguration` entries. They sit alphabetically with other config entries; the `isEnv=true` flag is set so `YOUTRACKDB_OPENTELEMETRY_ENABLED=true` works in containerized deployments. The fifth entry `OPENTELEMETRY_QUERY_MODE_TAG_RULES` is consumed by Track 1's `QueryMonitoringModeResolver` at startup; Track 5 only adds the config entry definition, not the parsing logic.
 
 The second edit extends `YouTrackDBOpenTelemetry` with the lazy resolution chain. The `tracer()` accessor (called on first listener fire) runs a synchronized resolution: if `openTelemetry` field is already set, return its tracer; otherwise consult the global, then auto-configure from config. The auto-configure path uses `AutoConfiguredOpenTelemetrySdk.builder().addPropertiesSupplier(...)` to inject our config entries as OTel-conventional property names. Sets `ownedByYtdb=true`. The public single-arg `setOpenTelemetry(OpenTelemetry)` method closes the YTDB-built SDK (if any) before installing the new instance, flipping `ownedByYtdb=false`. A package-private 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` variant lets `OpenTelemetryServerPlugin` install a YTDB-owned SDK without flipping ownership. Both variants register / re-register OTel listeners through `YourTracks.registerGlobalQueryListener(...)` / `registerGlobalTransactionListener(...)` (CR9) when `OPENTELEMETRY_ENABLED=true`.
 
