@@ -2316,14 +2316,24 @@ public abstract class AbstractStorage
             // failure triggers rollback, ensuring persisted counts always match
             // index data (design decision D2).
             persistIndexCountDeltas(atomicOperation);
-          } catch (final IOException | RuntimeException e) {
+          } catch (final IOException | RuntimeException | AssertionError e) {
+            // AssertionError is caught so a persisted-side underflow from
+            // BTree.addToApproximateEntriesCount (raised inside
+            // persistIndexCountDeltas or commitIndexes) routes through the
+            // rollback path. Without this, the assert would escape the
+            // outer catch (Error), call setInError, and put the storage in
+            // permanent error state. Persisted-side underflow signals a
+            // structural inconsistency on the entry-point page; rolling
+            // back the WAL atomic operation reverts the offending writes
+            // and leaves the storage usable for subsequent commits.
             error = e;
             if (e instanceof RuntimeException runtimeException) {
               throw runtimeException;
-            } else {
-              throw BaseException.wrapException(
-                  new StorageException(name, "Error during transaction commit"), e, name);
             }
+            // IOException or AssertionError — wrap as StorageException so
+            // the API caller's contract stays uniform (no Error escapes).
+            throw BaseException.wrapException(
+                new StorageException(name, "Error during transaction commit"), e, name);
           } finally {
             if (error != null) {
               rollback(error, atomicOperation);
