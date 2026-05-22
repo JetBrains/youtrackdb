@@ -152,6 +152,10 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 - Some squashed commits include `docs/adr/<dir-name>/design-final.md` and `docs/adr/<dir-name>/adr.md` — post-implementation workflow artifacts documenting the final design and architectural decisions. These are the only workflow files that survive merge into `develop`.
 - During the branch's lifetime the implementation plan, design draft, step files, reviews, and other working files are tracked under `docs/adr/<dir-name>/_workflow/` so the draft PR shows real-time progress and a local-disk loss never destroys planning work. The entire `_workflow/` directory is removed in a single cleanup commit at the end of Phase 4 (after `design-final.md` and `adr.md` land), so the squash-merge into `develop` carries only the durable artifacts plus the implemented code. See `.claude/workflow/conventions.md` §1.2 and `.claude/workflow/workflow.md` § Final Artifacts for the full lifecycle.
 
+### Rebase Conflict Resolution
+- When a rebase produces conflicts in `CLAUDE.md`, `.claude/agents/**`, or `.claude/workflow/**`, re-read each resolved section end-to-end before continuing. Three-way merges on prose-heavy files can yield text that parses but no longer makes sense: half of a procedure from one side spliced to half from the other, rules that contradict themselves across paragraphs, cross-references to sections that no longer exist, threshold tables drifted from the prose that cites them. Tests catch broken code; nothing catches broken prose except a reader.
+- The recheck covers the whole document, not just the conflict hunks. A clean three-way resolution at the hunk level can still leave the surrounding section semantically broken — for example, a rule renamed on `develop` but still referenced under its old name in unchanged paragraphs on the branch side. Read enough context above and below each resolved hunk to confirm the document still tells a single, consistent story.
+
 ## Pre-Commit Verification
 
 **Every task MUST be verified before committing.** Follow this workflow:
