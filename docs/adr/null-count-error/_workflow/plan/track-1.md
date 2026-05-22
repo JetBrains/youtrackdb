@@ -177,3 +177,7 @@ PSI-verified during Phase 2 assessment.
 - `LogManager.instance().error(this, String, Object...)` — the error helper; takes a final `Throwable` argument as the last vararg when present (used for the one-shot stack-trace dump).
 - `AtomicBoolean.compareAndSet(boolean, boolean)` — one-shot dump latch.
 - `AtomicLong.compareAndSet(long, long)` — clamp.
+
+## Base commit
+
+6dd104000bba4134b9c47ee26a90cd1bb80da7d4
