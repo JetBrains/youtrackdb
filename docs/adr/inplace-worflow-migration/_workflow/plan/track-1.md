@@ -141,3 +141,6 @@ Spotless does not enforce Markdown formatting; the build does not exercise `.cla
 
 **External interfaces:**
 - `git` CLI invocations: `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills` (SHA computation at creation), `git merge-base <a> <b>` (pairwise fold over stamps), `git log $BASE_SHA..HEAD -- workflow paths` (drift / migration range), `git merge-base --is-ancestor "$SHA" HEAD` (unstamped-artifact bootstrap validation), `git rev-parse HEAD` (migration's final-batch stamp value). All POSIX-portable and already used elsewhere in `conventions.md` examples. The `git fetch origin develop` and `git merge-base origin/develop HEAD` invocations referenced by older drafts are deliberately absent — the branch is a self-contained capsule per D10.
+
+## Base commit
+77eee0a080be806b35bc94e5b82dace956820f39
