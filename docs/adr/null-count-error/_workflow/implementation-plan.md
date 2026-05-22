@@ -1,0 +1,141 @@
+# Index entries-count tracking via unified delta
+
+## Design Document
+[design.md](design.md)
+
+## High-level plan
+
+### Goals
+
+Eliminate the divergence trigger between the persisted and in-memory index entry counters in `BTreeMultiValueIndexEngine` and `BTreeSingleValueIndexEngine`. Today the counters violate the invariant *"in-memory counter mutates only after WAL commit succeeds"* at two sites — `clear()` and `buildInitialHistogram()`. On rollback the persisted side reverts via WAL but the in-memory side stays, and the next decrement underflows the assertion at `BTreeMultiValueIndexEngine.java:646`. That assertion escaped `AbstractStorage.commit`'s `catch (RuntimeException)` and produced the Hub cascade in `Pre_Tests_Test_REST_2026.2.51599.log` (330 underflows → 2,643 poisoned commits → Gradle JVM OOM).
+
+The fix has two layers. First, **convert both sites to pure-delta encoding** so the in-memory write moves behind the existing `IndexCountDelta` machinery and is no longer reachable inside the atomic op. Second, **route persist and apply through `AtomicOperationsManager.endAtomicOperation` as the single lifecycle gate** — delete the manual calls at `AbstractStorage.commit` lines 2318 (`persistIndexCountDeltas`), 2333 (`applyIndexCountDeltas`), and 2345 (`applyHistogramDeltas`); attach persist before `commitChanges` (with persist-failure-to-rollback conversion) and apply after `commitChanges` but **before `releaseLocks`** so every counter sync (main commit + `clearIndex` API + `buildHistogramAfterFill`) advances through one place under the per-index lock. The lock-window correctness story makes this consolidation load-bearing: today's manual `applyIndexCountDeltas` at line 2333 runs *after* `endTxCommit → endAtomicOperation → releaseLocks` has released the per-index lock acquired by `lockIndexes` at line 2233, leaving a 30-line race window where the next TX reads stale in-memory state at the top of `clear()` or `buildInitialHistogram` (which the pure-delta encoding uses to compute its delta) and produces wrong arithmetic. A containment layer (broadened catches in `AbstractStorage.commit`; clamp+error in the engine counter mutators) lands first as defense-in-depth.
+
+### Constraints
+
+- **Coverage gate**: 85% line / 70% branch on changed code (CI enforced).
+- **Hot path**: per-put/remove cost stays heap-only via `IndexCountDelta.accumulate(op, engineId, sign, isNullKey)`. The fix must not regress index put/remove to per-mutation EP-page I/O — see [design.md § "Why pure-delta, not collection-style self-healing"](design.md#why-pure-delta-not-collection-style-self-healing) for the alternative ruled out during research.
+- **Recovery**: the new hooks must be no-ops during the recovery-time atomic ops at `AbstractStorage.java:766–860` so storage open is unaffected.
+- **WAL invariant preserved**: the in-memory side cannot move without a successful WAL commit. This is the property the fix establishes; every change in the four tracks must respect it.
+- **Lock-window invariant**: `applyIndexCountDeltas` and `applyHistogramDeltas` run with the per-index lock acquired at `lockIndexes` (AbstractStorage:2233) still held. Achieved by placing the apply hooks inside `endAtomicOperation` before `releaseLocks` returns the lock; the manual call at AbstractStorage:2333 (which runs after the lock release) is deleted.
+- **Independent revertability**: each track lands one logical change so reverts are surgical.
+
+### Architecture Notes
+
+#### Component Map
+
+```mermaid
+flowchart LR
+    Caller["doVersionedPut /\ndoVersionedRemove\n(per-put accumulate)"]
+    ClearAPI["clearIndex API\n(executeInsideAtomicOperation)"]
+    Hist["IndexAbstract.\nbuildHistogramAfterFill\n(executeInsideAtomicOperation)"]
+    Commit["AbstractStorage.commit\n(no manual persist/apply)"]
+
+    EAO["AtomicOperationsManager.\nendAtomicOperation\n(single lifecycle gate:\npersist before commitChanges,\napply before releaseLocks)"]
+    Holder["IndexCountDelta\n(plain data)"]
+    MV["BTreeMultiValueIndexEngine\nclear / buildInitialHistogram /\naddToApproximate*"]
+    SV["BTreeSingleValueIndexEngine\nclear / buildInitialHistogram /\naddToApproximate*"]
+    AbsStor["AbstractStorage\npersistIndexCountDeltas /\napplyIndexCountDeltas /\napplyHistogramDeltas /\ncatch sites"]
+
+    Caller --> Holder
+    ClearAPI --> MV
+    ClearAPI --> SV
+    Hist --> MV
+    Hist --> SV
+    MV --> Holder
+    SV --> Holder
+    Commit --> EAO
+    ClearAPI --> EAO
+    Hist --> EAO
+    EAO --> AbsStor
+    AbsStor --> MV
+    AbsStor --> SV
+```
+
+- **`IndexCountDelta` (holder)** — gains a long-form `accumulate(op, engineId, long totalDelta, long nullDelta)` overload for clear and recalibration. No idempotency flags: under the single-lifecycle-gate design the holder is consumed exactly once per atomic op, by `endAtomicOperation`.
+- **`BTreeMultiValueIndexEngine` / `BTreeSingleValueIndexEngine`** — `clear()` and `buildInitialHistogram()` stop writing to in-memory `AtomicLong`s and the persisted EP pages directly; they record a delta on the atomic op. The engine-level `addToApproximate{Entries,Null}Count` mutators replace `assert updated >= 0` with clamp+error (one-shot stack-trace dump per engine, with engine `name`+`id` in the message).
+- **`AtomicOperationsManager.endAtomicOperation`** — gains two hooks calling back into `AbstractStorage.persistIndexCountDeltas` (before `commitChanges`, with persist-failure-to-rollback conversion) and `applyIndexCountDeltas` (after `commitChanges`, before the inner-finally `releaseLocks` so the per-index lock is held during apply). A symmetric pair for `applyHistogramDeltas` lands too. Each hook runs at most once per atomic op (one invocation, no flags needed for idempotency).
+- **`AbstractStorage.commit`** — `catch (IOException | RuntimeException)` at line 2319 broadens to also catch `AssertionError` (defense-in-depth for `commitIndexes` failures including persisted-side BTree underflow). Manual invocations of `persistIndexCountDeltas` (line 2318), `applyIndexCountDeltas` (line 2333), and `applyHistogramDeltas` (line 2345) are deleted, along with the post-`endTxCommit` catches at lines 2334 and 2346 that surrounded them — the lifecycle hooks own those failure paths. The cleanupSnapshotIndex try/catch at lines 2355–2364 is untouched.
+
+#### D1: Pure-delta encoding over collection-style self-healing
+
+- **Alternatives considered**: (1) Collection-style overwrite-from-persisted (`approximateRecordsCount = state.getApproximateRecordsCount() + delta`); (2) pure-delta encoding via `IndexCountDelta` (chosen); (3) snap-to-persisted at apply time (re-read EP pages in `applyIndexCountDeltas`).
+- **Rationale**: per-put cost — alternative (1) forces 2 EP-page reads + 1 write on every MV null put (split-tree); the existing `IndexCountDelta` keeps the hot path heap-only. Recalibration semantics — `buildInitialHistogram` writes an absolute target, not a delta; alternative (1) would erase that target on the next post-rollback put. Alternative (3) doesn't address the in-atomic-op write hazard at `clear()` / `buildInitialHistogram`, so it only partly fixes the bug.
+- **Risks/Caveats**: the long-form `accumulate(long, long)` overload accepts arbitrarily-large negative deltas (no sign precondition), so a future caller using it for ordinary put/remove instead of the sign+isNullKey form bypasses the invariant. Mitigated by naming and Javadoc; the four call sites are clearly documented as clear/recalibration only.
+- **Implemented in**: Tracks 3 and 4.
+- **Full design**: [design.md § "Pure-delta encoding for clear() and buildInitialHistogram()"](design.md#pure-delta-encoding-for-clear-and-buildinitialhistogram).
+
+#### D2: Single lifecycle gate over manual+hooks coordination
+
+- **Alternatives considered**: (1) Manual invocations in `AbstractStorage.commit` coexist with lifecycle hooks; coordinate via two idempotency flags (`persistedToPage`, `appliedToMemory`) so neither runs twice; (2) Single lifecycle gate — delete manual invocations, route every counter sync through `endAtomicOperation` (chosen); (3) Snap-to-persisted at apply time (re-read EP pages inside `applyIndexCountDeltas`) without restructuring the lifecycle.
+- **Rationale**: lock-window correctness. Today's manual `applyIndexCountDeltas` at AbstractStorage:2333 runs *after* `endTxCommit → endAtomicOperation → releaseLocks` releases the per-index lock acquired by `lockIndexes` at line 2233 (the inner-finally `releaseLocks` call at `AtomicOperationsManager.java:263`). The intervening lines between lock release and the manual apply are enough for a concurrent TX to read stale in-memory state at the top of `clear()` or `buildInitialHistogram` (which the pure-delta encoding uses to compute its delta) and produce wrong arithmetic — for the next TX's `clear` or recalibration, the delta is `target - currentInMem`, and `currentInMem` is the stale value. Placing the apply hook inside `endAtomicOperation` *before* `releaseLocks` closes the window. Alternative (1) preserves the bug because the manual apply still runs at line 2333 after the lock release; the flags only coordinate against double-application, not against the race. Alternative (3) adds per-commit EP-page reads without addressing the in-atomic-op write hazard at `clear()` and `buildInitialHistogram`, so it only partly fixes the bug.
+- **Risks/Caveats**: every commit now routes counter persist through Hook A and apply through Hook B; blast radius for hook bugs widens beyond the standalone-atomic-op paths to the main commit. Mitigated by integration tests in Track 2 covering both the main-commit and `clearIndex` / `buildHistogramAfterFill` paths. The persist-failure-to-rollback conversion (Hook A's inner catch covering `IOException | RuntimeException | AssertionError`) is now load-bearing: without it, a persist failure inside `endAtomicOperation` would escape into the outer `catch (Error)` cascade, re-creating Bug B for a different trigger.
+- **Implemented in**: Track 2.
+- **Full design**: [design.md § "endAtomicOperation lifecycle"](design.md#endatomicoperation-lifecycle).
+
+#### D3: Histogram delta gets the same lifecycle gate
+
+- **Alternatives considered**: (1) Wire only the index-count hooks; leave the manual `applyHistogramDeltas` at AbstractStorage:2345 in place; (2) move both `applyIndexCountDeltas` and `applyHistogramDeltas` into `endAtomicOperation` symmetrically (chosen).
+- **Rationale**: `applyHistogramDeltas` carries the same cache-only contract and the same lock-window race as `applyIndexCountDeltas` (per D2). Asymmetric wiring (one apply moved into the lifecycle, the other still at line 2345 after `releaseLocks`) would leave the histogram delta exposed to the same stale-read race and become a confusing landmine for future readers. Persist-side: there is no manual `persistHistogramDeltas` today (histogram delta writes happen lazily under `IndexHistogramManager`), so the persist parallel is a no-op for now; the design retains symmetric naming so a future persist hook drops in cleanly.
+- **Risks/Caveats**: histogram delta serialization is keyed differently from index-count delta (engineId is an `Integer` not an `int`); the holder must support both with their existing types. No new serialization needed.
+- **Implemented in**: Track 2.
+
+#### D5: Containment lands first, in one track
+
+- **Alternatives considered**: (1) Land containment per-engine across multiple tracks; (2) one track for all four mutators + the pre-`endTxCommit` catch broadening at line 2319 (chosen).
+- **Rationale**: containment is self-contained and unblocks every other track because it removes the cascade pressure that currently makes the bug visible. Splitting it across tracks would create artificial dependencies. The four mutators mirror each other; clamping one without the others would leave inconsistent posture across engines. The handler emits an **error** (not a warn) because PSI find-usages confirm `addToApproximate{Entries,Null}Count` has exactly one production caller (`AbstractStorage.applyIndexCountDeltas` at lines 2489–2490). Track 2's consolidation places that caller inside `endAtomicOperation` Hook B, which runs *before* the inner-finally `releaseLocks` (`AtomicOperationsManager.java:263`), so the per-index lock acquired by `lockIndexes` at AbstractStorage:2233 is still held during apply. Concurrent commits on the same engine serialize through that window; concurrent commits on different engines touch different `AtomicLong` counters. Every underflow at apply time signals a real divergence between persisted and in-memory state (Bug A, Bug C, or a future regression), warranting error-level visibility.
+- **Risks/Caveats**: the broadened catch at AbstractStorage:2319 covers the pre-`endTxCommit` path; an `AssertionError` from `commitIndexes` (which can fire if `BTree.addToApproximateEntriesCount` underflows on the persisted side) now routes through rollback instead of escaping. This is the intended behavior — persisted-side underflow is a structural inconsistency and rollback is the correct response. The post-`endTxCommit` catches at 2334 and 2346 are deleted by Track 2 along with the manual calls they surrounded; Hook B's swallow-catch (`RuntimeException | AssertionError`) inside `endAtomicOperation` takes their place. Ordering: Track 1 only broadens line 2319 and rewrites the four mutators; Track 2 owns the deletion of lines 2333–2354.
+- **Implemented in**: Track 1.
+
+#### D6: Bug C (YTDB-953) explicitly out of scope
+
+- **Alternatives considered**: (1) Fold Bug C's SV `load()` null-count scan into this branch; (2) leave for YTDB-953 (chosen).
+- **Rationale**: Bug C is independent of the clear-rollback divergence. After Track 1 lands, Bug C's underflow downgrades from `AssertionError` to a single logged error per engine, so urgency drops. Combining the fixes would conflate the structural divergence story with a separate "load path needs to scan for nulls" change.
+- **Risks/Caveats**: after Parts 1–4 land, Bug C is the only remaining trigger for in-memory null underflows in normal operation. The one-shot dump in Track 1 makes the next occurrence loud and pin-pointable; expect Bug C's signature to dominate the next Hub run's error lines.
+- **Implemented in**: Tracked separately at [YTDB-953](https://youtrack.jetbrains.com/issue/YTDB-953).
+
+### Invariants
+
+- **Invariant 1**: `approximateIndexEntriesCount` and `approximateNullCount` on both engines mutate only after `commitChanges` returns successfully. No code path inside an atomic op may write to the `AtomicLong` directly. Enforced by Tracks 3, 4.
+- **Invariant 2**: `AssertionError` from any of the four engine counter mutators stays contained — under consolidation it is logged-and-swallowed inside Hook B's catch in `endAtomicOperation`, never reaching the outer `catch (Error)` at `AbstractStorage.commit`. Enforced by Tracks 1 and 2.
+- **Invariant 3**: `applyIndexCountDeltas` and `applyHistogramDeltas` run with the per-index lock acquired at `lockIndexes` (AbstractStorage:2233) still held. The lock is released by `endAtomicOperation`'s inner-finally `releaseLocks` (`AtomicOperationsManager.java:263`); placing the apply hooks inside the inner try, between `commitChanges` and `releaseLocks`, keeps the lock held during apply. Enforced by Track 2.
+
+### Integration Points
+
+- **`IndexCountDelta` long-form overload** — Track 3 adds `accumulate(op, engineId, long totalDelta, long nullDelta)`; called only from the four clear/recalibration sites.
+- **`AtomicOperationsManager.endAtomicOperation`** — Track 2 adds two callback points that invoke `storage.persistIndexCountDeltas(op)` before `commitChanges` and `storage.applyIndexCountDeltas(op)` after `commitChanges` but before the inner-finally `releaseLocks`. The histogram apply parallels the index-count apply. Visibility of `persistIndexCountDeltas`, `applyIndexCountDeltas`, and `applyHistogramDeltas` on `AbstractStorage` rises from `private` to package-private.
+- **`AbstractStorage.commit` manual invocations** — Track 2 deletes lines 2318 (`persistIndexCountDeltas`), 2333 (`applyIndexCountDeltas`), and 2345 (`applyHistogramDeltas`) along with the post-`endTxCommit` catches at lines 2334 and 2346. Track 1 broadens only the surviving catch at line 2319.
+
+### Non-Goals
+
+- **Bug C (YTDB-953)** — SV `load()` unconditional null reset.
+- **PaginatedCollectionV2 `approximateRecordsCount`** — structurally adjacent dual-counter, deliberately not fixed (research confirmed the overwrite-from-persisted pattern self-heals on next mutation).
+- **YTDB-952 (DBSequence.callRetry)** and **XD-1272 (RemovedTransientEntity blob reattach)** — orthogonal defects observed in the same Hub log.
+- **Migration of `IndexCountDelta` to per-put EP-page I/O** — explicitly rejected by D1.
+
+## Checklist
+
+- [ ] Track 1: Containment fixes
+  > Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit` line 2319 to include `AssertionError` (defense-in-depth for `commitIndexes` and any other in-try failure), and replace the `assert updated >= 0` underflow trap in the four engine-level mutators (`addToApproximate{Entries,Null}Count` × MV + SV) with clamp+error carrying engine identity, plus a one-shot stack-trace dump per engine. The post-`endTxCommit` catches at lines 2334 and 2346 are deleted by Track 2 along with the manual calls they wrap, so Track 1 leaves them alone. This is the smallest blast-radius change and lands first as defense-in-depth — after it, the cascade observed in the Hub log is contained even if the rest of the branch were to be reverted.
+  > **Scope:** ~4-5 steps covering the single catch broadening at line 2319, clamp+error rollout to both engines, the one-shot dump latch, and a regression test for the underflow→error path.
+
+- [ ] Track 2: Consolidate persist + apply into `endAtomicOperation`
+  > Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas` into `AtomicOperationsManager.endAtomicOperation` as the single lifecycle gate — persist before `commitChanges` (with persist-failure-to-rollback conversion covering `IOException | RuntimeException | AssertionError`), apply after `commitChanges` but before the inner-finally `releaseLocks` so the per-index lock is held during apply. Delete the manual calls at `AbstractStorage.commit` lines 2318, 2333, 2345 and their surrounding post-`endTxCommit` catches at 2334, 2346. After this track, every counter sync (main commit, `clearIndex` API, `buildHistogramAfterFill`) advances through one place under the per-index lock, closing the read-stale-in-mem race window that today's manual apply at line 2333 leaves open.
+  > **Scope:** ~3-4 steps covering Hook A (persist + rollback-on-failure conversion), Hook B (apply + histogram-apply parallel + log-and-swallow), and integration tests covering both the main-commit and standalone-atomic-op paths under rollback.
+  > **Depends on:** Track 1
+
+- [ ] Track 3: `clear()` pure-delta encoding
+  > Convert `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.clear()` to pure-delta encoding: read current counters under the engine's exclusive lock, accumulate `Δ = -current` on the atomic op via the new long-form `IndexCountDelta.accumulate` overload, and stop writing directly to the persisted EP pages and in-memory `AtomicLong`s. After this track, the clear-rollback divergence is structurally impossible on both the commit path and the `clearIndex` API path (the latter requires Track 2's hook wiring to be effective).
+  > **Scope:** ~3-4 steps covering the long-form `IndexCountDelta.accumulate` overload, MV engine clear conversion, SV engine clear conversion, and clear-rollback regression tests covering both the commit and `clearIndex` API paths.
+  > **Depends on:** Track 2
+
+- [ ] Track 4: `buildInitialHistogram` pure-delta encoding
+  > Convert `BTreeMultiValueIndexEngine.buildInitialHistogram()` and `BTreeSingleValueIndexEngine.buildInitialHistogram()` to pure-delta encoding: compute the recalibration as `Δ = target - current` and accumulate via the long-form `IndexCountDelta.accumulate` overload. After this track, the recalibration-rollback divergence is structurally impossible on the `buildHistogramAfterFill` path, which is the only production caller.
+  > **Scope:** ~2-3 steps covering MV `buildInitialHistogram` conversion, SV `buildInitialHistogram` conversion, and a recalibration-rollback regression test.
+  > **Depends on:** Track 2
+
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
