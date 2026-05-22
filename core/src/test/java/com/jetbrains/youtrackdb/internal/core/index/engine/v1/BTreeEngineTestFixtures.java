@@ -36,7 +36,7 @@ import java.util.stream.Stream;
  * pre-wired fixture classes for single-value and multi-value B-tree
  * index engines.
  */
-final class BTreeEngineTestFixtures {
+public final class BTreeEngineTestFixtures {
 
   private BTreeEngineTestFixtures() {
   }
@@ -264,7 +264,7 @@ final class BTreeEngineTestFixtures {
    * inside the captured window must manage the handler manually (see e.g.
    * the zero-delta tests in the underflow suites).
    */
-  static List<LogRecord> captureSevereOn(Class<?> engineClass, Runnable body) {
+  public static List<LogRecord> captureSevereOn(Class<?> engineClass, Runnable body) {
     var captured = new CopyOnWriteArrayList<LogRecord>();
     var logger = Logger.getLogger(engineClass.getName());
     var priorLevel = logger.getLevel();
