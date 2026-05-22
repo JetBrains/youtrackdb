@@ -16,6 +16,7 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 - [x] 2026-05-22T14:09Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-22T16:02Z [ctx=safe] Step 1 complete (commit 45e22026a8)
 - [x] 2026-05-22T17:22Z [ctx=safe] Step 2 complete (commit 55db0a0aad)
+- [x] 2026-05-22T18:21Z [ctx=info] Step 3 complete (commit 27c11e95b3, Review fix dc833ba36d)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -25,6 +26,10 @@ at Phase 1. -->
 ### 2026-05-22 — engineId bit-encoding for `IndexCountDeltaHolder` lookups
 
 The `IndexAbstract.getIndexId()` external id packs `engineAPIVersion` in the high 5 bits and the internal engine id in the low 27 bits (see `AbstractStorage.generateIndexId` / `extractInternalId`). `IndexCountDeltaHolder` keys on the internal id, so any test that wants to inject or read a delta for a named index must mask the external id with `0x7FFFFFF`. The four engine-mutator regression tests later in this track and the storage cascade-containment test will need the same mask. See Episodes §Step 1.
+
+### 2026-05-22 — `logAndPrepareForRethrow` overload asymmetry for seeding in-error state
+
+Only two of the three `logAndPrepareForRethrow` overloads on `AbstractStorage` call `setInError`: the `Error`-overload at line 5816 and the `Throwable`-overload at line 5838. The `RuntimeException`-overload at line 5789 does NOT touch the `error` field. A test that needs to seed in-error state via `logAndPrepareForRethrow` must use an `Error` subtype (e.g., `OutOfMemoryError`) or a bare `Throwable`. Affects Step 6 (storage cascade-containment) and any Track 2-4 test that needs prior in-error state. See Episodes §Step 3.
 
 ### 2026-05-22 — `RecordSerializationContext.executeOperations` as a wrapper-bypassing injection point
 
@@ -120,7 +125,7 @@ Invariants to preserve: the cache-only contract on `applyIndexCountDeltas` and `
 
 1. Broaden the catch at `AbstractStorage.commit:2319` to include `AssertionError` and add a regression test forcing a persisted-side `BTree.addToApproximateEntriesCount` underflow that routes through the broadened catch to `rollback`. — risk: medium (error-handling code change at a single high-traffic main-commit catch; the catch lives on a storage-component method body so the change is observable by every commit)  [x]  commit: 45e22026a8
 2. Broaden the four `AtomicOperationsManager` wrapper catches (`executeInsideAtomicOperation:155`, `calculateInsideAtomicOperation:136`, `executeInsideComponentOperation:179`, `calculateInsideComponentOperation:208`) from `catch (Exception e)` to `catch (Exception | AssertionError e)`, and add a wrapper-level cascade-containment test that forces `AssertionError` from the lambda body of each pair and asserts rollback + `StorageException` wrap. — risk: medium (error-handling code change; blast-radius audit recorded in Decision Log shows 0 of 1074 callers depend on the unchanged catch)  [x]  commit: 55db0a0aad
-3. Add the `setInError(Throwable)` `AssertionError` entry-point guard at `AbstractStorage.java:1756` with the R5 three-reason inline comment (JVM `-ea` OFF, groups 1+2 catch at source, group 4 prevents in-memory underflow). — risk: high (storage-component lifecycle change; A5 documents downstream behavior changes at `doShutdown`, `synch`, `DiskStorage.clearStorageDirty`)  [ ]
+3. Add the `setInError(Throwable)` `AssertionError` entry-point guard at `AbstractStorage.java:1756` with the R5 three-reason inline comment (JVM `-ea` OFF, groups 1+2 catch at source, group 4 prevents in-memory underflow). — risk: high (storage-component lifecycle change; A5 documents downstream behavior changes at `doShutdown`, `synch`, `DiskStorage.clearStorageDirty`)  [x]  commit: 27c11e95b3
 4. Rewrite `BTreeMultiValueIndexEngine.addToApproximate{Entries,Null}Count` to clamp+error: replace `assert updated >= 0` with `if (updated < 0)` branch, add `firstUnderflowDumped` `AtomicBoolean` field shared by both mutators, log first underflow with stack trace and engine `name`+`id` then clamp via `compareAndSet(updated, 0)`. Add engine-level regression test forcing an underflow on a fresh engine and asserting clamp + log line + no throw. — risk: high (concurrency: new shared mutable state with documented CAS race trade-off)  [ ]
 5. Rewrite `BTreeSingleValueIndexEngine.addToApproximate{Entries,Null}Count` with the same clamp+error pattern and matching engine-level regression test. *(parallel with Step 4 — different file)* — risk: high (concurrency: same as Step 4)  [ ]
 6. Add storage cascade-containment test in package `com.jetbrains.youtrackdb.internal.core.storage.impl.local` using the synthetic `addToApproximateNullCount(Long.MIN_VALUE + 1)` fixture; assert the surrounding `commit()` succeeds, `isInError()` returns `false`, and a subsequent commit on the same storage instance succeeds. — risk: low (tests-only, no production code change; depends on Steps 3, 4, 5)  [ ]
@@ -156,6 +161,21 @@ completed step. Empty at Phase 1. -->
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/CommitNonRuntimeExceptionFallbackTest.java` (new)
 
 **Critical context:** After this step, no production path inside `AbstractStorage.commit`'s inner try produces a bare `AssertionError` or `IOException` — every code site either runs inside an `executeInsideComponentOperation` wrapper (now catches both) or declares no `IOException` and only allows `RuntimeException` to escape. The fallback wrap line at `AbstractStorage:2335` is therefore defense-in-depth only after this step, kept covered by `CommitNonRuntimeExceptionFallbackTest`. Track 2 will revisit this catch when the manual `persistIndexCountDeltas`/`applyIndexCountDeltas` calls are deleted.
+
+### Step 3 — commit 27c11e95b3, 2026-05-22T18:21Z [ctx=info]
+**What was done:** Added a one-line `if (e instanceof AssertionError) return;` guard at the entry of the private `setInError(Throwable)` setter in `AbstractStorage` (line 1756), with an inline comment naming the three reasons the skip is safe (JVM `-ea` OFF in production; the broadened pre-`endTxCommit` catch at `commit()` plus the four broadened `AtomicOperationsManager` wrapper catches catch the throw at its source; the upcoming engine-mutator clamp+error rewrites prevent the in-memory underflow from throwing). The guard is scoped to `AssertionError`; `OutOfMemoryError`, `StackOverflowError`, `LinkageError`, and other `Throwable` subtypes still flip the read-only-mode flag. PSI find-usages confirmed `setInError` is `private` with five internal callers, so the chokepoint guard closes the entire surface without per-caller edits. Added `SetInErrorAssertionErrorGuardTest` in the same package; after a dim-review fix iteration the test class carries six tests: the `Error`-overload AssertionError-skip contract, the `Throwable`-overload variant, an `AssertionError` subclass skip, idempotence against prior in-error state, a non-AssertionError `Throwable` still flipping the flag, and an `OutOfMemoryError` still flipping the flag.
+
+**What was discovered:** Three overloads of `logAndPrepareForRethrow` exist on `AbstractStorage`, but only two of them actually call `setInError`: the `Error`-overload at line 5816 and the `Throwable`-overload at line 5838. The `RuntimeException`-overload at line 5789 does NOT touch the `error` field. The idempotence test (`assertionErrorAfterPriorErrorLeavesPriorErrorIntact`) first tried to seed in-error state with a `RuntimeException` and stayed in clean state because that overload bypasses the setter; the seed was switched to `OutOfMemoryError` (Error overload) and the test passes. Step 6's storage cascade-containment test and any Track 2-4 test that needs to seed in-error state inherits this constraint.
+
+The dim review also surfaced a documentation completeness gap: the plan's A5 clarification enumerates `doShutdown`, `synch`, and `DiskStorage.clearStorageDirty` as the downstream behavior changes from the `setInError` guard, but `delete()` at `AbstractStorage.java:5119-5193` (which reads `isInError()` at three gate sites for `preCloseSteps`, engine deletion, and WAL deletion) was omitted. Pre-guard, an `AssertionError` survivor routed `delete()` into the log-only branch at line 5187; post-guard, `delete()` now runs the full deletion sequence. The behavior is correct for an actual user-initiated drop (the storage's on-disk state is no different from a normal exit), so the A5 expansion is documentation-only and does not require a code change.
+
+**What changed from the plan:** Dim review surfaced four should-fix items at iteration 1, all VERIFIED at iteration 2 via a `Review fix:` commit `dc833ba36d` adding three new tests (Throwable-overload path, AssertionError subclass, idempotence against prior state) and a Javadoc rewrite. The original Javadoc said the test invoked the "package-protected method" but `setInError` is `private` and the test calls the `protected` `logAndPrepareForRethrow` overloads; `count` was also miscited as an example top-level entry point since it uses the two-arg `logAndPrepareForRethrow(ee, false)` overload that bypasses `setInError`.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/SetInErrorAssertionErrorGuardTest.java` (new)
+
+**Critical context:** After this step the storage's permanent error-state cascade is closed: any `AssertionError` that still escapes the broadened catches in Step 1 and Step 2 is logged by `logAndPrepareForRethrow` and rethrown to the API caller, but `isInError()` stays `false` so the storage instance remains usable for subsequent commits. Step 6's storage cascade-containment test will exercise this end-to-end through the engine-mutator clamp+error path after Steps 4 and 5 land.
 
 ## Validation and Acceptance
 
