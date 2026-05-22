@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -25,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -64,6 +66,15 @@ public final class BTreeMultiValueIndexEngine
   // APPROXIMATE_ENTRIES_COUNT on load(). Adjusted at commit time, recalibrated
   // by buildInitialHistogram().
   private final AtomicLong approximateNullCount = new AtomicLong();
+
+  // One-shot latch for the in-memory counter underflow stack-trace dump.
+  // Shared by addToApproximateEntriesCount and addToApproximateNullCount: the
+  // first underflow on either mutator (per engine instance) wins the CAS and
+  // emits an error log with a stack trace so the next regression is
+  // pin-pointable; subsequent underflows on the same engine emit a compact
+  // error line without the stack. Resets on storage close + reopen because the
+  // engine is re-instantiated.
+  private final AtomicBoolean firstUnderflowDumped = new AtomicBoolean(false);
 
   public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractStorage storage, final int version) {
@@ -635,17 +646,55 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public void addToApproximateEntriesCount(long delta) {
     long updated = approximateIndexEntriesCount.addAndGet(delta);
-    assert updated >= 0
-        : "In-memory approximateIndexEntriesCount underflow: updated="
-            + updated + " delta=" + delta;
+    if (updated < 0) {
+      reportAndClampUnderflow(
+          "approximateIndexEntriesCount", approximateIndexEntriesCount, updated, delta);
+    }
   }
 
   @Override
   public void addToApproximateNullCount(long delta) {
     long updated = approximateNullCount.addAndGet(delta);
-    assert updated >= 0
-        : "In-memory approximateNullCount underflow: updated="
-            + updated + " delta=" + delta;
+    if (updated < 0) {
+      reportAndClampUnderflow(
+          "approximateNullCount", approximateNullCount, updated, delta);
+    }
+  }
+
+  /**
+   * Handles an in-memory approximate-count underflow on either mutator: logs at
+   * error level with engine identity, then clamps the counter back to 0 via
+   * CAS. The first underflow per engine instance carries a stack trace so the
+   * next regression is pin-pointable; subsequent underflows on the same engine
+   * emit a compact error without the stack.
+   *
+   * <p>If the CAS to 0 fails (a concurrent applier already moved the counter
+   * away from {@code observedNegative}), the method leaves the counter alone.
+   * A clamp-loop would mask a legitimate concurrent decrement and force the
+   * counter to 0 even when the new value is correct; under heavy contention
+   * the counter may stay negative until the next sufficiently-positive delta.
+   * This trade-off is intentional.
+   */
+  private void reportAndClampUnderflow(
+      String counterName, AtomicLong counter, long observedNegative, long delta) {
+    if (firstUnderflowDumped.compareAndSet(false, true)) {
+      LogManager.instance().error(
+          this,
+          "In-memory %s underflow on engine '%s' (id=%d): updated=%d delta=%d."
+              + " Clamping to 0; the cause should be a divergence between persisted"
+              + " and in-memory counter state — see stack trace.",
+          new IllegalStateException("approximate-count underflow stack"),
+          counterName, name, id, observedNegative, delta);
+    } else {
+      LogManager.instance().error(
+          this,
+          "In-memory %s underflow on engine '%s' (id=%d): updated=%d delta=%d."
+              + " Clamping to 0 (stack trace suppressed; already emitted once for this"
+              + " engine instance).",
+          null,
+          counterName, name, id, observedNegative, delta);
+    }
+    counter.compareAndSet(observedNegative, 0);
   }
 
   @Override
