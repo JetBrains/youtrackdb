@@ -408,3 +408,183 @@ scale. Other extensions stay silent.
 The four Tier-B section names are stable headings after YTDB-836; a
 future rename in `house-style.md` requires updating every pointer in
 the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
+
+---
+
+## 1.6 Workflow-SHA stamps on `_workflow/**` artifacts
+
+Every ephemeral `_workflow/**` artifact carries a line-1
+`<!-- workflow-sha: <40-char SHA> -->` stamp. The stamp records the
+workflow-format commit the artifact was written against; the drift
+check and the per-branch migration both resolve their reference point
+from this stamp. This section is the single source of truth for the
+format, the canonical parser idioms, the SHA computation rule at
+creation, the stamp range, the unstamped-artifact protocol, the
+non-rule against silent auto-computed defaults, the positive
+enumeration of stamped artifact types, the active-plan scope, and the
+shared Phase 1 walk bash block. Every downstream writer (skill
+template, drift check, migration, validator) resolves to this section
+rather than restating the rule locally.
+
+### (a) Format definition and writer-side position contract
+
+The stamp is `<!-- workflow-sha: <40-char SHA> -->` on line 1; the H1
+title is on line 2. Any tool or skill that edits a stamped artifact
+MUST preserve the stamp's line-1 position. `edit-design` mutations
+(`section-add`, `section-move`, `structural-rewrite`, `content-edit`,
+and every other shape) treat line 1 as immutable. The
+position-preservation rule is the runtime complement to I4 (the
+structural invariant that every stamped artifact begins with the stamp
+at line 1); together they keep the stamp parseable by the canonical
+regex in (a1) after any mutation sequence.
+
+### (a1) Canonical parser idioms
+
+Two regex forms, both quoted byte-for-byte by Tracks 3, 4a, and 4b:
+
+- Value extraction (drift check, range derivation):
+  ```bash
+  head -1 file.md | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$'
+  ```
+  The `workflow-sha:` anchor rejects 40-hex sequences in H1 titles
+  like `# Backport of <SHA>: <description>` (verified by reproduction
+  during Phase A adversarial review).
+- Presence check (lockstep advance, validators):
+  ```bash
+  head -1 file.md | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'
+  ```
+
+Explicitly NOT canonical: `head -1 | grep -oE '[0-9a-f]{40}'` without
+the `workflow-sha:` anchor returns false positives on any H1 that
+happens to contain a 40-hex run.
+
+### (b) SHA computation at artifact-creation time
+
+Writers compute the stamp value from a path-scoped log over the
+workflow tooling itself:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+```
+
+When the path-scoped log returns the empty string (no commit in HEAD's
+ancestry has touched `.claude/workflow/` or `.claude/skills/`), the
+writer falls back to `git rev-parse HEAD`. In every repo where
+workflow tooling exists in any reachable commit, the fallback never
+fires; documenting it keeps the rule portable to fresh repos and to
+repos where workflow paths have been moved.
+
+### (c) Stamp range definition
+
+The drift / migration range is `BASE_SHA..HEAD`, where `BASE_SHA` is
+the oldest stamp reachable from HEAD via a pairwise `git merge-base`
+fold across the set of stamps gathered by the Phase 1 walk in (h).
+HEAD is the upper bound because the branch is a self-contained capsule
+(workflow-format commits enter only via explicit rebase or merge of
+`develop`; see plan D10).
+
+A fatal `git merge-base` failure (a stamp pointing at a `git
+gc`-pruned commit, or two stamps with no reachable common ancestor in
+the local repo) routes to the unstamped-artifact bootstrap prompt in
+(d): the affected stamp is treated as unstamped for the rest of the
+session, and the user is asked to supply a base SHA covering it. The
+recovery path keeps the gate usable when stamps drift onto commits the
+local repo no longer has.
+
+### (d) Unstamped-artifact protocol
+
+When any artifact in the active plan's `_workflow/` is unstamped, the
+drift check signals drift unconditionally (no fold, no range
+computation). The migration prompts the user once for a base SHA
+covering the unstamped set and validates the input:
+
+```bash
+git rev-parse --verify "$SHA^{commit}" && git merge-base --is-ancestor "$SHA" HEAD
+```
+
+The `^{commit}` peel rejects tag and ref names; only commit SHAs pass.
+Short prefixes are accepted as input, but the writer canonicalizes the
+value to the 40-char form via the `rev-parse` stdout before storing it
+in any stamp file (the stamp regex `[0-9a-f]{40}` rejects shorter
+values on subsequent parse).
+
+The prompt records the user's best guess; the per-commit replay loop's
+halt-on-ambiguity is a partial safety net, not a guarantee. A too-old
+SHA silently bloats the replay range; a too-new SHA silently skips
+needed migrations. Both failure modes are documented here so debug
+sessions have a starting point.
+
+### (e) Non-rule: no silent auto-computed default
+
+No auto-computed reference (fork-point with `develop`, HEAD itself,
+`git merge-base origin/develop HEAD`, or any other variant) is a
+silent default for unstamped artifacts. Under rebase any such
+reference shifts forward, marking unstamped artifacts as
+already-current and silently skipping the migration; the gate's "no
+drift" report would then mask data loss the user cannot detect. The
+rationale lives in plan D8; the rule is restated here because the
+non-rule is as load-bearing as the positive rules above.
+
+### (f) Stamped artifact types and exclusions
+
+Positive enumeration of stamped artifacts:
+
+- `_workflow/implementation-plan.md`
+- `_workflow/design.md`
+- `_workflow/design-mechanics.md` (when the length trigger has fired and the file exists)
+- Every `_workflow/plan/track-*.md`
+
+Explicitly NOT stamped:
+
+- Phase 4 final artifacts (`design-final.md`, `adr.md`). These survive
+  the merge into `develop` where per-branch migration never applies,
+  so a stamp would be both stale on first commit and meaningless once
+  the branch is squashed.
+- `_workflow/design-mutations.md`. The file is an append-only log
+  whose stamp would always equal `design.md`'s; the append-only
+  contract makes the file replay-immune by construction.
+
+### (g) Active-plan scope
+
+Both the drift check and the migration operate on the plan dir the
+caller resolved at startup: `/create-plan <dir>`, `/execute-tracks
+<dir>`, or `/migrate-workflow`'s zero / one / many ladder over
+`docs/adr/*/_workflow/`. See §1.2 *Plan File Structure*
+(one-plan-per-branch convention) for the resolution rule.
+
+Cross-plan folding is out of scope (plan D13): each plan migrates
+independently, and folding across plans would over-include older
+commits the active plan was always synced past. This scope rests on
+the one-plan-per-branch project convention, not a correctness
+invariant; a future change allowing multiple plans per branch would
+force a rethink of this section.
+
+### (h) Phase 1 walk bash block
+
+The shared enumerate-and-classify block is the durable single source
+for the Phase 1 walk. Tracks 3 and 4a copy this block byte-for-byte so
+the coordinated-edit cost on a future format change stays bounded to
+the writer sites enumerated in `## Interfaces and Dependencies` of
+each track. The block survives Phase 4 (`design.md` is removed in the
+cleanup commit; `conventions.md` is not):
+
+```bash
+PLAN_DIR="docs/adr/<resolved-dir-name>"
+STAMPED_SHAS=""
+UNSTAMPED_FILES=""
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+    if [ -n "$SHA" ]; then
+        STAMPED_SHAS="$STAMPED_SHAS $SHA"
+    else
+        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+    fi
+done
+```
+
+The `<resolved-dir-name>` placeholder is the active plan dir resolved
+per (g) above. Downstream writers replace it at invocation time; the
+literal form lands here so the block stays copy-paste-ready.
