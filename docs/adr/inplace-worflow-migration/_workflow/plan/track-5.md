@@ -45,7 +45,7 @@ Three locations branch on session-type:
 
 3. **§7 issue body template** — currently `**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4`. Becomes: `**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4 | migrate-workflow`.
 
-The `migrate-workflow` SKILL needs a new Step 6 that invokes the parameterized reflection. The Skill lives at `.claude/skills/migrate-workflow/SKILL.md` and the new step lands AFTER Step 5 (final summary, renamed from today's Step 6 under Track 4's renumber-down) and BEFORE the session ends.
+The `migrate-workflow` SKILL needs a new Step 6 that invokes the parameterized reflection. The Skill lives at `.claude/skills/migrate-workflow/SKILL.md` and the new step lands AFTER Step 5 (final summary, renamed from today's Step 6 under Track 4b's renumber-down) and BEFORE the session ends.
 
 ## Plan of Work
 
@@ -76,7 +76,7 @@ with `session-type=migrate-workflow`. The protocol handles its own MCP-reachabil
 check and end-of-session contract; nothing else fires after it returns.
 ```
 
-Update Step 0's umbrella task list to include "Self-improvement reflection" as task 6 (under Track 4's renumber, the umbrella task numbering tracks the new step numbers).
+Update Step 0's umbrella task list to include "Self-improvement reflection" as task 6 (under Tracks 4a/4b's renumber, the umbrella task numbering tracks the new step numbers).
 
 Verify after both edits: a fresh `/migrate-workflow` invocation that exhausts the queue and reaches Step 5's final summary then enters reflection, which scans the session, presents candidates (or "No improvements proposed"), and ends the session.
 
@@ -121,7 +121,7 @@ After Track 5 lands:
 - Everything else in `.claude/workflow/` and `.claude/skills/` not named above.
 
 **Inter-track dependencies:**
-- **Depends on:** Track 4 (`migrate-workflow/SKILL.md` step numbering and the existence of a Step 5 final summary that this track appends Step 6 after — numbers reflect Track 4's renumber-down).
+- **Depends on:** Track 4b (`migrate-workflow/SKILL.md` step numbering and the existence of a Step 5 final summary that this track appends Step 6 after — numbers reflect Tracks 4a/4b's renumber-down).
 - Indirectly depends on Track 1 (`conventions.md` §1.6 grounds the workflow-SHA-stamp vocabulary the reflection step's issue bodies may reference) — but does not edit that file.
 
 **External interfaces:**

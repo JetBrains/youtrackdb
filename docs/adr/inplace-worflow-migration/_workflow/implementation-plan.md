@@ -62,7 +62,7 @@ flowchart LR
 - **`create-plan` SKILL** — emits the stamp on line 1 of `implementation-plan.md` and each `plan/track-N.md` it creates (Track 2). Invokes the drift gate at session start so re-invocation after the user rebases the branch onto a newer develop catches post-rebase drift before any research investment (Track 6). One-line bash helper computes the SHA: `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills`.
 - **`edit-design` SKILL** — emits the stamp on `design.md` (phase1-creation) and `design-mechanics.md` (length-trigger-crossing). Stamp updates only on migration replay, never on subsequent mutation kinds (`content-edit`, `section-add`, etc.). Touched in Track 2. `design-mutations.md` is deliberately excluded; see the Non-Goals section.
 - **`workflow-drift-check.md`** — parser walks every `_workflow/**` artifact in the active plan's `_workflow/` directory (D13) and reads each line-1 stamp. Any unstamped artifact triggers drift unconditionally; the gate skips the fold and routes to migration. When every artifact is stamped, the fold runs and the gate compares `BASE_SHA..HEAD` against workflow paths (no `git fetch`). On no-drift with non-uniform stamps, normalizes every stamp to the fold result and creates a separate commit (D11). Resolutions wording updated for in-branch flow. Invoked from both `/execute-tracks` turn 1 (existing) and `/create-plan` between Step 1 and Step 1a (Track 6). Touched in Track 3.
-- **`migrate-workflow` SKILL** — runs against the active plan's `_workflow/` directory (D13; one plan at a time, matching today's skill contract). Preflight refuses on develop-worktree requirement (drops) and on tracked-uncommitted or untracked files under the active plan's `_workflow/**` (D12; progress-sentinel carve-out kept). When unstamped artifacts exist, the skill prompts the user once for a base SHA covering the unstamped set, validates it, and folds it in with the stamped set. Range is `BASE_SHA..HEAD`. Per-commit replay loop unchanged in shape; after each successful replay, every stamp in the active plan advances to that commit's SHA in lockstep (crash-resume marker). A final post-loop step re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch (D2). Touched in Track 4.
+- **`migrate-workflow` SKILL** — runs against the active plan's `_workflow/` directory (D13; one plan at a time, matching today's skill contract). Preflight refuses on develop-worktree requirement (drops) and on tracked-uncommitted or untracked files under the active plan's `_workflow/**` (D12; progress-sentinel carve-out kept). When unstamped artifacts exist, the skill prompts the user once for a base SHA covering the unstamped set, validates it, and folds it in with the stamped set. Range is `BASE_SHA..HEAD`. Per-commit replay loop unchanged in shape; after each successful replay, every stamp in the active plan advances to that commit's SHA in lockstep (crash-resume marker). A final post-loop step re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch (D2). Touched in Track 4a (preflight + range derivation) and Track 4b (per-commit replay + final batch).
 - **`self-improvement-reflection.md`** — gains a session-type parameter (`execute-tracks` or `migrate-workflow`) controlling the commit-clean check, phase value, and applicability text. Touched in Track 5. The migrate-workflow SKILL gains a final step that invokes it.
 
 #### D1: Per-artifact SHA stamp, not single sentinel
@@ -70,14 +70,16 @@ flowchart LR
 - **Alternatives considered**: single `_workflow/.workflow-sha` sentinel file; mixed scheme (stamps + summary sentinel cache).
 - **Rationale**: per-artifact stamps survive file copies between branches, let an isolated re-creation of one artifact carry its own provenance, and the user's framing was explicit ("each workflow artifact has a SHA"). A single sentinel loses resolution and depends on staying in sync with the artifacts it claims to summarize.
 - **Risks/Caveats**: marginally more parsing work in the drift check and migration. Cost is one `head -1` per artifact — negligible.
-- **Implemented in**: Track 1 (format), Track 2 (writers), Track 3 (drift-check reader), Track 4 (migration reader/writer).
+- **Implemented in**: Track 1 (format), Track 2 (writers), Track 3 (drift-check reader), Track 4a (migration reader at range derivation), Track 4b (migration writer in per-commit loop and final batch).
+- **Full design**: `design.md` §"Core Concepts" + §"Stamp range computation"
 
 #### D2: Lockstep per-commit advance + final stamp-to-HEAD batch
 
 - **Alternatives considered**: advance only the stamps of artifacts a given commit edited; skip per-commit advance entirely (only stamp to HEAD at end).
 - **Rationale**: per-commit lockstep advance preserves crash-resume (next session reads any stamp; if it equals HEAD the migration completed, otherwise replay resumes from where the stamps point). A final post-loop step then re-stamps every artifact to `HEAD`'s SHA in one batch — including artifacts every per-commit replay skipped. Final invariant: post-migration, every stamp equals `git rev-parse HEAD`. Per-artifact advancement creates an irregular tree of stamps; skipping the per-commit phase loses crash resumption.
 - **Risks/Caveats**: an artifact untouched by any replayed commit still ends at HEAD's SHA. Correct semantics — the artifact is synced to the workflow state HEAD reflects, even when the replays didn't touch it. The HEAD-final stamp replaces the prior "last replayed commit's SHA" framing (see D10).
-- **Implemented in**: Track 4.
+- **Implemented in**: Track 4b.
+- **Full design**: `design.md` §"Per-commit replay and lockstep advance"
 
 #### D3: Ephemeral artifacts only, no Phase 4 stamping
 
@@ -98,7 +100,7 @@ flowchart LR
 - **Alternatives considered**: backfill script that walks `docs/adr/*/_workflow/` on every active branch and writes stamps en masse.
 - **Rationale**: the migration's unstamped-artifact prompt (see D8) is already the bootstrap path. A separate backfill script would duplicate that prompt outside the migration loop, with the added coordination cost of remembering to run it on every active branch. The migration already runs whenever drift surfaces; bundling bootstrap into the migration keeps one path.
 - **Risks/Caveats**: legacy branches with no pending drift still need to be migrated to acquire stamps. In practice every legacy branch hits drift the moment any workflow commit lands on `develop` after it was cut, so the bootstrap usually happens on the next `/execute-tracks` startup anyway. Branches that never re-engage with the workflow gate keep their unstamped state, which is fine — they're inert.
-- **Implemented in**: Track 4 (migration's bootstrap prompt).
+- **Implemented in**: Track 4a (migration's bootstrap prompt).
 
 #### D6: Parameterize `self-improvement-reflection.md`, don't fork it
 
@@ -119,7 +121,8 @@ flowchart LR
 - **Alternatives considered**: silently default unstamped artifacts to `HEAD`; silently default to `git merge-base origin/develop HEAD`; silently default to fork-point with develop; halt the migration with a generic error and refuse to proceed.
 - **Rationale**: any auto-computed reference fails after rebase. A legacy branch's unstamped artifacts, rebased onto a develop that has had workflow commits in the meantime, would have any auto-computed reference land at (or near) the new HEAD — and the silent fallback would then declare the artifacts already-synced, skipping the migration. The data loss is silent: artifacts stay at their unmigrated content while the drift gate reports "no drift." A one-time prompt at migration time captures intent the system cannot infer.
 - **Risks/Caveats**: one prompt per migration session on legacy branches (a small UX cost). Mitigated by presenting the prompt only when unstamped artifacts exist — fully-stamped branches never see it. The user has to supply a meaningful SHA; if they pick wrong, the per-commit replay loop's halt-on-ambiguity contract surfaces the mismatch.
-- **Implemented in**: Track 3 (drift check signals drift on unstamped-artifact presence) and Track 4 (migration prompts and validates).
+- **Implemented in**: Track 3 (drift check signals drift on unstamped-artifact presence) and Track 4a (migration prompts and validates).
+- **Full design**: `design.md` §"Core Concepts" + §"Stamp range computation"
 
 #### D7: HTML-comment stamp on line 1, before the H1
 
@@ -127,13 +130,15 @@ flowchart LR
 - **Rationale**: `<!-- workflow-sha: <40-char SHA> -->` on line 1 is invisible in rendered Markdown, parseable with `head -1` + a grep, doesn't conflict with the existing convention of opening with `# <Feature Name>`, and gives the artifact a uniform top-of-file location no matter what the H1 says. Frontmatter would be a new convention to learn; trailing-line footer is fragile against append operations.
 - **Risks/Caveats**: line 1 has to be the stamp, line 2 has to be the H1 — a writer that gets this wrong leaves a malformed file. Format check is a one-line regex; documented in Track 1.
 - **Implemented in**: Track 1.
+- **Full design**: `design.md` §"Core Concepts"
 
 #### D10: Comparison range is BASE_SHA..HEAD; branch is a self-contained capsule
 
 - **Alternatives considered**: `BASE_SHA..origin/develop` (the develop-relative comparison the existing /execute-tracks gate uses); a hybrid (compare against `origin/develop` when reachable, fall back to HEAD); compare against `git merge-base origin/develop HEAD`.
 - **Rationale**: workflow commits enter the branch's view only when the user explicitly rebases (or merges develop). Until then, the branch's drift is purely a function of its own commit graph. Comparing against `origin/develop` would force a `git fetch` on every gate run and surface drift the user hasn't opted into; comparing against HEAD ties detection to the explicit rebase event. The hybrid options muddy the semantics for marginal benefit.
-- **Risks/Caveats**: on a workflow-modifying branch (this very plan's branch), the user's own workflow commits register as drift, triggering migration of in-progress workflow changes. Accepted as dogfood — see Track 4's intro.
-- **Implemented in**: Track 1 (range definition in conventions), Track 3 (drift check), Track 4 (migration), Track 6 (gate at /create-plan startup).
+- **Risks/Caveats**: on a workflow-modifying branch (this very plan's branch), the user's own workflow commits register as drift, triggering migration of in-progress workflow changes. Accepted as dogfood — see Track 4b's intro.
+- **Implemented in**: Track 1 (range definition in conventions), Track 3 (drift check), Track 4a (migration range derivation), Track 6 (gate at /create-plan startup).
+- **Full design**: `design.md` §"Stamp range computation"
 
 #### D11: On no-drift with non-uniform stamps, normalize to fold result + auto-commit
 
@@ -141,20 +146,22 @@ flowchart LR
 - **Rationale**: when the drift gate determines no drift but artifacts carry distinct stamps (typically because they were created or last migrated at different times), normalizing every stamp to the fold result collapses future-gate computation from N-way pairwise `git merge-base` to a single-value read. A separate auto-commit keeps the change auditable in git history. Leaving stamps as-is means every gate run pays the fold cost; deferring the commit risks the stamp change tangling with the user's next code commit.
 - **Risks/Caveats**: an extra commit appears on the branch on a no-drift gate run with non-uniform stamps. One commit per such run; branches with already-uniform stamps see none. The auto-commit must verify that nothing outside the stamp lines changes in the diff before committing (refuses otherwise to avoid swallowing unrelated edits).
 - **Implemented in**: Track 3.
+- **Full design**: `design.md` §"Workflow" → "Drift detection at session startup"
 
 #### D12: Migration preflight refuses on uncommitted or untracked `_workflow/**` state
 
 - **Alternatives considered**: silently stash; warn and continue; pure clean-tree check across the whole repo (today's behavior, modulo progress-sentinel).
 - **Rationale**: the migration mutates files under `_workflow/**` and commits them. Uncommitted edits or untracked files in that subtree would either get clobbered by the migration's writes or get pulled into the migration's commit boundaries unintentionally. Stashing is destructive (the user might not realize their stash got popped on top of migrated content); warn-and-continue normalizes around the failure mode rather than preventing it. The whole-repo clean check is too strict — unrelated edits under `core/` or `server/` have no bearing on the migration.
 - **Risks/Caveats**: the progress-sentinel carve-out remains so the migration can manage its own transient file. Users with unfinished planning work under `_workflow/**` see a refusal until they commit, stash, or remove those files.
-- **Implemented in**: Track 4.
+- **Implemented in**: Track 4a.
 
 #### D13: Drift detection and migration scope to the active plan directory, not the whole branch
 
 - **Alternatives considered**: walk every `docs/adr/*/_workflow/` on the branch and fold their stamps together; restrict only the migration to one plan while keeping the drift check branch-wide.
 - **Rationale**: each plan directory is migrated independently. Folding stamps across plans yields a `BASE_SHA` that's older than the active plan needs, inflating the replay range with commits the active plan was always synced past. The session itself is already plan-scoped — `/create-plan <dir>` and `/execute-tracks <dir>` operate on one plan — and today's `/migrate-workflow` already targets exactly one plan (prompts the user to pick when multiple plan directories exist on the branch; see SKILL.md Step 4). A branch-wide drift check would surface drift the migration that's supposed to resolve it cannot act on as a unit. Convention on this project is one plan dir per branch; the rare multi-plan-per-branch case sees drift in non-active plans only when the user invokes a session against them.
 - **Risks/Caveats**: a user on a multi-plan branch who runs a session against plan A doesn't learn about drift in plan B until they invoke a session against plan B. Notification is delayed, not lost; data integrity holds.
-- **Implemented in**: Tracks 3 (drift check), 4 (migration), 6 (gate at `/create-plan` startup). Track 1 defines the active-plan scope inline in `conventions.md` §1.6 so the drift check and the migration cite one source of truth.
+- **Implemented in**: Tracks 3 (drift check), 4a (migration range derivation), 4b (migration replay), 6 (gate at `/create-plan` startup). Track 1 defines the active-plan scope inline in `conventions.md` §1.6 so the drift check and the migration cite one source of truth.
+- **Full design**: `design.md` §"Stamp range computation"
 
 ### Invariants
 
@@ -170,7 +177,7 @@ flowchart LR
 - **`edit-design` skill `phase1-creation`** — stamp written at the top of `design.md`; same for `design-mechanics.md` when mechanics is created during `length-trigger-crossing`. `design-mutations.md` is deliberately excluded (see Non-Goals).
 - **`workflow-drift-check.md` Detection section** — replaces `FORK=$(git merge-base origin/develop HEAD)` with stamp-walking logic scoped to the active plan's `_workflow/` directory (D13); range is `BASE_SHA..HEAD` (no `git fetch`); short-circuits to "drift detected" whenever any artifact in the active plan is unstamped. On no-drift with non-uniform stamps in the active plan, normalizes every artifact's stamp in the active plan to the fold result and creates a separate commit.
 - **`migrate-workflow` SKILL preflight** — refuses to start if any tracked file under the active plan's `_workflow/**` has uncommitted changes (working tree or index), or if any untracked file lives there (D13 scope). Progress-sentinel carve-out kept.
-- **`migrate-workflow` SKILL Step 2** — same stamp-walking logic for range computation, scoped to the active plan's `_workflow/` (D13); range is `BASE_SHA..HEAD`. New Step 2.0 prompts the user for a base SHA covering unstamped artifacts in the active plan (when any exist). Step 4's per-commit loop advances stamps in lockstep at sub-step 4.5 after each commit's replay; sub-step 4.8 re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch after the loop exits. (Step numbers follow Track 4's renumber-down; today's Step 2 is removed.)
+- **`migrate-workflow` SKILL Step 2** — same stamp-walking logic for range computation, scoped to the active plan's `_workflow/` (D13); range is `BASE_SHA..HEAD`. New Step 2.0 prompts the user for a base SHA covering unstamped artifacts in the active plan (when any exist). Step 4's per-commit loop advances stamps in lockstep at sub-step 4.5 after each commit's replay; sub-step 4.8 re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch after the loop exits. (Step numbers follow Track 4a/4b's renumber-down; today's Step 2 is removed.)
 - **`migrate-workflow` SKILL final step** — invokes `self-improvement-reflection.md` with `session-type=migrate-workflow`.
 - **`/create-plan` SKILL between Step 1 and Step 1a** — invokes `workflow-drift-check.md` after reading the workflow docs and before the handoff scan. Three resolutions translate symmetrically with `/execute-tracks`: Migrate now ends the session for in-branch `/migrate-workflow`; Defer continues knowing artifacts may be drifted; Suppress same continue path without the session-end reminder.
 
@@ -182,7 +189,7 @@ flowchart LR
 - Refactoring the per-commit classification rules (`format`/`skill`/`rename`/`noop`) — those stay as-is.
 - Extending the migration to handle non-workflow commits.
 - Adding a helper script under `.claude/scripts/` — the SHA read is a one-liner inlined where needed.
-- Rewriting the renames-tracker mechanism — it stays in a transient `.migration-progress` block per session (or wherever it ends up landing in Track 4's simplified progress file).
+- Rewriting the renames-tracker mechanism — it stays in a transient `.migration-progress` block per session (or wherever it ends up landing in Track 4a's simplified progress file).
 - Modifying other phases of the workflow beyond what's strictly needed for the in-branch migration flow.
 
 ## Checklist
@@ -192,32 +199,40 @@ flowchart LR
   > **Scope:** ~2-3 steps covering stamp format definition in conventions.md, SHA computation rule at creation, and the unstamped-artifact protocol.
 
 - [ ] Track 2: Stamp writers
-  > Update `/create-plan` SKILL and `edit-design` SKILL to emit the stamp at every artifact-creation site. Four sites total: `implementation-plan.md`, `plan/track-N.md` (created in `/create-plan`); `design.md`, `design-mechanics.md` (created in `edit-design` under `phase1-creation` and `length-trigger-crossing` respectively). Direct mutations through `edit-design` leave the stamp untouched. `design-mutations.md` is deliberately excluded: append-only log, no replay, no stamp.
+  > Update `/create-plan` and `edit-design` SKILLs to emit the line-1 stamp at every artifact-creation site. Four sites total across `implementation-plan.md`, `plan/track-N.md`, `design.md`, and `design-mechanics.md`; direct mutations leave the stamp untouched. `design-mutations.md` is deliberately excluded — see D6 and the track file.
   > **Scope:** ~3 steps covering create-plan templates, edit-design phase1-creation, edit-design length-trigger; design-mutations.md exclusion documented but no writer change.
   > **Depends on:** Track 1
 
 - [ ] Track 3: SHA-aware drift check
-  > Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workflow/**` artifact in the active plan's `_workflow/` directory (D13), classify each as stamped or unstamped, and apply the two-phase rule: any unstamped artifact short-circuits to "drift detected" with no fold; when every artifact in the active plan is stamped, fold the SHA set pairwise through `git merge-base` to derive `BASE_SHA` and run `git log $BASE_SHA..HEAD` against workflow paths. Drop the `git fetch origin develop` step — comparison is purely against HEAD (D10). Update the "Migrate now" resolution text to instruct an in-branch re-invocation of `/migrate-workflow`. On no-drift with non-uniform stamps, normalize every artifact's stamp in the active plan to the fold result and create a separate commit (D11). Skip conditions tighten to the active plan (skip-#1 reads `ls -d "$PLAN_DIR/_workflow/"`; skip-#2 reads only the active plan's `implementation-plan.md`); the Defer/Suppress flows stay structurally the same.
+  > Rewrite the Detection section of `workflow-drift-check.md` to walk per-artifact stamps in the active plan's `_workflow/`, compare against HEAD (no `git fetch`), and route to in-branch migration. On no-drift with non-uniform stamps, normalize and commit (D11). Track file carries the bash and the Skip-conditions detail.
   > **Scope:** ~3-4 steps covering Detection rewrite (HEAD range + two-phase rule), no-drift normalization with auto-commit, Resolutions text update, Skip-conditions tightening.
   > **Depends on:** Track 1
 
-- [ ] Track 4: In-branch migrate-workflow
-  > Rewrite the migration skill to run inside the branch's own worktree, scoped to the active plan's `_workflow/` directory (D13; one plan at a time, same contract as today's skill): drop the develop-worktree preflight (Step 1); collapse Step 2 to "active branch + clean tree + pick the active plan dir via the existing zero/one/many ladder over `docs/adr/*/_workflow/`"; tighten the preflight to refuse on tracked-uncommitted or untracked files under the active plan's `_workflow/**` with the progress-sentinel carve-out (D12); add a Step 3.0 that prompts the user once for an unstamped-artifact base SHA when any unstamped artifacts exist in the active plan (D8); replace the Step 3 commit-range derivation with the stamp-walking logic the drift check uses (range `BASE_SHA..HEAD`, no fetch); update Step 5's per-commit replay so every stamp in the active plan advances to the just-replayed commit's SHA in lockstep (crash-resume marker); add a final post-loop step that re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch (D2 + D10). Renames tracker stays. Final summary names the post-run state (`stamps now at <HEAD-SHA>`). Workflow-modifying branches (this very plan's branch) accept dogfood semantics — their own workflow commits register as drift and trigger migration of in-progress workflow changes; one migration session per commit cluster touching `.claude/workflow/` or `.claude/skills/`.
-  > **Scope:** ~6-8 steps covering preflight tighten (uncommitted/untracked refusal), worktree-resolution drop, unstamped-artifact prompt, range-computation rewrite (HEAD), per-commit lockstep advance, final stamp-to-HEAD batch, progress file simplification, final summary.
+- [ ] Track 4a: Migration preflight + range computation
+  > Rewrite the migration skill's preflight and range computation to run inside the branch's worktree, scoped to the active plan's `_workflow/` (D13). Drops the develop-worktree preflight; adds the unstamped-artifact bootstrap prompt (D8) and the stamp-walking range derivation (D10). Track file carries the step-by-step rewrite.
+  > **Scope:** ~4-5 steps covering preflight tighten (develop-worktree drop + uncommitted/untracked refusal), worktree-resolution drop, unstamped-artifact prompt, range-computation rewrite (HEAD), progress file simplification.
   > **Depends on:** Track 1
+
+- [ ] Track 4b: Migration replay + final batch
+  > Rewrite the migration skill's per-commit replay loop to advance every stamp in lockstep at each commit, then re-stamp every artifact to HEAD's SHA in one final batch (D2). Workflow-modifying branches accept dogfood semantics — their own workflow commits register as drift and trigger migration of in-progress workflow changes. Track file carries the step-by-step rewrite.
+  > **Scope:** ~3-4 steps covering per-commit lockstep advance, final stamp-to-HEAD batch, final summary.
+  > **Depends on:** Track 4a
 
 - [ ] Track 5: Self-improvement reflection for migration
   > Parameterize `self-improvement-reflection.md` to accept a session-type input (`execute-tracks` or `migrate-workflow`) that controls the commit-clean check, the phase identifier in the issue body, the applicability sentence in §"When it runs", and the in-scope examples in §"What counts as a worth-recording issue". Then wire a final reflection step into the rewritten `migrate-workflow` SKILL that invokes it with `session-type=migrate-workflow`. Skip rules (YouTrack MCP unreachable, no work happened) carry through unchanged.
   > **Scope:** ~2-3 steps covering reflection parameterization, migrate-workflow final step, applicability text updates.
-  > **Depends on:** Track 4
+  > **Depends on:** Track 4b
 
 - [ ] Track 6: Drift gate at /create-plan startup
-  > Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3) to the `/create-plan` SKILL, between Step 1 (read workflow docs) and Step 1a (handoff scan). Without this gate, a re-invocation after the user rebases the branch to pick up critical workflow changes from develop would silently mutate `_workflow/**` artifacts on top of the drifted shape: stamps still point at the pre-rebase workflow tip, but HEAD's history has advanced to include the newly-imported workflow commits. The gate's `BASE_SHA..HEAD` walk surfaces those imported commits (D10) and routes the user through migration first. Three resolutions stay symmetric with `/execute-tracks` (Migrate now / Defer / Suppress). `/edit-design` runs only inside parent skills, so transitive coverage holds; no separate wiring there.
+  > Add a session-start invocation of the SHA-aware drift gate to the `/create-plan` SKILL between Step 1 and Step 1a, catching post-rebase drift before any research investment (D9). Three resolutions stay symmetric with `/execute-tracks`.
   > **Scope:** ~2-3 steps covering `workflow-drift-check.md` intro generalization (name both callers), `/create-plan` SKILL new Step 1.5 invoking the gate, and the resolution prompt's Migrate-now wording referencing in-branch re-invocation.
   > **Depends on:** Track 3
 
 ## Plan Review
 - [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+**PAUSED 2026-05-22 at structural-review-iter1-fixes-applied pending gate verification**
+- Handoff: `_workflow/handoff-state0.md`
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

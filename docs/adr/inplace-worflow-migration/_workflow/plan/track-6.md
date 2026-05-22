@@ -86,7 +86,7 @@ After Track 6 lands:
 
 **Out-of-scope files:**
 - `.claude/skills/edit-design/SKILL.md` — `/edit-design` is reached only through `/create-plan` and `/execute-tracks`; transitive coverage holds.
-- `.claude/skills/migrate-workflow/SKILL.md` (Track 4)
+- `.claude/skills/migrate-workflow/SKILL.md` (Tracks 4a and 4b)
 - `.claude/workflow/conventions.md` (Track 1)
 
 **Inter-track dependencies:**

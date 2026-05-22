@@ -36,7 +36,7 @@ test -n "$FORK" || exit
 git log --reverse --oneline "$FORK..origin/develop" -- .claude/workflow/ .claude/skills/ | head -10
 ```
 
-The new derivation matches `design.md` §"Stamp range computation" verbatim. Phase 1 (the walk) is shared with Track 4: enumerate every ephemeral artifact under the active plan's `_workflow/**` (the plan dir the caller resolved at startup), classify each as stamped (line-1 stamp parses) or unstamped (no stamp on line 1), and collect `STAMPED_SHAS` and `UNSTAMPED_FILES`. Phase 2 (the decision) is caller-specific: the drift check signals drift unconditionally when `UNSTAMPED_FILES` is non-empty (no fold, no `git log`); when everything is stamped, it folds `STAMPED_SHAS` pairwise through `git merge-base` to derive `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths (no `git fetch` — the branch is a self-contained capsule per D10). The Phase 1 bash block is shared byte-for-byte with Track 4 — keeping them text-identical is what makes the drift check and the migration agree on what "drift" means.
+The new derivation matches `design.md` §"Stamp range computation" verbatim. Phase 1 (the walk) is shared with Track 4a: enumerate every ephemeral artifact under the active plan's `_workflow/**` (the plan dir the caller resolved at startup), classify each as stamped (line-1 stamp parses) or unstamped (no stamp on line 1), and collect `STAMPED_SHAS` and `UNSTAMPED_FILES`. Phase 2 (the decision) is caller-specific: the drift check signals drift unconditionally when `UNSTAMPED_FILES` is non-empty (no fold, no `git log`); when everything is stamped, it folds `STAMPED_SHAS` pairwise through `git merge-base` to derive `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths (no `git fetch` — the branch is a self-contained capsule per D10). The Phase 1 bash block is shared byte-for-byte with Track 4a — keeping them text-identical is what makes the drift check and the migration agree on what "drift" means.
 
 A new behavior fires when Phase 2 determines no drift but `STAMPED_SHAS` contains more than one distinct SHA: normalize every artifact's line-1 stamp to `BASE_SHA` (the fold result) and create a separate commit titled along the lines of `Normalize workflow-sha stamps to <short-BASE_SHA>` (D11). The next gate's fold input is then a single-element set, and the gate becomes O(1). Branches whose stamps are already uniform skip the normalization silently.
 
@@ -94,12 +94,12 @@ After Track 3 lands:
 **Out-of-scope files:**
 - `.claude/workflow/conventions.md` (Track 1)
 - `.claude/skills/create-plan/SKILL.md`, `.claude/skills/edit-design/SKILL.md` (Track 2)
-- `.claude/skills/migrate-workflow/SKILL.md` (Track 4 — reads the same bash block but owns its own copy in Step 2 after Track 4's renumber-down)
+- `.claude/skills/migrate-workflow/SKILL.md` (Track 4a — reads the same bash block but owns its own copy in Step 2 after Track 4a's renumber-down)
 - `.claude/workflow/branch-divergence-check.md` (the Remote-authoritative re-entry contract symmetry is explicitly NOT fixed here)
 
 **Inter-track dependencies:**
 - **Depends on:** Track 1 (stamp format + SHA computation rule defined in `conventions.md` §1.6).
-- Coordinates with Track 4 on the bash block — both files carry a copy. The two copies must be byte-identical (verified by `diff` between the two extracted blocks during Phase C review of whichever track lands second).
+- Coordinates with Track 4a on the bash block — both files carry a copy. The two copies must be byte-identical (verified by `diff` between the two extracted blocks during Phase C review of whichever track lands second).
 
 **External interfaces:**
 - `git merge-base` (pairwise fold), `git log $BASE_SHA..HEAD -- workflow paths`, `git rev-parse HEAD`, `sed -i` (stamp rewrite), `git add` + `git commit` (normalization commit). The `git fetch origin develop` and `git rev-parse --verify origin/develop` invocations are removed.

@@ -80,7 +80,7 @@ After Track 2 lands:
 **Out-of-scope files:**
 - `.claude/workflow/conventions.md` (Track 1)
 - `.claude/workflow/workflow-drift-check.md` (Track 3)
-- `.claude/skills/migrate-workflow/SKILL.md` (Track 4)
+- `.claude/skills/migrate-workflow/SKILL.md` (Tracks 4a and 4b)
 - `.claude/workflow/self-improvement-reflection.md` (Track 5)
 - Phase 4 artifact creation in `.claude/workflow/prompts/create-final-design.md` — Non-Goal (D3).
 

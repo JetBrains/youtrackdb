@@ -243,7 +243,7 @@ git log --reverse --format='%H %s' "$BASE_SHA..HEAD" -- .claude/workflow .claude
 
 ## Per-commit replay and lockstep advance
 
-**TL;DR.** Inside the migration's Step 4 per-commit loop (renamed from today's Step 5 under Track 4's renumbering), sub-step 4.5 *Advance stamps in lockstep* fires immediately after sub-step 4.4 (apply edits to branch artifacts) succeeds and before sub-step 4.6 (record commit in progress sentinel) runs. Every stamped artifact in the active plan's `_workflow/` has its line-1 stamp rewritten to the just-replayed commit's SHA, including artifacts the commit didn't touch. This is the crash-resume marker: the next invocation reads any stamp, finds the last successfully-replayed SHA, and resumes from the commit after that. After the per-commit loop exits successfully, sub-step 4.8 runs a final batch that re-stamps every artifact in the active plan to `git rev-parse HEAD`, even artifacts the loop already advanced to the same value (D2 + D13). Invariant I2 lands at the final batch, so HEAD-relative consistency holds even when the last replayed commit precedes HEAD.
+**TL;DR.** Inside the migration's Step 4 per-commit loop (renamed from today's Step 5 under Tracks 4a/4b's renumbering), sub-step 4.5 *Advance stamps in lockstep* fires immediately after sub-step 4.4 (apply edits to branch artifacts) succeeds and before sub-step 4.6 (record commit in progress sentinel) runs. Every stamped artifact in the active plan's `_workflow/` has its line-1 stamp rewritten to the just-replayed commit's SHA, including artifacts the commit didn't touch. This is the crash-resume marker: the next invocation reads any stamp, finds the last successfully-replayed SHA, and resumes from the commit after that. After the per-commit loop exits successfully, sub-step 4.8 runs a final batch that re-stamps every artifact in the active plan to `git rev-parse HEAD`, even artifacts the loop already advanced to the same value (D2 + D13). Invariant I2 lands at the final batch, so HEAD-relative consistency holds even when the last replayed commit precedes HEAD.
 
 The per-commit advance is a one-line `sed` (or `Edit` on the comment line) per artifact, run after the per-commit edits land:
 
@@ -297,7 +297,7 @@ The parameterization is a minimal edit:
 - In Step 2 (verify session work is committed), add a conditional: skip the check when `session-type=migrate-workflow` (migration intentionally leaves the worktree dirty for user review).
 - In the issue body template's `**Phase:**` line, accept `migrate-workflow` as a valid value alongside the existing five phase identifiers.
 
-The migrate-workflow SKILL's new final step (numbering follows Track 4's renumber-down: today's Step 6 final summary becomes Step 5, so Track 5's reflection step lands as Step 6):
+The migrate-workflow SKILL's new final step (numbering follows Tracks 4a/4b's renumber-down: today's Step 6 final summary becomes Step 5, so Track 5's reflection step lands as Step 6):
 
 ```markdown
 ## Step 6 — Self-improvement reflection
@@ -311,7 +311,7 @@ check and end-of-session contract; nothing else fires after it returns.
 
 - The duplicate filter (Step 6 of reflection) searches `project: YTDB tag: dev-workflow`. Migration-session frictions land in the same queue as `/execute-tracks` frictions; the triager treats them uniformly. No queue split needed.
 - A reflection candidate that names a `migrate-workflow/SKILL.md` step explicitly is more likely to clear the frequency prong than a hypothetical `/execute-tracks` finding, because migration sessions are themselves rare — but the gate's "deterministic trigger fires on every matching session" path handles that case (one Bug that fires deterministically once still passes the prong).
-- The session-end summary in `migrate-workflow/SKILL.md` Step 5 (final summary, post-Track-4 renumber) runs BEFORE reflection in the new flow. Reflection's "End the session" terminal action is what truly ends the migration session.
+- The session-end summary in `migrate-workflow/SKILL.md` Step 5 (final summary, post-Tracks-4a/4b renumber) runs BEFORE reflection in the new flow. Reflection's "End the session" terminal action is what truly ends the migration session.
 
 ### References
 
