@@ -133,7 +133,15 @@ public class AtomicOperationsManager {
     try {
       startToApplyOperations(atomicOperation);
       return function.accept(atomicOperation);
-    } catch (Exception e) {
+    } catch (Exception | AssertionError e) {
+      // AssertionError is included so a -ea-only assert thrown from the lambda body
+      // routes through endAtomicOperation(op, error) for rollback, rather than
+      // bypassing the catch, leaving error=null, and committing the op as if it
+      // succeeded. The error variable is typed Throwable and BaseException.wrapException
+      // accepts Throwable as its cause, so no further signature change is needed.
+      // Error superclasses other than AssertionError (OutOfMemoryError,
+      // StackOverflowError, LinkageError) are deliberately not caught here — the
+      // rollback path is not the right response for those.
       error = e;
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -152,7 +160,15 @@ public class AtomicOperationsManager {
     try {
       startToApplyOperations(atomicOperation);
       consumer.accept(atomicOperation);
-    } catch (Exception e) {
+    } catch (Exception | AssertionError e) {
+      // AssertionError is included so a -ea-only assert thrown from the lambda body
+      // routes through endAtomicOperation(op, error) for rollback, rather than
+      // bypassing the catch, leaving error=null, and committing the op as if it
+      // succeeded. The error variable is typed Throwable and BaseException.wrapException
+      // accepts Throwable as its cause, so no further signature change is needed.
+      // Error superclasses other than AssertionError (OutOfMemoryError,
+      // StackOverflowError, LinkageError) are deliberately not caught here — the
+      // rollback path is not the right response for those.
       error = e;
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -176,7 +192,12 @@ public class AtomicOperationsManager {
       // If the consumer throws, pending ops are NOT flushed — they will be
       // discarded when the atomic operation is rolled back.
       atomicOperation.flushPendingOperations();
-    } catch (Exception e) {
+    } catch (Exception | AssertionError e) {
+      // AssertionError is included so a -ea-only assert thrown from the consumer
+      // surfaces as a CommonStorageComponentException with component+storage context
+      // rather than escaping as a bare Error. Error superclasses other than
+      // AssertionError (OutOfMemoryError, StackOverflowError, LinkageError) are
+      // deliberately not caught here.
       if (e instanceof CoreException coreException) {
         coreException.setComponentName(component.getLockName());
         coreException.setDbName(storage.getName());
@@ -205,7 +226,12 @@ public class AtomicOperationsManager {
       // Capture return value first so flush happens before return.
       atomicOperation.flushPendingOperations();
       return result;
-    } catch (Exception e) {
+    } catch (Exception | AssertionError e) {
+      // AssertionError is included so a -ea-only assert thrown from the function
+      // surfaces as a CommonStorageComponentException with component+storage context
+      // rather than escaping as a bare Error. Error superclasses other than
+      // AssertionError (OutOfMemoryError, StackOverflowError, LinkageError) are
+      // deliberately not caught here.
       throw BaseException.wrapException(
           new CommonStorageComponentException(
               "Exception during execution of component operation inside component "
