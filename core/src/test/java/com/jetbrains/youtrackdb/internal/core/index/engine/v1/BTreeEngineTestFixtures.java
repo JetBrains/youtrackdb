@@ -19,7 +19,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 
 /**
@@ -195,5 +202,80 @@ final class BTreeEngineTestFixtures {
       injectField(engine, "nullTree", nullTree);
       engine.setHistogramManager(manager);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Logger-capture helpers (shared by underflow tests)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** Reads an {@link AtomicLong} field by name via reflection. */
+  static long readAtomicLong(Object target, String fieldName) {
+    return readAtomicLongRef(target, fieldName).get();
+  }
+
+  /** Returns the {@link AtomicLong} reference held by a private field. */
+  static AtomicLong readAtomicLongRef(Object target, String fieldName) {
+    try {
+      var field = findField(target.getClass(), fieldName);
+      field.setAccessible(true);
+      return (AtomicLong) field.get(target);
+    } catch (ReflectiveOperationException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Attaches a JUL handler that appends every published record to the given
+   * list. The handler captures records at {@link Level#ALL}; callers set
+   * {@link Logger#setLevel(Level)} to {@link Level#ALL} before logging so the
+   * test environment's log configuration cannot silently drop the events.
+   */
+  static Handler installCapturingHandler(Logger logger,
+      CopyOnWriteArrayList<LogRecord> sink) {
+    var handler = new Handler() {
+      @Override
+      public void publish(LogRecord record) {
+        sink.add(record);
+      }
+
+      @Override
+      public void flush() {
+        // No-op: assertions read directly from the sink.
+      }
+
+      @Override
+      public void close() {
+        // No-op: the JUL framework calls close() on shutdown.
+      }
+    };
+    handler.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    return handler;
+  }
+
+  /**
+   * Runs {@code body} with a capturing JUL handler installed on the engine
+   * class's logger at {@link Level#ALL}, then restores the prior level and
+   * removes the handler. Returns the captured records as an immutable list
+   * for the caller to assert on after the body completes.
+   *
+   * <p>Use this for tests where every engine invocation lands before the
+   * assertion phase. Tests that interleave assertions with engine calls
+   * inside the captured window must manage the handler manually (see e.g.
+   * the zero-delta tests in the underflow suites).
+   */
+  static List<LogRecord> captureSevereOn(Class<?> engineClass, Runnable body) {
+    var captured = new CopyOnWriteArrayList<LogRecord>();
+    var logger = Logger.getLogger(engineClass.getName());
+    var priorLevel = logger.getLevel();
+    var handler = installCapturingHandler(logger, captured);
+    logger.setLevel(Level.ALL);
+    try {
+      body.run();
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(priorLevel);
+    }
+    return List.copyOf(captured);
   }
 }

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -51,23 +52,15 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
   @Test
   public void firstNullCountUnderflowEmitsStackTraceAndClampsToZero() {
     var f = new BTreeEngineTestFixtures.MultiValueFixture();
-    var captured = new CopyOnWriteArrayList<LogRecord>();
-    var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
-    var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
-    logger.setLevel(Level.ALL);
-    try {
-      // Fresh engine: approximateNullCount starts at 0. A negative delta
-      // forces the addAndGet result below 0 and exercises the clamp path.
-      // No throw expected — the legacy `assert updated >= 0` is gone.
-      f.engine.addToApproximateNullCount(-1L);
-    } finally {
-      logger.removeHandler(handler);
-      logger.setLevel(priorLevel);
-    }
+    // Fresh engine: approximateNullCount starts at 0. A negative delta
+    // forces the addAndGet result below 0 and exercises the clamp path.
+    // No throw expected — the legacy `assert updated >= 0` is gone.
+    List<LogRecord> captured = BTreeEngineTestFixtures.captureSevereOn(
+        BTreeMultiValueIndexEngine.class,
+        () -> f.engine.addToApproximateNullCount(-1L));
 
     // Counter clamped to 0 via compareAndSet(-1, 0).
-    assertThat(readAtomicLong(f.engine, "approximateNullCount"))
+    assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateNullCount"))
         .as("first underflow must clamp approximateNullCount back to 0")
         .isEqualTo(0L);
 
@@ -112,26 +105,20 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
   @Test
   public void secondUnderflowOnSameEngineEmitsCompactErrorWithoutStack() {
     var f = new BTreeEngineTestFixtures.MultiValueFixture();
-    var captured = new CopyOnWriteArrayList<LogRecord>();
-    var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
-    var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
-    logger.setLevel(Level.ALL);
-    try {
-      // First underflow: entries counter, wins the latch, carries the stack.
-      f.engine.addToApproximateEntriesCount(-3L);
-      // Second underflow on the same engine, different mutator: shared latch
-      // is already set, so this records the compact variant.
-      f.engine.addToApproximateNullCount(-2L);
-    } finally {
-      logger.removeHandler(handler);
-      logger.setLevel(priorLevel);
-    }
+    List<LogRecord> captured = BTreeEngineTestFixtures.captureSevereOn(
+        BTreeMultiValueIndexEngine.class,
+        () -> {
+          // First underflow: entries counter, wins the latch, carries the stack.
+          f.engine.addToApproximateEntriesCount(-3L);
+          // Second underflow on the same engine, different mutator: shared
+          // latch is already set, so this records the compact variant.
+          f.engine.addToApproximateNullCount(-2L);
+        });
 
     // Both counters clamped to 0.
-    assertThat(readAtomicLong(f.engine, "approximateIndexEntriesCount"))
+    assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateIndexEntriesCount"))
         .isEqualTo(0L);
-    assertThat(readAtomicLong(f.engine, "approximateNullCount"))
+    assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateNullCount"))
         .isEqualTo(0L);
 
     // Two SEVERE records. The first names approximateIndexEntriesCount and
@@ -171,26 +158,20 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
   @Test
   public void firstNullUnderflowSilencesSubsequentEntriesUnderflowOnSameEngine() {
     var f = new BTreeEngineTestFixtures.MultiValueFixture();
-    var captured = new CopyOnWriteArrayList<LogRecord>();
-    var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
-    var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
-    logger.setLevel(Level.ALL);
-    try {
-      // First underflow: null counter, wins the latch, carries the stack.
-      f.engine.addToApproximateNullCount(-7L);
-      // Second underflow on the same engine, different mutator: shared latch
-      // is already set, so this records the compact variant.
-      f.engine.addToApproximateEntriesCount(-4L);
-    } finally {
-      logger.removeHandler(handler);
-      logger.setLevel(priorLevel);
-    }
+    List<LogRecord> captured = BTreeEngineTestFixtures.captureSevereOn(
+        BTreeMultiValueIndexEngine.class,
+        () -> {
+          // First underflow: null counter, wins the latch, carries the stack.
+          f.engine.addToApproximateNullCount(-7L);
+          // Second underflow on the same engine, different mutator: shared
+          // latch is already set, so this records the compact variant.
+          f.engine.addToApproximateEntriesCount(-4L);
+        });
 
     // Both counters clamped to 0.
-    assertThat(readAtomicLong(f.engine, "approximateNullCount"))
+    assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateNullCount"))
         .isEqualTo(0L);
-    assertThat(readAtomicLong(f.engine, "approximateIndexEntriesCount"))
+    assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateIndexEntriesCount"))
         .isEqualTo(0L);
 
     var severeRecords = captured.stream()
@@ -227,20 +208,14 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
    */
   @Test
   public void freshEngineInstanceHasArmedLatchIndependentOfOtherEngines() {
-    var captured = new CopyOnWriteArrayList<LogRecord>();
-    var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
-    var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
-    logger.setLevel(Level.ALL);
-    try {
-      var first = new BTreeEngineTestFixtures.MultiValueFixture();
-      first.engine.addToApproximateEntriesCount(-1L); // consume first's latch
-      var second = new BTreeEngineTestFixtures.MultiValueFixture();
-      second.engine.addToApproximateNullCount(-5L); // second's fresh latch
-    } finally {
-      logger.removeHandler(handler);
-      logger.setLevel(priorLevel);
-    }
+    List<LogRecord> captured = BTreeEngineTestFixtures.captureSevereOn(
+        BTreeMultiValueIndexEngine.class,
+        () -> {
+          var first = new BTreeEngineTestFixtures.MultiValueFixture();
+          first.engine.addToApproximateEntriesCount(-1L); // consume first's latch
+          var second = new BTreeEngineTestFixtures.MultiValueFixture();
+          second.engine.addToApproximateNullCount(-5L); // second's fresh latch
+        });
 
     // Two SEVERE records, one per engine. Each must carry a non-null Throwable
     // because each engine has its own armed latch on construction.
@@ -306,7 +281,7 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
   @Test
   public void failedClampCasLeavesCounterAtConcurrentWriterValueThroughEnginePath() {
     var f = new BTreeEngineTestFixtures.MultiValueFixture();
-    var counter = readAtomicLongRef(f.engine, "approximateNullCount");
+    var counter = BTreeEngineTestFixtures.readAtomicLongRef(f.engine, "approximateNullCount");
     // Simulate a concurrent applier having advanced the counter to 7 between
     // the (hypothetical) addAndGet that returned -1 and the clamp CAS that
     // production code is about to execute. The engine's
@@ -314,22 +289,14 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
     // value at 7 the CAS is a no-op.
     counter.set(7L);
 
-    var captured = new CopyOnWriteArrayList<LogRecord>();
-    var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
-    var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
-    logger.setLevel(Level.ALL);
-    try {
-      // Invoke the production method with a stale observed-negative value of
-      // -1 while the live counter holds 7. reportAndClampUnderflow logs the
-      // error (latch-armed first-time path) and then calls
-      // compareAndSet(-1, 0), which fails because the live value is 7.
-      f.engine.reportAndClampUnderflow(
-          "approximateNullCount", counter, -1L, -1L);
-    } finally {
-      logger.removeHandler(handler);
-      logger.setLevel(priorLevel);
-    }
+    // Invoke the production method with a stale observed-negative value of
+    // -1 while the live counter holds 7. reportAndClampUnderflow logs the
+    // error (latch-armed first-time path) and then calls
+    // compareAndSet(-1, 0), which fails because the live value is 7.
+    List<LogRecord> captured = BTreeEngineTestFixtures.captureSevereOn(
+        BTreeMultiValueIndexEngine.class,
+        () -> f.engine.reportAndClampUnderflow(
+            "approximateNullCount", counter, -1L, -1L));
 
     // Counter remains at the concurrent writer's value — the clamp CAS was
     // a no-op. A clamp loop would have forced this to 0 and masked the
@@ -359,21 +326,13 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
   @Test
   public void failedClampCasMayLeaveCounterNegativeUnderContention() {
     var f = new BTreeEngineTestFixtures.MultiValueFixture();
-    var counter = readAtomicLongRef(f.engine, "approximateNullCount");
+    var counter = BTreeEngineTestFixtures.readAtomicLongRef(f.engine, "approximateNullCount");
     counter.set(-3L);
 
-    var captured = new CopyOnWriteArrayList<LogRecord>();
-    var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
-    var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
-    logger.setLevel(Level.ALL);
-    try {
-      f.engine.reportAndClampUnderflow(
-          "approximateNullCount", counter, -1L, -1L);
-    } finally {
-      logger.removeHandler(handler);
-      logger.setLevel(priorLevel);
-    }
+    BTreeEngineTestFixtures.captureSevereOn(
+        BTreeMultiValueIndexEngine.class,
+        () -> f.engine.reportAndClampUnderflow(
+            "approximateNullCount", counter, -1L, -1L));
 
     assertThat(counter.get())
         .as("under heavy contention the counter may stay negative after a"
@@ -427,7 +386,7 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
     var captured = new CopyOnWriteArrayList<LogRecord>();
     var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
     var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
+    var handler = BTreeEngineTestFixtures.installCapturingHandler(logger, captured);
     logger.setLevel(Level.ALL);
     ExecutorService pool = Executors.newFixedThreadPool(threads);
     try {
@@ -504,7 +463,7 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
     var captured = new CopyOnWriteArrayList<LogRecord>();
     var logger = Logger.getLogger(BTreeMultiValueIndexEngine.class.getName());
     var priorLevel = logger.getLevel();
-    var handler = installCapturingHandler(logger, captured);
+    var handler = BTreeEngineTestFixtures.installCapturingHandler(logger, captured);
     logger.setLevel(Level.ALL);
     try {
       f.engine.addToApproximateEntriesCount(0L);
@@ -518,9 +477,9 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
           .as("zero-delta calls must not produce any SEVERE log record"
               + " (captured=%s)", captured)
           .isEmpty();
-      assertThat(readAtomicLong(f.engine, "approximateIndexEntriesCount"))
+      assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateIndexEntriesCount"))
           .isEqualTo(0L);
-      assertThat(readAtomicLong(f.engine, "approximateNullCount"))
+      assertThat(BTreeEngineTestFixtures.readAtomicLong(f.engine, "approximateNullCount"))
           .isEqualTo(0L);
 
       // Now force a real underflow; the latch must still be armed.
@@ -541,55 +500,6 @@ public class BTreeMultiValueIndexEngineUnderflowTest {
       logger.removeHandler(handler);
       logger.setLevel(priorLevel);
     }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Helpers
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /** Reads an {@link AtomicLong} field by name via reflection. */
-  private static long readAtomicLong(Object target, String fieldName) {
-    return readAtomicLongRef(target, fieldName).get();
-  }
-
-  /** Returns the {@link AtomicLong} reference held by a private field. */
-  private static AtomicLong readAtomicLongRef(Object target, String fieldName) {
-    try {
-      var field = BTreeEngineTestFixtures.findField(target.getClass(), fieldName);
-      field.setAccessible(true);
-      return (AtomicLong) field.get(target);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  /**
-   * Attaches a JUL handler that appends every published record to the given
-   * list. The handler captures records at the supplied level; callers set
-   * {@link Logger#setLevel(Level)} to {@link Level#ALL} before logging so the
-   * test environment's log configuration cannot silently drop the events.
-   */
-  private static Handler installCapturingHandler(Logger logger,
-      CopyOnWriteArrayList<LogRecord> sink) {
-    var handler = new Handler() {
-      @Override
-      public void publish(LogRecord record) {
-        sink.add(record);
-      }
-
-      @Override
-      public void flush() {
-        // No-op — assertions read directly from the sink.
-      }
-
-      @Override
-      public void close() {
-        // No-op — the JUL framework calls close() on shutdown.
-      }
-    };
-    handler.setLevel(Level.ALL);
-    logger.addHandler(handler);
-    return handler;
   }
 
 }
