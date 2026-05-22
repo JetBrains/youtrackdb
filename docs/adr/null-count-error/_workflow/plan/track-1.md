@@ -14,11 +14,16 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 - [ ] Track completion
 
 - [x] 2026-05-22T14:09Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-22T16:02Z [ctx=safe] Step 1 complete (commit 45e22026a8)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+### 2026-05-22 — engineId bit-encoding for `IndexCountDeltaHolder` lookups
+
+The `IndexAbstract.getIndexId()` external id packs `engineAPIVersion` in the high 5 bits and the internal engine id in the low 27 bits (see `AbstractStorage.generateIndexId` / `extractInternalId`). `IndexCountDeltaHolder` keys on the internal id, so any test that wants to inject or read a delta for a named index must mask the external id with `0x7FFFFFF`. The four engine-mutator regression tests later in this track and the storage cascade-containment test will need the same mask. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions. -->
@@ -108,7 +113,7 @@ Invariants to preserve: the cache-only contract on `applyIndexCountDeltas` and `
 
 ## Concrete Steps
 
-1. Broaden the catch at `AbstractStorage.commit:2319` to include `AssertionError` and add a regression test forcing a persisted-side `BTree.addToApproximateEntriesCount` underflow that routes through the broadened catch to `rollback`. — risk: medium (error-handling code change at a single high-traffic main-commit catch; the catch lives on a storage-component method body so the change is observable by every commit)  [ ]
+1. Broaden the catch at `AbstractStorage.commit:2319` to include `AssertionError` and add a regression test forcing a persisted-side `BTree.addToApproximateEntriesCount` underflow that routes through the broadened catch to `rollback`. — risk: medium (error-handling code change at a single high-traffic main-commit catch; the catch lives on a storage-component method body so the change is observable by every commit)  [x]  commit: 45e22026a8
 2. Broaden the four `AtomicOperationsManager` wrapper catches (`executeInsideAtomicOperation:155`, `calculateInsideAtomicOperation:136`, `executeInsideComponentOperation:179`, `calculateInsideComponentOperation:208`) from `catch (Exception e)` to `catch (Exception | AssertionError e)`, and add a wrapper-level cascade-containment test that forces `AssertionError` from the lambda body of each pair and asserts rollback + `StorageException` wrap. — risk: medium (error-handling code change; blast-radius audit recorded in Decision Log shows 0 of 1074 callers depend on the unchanged catch)  [ ]
 3. Add the `setInError(Throwable)` `AssertionError` entry-point guard at `AbstractStorage.java:1756` with the R5 three-reason inline comment (JVM `-ea` OFF, groups 1+2 catch at source, group 4 prevents in-memory underflow). — risk: high (storage-component lifecycle change; A5 documents downstream behavior changes at `doShutdown`, `synch`, `DiskStorage.clearStorageDirty`)  [ ]
 4. Rewrite `BTreeMultiValueIndexEngine.addToApproximate{Entries,Null}Count` to clamp+error: replace `assert updated >= 0` with `if (updated < 0)` branch, add `firstUnderflowDumped` `AtomicBoolean` field shared by both mutators, log first underflow with stack trace and engine `name`+`id` then clamp via `compareAndSet(updated, 0)`. Add engine-level regression test forcing an underflow on a fresh engine and asserting clamp + log line + no throw. — risk: high (concurrency: new shared mutable state with documented CAS race trade-off)  [ ]
@@ -119,6 +124,19 @@ Invariants to preserve: the cache-only contract on `applyIndexCountDeltas` and `
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step. Empty at Phase 1. -->
+
+### Step 1 — commit 45e22026a8, 2026-05-22T16:02Z [ctx=safe]
+**What was done:** Widened the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` from `IOException | RuntimeException` to `IOException | RuntimeException | AssertionError`, and re-shaped the body so both `IOException` and `AssertionError` wrap uniformly as `StorageException` with the original throwable preserved as the cause. A persisted-side underflow from `BTree.addToApproximateEntriesCount` raised inside `persistIndexCountDeltas` or `commitIndexes` now routes through the inner finally's `rollback` branch instead of bypassing it and committing the WAL atomic op with half-baked counter state. Added regression test `PersistedSideAssertionRoutedToRollbackTest` in the same package; the test injects an oversized negative delta into the per-transaction `IndexCountDeltaHolder` via reflection, forces the assert at `BTree.java:1020`, and verifies the captured `AtomicOperation` is marked rollback-in-progress with `AssertionError` as the root cause of the surfaced `StorageException`.
+
+**What was discovered:** `IndexAbstract.getIndexId()` returns an external id that packs `engineAPIVersion` in the high 5 bits and the internal engine id in the low 27 bits (see `AbstractStorage.generateIndexId` / `extractInternalId`). `IndexCountDeltaHolder` keys on the internal id, so the test masks the external id with `0x7FFFFFF` before lookup. The four mutator-rewrite regression tests later in this track and the storage cascade-containment test will need the same mask when they inject deltas by index name.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/PersistedSideAssertionRoutedToRollbackTest.java` (new)
+
+**Critical context:** After this step the storage still flips to permanent error state via `setInError` when the `AssertionError` surfaces at the outer `catch (Error)`. Restoring usability for a subsequent commit on the same storage is the `setInError` entry-point guard's job, which lands in a later step of this track.
 
 ## Validation and Acceptance
 
