@@ -245,3 +245,46 @@ Side-effect (user-authorized, outside edit-design scope): reformatted `implement
 
 **Iterations**: 1 of 3 (PASS)
 
+## Mutation 19 — 2026-05-22 — structural-rewrite (design.md)
+
+**Diff summary**: Design-review finding #1 from external audit — span kind switched from always-CLIENT to mode-aware per sem-conv v1.33.0 §"Span kind", which mandates INTERNAL for in-process / in-memory database libraries (YTDB embedded) and CLIENT for over-network database calls (YTDB server). TX-lifetime span stays INTERNAL in both modes (logical container, not a call). Mechanism: a new `SpanKind clientKind` constructor argument on `OTelQueryMetricsListener` and `OTelTransactionMetricsListener`, resolved by `YouTrackDBOpenTelemetry` from a new `boolean serverMode` flag — `true` only when the server plugin calls the package-private 3-arg variant `setOpenTelemetry(otel, ownedByYtdb=true, serverMode=true)`, `false` for every embedded entry point (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure). Touched: design.md §Class Design (diagram + new paragraph + Invariants footer entry + structural-section disclaimer), §Workflow parent (new opener prose for the three diagrams), §Workflow commit-span builder (kind from `clientKind` instead of literal CLIENT), §Sem-conv attribute mapping "Span kinds per role" paragraph, §Transaction-lifetime span semantics lifecycle table, §SDK lifecycle server-path step 4; implementation-plan.md D5 rewritten and "Span kind by role" invariant rewritten.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 findings (re-run after iteration 1 still PASS).
+**Cold-read** (scope: whole-doc): PASS — 0 blockers, 3 should-fix (pre-existing shape issues at §Class Design footer missing Invariants entry, §Workflow parent lacking opener prose, §Class Design lacking edge-cases exemption note; not regressions from this mutation), 1 suggestion (split dense paragraph in §Sem-conv).
+
+**Findings**:
+- should-fix (resolved in iter 1): §Class Design References footer missing `Invariants: Span kind by role` line — added.
+- should-fix (resolved in iter 1): §Workflow parent section had no opener prose between heading and first sub-diagram — added one-sentence opener summarizing the three diagrams' joint purpose.
+- should-fix (resolved in iter 1): §Class Design lacked an explicit "structural reference, edge cases live downstream" disclaimer — added one prose sentence.
+- suggestion (recorded, non-actioned): §Sem-conv "Span kinds per role" paragraph at the upper end of paragraph density; optional split deferred as cosmetic.
+
+**Iterations**: 1 of 3 (PASS — all blockers cleared on first pass; should-fix findings resolved in same iteration)
+
+## Mutation 20 — 2026-05-22 — structural-rewrite (design.md)
+
+**Diff summary**: Design-review finding #2 from external audit — `OTelTransactionMetricsListener.activeTxContext` moved from a static ThreadLocal accessed via a static accessor to an **instance** ThreadLocal accessed via an instance method. The query listener now holds an explicit injected reference to its paired TX listener (`OTelTransactionMetricsListener txListener` constructor argument), with `YouTrackDBOpenTelemetry` building both listeners together so the pair is wired before either is registered. Removes hidden process-global state: two `YouTrackDBOpenTelemetry` facades coexisting in the same JVM (e.g., a test that builds a fresh SDK per test method) no longer share state, no `@AfterEach` ThreadLocal cleanup is required. Touched: design.md §Class Design (diagram: removed `$` static markers on `activeTxContext` field/method, added `txListener` field on query listener, expanded relation-arrow label to make injection explicit; body: rewrote the static-ThreadLocal paragraph to instance + injected reference), §Transaction-lifetime span semantics (rewrote the ThreadLocal-as-static paragraph to instance + injected reference), §Workflow (added structural-section disclaimer before References); plan/track-3.md L31 prose + the three impl-step paragraphs (edits 1, 2, 3, 4, 5) + the acceptance-criteria examples lines 67 and 69 updated to match. Same mutation also propagates Fix #1 mode-aware kind into track-3.md (the acceptance-criteria examples previously hard-coded CLIENT for embedded test scenarios; now they parametrize over embedded INTERNAL vs server CLIENT).
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 findings (re-run after iteration 1 still PASS).
+**Cold-read** (scope: whole-doc): PASS — 0 blockers, 1 should-fix (§Workflow lacked the structural-section exemption sentence that §Class Design got in Mutation 19; pre-existing pattern gap, not a regression), 2 suggestions (diagram arrow label could be more explicit about the injected reference; minor inconsistency in "Mechanics: none (single-file design)" vs terser "Mechanics: none" in later sections).
+
+**Findings**:
+- should-fix (resolved in iter 1): §Workflow missing the structural-section disclaimer — added one prose sentence before its References footer, mirroring the §Class Design pattern from Mutation 19.
+- suggestion (resolved in iter 1): Class Design diagram arrow `OTelQueryMetricsListener --> OTelTransactionMetricsListener : activeTxContext()` could be misread as a static call — expanded to `txListener field (calls activeTxContext())` so the injection relationship is explicit in the diagram itself.
+- suggestion (recorded, non-actioned): "Mechanics: none" vs "Mechanics: none (single-file design)" inconsistency across References footers; cosmetic, no rule violation.
+
+**Iterations**: 1 of 3 (PASS — all blockers and should-fix findings resolved in same iteration)
+
+## Mutation 21 — 2026-05-22 — structural-rewrite (design.md)
+
+**Diff summary**: Design-review finding #3 from external audit — listener-exception catch wrapper narrowed from `catch (Throwable t)` to `catch (Exception | LinkageError | AssertionError t)`. Rationale: the original Throwable catch masked `VirtualMachineError` (OutOfMemoryError, StackOverflowError, InternalError, UnknownError) and `ThreadDeath`, against JLS guidance that JVM-fatal conditions should propagate. The new union covers every realistic OTel-listener failure mode (misconfigured SDK throwing `IllegalStateException`, missing exporter classes throwing `NoClassDefFoundError` (a `LinkageError`), assertion failures in custom listener implementations or OTel-SDK internal asserts) while letting `VirtualMachineError` and `ThreadDeath` propagate. The deliberate trade-off: if the JVM is in a fatal state, taking the TX down with it is safer than silently masking the problem. Touched: design.md §Overview (catch-shape clause), §SQL execution layer hook pseudocode comment, §Exception isolation contract both bullets + wrapper paragraph + References footer; implementation-plan.md D11 title + body (Alternatives, Rationale, Risks/Caveats all rewritten) + Invariants "Listener exception isolation" + Track 1 checklist; plan/track-1.md L5 purpose line, L36 track-summary line, L46 step 9 detail, L65 iteration-snapshot wrapper, L67 test-class description, L84 acceptance criterion, L104 file list, L106 file list.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 findings (after iteration 1 cleared an em-dash density should-fix on the §Exception isolation wrapper paragraph; rewrote the paragraph with colon/period/comma punctuation instead of em-dash-bounded asides, keeping the JLS justification intact).
+**Cold-read** (scope: whole-doc): PASS — 0 blockers, 2 should-fix (pre-existing pattern gap: §Class Design and §Workflow lack explicit Edge cases sub-sections; both already carry the structural-section exemption sentences added in Mutations 19 and 20, but the house-style doesn't formally exempt those sections — issue is style ambiguity, not a regression from this mutation), 2 suggestions (em-dash density in §Overview L11 subjective; references-footer Invariants consistency check pre-existing pattern).
+
+**Findings**:
+- should-fix (resolved in iter 1, mechanical): §Exception isolation contract wrapper paragraph at L545 had 3 em-dashes (one balanced parenthetical aside plus one unpaired) — rewrote with colon-then-list + period-separated clauses; em-dash count now zero in that paragraph.
+- should-fix (acknowledged, non-regression): §Class Design and §Workflow lack Edge cases sub-sections per house-style rule — both already have explicit structural-section exemption sentences (added in Mutations 19 and 20); the formal exemption needs to land in house-style.md, which is out of scope for this mutation.
+- suggestion (recorded, non-actioned): em-dash density in §Overview L11; pre-existing chain-of-additions framing kept intact.
+
+**Iterations**: 1 of 3 (PASS — em-dash should-fix resolved in iter 1; remaining should-fix is style-rule scope question, not a regression)
+
