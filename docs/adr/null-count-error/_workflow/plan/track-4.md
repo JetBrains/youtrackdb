@@ -53,7 +53,7 @@ For SV's `persistCountDelta` (`nullDelta` ignored): `totalDelta = exactTotal - c
 
 `applyIndexCountDeltas` then advances in-memory: total from `currentTotal` to `target`, null from `currentNull` to `exactNullCount`. Correct on both engines.
 
-The `approxTotal` / `approxNull` reads at lines 582–583 (MV) and 590–591 (SV) used for histogram bucket sizing are unaffected; they consume the in-memory counter *as-of* the start of buildInitialHistogram, before the recalibration delta is recorded.
+The `approxTotal` / `approxNull` reads at MV:582–583 and the `approxTotal` read at SV:590 (paired with the `exactNullCount = countNulls(atomicOperation)` scan at SV:591) used for histogram bucket sizing are unaffected; they consume the in-memory counter *as-of* the start of buildInitialHistogram, before the recalibration delta is recorded.
 
 The deliverable: two rewritten buildInitialHistogram bodies and a recalibration-rollback regression test.
 
@@ -88,7 +88,7 @@ Three logical edits:
 
 Ordering constraint: this track depends on Track 3's `IndexCountDelta.accumulate(long, long)` overload. If Track 3 hasn't landed yet, this track adds the overload too (with an `if not exists` discipline during step decomposition). The two clear/recalibration sites are the only callers of the long-form overload, so there's no risk of a future caller losing the sign precondition guarantee.
 
-Invariants to preserve: the `approxTotal` / `approxNull` reads at the head of buildInitialHistogram still feed the histogram-bucket sizing. The null-tree scan logic (MV lines 600–610) and the `countNulls` call (SV line 591) are unchanged.
+Invariants to preserve: the `approxTotal` read at MV:582 / SV:590, the `approxNull` read at MV:583, and the `exactNullCount = countNulls(atomicOperation)` scan at SV:591 still feed the histogram-bucket sizing. The null-tree scan logic (MV lines 600–610) is unchanged.
 
 ## Concrete Steps
 

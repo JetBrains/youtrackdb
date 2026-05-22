@@ -56,3 +56,15 @@
 - iter 1 suggestion (not retried): edge case (1) prose "Hook A skips its early-exit" reads ambiguously; could be re-phrased to "Hook A is skipped via its `if (holder == null)` early-exit". Logged for future polish; the mechanism block above the edge cases disambiguates.
 
 **Iterations**: 2 of 3 (PASS)
+
+## Mutation 5 — 2026-05-22 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review finding CR4 (suggestion, mechanical). Single literal-text replacement at line 232 inside `## endAtomicOperation lifecycle` third correctness-property paragraph: `(AtomicOperationsManager.java:312–313)` → `(AtomicOperationsManager.java:313)`. PSI-verified that line 312 is `component.lockExclusive();` and line 313 is `operation.addLockedComponent(component);`; the sentence cites "adds the component to operation.lockedComponents()" which is precisely line 313 alone. The "312–313" range conflated lock acquisition with the bookkeeping append. Plan/design intent unchanged.
+
+**Mechanical checks** (target=design, scope=whole-doc — periodic counter at N=5): PASS — 0 findings.
+**Cold-read** (scope: whole-doc — periodic counter at N=5): PASS — 0 findings.
+
+**Findings**:
+- None.
+
+**Iterations**: 1 of 3 (PASS)

@@ -53,7 +53,7 @@ Four logical edits:
    - Call `IndexCountDelta.accumulate(atomicOperation, id, -currentTotal, -currentNull)`.
    - Remove the four direct writes (`svTree.setApproximateEntriesCount(0)`, `nullTree.setApproximateEntriesCount(0)`, `approximateIndexEntriesCount.set(0)`, `approximateNullCount.set(0)`).
    - Keep the `histogramManager.resetOnClear` block with its IOException-to-IndexException wrap unchanged. (Histogram reset is orthogonal to the index-count delta and stays as-is until histogram-delta refactor lands separately.)
-   - Replace the obsolete comment at lines 287–301 (the one documenting the rollback hazard) with a one-line comment noting that the persisted EP page is transiently out of sync with the empty tree until `persistCountDelta` runs.
+   - Replace the obsolete comment at lines 287–299 (the one documenting the rollback hazard) with a one-line comment noting that the persisted EP page is transiently out of sync with the empty tree until `persistCountDelta` runs.
 
 3. **Rewrite `BTreeSingleValueIndexEngine.clear()`** (lines 221–263) with the structurally identical change for the single-tree case. Keep the method-level `try/catch (IOException)` wrap because `doClearTree` propagates `IOException`.
 
