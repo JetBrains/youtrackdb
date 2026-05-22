@@ -304,10 +304,11 @@ line.
   is marked by prepending the literal string `[STALE: verify line]` to
   its body. The reviewer sees the prefix at prune time and chooses to
   drop or re-anchor it.
-- An observation rejected by GitHub on POST (a 422 response naming the
-  offending comment index) is marked with `[REJECTED: <reason from
-  GitHub>]` prepended to its body, and the skill returns to prune mode
-  with the list intact so the reviewer can drop or re-anchor it.
+- An observation rejected by GitHub on POST (a 422 response naming one
+  or more offending comment indices) is marked with `[REJECTED: <reason
+  from GitHub>]` prepended to its body, and the skill returns to prune
+  mode with the list intact so the reviewer can drop or re-anchor each
+  rejected entry.
 - Observations from a sub-agent whose finding did not cite a specific
   line are anchored at the artifact's nearest section heading; the
   source tag still identifies the sub-agent.
@@ -412,9 +413,9 @@ table, accepts `drop`-verb prune commands, warns on lists larger than
 the bulk line-anchored review via the `pulls/{N}/reviews` endpoint, and
 on success deletes the handoff file. The empty-list branch skips the
 table and prune and POSTs an `APPROVE` review with a one-line body. On
-422 the offending observation is tagged `[REJECTED: <reason>]` and the
-skill returns to prune mode; other failures keep the list intact for
-retry.
+422 every offending observation is tagged `[REJECTED: <reason>]` and
+the skill re-renders the prune table before returning to prune mode;
+other failures keep the list intact for retry.
 
 **Wrap-up trigger.** Treat any one of `wrap up`, `done`, `submit`, or
 `finish` as the wrap-up cue, matched case-insensitively against the
@@ -452,22 +453,26 @@ non-empty branch names the observation count and source mix, empty
 branch is the one line `All workflow artifacts review clean.`),
 `event` (`APPROVE` when the pruned list is empty, `REQUEST_CHANGES`
 otherwise), and `comments[]` (one `{path, line, side: "RIGHT", body}`
-per surviving observation; omitted on the empty-list `APPROVE` branch).
-The POST is issued via `gh api -X POST
-/repos/{owner}/{repo}/pulls/{N}/reviews --input -` with the composed
-JSON on stdin.
+per surviving single-line observation; range observations also carry
+`start_line` set to the range start, with `line` set to the range end,
+matching GitHub's multi-line review-comment shape; `comments[]` is
+omitted on the empty-list `APPROVE` branch). The POST is issued via
+`gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews --input -` with
+the composed JSON on stdin.
 
 **POST and URL.** On confirmation, the skill POSTs the payload, parses
 `.html_url` from the response, prints the URL on one line, and deletes
 the handoff file at `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md`
 if it exists. This is the only success branch that deletes the
-handoff; every other path preserves it. On 422 the skill parses the
-offending comment index from the response body, prepends
-`[REJECTED: <reason from GitHub>]` to that observation's body, and
-returns to prune mode. On any other non-zero exit (network, 5xx, rate
-limit, auth lapse) the observation list survives and the in-memory
-head-SHA cache reverts to the session-start value so the next wrap-up
-trigger re-runs the re-fetch from scratch.
+handoff; every other path preserves it. On 422 the skill parses every
+offending comment index reported in the response body (GitHub may flag
+more than one comment per submission), prepends `[REJECTED: <reason
+from GitHub>]` to each affected observation's body, re-renders the
+prune table so the rejected entries are visible alongside the rest of
+the list, and returns to prune mode. On any other non-zero exit
+(network, 5xx, rate limit, auth lapse) the observation list survives
+and the in-memory head-SHA cache reverts to the session-start value so
+the next wrap-up trigger re-runs the re-fetch from scratch.
 
 ### Edge cases / Gotchas
 
@@ -482,9 +487,10 @@ trigger re-runs the re-fetch from scratch.
   report the offending number and the rest of the list still processes;
   negative indices are rejected; unknown source tags log a one-line
   warning and drop zero entries.
-- A 422 mutation tags the observation in memory but does not auto-write
-  to the handoff file. The reviewer must re-checkpoint explicitly if
-  they want the rejection state to survive across `/clear`.
+- A 422 mutation tags every flagged observation in memory but does not
+  auto-write to the handoff file. The reviewer must re-checkpoint
+  explicitly if they want the rejection state to survive across
+  `/clear`.
 
 ### References
 
@@ -608,10 +614,10 @@ next successful submission against this PR or until the reviewer
 deletes it manually. Cleanup is per-PR: a successful POST against the
 current PR deletes only that PR's handoff; handoffs from other PRs in
 the same shell stay in `/tmp` until the host reaps them. On 422 the
-in-memory observation list is mutated with `[REJECTED: <reason>]` but
-the handoff file is not auto-updated; the reviewer must re-checkpoint
-explicitly if they want the rejection state to survive across
-sessions.
+in-memory observation list is mutated with `[REJECTED: <reason>]` on
+every flagged entry but the handoff file is not auto-updated; the
+reviewer must re-checkpoint explicitly if they want the rejection
+state to survive across sessions.
 
 ### Edge cases / Gotchas
 
