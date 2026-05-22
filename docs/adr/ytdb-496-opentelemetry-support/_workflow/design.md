@@ -28,7 +28,7 @@ This design introduces seven load-bearing ideas. Each is named and used without 
 
 **Sem-conv v1.33.0.** OpenTelemetry's stable semantic conventions for database client spans, dictating attribute names (`db.system.name`, `db.query.text`, etc.), their requirement levels (Required / Conditionally Required / Recommended / Opt-In), and the span-name fallback chain. Replaces "no vendor-neutral attribute schema". → §"Sem-conv attribute mapping".
 
-**QueryMonitoringMode.** A per-transaction enum on the existing `QueryMetricsListener` API selecting timing precision. `LIGHTWEIGHT` (default) reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()` for sub-millisecond precision at the cost of two syscalls per measurement. Hosts opt into `EXACT` per transaction via `YTDBTransaction.withQueryMonitoringMode(EXACT)`. Snapshotted by `FrontendTransactionImpl.beginInternal()` so every fire site in the transaction reports consistent precision. Replaces "always-EXACT timing" implied by the original design. → §"SQL execution layer hook" and §"Gremlin bytecode classification".
+**QueryMonitoringMode.** A per-transaction enum co-located with `QueryMetricsListener` / `TransactionMetricsListener` in `internal/common/profiler/monitoring/`, selecting timing precision. `LIGHTWEIGHT` (default) reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()` for sub-millisecond precision at the cost of two syscalls per measurement. Hosts opt into `EXACT` per transaction via `YTDBTransaction.withQueryMonitoringMode(EXACT)`. Snapshotted by `FrontendTransactionImpl.beginInternal()` so every fire site in the transaction reports consistent precision. Replaces "always-EXACT timing" implied by the original design. → §"SQL execution layer hook" and §"Gremlin bytecode classification".
 
 **Query source classification.** Two static-helper classifiers in `core` extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Called directly from the existing fire sites (`YTDBQueryMetricsStep` and `DatabaseSessionEmbedded.executeInternal()`) — no SPI or ServiceLoader; both fire sites already parse these structures, so the classifiers piggyback on parsing that runs anyway. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
 
@@ -253,6 +253,39 @@ Span kinds per role: query span is CLIENT, TX span is INTERNAL, commit span is C
 - D-records: D5, D6, D7, D8, D9
 - Mechanics: none
 
+## Span timing capture
+
+**TL;DR.** OTel expresses span duration as `endTime - startTime`, never as an attribute. The listener API already passes the wall-clock start (`startedAtMillis`) and the monotonic duration (`executionTimeNanos`) as separate parameters of `queryFinished` and `writeTransactionCommitted`, so the OTel listener builds spans with explicit timestamps without inventing its own clock. The pattern is `setStartTimestamp(startedAtMillis, MILLISECONDS).startSpan()` then `span.end(startedAtMillis + executionTimeNanos / 1_000_000, MILLISECONDS)`, keeping the span's recorded duration aligned with what the fire site measured.
+
+The mapping inside `OTelQueryMetricsListener.queryFinished(...)`:
+
+```java
+Span span = tracer.spanBuilder(name)
+    .setSpanKind(CLIENT)
+    .setStartTimestamp(startedAtMillis, TimeUnit.MILLISECONDS)
+    .setParent(parentContext)  // host context or TX context from ThreadLocal
+    .startSpan();
+// set sem-conv attributes (db.system.name, db.query.text, ...)
+span.end(startedAtMillis + executionTimeNanos / 1_000_000L, TimeUnit.MILLISECONDS);
+```
+
+Both values come from the same clock pair the fire site captured for the timing-mode snapshot. Under `LIGHTWEIGHT` the fire site reads `ticker.approximateCurrentTimeMillis()` for the start and `ticker.approximateNanoTime()` for the duration delta; under `EXACT` it reads `System.currentTimeMillis()` and `System.nanoTime()`. The listener sees a consistent pair regardless of mode, so the OTel-recorded duration never drifts from the listener-measured duration.
+
+Implicit `now()` would be wrong here. The listener callback fires *after* the operation completes, so `tracer.spanBuilder(...).startSpan()` without an explicit timestamp would record callback-entry time as the span start — losing the relationship between the span and the actual query timing. Passing `setStartTimestamp(...)` and `span.end(endTs)` makes the span match the measured operation.
+
+The TX-lifetime span uses implicit `now()` for `startSpan()` because `transactionStarted` fires *at* the moment of begin, with no measured start to backdate. The commit-child span inside the TX is built the same way as a query span, with `commitAtMillis` / `commitTimeNanos` from `writeTransactionCommitted` filling the timestamp slots.
+
+### Edge cases / Gotchas
+
+- The listener API's `startedAtMillis` is in milliseconds. Under `EXACT`, the underlying clock is `System.currentTimeMillis()` (~1 ms precision); under `LIGHTWEIGHT`, the ticker resolves at ~10 ms granularity. Sub-millisecond accuracy on the span START is not preserved; the span DURATION retains nanosecond precision because `executionTimeNanos` passes through unchanged. Trace viewers render at millisecond resolution, so this is consistent with how spans display.
+- A clock skew between the fire site and the OTel SDK's exporter does not affect span duration, only the absolute placement on a wall-clock timeline. The exporter normalizes timestamps per the backend protocol.
+- An OTel-compatible backend that requires strictly-monotonic timestamps within a single trace sees no violation: every YTDB span is built with `(start, end)` from one fire-site clock read, and `end > start` always holds because `executionTimeNanos > 0` for any completed operation.
+
+### References
+- D-records: D8, D14
+- Invariants: Timing-mode uniformity
+- Mechanics: none
+
 ## Context propagation in embedded
 
 **TL;DR.** The host application's active span automatically becomes the parent of every YTDB query span. `Context.current()` resolves to the host's span because the listener fires synchronously on the caller's thread per existing YTDB semantics, and transaction operations are pinned to the owner thread via `assertOnOwningThread`. No extra plumbing is needed for the common case; a regression test guards against future threading changes.
@@ -392,7 +425,8 @@ The `SqlSanitizer` runs a conservative regex pass over the raw SQL: replaces sin
 - A statement with multi-target FROM (`SELECT FROM User, Order WHERE ...`) yields `collectionName = "User"` (first wins) per sem-conv guidance to keep cardinality low. An anonymous FROM subquery yields `Optional.empty()`.
 - The transaction tracking ID comes from `String.valueOf(currentTx.getId())` — `FrontendTransaction.getId(): long` already exists at line 215 and returns a stable internal ID. No new accessor is added in Track 4.
 - An exception thrown by `statement.execute(...)` propagates as before. The hook still fires the listener with the elapsed time and the SQL, with the span status set to ERROR and `error.type` populated, before the exception re-throws. The fire is wrapped so a listener exception during error handling doesn't mask the original.
-- Under LIGHTWEIGHT (default), query durations shorter than the ticker's granularity (~10 ms) round to zero or one tick. Acceptable for trace viewers, which render at millisecond resolution anyway. A host that needs sub-millisecond precision must opt into EXACT via `YTDBTransaction.withQueryMonitoringMode(EXACT)` for that transaction.
+- Under LIGHTWEIGHT (default), query durations shorter than the ticker's granularity (~10 ms) round to zero or one tick. Acceptable for trace viewers, which render at millisecond resolution anyway. A host that needs sub-millisecond precision must opt into EXACT via `YTDBTransaction.withQueryMonitoringMode(EXACT)` before that transaction begins.
+- The per-TX `QueryMonitoringMode` snapshot is immutable for the transaction's lifetime. `YTDBTransaction.withQueryMonitoringMode(...)` called mid-TX (after the TX has begun) mutates the YTDBTransaction field but does not affect the active TX's snapshot, so the call takes effect on the next `begin()` cycle. This keeps the Gremlin step, SQL hook, and commit timer reading from one frozen source for the TX's duration, satisfying the Timing-mode uniformity invariant without per-iteration re-reads.
 
 ### References
 - D-records: D8, D9
