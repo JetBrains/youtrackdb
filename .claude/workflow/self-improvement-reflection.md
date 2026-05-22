@@ -107,11 +107,6 @@ Out of scope (do not record here):
   workflow-level fix.
 - General "I think the project should …" opinions unrelated to the
   workflow that produced them.
-- Frictions the agent recovered from cheaply in this session — a
-  re-read, one wrong turn caught on the next sentence, a single
-  sub-agent retry. The per-occurrence cost is below what a
-  preventive rule's load cost would justify; see §Frequency,
-  self-healing, and context-cost gate.
 
 The bar is: *the user, looking only at the YouTrack issue, should be
 able to act on it without re-deriving the context.* If the agent
@@ -141,15 +136,18 @@ All three prongs must hold:
    same way; a non-deterministic one-off (CI flake, network blip,
    unreproducible session state) fails both paths.
 
-2. **Self-healing cost.** Estimate the tokens the agent actually
-   spent recovering from the friction in this session — re-reading
-   one doc, retrying one sub-agent call, catching one wrong turn on
-   the next sentence. If recovery was cheap (roughly a few hundred
-   tokens or less), drop the candidate. The per-occurrence cost is
-   already below the per-session load cost of any preventive rule,
-   so a documented fix loses tokens on net even when its trigger
-   fires on every matching session. Friction that heals itself
-   faster than a rule could prevent it is not worth a rule.
+2. **Self-healing cost.** Pass (drop the candidate) if all five
+   hold: (a) the friction fired only once or twice this session,
+   (b) each recovery completed within ≤2 agent turns, (c) no sub-
+   agent re-spawn was needed, (d) the agent re-read at most one
+   doc, (e) the agent did not have to ask the user. When all five
+   hold, the per-session cost is below the per-session load cost
+   of any preventive rule, so a documented fix loses tokens on
+   net. *Worked example*: the agent caught a wrong section name
+   in `track-review.md` on re-read once. Trigger is deterministic
+   (Frequency 1a passes); sketched fix is a one-line caveat on an
+   every-Phase-A doc (Context-cost passes); recovery was one
+   re-read in one turn, fired once (Self-healing passes — drop).
 
 3. **Context-cost justification.** Sketch the workflow edit the fix
    would land and name the doc it would live in. Weigh the edit's
@@ -164,11 +162,11 @@ Quick tests before recording:
   ≥3 plausible future sessions, OR is the trigger deterministic and
   guaranteed to recur on every matching session? (Fail if neither
   path holds.)
-- **Self-healing prong:** Roughly how many tokens did self-
-  correction cost in this session? If recovery was cheap (a doc
-  re-read, one retry, one wrong turn caught immediately), drop the
-  candidate — the friction was cheaper than a preventive rule's
-  load cost.
+- **Self-healing prong:** Did the friction fire ≤2 times this
+  session, with each recovery completing in ≤2 turns, no sub-
+  agent re-spawn, ≤1 doc re-read, and no user prompt? If yes on
+  all five, drop the candidate — the friction was cheaper than a
+  preventive rule's load cost.
 - **Context-cost prong:** Sketch the edit and name the target doc.
   Does (edit length × that doc's load frequency) feel worth the
   saved friction? (Fail if the sketched edit would not earn its
@@ -244,10 +242,11 @@ correct outcome, not a failure to look hard enough.
       §Severity guide). Low-severity annoyances are noise — do not
       file them, and do not promote them to medium just to keep the
       proposal alive.
-   2. Drop any friction that fails the §Frequency and context-cost
-      gate. Run the quick tests in that section explicitly — both
-      the recurrence assessment and the rough sketch of what
-      workflow content the fix would add. A friction that survives
+   2. Drop any friction that fails the §Frequency, self-healing,
+      and context-cost gate. Run the quick tests in that section
+      explicitly — the recurrence assessment, the self-healing
+      cost check, and the rough sketch of what workflow content
+      the fix would add. A friction that survives
       severity but fails the gate is a project- or ADR-shaped
       finding; mention it in the session's normal output if useful,
       but do not file it.
@@ -507,11 +506,12 @@ When in doubt: content describes "broken" → `Bug`; content describes
 in this project — `Feature` is the closest match and is used for all
 gap-fill work surfaced by reflection.
 
-Both `Bug` and `Feature` candidates must clear the §Frequency and
-context-cost gate. There is no Bug-vs-Feature asymmetry: the
-question is whether the friction recurs often enough to justify the
-per-session token cost of whatever workflow change the fix would
-land, not whether the issue is framed as "broken" or "missing".
+Both `Bug` and `Feature` candidates must clear all three prongs of
+the §Frequency, self-healing, and context-cost gate. There is no
+Bug-vs-Feature asymmetry: the question is whether the friction
+recurs often enough, costs enough per occurrence, and earns back
+its load cost — not whether the issue is framed as "broken" or
+"missing".
 
 ---
 
@@ -532,7 +532,10 @@ it and do not relabel it to medium to keep it alive.
   - *Example*: a Phase A review sub-agent (technical, risk, or
     adversarial) repeatedly returns the same low-value finding
     that the orchestrator must override every iteration; no
-    upstream filter exists.
+    upstream filter exists. (Survives the Self-healing prong:
+    fires once per iteration, so clause (a) fails — the
+    cumulative cost across iterations exceeds the per-session
+    load cost of an upstream filter rule.)
 - `high` — blocks a phase, causes silent wrong outputs, or pushes
   the agent into an unrecoverable state. A `high` finding should
   be rare and almost always points to a missing rule or a
@@ -596,11 +599,11 @@ the triager can verify it.
   mapping) and set it at creation. The triager can re-calibrate,
   but the default priority is the agent's responsibility.
 - **Do not** record any candidate (Bug or Feature) that fails the
-  §Frequency, self-healing, and context-cost gate. The bar is recurrence high
-  enough to justify the per-session token cost of the workflow
-  change the fix would require; one-off, cheaply self-healed,
-  non-deterministic, or ADR-specific frictions do not qualify,
-  regardless of how the issue is framed.
+  §Frequency, self-healing, and context-cost gate. The bar is
+  recurrence high enough to justify the per-session token cost of
+  the workflow change the fix would require; one-off, cheaply
+  self-healed, non-deterministic, or ADR-specific frictions do
+  not qualify, regardless of how the issue is framed.
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
