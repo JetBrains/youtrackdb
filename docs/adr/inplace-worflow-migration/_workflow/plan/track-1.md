@@ -14,6 +14,7 @@ Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-li
 - [ ] Track completion
 - [x] 2026-05-22T15:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-22T16:06Z [ctx=safe] Step 1 complete (commit e963517bee)
+- [x] 2026-05-22T16:10Z [ctx=safe] Step 2 complete (commit c391554eb6)
 
 ## Surprises & Discoveries
 - [x] 2026-05-22T16:06Z Tracks 2, 3, 4a, 4b, and 5 should cite §1.6 subsection anchors directly (e.g., `§1.6(a1)` for canonical parser idioms, `§1.6(h)` for the Phase 1 walk block). The new section was structured as `### (x)` subsections precisely so anchors stay stable across future edits. See Episodes §Step 1.
@@ -91,7 +92,7 @@ Order: §1.1 edits → §1.6 section → §1.2 cross-reference. Existing §1.4 s
 ## Concrete Steps
 
 1. Add `## 1.6 Workflow-SHA stamps on _workflow/** artifacts` to `.claude/workflow/conventions.md` with all eight deliverables (a, a1, b, c, d, e, f, g, h) per `## Plan of Work`, rendered as subsections (not a single inline paragraph) with the Phase 1 walk bash block embedded verbatim — risk: low (default: docs / new workflow rule section in one Markdown file)  [x] commit: e963517bee
-2. Update `## 1.1 *Glossary*` in `.claude/workflow/conventions.md`: add a "Workflow-SHA stamp" row pointing at §1.6, and amend the existing "Workflow drift" row to drop "current `develop` workflow format" and add `/create-plan` as a second trigger per D9/D10 semantics — risk: low (default: docs / two glossary-row edits in one Markdown file)  [ ]
+2. Update `## 1.1 *Glossary*` in `.claude/workflow/conventions.md`: add a "Workflow-SHA stamp" row pointing at §1.6, and amend the existing "Workflow drift" row to drop "current `develop` workflow format" and add `/create-plan` as a second trigger per D9/D10 semantics — risk: low (default: docs / two glossary-row edits in one Markdown file)  [x] commit: c391554eb6
 3. Add a cross-reference from `## 1.2 *Plan File Structure*` to §1.6 near the artifact list in `.claude/workflow/conventions.md`, noting that each ephemeral `_workflow/**` artifact carries a line-1 workflow-SHA stamp — risk: low (default: docs / single sentence + link in one Markdown file)  [ ]
 
 ## Episodes
@@ -100,6 +101,12 @@ Order: §1.1 edits → §1.6 section → §1.2 cross-reference. Existing §1.4 s
 **What was done:** Appended `## 1.6 Workflow-SHA stamps on _workflow/** artifacts` to `.claude/workflow/conventions.md` with deliverables (a)–(h) rendered as nine `### (x)` subsections (a, a1, b, c, d, e, f, g, h) under a short orienting lead paragraph. Subsection (a1) carries the canonical value-extraction and presence-check regex idioms plus the loose form explicitly marked non-canonical. Subsection (b) carries the SHA computation one-liner with the empty-output fallback to `git rev-parse HEAD`. Subsection (c) carries the `BASE_SHA..HEAD` range with `git merge-base` failure recovery into the unstamped-bootstrap prompt. Subsection (d) carries the `^{commit}` peel, short-SHA canonicalization, and too-old / too-new failure modes. Subsection (e) carries the no-silent-auto-default non-rule. Subsection (f) carries the positive stamp list plus Phase 4 and `design-mutations.md` exclusions. Subsection (g) carries the active-plan-scope rule (D13) with the one-plan-per-branch citation. Subsection (h) embeds the Phase 1 walk bash block verbatim including the `<resolved-dir-name>` placeholder.
 
 **What was discovered:** Downstream tracks (2, 3, 4a, 4b, 5) should cite §1.6 subsection anchors directly (e.g., `§1.6(a1)`, `§1.6(h)`) rather than re-quoting the prose. The `### (x)` subsection rendering choice freezes the anchor surface; a future change from subsections to a table would invalidate every downstream citation. Track 6 also reads from §1.6 (D9 gate at /create-plan startup quotes the same canonical parser idioms).
+
+**Key files:**
+- `.claude/workflow/conventions.md` (modified)
+
+### Step 2 — commit c391554eb6, 2026-05-22T16:10Z [ctx=safe]
+**What was done:** Inserted a "Workflow-SHA stamp" row into the §1.1 glossary table of `.claude/workflow/conventions.md` between the existing "Mid-phase handoff" and "Workflow drift" rows. The new row defines the line-1 HTML-comment stamp format and points at §1.6. Amended the existing "Workflow drift" row per D9/D10: replaced "the current `develop` workflow format" with "the workflow format encoded in commits reachable from HEAD"; replaced the sole "Detected in turn 1 of `/execute-tracks`" trigger with "Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks`".
 
 **Key files:**
 - `.claude/workflow/conventions.md` (modified)
