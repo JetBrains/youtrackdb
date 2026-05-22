@@ -112,9 +112,10 @@ the §1.1 glossary row "Workflow-SHA stamp" gives the one-line definition.
 
 The on-disk shape of `_workflow/**` may shift between sessions when
 workflow-format commits land on `develop` while the branch runs. The
-turn-1 gate at [`workflow-drift-check.md`](workflow-drift-check.md) detects
-such drift at every `/execute-tracks` startup and routes the user through
-the `/migrate-workflow` skill to realign.
+session-start gate at [`workflow-drift-check.md`](workflow-drift-check.md)
+detects such drift at every `/create-plan` (D9) and `/execute-tracks`
+startup and routes the user through the `/migrate-workflow` skill to
+realign.
 
 ### Plan file content (`implementation-plan.md`)
 
@@ -475,11 +476,15 @@ workflow tooling itself:
 
 ```bash
 WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 
 When the path-scoped log returns the empty string (no commit in HEAD's
 ancestry has touched `.claude/workflow/` or `.claude/skills/`), the
-writer falls back to `git rev-parse HEAD`. In every repo where
+writer falls back to `git rev-parse HEAD`. Every downstream writer
+(create-plan, edit-design phase1-creation, edit-design length-trigger,
+migration final-batch) copies the paired idiom above verbatim so the
+fallback behaves identically across writer sites. In every repo where
 workflow tooling exists in any reachable commit, the fallback never
 fires; documenting it keeps the rule portable to fresh repos and to
 repos where workflow paths have been moved.
@@ -496,10 +501,14 @@ HEAD is the upper bound because the branch is a self-contained capsule
 A fatal `git merge-base` failure (a stamp pointing at a `git
 gc`-pruned commit, or two stamps with no reachable common ancestor in
 the local repo) routes to the unstamped-artifact bootstrap prompt in
-(d): the affected stamp is treated as unstamped for the rest of the
-session, and the user is asked to supply a base SHA covering it. The
-recovery path keeps the gate usable when stamps drift onto commits the
-local repo no longer has.
+(d). The pairwise fold may surface multiple failures across one
+session — each failing `git merge-base` call contributes its
+participating stamps to the affected set. Every stamp in that set is
+treated as unstamped for the rest of the session, and the bootstrap
+prompt in (d) covers the full set in a single user prompt (matching
+the batch semantics for genuinely-unstamped artifacts). The recovery
+path keeps the gate usable when stamps drift onto commits the local
+repo no longer has.
 
 ### (d) Unstamped-artifact protocol
 
@@ -517,6 +526,13 @@ Short prefixes are accepted as input, but the writer canonicalizes the
 value to the 40-char form via the `rev-parse` stdout before storing it
 in any stamp file (the stamp regex `[0-9a-f]{40}` rejects shorter
 values on subsequent parse).
+
+On validation failure (either subcommand returns non-zero), the
+migration re-prompts the user with the failure cause. After three
+failed attempts the migration halts with an error and the user
+`/clear`s the session to abandon the migration. The bounded retry
+count keeps a typo recoverable without trapping the session in an
+unbounded loop.
 
 The prompt records the user's best guess; the per-commit replay loop's
 halt-on-ambiguity is a partial safety net, not a guarantee. A too-old
@@ -559,8 +575,9 @@ Explicitly NOT stamped:
 Both the drift check and the migration operate on the plan dir the
 caller resolved at startup: `/create-plan <dir>`, `/execute-tracks
 <dir>`, or `/migrate-workflow`'s zero / one / many ladder over
-`docs/adr/*/_workflow/`. See §1.2 *Plan File Structure*
-(one-plan-per-branch convention) for the resolution rule.
+`docs/adr/*/_workflow/`. See §1.2 *Plan File Structure* (the
+`<dir-name>` default to current git branch name) for the resolution
+rule.
 
 Cross-plan folding is out of scope (plan D13): each plan migrates
 independently, and folding across plans would over-include older
@@ -582,6 +599,9 @@ cleanup commit; `conventions.md` is not):
 PLAN_DIR="docs/adr/<resolved-dir-name>"
 STAMPED_SHAS=""
 UNSTAMPED_FILES=""
+# design-mechanics.md is optional; absent until the length trigger fires.
+# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+# yet present on disk, so missing files do not abort the walk.
 for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
               "$PLAN_DIR/_workflow/design.md" \
               "$PLAN_DIR/_workflow/design-mechanics.md" \
@@ -598,3 +618,14 @@ done
 The `<resolved-dir-name>` placeholder is the active plan dir resolved
 per (g) above. Downstream writers replace it at invocation time; the
 literal form lands here so the block stays copy-paste-ready.
+
+When both `STAMPED_SHAS` and `UNSTAMPED_FILES` are empty after the
+walk, the active plan has no stampable artifacts on disk (for example,
+a freshly-created `_workflow/` directory that holds only a transient
+`handoff-*.md`). Callers treat this as a no-op: the drift check exits
+successfully with no drift to report, and the migration skill refuses
+with `no artifacts to migrate`. The empty-input case is distinct from
+the all-stamped case (`STAMPED_SHAS` non-empty, `UNSTAMPED_FILES`
+empty) and from the partially-stamped case (`UNSTAMPED_FILES`
+non-empty, which routes to the bootstrap prompt in (d) regardless of
+`STAMPED_SHAS` content).
