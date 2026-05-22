@@ -51,9 +51,10 @@ public final class BTreeSingleValueIndexEngine
   // Recalibrated by buildInitialHistogram() as self-healing.
   private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
 
-  // Approximate count of null-key entries. Set to 0 on load() (not separately
-  // persisted for single-value — at most off by 1). Adjusted at commit time,
-  // recalibrated by buildInitialHistogram().
+  // Approximate count of null-key entries. Recalibrated on load() from a
+  // direct null-key lookup (single-value engine stores at most one entry per
+  // key, so this is O(1)). Adjusted at commit time via applyIndexCountDeltas
+  // and recalibrated by buildInitialHistogram() during create/rebuild.
   private final AtomicLong approximateNullCount = new AtomicLong();
 
   public BTreeSingleValueIndexEngine(
@@ -189,9 +190,16 @@ public final class BTreeSingleValueIndexEngine
     assert count >= 0
         : "Persisted approximate entries count must be non-negative: " + count;
     approximateIndexEntriesCount.set(count);
-    // Null count is not separately persisted for single-value indexes (always
-    // 0 or 1). Set to 0; buildInitialHistogram() recalibrates it.
-    approximateNullCount.set(0);
+    // Recalibrate the in-memory null counter from on-disk state. The single-
+    // value engine has no separate persisted null counter (persistCountDelta
+    // intentionally ignores nullDelta because nulls live in the same tree as
+    // non-null keys), but AbstractStorage.applyIndexCountDeltas still feeds
+    // nullDelta into addToApproximateNullCount() polymorphically. Setting the
+    // counter to 0 unconditionally meant the first REMOVE of a persisted null
+    // entry after restart accumulated -1 and tripped the underflow assert at
+    // addToApproximateNullCount(). countNulls() is an O(1) direct null-key
+    // lookup (single-value semantics → at most one visible null entry).
+    approximateNullCount.set(countNulls(atomicOperation));
   }
 
   @Override
