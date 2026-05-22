@@ -233,7 +233,7 @@ flowchart LR
   >
   > **Strategy refresh:** CONTINUE — Track 2's three cross-track impacts (dispatch-log resume semantics, no auto-dedup of repeated dispatch entries, snapshot-vs-cache head-SHA distinction) align with Track 3's existing Plan of Work; Phase A absorbs them as step-level concerns.
 
-- [ ] Track 3: Handoff writer and resume path
+- [x] Track 3: Handoff writer and resume path
   > Add the reviewer-driven handoff mechanism. The skill writes a Markdown
   > file under `/tmp/` when the reviewer asks to checkpoint. On
   > re-invocation against the same PR the skill discovers the handoff via
@@ -241,10 +241,11 @@ flowchart LR
   > the saved head SHA, reloads the observation list and the sub-agent
   > dispatch log, and re-presents the list to the reviewer. The file is
   > deleted on successful submission.
-  > **Scope:** ~3 steps covering handoff file format and writer, PR-keyed
-  > discovery glob on re-invocation, and resume-path HEAD re-verification
-  > and state reload.
-  > **Depends on:** Track 2
+  >
+  > **Track episode:**
+  > Landed the reviewer-driven handoff and resume mechanism for the `review-workflow-pr` skill across three step commits (`45d7960af4`, `a5aa6cc436`, `58a5f9193a`) plus one Phase C `Review fix:` commit (`e3a6847cef`) that closed 19 synthesised findings against `.claude/skills/review-workflow-pr/SKILL.md`. The skill now persists observation list, sub-agent dispatch log, and reviewer notes to `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` on explicit reviewer cue, glob-discovers prior handoffs on re-invocation with mtime-sorted multi-match handling, and runs resume reload with malformed-input recovery, `<dir>`/artifact reconciliation, section-1 PR-number cross-check, HEAD re-verification (refresh / abort / proceed with `[STALE: verify line]` risk), dispatch-log tri-state re-presentation, and per-PR cleanup discipline. The `**POST and URL.**` sub-block expanded to own the handoff-delete action on the success branch, a Phase A scope deviation recorded in Step 3's episode and re-surfaced as a Phase 4 candidate (`design.md` §"Handoff and resume" → `### Edge cases / Gotchas` describes cleanup abstractly without naming the action-owner). Phase C closed in 2 iterations against 21 cumulative verdicts; no deferred findings, no plan corrections. Three durable Phase 4 cross-track impacts for the `design-final.md` writer: (1) the `dispatchLog`-consumer prose at `SKILL.md:121` no longer cites "the follow-up handoff-writer track"; it now anchors on `## Handoff and resume` → **Dispatch-log re-presentation.** and **Resume reload.** by name, so the `design-final.md` narrative should preserve this in-file anchoring; (2) `## Research mode`'s in-conversation-only assertion at `SKILL.md:77` was tightened to acknowledge the persistence option per `## Handoff and resume`, and the design narrative may need the same tightening if it carries an equivalent assertion; (3) the `**POST and URL.**` sub-block now owns the handoff-delete action, so `design.md`'s `### Edge cases / Gotchas` block should pin the action-owner explicitly. Self-improvement-reflection candidate: the pre-commit ephemeral-identifier regex `\b[A-Z]{1,3}-?[0-9]+\b` fired on `ISO-8601` four times across the track (Steps 1, 2, 3 episodes plus the iter-1 implementer); a negative-lookahead tightening for `ISO-`, `RFC-`, `BCP-` prefixes would cut the inspect-and-pass friction on prose-heavy writer-side files under `.claude/skills/`.
+  >
+  > **Track file:** `plan/track-3.md` (3 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 2
