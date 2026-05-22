@@ -118,3 +118,30 @@ short labels inline.
 - suggestion (retained, deliberate idiom): the bash enumeration at line 187 includes `design-mechanics.md` even though this design has no mechanics companion; the enumeration is the canonical template for the drift check and migration, and `ls … 2>/dev/null` handles the absence gracefully on designs without a companion. Not a finding to act on.
 
 **Iterations**: 2 of 3 (PASS — mechanical PASS on first run; cold-read iterated once after the line-17 blocker)
+
+## Mutation 6 — 2026-05-22 — content-edit
+
+**Diff summary**: Phase-2 State-0 consistency-review fixes CR1 and CR6 landed atomically as a content-edit pair targeting two named sections. CR6: added a sentence to Core Concepts → "Workflow-SHA stamp" (line 19) naming the SHA-computation one-liner `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills` with a cross-link to `conventions.md §1.6` and the `create-plan` / `edit-design` SKILLs in Track 2. CR1: rewrote the §"Per-commit replay and lockstep advance" TL;DR (line 246) and the per-crash-window prose (line 276) to land the lockstep advance BETWEEN sub-step 4.4 (apply edits) and sub-step 4.6 (progress sentinel), matching the §"Workflow → Migration replay loop" sequenceDiagram order; the old prose claimed the advance fired after both 5.4 and 5.5. Updated step numbers throughout the section from the legacy 5.x to Track 4's renumbered 4.x scheme (4.4 / 4.5 / 4.6 / 4.7 / 4.8). Edge-cases bullets at lines 280-282 also renumbered.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS (0 blockers, 1 should-fix recorded as known debt)
+**Cold-read** (scope: whole-doc): PASS (0 blockers, 0 should-fix, 4 suggestions recorded as known debt)
+
+**Findings**:
+- should-fix (mechanical, pre-existing, deferred): `dsc-ai-tell` at line 244 — section heading "Per-commit replay and lockstep advance" shares 75% content words with the first paragraph (threshold 50%). Existed before CR1's edit (the previous TL;DR opened with "Inside the migration's Step 5 per-commit loop"); the rewrite preserved the structural overlap. Not addressed in this mutation because the fragmentation pre-dates the edit and the budget for State 0 mechanical fixes is consistency-driven, not narrative-shape-driven. Carry forward as known debt for a future content-edit.
+- suggestion (cold-read, accepted as known debt): line 19 embeds "in Track 2" — an internal working-file identifier — inside design.md prose. Tolerable while `_workflow/` survives; Phase 4 will scrub on creation of `design-final.md`.
+- suggestion (cold-read, accepted as known debt): line 276 uses "→ ... → final HEAD batch (4.8)" with an ellipsis between the per-commit task flip (4.7) and the post-loop final batch (4.8). The ellipsis hides the loop boundary but the sequenceDiagram and Track-4's Plan-of-Work item 7 both make the boundary explicit.
+- suggestion (cold-read, accepted as known debt): line 276 mentions "the no-drift normalization path" in a parenthetical describing the 4.8 final HEAD batch — the phrase is also used for the drift gate's D11 path (committed by the gate, not the skill). The conflation is mild because the rest of design.md keeps the two writers separate (line 131 calls them out explicitly).
+- suggestion (cold-read, pre-existing, accepted as known debt): line 13 section-roster preamble doesn't list §"Reflection parameterization". Pre-existing — not introduced by CR1/CR6.
+
+**Iterations**: 1 of 3 (PASS — mechanical and cold-read both PASS on first run; only suggestions surfaced)
+
+## Mutation 7 — 2026-05-22 — content-edit
+
+**Diff summary**: Phase-2 State-0 consistency-gate regression fix CR7. Two step-number substitutions inside §"Reflection parameterization — one knob, three conditional clauses": (1) the example SKILL snippet's `## Step 7 — Self-improvement reflection` heading becomes `## Step 6 — Self-improvement reflection`, since Track 4's renumber-down made today's Step 6 (final summary) into Step 5, so the new reflection step lands as Step 6 rather than Step 7; (2) the edge-cases bullet referencing "`migrate-workflow/SKILL.md` Step 6 (final summary)" becomes "Step 5 (final summary, post-Track-4 renumber)". Both edits also include a short clarifying parenthetical naming the Track 4 renumber convention so a cold reader can trace the number choice without external context.
+
+**Mechanical checks** (target=design, scope=bounded on `Reflection parameterization — one knob, three conditional clauses`): PASS (0 findings)
+**Cold-read** (scope: bounded): SKIPPED — numeric step-renumber is mechanical; cold-read for the parent §"Reflection parameterization" section ran in Mutation 6 (whole-doc PASS) and the diff carries no narrative shift. Precedent: Mutation 2 took the same skip path for the equivalent BASE_SHA-rename substitution.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS)

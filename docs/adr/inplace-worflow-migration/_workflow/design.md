@@ -16,7 +16,7 @@ The rest of this document covers: Core Concepts (the six new domain terms), Work
 
 Six new domain terms appear throughout this design. Each gets one paragraph below: name, plain-language definition, role in the architecture, and a pointer to the section that elaborates it.
 
-**Workflow-SHA stamp.** A line-1 HTML comment on every ephemeral `_workflow/**` artifact: `<!-- workflow-sha: <40-char SHA> -->`. Records the latest commit touching `.claude/workflow/` or `.claude/skills/` reachable from `HEAD` at the time the artifact was created or last migrated. Invisible in rendered Markdown; parseable with `head -1`. Replaces today's implicit "the artifact's effective workflow version is the branch's fork-point with develop." → §"Stamp range computation".
+**Workflow-SHA stamp.** A line-1 HTML comment on every ephemeral `_workflow/**` artifact: `<!-- workflow-sha: <40-char SHA> -->`. Records the latest commit touching `.claude/workflow/` or `.claude/skills/` reachable from `HEAD` at the time the artifact was created or last migrated. Computed at creation time via `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills` (canonical rule in `conventions.md §1.6`; written verbatim into the templates by the `create-plan` and `edit-design` SKILLs in Track 2). Invisible in rendered Markdown; parseable with `head -1`. Replaces today's implicit "the artifact's effective workflow version is the branch's fork-point with develop." → §"Stamp range computation".
 
 **Stamp range.** The commit range used by the drift check and the migration: `<BASE_SHA>..HEAD`, where `BASE_SHA` is the oldest stamp reachable from HEAD, computed by folding the set of stamps with `git merge-base` (pairwise common ancestor). The upper bound is HEAD because the branch is a self-contained capsule — workflow commits enter the branch's view only via explicit rebase or merge, no `git fetch origin develop` involved. When the active plan contains unstamped artifacts, the migration extends the fold input set by the user-provided bootstrap SHA (see next concept). The drift check itself never computes the range against unstamped state; it short-circuits to "drift detected" on unstamped-artifact presence alone. Replaces today's `git merge-base origin/develop HEAD..origin/develop`. → §"Stamp range computation".
 
@@ -243,7 +243,7 @@ git log --reverse --format='%H %s' "$BASE_SHA..HEAD" -- .claude/workflow .claude
 
 ## Per-commit replay and lockstep advance
 
-**TL;DR.** Inside the migration's Step 5 per-commit loop, after Step 5.4 (apply edits to branch artifacts) and Step 5.5 (record commit in progress sentinel) succeed for commit X, every stamped artifact in the active plan's `_workflow/` has its line-1 stamp rewritten to X, including artifacts the commit didn't touch. This is the crash-resume marker: the next invocation reads any stamp, finds the last successfully-replayed SHA, and resumes from the commit after that. After the loop exits successfully, Step 5.7 runs a final batch that re-stamps every artifact in the active plan to `git rev-parse HEAD`, even artifacts the loop already advanced to the same value (D2 + D13). Invariant I2 lands at the final batch, so HEAD-relative consistency holds even when the last replayed commit precedes HEAD.
+**TL;DR.** Inside the migration's Step 4 per-commit loop (renamed from today's Step 5 under Track 4's renumbering), sub-step 4.5 *Advance stamps in lockstep* fires immediately after sub-step 4.4 (apply edits to branch artifacts) succeeds and before sub-step 4.6 (record commit in progress sentinel) runs. Every stamped artifact in the active plan's `_workflow/` has its line-1 stamp rewritten to the just-replayed commit's SHA, including artifacts the commit didn't touch. This is the crash-resume marker: the next invocation reads any stamp, finds the last successfully-replayed SHA, and resumes from the commit after that. After the per-commit loop exits successfully, sub-step 4.8 runs a final batch that re-stamps every artifact in the active plan to `git rev-parse HEAD`, even artifacts the loop already advanced to the same value (D2 + D13). Invariant I2 lands at the final batch, so HEAD-relative consistency holds even when the last replayed commit precedes HEAD.
 
 The per-commit advance is a one-line `sed` (or `Edit` on the comment line) per artifact, run after the per-commit edits land:
 
@@ -273,13 +273,13 @@ done
 
 A legacy-unstamped artifact gains a stamp on its first migration (in the per-commit phase). Subsequent migrations of the same branch overwrite the existing stamp.
 
-The order matters: edits → per-commit advance → final HEAD batch. If the migration crashes between Step 5.4 and the per-commit advance, the next invocation sees stamps still at commit X-1 and replays X over already-edited content; the user's `git diff` before resuming detects duplicate edits — this is the same crash-window contract today's `.migration-progress` provides, just with the stamp playing the durable-marker role. If the migration crashes between the per-commit loop and the final HEAD batch, stamps point at the last replayed commit (still a valid resume point); the next invocation finds the range empty and lands at the final HEAD batch step on the no-drift normalization path, which advances every stamp in the active plan to HEAD's SHA.
+The order matters: edits (4.4) → per-commit advance (4.5) → progress sentinel (4.6) → task flip (4.7) → ... → final HEAD batch (4.8). If the migration crashes between 4.4 and 4.5, the next invocation sees stamps still at commit X-1 and replays X over already-edited content; the user's `git diff` before resuming detects duplicate edits — this is the same crash-window contract today's `.migration-progress` provides, just with the stamp playing the durable-marker role. If the migration crashes between 4.5 and 4.6, stamps are at commit X but the progress sentinel is not, and the next invocation re-reads the stamp, finds the range short by one commit, and lands at 4.8 (the no-drift normalization path advances every stamp to HEAD's SHA). If the migration crashes between the per-commit loop and sub-step 4.8 itself, stamps point at the last replayed commit (still a valid resume point); the next invocation finds the range empty and lands at 4.8 directly.
 
 ### Edge cases / Gotchas
 
 - An artifact that doesn't yet exist (a future track file the branch hasn't created): not enumerated, no advance, no problem. The advance is best-effort per-file.
-- A commit that triggers Step 5.4's halt-on-ambiguity (`section-rename onto existing name`, `section-remove with user content`, `field-add with no safe default`): the loop pauses; stamps stay at the prior commit's SHA. When the user resolves the halt and the loop continues, the advance for the current commit fires.
-- A commit recorded as `manual-review-needed` (user invoked "skip" from a halt): the advance still fires — the commit was "applied" in the sense that the user opted out, and leaving the stamp behind would cause the same commit to be re-presented on the next run.
+- A commit that triggers sub-step 4.4's halt-on-ambiguity (`section-rename onto existing name`, `section-remove with user content`, `field-add with no safe default`): the loop pauses; stamps stay at the prior commit's SHA. When the user resolves the halt and the loop continues, sub-step 4.5 for the current commit fires.
+- A commit recorded as `manual-review-needed` (user invoked "skip" from a halt): sub-step 4.5 still fires — the commit was "applied" in the sense that the user opted out, and leaving the stamp behind would cause the same commit to be re-presented on the next run.
 
 ### References
 
@@ -297,10 +297,10 @@ The parameterization is a minimal edit:
 - In Step 2 (verify session work is committed), add a conditional: skip the check when `session-type=migrate-workflow` (migration intentionally leaves the worktree dirty for user review).
 - In the issue body template's `**Phase:**` line, accept `migrate-workflow` as a valid value alongside the existing five phase identifiers.
 
-The migrate-workflow SKILL's new final step:
+The migrate-workflow SKILL's new final step (numbering follows Track 4's renumber-down: today's Step 6 final summary becomes Step 5, so Track 5's reflection step lands as Step 6):
 
 ```markdown
-## Step 7 — Self-improvement reflection
+## Step 6 — Self-improvement reflection
 
 Invoke the reflection protocol at `.claude/workflow/self-improvement-reflection.md`
 with `session-type=migrate-workflow`. The protocol handles its own MCP-reachability
@@ -311,7 +311,7 @@ check and end-of-session contract; nothing else fires after it returns.
 
 - The duplicate filter (Step 6 of reflection) searches `project: YTDB tag: dev-workflow`. Migration-session frictions land in the same queue as `/execute-tracks` frictions; the triager treats them uniformly. No queue split needed.
 - A reflection candidate that names a `migrate-workflow/SKILL.md` step explicitly is more likely to clear the frequency prong than a hypothetical `/execute-tracks` finding, because migration sessions are themselves rare — but the gate's "deterministic trigger fires on every matching session" path handles that case (one Bug that fires deterministically once still passes the prong).
-- The session-end summary in `migrate-workflow/SKILL.md` Step 6 (final summary) runs BEFORE reflection in the new flow. Reflection's "End the session" terminal action is what truly ends the migration session.
+- The session-end summary in `migrate-workflow/SKILL.md` Step 5 (final summary, post-Track-4 renumber) runs BEFORE reflection in the new flow. Reflection's "End the session" terminal action is what truly ends the migration session.
 
 ### References
 

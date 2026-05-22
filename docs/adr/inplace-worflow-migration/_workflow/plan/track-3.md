@@ -94,7 +94,7 @@ After Track 3 lands:
 **Out-of-scope files:**
 - `.claude/workflow/conventions.md` (Track 1)
 - `.claude/skills/create-plan/SKILL.md`, `.claude/skills/edit-design/SKILL.md` (Track 2)
-- `.claude/skills/migrate-workflow/SKILL.md` (Track 4 — reads the same bash block but owns its own copy in Step 3)
+- `.claude/skills/migrate-workflow/SKILL.md` (Track 4 — reads the same bash block but owns its own copy in Step 2 after Track 4's renumber-down)
 - `.claude/workflow/branch-divergence-check.md` (the Remote-authoritative re-entry contract symmetry is explicitly NOT fixed here)
 
 **Inter-track dependencies:**

@@ -26,12 +26,12 @@ Parameterize `self-improvement-reflection.md` to accept a session-type input (`e
 
 ## Context and Orientation
 
-`.claude/workflow/self-improvement-reflection.md` (~590 lines) is today's `/execute-tracks`-only reflection protocol. The file's structure:
+`.claude/workflow/self-improvement-reflection.md` (~660 lines) is today's `/execute-tracks`-only reflection protocol. The file's structure:
 
 - §1 YouTrack MCP requirement (gating)
 - §2 When it runs (applicability — currently names `/execute-tracks` exclusively)
 - §3 What counts as a worth-recording issue (in-scope / out-of-scope examples)
-- §4 Frequency and context-cost gate
+- §4 Cost-benefit gate
 - §5 Per-session cap (3-issue ceiling)
 - §6 Reflection procedure (10 steps; Step 2 is the commit-clean check, Step 4 scans the session, Steps 7-9 present and create issues)
 - §7 Issue body template (carries the `**Phase:**` field)
@@ -45,7 +45,7 @@ Three locations branch on session-type:
 
 3. **§7 issue body template** — currently `**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4`. Becomes: `**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4 | migrate-workflow`.
 
-The `migrate-workflow` SKILL needs a new Step 7 that invokes the parameterized reflection. The Skill lives at `.claude/skills/migrate-workflow/SKILL.md` and the new step lands AFTER Step 6 (final summary) and BEFORE the session ends.
+The `migrate-workflow` SKILL needs a new Step 6 that invokes the parameterized reflection. The Skill lives at `.claude/skills/migrate-workflow/SKILL.md` and the new step lands AFTER Step 5 (final summary, renamed from today's Step 6 under Track 4's renumber-down) and BEFORE the session ends.
 
 ## Plan of Work
 
@@ -66,19 +66,19 @@ Edit `self-improvement-reflection.md` first.
 
 5. In §"Issue body template", extend the `**Phase:**` allowed values list to include `migrate-workflow`.
 
-Then edit `.claude/skills/migrate-workflow/SKILL.md` to add Step 7:
+Then edit `.claude/skills/migrate-workflow/SKILL.md` to add Step 6:
 
 ```markdown
-## Step 7 — Self-improvement reflection
+## Step 6 — Self-improvement reflection
 
 Invoke the reflection protocol at `.claude/workflow/self-improvement-reflection.md`
 with `session-type=migrate-workflow`. The protocol handles its own MCP-reachability
 check and end-of-session contract; nothing else fires after it returns.
 ```
 
-Update Step 0's umbrella task list to include "Self-improvement reflection" as task 7.
+Update Step 0's umbrella task list to include "Self-improvement reflection" as task 6 (under Track 4's renumber, the umbrella task numbering tracks the new step numbers).
 
-Verify after both edits: a fresh `/migrate-workflow` invocation that exhausts the queue and reaches Step 6's final summary then enters reflection, which scans the session, presents candidates (or "No improvements proposed"), and ends the session.
+Verify after both edits: a fresh `/migrate-workflow` invocation that exhausts the queue and reaches Step 5's final summary then enters reflection, which scans the session, presents candidates (or "No improvements proposed"), and ends the session.
 
 ## Concrete Steps
 <!-- Phase A placeholder — decomposition writes the step roster here. -->
@@ -94,8 +94,8 @@ After Track 5 lands:
 - §"When it runs" no longer reads as `/execute-tracks`-exclusive.
 - §"Reflection procedure" Step 2 carries a conditional clause skipping the commit-clean check for `migrate-workflow`.
 - The §"Issue body template" `**Phase:**` field accepts `migrate-workflow` as a value.
-- `.claude/skills/migrate-workflow/SKILL.md` carries a new Step 7 that invokes reflection with `session-type=migrate-workflow`.
-- A `/migrate-workflow` session with YouTrack MCP reachable produces a reflection prompt at session end (Step 7) listing 0..3 candidate issues.
+- `.claude/skills/migrate-workflow/SKILL.md` carries a new Step 6 that invokes reflection with `session-type=migrate-workflow`.
+- A `/migrate-workflow` session with YouTrack MCP reachable produces a reflection prompt at session end (Step 6) listing 0..3 candidate issues.
 - A `/migrate-workflow` session with YouTrack MCP unreachable produces the "YouTrack MCP unreachable — self-improvement reflection skipped" notice and ends the session.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
@@ -112,7 +112,7 @@ After Track 5 lands:
 
 **In-scope files:**
 - `.claude/workflow/self-improvement-reflection.md` (top-of-file Inputs block, §"When it runs" intro, in-scope examples sub-bullets, §"Reflection procedure" Step 2 conditional, §"Issue body template" `**Phase:**` field)
-- `.claude/skills/migrate-workflow/SKILL.md` (new Step 7 + Step 0 umbrella task update)
+- `.claude/skills/migrate-workflow/SKILL.md` (new Step 6 + Step 0 umbrella task update)
 
 **Out-of-scope files:**
 - `.claude/workflow/conventions.md` (Track 1)
@@ -121,7 +121,7 @@ After Track 5 lands:
 - Everything else in `.claude/workflow/` and `.claude/skills/` not named above.
 
 **Inter-track dependencies:**
-- **Depends on:** Track 4 (`migrate-workflow/SKILL.md` step numbering and the existence of a Step 6 final summary that this track appends Step 7 after).
+- **Depends on:** Track 4 (`migrate-workflow/SKILL.md` step numbering and the existence of a Step 5 final summary that this track appends Step 6 after — numbers reflect Track 4's renumber-down).
 - Indirectly depends on Track 1 (`conventions.md` §1.6 grounds the workflow-SHA-stamp vocabulary the reflection step's issue bodies may reference) — but does not edit that file.
 
 **External interfaces:**
