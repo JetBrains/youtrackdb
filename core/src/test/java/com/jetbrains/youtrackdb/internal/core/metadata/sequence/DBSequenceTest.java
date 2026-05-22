@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -1205,30 +1206,65 @@ public class DBSequenceTest {
 
   // --------------------------------------------------------------------------
   // YTDB-952: callRetry must not load the sequence entity from its error-
-  // formatting paths. The two catch arms in callRetry (catch StorageException
-  // inside the retry loop, and catch Exception after the loop) run with no
-  // active transaction; calling getName(dbCopy) there throws
-  // NoTxRecordReadException and shadows the real cause. The fix routes the
-  // diagnostic message through entityRid instead. These tests pin both arms.
+  // formatting paths. callRetry has three catch arms:
+  //   * in-loop catch (StorageException e), no-CME branch: builds a diagnostic
+  //     message. Historically called getName(dbCopy) outside any active
+  //     transaction, which threw NoTxRecordReadException and shadowed the
+  //     real cause. Fixed by the patch.
+  //   * in-loop catch (StorageException e), CME branch: silent retry; loop
+  //     continues so the next iteration can succeed. Not changed by the
+  //     patch but pinned here so a future flip of the guard cannot
+  //     resurrect YTDB-952 along that path.
+  //   * in-loop catch (Exception e): wraps its getName(dbCopy) call in
+  //     dbCopy.executeInTx, so it already has an active transaction and is
+  //     not affected. Left alone by the patch and not tested here.
+  //   * post-loop catch (Exception e): same shape as the StorageException
+  //     no-CME arm. Builds the diagnostic message outside any active
+  //     transaction. Fixed by the patch.
+  //
+  // Cause-chain assertions below rely on BaseException.wrapException returning
+  // the cause unchanged only when the cause implements HighLevelException.
+  // Neither StorageException nor IllegalStateException does today, so the
+  // isSameAs(injected) assertions are sound. If StorageException is ever
+  // promoted to HighLevelException, these assertions must be revisited.
   // --------------------------------------------------------------------------
 
   /**
-   * Test-only sequence whose callable throws a caller-supplied exception. Used
-   * to drive callRetry into its diagnostic catch arms.
+   * Test-only sequence whose callRetry callable is supplied by the caller.
+   * The single-RuntimeException form throws the same exception on every
+   * invocation; the SequenceCallable form lets a test track call count and
+   * vary behaviour across attempts (e.g., throw on the first call, succeed on
+   * the second).
    */
   private static final class FaultySequenceOrdered extends SequenceOrdered {
-    private final RuntimeException toThrow;
+    private final DBSequence.SequenceCallable callable;
 
     FaultySequenceOrdered(EntityImpl entity, RuntimeException toThrow) {
+      this(entity, (db, e) -> {
+        throw toThrow;
+      });
+    }
+
+    FaultySequenceOrdered(EntityImpl entity, DBSequence.SequenceCallable callable) {
       super(entity);
-      this.toThrow = toThrow;
+      this.callable = callable;
     }
 
     @Override
     public long nextWork(DatabaseSessionEmbedded session) {
-      return callRetry(session, (db, entity) -> {
-        throw toThrow;
-      }, "next");
+      return callRetry(session, callable, "next");
+    }
+  }
+
+  /**
+   * Test-only subclass that exposes the protected (dbName, message)
+   * ConcurrentModificationException constructor. The public 5-arg ctor
+   * requires a real RID and version pair, which would couple the test to
+   * MVCC bookkeeping unrelated to the YTDB-952 scenario.
+   */
+  private static final class SyntheticCme extends ConcurrentModificationException {
+    SyntheticCme(String dbName, String message) {
+      super(dbName, message);
     }
   }
 
@@ -1242,10 +1278,10 @@ public class DBSequenceTest {
   }
 
   /**
-   * Regression for YTDB-952, site 1 (catch StorageException inside the retry
-   * loop). When the in-loop callable throws a non-CME StorageException,
-   * callRetry must surface a SequenceException whose message identifies the
-   * sequence by its entity RID and whose cause chain preserves the original
+   * Regression for YTDB-952, in-loop catch (StorageException) no-CME branch.
+   * When the in-loop callable throws a non-CME StorageException, callRetry
+   * must surface a SequenceException whose message identifies the sequence by
+   * its entity RID and whose cause chain preserves the original
    * StorageException without inserting a NoTxRecordReadException.
    */
   @Test
@@ -1253,22 +1289,21 @@ public class DBSequenceTest {
     sequences.createSequence(
         "boomLoop", DBSequence.SEQUENCE_TYPE.ORDERED,
         new DBSequence.CreateParams().setDefaults());
-    var seq = sequences.getSequence("BOOMLOOP");
-    var rid = seq.entityRid;
+    var rid = sequences.getSequence("BOOMLOOP").entityRid;
 
     var injected = new StorageException(db.getDatabaseName(), "synthetic in-loop");
 
-    db.begin();
     var faulty = new FaultySequenceOrdered(
-        db.getActiveTransaction().<EntityImpl>load(rid), injected);
-    db.commit();
+        db.computeInTx(tx -> tx.<EntityImpl>load(rid)), injected);
 
     try {
       faulty.next(db);
       Assert.fail("expected SequenceException wrapping the injected StorageException");
     } catch (SequenceException ex) {
-      assertThat(ex.getMessage()).contains(rid.toString());
-      assertThat(ex.getMessage()).contains("next()");
+      assertThat(ex.getMessage())
+          .contains("Error in transactional processing of sequence ")
+          .contains(rid.toString())
+          .contains(".next()");
       assertThat(ex.getCause()).isSameAs(injected);
       assertThat(chainContainsNoTxRead(ex))
           .as("cause chain must not contain NoTxRecordReadException")
@@ -1277,26 +1312,25 @@ public class DBSequenceTest {
   }
 
   /**
-   * Regression for YTDB-952, site 3 (catch Exception after the retry loop is
-   * exhausted). With maxRetry forced to zero the for-loop is skipped and the
-   * post-loop computeInTx is the only attempt; any exception it surfaces must
-   * be wrapped in a SequenceException whose message identifies the sequence by
-   * its entity RID, without any NoTxRecordReadException in the cause chain.
+   * Regression for YTDB-952, post-loop catch (Exception). With maxRetry forced
+   * to zero the for-loop is skipped and the post-loop computeInTx is the only
+   * attempt; any exception it surfaces must be wrapped in a SequenceException
+   * whose message identifies the sequence by its entity RID, without any
+   * NoTxRecordReadException in the cause chain. The realistic path where the
+   * loop exhausts naturally through CME retries is exercised separately by
+   * shouldWrapPostLoopExceptionAfterLoopExhaustionWithEntityRid.
    */
   @Test
   public void shouldWrapPostLoopExceptionWithEntityRid() {
     sequences.createSequence(
         "boomTail", DBSequence.SEQUENCE_TYPE.ORDERED,
         new DBSequence.CreateParams().setDefaults());
-    var seq = sequences.getSequence("BOOMTAIL");
-    var rid = seq.entityRid;
+    var rid = sequences.getSequence("BOOMTAIL").entityRid;
 
     var injected = new IllegalStateException("synthetic post-loop");
 
-    db.begin();
     var faulty = new FaultySequenceOrdered(
-        db.getActiveTransaction().<EntityImpl>load(rid), injected);
-    db.commit();
+        db.computeInTx(tx -> tx.<EntityImpl>load(rid)), injected);
     // maxRetry == 0 means the for-loop body never runs, so the post-loop
     // computeInTx is the only attempt and the catch (Exception e) arm fires.
     faulty.setMaxRetry(0);
@@ -1305,12 +1339,108 @@ public class DBSequenceTest {
       faulty.next(db);
       Assert.fail("expected SequenceException wrapping the injected exception");
     } catch (SequenceException ex) {
-      assertThat(ex.getMessage()).contains(rid.toString());
-      assertThat(ex.getMessage()).contains("next()");
+      assertThat(ex.getMessage())
+          .contains("Error in transactional processing of sequence ")
+          .contains(rid.toString())
+          .contains(".next()");
       assertThat(ex.getCause()).isSameAs(injected);
       assertThat(chainContainsNoTxRead(ex))
           .as("cause chain must not contain NoTxRecordReadException")
           .isFalse();
     }
+  }
+
+  /**
+   * Companion to shouldWrapPostLoopExceptionWithEntityRid: exercises the
+   * realistic path where maxRetry &gt; 0 and the for-loop exhausts through
+   * repeated CME retries before the post-loop computeInTx fires. The
+   * maxRetry == 0 shortcut bypasses the loop body entirely; this test
+   * verifies the post-loop arm also surfaces a clean SequenceException after
+   * the loop has acquired and released updateLock maxRetry times and slept
+   * through the CME back-off.
+   *
+   * The post-loop call throws an IllegalStateException rather than another
+   * CME because BaseException.wrapException short-circuits on HighLevelException
+   * causes (ConcurrentModificationException is one), in which case the raw
+   * CME would propagate without ever building the SequenceException whose
+   * RID-bearing message this test pins.
+   */
+  @Test
+  public void shouldWrapPostLoopExceptionAfterLoopExhaustionWithEntityRid() {
+    sequences.createSequence(
+        "boomExhaust", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var rid = sequences.getSequence("BOOMEXHAUST").entityRid;
+    // Keep back-off sleep short so the test doesn't drag (the CME catch arm
+    // sleeps `1 + random(SEQUENCE_RETRY_DELAY)` ms between iterations).
+    db.getConfiguration().setValue(GlobalConfiguration.SEQUENCE_RETRY_DELAY, 1);
+
+    var postLoopCause = new IllegalStateException("synthetic post-loop after exhaustion");
+    var attempts = new AtomicInteger();
+    var faulty = new FaultySequenceOrdered(
+        db.computeInTx(tx -> tx.<EntityImpl>load(rid)),
+        (session, entity) -> {
+          int n = attempts.incrementAndGet();
+          if (n <= 3) {
+            throw new SyntheticCme(db.getDatabaseName(), "synthetic cme");
+          }
+          throw postLoopCause;
+        });
+    faulty.setMaxRetry(3);
+
+    try {
+      faulty.next(db);
+      Assert.fail("expected SequenceException after loop exhaustion");
+    } catch (SequenceException ex) {
+      assertThat(ex.getMessage())
+          .contains("Error in transactional processing of sequence ")
+          .contains(rid.toString())
+          .contains(".next()");
+      assertThat(ex.getCause()).isSameAs(postLoopCause);
+      assertThat(chainContainsNoTxRead(ex))
+          .as("cause chain must not contain NoTxRecordReadException")
+          .isFalse();
+      // 3 in-loop attempts (each throwing CME, silently retried) plus the
+      // single post-loop attempt that throws the non-HLE cause.
+      assertThat(attempts.get()).isEqualTo(4);
+    }
+  }
+
+  /**
+   * Pins the silent-retry branch of the in-loop catch (StorageException) arm,
+   * the implicit else of `if (!(e.getCause() instanceof CME))`. A
+   * StorageException whose cause IS a ConcurrentModificationException must
+   * be absorbed inside the loop so the next iteration can succeed. Without
+   * this branch the YTDB-952 diagnostic path would fire for every CME-wrapped
+   * retry; a future flip of that condition (or deletion of the if) would
+   * resurrect YTDB-952 along this path and this test fails fast in that case.
+   */
+  @Test
+  public void shouldSilentlyRetryStorageExceptionWithCmeCauseInsideLoop() {
+    sequences.createSequence(
+        "boomCmeRetry", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var rid = sequences.getSequence("BOOMCMERETRY").entityRid;
+    db.getConfiguration().setValue(GlobalConfiguration.SEQUENCE_RETRY_DELAY, 1);
+
+    var attempts = new AtomicInteger();
+    var faulty = new FaultySequenceOrdered(
+        db.computeInTx(tx -> tx.<EntityImpl>load(rid)),
+        (session, entity) -> {
+          if (attempts.getAndIncrement() == 0) {
+            var wrapped = new StorageException(db.getDatabaseName(), "wrapped CME");
+            wrapped.initCause(new SyntheticCme(db.getDatabaseName(), "synthetic"));
+            throw wrapped;
+          }
+          return 42L;
+        });
+    faulty.setMaxRetry(3);
+
+    long result = faulty.next(db);
+
+    assertThat(result).isEqualTo(42L);
+    // First call threw a CME-wrapped StorageException (silently retried);
+    // second call returned 42L.
+    assertThat(attempts.get()).isEqualTo(2);
   }
 }
