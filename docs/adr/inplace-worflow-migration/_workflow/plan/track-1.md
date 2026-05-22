@@ -10,7 +10,7 @@ Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-li
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-22T15:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-22T16:06Z [ctx=safe] Step 1 complete (commit e963517bee)
@@ -18,6 +18,7 @@ Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-li
 - [x] 2026-05-22T16:13Z [ctx=safe] Step 3 complete (commit e65d93aef0)
 - [x] 2026-05-22T16:13Z [ctx=safe] Step implementation complete (3/3 steps)
 - [x] 2026-05-22T18:05Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-22T18:07Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 - [x] 2026-05-22T16:06Z Tracks 2, 3, 4a, 4b, and 5 should cite §1.6 subsection anchors directly (e.g., `§1.6(a1)` for canonical parser idioms, `§1.6(h)` for the Phase 1 walk block). The new section was structured as `### (x)` subsections precisely so anchors stay stable across future edits. See Episodes §Step 1.
@@ -30,6 +31,9 @@ Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-li
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (7 findings, 7 accepted)
 - [x] Adversarial: PASS at iteration 2 (12 findings, 11 accepted, 1 rejected — A8 parser tolerance; writer-side line-1 preservation per A2 fix supersedes)
+- [x] Phase C track-level code review: PASS at iteration 1 (6 findings synthesised from 4 dimensional reviewers; all VERIFIED in gate-check; no deferred findings). Implementer applied all six in a single `Review fix:` commit `e1251a7d08`.
+  - Reviewers spawned: `review-workflow-consistency` (2 findings: WC1 §1.2/§1.1 contradiction, WC2 §1.6(g) parenthetical phrase), `review-workflow-instruction-completeness` (5 findings: WI1 dedup of WC1, WI2 §1.6(b) paired test-and-fallback idiom, WI3 §1.6(h) empty-input and optional-mechanics, WI4 §1.6(d) validation-failure policy, WI5 §1.6(c) set semantics on merge-base failure), `review-workflow-context-budget` (no findings — load-on-demand surface only), `review-workflow-writing-style` (no findings — house style clean).
+  - Fix scope: all in `.claude/workflow/conventions.md`; the §1.2 paragraph now mirrors §1.1's two-caller spelling, §1.6(b) carries the canonical paired fallback line for Tracks 2 / 4b to copy, §1.6(c) reads as set semantics, §1.6(d) names the bounded-retry policy, §1.6(h) flags optional-mechanics and the empty-walk no-op rule, and §1.6(g) parenthetical now matches §1.2's defaulting phrasing.
 
 ## Context and Orientation
 

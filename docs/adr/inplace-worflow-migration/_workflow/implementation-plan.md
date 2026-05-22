@@ -194,9 +194,12 @@ flowchart LR
 
 ## Checklist
 
-- [ ] Track 1: Stamp format and conventions
+- [x] Track 1: Stamp format and conventions
   > Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-liner that computes the SHA at creation time. Document the format and the unstamped-artifact protocol (drift check short-circuits; migration prompts) in `conventions.md` so every reader (drift check, migration, future writers) resolves to one source of truth. Foundational — Tracks 2/3/4 depend on the spelling this track lands.
-  > **Scope:** ~3-4 steps covering §1.1 *Glossary* edits ("Workflow-SHA stamp" entry + "Workflow drift" amendment), the new §1.6 with all eight deliverables (format + canonical parser regex + SHA computation with empty-output fallback + range definition + unstamped-artifact protocol + non-rule + types/exclusions + active-plan scope + Phase 1 walk bash), and the §1.2 cross-reference.
+  >
+  > **Track episode:** §1.6 of `conventions.md` is now the durable single source for the stamp format, the canonical parser idioms (value-extraction and presence-check regex), the SHA computation rule with empty-output fallback, the `BASE_SHA..HEAD` range with merge-base-failure recovery, the unstamped-artifact bootstrap protocol with bounded retry, the no-silent-auto-default non-rule, the stamped-artifact positive list (and Phase 4 / `design-mutations.md` exclusions), the active-plan scope rule (D13), and the Phase 1 walk bash block. The `### (a)`–`### (h)` subsection rendering freezes the anchor surface so downstream tracks (2/3/4a/4b/5/6) cite anchors verbatim rather than re-quoting prose. Two canonical writer patterns from Phase C land here for Tracks 2 and 4b to copy byte-for-byte: §1.6(b) ships the paired test-and-fallback `WORKFLOW_SHA` idiom (one line for the path-scoped log, one line for the empty-output fallback); §1.6(d) ships the bounded-retry validation policy (three attempts, halt via `/clear`) that Track 4a's migration preflight inherits. §1.1 *Glossary* gains a "Workflow-SHA stamp" row and amends "Workflow drift" to name both `/create-plan` (D9) and `/execute-tracks` triggers; §1.2 *Plan File Structure* gains a cross-reference paragraph and now mirrors §1.1's two-caller spelling (the §1.2 drift-detection paragraph realignment landed here rather than in Track 6 because Track 6's scope is `workflow-drift-check.md` and the `/create-plan` SKILL, not `conventions.md` §1.2).
+  >
+  > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
 
 - [ ] Track 2: Stamp writers
   > Update `/create-plan` and `edit-design` SKILLs to emit the line-1 stamp at every artifact-creation site. Four sites total across `implementation-plan.md`, `plan/track-N.md`, `design.md`, and `design-mechanics.md`; direct mutations leave the stamp untouched. `design-mutations.md` is deliberately excluded — see D6 and the track file.
