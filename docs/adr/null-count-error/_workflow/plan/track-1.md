@@ -13,6 +13,9 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 - [ ] Track-level code review
 - [ ] Track completion
 
+**PAUSED 2026-05-22 at Phase A iteration 1 (3 reviews done) pending user resolution of 1 blocker + 4 design-decision findings**
+- Handoff: `../handoff-track-1-phaseA.md`
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
