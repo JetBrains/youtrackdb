@@ -96,7 +96,7 @@ Out of scope:
 - SQL execution layer hook + SQL sanitizer (Track 4).
 - Configuration parameters (Track 5).
 - Server lifecycle wiring (Track 5).
-- Test suite (Track 6; sanity tests inside Track 3 are allowed but the systematic suite lives there).
+- Test suite (Tracks 6a / 6b / 6c; sanity tests inside Track 3 are allowed but the systematic suite lives there).
 
 Inter-track dependencies:
 - Depends on Track 1 (SPI extensions, registry, both classifier helpers, `Classification` record).

@@ -90,7 +90,7 @@ Inter-track dependencies:
 - Provides for Track 3: the Maven module to put code into.
 - Provides for Track 4: the module that will own the SQL sanitizer and SQL classifier.
 - Provides for Track 5: the module that will own the `YouTrackDBOpenTelemetry` facade.
-- Provides for Track 6: the module that will own the test suite.
+- Provides for Tracks 6a / 6b / 6c: the module that will own the test suite.
 
 Key dependency versions (pinned via OTel BOM, current stable as of early 2026):
 
@@ -117,4 +117,4 @@ Key dependency versions (pinned via OTel BOM, current stable as of early 2026):
 </dependencies>
 ```
 
-The `youtrackdb-server` declaration uses `<scope>provided</scope><optional>true</optional>` so the server artifact is available on this module's compile and test classpath (the `OpenTelemetryServerPlugin` source needs server APIs at compile time, and Track 6's `ServerPluginTest` boots a real `YouTrackDBServer` at test time) without forcing downstream consumers of `youtrackdb-opentelemetry` to pull `youtrackdb-server` in transitively. No separate `<scope>test</scope>` entry is required for `ServerPluginTest` — `provided` already covers it.
+The `youtrackdb-server` declaration uses `<scope>provided</scope><optional>true</optional>` so the server artifact is available on this module's compile and test classpath (the `OpenTelemetryServerPlugin` source needs server APIs at compile time, and Track 6b's `ServerPluginTest` boots a real `YouTrackDBServer` at test time) without forcing downstream consumers of `youtrackdb-opentelemetry` to pull `youtrackdb-server` in transitively. No separate `<scope>test</scope>` entry is required for `ServerPluginTest`; `provided` already covers it.

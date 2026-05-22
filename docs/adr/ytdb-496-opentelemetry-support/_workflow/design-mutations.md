@@ -196,3 +196,52 @@ Side-effect (user-authorized, outside edit-design scope): reformatted `implement
 
 **Iterations**: 1 of 3 (PASS)
 
+## Mutation 15 — 2026-05-22 — content-edit (design.md)
+
+**Diff summary**: Manual `/review-plan` consistency-review finding CR1 — replaced the phantom `YTDBGraphStep.usedIndexes` cite in § Class Design L119 with the real call path (`YTDBGraphQuery.usedIndexes(session)` at line 37, delegating to `this.explain(session)` at line 38). `usedIndexes()` is declared on `YTDBGraphBaseQuery` and implemented in `YTDBGraphQuery.java:37` / `YTDBGraphEmptyQuery.java:22`, not on `YTDBGraphStep` (verified via grep across `core/src/main`). The suppression argument's substance is unchanged — the wire on `YTDBGraphQuery.explain` still catches every caller of `explain`, including the test-driven `usedIndexes` path.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 findings.
+**Cold-read** (scope: whole-doc — escalated by periodic counter, mutation 15 % 5 == 0): PASS — 0 blockers, 0 should-fix, 0 suggestions.
+
+**Findings**:
+- none.
+
+**Iterations**: 1 of 3 (PASS)
+
+## Mutation 16 — 2026-05-22 — content-edit (design.md)
+
+**Diff summary**: Manual `/review-plan` consistency-review finding CR2 — corrected the `assertOnOwningThread` enumeration in § Context propagation in embedded L299. The previous wording claimed the method is called from every TX operation entry point (`begin`, `commit`, `rollback`, `query`, `command`, record-CRUD paths), but grep against `FrontendTransactionImpl.java` showed it is called only from `beginInternal` (L165), `monitoredCommitInternal` (L224), and five record-CRUD entries (`getRecord` L250, `exists` L432, `loadRecord` L452, `deleteRecord` L474, `addRecordOperation` L511). The new wording lists the actual callers and explains that the propagation argument still holds because the listener fire paths (`YTDBQueryMetricsStep.close()` and `FrontendTransactionImpl.notifyMetricsListener()`) run synchronously on the calling thread with no executor or worker pool intervening.
+
+**Mechanical checks** (target=design, scope=bounded): PASS — 0 findings.
+**Cold-read** (scope: bounded — changed section "Context propagation in embedded" + surrounding "Span timing capture" and "Transaction-lifetime span semantics" + Overview + Core Concepts): PASS — 0 blockers, 0 should-fix, 2 stylistic suggestions (split L299 into two sentences for scannability; drop the incidental `checkIfActive` clause to focus on the load-bearing executor / worker-pool claim). Suggestions recorded for future iteration; not retried per skill workflow.
+
+**Findings**:
+- suggestion (recorded, not actioned): L299 is a long single sentence mixing the negative claim (not called from query/command/execute/rollback) with the affirmative claim (listener fire paths run synchronously). Splitting into two sentences would improve scannability.
+- suggestion (recorded, not actioned): The "call only `checkIfActive`" clause is incidental to the propagation argument. The load-bearing fact is the absence of an executor / worker pool between dispatch and listener fire.
+
+**Iterations**: 1 of 3 (PASS)
+
+## Mutation 17 — 2026-05-22 — content-edit (design.md)
+
+**Diff summary**: Manual `/review-plan` consistency-review finding CR3 — tightened the loose line range `"lines 650-722"` in § SQL execution layer hook L410. The cited `FrontendTransactionImpl.doCommit` body actually spans lines 632-707 (with the timing-mode snapshot block at 650-664), and the `notifyMetricsListener` callee starts at line 712 (body ends at 734). The old range conflated two methods. New wording: "`FrontendTransactionImpl.doCommit` (lines 632-707, with the timing-mode snapshot at lines 650-664) and its `notifyMetricsListener` callee (lines 712-734) for commit timing". Substance unchanged; precision improved.
+
+**Mechanical checks** (target=design, scope=bounded): PASS — 0 findings.
+**Cold-read** (scope: bounded — changed section "SQL execution layer hook" + surrounding "Gremlin bytecode classification" and "SDK lifecycle: embedded vs server" + Overview + Core Concepts): PASS — 0 blockers, 0 should-fix, 0 suggestions.
+
+**Findings**:
+- none.
+
+**Iterations**: 1 of 3 (PASS)
+
+## Mutation 18 — 2026-05-22 — content-edit (design.md)
+
+**Diff summary**: Manual `/review-plan` structural-review finding S1 — Track 6 split into Track 6a / 6b / 6c (user chose option 3, three-way split). § Sem-conv attribute mapping L246 propagated the rename and corrected the underlying inaccuracy: the line previously read "Track 6's lifecycle test asserts the negative case ..." but `LifecycleTest` (in Track 6b) tests registry side effects and shutdown idempotency, not span kinds. The actual span-kind assertions live in `OTelGremlinQueryTest`, `OTelSqlQueryTest`, and `OTelTransactionMetricsListenerTest`, all in Track 6a. New wording names the three correct tests and the negative-case assertion shape. Plan checklist entries Track 6a / 6b / 6c, `**Implemented in**` lines on D4 / D13, and invariant cross-refs to `OTelTimingModeTest` (Track 6b) and `OTelGremlinSuppressionTest` (Track 6c) all updated in the same audit-trail commit.
+
+**Mechanical checks** (target=design, scope=bounded): PASS — 0 findings.
+**Cold-read** (scope: bounded — changed section "Sem-conv attribute mapping" + surrounding "Workflow" and "Span timing capture" + Overview + Core Concepts): PASS — 0 blockers, 0 should-fix, 0 suggestions.
+
+**Findings**:
+- none.
+
+**Iterations**: 1 of 3 (PASS)
+
