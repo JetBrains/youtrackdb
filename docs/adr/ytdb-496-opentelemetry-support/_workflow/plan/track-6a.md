@@ -1,8 +1,8 @@
-# Track 6a: Test suite — attribute mapping, hierarchy, propagation
+# Track 6a: Test suite — attribute mapping, hierarchy, propagation, tag resolution
 
 ## Purpose / Big Picture
 
-After this track lands, the OTel module ships the foundational JUnit 5 test suite that drives a real `OpenTelemetrySdk` backed by `InMemorySpanExporter`. The suite asserts sem-conv attribute mapping for both Gremlin and SQL paths, full span hierarchy (TX as parent of query and commit), and OTel `Context` propagation from a host span into YTDB query spans.
+After this track lands, the OTel module ships the foundational JUnit 5 test suite that drives a real `OpenTelemetrySdk` backed by `InMemorySpanExporter`. The suite asserts sem-conv attribute mapping for both Gremlin and SQL paths, full span hierarchy (TX as parent of query and commit), OTel `Context` propagation from a host span into YTDB query spans, and per-query mode resolution from the query tag (rule walk, fallback chain, cache behavior, SQL hint parsing).
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
@@ -38,10 +38,11 @@ Concrete deliverables:
 2. `OTelSqlQueryTest`: SQL path attribute mapping; one test method per statement type (SELECT, INSERT, UPDATE, DELETE, MATCH, CREATE INDEX as DDL). Asserts sanitized `db.query.text`, correct `db.operation.name`, correct `db.collection.name`.
 3. `OTelTransactionMetricsListenerTest`: span hierarchy (TX as parent of Query and Commit); read-only TX (no commit child); failed commit (ERROR status, `error.type`); rollback (OK status, no commit child). Uses both Gremlin and SQL queries inside transactions to cover hierarchy for both sources.
 4. `ContextPropagationTest`: host code wraps a YTDB query in its own span; assert the YTDB query span's parent ID matches the host span's span ID. One assertion per query source (Gremlin + SQL).
+5. `QueryModeResolutionTest`: per-query mode resolution from query tag (D15). Scenarios: (a) exact-match rule `findActiveUsers=EXACT` matches a tagged query with `g.with(querySummary, "findActiveUsers")` or `/*+ TAG=findActiveUsers */`; (b) prefix-match rule `prefix:expensive-=EXACT` matches `expensive-batch-job` tag; (c) regex-match rule `regex:^batch-.*$=EXACT` matches `batch-import` tag; (d) first-wins ordering when multiple rules could match — first declared wins; (e) fallback chain: untagged query falls back to per-TX default; per-TX default fallback to LIGHTWEIGHT when not set; (f) cache hit behavior — second resolution of same tag returns same mode without re-walking rules (assert via instrumented test resolver); (g) SQL hint parsing edge cases — `/*+ TAG=X */` in different statement positions (SELECT, INSERT, UPDATE, DELETE, MATCH, CREATE), missing hint → empty Optional, malformed hint → empty Optional + WARN log; (h) invalid rule config — malformed rule entry → WARN at startup + skip + resolver continues with valid rules. Uses Track 1's `QueryMonitoringModeResolver` directly for some scenarios (unit-level) and an embedded YTDB session for end-to-end scenarios.
 
 ## Plan of Work
 
-Four edits, one per deliverable.
+Five edits, one per deliverable.
 
 The first edit creates `OTelTestBase` plus `OTelGremlinQueryTest`. Tests follow the pattern: build SDK with InMemorySpanExporter, register, run Gremlin query, find emitted span, assert on attributes. The class covers the full attribute matrix from sem-conv §"Span definition" plus the span-name fallback chain (querySummary → operation+collection → collection → system).
 
@@ -51,7 +52,9 @@ The third edit adds `OTelTransactionMetricsListenerTest`. Four scenarios per tes
 
 The fourth edit adds `ContextPropagationTest`. The host wraps the YTDB transaction in `tracer.spanBuilder("host-op").startSpan()` and `try-with-resources` on `span.makeCurrent()`. Two assertions: the emitted YTDB Gremlin span has `parentSpanId` equal to the host span's `spanId`; same for an SQL span.
 
-Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-4 are independent.
+The fifth edit adds `QueryModeResolutionTest`. Mixes unit-level scenarios (instantiate `QueryMonitoringModeResolver` directly with a known rule list, call `resolve(tag, txDefault)` and assert returned mode) and end-to-end scenarios (configure `OPENTELEMETRY_QUERY_MODE_TAG_RULES` via `GlobalConfiguration`, run a tagged + untagged pair of queries through an embedded YTDB session, assert span durations / clock-source markers reflect resolver decisions). Covers exact / prefix / regex matchers, first-wins ordering, fallback chain, cache behavior, SQL hint parsing per statement type, malformed-rule-config WARN+skip behavior.
+
+Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-5 are independent.
 
 ## Concrete Steps
 
