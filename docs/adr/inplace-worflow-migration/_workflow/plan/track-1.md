@@ -17,6 +17,7 @@ Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-li
 - [x] 2026-05-22T16:10Z [ctx=safe] Step 2 complete (commit c391554eb6)
 - [x] 2026-05-22T16:13Z [ctx=safe] Step 3 complete (commit e65d93aef0)
 - [x] 2026-05-22T16:13Z [ctx=safe] Step implementation complete (3/3 steps)
+- [x] 2026-05-22T18:05Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 - [x] 2026-05-22T16:06Z Tracks 2, 3, 4a, 4b, and 5 should cite §1.6 subsection anchors directly (e.g., `§1.6(a1)` for canonical parser idioms, `§1.6(h)` for the Phase 1 walk block). The new section was structured as `### (x)` subsections precisely so anchors stay stable across future edits. See Episodes §Step 1.
