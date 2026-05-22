@@ -103,12 +103,12 @@ In scope:
 
 Out of scope:
 - The listener implementations themselves (Track 3).
-- Test suite (Track 6).
+- Test suite (Tracks 6a / 6b / 6c).
 
 Inter-track dependencies:
 - Depends on Track 1 (registry SPI consumed by `setOpenTelemetry`).
 - Depends on Track 3 (`YouTrackDBOpenTelemetry` facade and listener classes).
-- Provides for Track 6: the auto-enrolment paths the test suite exercises.
+- Provides for Track 6b: `ServerPluginTest` exercises the server-mode auto-enrolment path; `LifecycleTest` exercises the embedded-mode lifecycle.
 
 Configuration entries introduced:
 
