@@ -148,9 +148,9 @@ Pick the tier of the doc the fix would land in:
 Rough paragraph counts: a 1-line caveat ≈ 0.2 paragraphs, a new
 sub-section ≈ 1, a new recipe ≈ 3–5. The per-paragraph numbers
 encode order-of-magnitude differences between tiers (always-loaded
-paragraphs cost roughly 25× more than ESCALATE-only paragraphs over
-the horizon, because they ride every session); calibrate by tier,
-not by significant figures.
+paragraphs cost roughly 15–20× more than `ESCALATE`-only paragraphs
+over the horizon, because they ride every session); calibrate by
+tier, not by significant figures.
 
 ### self_fix_cost — what the friction costs if left alone
 
