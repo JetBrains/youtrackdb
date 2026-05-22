@@ -182,8 +182,7 @@ public abstract class DBSequence {
   }
 
   public enum SEQUENCE_TYPE {
-    CACHED((byte) 0),
-    ORDERED((byte) 1);
+    CACHED((byte) 0), ORDERED((byte) 1);
 
     private final byte val;
 
@@ -460,11 +459,11 @@ public abstract class DBSequence {
             Thread.sleep(
                 1
                     + new Random()
-                    .nextInt(
-                        dbCopy
-                            .getConfiguration()
-                            .getValueAsInteger(
-                                GlobalConfiguration.SEQUENCE_RETRY_DELAY)));
+                        .nextInt(
+                            dbCopy
+                                .getConfiguration()
+                                .getValueAsInteger(
+                                    GlobalConfiguration.SEQUENCE_RETRY_DELAY)));
           } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
             break;
@@ -472,10 +471,13 @@ public abstract class DBSequence {
 
         } catch (StorageException e) {
           if (!(e.getCause() instanceof ConcurrentModificationException)) {
+            // Use entityRid instead of getName(dbCopy): we are outside any active
+            // transaction here, and getName loads the entity, which would throw
+            // NoTxRecordReadException and shadow the original cause (YTDB-952).
             throw BaseException.wrapException(
                 new SequenceException(db.getDatabaseName(),
-                    "Error in transactional processing of "
-                        + getName(dbCopy)
+                    "Error in transactional processing of sequence "
+                        + entityRid
                         + "."
                         + method
                         + "()"),
@@ -505,10 +507,13 @@ public abstract class DBSequence {
               return callable.call(dbCopy, entity);
             });
       } catch (Exception e) {
+        // Same reason as the StorageException catch above: no active transaction
+        // here, so identify the sequence by entityRid rather than loading the
+        // entity for its name (YTDB-952).
         throw BaseException.wrapException(
             new SequenceException(db.getDatabaseName(),
-                "Error in transactional processing of "
-                    + getName(dbCopy)
+                "Error in transactional processing of sequence "
+                    + entityRid
                     + "."
                     + method
                     + "()"),

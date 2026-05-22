@@ -9,8 +9,11 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.NoTxRecordReadException;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -1198,5 +1201,116 @@ public class DBSequenceTest {
   public void shouldHandleDropAbsentSequenceCleanly() {
     sequences.dropSequence("ABSENT");
     assertThat(sequences.getSequenceCount()).isEqualTo(0);
+  }
+
+  // --------------------------------------------------------------------------
+  // YTDB-952: callRetry must not load the sequence entity from its error-
+  // formatting paths. The two catch arms in callRetry (catch StorageException
+  // inside the retry loop, and catch Exception after the loop) run with no
+  // active transaction; calling getName(dbCopy) there throws
+  // NoTxRecordReadException and shadows the real cause. The fix routes the
+  // diagnostic message through entityRid instead. These tests pin both arms.
+  // --------------------------------------------------------------------------
+
+  /**
+   * Test-only sequence whose callable throws a caller-supplied exception. Used
+   * to drive callRetry into its diagnostic catch arms.
+   */
+  private static final class FaultySequenceOrdered extends SequenceOrdered {
+    private final RuntimeException toThrow;
+
+    FaultySequenceOrdered(EntityImpl entity, RuntimeException toThrow) {
+      super(entity);
+      this.toThrow = toThrow;
+    }
+
+    @Override
+    public long nextWork(DatabaseSessionEmbedded session) {
+      return callRetry(session, (db, entity) -> {
+        throw toThrow;
+      }, "next");
+    }
+  }
+
+  private static boolean chainContainsNoTxRead(Throwable t) {
+    for (var c = t; c != null; c = c.getCause()) {
+      if (c instanceof NoTxRecordReadException) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Regression for YTDB-952, site 1 (catch StorageException inside the retry
+   * loop). When the in-loop callable throws a non-CME StorageException,
+   * callRetry must surface a SequenceException whose message identifies the
+   * sequence by its entity RID and whose cause chain preserves the original
+   * StorageException without inserting a NoTxRecordReadException.
+   */
+  @Test
+  public void shouldWrapInLoopStorageExceptionWithEntityRid() {
+    sequences.createSequence(
+        "boomLoop", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var seq = sequences.getSequence("BOOMLOOP");
+    var rid = seq.entityRid;
+
+    var injected = new StorageException(db.getDatabaseName(), "synthetic in-loop");
+
+    db.begin();
+    var faulty = new FaultySequenceOrdered(
+        db.getActiveTransaction().<EntityImpl>load(rid), injected);
+    db.commit();
+
+    try {
+      faulty.next(db);
+      Assert.fail("expected SequenceException wrapping the injected StorageException");
+    } catch (SequenceException ex) {
+      assertThat(ex.getMessage()).contains(rid.toString());
+      assertThat(ex.getMessage()).contains("next()");
+      assertThat(ex.getCause()).isSameAs(injected);
+      assertThat(chainContainsNoTxRead(ex))
+          .as("cause chain must not contain NoTxRecordReadException")
+          .isFalse();
+    }
+  }
+
+  /**
+   * Regression for YTDB-952, site 3 (catch Exception after the retry loop is
+   * exhausted). With maxRetry forced to zero the for-loop is skipped and the
+   * post-loop computeInTx is the only attempt; any exception it surfaces must
+   * be wrapped in a SequenceException whose message identifies the sequence by
+   * its entity RID, without any NoTxRecordReadException in the cause chain.
+   */
+  @Test
+  public void shouldWrapPostLoopExceptionWithEntityRid() {
+    sequences.createSequence(
+        "boomTail", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var seq = sequences.getSequence("BOOMTAIL");
+    var rid = seq.entityRid;
+
+    var injected = new IllegalStateException("synthetic post-loop");
+
+    db.begin();
+    var faulty = new FaultySequenceOrdered(
+        db.getActiveTransaction().<EntityImpl>load(rid), injected);
+    db.commit();
+    // maxRetry == 0 means the for-loop body never runs, so the post-loop
+    // computeInTx is the only attempt and the catch (Exception e) arm fires.
+    faulty.setMaxRetry(0);
+
+    try {
+      faulty.next(db);
+      Assert.fail("expected SequenceException wrapping the injected exception");
+    } catch (SequenceException ex) {
+      assertThat(ex.getMessage()).contains(rid.toString());
+      assertThat(ex.getMessage()).contains("next()");
+      assertThat(ex.getCause()).isSameAs(injected);
+      assertThat(chainContainsNoTxRead(ex))
+          .as("cause chain must not contain NoTxRecordReadException")
+          .isFalse();
+    }
   }
 }
