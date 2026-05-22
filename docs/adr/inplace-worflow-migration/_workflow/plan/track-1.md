@@ -9,12 +9,14 @@ Define the per-artifact `<!-- workflow-sha: ... -->` stamp format and the one-li
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-22T15:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-22T16:06Z [ctx=safe] Step 1 complete (commit e963517bee)
 - [x] 2026-05-22T16:10Z [ctx=safe] Step 2 complete (commit c391554eb6)
+- [x] 2026-05-22T16:13Z [ctx=safe] Step 3 complete (commit e65d93aef0)
+- [x] 2026-05-22T16:13Z [ctx=safe] Step implementation complete (3/3 steps)
 
 ## Surprises & Discoveries
 - [x] 2026-05-22T16:06Z Tracks 2, 3, 4a, 4b, and 5 should cite §1.6 subsection anchors directly (e.g., `§1.6(a1)` for canonical parser idioms, `§1.6(h)` for the Phase 1 walk block). The new section was structured as `### (x)` subsections precisely so anchors stay stable across future edits. See Episodes §Step 1.
@@ -93,7 +95,7 @@ Order: §1.1 edits → §1.6 section → §1.2 cross-reference. Existing §1.4 s
 
 1. Add `## 1.6 Workflow-SHA stamps on _workflow/** artifacts` to `.claude/workflow/conventions.md` with all eight deliverables (a, a1, b, c, d, e, f, g, h) per `## Plan of Work`, rendered as subsections (not a single inline paragraph) with the Phase 1 walk bash block embedded verbatim — risk: low (default: docs / new workflow rule section in one Markdown file)  [x] commit: e963517bee
 2. Update `## 1.1 *Glossary*` in `.claude/workflow/conventions.md`: add a "Workflow-SHA stamp" row pointing at §1.6, and amend the existing "Workflow drift" row to drop "current `develop` workflow format" and add `/create-plan` as a second trigger per D9/D10 semantics — risk: low (default: docs / two glossary-row edits in one Markdown file)  [x] commit: c391554eb6
-3. Add a cross-reference from `## 1.2 *Plan File Structure*` to §1.6 near the artifact list in `.claude/workflow/conventions.md`, noting that each ephemeral `_workflow/**` artifact carries a line-1 workflow-SHA stamp — risk: low (default: docs / single sentence + link in one Markdown file)  [ ]
+3. Add a cross-reference from `## 1.2 *Plan File Structure*` to §1.6 near the artifact list in `.claude/workflow/conventions.md`, noting that each ephemeral `_workflow/**` artifact carries a line-1 workflow-SHA stamp — risk: low (default: docs / single sentence + link in one Markdown file)  [x] commit: e65d93aef0
 
 ## Episodes
 
@@ -107,6 +109,12 @@ Order: §1.1 edits → §1.6 section → §1.2 cross-reference. Existing §1.4 s
 
 ### Step 2 — commit c391554eb6, 2026-05-22T16:10Z [ctx=safe]
 **What was done:** Inserted a "Workflow-SHA stamp" row into the §1.1 glossary table of `.claude/workflow/conventions.md` between the existing "Mid-phase handoff" and "Workflow drift" rows. The new row defines the line-1 HTML-comment stamp format and points at §1.6. Amended the existing "Workflow drift" row per D9/D10: replaced "the current `develop` workflow format" with "the workflow format encoded in commits reachable from HEAD"; replaced the sole "Detected in turn 1 of `/execute-tracks`" trigger with "Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks`".
+
+**Key files:**
+- `.claude/workflow/conventions.md` (modified)
+
+### Step 3 — commit e65d93aef0, 2026-05-22T16:13Z [ctx=safe]
+**What was done:** Added a one-paragraph cross-reference to §1.2 *Plan File Structure* of `.claude/workflow/conventions.md`, sitting between the "tracked / Phase 4 cleanup" paragraph and the "on-disk shape may shift" drift-detection paragraph. The paragraph names the four ephemeral artifact kinds (`implementation-plan.md`, `design.md`, optional `design-mechanics.md`, each `plan/track-*.md`), states the line-1 workflow-SHA stamp invariant, and links to §1.6 for the full rule plus the §1.1 glossary row for the one-line definition. The validation grep `grep -n "Workflow-SHA stamp"` now returns matches in §1.1, §1.2, and §1.6.
 
 **Key files:**
 - `.claude/workflow/conventions.md` (modified)
