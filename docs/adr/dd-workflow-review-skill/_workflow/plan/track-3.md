@@ -18,7 +18,7 @@ submission.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-21T14:58Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-21T15:33Z [ctx=safe] Step 1 complete (commit 45d7960af4)
@@ -26,6 +26,7 @@ submission.
 - [x] 2026-05-21T15:43Z [ctx=safe] Step 3 complete (commit 58a5f9193a)
 - [x] 2026-05-21T15:45Z [ctx=safe] Step implementation complete (3/3 steps, 0 failed)
 - [x] 2026-05-22T03:22Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-22T03:25Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -46,6 +47,8 @@ scope-downs, dependency reveals, gate-override reasons. -->
 summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 2 (10 findings, all 10 accepted and applied as light track-file edits to `## Context and Orientation` and `## Plan of Work`). T1–T3 closed Track 2's three cross-track impacts (dispatch-log tri-state on resume, no-auto-dedup contract, snapshot-vs-cache head-SHA distinction). T4 reworded Plan of Work step 1 to edit the existing `**Session-start prelude.**` paragraph at `SKILL.md:69` rather than appending a second warning. T5 added per-branch consequences for the HEAD-mismatch three-way choice. T6 added the 422-mutation corner case to the Cleanup paragraph. T7 added mtime semantics to the many-match discovery clause. T8 aligned the state-list ordering with `design.md` §"Handoff and resume". T9–T10 (iter-2 suggestions) reordered the consequences block to match the lead-paragraph order and added a cross-reference from `## Interfaces and Dependencies` cleanup to the `## Context and Orientation` cleanup paragraph. No regressions; no risk or adversarial review needed (track is Markdown-only, Moderate complexity, no critical-path or architectural-decision characteristics).
+- [x] Track-level code review iteration 1 (2026-05-22T03:22Z): 5 workflow-review agents fanned out (consistency, prompt-design, instruction-completeness, context-budget, writing-style; hook-safety skipped — no hooks/scripts/settings touched). Context-budget returned zero findings. The other four returned 18 raw findings, deduped to 19 merged (WC1 + WP1 merged at `SKILL.md:121`). Synthesis overrode three WI critical→should-fix tags (spec-completeness gaps in a Markdown-only skill do not meet the standard scale's blocker criteria) and DROPped one consistency suggestion at `SKILL.md:125` (Track 2 deliberately left that lead-in stale per the episode-append-only convention). All 19 in-scope findings (13 should-fix, 6 suggestion) routed to one implementer spawn — accepted as OVER-BUDGET per Step 4's soft-pacing clause since every fix was a small prose edit in a single file with no compile/test/Spotless cycle. Implementer landed commit `e3a6847cef`; gate-check fan-out (4 agents — context-budget skipped, no findings to recheck) returned 21 verdicts, all VERIFIED, zero new findings. PASS at iteration 2.
+- [x] Track complete (2026-05-22T03:25Z): all step gates closed (3/3, 0 failed); track-level code review PASS at iteration 2; no deferred findings, no plan corrections, no out-of-track items. Cross-track impacts surfaced for Phase 4 `design-final.md` consumption: (1) the `dispatchLog`-consumer prose at `SKILL.md:121` is now anchored on in-file sub-block names, replacing Track 2's "follow-up handoff-writer track" framing; (2) `## Research mode`'s in-conversation-only assertion at `SKILL.md:77` was tightened to acknowledge the persistence option; (3) the `**POST and URL.**` sub-block ownership of the handoff-delete action (already flagged in Step 3's `## Surprises & Discoveries` entry) remains a candidate for explicit pin in `design-final.md` §"Handoff and resume" → `### Edge cases / Gotchas`.
 
 ## Context and Orientation
 
