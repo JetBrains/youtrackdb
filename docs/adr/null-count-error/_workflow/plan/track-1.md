@@ -9,7 +9,7 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -20,6 +20,7 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 - [x] 2026-05-22T19:15Z [ctx=warning] Step 4 complete (commit d55a110a40, Review fix 41d80eebd6)
 - [x] 2026-05-22T20:19Z [ctx=info] Step 5 complete (commit d5962f4061, Review fix 3845809907)
 - [x] 2026-05-22T20:54Z [ctx=info] Step 6 complete (commit 7468b6e76d)
+- [x] 2026-05-22T21:05Z [ctx=info] Step 7 complete (commit 409e9d9522)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -49,6 +50,10 @@ After Step 2 broadened the four `AtomicOperationsManager` wrapper catches, every
 ### 2026-05-22 — `BTreeEngineTestFixtures.captureSevereOn` is the shared JUL-capture surface for engine-mutator tests
 
 The Step 5 Review fix at commit `3845809907` promoted three helpers (`readAtomicLong`, `readAtomicLongRef`, `installCapturingHandler`) onto `BTreeEngineTestFixtures` and added `captureSevereOn(Class engineClass, Runnable body)` to consume the install/snapshot/restore ritual. Twelve of the 16 fitting tests across `BTreeMultiValueIndexEngineUnderflowTest` and `BTreeSingleValueIndexEngineUnderflowTest` now route through `captureSevereOn`; four tests (the zero-delta and 16-thread contention tests in each file) keep manual handler control because they interleave assertions or a `CyclicBarrier` release with the captured window. The helper's Javadoc names the carve-out by test. Step 6's storage-package test reuses the helper; to make it reachable across packages the fixtures class and `captureSevereOn` were widened to `public` (other helpers stay package-private). Tracks 2-4 tests that need to assert engine log emission can reuse the same entry point. See Episodes §Step 5 and §Step 6.
+
+### 2026-05-22 — Reflective `writeAheadLog` field swap forces `commitChanges`-internal asserts
+
+Step 7's test pins the A1=accept-the-gap contract by forcing the WAL-instance equality assert at `AtomicOperationBinaryTracking.commitChanges` line 953. The trick: swap the operation's private `writeAheadLog` field via reflection between `startAtomicOperation` and `endAtomicOperation`, so when `endAtomicOperation` calls `operation.commitChanges(commitTs, managerWAL)` the field-vs-argument equality assert fires. Of the five candidate assert sites (953, 980, 1045, 1059, 1170), this one is the cheapest to drive from outside the package because all four others require forging WAL-unit state, pending-operations counters, or per-file page-change collections. Track 2 tests that need to drive a persist-failure-during-`endAtomicOperation` scenario can reuse the same field-swap (e.g., to a mock whose `log()` throws) without building heavy fixtures. The trick is specific to `AtomicOperationBinaryTracking`; a future class split or field rename would cause `getDeclaredField("writeAheadLog")` to fail fast and signal the helper needs updating. See Episodes §Step 7.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions. -->
@@ -144,7 +149,7 @@ Invariants to preserve: the cache-only contract on `applyIndexCountDeltas` and `
 4. Rewrite `BTreeMultiValueIndexEngine.addToApproximate{Entries,Null}Count` to clamp+error: replace `assert updated >= 0` with `if (updated < 0)` branch, add `firstUnderflowDumped` `AtomicBoolean` field shared by both mutators, log first underflow with stack trace and engine `name`+`id` then clamp via `compareAndSet(updated, 0)`. Add engine-level regression test forcing an underflow on a fresh engine and asserting clamp + log line + no throw. — risk: high (concurrency: new shared mutable state with documented CAS race trade-off)  [x]  commit: d55a110a40
 5. Rewrite `BTreeSingleValueIndexEngine.addToApproximate{Entries,Null}Count` with the same clamp+error pattern and matching engine-level regression test. *(parallel with Step 4 — different file)* — risk: high (concurrency: same as Step 4)  [x]  commit: d5962f4061
 6. Add storage cascade-containment test in package `com.jetbrains.youtrackdb.internal.core.storage.impl.local` using the synthetic `addToApproximateNullCount(Long.MIN_VALUE + 1)` fixture; assert the surrounding `commit()` succeeds, `isInError()` returns `false`, and a subsequent commit on the same storage instance succeeds. — risk: low (tests-only, no production code change; depends on Steps 3, 4, 5)  [x]  commit: 7468b6e76d
-7. Add `commitChanges`-internal `AssertionError` regression test pinning the A1=accept-the-gap contract: force one of the five `AtomicOperationBinaryTracking.commitChanges` asserts (953/980/1045/1059/1170) to fire on a `-ea` JVM and assert the `AssertionError` surfaces as bare `Error`, `isInError()` stays `false`, and the storage stays usable. *(parallel with Step 6 — different test file)* — risk: low (tests-only, no production code change)  [ ]
+7. Add `commitChanges`-internal `AssertionError` regression test pinning the A1=accept-the-gap contract: force one of the five `AtomicOperationBinaryTracking.commitChanges` asserts (953/980/1045/1059/1170) to fire on a `-ea` JVM and assert the `AssertionError` surfaces as bare `Error`, `isInError()` stays `false`, and the storage stays usable. *(parallel with Step 6 — different test file)* — risk: low (tests-only, no production code change)  [x]  commit: 409e9d9522
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -236,6 +241,18 @@ Dim-review iteration 1 surfaced two should-fix items (TS1+TS2 from `review-test-
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeEngineTestFixtures.java` (visibility widened on class + `captureSevereOn`)
 
 **Critical context:** With Steps 1-6 complete, the cascade-containment story is now exercised end-to-end through three layers in one test: the in-memory clamp+error path in the SV engine mutator (Step 5), the `setInError(Throwable)` `AssertionError` entry-point guard on `AbstractStorage` (Step 3), and the broadened catches at `AbstractStorage.commit:2319` plus the four `AtomicOperationsManager` wrappers (Steps 1-2). Step 7 covers the remaining A1=accept-the-gap contract (`AtomicOperationBinaryTracking.commitChanges` asserts firing on `-ea` and surfacing as bare `Error`).
+
+### Step 7 — commit 409e9d9522, 2026-05-22T21:05Z [ctx=info]
+**What was done:** Added `CommitChangesAssertionErrorSurfacesAsBareErrorTest` in `core/src/test/.../storage/impl/local/` pinning the A1=accept-the-gap contract. The test forces the WAL-instance equality assert at `AtomicOperationBinaryTracking.commitChanges` line 953 by reflectively swapping the operation's private `writeAheadLog` field to a fresh mock between `startAtomicOperation` and `endAtomicOperation`; when `endAtomicOperation` calls `operation.commitChanges(commitTs, managerWAL)` the field-vs-argument equality assert fires. The test asserts three properties: the surfaced error is an `AssertionError` (not a `StorageException` wrap, because `commitChanges` runs inside `endAtomicOperation`'s inner try invoked from the wrapper's finally block, outside the wrapper's broadened try at `AtomicOperationsManager:155/179`); `storage.isInError()` stays `false` across two paths (the natural surface from the wrapper, plus a synthetic `logAndPrepareForRethrow(thrown)` feed that exercises Step 3's `setInError` `AssertionError` entry-point guard directly); and a subsequent `executeInsideAtomicOperation` on the same storage succeeds, proving `endAtomicOperation`'s two finally blocks (inner: `releaseLocks` + `deactivate`; outer: `writeOperationsFreezer.endOperation`) keep the storage usable end-to-end. The test front-loads an `Assume.assumeTrue` probe for assertions-enabled so the case degenerates cleanly on a `-ea`-off JVM rather than passing vacuously.
+
+**What was discovered:** The WAL-instance assert at line 953 is the most test-friendly of the five `commitChanges` asserts (953, 980, 1045, 1059, 1170) to drive from outside the package: all five live on private state, but only line 953 compares an instance field against a parameter, so a clean swap of `this.writeAheadLog` is sufficient. The other four require forging WAL-unit state, pending-operations counters, or per-file page-change collections. The reflective `Field.setAccessible(true) + Field.set` pattern works on private final non-static instance fields under JDK 21 without `--add-opens`, since the field is in the project's own class. `endAtomicOperation`'s two finally blocks complete even when `commitChanges` throws: the `atomicOperationsTable` entry for the failed op stays in an "in-progress" state because `commitOperation` / `persistOperation` are skipped after the throw, but that does not block independent subsequent operations.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/CommitChangesAssertionErrorSurfacesAsBareErrorTest.java` (new)
+
+**Critical context:** The test exercises Step 3's `setInError` guard via two paths. Path 1 is the natural surface from the wrapper, where no `setInError` call actually happens because the wrapper's finally completes without entering any `catch (Error)` clause. Path 2 is an explicit `logAndPrepareForRethrow(thrown)` feed that synthetically re-feeds the `AssertionError` through the `setInError`-calling overload (the `Throwable` overload at line 5838 per Surprises §`logAndPrepareForRethrow` overload asymmetry). Path 2 is the load-bearing assertion for pinning the guard's behavior; path 1 is the A1 natural-surface contract.
 
 ## Validation and Acceptance
 
