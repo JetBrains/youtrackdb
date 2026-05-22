@@ -31,7 +31,7 @@ Concrete deliverables:
 1. `LifecycleTest`: `setOpenTelemetry` registers listeners; `shutdown` unregisters and flushes; idempotent shutdown.
 2. `ServerPluginTest`: boots `YouTrackDBServer` with `OPENTELEMETRY_ENABLED=true`, runs a query, asserts span emission. Closes server, asserts SDK shutdown.
 3. `ExceptionIsolationTest`: installs a listener that throws on every callback; runs queries and commits; asserts the transaction completes normally and the exporter received no spans (or only those from other registered listeners).
-4. `OTelTimingModeTest`: asserts the timing-mode uniformity invariant. Two scenarios: (a) TX with default `LIGHTWEIGHT` mode runs one Gremlin query and one SQL query; assert that the durations on both spans come from `GranularTicker` (test by setting a `Ticker` test double with a known fixed tick value via `YouTrackDBEnginesManager` and asserting durations are integer multiples of the tick). (b) TX with `withQueryMonitoringMode(EXACT)` runs the same; assert durations are NOT clamped to the tick granularity. Covers Track 1's `getQueryMonitoringMode()` accessor wiring and Track 4's mode-routing inside the `executeStatementWithMetrics` helper (which both `query()` and `executeInternal()` invoke).
+4. `OTelTimingModeTest`: asserts the per-query Timing-mode uniformity invariant. Three scenarios: (a) TX with default `LIGHTWEIGHT` mode runs one Gremlin query and one SQL query, neither tagged; assert that the durations on both spans come from `GranularTicker` (test by setting a `Ticker` test double with a known fixed tick value via `YouTrackDBEnginesManager` and asserting durations are integer multiples of the tick). (b) Same TX with `withQueryMonitoringMode(EXACT)` runs the same untagged pair; assert both span durations are NOT clamped to the tick granularity (per-TX default applies because tag is empty). (c) TX with default `LIGHTWEIGHT` plus tag rule `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` runs a tagged query (`/*+ TAG=findHotpath */ SELECT FROM User`) and an untagged query in the same TX; assert the tagged query span has sub-tick precision (resolver matched EXACT) while the untagged query span is tick-clamped (resolver fell back to TX default LIGHTWEIGHT). Covers Track 1's `getDefaultQueryMonitoringMode()` and `resolveQueryMonitoringMode(Optional<String>)` accessors plus the `QueryMonitoringModeResolver` rule walk, and Track 4's mode-routing inside the `executeStatementWithMetrics` helper.
 
 ## Plan of Work
 
@@ -43,7 +43,7 @@ The second edit adds `ServerPluginTest`. Boots `YouTrackDBServer` via `ServerMai
 
 The third edit adds `ExceptionIsolationTest`. Registers a deliberately-throwing listener alongside the OTel listeners; asserts the transaction completes; asserts the OTel exporter still received the expected spans (because the OTel listeners are isolated from the bad one's exceptions). Exercises both Gremlin and SQL paths.
 
-The fourth edit adds `OTelTimingModeTest`. Asserts the Timing-mode uniformity invariant by injecting a `Ticker` test double via `YouTrackDBEnginesManager` with a known fixed tick value (e.g., 10 ms granularity). Scenario A runs one Gremlin query + one SQL query inside a default TX (LIGHTWEIGHT mode); asserts both span durations are integer multiples of the tick value. Scenario B repeats with `g.tx().withQueryMonitoringMode(EXACT)`; asserts durations are NOT clamped to tick granularity (some sub-tick value appears). Covers Track 1's `getQueryMonitoringMode()` accessor and Track 4's mode-routing inside the `executeStatementWithMetrics` helper.
+The fourth edit adds `OTelTimingModeTest`. Asserts the per-query Timing-mode uniformity invariant by injecting a `Ticker` test double via `YouTrackDBEnginesManager` with a known fixed tick value (e.g., 10 ms granularity). Scenario A runs one Gremlin query + one SQL query inside a default TX (LIGHTWEIGHT mode), neither tagged; asserts both span durations are integer multiples of the tick value. Scenario B repeats with `g.tx().withQueryMonitoringMode(EXACT)` and no tags; asserts durations are NOT clamped to tick granularity (some sub-tick value appears). Scenario C runs a TX with default LIGHTWEIGHT plus configured rule `findHotpath=EXACT`, executes one `/*+ TAG=findHotpath */` query and one untagged query in the same TX; asserts the tagged query span has sub-tick precision while the untagged query span is tick-clamped. Covers Track 1's `getDefaultQueryMonitoringMode()` / `resolveQueryMonitoringMode(Optional<String>)` accessors plus the `QueryMonitoringModeResolver`, and Track 4's mode-routing inside the `executeStatementWithMetrics` helper.
 
 Ordering: edits are independent; recommended order is Lifecycle → ServerPlugin → ExceptionIsolation → TimingMode.
 
@@ -94,6 +94,9 @@ Test scenarios that map directly to invariants in the implementation plan:
 Invariant "TX span boundedness" → ExceptionIsolationTest covers exception paths;
   OTelTransactionMetricsListenerTest (Track 6a) covers the four exit paths.
 Invariant "Listener exception isolation" → ExceptionIsolationTest.
-Invariant "Timing-mode uniformity" → OTelTimingModeTest asserts both
-  Gremlin and SQL fire sites in the same TX honor the snapshotted mode.
+Invariant "Timing-mode uniformity (per-query)" → OTelTimingModeTest asserts
+  both fire sites for one query resolve from the same tag to the same mode;
+  different queries in the same TX can use different modes when their tags
+  resolve to different rules. QueryModeResolutionTest in Track 6a covers
+  the resolver mechanism in isolation.
 ```
