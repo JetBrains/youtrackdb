@@ -84,6 +84,12 @@ After Track 3 lands:
 
 ## Artifacts and Notes
 
+### Deferred from PR #1088 Gemini review (Phase 2, 2026-05-22)
+
+Pure-delta encoding for `clear()` (this track) and `buildInitialHistogram()` (Track 4) creates an in-memory staleness window symmetrical to the persisted-side window already documented in `design.md` § Pure-delta encoding § Edge cases (1): between the `IndexCountDelta.accumulate(...)` call and Hook B's `applyIndexCountDeltas` (post-`commitChanges`, pre-`releaseLocks`), `approximateIndexEntriesCount.get()` returns the pre-clear / pre-recalibration value. PSI-verified during Phase 2 that no production caller of `engine.size()` reads within the same atomic op as a `clear` or `buildInitialHistogram`: the five production callers via `Index.size` are `IndexRebuildOutputListener.onCompletition` (post-rebuild), `SQLCreateIndexStatement.execute` (DDL), `DatabaseCompare.compareIndexes` (×2; utility, no tx), and `CountFromIndexStep.produce` (SQL query plan; does not co-execute with `clear` in normal flows).
+
+Phase 4 action: `design-final.md` § Pure-delta encoding § Edge cases (currently item 4) should add a one-line note covering the in-memory staleness window and the call-graph reason it does not bite production. Captured here so Track 3's Phase 4 inputs survive merge — `design.md` is frozen during Phase 3.
+
 ## Interfaces and Dependencies
 
 **In-scope files**:

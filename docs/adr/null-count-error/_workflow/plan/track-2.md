@@ -153,6 +153,12 @@ After Track 2 lands:
 
 ## Artifacts and Notes
 
+### Deferred from PR #1088 Gemini review (Phase 2, 2026-05-22)
+
+The Context-and-Orientation lead sentence at line 52 says "visibility rises to package-private" before the next sentence acknowledges that package-private alone does not grant cross-package access between `paginated.atomicoperations` and `impl.local`. Gemini flagged the ordering as confusing.
+
+Phase A action: when decomposing the visibility-raise step, pick the chosen mechanism (public, package-private accessor in the manager's package, JPMS same-module exposure) and rewrite the lead sentence to match the choice. Candidate phrasings: "visibility must rise to at least package-private accessible from the manager's package" (leaves the choice to the step), or name the chosen mechanism directly (e.g., "raised to public on `AbstractStorage`"). Avoid Gemini's proposed forced-`public` rewrite — it over-constrains Phase A.
+
 ## Interfaces and Dependencies
 
 **In-scope files**:

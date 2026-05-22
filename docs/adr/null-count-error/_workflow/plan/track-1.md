@@ -100,6 +100,17 @@ paths once steps are decomposed. -->
 ## Artifacts and Notes
 <!-- Continuous-log (rare). -->
 
+### Deferred from PR #1088 Gemini review (Phase 2, 2026-05-22)
+
+`AtomicOperationsManager.executeInsideAtomicOperation` (line 148) and `calculateInsideAtomicOperation` (line 129) catch only `Exception`. An `AssertionError` thrown inside the lambda bypasses the catch, leaves `error = null`, runs `endAtomicOperation(op, null)` as if successful, and propagates to the API caller — bypassing the cascade containment story for the API path (`clearIndex`, `buildHistogramAfterFill`). The four-mutator clamp+error pattern this track lands covers `addToApproximate{Entries,Null}Count` on MV / SV, but not lambda-body asserts such as `assert svTree.firstKey() == null` inside `clear()` at `BTreeMultiValueIndexEngine.java:274` / `:277` (and the SV mirror).
+
+User decision needed during this track's Pre-Flight gate (Panel 2). Options:
+- **(a)** broaden `executeInsideAtomicOperation` / `calculateInsideAtomicOperation` catches to include `AssertionError`. Changes exception semantics for every wrapper caller across the codebase — wide blast radius.
+- **(b)** **(recommended)** extend this track's clamp+error pattern to the lambda-body asserts inside `clear()` / `buildInitialHistogram()`. Narrow scope, structurally consistent with the four-mutator rewrite. Adds one step to Track 1.
+- **(c)** accept the gap as out of scope; document as a known limitation in `design-final.md` (Phase 4).
+
+PSI-verified during Phase 2 assessment.
+
 ## Interfaces and Dependencies
 
 **In-scope files**:
