@@ -15,6 +15,7 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 
 - [x] 2026-05-22T14:09Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-22T16:02Z [ctx=safe] Step 1 complete (commit 45e22026a8)
+- [x] 2026-05-22T17:22Z [ctx=safe] Step 2 complete (commit 55db0a0aad)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -24,6 +25,10 @@ at Phase 1. -->
 ### 2026-05-22 — engineId bit-encoding for `IndexCountDeltaHolder` lookups
 
 The `IndexAbstract.getIndexId()` external id packs `engineAPIVersion` in the high 5 bits and the internal engine id in the low 27 bits (see `AbstractStorage.generateIndexId` / `extractInternalId`). `IndexCountDeltaHolder` keys on the internal id, so any test that wants to inject or read a delta for a named index must mask the external id with `0x7FFFFFF`. The four engine-mutator regression tests later in this track and the storage cascade-containment test will need the same mask. See Episodes §Step 1.
+
+### 2026-05-22 — `RecordSerializationContext.executeOperations` as a wrapper-bypassing injection point
+
+After Step 2 broadened the four `AtomicOperationsManager` wrapper catches, every production path inside `AbstractStorage.commit`'s inner try wraps an `AssertionError` as `RuntimeException` before it reaches the pre-`endTxCommit` catch at line 2319. The catch's fallback wrap line (the throw on the non-`RuntimeException` branch) is now defense-in-depth only — covered exclusively by `CommitNonRuntimeExceptionFallbackTest`, which pushes a throwable through a custom `RecordSerializationOperation` via `RecordSerializationContext.executeOperations`. The same injection point is reusable for Step 6's storage cascade-containment test and for any Track 2 test that needs to verify `endAtomicOperation` Hook A's persist-failure-to-rollback conversion survives an `AssertionError` that escapes the wrappers. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions. -->
@@ -114,7 +119,7 @@ Invariants to preserve: the cache-only contract on `applyIndexCountDeltas` and `
 ## Concrete Steps
 
 1. Broaden the catch at `AbstractStorage.commit:2319` to include `AssertionError` and add a regression test forcing a persisted-side `BTree.addToApproximateEntriesCount` underflow that routes through the broadened catch to `rollback`. — risk: medium (error-handling code change at a single high-traffic main-commit catch; the catch lives on a storage-component method body so the change is observable by every commit)  [x]  commit: 45e22026a8
-2. Broaden the four `AtomicOperationsManager` wrapper catches (`executeInsideAtomicOperation:155`, `calculateInsideAtomicOperation:136`, `executeInsideComponentOperation:179`, `calculateInsideComponentOperation:208`) from `catch (Exception e)` to `catch (Exception | AssertionError e)`, and add a wrapper-level cascade-containment test that forces `AssertionError` from the lambda body of each pair and asserts rollback + `StorageException` wrap. — risk: medium (error-handling code change; blast-radius audit recorded in Decision Log shows 0 of 1074 callers depend on the unchanged catch)  [ ]
+2. Broaden the four `AtomicOperationsManager` wrapper catches (`executeInsideAtomicOperation:155`, `calculateInsideAtomicOperation:136`, `executeInsideComponentOperation:179`, `calculateInsideComponentOperation:208`) from `catch (Exception e)` to `catch (Exception | AssertionError e)`, and add a wrapper-level cascade-containment test that forces `AssertionError` from the lambda body of each pair and asserts rollback + `StorageException` wrap. — risk: medium (error-handling code change; blast-radius audit recorded in Decision Log shows 0 of 1074 callers depend on the unchanged catch)  [x]  commit: 55db0a0aad
 3. Add the `setInError(Throwable)` `AssertionError` entry-point guard at `AbstractStorage.java:1756` with the R5 three-reason inline comment (JVM `-ea` OFF, groups 1+2 catch at source, group 4 prevents in-memory underflow). — risk: high (storage-component lifecycle change; A5 documents downstream behavior changes at `doShutdown`, `synch`, `DiskStorage.clearStorageDirty`)  [ ]
 4. Rewrite `BTreeMultiValueIndexEngine.addToApproximate{Entries,Null}Count` to clamp+error: replace `assert updated >= 0` with `if (updated < 0)` branch, add `firstUnderflowDumped` `AtomicBoolean` field shared by both mutators, log first underflow with stack trace and engine `name`+`id` then clamp via `compareAndSet(updated, 0)`. Add engine-level regression test forcing an underflow on a fresh engine and asserting clamp + log line + no throw. — risk: high (concurrency: new shared mutable state with documented CAS race trade-off)  [ ]
 5. Rewrite `BTreeSingleValueIndexEngine.addToApproximate{Entries,Null}Count` with the same clamp+error pattern and matching engine-level regression test. *(parallel with Step 4 — different file)* — risk: high (concurrency: same as Step 4)  [ ]
@@ -137,6 +142,20 @@ completed step. Empty at Phase 1. -->
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/PersistedSideAssertionRoutedToRollbackTest.java` (new)
 
 **Critical context:** After this step the storage still flips to permanent error state via `setInError` when the `AssertionError` surfaces at the outer `catch (Error)`. Restoring usability for a subsequent commit on the same storage is the `setInError` entry-point guard's job, which lands in a later step of this track.
+
+### Step 2 — commit 55db0a0aad, 2026-05-22T17:22Z [ctx=safe]
+**What was done:** Broadened the four `AtomicOperationsManager` wrapper catches at `calculateInsideAtomicOperation:136`, `executeInsideAtomicOperation:155`, `executeInsideComponentOperation:179`, and `calculateInsideComponentOperation:208` from `catch (Exception e)` to `catch (Exception | AssertionError e)`, with an inline comment at each site naming the deliberate scope (other `Error` subclasses — `OutOfMemoryError`, `StackOverflowError`, `LinkageError` — still escape). The local `error` variable was already typed `Throwable` and `BaseException.wrapException` already accepts a `Throwable` cause, so no signature change was needed. Added `AtomicOperationsManagerWrapperAssertionErrorTest` with six tests: four per-wrapper `AssertionError` catch-and-rollback contracts (using a Mockito spy on the manager to capture the error argument passed to `endAtomicOperation`, pinning the rollback path rather than only the wrapped throw), a `RuntimeException` regression sanity test, and an `OutOfMemoryError` escape sanity test that pins the deliberate scope choice.
+
+**What was discovered:** The wrapper broadening re-routed the prior step's `PersistedSideAssertionRoutedToRollbackTest`. The `BTree.addToApproximateEntriesCount` underflow `AssertionError` is now wrapped as `CommonStorageComponentException` (a `RuntimeException`) at the `executeInsideComponentOperation` boundary instead of escaping unwrapped, so the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` takes the `if (e instanceof RuntimeException)` branch and the `IOException`/`AssertionError` fallback wrap line goes uncovered (1/2 changed lines, the coverage gate's only failure). Added `CommitNonRuntimeExceptionFallbackTest`, which pushes an `AssertionError` through a custom `RecordSerializationOperation` via `RecordSerializationContext.executeOperations` — a call site that is not inside any `executeInsideComponentOperation` wrapper, so the throw stays bare, fails the `RuntimeException` check, and runs the fallback wrap. Coverage then passed 100% on the two changed lines.
+
+**What changed from the plan:** A second test file (`CommitNonRuntimeExceptionFallbackTest`) was added in `core/src/test/.../storage/impl/local/` outside the four test locations the plan listed. The wrapper broadening turned the prior step's fallback-wrap coverage into a dependency on a wrapper-independent injection path, and `RecordSerializationContext.executeOperations` was the cheapest such path. The plan's storage cascade-containment test (Step 6) and `commitChanges`-internal `AssertionError` test (Step 7) keep their original scope.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManagerWrapperAssertionErrorTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/CommitNonRuntimeExceptionFallbackTest.java` (new)
+
+**Critical context:** After this step, no production path inside `AbstractStorage.commit`'s inner try produces a bare `AssertionError` or `IOException` — every code site either runs inside an `executeInsideComponentOperation` wrapper (now catches both) or declares no `IOException` and only allows `RuntimeException` to escape. The fallback wrap line at `AbstractStorage:2335` is therefore defense-in-depth only after this step, kept covered by `CommitNonRuntimeExceptionFallbackTest`. Track 2 will revisit this catch when the manual `persistIndexCountDeltas`/`applyIndexCountDeltas` calls are deleted.
 
 ## Validation and Acceptance
 
