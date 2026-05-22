@@ -126,11 +126,10 @@ turn of work) so the two sides can be compared directly without
 tracking raw tokens.
 
 ```
-file if:  load_cost  <  self_fix_cost
+file if:  load_cost  ≤  self_fix_cost / 2     # at least a 2× margin
 ```
 
-Horizon for both sides: **6 months**, capped earlier if a planned
-restructure of the target doc would carry the rule away.
+Horizon for both sides: **6 months**.
 
 ### load_cost — what the fix costs to carry
 
@@ -162,12 +161,17 @@ self_fix_cost = turns_per_occurrence × occurrences_in_horizon
 - **turns_per_occurrence**: the cost of one recovery this session.
   A doc re-read counts as 1, a sub-agent re-spawn as 3, a user
   prompt as 2; chain them as needed.
-- **occurrences_in_horizon**:
+- **occurrences_in_horizon**: a trigger is **deterministic** if a
+  code path or doc rule will make the same input produce the same
+  friction on every future session that hits it; it is
+  **non-deterministic** if the friction depends on session-specific
+  context (this branch's code, this user's prompt, this run's
+  timing).
   - **Deterministic-recur trigger**: every matching session fires.
     Use the matching tier's session count over the horizon
     (always-loaded ≈ 100, phase doc ≈ 50, on-demand ≈ 5).
   - **Non-deterministic, plausible on ≥3 future sessions**: use 3.
-  - **Non-deterministic, no reason to expect ≥3 future hits**: the
+  - **Non-deterministic, fewer than 3 plausible future hits**: the
     candidate fails the recurrence floor; drop without computing.
 
 ### Worked examples
@@ -182,9 +186,9 @@ self_fix_cost = turns_per_occurrence × occurrences_in_horizon
    - `self_fix_cost = 1 turn × 50 sessions = 50`
    - Fix is a 1-line caveat (0.2 paragraphs) in a phase doc:
      `load_cost = 0.2 × 2 = 0.4`
-   - `0.4 << 50` → **file**. The old three-prong gate dropped this
-     case (all five self-healing clauses passed for this session),
-     missing the cumulative cost across 50 future sessions.
+   - `0.4 << 50` → **file**. A naïve "feels cheap to self-fix"
+     reading would miss the cumulative cost across 50 future
+     sessions; the recurrence-floor branch catches it.
 
 3. **File — expensive per occurrence.** Phase A reviewer re-flags
    the same low-value finding on every iteration (~3 / Phase A,
@@ -194,29 +198,33 @@ self_fix_cost = turns_per_occurrence × occurrences_in_horizon
      (phase doc): `load_cost = 1 × 2 = 2`
    - `2 << 150` → **file**.
 
-4. **Drop — load cost dominates.** Agent re-read two docs and
-   asked the user once (5 turns of recovery). Plausible on ~3
-   future sessions, not deterministic.
-   - `self_fix_cost = 5 × 3 = 15`
+4. **Drop — near-tie.** Agent re-read one doc and asked the user
+   once (3 turns of recovery). Plausible on ~3 future sessions,
+   not deterministic.
+   - `self_fix_cost = 3 × 3 = 9`
    - The only place a preventive rule fits is `conventions.md`
      (always-loaded). A 1-paragraph clarification:
      `load_cost = 1 × 5 = 5`
-   - `5 < 15` but within 2× margin → **drop** (see checklist).
-     Surface as project-shaped guidance in the session's normal
-     output, not under `dev-workflow`.
+   - Ratio `self_fix / load = 9 / 5 = 1.8×`, inside the 2× margin
+     → **drop** (see checklist). Surface as project-shaped
+     guidance in the session's normal output, not under
+     `dev-workflow`.
 
 ### Quick checklist
 
 - Did you actually compute both sides? If you wrote "feels worth
   it" without numbers, you skipped the gate.
-- `load_cost` smaller than `self_fix_cost` by ≥2× → **record**.
-- Ratio between 0.5× and 2× (tie or near-tie) → **drop**. The
-  unit is coarse; only clear wins should make it through, and the
-  workflow's signal-to-noise ratio matters more than completeness.
-- `self_fix_cost` smaller → **drop**. The friction may still be
-  real, but the fix is project- or ADR-shaped, not workflow-
-  shaped. Surface it in the session's normal output if useful, but
-  do not file it under `dev-workflow`.
+- Compute the ratio `r = self_fix_cost / load_cost` and read off
+  the verdict:
+  - `r ≥ 2` (self-fix dominates by ≥2×) → **record**.
+  - `0.5 < r < 2` (tie or near-tie) → **drop**. The unit is
+    coarse; only clear wins should make it through, and the
+    workflow's signal-to-noise ratio matters more than
+    completeness.
+  - `r ≤ 0.5` (load dominates by ≥2×) → **drop**. The friction
+    may still be real, but the fix is project- or ADR-shaped,
+    not workflow-shaped. Surface it in the session's normal
+    output if useful, but do not file it under `dev-workflow`.
 
 ---
 
@@ -281,13 +289,16 @@ correct outcome, not a failure to look hard enough.
       file them, and do not promote them to medium just to keep the
       proposal alive.
    2. Drop any friction that fails the §Cost-benefit gate. Compute
-      both sides of the inequality explicitly — `load_cost` from
-      the doc-tier table and `self_fix_cost` from
-      `turns_per_occurrence × occurrences_in_horizon` — and apply
-      the checklist's 2× margin rule. A friction that survives
-      severity but fails the gate is a project- or ADR-shaped
-      finding; mention it in the session's normal output if useful,
-      but do not file it.
+      both sides of the inequality explicitly: `load_cost` from the
+      doc-tier table and `self_fix_cost` from
+      `turns_per_occurrence × occurrences_in_horizon`. Apply the
+      checklist's 2× margin rule. A friction that survives severity
+      but fails the gate is a project- or ADR-shaped finding;
+      mention it in the session's normal output if useful, but do
+      not file it. The computed numbers stay in the agent's draft
+      and are not persisted into the issue body; a later triager
+      who challenges the verdict re-runs the gate from the
+      reproduction context.
    3. Cap the surviving list at 3 (highest severity, most frequent,
       or blocking the most downstream work — see §Per-session cap).
 
@@ -635,12 +646,12 @@ the triager can verify it.
   mapping) and set it at creation. The triager can re-calibrate,
   but the default priority is the agent's responsibility.
 - **Do not** record any candidate (Bug or Feature) that fails the
-  §Cost-benefit gate. The bar is `load_cost < self_fix_cost` with
-  at least a 2× margin: `load_cost` is paragraphs added × the
-  doc-tier multiplier; `self_fix_cost` is turns per occurrence ×
-  occurrences in horizon. Non-deterministic one-offs fail the
-  recurrence floor, and ADR-specific frictions are project-shaped,
-  not workflow-shaped.
+  §Cost-benefit gate. The bar is `load_cost ≤ self_fix_cost / 2`
+  (a 2× margin between the sides): `load_cost` is paragraphs added
+  × the doc-tier multiplier; `self_fix_cost` is turns per
+  occurrence × occurrences in horizon. Non-deterministic one-offs
+  fail the recurrence floor, and ADR-specific frictions are
+  project-shaped, not workflow-shaped.
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
