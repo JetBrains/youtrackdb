@@ -229,7 +229,11 @@ flowchart LR
   > **Depends on:** Track 3
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**: CR3 (track-5.md section name "Frequency and context-cost gate" → "Cost-benefit gate"), CR4 (track-5.md line-count "~590" → "~660"), CR7 (Track 4 renumber-down propagation across plan / design / track-3 / track-5).
+
+**Escalated (design decisions)**: CR1 → option 1 (insert advance between Steps 4.4 and 4.6); CR2 → option 1 (active-plan scope as 7th deliverable to Track 1 §1.6); CR5 → option 2 (renumber Track 4's top-level steps down, subsumed by S2 split); CR6 → option 1 (SHA-computation one-liner in design.md §Core Concepts); S1 → apply all 4 intro trims (Tracks 2, 3, 4, 6; Track 4's trim subsumed by the S2 split); S2 → split Track 4 into 4a (preflight + range) and 4b (replay + final batch); S3 → skip (DR ordering quirk left as-is); S4 → apply all 7 `**Full design**` links (D1, D2, D7, D8, D10, D11, D13).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
