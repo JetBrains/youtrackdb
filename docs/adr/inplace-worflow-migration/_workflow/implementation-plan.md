@@ -231,8 +231,5 @@ flowchart LR
 ## Plan Review
 - [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
-**PAUSED 2026-05-22 at structural-review-iter1-fixes-applied pending gate verification**
-- Handoff: `_workflow/handoff-state0.md`
-
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
