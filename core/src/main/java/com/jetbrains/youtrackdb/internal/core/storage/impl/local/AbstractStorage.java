@@ -1754,6 +1754,21 @@ public abstract class AbstractStorage
   }
 
   private void setInError(final Throwable e) {
+    // Defense-in-depth: skip AssertionError so a stray dev/test invariant violation
+    // does not flip the storage into permanent error state. Safe because (i) the JVM
+    // default is -ea OFF, so production paths never throw asserts; (ii) the
+    // broadened catch at commit() and the broadened catches in the four
+    // AtomicOperationsManager wrappers convert lambda-body and inner-try
+    // AssertionErrors into StorageException at the source; (iii) the
+    // clamp+error rewrite of the four engine-level addToApproximate{Entries,Null}Count
+    // mutators prevents the in-memory underflow from throwing at all. Any AssertionError
+    // that still reaches this setter has already been logged by
+    // logAndPrepareForRethrow(Error) and will be rethrown to the caller; the guard only
+    // suppresses the read-only-mode flip. Other Error subclasses (OutOfMemoryError,
+    // StackOverflowError, LinkageError) still trigger error state.
+    if (e instanceof AssertionError) {
+      return;
+    }
     error.set(e);
   }
 
