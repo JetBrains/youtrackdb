@@ -225,6 +225,108 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // YTDB-953: single-value null-count recalibration on load
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Regression for YTDB-953. Prior to the fix, BTreeSingleValueIndexEngine.load()
+   * unconditionally set the in-memory approximateNullCount to 0, ignoring whether
+   * the single tree actually held a persisted visible null entry. After a restart
+   * of an index that contained one null-key entry, getNullCount() returned 0
+   * instead of 1 until the next buildInitialHistogram(). The fix recalibrates
+   * the counter from a direct null-key lookup at load time.
+   *
+   * <p>The test creates a UNIQUE index, commits a single entity with the indexed
+   * property unset (yielding a null key in the index), closes and reopens the
+   * database, then asserts that getNullCount() reports 1 from in-memory state
+   * read by load() — without going through buildInitialHistogram().
+   */
+  @Test
+  public void singleValue_nullCountSurvivesRestart() throws Exception {
+    session.createClassIfNotExist("SVNullTest");
+    var cls = session.getClass("SVNullTest");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("SVNullTest.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+
+    // Insert a single entity with no "name" property → one null-key entry in
+    // the index. Single-value UNIQUE caps at one entry per key, so the null
+    // range holds at most this one row.
+    session.begin();
+    session.newEntity("SVNullTest");
+    session.commit();
+
+    // Close and reopen to force load() to repopulate the in-memory counters
+    // from on-disk state.
+    session.close();
+    session = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, adminUser, adminPassword);
+
+    var engine = getBTreeIndexEngine(session, "SVNullTest.name");
+    session.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          assertEquals(
+              "Null count must be recalibrated to 1 on load() from persisted state",
+              1, engine.getNullCount(atomicOp));
+          assertEquals(
+              "Total count must still reflect the single persisted entry",
+              1, engine.getTotalCount(atomicOp));
+        });
+  }
+
+  /**
+   * End-to-end regression for YTDB-953 — the underflow cascade. Before the fix,
+   * load() forced approximateNullCount to 0 even when the on-disk tree held a
+   * visible null entry. AbstractStorage.applyIndexCountDeltas still feeds
+   * nullDelta polymorphically into addToApproximateNullCount(), so the first
+   * REMOVE of the persisted null entry after restart accumulated nullDelta=-1,
+   * driving the in-memory counter from 0 to -1 and tripping the
+   * "In-memory approximateNullCount underflow" assert. The escaping AssertionError
+   * was caught by AbstractStorage.commit()'s outer catch(Error), poisoning the
+   * storage via setInError.
+   *
+   * <p>The test reproduces the cascade trigger: create a single-value index with
+   * a persisted null entry, restart, remove the entity holding the null key,
+   * commit. With the fix, the commit succeeds and getNullCount() reads 0.
+   * Without the fix, the assert fires inside commit() (assertions are enabled
+   * in surefire by the {@code <argLine>} configuration).
+   */
+  @Test
+  public void singleValue_removeNullAfterRestart_noUnderflow() throws Exception {
+    session.createClassIfNotExist("SVNullRemoveTest");
+    var cls = session.getClass("SVNullRemoveTest");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex(
+        "SVNullRemoveTest.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+
+    // Persist one null-key entry.
+    session.begin();
+    session.newEntity("SVNullRemoveTest");
+    session.commit();
+
+    // Restart so load() repopulates the in-memory counters.
+    session.close();
+    session = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, adminUser, adminPassword);
+
+    // Remove the only entity → index REMOVE on the null key → commit
+    // accumulates nullDelta=-1 and feeds it through applyIndexCountDeltas.
+    // Pre-fix: the in-memory counter goes 0 → -1 and the underflow assert
+    // fires inside commit(). Post-fix: the counter goes 1 → 0 cleanly.
+    session.begin();
+    session.command("DELETE FROM SVNullRemoveTest");
+    session.commit();
+
+    var engine = getBTreeIndexEngine(session, "SVNullRemoveTest.name");
+    session.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          assertEquals(
+              "Null count must read 0 after the persisted null entry is removed",
+              0, engine.getNullCount(atomicOp));
+          assertEquals(
+              "Total count must read 0 after the only entry is removed",
+              0, engine.getTotalCount(atomicOp));
+        });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Rollback: persisted count unchanged
   // ═══════════════════════════════════════════════════════════════════════
 
