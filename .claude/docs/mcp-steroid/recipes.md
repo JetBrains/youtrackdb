@@ -53,3 +53,9 @@ Each recipe points at one or more `mcp-steroid://` resources — **fetch them vi
 - Trigger: adding a new parameter to a method with many overrides (SPI interfaces, abstract storage methods, heavily-overridden hooks).
 - Resource: `mcp-steroid://ide/change-signature` (uses `ChangeSignatureProcessor` to update every overrider and call site in one shot).
 - Use case: extending contracts like `IndexEngine.put` or `StorageComponent.flush` where raw text replace would miss polymorphic call sites and `super.method(...)` chains in subclasses.
+
+## Auto-open project (check-then-open-and-wait)
+
+- Trigger: a session or scripted task needs PSI / refactor access for a project that may not currently be open, and the user has explicitly authorized opening it. The cwd-mismatch preflight rule in `CLAUDE.md` § MCP Steroid still applies; this recipe does not bypass it, and the user is asked before the active project is switched.
+- Tools (no `mcp-steroid://` resource; composes top-level MCP tools): call `steroid_list_projects` first and short-circuit if the target absolute path is already listed. Otherwise call `steroid_open_project` with `trust_project: true` (the default), then poll `steroid_list_windows` until the entry matching the target path reports `projectInitialized: true`, `indexingInProgress: false`, and `modalDialogShowing: false`. Sleep ~2 s between polls. If `modalDialogShowing` stays true past two polls, stop and surface it to the user with `steroid_take_screenshot`; do not try to dismiss SDK or project-type prompts programmatically.
+- Use case: long-running automation (`/execute-tracks`, scripted refactor sweeps, multi-track plan execution) that should survive an IDE restart between sessions without falling back to grep-based analysis. Skip the recipe for one-off symbol questions; running `steroid_list_projects` once and asking the user is faster than introducing polling logic.

@@ -306,5 +306,6 @@ The catalogue of concrete IDE-control recipes lives in `.claude/docs/mcp-steroid
 - **Project / module dependency graph** — answer "does X depend on Y?" without reading several `pom.xml` files.
 - **Class-shape refactors** — extract-interface / pull-up / push-down for consolidating sibling-class duplication.
 - **Add parameter via change-signature** — adding a parameter to a heavily-overridden method (SPI interface, abstract storage method) without missing polymorphic call sites.
+- **Auto-open project (check-then-open-and-wait)** — open a closed project for sessions that need PSI access, then poll `steroid_list_windows` for readiness. Composes top-level tools (`steroid_list_projects` → `steroid_open_project` → `steroid_list_windows`); doesn't override the cwd-mismatch preflight rule.
 
 Each recipe points at the matching `mcp-steroid://` resource(s) — fetch via `steroid_fetch_resource` and adapt rather than reconstruct from memory.
