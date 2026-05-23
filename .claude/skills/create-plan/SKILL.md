@@ -9,6 +9,8 @@ Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 > **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
 
+> **Stamp discipline.** Every `_workflow/**` artifact this SKILL creates carries a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation. Direct-mutation kinds applied later by `edit-design` (`content-edit`, `section-add`, `section-remove`, `section-move`, `structural-rewrite`, etc.) leave the stamp untouched and preserve its line-1 position; only artifact creation, migration replay, and no-drift normalization write the stamp. The format definition, parser idioms, and the paired SHA-computation idiom this SKILL copies into its planning-transition step are anchored in [conventions.md §1.6](../../workflow/conventions.md) — read that section for the single source of truth.
+
 **Step 1 — Read workflow documents.**
 
 Read these in order before doing anything else (do NOT ask the user anything yet):
@@ -162,6 +164,36 @@ Help the user develop the plan:
 
 Do NOT implement anything. Only research and plan.
 
+**Compute the workflow-SHA stamp once before writing the templates.**
+Run the paired test-and-fallback idiom from
+[`conventions.md` §1.6(b)](../../workflow/conventions.md) verbatim;
+every artifact created in this `/create-plan` session reuses the
+single `$WORKFLOW_SHA` value, so artifacts seeded together share a
+stamp by construction:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
+```
+
+Substitute the resolved 40-character SHA into the
+`<!-- workflow-sha: $WORKFLOW_SHA -->` line at the top of each
+template below before invoking `Write`. The fallback to
+`git rev-parse HEAD` covers fresh repos and repos where workflow
+paths have been moved; in every other case the path-scoped log
+already returns a usable SHA.
+
+The dual-seed `design-mechanics.md` case (when the planner seeds
+both `design.md` and `design-mechanics.md` together) does NOT get a
+fourth fenced template in this Step. The dual-seed write routes
+through `edit-design phase1-creation` with `target=both`, which
+carries an idempotency-guarded stamp directive that stamps the file
+when it has not already been stamped. Keeping the dual-seed write on
+the existing `edit-design` route avoids duplicating a near-identical
+template here; the idempotency guard covers both the
+`/create-plan`-driven dual seed and a direct `edit-design
+phase1-creation` invocation outside `/create-plan`.
+
 Write the implementation plan to
 `docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one track
 file per planned track at
@@ -181,6 +213,7 @@ under `_workflow/` and `conventions-execution.md` §2.1 for the
 track-file shape and section lifecycle).
 
 ```
+<!-- workflow-sha: $WORKFLOW_SHA -->
 # <Feature Name>
 
 ## Design Document
@@ -248,6 +281,7 @@ copy is ephemeral and removed in the Phase 4 cleanup commit, so it
 cannot be a durable pointer target).
 
 ````markdown
+<!-- workflow-sha: $WORKFLOW_SHA -->
 # Track N: <title>
 
 ## Purpose / Big Picture
@@ -339,6 +373,7 @@ Write the design document to
 `docs/adr/<dir-name>/_workflow/design.md` using this structure:
 
 ```
+<!-- workflow-sha: $WORKFLOW_SHA -->
 # <Feature Name> — Design
 
 ## Overview
