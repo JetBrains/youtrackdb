@@ -6,7 +6,9 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.UUID;
 import org.junit.After;
 import org.junit.Before;
@@ -111,6 +113,13 @@ public class CommitNonRuntimeExceptionFallbackTest {
     var seed = db.newVertex("V");
     seed.setProperty("p", "x");
 
+    // Capture the atomic operation before the commit attempt so we can
+    // assert below that the inner finally took the rollback branch (which
+    // sets rollbackInProgress on the captured op via
+    // AtomicOperationsManager.endAtomicOperation). The same pattern is used
+    // by PersistedSideAssertionRoutedToRollbackTest in the same package.
+    AtomicOperation capturedOp = tx.getAtomicOperation();
+
     Throwable caught = null;
     try {
       db.commit();
@@ -122,9 +131,32 @@ public class CommitNonRuntimeExceptionFallbackTest {
         .as("Commit must surface the non-RuntimeException as a wrapped exception")
         .isNotNull();
 
-    // Walk the cause chain — multiple layers may wrap the throwable before it
+    // First load-bearing assertion: the caught throwable is a StorageException.
+    // The fallback wrap line at AbstractStorage.commit converts the
+    // AssertionError into a StorageException; the unwrapped-bypass path (the
+    // catch missing the AssertionError clause) would surface the bare
+    // AssertionError unchanged. This is the falsifiability tighten point:
+    // without it, a mutation that reverts the catch to
+    // `IOException | RuntimeException` still passes the root-cause walk
+    // below (because AssertionError == AssertionError trivially).
+    assertThat(caught)
+        .as("Caught throwable must be a StorageException wrapping the original "
+            + "AssertionError, proving the fallback wrap line ran")
+        .isInstanceOf(StorageException.class);
+
+    // Second load-bearing assertion: the immediate cause is the originally
+    // thrown AssertionError. BaseException.wrapException sets the cause
+    // directly; deeper layers may add additional wrap frames, so the
+    // immediate-cause check pins the wrap site at the pre-endTxCommit catch.
+    assertThat(caught.getCause())
+        .as("Immediate cause must be the originally-thrown AssertionError, "
+            + "proving the fallback wrap line at the pre-endTxCommit catch ran")
+        .isSameAs(thrown);
+
+    // Walk the cause chain. Multiple layers may wrap the throwable before it
     // reaches the API caller, but the original AssertionError must be the
-    // ultimate root cause.
+    // ultimate root cause. This survives any future re-wrapping by
+    // logAndPrepareForRethrow or sibling layers.
     Throwable rootCause = caught;
     while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
       rootCause = rootCause.getCause();
@@ -133,5 +165,16 @@ public class CommitNonRuntimeExceptionFallbackTest {
         .as("Root cause must be the originally-thrown AssertionError, proving "
             + "the pre-endTxCommit catch's fallback wrapException line ran")
         .isSameAs(thrown);
+
+    // Third load-bearing assertion: the inner finally took the rollback
+    // branch. endAtomicOperation(op, error) with a non-null error sets
+    // operation.rollbackInProgress(); the unwrapped-bypass path would have
+    // run the success branch (endTxCommit followed by applyIndexCountDeltas)
+    // instead. Pins the inner-finally routing claim in the test's contract.
+    assertThat(capturedOp.isRollbackInProgress())
+        .as("Atomic operation must be marked rollback-in-progress, proving "
+            + "the inner finally took the rollback branch rather than the "
+            + "endTxCommit success branch")
+        .isTrue();
   }
 }

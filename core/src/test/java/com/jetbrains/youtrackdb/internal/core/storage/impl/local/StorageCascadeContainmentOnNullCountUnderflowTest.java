@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
@@ -20,6 +21,7 @@ import java.util.logging.LogRecord;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * End-to-end cascade-containment test exercising the engine-mutator clamp+error
@@ -58,7 +60,14 @@ import org.junit.Test;
  * {@link PersistedSideAssertionRoutedToRollbackTest}, including the external
  * engine-id bit mask ({@code & 0x7FFFFFF}) that strips the
  * {@code engineAPIVersion} high bits.
+ *
+ * <p>Marked {@link SequentialTest} so the JUL handler attached to the
+ * process-global engine-class logger does not see records emitted by
+ * concurrent test classes under surefire's parallel-classes mode. The
+ * single-record cardinality assertion would flake on foreign records
+ * from sibling underflow tests in the same JVM.
  */
+@Category(SequentialTest.class)
 public class StorageCascadeContainmentOnNullCountUnderflowTest {
 
   // Per-test database name with a UUID suffix avoids OEngine.getStorage(name)

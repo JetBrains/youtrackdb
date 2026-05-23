@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -15,6 +16,7 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests the in-memory approximate-count underflow handling on
@@ -37,7 +39,15 @@ import org.junit.Test;
  * engine class's logger (the name LogManager uses when the requester is an
  * engine instance), capture the records, and assert level + message anchors
  * without locking the exact phrasing.
+ *
+ * <p>Marked {@link SequentialTest} so the JUL handler attached to the
+ * process-global engine-class logger does not see records emitted by
+ * concurrent test classes under surefire's parallel-classes mode. The
+ * cardinality-sensitive assertions in this class (for example the
+ * 16-thread contention test) would flake on foreign records from
+ * sibling underflow tests in the same JVM.
  */
+@Category(SequentialTest.class)
 public class BTreeSingleValueIndexEngineUnderflowTest {
 
   /**
@@ -390,6 +400,26 @@ public class BTreeSingleValueIndexEngineUnderflowTest {
     logger.setLevel(Level.ALL);
     ExecutorService pool = Executors.newFixedThreadPool(threads);
     try {
+      // Pre-warm the pool so the barrier budget below covers CAS contention
+      // only and is not consumed by lazy thread creation. newFixedThreadPool
+      // creates threads on first submit; on a loaded CI host with 4 parallel
+      // surefire forks, that creation can exceed the per-thread barrier
+      // budget and produce BrokenBarrierException on slow workers.
+      CountDownLatch warmup = new CountDownLatch(threads);
+      for (int i = 0; i < threads; i++) {
+        pool.submit(() -> {
+          warmup.countDown();
+          try {
+            warmup.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        });
+      }
+      assertThat(warmup.await(10, TimeUnit.SECONDS))
+          .as("thread pool must finish warm-up before the contention phase")
+          .isTrue();
+
       var barrier = new CyclicBarrier(threads);
       var done = new CountDownLatch(threads);
       for (int i = 0; i < threads; i++) {
@@ -398,7 +428,7 @@ public class BTreeSingleValueIndexEngineUnderflowTest {
         final boolean entries = (i % 2) == 0;
         pool.submit(() -> {
           try {
-            barrier.await(5, TimeUnit.SECONDS);
+            barrier.await(30, TimeUnit.SECONDS);
             if (entries) {
               f.engine.addToApproximateEntriesCount(-1L);
             } else {
@@ -415,7 +445,15 @@ public class BTreeSingleValueIndexEngineUnderflowTest {
           .as("all underflow threads must complete inside the budget")
           .isTrue();
     } finally {
-      pool.shutdownNow();
+      // Graceful shutdown so worker threads are confirmed dead before the
+      // next test class runs in the same JVM. shutdownNow alone only sends
+      // interrupts; a leaked worker holding a reference to the fixture's
+      // engine would survive into a sibling test class.
+      pool.shutdown();
+      if (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+        pool.shutdownNow();
+        pool.awaitTermination(2, TimeUnit.SECONDS);
+      }
       logger.removeHandler(handler);
       logger.setLevel(priorLevel);
     }

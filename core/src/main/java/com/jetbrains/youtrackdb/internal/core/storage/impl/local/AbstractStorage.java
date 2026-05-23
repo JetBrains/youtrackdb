@@ -1762,14 +1762,21 @@ public abstract class AbstractStorage
     // AssertionErrors into StorageException at the source; (iii) the
     // clamp+error rewrite of the four engine-level addToApproximate{Entries,Null}Count
     // mutators prevents the in-memory underflow from throwing at all. Any AssertionError
-    // that still reaches this setter has already been logged by
-    // logAndPrepareForRethrow(Error) and will be rethrown to the caller; the guard only
-    // suppresses the read-only-mode flip. Other Error subclasses (OutOfMemoryError,
-    // StackOverflowError, LinkageError) still trigger error state.
+    // that still reaches this setter will be logged and rethrown by the surrounding
+    // logAndPrepareForRethrow(...) call; the guard only suppresses the read-only-mode
+    // flip. Other Error subclasses (OutOfMemoryError, StackOverflowError, LinkageError)
+    // still trigger error state.
     if (e instanceof AssertionError) {
       return;
     }
     error.set(e);
+    // Postcondition: the AssertionError guard above is the only path that can
+    // leave error.get() != e for a non-null AssertionError argument. A future
+    // refactor that reordered or removed the guard would surface here (with
+    // -ea on, i.e. the test JVM default). Production has -ea off, so this is
+    // free in shipped binaries.
+    assert !(e instanceof AssertionError) || error.get() != e
+        : "setInError must skip AssertionError; reached the setter with " + e;
   }
 
   @Override
@@ -2356,10 +2363,14 @@ public abstract class AbstractStorage
               endTxCommit(atomicOperation);
               try {
                 applyIndexCountDeltas(atomicOperation);
-              } catch (final RuntimeException e) {
+              } catch (final RuntimeException | AssertionError e) {
                 // Counter application is a cache-only operation — its failure
                 // must never mask a successful commit. Counters will be
                 // recalibrated by load() on restart or buildInitialHistogram().
+                // AssertionError caught here for symmetry with the broadened
+                // pre-endTxCommit catch above: if a future regression
+                // reintroduces an `assert` along the apply path, the
+                // AssertionError must not escape and re-open the cascade.
                 LogManager.instance()
                     .warn(this,
                         "Index count delta application failed after successful"
@@ -2368,10 +2379,13 @@ public abstract class AbstractStorage
               }
               try {
                 applyHistogramDeltas(atomicOperation);
-              } catch (final RuntimeException e) {
+              } catch (final RuntimeException | AssertionError e) {
                 // Delta application is a cache-only operation — its failure
                 // must never mask a successful commit. The cache will be
                 // reconstructed from the .ixs page on next restart.
+                // AssertionError caught here for symmetry with the broadened
+                // pre-endTxCommit catch above: an `assert` regression along
+                // the apply path must not escape and re-open the cascade.
                 LogManager.instance()
                     .warn(this,
                         "Histogram delta application failed after successful commit",

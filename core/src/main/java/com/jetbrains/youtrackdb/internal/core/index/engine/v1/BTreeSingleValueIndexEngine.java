@@ -680,7 +680,8 @@ public final class BTreeSingleValueIndexEngine
   // Package-private (rather than private) so the engine-level underflow
   // regression tests in this package can invoke it directly with a pre-set
   // counter value to pin the failed-CAS branch (see
-  // BTreeSingleValueIndexEngineUnderflowTest#failedClampCasLeavesCounterAtConcurrentWriterValueThroughEnginePath).
+  // BTreeSingleValueIndexEngineUnderflowTest
+  //   #failedClampCasLeavesCounterAtConcurrentWriterValueThroughEnginePath).
   // Production callers are exclusively the two mutators above.
   void reportAndClampUnderflow(
       String counterName, AtomicLong counter, long observedNegative, long delta) {

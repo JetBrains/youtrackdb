@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -308,5 +309,9 @@ public class AtomicOperationsManagerWrapperAssertionErrorTest {
     // a null error (the outer catch in the wrapper did not match, so error
     // stayed null).
     verify(spyManager, atLeastOnce()).endAtomicOperation(any(), any());
+    assertNull(
+        "endAtomicOperation must receive null because the OOM bypassed the catch"
+            + " (the wrapper's catch deliberately excludes OutOfMemoryError)",
+        capturedError.get());
   }
 }
