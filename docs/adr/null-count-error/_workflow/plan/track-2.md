@@ -13,6 +13,9 @@ Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas
 - [ ] Track-level code review
 - [ ] Track completion
 
+**PAUSED 2026-05-23 at Phase A iter-1 fix-application pending Q1 + Q2 design-decision resolution**
+- Handoff: `_workflow/handoff-track-2-phaseA.md`
+
 ## Surprises & Discoveries
 
 ## Decision Log
