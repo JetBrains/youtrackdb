@@ -52,7 +52,7 @@ Two methods on `AbstractStorage` resolve to one-liners that delegate here: `endT
 
 The lock-window race that motivates consolidation: `lockIndexes` at AbstractStorage:2255 calls `acquireExclusiveLockTillOperationComplete` per index (via `BTree.acquireAtomicExclusiveLock` at `BTree.java:1732`), which adds the component to `operation.lockedComponents()` (`AtomicOperationsManager.java:339`). `releaseLocks` at `AtomicOperationsManager.java:301–321` iterates `lockedComponents()` and releases each one. The inner-finally `releaseLocks` call at line 289 of `AtomicOperationsManager.endAtomicOperation` therefore releases the per-index lock *inside* the lifecycle method, before `endAtomicOperation` returns. The subsequent `ensureThatComponentsUnlocked` at AbstractStorage:2407 calls `releaseLocks` again; its idempotent `isExclusiveOwner()` check (commented at lines 303–305 of the manager) confirms this is a defensive double-call that finds nothing to do. So today's `applyIndexCountDeltas` at AbstractStorage:2365 runs *after* the per-index lock has been released, leaving a ~40-line race window between lock release and the apply.
 
-The manager has a `storage` field (`AtomicOperationsManager.java:55`, set in the ctor at line 71), so the manager can call back into `AbstractStorage`. `persistIndexCountDeltas` (`AbstractStorage.java:2486`), `applyIndexCountDeltas` (`AbstractStorage.java:2511`), and `applyHistogramDeltas` (`AbstractStorage.java:2540`) are currently `private`; visibility rises to package-private. The manager and storage live in different packages (`paginated.atomicoperations` and `impl.local`), so package-private requires either a small accessor surface on `AbstractStorage` or a JPMS-style same-module exposure. Decomposition picks the cleanest fit; the surface is three methods.
+The manager has a `storage` field (`AtomicOperationsManager.java:55`, set in the ctor at line 71), so the manager can call back into `AbstractStorage`. `persistIndexCountDeltas` (`AbstractStorage.java:2486`), `applyIndexCountDeltas` (`AbstractStorage.java:2511`), and `applyHistogramDeltas` (`AbstractStorage.java:2540`) are currently `private`; visibility rises to `public` on `AbstractStorage`. The manager and storage live in different packages (`paginated.atomicoperations` and `impl.local`), so plain package-private would not cross. `public` is consistent with the existing manager-callback surface on the same class (`moveToErrorStateIfNeeded` at line 3637, `getName`, `checkErrorState`, `getSnapshotIndexSize` are all `public` despite being internal-only); the `internal/` package marker conveys the intent that the class is implementation detail. The surface is three methods.
 
 `IndexCountDelta` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexCountDelta.java` keeps its existing fields `totalDelta` and `nullDelta`. No flags are added: under the single-lifecycle-gate design each hook runs at most once per atomic op, so idempotency is structural.
 
@@ -60,7 +60,9 @@ The manager has a `storage` field (`AtomicOperationsManager.java:55`, set in the
 
 Recovery-time `executeInsideAtomicOperation` call sites at `AbstractStorage.open` lines 766, 779, 794, 797, 799, 800, 809, 811, 860 all run before `status = STATUS.OPEN` at line 861. Research confirmed none accumulate `IndexCountDelta` today, so the lifecycle hook is a no-op via the existing `if (holder == null) return;` early-exit in the three target methods. No state gate is wired: skipping the hooks on non-OPEN states would drop counter syncs at close (`STATUS.CLOSING`) and re-create divergence for any future recovery-time accumulator that requires both sides to move.
 
-The deliverable: hook points in `endAtomicOperation` (persist before `commitChanges`; apply + histogram-apply after `commitChanges`, before `releaseLocks`); persist-failure-to-rollback conversion; deletion of the three manual calls and their two surrounding catches in `AbstractStorage.commit`; visibility raise on the three private methods; integration tests covering both the main-commit and standalone paths under rollback.
+Hook A's `persistCountDelta` writes go through the atomic op's `pageChangesMap`, not directly to disk. They become durable only after `commitChanges` completes the WAL flush and cache application. If `commitChanges` throws, the persist's effects are discarded along with the rest of the atomic op's writes. The conversion catch in Hook A is therefore only required for failures *during* `persistCountDelta` itself (BTree underflow, IO at page allocation), not for failures during `commitChanges`.
+
+The deliverable: hook points in `endAtomicOperation` (persist before `commitChanges`; apply + histogram-apply after `commitChanges`, before `releaseLocks`); persist-failure-to-rollback conversion with explicit `moveToErrorStateIfNeeded(persistFailure)` and typed re-raise; deletion of the three manual calls and their two surrounding catches in `AbstractStorage.commit`; visibility raise on the three methods to `public`; integration tests covering both the main-commit and standalone paths under rollback.
 
 ### Clarifications
 
@@ -68,17 +70,18 @@ Captured at Track Pre-Flight after Track 1 completion. Cross-track signals from 
 
 - **Engine-mutator surface is package-private.** Track 1 relaxed `addToApproximate{Entries,Null}Count` on both `BTreeMultiValueIndexEngine` and `BTreeSingleValueIndexEngine` from `private` to package-private (under `internal/`, `final` classes); `AbstractStorage.applyIndexCountDeltas` at lines 2528–2529 is the sole production caller (PSI-confirmed). Hook B's broadened catch (`RuntimeException | AssertionError`) absorbs failures Track 1 converted from `assert updated >= 0` into `reportAndClampUnderflow` clamp-and-error.
 - **`IndexCountDeltaHolder` engine-id keying.** Holder keys on the internal engine id (low 27 bits of `IndexAbstract.getIndexId`). Tests that inject or read a delta for a named index must mask the external id with `0x7FFFFFF`. Material for `EndAtomicOperationHookOrderingTest`.
+- **Engine-class FQN orientation.** `com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine` and `com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine` for the two `addToApproximate{Entries,Null}Count` surfaces; `com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager` (no `v1`) for histogram apply.
 - **`BTreeEngineTestFixtures.captureSevereOn` is public.** Track 1 Step 6 widened the JUL-capture helper to `public` for cross-package consumers; available for Track 2's apply-failure log-and-swallow assertions if useful.
 - **`logAndPrepareForRethrow` overload asymmetry.** Only the `Error` overload (line 5827) and `Throwable` overload (line 5846) call `setInError`; the `RuntimeException` overload (line 5803) does not. Affects how a Hook A persist-failure `AssertionError` (re-raised after `releaseLocks`) interacts with any test that seeds in-error state via `logAndPrepareForRethrow`.
-- **`RecordSerializationContext.executeOperations` as wrapper-bypassing injection point.** Track 1 Step 2 broadened the four `AtomicOperationsManager` wrapper catches; every production path inside `AbstractStorage.commit`'s inner try now wraps an `AssertionError` as `RuntimeException` before reaching the pre-`endTxCommit` catch at line 2341. `RecordSerializationContext.executeOperations` pushes a throwable through a custom `RecordSerializationOperation` that bypasses the wrappers — reusable for any test that needs to verify Hook A's persist-failure-to-rollback conversion survives an `AssertionError` escaping the wrappers.
+- **`RecordSerializationContext.executeOperations` as wrapper-bypassing injection point** (FQN: `com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext`)**.** Track 1 Step 2 broadened the four `AtomicOperationsManager` wrapper catches; every production path inside `AbstractStorage.commit`'s inner try now wraps an `AssertionError` as `RuntimeException` before reaching the pre-`endTxCommit` catch at line 2341. `RecordSerializationContext.executeOperations` pushes a throwable through a custom `RecordSerializationOperation` that bypasses the wrappers — reusable for any test that needs to verify Hook A's persist-failure-to-rollback conversion survives an `AssertionError` escaping the wrappers.
 
 ## Plan of Work
 
 Four logical edits. Order matters because Hook A must land with its conversion catch before the manual call is deleted.
 
-1. **Raise visibility** of `persistIndexCountDeltas`, `applyIndexCountDeltas`, `applyHistogramDeltas` on `AbstractStorage` from `private` to package-private (or expose via a tight accessor surface the manager can call). Add a debug-time `assert status == STATUS.OPEN : "<method> reached with non-null holder while status=" + status` inside each of the three methods, immediately after the existing `if (holder == null) return;` early-exit. The assert lives inside `AbstractStorage`, so no accessor on the surface is needed; the `status` field is reached directly inside the class that owns it. Production behavior is unchanged whether asserts are enabled or not. No runtime gate is introduced — when asserts are disabled or pass, the hook proceeds normally so a legitimate future recovery-time accumulator advances both sides.
+1. **Raise visibility** of `persistIndexCountDeltas`, `applyIndexCountDeltas`, `applyHistogramDeltas` on `AbstractStorage` from `private` to `public`. Matches the existing manager-callback surface on the same class (`moveToErrorStateIfNeeded`, `getName`, `checkErrorState`, `getSnapshotIndexSize` are all `public` despite being internal-only). The early-exit `if (holder == null) return;` already covers the recovery-time atomic-op cases at `AbstractStorage.java:766–860` where the holder is never accumulated; no status gate is needed and no new asserts are added. A `status == STATUS.OPEN` assert here would fire false-positives during `STATUS.MIGRATION` (open-time site at AbstractStorage:860) and `STATUS.CLOSING`.
 
-2. **Add Hook A (persist) in `endAtomicOperation`** before `commitChanges`, with persist-failure-to-rollback conversion:
+2. **Add Hook A (persist) in `endAtomicOperation`** before `commitChanges`, with persist-failure-to-rollback conversion plus explicit `moveToErrorStateIfNeeded` to preserve today's error-mode contract:
 
    ```java
    if (error == null && !operation.isRollbackInProgress()) {
@@ -88,6 +91,7 @@ Four logical edits. Order matters because Hook A must land with its conversion c
          storage.persistIndexCountDeltas(operation);
        } catch (IOException | RuntimeException | AssertionError persistFailure) {
          error = persistFailure;
+         storage.moveToErrorStateIfNeeded(persistFailure);
          operation.rollbackInProgress();
        }
      }
@@ -96,7 +100,23 @@ Four logical edits. Order matters because Hook A must land with its conversion c
    }
    ```
 
-   The inner try/catch converts the throw into a rollback signal so the subsequent `commitChanges` is skipped and `rollbackOperation` runs. The throw is re-raised at `if (error != null) throw error;` added after the inner-finally `releaseLocks`. Without this conversion the throw would escape `endAtomicOperation` and trip the outer `catch (Error)` cascade — D2's "Bug B for a different trigger".
+   The inner try/catch converts the throw into a rollback signal so the subsequent `commitChanges` is skipped and `rollbackOperation` runs. The explicit `moveToErrorStateIfNeeded(persistFailure)` preserves today's contract: today's persist-failure path at AbstractStorage:2340 routes through `finally → rollback → endAtomicOperation → moveToErrorStateIfNeeded` and lands `setInError` for `IOException` and `RuntimeException`; `AssertionError` is skipped at `setInError`'s line 1769–1771 guard (Track 1's defense-in-depth). Hook A's explicit call reproduces that effect because Hook A runs after `endAtomicOperation`'s entry-level `moveToErrorStateIfNeeded(error=null)` no-op call, so the captured `persistFailure` would otherwise never reach `setInError`.
+
+   After the inner-finally `releaseLocks`, the captured `error` is re-raised with the same exception-type contract today's line 2341 catch maintains — `RuntimeException` short-circuits as-is; `IOException` and `AssertionError` wrap as `StorageException`:
+
+   ```java
+   if (error != null) {
+     if (error instanceof RuntimeException re) {
+       throw re;
+     }
+     throw BaseException.wrapException(
+         new StorageException(name, "Error during transaction commit"), error, name);
+   }
+   ```
+
+   The wrap is structurally required: `endAtomicOperation` declares only `throws IOException`, so a raw `throw error;` on `Throwable` would not compile. Routing the re-raise through `StorageException` (a `RuntimeException` via `BaseException`) lands at `AbstractStorage.commit`'s outer `catch (RuntimeException)` at line 2425 → `logAndPrepareForRethrow(RuntimeException)` → no second `setInError` (the storage is already in error mode from the explicit call in the catch, except for `AssertionError` per the line 1769–1771 guard). Without the wrap, an `IOException` re-raise would land at `catch (Throwable)` at line 2429 → `logAndPrepareForRethrow(Throwable)` → `setInError` again — idempotent but ugly, and noisy in the JUL log.
+
+   Bounded catch: `LinkageError`, `OutOfMemoryError`, `StackOverflowError`, and `InternalError` are deliberately not caught by Hook A. They escape and reach `commit`'s `catch (Error)` at line 2427 → `logAndPrepareForRethrow(Error)` → `setInError` — genuine VM errors still poison the storage. Matches Track 1's wrapper-catch precedent (`AtomicOperationsManager.executeInsideAtomicOperation` etc.) where the same triple is caught and other `Error` subclasses escape.
 
 3. **Add Hook B (apply) in `endAtomicOperation`** after `commitChanges` succeeds, **before the inner-finally `releaseLocks`**, with the histogram parallel:
 
@@ -155,28 +175,23 @@ Invariants to preserve: persisted side and in-memory side advance in lockstep at
 After Track 2 lands:
 
 - `endAtomicOperation` invokes Hook A (persist) before `commitChanges` and Hook B (apply + histogram-apply) after `commitChanges` but before the inner-finally `releaseLocks`. Each hook runs at most once per atomic op; no idempotency flags are needed.
-- A persist failure in Hook A (any of `IOException | RuntimeException | AssertionError`) converts to a rollback signal so the subsequent `commitChanges` is skipped; the failure is re-raised at `throw error` added after `releaseLocks`. The outer `catch (Error)` cascade cannot be reached via this path.
+- A persist failure in Hook A (any of `IOException | RuntimeException | AssertionError`) is captured into `error`, routed through `storage.moveToErrorStateIfNeeded(persistFailure)` to preserve today's error-mode contract, then converted to a rollback signal via `operation.rollbackInProgress()` so the subsequent `commitChanges` is skipped. After the inner-finally `releaseLocks`, the captured `error` is re-raised with the same exception-type contract today's line 2341 catch maintains: `RuntimeException` short-circuits as-is; `IOException` and `AssertionError` wrap as `StorageException`. The outer `catch (Error)` cascade cannot be reached via this path.
 - An apply failure in Hook B (`RuntimeException | AssertionError`) is logged as a warn and swallowed (cache-only contract).
+- The rollback path skips both hooks. When `endAtomicOperation` is entered with a non-null `error` (rollback path from `AbstractStorage.rollback`), the entry-level `moveToErrorStateIfNeeded(error)` lands `setInError` (subject to the `AssertionError` line 1769–1771 guard) and `operation.rollbackInProgress()` is called. Hook A's `error == null && !operation.isRollbackInProgress()` gate skips persist; Hook B's `error == null` gate skips apply. The deltas are discarded with the rest of the atomic op's writes.
 - The manual calls at `AbstractStorage.commit` lines 2340, 2365, 2381 are deleted along with their post-`endTxCommit` catches at 2366 and 2382. The cleanupSnapshotIndex try/catch at 2394–2403 is untouched. The pre-`endTxCommit` catch at line 2341 (Track 1's broadened version) is the only catch around the inner try.
 - The per-index lock acquired by `lockIndexes` at AbstractStorage:2255 is held when Hook B (apply) runs; the test `EndAtomicOperationHookOrderingTest` records the lock state during apply and asserts it.
 - The integration tests pass on the main-commit path; `ClearIndexApiRollbackTest` is staged for Track 3.
-- `persistIndexCountDeltas`, `applyIndexCountDeltas`, and `applyHistogramDeltas` each carry a debug-time `assert status == STATUS.OPEN` immediately after the `if (holder == null) return;` early-exit. The assert identifies the offending method in its message; production behavior is unchanged whether asserts are enabled or not.
+- Between Track 2 land and Track 3 land, Hook A/B coverage on the `clearIndex` API path is structurally zero. Today's `clear()` writes the in-memory `AtomicLong` directly without accumulating an `IndexCountDelta`, so Hook B's `if (indexHolder != null)` early-exits. `ClearIndexApiRollbackTest` carries an `@Ignore` annotation with a comment pointing at Track 3; Track 3's regression-test step un-`@Ignore`s it.
 
 ## Idempotence and Recovery
 
 ## Artifacts and Notes
 
-### Deferred from PR #1088 Gemini review (Phase 2, 2026-05-22)
-
-The Context-and-Orientation lead sentence at line 52 says "visibility rises to package-private" before the next sentence acknowledges that package-private alone does not grant cross-package access between `paginated.atomicoperations` and `impl.local`. Gemini flagged the ordering as confusing.
-
-Phase A action: when decomposing the visibility-raise step, pick the chosen mechanism (public, package-private accessor in the manager's package, JPMS same-module exposure) and rewrite the lead sentence to match the choice. Candidate phrasings: "visibility must rise to at least package-private accessible from the manager's package" (leaves the choice to the step), or name the chosen mechanism directly (e.g., "raised to public on `AbstractStorage`"). Avoid Gemini's proposed forced-`public` rewrite — it over-constrains Phase A.
-
 ## Interfaces and Dependencies
 
 **In-scope files**:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (visibility raise on three private methods; deletion of the three manual calls at lines 2340, 2365, 2381 and the surrounding catches at 2366 and 2382)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java` (Hook A persist + conversion catch before `commitChanges`; Hook B apply + histogram-apply parallel after `commitChanges` and before the inner-finally `releaseLocks`; `throw error` added after `releaseLocks` to re-raise persist failures)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java` (Hook A persist + conversion catch + explicit `moveToErrorStateIfNeeded(persistFailure)` before `commitChanges`; Hook B apply + histogram-apply parallel after `commitChanges` and before the inner-finally `releaseLocks`; typed re-raise block added after `releaseLocks` — `RuntimeException` short-circuits as-is, `IOException` and `AssertionError` wrap as `StorageException`)
 - New integration tests under `core/src/test/.../storage/impl/local/`
 
 **Out of scope**:
@@ -189,7 +204,8 @@ Phase A action: when decomposing the visibility-raise step, pick the chosen mech
 - **Blocks Tracks 3 and 4**: the `clearIndex` API and `buildHistogramAfterFill` paths cannot adopt pure-delta encoding until the hooks exist to consume the accumulated deltas. After this track, the standalone-atomic-op paths route through the same single gate as the main commit.
 
 **Library/function signatures relevant to this track**:
-- `AtomicOperationsManager.endAtomicOperation(AtomicOperation operation, Throwable error)` — the lifecycle method; gains Hook A, Hook B, and the post-`releaseLocks` `throw error` re-raise.
-- `AbstractStorage.persistIndexCountDeltas(AtomicOperation)` / `applyIndexCountDeltas(AtomicOperation)` / `applyHistogramDeltas(AtomicOperation)` — visibility rises from `private` to package-private (or a single package-private accessor surface).
+- `AtomicOperationsManager.endAtomicOperation(AtomicOperation operation, Throwable error)` — the lifecycle method; gains Hook A, Hook B, and the post-`releaseLocks` typed re-raise block.
+- `AbstractStorage.persistIndexCountDeltas(AtomicOperation)` / `applyIndexCountDeltas(AtomicOperation)` / `applyHistogramDeltas(AtomicOperation)` — visibility rises from `private` to `public` on `AbstractStorage`, matching the existing manager-callback surface (`moveToErrorStateIfNeeded`, `getName`, `checkErrorState`, `getSnapshotIndexSize`).
+- `AbstractStorage.moveToErrorStateIfNeeded(Throwable)` — existing public manager-callback; Hook A's catch calls this explicitly for persist failures to preserve today's `setInError` contract (with `AssertionError` skipped at `setInError`'s line 1769–1771 guard).
 - `AtomicOperation.getIndexCountDeltas()` / `getHistogramDeltas()` — read-only access to the per-tx holders.
 - `LogManager.instance().warn(this, String, Throwable)` — the warn helper for apply failures.
