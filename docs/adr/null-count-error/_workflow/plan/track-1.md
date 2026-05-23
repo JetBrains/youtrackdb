@@ -10,8 +10,8 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-05-22T14:09Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-22T16:02Z [ctx=safe] Step 1 complete (commit 45e22026a8)
@@ -23,6 +23,8 @@ Broaden the pre-`endTxCommit` catch at `AbstractStorage.commit:2319` to include 
 - [x] 2026-05-22T21:05Z [ctx=info] Step 7 complete (commit 409e9d9522)
 - [x] 2026-05-23T03:53Z [ctx=critical] Track-level code review iteration 1 complete (1/3 iterations) (commit 030ca27488)
 - [x] 2026-05-23T04:07Z [ctx=info] Iteration 1 gate-check fan-out PASS (M1–M9 all VERIFIED across 7 dimensions; no STILL OPEN / REGRESSION / new findings)
+- [x] 2026-05-23T04:16Z [ctx=info] Track-level code review complete (1/3 iterations used; iteration 1 PASS exited the loop)
+- [x] 2026-05-23T04:16Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
