@@ -216,3 +216,7 @@ After Track 2 lands:
 - `AbstractStorage.moveToErrorStateIfNeeded(Throwable)` — existing public manager-callback; Hook A's catch calls this explicitly for persist failures to preserve today's `setInError` contract (with `AssertionError` skipped at `setInError`'s line 1769–1771 guard).
 - `AtomicOperation.getIndexCountDeltas()` / `getHistogramDeltas()` — read-only access to the per-tx holders.
 - `LogManager.instance().warn(this, String, Throwable)` — the warn helper for apply failures.
+
+## Base commit
+
+54ffb540687ed0a78622bb96e86123c5e58af082
