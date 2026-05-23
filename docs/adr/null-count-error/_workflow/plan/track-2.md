@@ -1,11 +1,11 @@
 # Track 2: Consolidate persist + apply into endAtomicOperation
 
 ## Purpose / Big Picture
-After this track, every counter sync — main commit, `clearIndex` API, `IndexAbstract.buildHistogramAfterFill` — advances through `AtomicOperationsManager.endAtomicOperation` as the single lifecycle gate, under the per-index lock acquired at `lockIndexes` (AbstractStorage:2233). The lock-window race that today's manual apply at AbstractStorage:2333 leaves open (apply runs after `endAtomicOperation`'s inner-finally `releaseLocks` has released the per-index lock) is structurally closed.
+After this track, every counter sync — main commit, `clearIndex` API, `IndexAbstract.buildHistogramAfterFill` — advances through `AtomicOperationsManager.endAtomicOperation` as the single lifecycle gate, under the per-index lock acquired at `lockIndexes` (AbstractStorage:2255). The lock-window race that today's manual apply at AbstractStorage:2365 leaves open (apply runs after `endAtomicOperation`'s inner-finally `releaseLocks` has released the per-index lock) is structurally closed.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas` into `AtomicOperationsManager.endAtomicOperation`. Persist runs before `commitChanges` with a persist-failure-to-rollback conversion (catches `IOException | RuntimeException | AssertionError`). Apply runs after `commitChanges` but before the inner-finally `releaseLocks`, so the per-index lock acquired by `lockIndexes` at AbstractStorage:2233 is still held during apply; failures inside apply are logged and swallowed (cache-only contract). The manual calls at `AbstractStorage.commit` lines 2318, 2333, 2345 and their post-`endTxCommit` catches at lines 2334 and 2346 are deleted. After this track, Tracks 3 and 4 can land pure-delta encoding without re-introducing the race.
+Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas` into `AtomicOperationsManager.endAtomicOperation`. Persist runs before `commitChanges` with a persist-failure-to-rollback conversion (catches `IOException | RuntimeException | AssertionError`). Apply runs after `commitChanges` but before the inner-finally `releaseLocks`, so the per-index lock acquired by `lockIndexes` at AbstractStorage:2255 is still held during apply; failures inside apply are logged and swallowed (cache-only contract). The manual calls at `AbstractStorage.commit` lines 2340, 2365, 2381 and their post-`endTxCommit` catches at lines 2366 and 2382 are deleted. After this track, Tracks 3 and 4 can land pure-delta encoding without re-introducing the race.
 
 ## Progress
 - [ ] Review + decomposition
@@ -23,7 +23,7 @@ Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas
 
 ## Context and Orientation
 
-`AtomicOperationsManager.endAtomicOperation` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java:231–269` already owns the commit lifecycle. The relevant shape today:
+`AtomicOperationsManager.endAtomicOperation` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java:257–295` already owns the commit lifecycle. The relevant shape today:
 
 ```
 public void endAtomicOperation(AtomicOperation operation, Throwable error) throws IOException {
@@ -36,7 +36,7 @@ public void endAtomicOperation(AtomicOperation operation, Throwable error) throw
       }
       // ... atomicOperationsTable.{commit,rollback}Operation ...
     } finally {
-      releaseLocks(operation);                                    // line 263
+      releaseLocks(operation);                                    // line 289
       operation.deactivate();
     }
   } finally {
@@ -45,19 +45,29 @@ public void endAtomicOperation(AtomicOperation operation, Throwable error) throw
 }
 ```
 
-Two methods on `AbstractStorage` resolve to one-liners that delegate here: `endTxCommit` at `AbstractStorage.java:4506` is `endAtomicOperation(op, null)`; `rollback(error, op)` at `AbstractStorage.java:3593` is `endAtomicOperation(op, error)`. Both the commit-path success branch and the rollback branch already converge on `endAtomicOperation` — this track makes that convergence the only place counter sync happens.
+Two methods on `AbstractStorage` resolve to one-liners that delegate here: `endTxCommit` at `AbstractStorage.java:4545` is `endAtomicOperation(op, null)`; `rollback(error, op)` at `AbstractStorage.java:3632` is `endAtomicOperation(op, error)`. Both the commit-path success branch and the rollback branch already converge on `endAtomicOperation` — this track makes that convergence the only place counter sync happens.
 
-The lock-window race that motivates consolidation: `lockIndexes` at AbstractStorage:2233 calls `acquireExclusiveLockTillOperationComplete` per index (via `BTree.acquireAtomicExclusiveLock` at `BTree.java:1732`), which adds the component to `operation.lockedComponents()` (`AtomicOperationsManager.java:313`). `releaseLocks` at `AtomicOperationsManager.java:275–295` iterates `lockedComponents()` and releases each one. The inner-finally `releaseLocks` call at line 263 of `AtomicOperationsManager.endAtomicOperation` therefore releases the per-index lock *inside* the lifecycle method, before `endAtomicOperation` returns. The subsequent `ensureThatComponentsUnlocked` at AbstractStorage:2368 calls `releaseLocks` again; its idempotent `isExclusiveOwner()` check (commented at lines 277–279 of the manager) confirms this is a defensive double-call that finds nothing to do. So today's `applyIndexCountDeltas` at AbstractStorage:2333 runs *after* the per-index lock has been released, leaving a 30-line race window between lock release and the apply.
+The lock-window race that motivates consolidation: `lockIndexes` at AbstractStorage:2255 calls `acquireExclusiveLockTillOperationComplete` per index (via `BTree.acquireAtomicExclusiveLock` at `BTree.java:1732`), which adds the component to `operation.lockedComponents()` (`AtomicOperationsManager.java:339`). `releaseLocks` at `AtomicOperationsManager.java:301–321` iterates `lockedComponents()` and releases each one. The inner-finally `releaseLocks` call at line 289 of `AtomicOperationsManager.endAtomicOperation` therefore releases the per-index lock *inside* the lifecycle method, before `endAtomicOperation` returns. The subsequent `ensureThatComponentsUnlocked` at AbstractStorage:2407 calls `releaseLocks` again; its idempotent `isExclusiveOwner()` check (commented at lines 303–305 of the manager) confirms this is a defensive double-call that finds nothing to do. So today's `applyIndexCountDeltas` at AbstractStorage:2365 runs *after* the per-index lock has been released, leaving a ~40-line race window between lock release and the apply.
 
-The manager has a `storage` field (`AtomicOperationsManager.java:55`, set in the ctor at line 71), so the manager can call back into `AbstractStorage`. `persistIndexCountDeltas` (`AbstractStorage.java:2447`), `applyIndexCountDeltas` (`AbstractStorage.java:2472`), and `applyHistogramDeltas` (`AbstractStorage.java:2501`) are currently `private`; visibility rises to package-private. The manager and storage live in different packages (`paginated.atomicoperations` and `impl.local`), so package-private requires either a small accessor surface on `AbstractStorage` or a JPMS-style same-module exposure. Decomposition picks the cleanest fit; the surface is three methods.
+The manager has a `storage` field (`AtomicOperationsManager.java:55`, set in the ctor at line 71), so the manager can call back into `AbstractStorage`. `persistIndexCountDeltas` (`AbstractStorage.java:2486`), `applyIndexCountDeltas` (`AbstractStorage.java:2511`), and `applyHistogramDeltas` (`AbstractStorage.java:2540`) are currently `private`; visibility rises to package-private. The manager and storage live in different packages (`paginated.atomicoperations` and `impl.local`), so package-private requires either a small accessor surface on `AbstractStorage` or a JPMS-style same-module exposure. Decomposition picks the cleanest fit; the surface is three methods.
 
 `IndexCountDelta` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexCountDelta.java` keeps its existing fields `totalDelta` and `nullDelta`. No flags are added: under the single-lifecycle-gate design each hook runs at most once per atomic op, so idempotency is structural.
 
-`AtomicOperation.getOrCreateIndexCountDeltas()` / `getIndexCountDeltas()` (referenced at `AbstractStorage.java:2448`, `:2473` and in `IndexCountDelta.accumulate` at line 63) return the per-tx holder. `AtomicOperation.getHistogramDeltas()` at `AbstractStorage.java:2502` is the histogram parallel.
+`AtomicOperation.getOrCreateIndexCountDeltas()` / `getIndexCountDeltas()` (referenced at `AbstractStorage.java:2487`, `:2512` and in `IndexCountDelta.accumulate` at line 60) return the per-tx holder. `AtomicOperation.getHistogramDeltas()` at `AbstractStorage.java:2541` is the histogram parallel.
 
 Recovery-time `executeInsideAtomicOperation` call sites at `AbstractStorage.open` lines 766, 779, 794, 797, 799, 800, 809, 811, 860 all run before `status = STATUS.OPEN` at line 861. Research confirmed none accumulate `IndexCountDelta` today, so the lifecycle hook is a no-op via the existing `if (holder == null) return;` early-exit in the three target methods. No state gate is wired: skipping the hooks on non-OPEN states would drop counter syncs at close (`STATUS.CLOSING`) and re-create divergence for any future recovery-time accumulator that requires both sides to move.
 
 The deliverable: hook points in `endAtomicOperation` (persist before `commitChanges`; apply + histogram-apply after `commitChanges`, before `releaseLocks`); persist-failure-to-rollback conversion; deletion of the three manual calls and their two surrounding catches in `AbstractStorage.commit`; visibility raise on the three private methods; integration tests covering both the main-commit and standalone paths under rollback.
+
+### Clarifications
+
+Captured at Track Pre-Flight after Track 1 completion. Cross-track signals from Track 1's episode that inform Track 2 implementation:
+
+- **Engine-mutator surface is package-private.** Track 1 relaxed `addToApproximate{Entries,Null}Count` on both `BTreeMultiValueIndexEngine` and `BTreeSingleValueIndexEngine` from `private` to package-private (under `internal/`, `final` classes); `AbstractStorage.applyIndexCountDeltas` at lines 2528–2529 is the sole production caller (PSI-confirmed). Hook B's broadened catch (`RuntimeException | AssertionError`) absorbs failures Track 1 converted from `assert updated >= 0` into `reportAndClampUnderflow` clamp-and-error.
+- **`IndexCountDeltaHolder` engine-id keying.** Holder keys on the internal engine id (low 27 bits of `IndexAbstract.getIndexId`). Tests that inject or read a delta for a named index must mask the external id with `0x7FFFFFF`. Material for `EndAtomicOperationHookOrderingTest`.
+- **`BTreeEngineTestFixtures.captureSevereOn` is public.** Track 1 Step 6 widened the JUL-capture helper to `public` for cross-package consumers; available for Track 2's apply-failure log-and-swallow assertions if useful.
+- **`logAndPrepareForRethrow` overload asymmetry.** Only the `Error` overload (line 5827) and `Throwable` overload (line 5846) call `setInError`; the `RuntimeException` overload (line 5803) does not. Affects how a Hook A persist-failure `AssertionError` (re-raised after `releaseLocks`) interacts with any test that seeds in-error state via `logAndPrepareForRethrow`.
+- **`RecordSerializationContext.executeOperations` as wrapper-bypassing injection point.** Track 1 Step 2 broadened the four `AtomicOperationsManager` wrapper catches; every production path inside `AbstractStorage.commit`'s inner try now wraps an `AssertionError` as `RuntimeException` before reaching the pre-`endTxCommit` catch at line 2341. `RecordSerializationContext.executeOperations` pushes a throwable through a custom `RecordSerializationOperation` that bypasses the wrappers — reusable for any test that needs to verify Hook A's persist-failure-to-rollback conversion survives an `AssertionError` escaping the wrappers.
 
 ## Plan of Work
 
@@ -122,7 +132,7 @@ Four logical edits. Order matters because Hook A must land with its conversion c
 
    Cache-only contract: apply failure must not mask a successful commit. The catch covers `RuntimeException | AssertionError` (broadening matches Track 1's clamp+error path for the in-mem mutators). Placement before `releaseLocks` is load-bearing: per the lock-window analysis, the per-index lock is in `operation.lockedComponents()` and only `releaseLocks` releases it, so apply running before `releaseLocks` keeps the lock held.
 
-4. **Delete the manual calls in `AbstractStorage.commit`**: line 2318 (`persistIndexCountDeltas(atomicOperation)` inside the inner try, before the `} catch (IOException | RuntimeException e)` at line 2319), lines 2332–2343 (the `try { applyIndexCountDeltas(atomicOperation); } catch (RuntimeException e) { warn }` block), lines 2344–2354 (the `try { applyHistogramDeltas(atomicOperation); } catch (RuntimeException e) { warn }` block). The cleanupSnapshotIndex try/catch at lines 2355–2364 is untouched. The pre-`endTxCommit` catch at line 2319 stays — Track 1 broadens it to `AssertionError` for `commitIndexes` defense.
+4. **Delete the manual calls in `AbstractStorage.commit`**: line 2340 (`persistIndexCountDeltas(atomicOperation)` inside the inner try, before the `} catch (IOException | RuntimeException | AssertionError e)` at line 2341), lines 2364–2379 (the `try { applyIndexCountDeltas(atomicOperation); } catch (RuntimeException | AssertionError e) { warn }` block), lines 2380–2393 (the `try { applyHistogramDeltas(atomicOperation); } catch (RuntimeException | AssertionError e) { warn }` block). The cleanupSnapshotIndex try/catch at lines 2394–2403 is untouched. The pre-`endTxCommit` catch at line 2341 stays — Track 1 has already broadened it to `IOException | RuntimeException | AssertionError` for `commitIndexes` defense.
 
    Then **add integration tests** under `core/src/test/.../storage/impl/local/`:
    - `MainCommitCounterSyncTest` — exercise the consolidated path: commit a tx with index puts under nominal conditions; assert persisted EP page and in-memory counters land where the worked example predicts. Then commit a tx that fails at `commitIndexes` (forced IOException); assert rollback runs, counters stay at pre-tx values, no AssertionError escapes.
@@ -131,7 +141,7 @@ Four logical edits. Order matters because Hook A must land with its conversion c
 
 Ordering constraint: Step 1 (visibility raise) before Step 2 and 3 (the hooks need the surface). Step 2 (Hook A persist) and Step 3 (Hook B apply) before Step 4 (deletion of the manual calls), because deleting the manual calls before the hooks exist leaves the main commit path with no persist/apply at all.
 
-Invariants to preserve: persisted side and in-memory side advance in lockstep at the WAL commit boundary on every path. The pre-`endTxCommit` catch at line 2319 (Track 1's broadened version) still owns `commitIndexes` failures. Recovery-time atomic ops remain no-ops via the existing `if (holder == null) return;` early-exit in the three target methods.
+Invariants to preserve: persisted side and in-memory side advance in lockstep at the WAL commit boundary on every path. The pre-`endTxCommit` catch at line 2341 (Track 1's broadened version) still owns `commitIndexes` failures. Recovery-time atomic ops remain no-ops via the existing `if (holder == null) return;` early-exit in the three target methods.
 
 ## Concrete Steps
 
@@ -144,8 +154,8 @@ After Track 2 lands:
 - `endAtomicOperation` invokes Hook A (persist) before `commitChanges` and Hook B (apply + histogram-apply) after `commitChanges` but before the inner-finally `releaseLocks`. Each hook runs at most once per atomic op; no idempotency flags are needed.
 - A persist failure in Hook A (any of `IOException | RuntimeException | AssertionError`) converts to a rollback signal so the subsequent `commitChanges` is skipped; the failure is re-raised at `throw error` added after `releaseLocks`. The outer `catch (Error)` cascade cannot be reached via this path.
 - An apply failure in Hook B (`RuntimeException | AssertionError`) is logged as a warn and swallowed (cache-only contract).
-- The manual calls at `AbstractStorage.commit` lines 2318, 2333, 2345 are deleted along with their post-`endTxCommit` catches at 2334 and 2346. The cleanupSnapshotIndex try/catch at 2355–2364 is untouched. The pre-`endTxCommit` catch at line 2319 (Track 1's broadened version) is the only catch around the inner try.
-- The per-index lock acquired by `lockIndexes` at AbstractStorage:2233 is held when Hook B (apply) runs; the test `EndAtomicOperationHookOrderingTest` records the lock state during apply and asserts it.
+- The manual calls at `AbstractStorage.commit` lines 2340, 2365, 2381 are deleted along with their post-`endTxCommit` catches at 2366 and 2382. The cleanupSnapshotIndex try/catch at 2394–2403 is untouched. The pre-`endTxCommit` catch at line 2341 (Track 1's broadened version) is the only catch around the inner try.
+- The per-index lock acquired by `lockIndexes` at AbstractStorage:2255 is held when Hook B (apply) runs; the test `EndAtomicOperationHookOrderingTest` records the lock state during apply and asserts it.
 - The integration tests pass on the main-commit path; `ClearIndexApiRollbackTest` is staged for Track 3.
 - `persistIndexCountDeltas`, `applyIndexCountDeltas`, and `applyHistogramDeltas` each carry a debug-time `assert status == STATUS.OPEN` immediately after the `if (holder == null) return;` early-exit. The assert identifies the offending method in its message; production behavior is unchanged whether asserts are enabled or not.
 
@@ -162,7 +172,7 @@ Phase A action: when decomposing the visibility-raise step, pick the chosen mech
 ## Interfaces and Dependencies
 
 **In-scope files**:
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (visibility raise on three private methods; deletion of the three manual calls at lines 2318, 2333, 2345 and the surrounding catches at 2334 and 2346)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (visibility raise on three private methods; deletion of the three manual calls at lines 2340, 2365, 2381 and the surrounding catches at 2366 and 2382)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java` (Hook A persist + conversion catch before `commitChanges`; Hook B apply + histogram-apply parallel after `commitChanges` and before the inner-finally `releaseLocks`; `throw error` added after `releaseLocks` to re-raise persist failures)
 - New integration tests under `core/src/test/.../storage/impl/local/`
 
