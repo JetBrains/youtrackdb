@@ -9,7 +9,7 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -17,6 +17,7 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 - [x] 2026-05-23T04:32Z [ctx=safe] Step 1 complete (commit 6ad91336b7)
 - [x] 2026-05-23T04:37Z [ctx=safe] Step 2 complete (commit 79e5d7c6ce)
 - [x] 2026-05-23T04:42Z [ctx=safe] Step 3 complete (commit 7ef6c4c1c6)
+- [x] 2026-05-23T04:46Z [ctx=safe] Step 4 complete (commit 5b104b7cc0)
 
 ## Surprises & Discoveries
 
@@ -81,7 +82,7 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 1. Rewrite Detection bash block + intro paragraph + add §1.6 cross-reference note in `workflow-drift-check.md` (byte-copy from `conventions.md` §1.6(h); drop `git fetch origin develop` + `origin/develop` references; replace develop-worktree re-invocation language; add the §Detection cross-reference paragraph citing §1.6(c), §1.6(h), §1.6(a1)) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 6ad91336b7
 2. Rewrite Resolutions section in `workflow-drift-check.md` — three prompt-template string substitutions ("commits on develop touch" → "commits in your branch's range touch"; "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree"), Migrate-now in-branch wording, Defer sub-section `$FORK` → `$BASE_SHA` and worktree-instruction update — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 79e5d7c6ce
 3. Add no-drift normalization sub-step in `workflow-drift-check.md` (sed-based stamp rewrite + `git diff -U0` `@@ -1` hunk-header guard + `git status --porcelain` cross-check + `git checkout -- <paths>` restore-on-mismatch + auto-commit) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 7ef6c4c1c6
-4. Tighten Skip conditions to active-plan scope (D13) + review After-the-choice Remote-authoritative re-entry note — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+4. Tighten Skip conditions to active-plan scope (D13) + review After-the-choice Remote-authoritative re-entry note — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 5b104b7cc0
 
 ## Episodes
 
@@ -109,6 +110,16 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 **What was discovered:** The Phase 1 walk in `conventions.md` §1.6(h) — byte-copied into `workflow-drift-check.md` §Detection by Step 1 — exports `STAMPED_SHAS` and `UNSTAMPED_FILES` but not a companion stamped-paths list. The byte-copy contract forbids extending the walk locally, so the normalization sub-step recomputes the stamped set itself under the same `$PLAN_DIR/_workflow/` enumeration. The duplication is a single second pass over the same artifact set; the trade-off keeps the byte-identity property with §1.6(h) and Track 4a's copy intact. If a future §1.6(h) change exports a companion path list, the normalization sub-step can collapse to consume that list directly.
 
 **What changed from the plan:** None on substance. One presentation choice: the named-only "Invariant I5" cited in the Plan of Work was restated inline as a prose contract rather than cited by label, since the `implementation-plan.md` file that defines I5 is removed in the Phase 4 cleanup commit while `.claude/workflow/workflow-drift-check.md` survives the merge into `develop`. The semantic content of the all-or-nothing contract is preserved verbatim.
+
+**Key files:**
+- `.claude/workflow/workflow-drift-check.md` (modified)
+
+### Step 4 — commit 5b104b7cc0, 2026-05-23T04:46Z [ctx=safe]
+**What was done:** Rewrote §Skip conditions in `.claude/workflow/workflow-drift-check.md` so every skip scopes to the active plan dir resolved at startup per `conventions.md` §1.6(g) and §1.2. Skip #1 ("No `_workflow/` subtree") becomes "Active plan's `_workflow/` directory doesn't exist", checked via `[ -d "$PLAN_DIR/_workflow" ]` instead of the branch-wide `ls -d docs/adr/*/_workflow/`. Skip #2 ("Plan complete plus Phase 4 active") reads only `$PLAN_DIR/_workflow/implementation-plan.md` and drops the cross-plan AND-fold over every plan on the branch. Skip #3 ("Empty diff") reads from `$BASE_SHA..HEAD` and adds the "no artifact in the active plan is unstamped" conjunct so the skip cannot mask an unstamped artifact. Added a leading sentence to the §Skip conditions intro citing `conventions.md` §1.6(g) and §1.2 and tagging D13, and noted in Skip #3's prose that the no-drift normalization sub-step handles the non-uniform-stamp variant of the empty-range case.
+
+**What was discovered:** Reviewed §"After the choice"'s Remote-authoritative re-entry note per the plan's review-only sub-task. The only worktree-implying phrase ("re-invoke `/execute-tracks` in a fresh session") is already worktree-agnostic and accurate under the in-branch flow; no edit needed. The note's "shifts the fork point and therefore the drift detection range" phrasing is forward-looking about the divergence gate's future symmetric routing back into this gate, and the divergence gate (not this gate) is the surface that still computes fork points, so the wording stays valid even though the drift range itself is `$BASE_SHA..HEAD` rather than fork-relative.
+
+**What changed from the plan:** none.
 
 **Key files:**
 - `.claude/workflow/workflow-drift-check.md` (modified)
