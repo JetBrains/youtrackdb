@@ -15,9 +15,6 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 
 - [x] 2026-05-23 [ctx=safe] Review + decomposition complete
 
-**PAUSED 2026-05-23 at Phase A post-reviews pending decomposition write**
-- Handoff: handoff-track-3-phaseA.md
-
 ## Surprises & Discoveries
 
 - Phase A technical review (iteration 1) found that `design.md` §"Stamp range computation" carries a non-canonical unanchored regex (`grep -oE '[0-9a-f]{40}'`) that `conventions.md` §1.6(a1) explicitly rejects (false-positives on H1 lines containing a 40-hex run). The canonical anchored block lives at `conventions.md` §1.6(h). Cross-track impact: `track-4a.md` (line 40) also points at `design.md` as the byte-source; the same anchor correction needs to land in `track-4a.md` before Track 4a Phase B starts. Recorded here so Track 4a Pre-Flight Panel 1 picks it up.
