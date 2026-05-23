@@ -130,3 +130,6 @@ After Track 3 lands:
 
 **External interfaces:**
 - `git merge-base` (pairwise fold), `git log $BASE_SHA..HEAD -- workflow paths`, `git rev-parse HEAD`, `sed -i` (stamp rewrite), `git add` + `git commit` (normalization commit). The `git fetch origin develop` and `git rev-parse --verify origin/develop` invocations are removed.
+
+## Base commit
+7b1b911701e6edea1a3a5d725698ba4a98b4af5d
