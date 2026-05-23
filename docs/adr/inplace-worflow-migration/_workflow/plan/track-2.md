@@ -11,7 +11,8 @@ Update `/create-plan` SKILL and `edit-design` SKILL to emit the stamp at every a
 - [x] 2026-05-22T19:59Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-23T02:42Z [ctx=safe] Step 1 complete (commit f8d4317713)
 - [x] 2026-05-23T02:48Z [ctx=safe] Step 2 complete (commit 493348e20d)
-- [ ] Step implementation
+- [x] 2026-05-23T02:52Z [ctx=info] Step 3 complete (commit 20d8fb718f)
+- [x] 2026-05-23T02:52Z [ctx=info] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -67,9 +68,21 @@ Per-step sequencing: Step 1 ships the `create-plan` SKILL changes (preamble + th
 
 1. Update `create-plan/SKILL.md` Step 4: add the one-line `$WORKFLOW_SHA` preamble (§1.6(b) paired idiom), prepend `<!-- workflow-sha: $WORKFLOW_SHA -->` above the H1 in the three existing fenced templates (`implementation-plan.md`, `plan/track-N.md`, `design.md`), apply path (a) or (b) for `design-mechanics.md` dual-seed coverage, and add the cross-cutting Stamp note near the top of the SKILL. — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [x]  commit: f8d4317713
 2. Update `edit-design/SKILL.md` `phase1-creation` paragraph plus Step 7 plus top-of-file Stamp note: add the idempotency-guarded stamp directive in the `phase1-creation` paragraph (with the §1.6(b) idiom and the `head -1 | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'` presence check), add a short exclusion note to Step 7 explaining why `design-mutations.md` is not stamped, and add the cross-cutting Stamp note near the top of the SKILL. — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [x]  commit: 493348e20d
-3. Add new `edit-design/SKILL.md` Step 1 `length-trigger-crossing` paragraph between the `phase4-creation` paragraph (`:136-143`) and the `design-sync` cross-reference (`:145-146`), documenting the split procedure (move long-form mechanism content from `design.md` into the new `design-mechanics.md`, section names matching across the two files) plus the stamp prepend on the freshly-created `design-mechanics.md` (`$WORKFLOW_SHA` computed via the §1.6(b) idiom at trigger time). — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [ ]
+3. Add new `edit-design/SKILL.md` Step 1 `length-trigger-crossing` paragraph between the `phase4-creation` paragraph (`:136-143`) and the `design-sync` cross-reference (`:145-146`), documenting the split procedure (move long-form mechanism content from `design.md` into the new `design-mechanics.md`, section names matching across the two files) plus the stamp prepend on the freshly-created `design-mechanics.md` (`$WORKFLOW_SHA` computed via the §1.6(b) idiom at trigger time). — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [x]  commit: 20d8fb718f
 
 ## Episodes
+
+### Step 3 — commit 20d8fb718f, 2026-05-23T02:52Z [ctx=info]
+**What was done:** Added a `length-trigger-crossing` paragraph to `.claude/skills/edit-design/SKILL.md` between the `phase4-creation` paragraph and the `design-sync` cross-reference. The paragraph documents the split procedure — move every long-form mechanism walk-through, full state-machine table, exhaustive worked example, and file:line citation out of `design.md` and into the freshly-created `design-mechanics.md`; keep Overview / Core Concepts / per-section TL;DR + mechanism overview + edge cases + references footer in `design.md`; section names match byte-for-byte across the two files so `Mechanics: design-mechanics.md §"<…>"` links and the plan / track-file `**Full design**` refs resolve in either file — and links to `design-document-rules.md` § Length-triggered split into `design-mechanics.md` for the canonical underlying rule. The paragraph then stamps the freshly-created `design-mechanics.md` via the same idempotency-guarded directive used in the `phase1-creation` paragraph: the §1.6(a1) presence check followed by the §1.6(b) paired idiom when the presence check returns non-zero. The new file is unstamped at creation, so the prepend always fires on the first invocation; the guard kept for symmetry tolerates re-invocation against an already-split pair. The paragraph closes by naming the expected SHA asymmetry (`design-mechanics.md`'s stamp can sit later than its `design.md` sibling's), pointing at the drift-gate no-drift normalization and the per-branch migration as the two downstream collapses, and asserting that `design.md`'s existing stamp stays byte-for-byte intact under §1.6(a)'s position-preservation contract.
+
+**What was discovered:** none
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/edit-design/SKILL.md` (modified)
+
+**Critical context:** none
 
 ### Step 2 — commit 493348e20d, 2026-05-23T02:48Z [ctx=safe]
 **What was done:** Added three blocks to `.claude/skills/edit-design/SKILL.md`. The `phase1-creation` paragraph gained a per-path idempotency-guarded stamp directive: for each path the kind touches (`design_path`; also `design_mechanics_path` when `target=both`) run the §1.6(a1) presence check `head -1 <path> | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'`; zero exit skips the prepend, non-zero exit computes `$WORKFLOW_SHA` via the §1.6(b) paired idiom (copied byte-for-byte from `conventions.md`) and prepends `<!-- workflow-sha: $WORKFLOW_SHA -->` above the H1. `$WORKFLOW_SHA` is computed at most once per invocation so sibling files start life with matching stamps when both need a stamp. The review-log append step (Step 7) gained a one-paragraph exclusion note explaining why `design-mutations.md` is deliberately not stamped (append-only by contract, replay-immune by construction, listed as exclusion in `conventions.md` §1.6(f)). A top-of-file Stamp-discipline blockquote note (placed right after the lead paragraph, mirroring `create-plan/SKILL.md`'s same-position note from Step 1) nails down I4 for readers entering the SKILL cold: stamps are written at creation only, every other mutation kind preserves the stamp byte-for-byte, `design-mutations.md` and Phase 4 final artifacts are not stamped, `conventions.md` §1.6 is the single source of truth.
