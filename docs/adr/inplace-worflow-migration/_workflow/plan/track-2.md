@@ -9,15 +9,18 @@ Update `/create-plan` SKILL and `edit-design` SKILL to emit the stamp at every a
 
 ## Progress
 - [x] 2026-05-22T19:59Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-23T02:42Z [ctx=safe] Step 1 complete (commit f8d4317713)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 ## Surprises & Discoveries
 - Technical review iteration 1 flagged that I4 (direct mutations preserve the line-1 stamp byte-for-byte) rests on prose discipline alone; Step 3's mechanical-checks pipeline (`design-mechanical-checks.py`) carries no line-1 stamp-presence assertion. Out of scope for Track 2's writer-side coverage. Recorded as a candidate follow-up `dev-workflow` issue: add `head -1 <design_path> | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'` to the script for kinds other than `phase1-creation` and `length-trigger-crossing`. Phase A self-improvement reflection picks this up.
+- The header of `edit-design/SKILL.md` (lines 14–17) claims `phase1-creation` is the canonical creator of `design.md`, while the `/create-plan` flow writes it directly via the planning-transition step's template. The idempotency guard added in the next step must cover both invocation paths: `target=both` from `/create-plan` (file already stamped) and direct invocation outside `/create-plan` (file unstamped or pre-stamped). See Episodes §Step 1.
+- The ephemeral-identifier pre-commit gate's `Step N` regex matches SKILL-internal procedural-step headers (a file's own "Step 4" prose), not just plan-file Track/Step labels. Rewrite the SKILL prose to use a descriptive name for the step instead of carving a gate exception. See Episodes §Step 1.
 
 ## Decision Log
-<!-- Continuous-log. Empty at Phase 1. -->
+- 2026-05-23T02:42Z [Step 1] Resolved the Plan of Work `(a)/(b)` choice for `design-mechanics.md` dual-seed coverage to path (b): the dual-seed write continues to route through `edit-design phase1-creation` with `target=both`. The next step inherits the full dual-seed stamp obligation; no fourth fenced template lands in `create-plan`. See Episodes §Step 1.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -60,12 +63,23 @@ Per-step sequencing: Step 1 ships the `create-plan` SKILL changes (preamble + th
 
 ## Concrete Steps
 
-1. Update `create-plan/SKILL.md` Step 4: add the one-line `$WORKFLOW_SHA` preamble (§1.6(b) paired idiom), prepend `<!-- workflow-sha: $WORKFLOW_SHA -->` above the H1 in the three existing fenced templates (`implementation-plan.md`, `plan/track-N.md`, `design.md`), apply path (a) or (b) for `design-mechanics.md` dual-seed coverage, and add the cross-cutting Stamp note near the top of the SKILL. — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [ ]
+1. Update `create-plan/SKILL.md` Step 4: add the one-line `$WORKFLOW_SHA` preamble (§1.6(b) paired idiom), prepend `<!-- workflow-sha: $WORKFLOW_SHA -->` above the H1 in the three existing fenced templates (`implementation-plan.md`, `plan/track-N.md`, `design.md`), apply path (a) or (b) for `design-mechanics.md` dual-seed coverage, and add the cross-cutting Stamp note near the top of the SKILL. — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [x]  commit: f8d4317713
 2. Update `edit-design/SKILL.md` `phase1-creation` paragraph plus Step 7 plus top-of-file Stamp note: add the idempotency-guarded stamp directive in the `phase1-creation` paragraph (with the §1.6(b) idiom and the `head -1 | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'` presence check), add a short exclusion note to Step 7 explaining why `design-mutations.md` is not stamped, and add the cross-cutting Stamp note near the top of the SKILL. — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [ ]
 3. Add new `edit-design/SKILL.md` Step 1 `length-trigger-crossing` paragraph between the `phase4-creation` paragraph (`:136-143`) and the `design-sync` cross-reference (`:145-146`), documenting the split procedure (move long-form mechanism content from `design.md` into the new `design-mechanics.md`, section names matching across the two files) plus the stamp prepend on the freshly-created `design-mechanics.md` (`$WORKFLOW_SHA` computed via the §1.6(b) idiom at trigger time). — risk: low (default: markdown SKILL prose edits, no HIGH or MEDIUM triggers)  [ ]
 
 ## Episodes
-<!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit f8d4317713, 2026-05-23T02:42Z [ctx=safe]
+**What was done:** Added a one-line `$WORKFLOW_SHA` preamble at the start of the planning-transition step in `create-plan/SKILL.md`, copying the §1.6(b) paired test-and-fallback idiom byte-for-byte (path-scoped `git log` over `.claude/workflow` and `.claude/skills`, with `git rev-parse HEAD` fallback for fresh repos and moved paths). Prepended `<!-- workflow-sha: $WORKFLOW_SHA -->` above the H1 in each of the three fenced templates the planning-transition step emits via `Write`: `implementation-plan.md`, `plan/track-N.md`, and `design.md`. Added a cross-cutting "Stamp discipline" note immediately after the house-style block nailing down I4 (direct-mutation kinds preserve the line-1 stamp; only creation, migration replay, and no-drift normalization write it). Resolved the dual-seed `design-mechanics.md` coverage to path (b) — the dual-seed write keeps routing through `edit-design phase1-creation` with `target=both`, and the idempotency-guarded stamp directive lands there in the next step. No fourth fenced template added.
+
+**What was discovered:** The header of `edit-design/SKILL.md` (lines 14–17) claims `phase1-creation` is the canonical creator of `design.md`, but the `/create-plan` flow writes it directly via the planning-transition step's template. The asymmetry is informational for the next step's idempotency guard — the guard must cover both the `target=both` path (called from `/create-plan` with the already-stamped `design.md`) and the direct-invocation path (called outside `/create-plan` against unstamped or pre-stamped targets). Separately, the ephemeral-identifier pre-commit gate's `Step N` regex catches SKILL-internal procedural-step references; the implementer rewrote the offending prose without losing meaning rather than carve out an exception.
+
+**What changed from the plan:** Plan of Work offered path (a) (a fourth fenced template in `create-plan` for `design-mechanics.md`) or path (b) (route the dual-seed write through `edit-design phase1-creation`). The implementer chose (b). The next step inherits the full dual-seed stamp obligation; no further-track impact.
+
+**Key files:**
+- `.claude/skills/create-plan/SKILL.md` (modified)
+
+**Critical context:** none
 
 ## Validation and Acceptance
 
