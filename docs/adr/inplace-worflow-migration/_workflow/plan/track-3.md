@@ -14,11 +14,13 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 - [ ] Track completion
 
 - [x] 2026-05-23 [ctx=safe] Review + decomposition complete
+- [x] 2026-05-23T04:32Z [ctx=safe] Step 1 complete (commit 6ad91336b7)
 
 ## Surprises & Discoveries
 
 - Phase A technical review (iteration 1) found that `design.md` §"Stamp range computation" carries a non-canonical unanchored regex (`grep -oE '[0-9a-f]{40}'`) that `conventions.md` §1.6(a1) explicitly rejects (false-positives on H1 lines containing a 40-hex run). The canonical anchored block lives at `conventions.md` §1.6(h). Cross-track impact: `track-4a.md` (line 40) also points at `design.md` as the byte-source; the same anchor correction needs to land in `track-4a.md` before Track 4a Phase B starts. Recorded here so Track 4a Pre-Flight Panel 1 picks it up.
 - The same review surfaced a cross-file follow-up: `workflow.md` § "What to do before ending a session" (lines 416–427) carries a `cd ../develop` + worktree-switch instruction that contradicts Track 3's in-branch flow. Track 3 fixes the in-file Defer section in `workflow-drift-check.md` but the cross-file passage in `workflow.md` is out of scope per the track boundary; recorded here as a follow-up.
+- The Phase 1 walk block is byte-identical between `conventions.md` §1.6(h) and `workflow-drift-check.md` §Detection after Step 1's landing; a one-liner `diff` between the extracted blocks verifies the byte-copy contract §1.6(h) commits to. Track 4a's Step 2 must copy the same block byte-for-byte; Phase C review of whichever track lands second should run the `diff` against the other copy. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -73,13 +75,20 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 
 ## Concrete Steps
 
-1. Rewrite Detection bash block + intro paragraph + add §1.6 cross-reference note in `workflow-drift-check.md` (byte-copy from `conventions.md` §1.6(h); drop `git fetch origin develop` + `origin/develop` references; replace develop-worktree re-invocation language; add the §Detection cross-reference paragraph citing §1.6(c), §1.6(h), §1.6(a1)) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+1. Rewrite Detection bash block + intro paragraph + add §1.6 cross-reference note in `workflow-drift-check.md` (byte-copy from `conventions.md` §1.6(h); drop `git fetch origin develop` + `origin/develop` references; replace develop-worktree re-invocation language; add the §Detection cross-reference paragraph citing §1.6(c), §1.6(h), §1.6(a1)) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 6ad91336b7
 2. Rewrite Resolutions section in `workflow-drift-check.md` — three prompt-template string substitutions ("commits on develop touch" → "commits in your branch's range touch"; "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree"), Migrate-now in-branch wording, Defer sub-section `$FORK` → `$BASE_SHA` and worktree-instruction update — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 3. Add no-drift normalization sub-step in `workflow-drift-check.md` (sed-based stamp rewrite + `git diff -U0` `@@ -1` hunk-header guard + `git status --porcelain` cross-check + `git checkout -- <paths>` restore-on-mismatch + auto-commit) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 4. Tighten Skip conditions to active-plan scope (D13) + review After-the-choice Remote-authoritative re-entry note — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 
 ## Episodes
-<!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 6ad91336b7, 2026-05-23T04:32Z [ctx=safe]
+**What was done:** Rewrote `.claude/workflow/workflow-drift-check.md` §Detection to drop the legacy `git fetch origin develop` + `merge-base origin/develop HEAD` + `FORK..origin/develop` bash and install the two-phase walk byte-copied from `conventions.md` §1.6(h). Phase 1 enumerates artifacts under the active plan's `_workflow/**` and classifies each as stamped or unstamped; Phase 2 (caller-specific) signals drift unconditionally on any unstamped artifact, otherwise folds the stamp set pairwise through `git merge-base` to derive `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths. Rewrote the intro paragraph to drop the duplicate-fetch rationale, the `origin/develop` framing, and the develop-worktree re-invocation language; the Migrate-now reference now points at in-branch re-invocation of `/migrate-workflow`. Added a §Detection cross-reference paragraph citing `conventions.md` §1.6(c) (range definition), §1.6(h) (Phase 1 walk byte-source), and §1.6(a1) (canonical parser regex), and explicitly demoted `design.md` §"Stamp range computation" to a soft reference (its walk uses the unanchored `[0-9a-f]{40}` regex §1.6(a1) rejects).
+
+**What was discovered:** The Phase 1 walk in `conventions.md` §1.6(h) is byte-for-byte identical to the new Detection bash here (`diff` between the two extracted blocks differs only in the surrounding fence lines). This keeps the coordinated-edit cost on a future format change bounded to the writer sites enumerated in each track's §Interfaces and Dependencies — exactly the contract §1.6(h)'s opening paragraph commits to. The byte-identity property is verifiable mechanically by a one-liner `diff`, so Phase C review of Track 3 vs Track 4a can run the same `diff` once Track 4a's copy lands.
+
+**Key files:**
+- `.claude/workflow/workflow-drift-check.md` (modified)
 
 ## Validation and Acceptance
 
