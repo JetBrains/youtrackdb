@@ -20,6 +20,19 @@ The fix has two layers. First, **convert both sites to pure-delta encoding** so 
 - **Lock-window invariant**: `applyIndexCountDeltas` and `applyHistogramDeltas` run with the per-index lock acquired at `lockIndexes` (AbstractStorage:2255) still held. Achieved by placing the apply hooks inside `endAtomicOperation` before `releaseLocks` returns the lock; the manual call at AbstractStorage:2365 (which runs after the lock release) is deleted.
 - **Independent revertability**: each track lands one logical change so reverts are surgical.
 
+### Implementer pacing (YTDB-971)
+
+Every implementer prompt spawned from this plan (Phase B step implementers, Phase C track-level fix implementers) carries the YTDB-971 anti-pattern guidance verbatim. The pattern this prevents is background `./mvnw` paired with `tail -f`, no PID registration, no explicit kill before exit. Both Step 2 spawns on this branch hit it: each implementer emitted a Maven test tool_use, exhausted its message budget waiting on Monitor, exited without a `RESULT` block, and left an orphan Maven JVM plus the watcher consuming resources. Cumulative cost: ~56 minutes of orchestrator time across two spawns.
+
+Required clauses in every implementer prompt:
+
+- **Prefer foreground Maven** for single-class or focused reruns (`./mvnw -pl core test -Dtest=<TouchedTestClass>`). The runtime stays aware of implementer activity; `RESULT_MISSING` recovery is unnecessary.
+- **Route longer builds through `steroid_execute_code`** when the build exceeds the foreground budget but fits within the MCP HTTP timeout. The IDE returns structured pass/fail without orchestrator polling.
+- **Background mode is a last resort** (full coverage build, integration suite that exceeds the foreground budget). When unavoidable: register the background PID, emit periodic progress lines so the runtime stays aware, and explicitly `kill -TERM` the background task plus any watcher before emitting any exit message (RESULT, budget-exit, or otherwise).
+- **Never pair a background `./mvnw` with `tail -f`** on the same shell. The pair is the orphan-pattern signature; the foreground and IDE-routed alternatives avoid it.
+
+Applies to every implementer prompt for Tracks 2, 3, 4 of this branch and any Phase C fix-application implementer. Track 1's implementers ran before YTDB-971 was filed; the rule does not apply retroactively.
+
 ### Architecture Notes
 
 #### Component Map
