@@ -342,7 +342,7 @@ Only files the branch is changing land in the staged subtree. Unchanged workflow
 
 The implementer rulebook gains one rule: when the active plan is workflow-modifying (a property declared in `implementation-plan.md` Constraints) and a step writes to `.claude/workflow/**` or `.claude/skills/**`, the write routes to `<plan-dir>/_workflow/staged-workflow/<same-relative-path>` instead. Reads still hit the live paths. For a step that edits an existing live file, the implementer first copies the live file into the staged subtree if it is not already present, then applies the edit there. Subsequent steps that touch the same file edit the staged copy directly.
 
-The promotion step lands in `workflow.md § Final Artifacts` as a new Step 0, immediately before the final-artifacts commit:
+The promotion step lands in `workflow.md § Final Artifacts` as a new commit immediately before the existing final-artifacts commit, changing Phase 4 from two commits to three (promote-staged-workflow → final-artifacts → cleanup):
 
 ```bash
 PLAN_DIR="docs/adr/<dir-name>"

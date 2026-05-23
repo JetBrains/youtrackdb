@@ -163,6 +163,14 @@ flowchart LR
 - **Implemented in**: Tracks 3 (drift check), 4a (migration range derivation), 4b (migration replay), 6 (gate at `/create-plan` startup). Track 1 defines the active-plan scope inline in `conventions.md` §1.6 so the drift check and the migration cite one source of truth.
 - **Full design**: `design.md` §"Stamp range computation"
 
+#### D14: Stage workflow document changes under `<plan-dir>/_workflow/staged-workflow/`; promote at Phase 4
+
+- **Alternatives considered**: edit `.claude/workflow/**` and `.claude/skills/**` directly in place (today's behavior); separate git worktree on a sibling branch holding only the workflow changes; per-track Phase C citation hygiene + migration-side surfacing of plan-content drift (an earlier draft of this DR).
+- **Rationale**: workflow-modifying branches face a bootstrap problem the in-place pattern does not solve. Staging the workflow changes under `<plan-dir>/_workflow/staged-workflow/.claude/workflow/...` and `.../staged-workflow/.claude/skills/...` keeps the branch's own live workflow at develop's state throughout execution. At Phase 4, a "Promote workflow changes" step copies the staged subtree to the live paths in one commit, immediately before the existing final-artifacts commit. The earlier draft routed plan-content drift through per-track Phase C hygiene and migration-side surfacing; isolation at the source is cleaner.
+- **Risks/Caveats**: branches cannot dogfood the new workflow during execution. Bugs surface at promotion time. Mitigation: optional smoke-test via a sibling test branch. Promotion conflicts follow the rebase conflict shape. Drift gate's existing `git log` pathspec naturally excludes the staged subtree; defensive comment lands at the pathspec site.
+- **Implemented in**: Track 7 (new).
+- **Full design**: `design.md` §"Staging for workflow-modifying branches"
+
 ### Invariants
 
 - **I1**: Every `_workflow/**` artifact stamped by Track 2 carries `<!-- workflow-sha: <40-char SHA> -->` on line 1, with the H1 on line 2.
@@ -170,6 +178,7 @@ flowchart LR
 - **I3**: When every artifact in the active plan's `_workflow/` is stamped, the drift detection range is `BASE_SHA..HEAD`, where `BASE_SHA` is the oldest stamp reachable from HEAD — derived by folding the active plan's stamps pairwise through `git merge-base`. When any artifact in the active plan is unstamped, the drift check short-circuits to "drift detected" and the migration extends the fold input set by a user-supplied base SHA covering the unstamped set.
 - **I4**: Mutations through `edit-design` (`content-edit`, `section-add`, `section-move`, `structural-rewrite`, etc.) never touch the stamp's text and never displace it from line 1. Only artifact creation, migration replay, and no-drift normalization write the stamp. Line-1 position preservation is the runtime complement to the no-touch rule; together they keep the stamp parseable from `head -1` after any mutation sequence.
 - **I5**: After a no-drift gate run with non-uniform stamps in the active plan, one of two states holds: either every stamped artifact's line-1 SHA equals the fold result AND a separate commit captures the normalization, or the working tree is restored to its pre-normalization state and no commit is created (the diff-shape check refused because the working tree carries unrelated edits). The "in-between" state (stamps rewritten on disk without a normalization commit) is not reachable under correct invocation.
+- **I6**: On workflow-modifying branches (plans whose execution writes to `.claude/workflow/**` or `.claude/skills/**`), the live workflow paths in the branch's checkout stay at develop's state throughout execution. Workflow document changes accumulate under `<plan-dir>/_workflow/staged-workflow/.claude/{workflow,skills}/...` instead; the Phase 4 promotion commit is the only transition that moves the staged content to the live paths.
 
 ### Integration Points
 
@@ -180,6 +189,7 @@ flowchart LR
 - **`migrate-workflow` SKILL Step 2** — same stamp-walking logic for range computation, scoped to the active plan's `_workflow/` (D13); range is `BASE_SHA..HEAD`. New Step 2.0 prompts the user for a base SHA covering unstamped artifacts in the active plan (when any exist). Step 4's per-commit loop advances stamps in lockstep at sub-step 4.5 after each commit's replay; sub-step 4.8 re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch after the loop exits. (Step numbers follow Track 4a/4b's renumber-down; today's Step 2 is removed.)
 - **`migrate-workflow` SKILL final step** — invokes `self-improvement-reflection.md` with `session-type=migrate-workflow`.
 - **`/create-plan` SKILL between Step 1 and Step 1a** — invokes `workflow-drift-check.md` after reading the workflow docs and before the handoff scan. Three resolutions translate symmetrically with `/execute-tracks`: Migrate now ends the session for in-branch `/migrate-workflow`; Defer continues knowing artifacts may be drifted; Suppress same continue path without the session-end reminder.
+- **Phase 4 promotion step in `workflow.md` § Final Artifacts** — copies `<plan-dir>/_workflow/staged-workflow/.claude/{workflow,skills}/**` to the corresponding live paths in one commit before the final-artifacts commit; only fires for workflow-modifying plans (detected by the presence of `<plan-dir>/_workflow/staged-workflow/`). Changes Phase 4 from a two-commit shape (final-artifacts + cleanup) to a three-commit shape (promote-staged-workflow + final-artifacts + cleanup) on those plans only.
 
 ### Non-Goals
 
@@ -191,6 +201,7 @@ flowchart LR
 - Adding a helper script under `.claude/scripts/` — the SHA read is a one-liner inlined where needed.
 - Rewriting the renames-tracker mechanism — it stays in a transient `.migration-progress` block per session (or wherever it ends up landing in Track 4a's simplified progress file).
 - Modifying other phases of the workflow beyond what's strictly needed for the in-branch migration flow.
+- Stamping the staged subtree (`<plan-dir>/_workflow/staged-workflow/**`). The §1.6(h) walk does not enumerate these paths, and the subtree mirrors live workflow shapes rather than `_workflow/**` artifact templates; the drift gate's path-scoped `git log` naturally excludes the staged paths.
 
 ## Checklist
 
@@ -239,12 +250,13 @@ flowchart LR
   > **Scope:** ~2-3 steps covering `workflow-drift-check.md` intro generalization (name both callers), `/create-plan` SKILL new Step 1.5 invoking the gate, and the resolution prompt's Migrate-now wording referencing in-branch re-invocation.
   > **Depends on:** Track 3
 
+- [ ] Track 7: Staging architecture for workflow-modifying branches
+  > Introduce the staging convention for branches whose plan modifies `.claude/workflow/**` or `.claude/skills/**`. Workflow document changes accumulate under `<plan-dir>/_workflow/staged-workflow/.claude/workflow/...` and `.../staged-workflow/.claude/skills/...` during execution; the live workflow stays at develop's state for the branch's own sessions. A new "Promote workflow changes" step at Phase 4 copies the staged subtree to the live paths in one commit, immediately before the final-artifacts commit.
+  > **Scope:** ~4-5 steps covering the staging convention in `conventions.md`, the implementer path-mapping rule in `implementer-rules.md` / `step-implementation.md`, the Phase 4 promotion step in `workflow.md` + `prompts/create-final-design.md`, the drift-gate defensive comment in `workflow-drift-check.md`, and a worked example of the staging tree shape.
+  > **Depends on:** none (forward-applicable; no sequencing dependency on Tracks 4a/4b/5/6).
+
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 2
-
-**Auto-fixed (mechanical)**: CR3 (track-5.md section name "Frequency and context-cost gate" → "Cost-benefit gate"), CR4 (track-5.md line-count "~590" → "~660"), CR7 (Track 4 renumber-down propagation across plan / design / track-3 / track-5).
-
-**Escalated (design decisions)**: CR1 → option 1 (insert advance between Steps 4.4 and 4.6); CR2 → option 1 (active-plan scope as 7th deliverable to Track 1 §1.6); CR5 → option 2 (renumber Track 4's top-level steps down, subsumed by S2 split); CR6 → option 1 (SHA-computation one-liner in design.md §Core Concepts); S1 → apply all 4 intro trims (Tracks 2, 3, 4, 6; Track 4's trim subsumed by the S2 split); S2 → split Track 4 into 4a (preflight + range) and 4b (replay + final batch); S3 → skip (DR ordering quirk left as-is); S4 → apply all 7 `**Full design**` links (D1, D2, D7, D8, D10, D11, D13).
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

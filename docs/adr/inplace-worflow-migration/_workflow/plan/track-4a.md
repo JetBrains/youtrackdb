@@ -11,9 +11,6 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 - [ ] Track-level code review
 - [ ] Track completion
 
-**PAUSED 2026-05-23 at Phase A Pre-Flight ESCALATE pending inline-replan completion (Track 7 staging architecture + design.md cold-read + plan-file edits)**
-- Handoff: ../handoff-inline-replan.md
-
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 
@@ -35,12 +32,12 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 | 1 → 1 | Preflight — must be on `develop`, clean tree, validate `$ARGUMENTS` | Drop the develop check; relax the argument contract since `$ARGUMENTS` becomes optional; add a refusal when any tracked file under `_workflow/**` has uncommitted changes (working tree or index) or any untracked file lives under `_workflow/**` (progress-sentinel carve-out) — D12 |
 | 2 → (deleted) | Resolve migration worktree path via `git worktree list --porcelain` | Delete entirely — migration runs in cwd. Subsequent top-level steps renumber down. |
 | 3.0 → 2.0 | (new) Unstamped-artifact bootstrap prompt | Add: enumerate `_workflow/**` artifacts, classify stamped vs unstamped; if any unstamped, prompt user once for a base SHA covering the unstamped set, validate via `git rev-parse --verify` + `git merge-base --is-ancestor "$SHA" HEAD`, re-prompt up to 3 times on failure, abort the session on 3 rejections |
-| 3 → 2 | Compute commit range from `merge-base(develop, branch)..develop` | Replace with stamp-walking range derivation from `design.md` §"Stamp range computation" — fold `STAMPED_SHAS` plus the validated user SHA (when 2.0 ran) through `git merge-base` to derive `BASE_SHA`; range is `BASE_SHA..HEAD` (no `git fetch`) — D10 |
+| 3 → 2 | Compute commit range from `merge-base(develop, branch)..develop` | Replace with stamp-walking range derivation from `conventions.md` §1.6(h) — fold `STAMPED_SHAS` plus the validated user SHA (when 2.0 ran) through `git merge-base` to derive `BASE_SHA`; range is `BASE_SHA..HEAD` (no `git fetch`) — D10 |
 | 4 → 3 | Load/initialize `.migration-progress`; identify target `_workflow/` | Keep, but the progress file is now a transient crash-recovery sentinel only; stamps are the durable marker |
 
 `$ARGUMENTS` becomes optional — when called from the branch's own worktree, the argument is redundant (current branch IS the migration branch). When provided, it must match the current branch; otherwise halt with a clear error.
 
-The stamp-walking bash block must be byte-identical to Track 3's copy in `workflow-drift-check.md`. Both files own their own copy; the canonical text lives in `design.md` §"Stamp range computation".
+The stamp-walking bash block must be byte-identical to Track 3's copy in `workflow-drift-check.md`. Both files own their own copy; the canonical text lives in `conventions.md` §1.6(h).
 
 ## Plan of Work
 
@@ -52,7 +49,7 @@ The rewrite proceeds in roughly five edits, in order. Step numbers below are the
 
 3. **Step 2.0 add (unstamped-artifact bootstrap).** Insert a new step before the renumbered Step 2. Walk the active plan's `_workflow/**` ephemeral artifacts (the plan dir resolved in Step 1), classify each as stamped (line-1 stamp parses) or unstamped (no stamp); collect `STAMPED_SHAS` and `UNSTAMPED_FILES`. If `UNSTAMPED_FILES` is empty, no-op and continue to Step 2. Otherwise prompt the user once with the unstamped-file list and a one-paragraph explanation of why no auto-computed reference is safe (D8). Read a 40-character SHA; validate via `git rev-parse --verify "$SHA^{commit}"` and `git merge-base --is-ancestor "$SHA" HEAD` (the supplied SHA must be reachable from HEAD because HEAD is the comparison reference — D10). Re-prompt up to 3 times on validation failure; abort the session on 3 rejections (no edits applied). The validated SHA is stored as `$USER_BOOTSTRAP_SHA` for Step 2.
 
-4. **Step 2 rewrite (was Step 3).** Replace the old commit-range bash with the stamp-walking variant from `design.md` §"Stamp range computation". The fold input set is `STAMPED_SHAS` plus `$USER_BOOTSTRAP_SHA` when Step 2.0 ran. Output is `BASE_SHA` and the `git log` of commits in `$BASE_SHA..HEAD` against workflow paths (no `git fetch`). Cross-link to `conventions.md` §1.6 and `design.md` §"Stamp range computation".
+4. **Step 2 rewrite (was Step 3).** Replace the old commit-range bash with the stamp-walking variant from `conventions.md` §1.6(h). The fold input set is `STAMPED_SHAS` plus `$USER_BOOTSTRAP_SHA` when Step 2.0 ran. Output is `BASE_SHA` and the `git log` of commits in `$BASE_SHA..HEAD` against workflow paths (no `git fetch`). Cross-link to `conventions.md` §1.6(h) for the byte-source bash and §1.6 for the surrounding stamp-format prose.
 
 5. **Step 3 simplification (was Step 4).** The `.migration-progress` file stays in shape but its semantic role shifts to "in-flight session crash-recovery sentinel" — the durable progress marker becomes the per-artifact stamps once Track 4b lands. The progress file's header `head=<sha>` field becomes `range_end=<sha>` (= `git rev-parse HEAD` at session start); the `fork=<sha>` field becomes `range_start=<sha>` (= `BASE_SHA`). The renames block is unchanged. Update the file-existence handling: if `range_start` in the file doesn't match the freshly-computed `BASE_SHA`, halt and ask the user to delete the file (same as today's stale-fork check, just under the new field names).
 
