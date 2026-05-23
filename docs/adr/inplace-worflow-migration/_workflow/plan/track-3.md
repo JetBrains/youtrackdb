@@ -15,6 +15,7 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 
 - [x] 2026-05-23 [ctx=safe] Review + decomposition complete
 - [x] 2026-05-23T04:32Z [ctx=safe] Step 1 complete (commit 6ad91336b7)
+- [x] 2026-05-23T04:37Z [ctx=safe] Step 2 complete (commit 79e5d7c6ce)
 
 ## Surprises & Discoveries
 
@@ -76,7 +77,7 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 ## Concrete Steps
 
 1. Rewrite Detection bash block + intro paragraph + add §1.6 cross-reference note in `workflow-drift-check.md` (byte-copy from `conventions.md` §1.6(h); drop `git fetch origin develop` + `origin/develop` references; replace develop-worktree re-invocation language; add the §Detection cross-reference paragraph citing §1.6(c), §1.6(h), §1.6(a1)) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 6ad91336b7
-2. Rewrite Resolutions section in `workflow-drift-check.md` — three prompt-template string substitutions ("commits on develop touch" → "commits in your branch's range touch"; "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree"), Migrate-now in-branch wording, Defer sub-section `$FORK` → `$BASE_SHA` and worktree-instruction update — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+2. Rewrite Resolutions section in `workflow-drift-check.md` — three prompt-template string substitutions ("commits on develop touch" → "commits in your branch's range touch"; "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree"), Migrate-now in-branch wording, Defer sub-section `$FORK` → `$BASE_SHA` and worktree-instruction update — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 79e5d7c6ce
 3. Add no-drift normalization sub-step in `workflow-drift-check.md` (sed-based stamp rewrite + `git diff -U0` `@@ -1` hunk-header guard + `git status --porcelain` cross-check + `git checkout -- <paths>` restore-on-mismatch + auto-commit) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 4. Tighten Skip conditions to active-plan scope (D13) + review After-the-choice Remote-authoritative re-entry note — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 
@@ -86,6 +87,16 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 **What was done:** Rewrote `.claude/workflow/workflow-drift-check.md` §Detection to drop the legacy `git fetch origin develop` + `merge-base origin/develop HEAD` + `FORK..origin/develop` bash and install the two-phase walk byte-copied from `conventions.md` §1.6(h). Phase 1 enumerates artifacts under the active plan's `_workflow/**` and classifies each as stamped or unstamped; Phase 2 (caller-specific) signals drift unconditionally on any unstamped artifact, otherwise folds the stamp set pairwise through `git merge-base` to derive `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths. Rewrote the intro paragraph to drop the duplicate-fetch rationale, the `origin/develop` framing, and the develop-worktree re-invocation language; the Migrate-now reference now points at in-branch re-invocation of `/migrate-workflow`. Added a §Detection cross-reference paragraph citing `conventions.md` §1.6(c) (range definition), §1.6(h) (Phase 1 walk byte-source), and §1.6(a1) (canonical parser regex), and explicitly demoted `design.md` §"Stamp range computation" to a soft reference (its walk uses the unanchored `[0-9a-f]{40}` regex §1.6(a1) rejects).
 
 **What was discovered:** The Phase 1 walk in `conventions.md` §1.6(h) is byte-for-byte identical to the new Detection bash here (`diff` between the two extracted blocks differs only in the surrounding fence lines). This keeps the coordinated-edit cost on a future format change bounded to the writer sites enumerated in each track's §Interfaces and Dependencies — exactly the contract §1.6(h)'s opening paragraph commits to. The byte-identity property is verifiable mechanically by a one-liner `diff`, so Phase C review of Track 3 vs Track 4a can run the same `diff` once Track 4a's copy lands.
+
+**Key files:**
+- `.claude/workflow/workflow-drift-check.md` (modified)
+
+### Step 2 — commit 79e5d7c6ce, 2026-05-23T04:37Z [ctx=safe]
+**What was done:** Rewrote the Resolutions section of `.claude/workflow/workflow-drift-check.md` so every develop-relative reference now reads HEAD-relative. The prompt template reports "N commits in your branch's range … since stamp base `<short-BASE_SHA>`"; the `[migrate]` line says "run `/migrate-workflow` from this worktree"; the Migrate-now narrative collapses to a single instruction line ("Run `/migrate-workflow` from this worktree."); the Defer state shape carries `$BASE_SHA` and `<short-stamp-base-SHA>` (replacing `$FORK` and `<short-fork-SHA>`); the session-end summary references the in-branch `/migrate-workflow` rather than the `cd ../develop` pair. The Resolutions intro prose was updated in lockstep ("the short fork SHA" → "the short stamp-base SHA") so the prompt and the surrounding narrative stay consistent.
+
+**What was discovered:** The Defer state-shape paragraph needed a small reflow after the `$FORK` → `$BASE_SHA` rename — the new variable name is longer and the natural ~70-char wrap shifted, producing one >100-char line. Reflowed in a follow-up patch within the same step. A name-length change in narrative prose can break paragraph wrap and Phase C reviewers may flag it; worth a re-check on similar future variable renames inside markdown narrative.
+
+**What changed from the plan:** none.
 
 **Key files:**
 - `.claude/workflow/workflow-drift-check.md` (modified)
