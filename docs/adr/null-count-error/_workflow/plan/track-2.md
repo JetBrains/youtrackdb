@@ -10,6 +10,7 @@ Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas
 ## Progress
 - [x] 2026-05-23T10:44Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
+  - [x] 2026-05-23T13:38Z [ctx=safe] Step 1 complete (commit a10c7d9394)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -170,12 +171,22 @@ Invariants to preserve: persisted side and in-memory side advance in lockstep at
 
 ## Concrete Steps
 
-1. Raise `persistIndexCountDeltas`, `applyIndexCountDeltas`, `applyHistogramDeltas` on `AbstractStorage` from `private` to `public` — risk: medium (default: visibility change on three storage-lifecycle methods; touches `AbstractStorage` only; no new callers wired yet)  [ ]
+1. Raise `persistIndexCountDeltas`, `applyIndexCountDeltas`, `applyHistogramDeltas` on `AbstractStorage` from `private` to `public` — risk: medium (default: visibility change on three storage-lifecycle methods; touches `AbstractStorage` only; no new callers wired yet)  [x]  commit: a10c7d9394
 2. Add Hook A (persist) inside `AtomicOperationsManager.endAtomicOperation` before `commitChanges`: capture `IOException | RuntimeException | AssertionError`, call `storage.moveToErrorStateIfNeeded(persistFailure)`, set `error = persistFailure`, call `operation.rollbackInProgress()`; after the inner-finally `releaseLocks`, typed re-raise (`RuntimeException` short-circuits as-is, `IOException` and `AssertionError` wrap as `StorageException` via `BaseException.wrapException`). Add inline comments above Hook A noting the bounded catch (`LinkageError | OutOfMemoryError | StackOverflowError | InternalError` escape) and the `moveToErrorStateIfNeeded`-via-`setInError` line 1769–1771 guard for `AssertionError` — risk: high (crash-safety: durability ordering at the WAL commit boundary; load-bearing for the corrected-trace `setInError` contract on persist failure)  [ ]
 3. Add Hook B (apply + histogram-apply parallel) inside `AtomicOperationsManager.endAtomicOperation` after `commitChanges` and **before the inner-finally `releaseLocks`**, with `RuntimeException | AssertionError` log-and-swallow for each apply call. Add an inline source-comment block above Hook B citing (a) the per-index lock acquired at `lockIndexes` (`AbstractStorage.java:2255`), (b) `releaseLocks` as the lock-release site, (c) Tracks 3 and 4 as dependents, (d) `EndAtomicOperationHookOrderingTest` as the regression guard. Add `EndAtomicOperationHookOrderingTest` under `core/src/test/.../paginated/atomicoperations/`: assert Hook A runs before `commitChanges`; injected `IOException` converts to rollback (skip `commitChanges`); Hook B runs after `commitChanges` and before `releaseLocks` with the per-index lock still held; Hook B failure is swallowed; nested-op lock release assertion (A4 — outer op's `lockedComponents()` set is unchanged after Hook B returns) — risk: high (concurrency: lock-scope invariant load-bearing; Hook B placement governs whether the per-index lock is held during apply)  [ ]
 4. Delete the manual calls in `AbstractStorage.commit` at lines 2340 (`persistIndexCountDeltas`), 2365 (`applyIndexCountDeltas`), 2381 (`applyHistogramDeltas`) and their post-`endTxCommit` catches at lines 2366 and 2382; the pre-`endTxCommit` catch at line 2341 stays (Track 1's broadened version). Add `MainCommitCounterSyncTest` under `core/src/test/.../storage/impl/local/`: nominal-commit path asserts persisted EP page and in-memory counters land where expected; commitIndexes-IOException path asserts rollback runs, counters stay at pre-tx values, no `AssertionError` escapes. Add `ClearIndexApiRollbackTest` under the same directory, `@Ignore`-annotated with a pointer comment to Track 3's regression-test step. Sweep doc-comments in tests / main that name the manual call sites (12 files per A11) to track the deleted call sites. Optional in this step at decomposer's call: A5(ii) interim reflective IndexCountDelta injection for the `clearIndex` Hook A/B coverage gap; A8 broadening `cleanupSnapshotIndex` catch from `RuntimeException` to `RuntimeException | AssertionError` for symmetry with Track 1's pattern — risk: medium (deletion of error-handling code in `AbstractStorage.commit` plus new test infrastructure; the dangerous wiring already landed in steps 2 and 3 under HIGH-tag review)  [ ]
 
 ## Episodes
+
+### Step 1 — commit a10c7d9394, 2026-05-23T13:38Z [ctx=safe]
+**What was done:** Raised `persistIndexCountDeltas`, `applyIndexCountDeltas`, and `applyHistogramDeltas` on `AbstractStorage` from `private` to `public`. The change is a pure surface widening: no method body, Javadoc, or invocation site was touched. The new visibility matches the existing manager-callback surface on the same class (`moveToErrorStateIfNeeded`, `getName`, `checkErrorState`, `getSnapshotIndexSize`); `AtomicOperationsManager` sits in a sibling package, so package-private would not have crossed.
+
+**What was discovered:** PSI find-usages on the three methods confirmed the references match the design.md inventory exactly. `applyIndexCountDeltas` has two references (call site at `AbstractStorage.java:2365` and a Javadoc `{@link}` from `persistIndexCountDeltas` at `:2482`); the other two methods have one reference each (their respective call sites). No external caller exists yet — the expected state before Steps 2 and 3 wire the manager-side hooks. The Javadoc `{@link}` resolution is unaffected by the visibility raise.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
 
 ## Validation and Acceptance
 
