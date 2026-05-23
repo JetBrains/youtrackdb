@@ -203,10 +203,12 @@ flowchart LR
   >
   > **Strategy refresh:** ADJUST — track-2.md `## Context and Orientation` and `## Plan of Work` now anchor to `conventions.md` §1.6(b)'s paired test-and-fallback idiom (path-scoped `git log` + `git rev-parse HEAD` fallback) instead of the bare one-liner, matching Track 1's byte-for-byte directive for downstream writers.
 
-- [ ] Track 2: Stamp writers
+- [x] Track 2: Stamp writers
   > Update `/create-plan` and `edit-design` SKILLs to emit the line-1 stamp at every artifact-creation site. Four sites total across `implementation-plan.md`, `plan/track-N.md`, `design.md`, and `design-mechanics.md`; direct mutations leave the stamp untouched. `design-mutations.md` is deliberately excluded — see D6 and the track file.
-  > **Scope:** ~3 steps covering create-plan templates, edit-design phase1-creation, edit-design length-trigger; design-mutations.md exclusion documented but no writer change.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:** Stamp writers are now active at every artifact-creation site. `create-plan/SKILL.md` computes `$WORKFLOW_SHA` once per session via §1.6(b)'s paired idiom and prepends `<!-- workflow-sha: $WORKFLOW_SHA -->` above the H1 in the three fenced templates (`implementation-plan.md`, `plan/track-N.md`, `design.md`); a one-line reminder above each template guards against `$WORKFLOW_SHA` leaking through `Write` verbatim. `edit-design/SKILL.md` ships an idempotency-guarded stamp directive in `phase1-creation` covering both invocation paths (direct and `target=both` from `/create-plan`), a new `length-trigger-crossing` paragraph documenting the split procedure plus the stamp prepend on the freshly-created `design-mechanics.md`, an exclusion note in Step 7 for `design-mutations.md`, and a top-of-file Stamp-discipline blockquote pinning invariant I4. The `phase4-creation` paragraph carries an explicit "skip the idempotency-guarded stamp directive" carve-out, blocking literal-followers from stamping `design-final.md` / `design-mechanics-final.md`. Plan deviation: Step 1's Decision Log resolved the dual-seed coverage choice to path (b); no fourth fenced template added to `create-plan`. Cross-track impact for Tracks 3 / 4: Phase C iteration 1 amended `conventions.md` §1.6(b) (no-HEAD precondition: skill halts rather than writes a malformed stamp) and §1.6(f) (Phase 4 exclusion list adds `design-mechanics-final.md`); neither shifts runtime semantics, but Track 3 and Track 4 implementers should re-read both subsections at their next pass.
+  >
+  > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
 
 - [ ] Track 3: SHA-aware drift check
   > Rewrite the Detection section of `workflow-drift-check.md` to walk per-artifact stamps in the active plan's `_workflow/`, compare against HEAD (no `git fetch`), and route to in-branch migration. On no-drift with non-uniform stamps, normalize and commit (D11). Track file carries the bash and the Skip-conditions detail.
