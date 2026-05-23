@@ -228,27 +228,35 @@ silent housekeeping step, not a drift signal.
 ## Skip conditions
 
 The gate skips silently in three cases, all derivable from cheap
-on-disk reads before the detection command runs. Order matters for
-fail-fast — check the cheapest first:
+on-disk reads before the detection command runs. All three scope to
+the active plan dir (the `$PLAN_DIR` resolved at startup per
+`conventions.md` §1.6(g) and §1.2); cross-plan folding is out of scope
+(D13). Order matters for fail-fast — check the cheapest first:
 
-1. **No `_workflow/` subtree.** Nothing to migrate. Check:
-   `ls -d docs/adr/*/_workflow/ 2>/dev/null`. Matches the
-   `/migrate-workflow` skill's zero-match halt path.
+1. **Active plan's `_workflow/` directory doesn't exist.** Nothing to
+   migrate for this plan. Check: `[ -d "$PLAN_DIR/_workflow" ]`.
+   Matches the `/migrate-workflow` skill's zero-match halt path when
+   the caller's resolved plan dir carries no workflow subtree.
 
-2. **Plan complete plus Phase 4 active.** The `_workflow/` subtree is
-   about to be removed by the Phase 4 cleanup commit. Read
-   `implementation-plan.md` from each `_workflow/` directory
-   returned by #1; the skip fires only when **every** plan matches
-   — all track entries `[x]` or `[~]` **and** the `## Final
-   Artifacts` entry `[>]` or `[x]`. Any plan that is missing,
-   unreadable, or still has open tracks (or Pre-`[>]` Final
-   Artifacts) falls through to #3. Pre-`[>]` is still a window for
-   a user migration before final artifacts land.
+2. **Plan complete plus Phase 4 active.** The active plan's
+   `_workflow/` subtree is about to be removed by the Phase 4 cleanup
+   commit. Read only `$PLAN_DIR/_workflow/implementation-plan.md`; the
+   skip fires when that plan has all track entries `[x]` or `[~]`
+   **and** the `## Final Artifacts` entry `[>]` or `[x]`. A missing,
+   unreadable, or still-open plan (or Pre-`[>]` Final Artifacts) falls
+   through to #3. Pre-`[>]` is still a window for a user migration
+   before final artifacts land. The cross-plan AND-fold the
+   branch-wide gate used to apply is dropped — each plan migrates
+   independently (D13).
 
-3. **Empty diff.** The detection command above returns nothing.
-   Either the branch was forked from the current `origin/develop`
-   tip, or `origin/develop` has moved forward only on code paths the
-   gate does not watch.
+3. **Empty diff.** The Phase 2 `git log $BASE_SHA..HEAD` returns
+   nothing **and** no artifact in the active plan is unstamped. Every
+   stamped artifact's `BASE_SHA` is already at or past every workflow
+   commit reachable from HEAD on the paths the gate watches. The
+   no-drift normalization sub-step above handles the non-uniform-stamp
+   variant of this case; this skip fires when stamps are already
+   uniform (or the no-drift normalization just landed on a prior gate
+   run).
 
 First match returns silent skip; the gate emits no prose and startup
 continues to step 4. None matching falls through to the
