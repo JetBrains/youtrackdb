@@ -11,8 +11,6 @@ Move `persistIndexCountDeltas` / `applyIndexCountDeltas` / `applyHistogramDeltas
 - [x] 2026-05-23T10:44Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
   - [x] 2026-05-23T13:38Z [ctx=safe] Step 1 complete (commit a10c7d9394)
-  - **PAUSED 2026-05-23 at Step 2 dim-review iter-1 complete pending FIX_REVIEW_FINDINGS respawn**
-    - Handoff: docs/adr/null-count-error/_workflow/handoff-track-2-phaseB.md
 - [ ] Track-level code review
 - [ ] Track completion
 
