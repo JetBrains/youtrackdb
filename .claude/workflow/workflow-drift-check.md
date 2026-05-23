@@ -159,13 +159,13 @@ three-resolution prompt below.
 ## Resolutions
 
 When drift surfaces (non-empty detection output and no skip
-condition matched), print the commit count, the short fork SHA, and
-the first ten subject lines (oldest first), then force an explicit
-pick. Approximate prompt shape:
+condition matched), print the commit count, the short stamp-base SHA,
+and the first ten subject lines (oldest first), then force an
+explicit pick. Approximate prompt shape:
 
 ```
-Workflow drift detected: N commits on develop touch .claude/workflow/** or
-.claude/skills/** since fork point <short-FORK>.
+Workflow drift detected: N commits in your branch's range touch .claude/workflow/** or
+.claude/skills/** since stamp base <short-BASE_SHA>.
 
 First commits (oldest first):
   <short-sha-1>  <subject-1>
@@ -173,7 +173,7 @@ First commits (oldest first):
   ...
 
 Resolutions:
-  [migrate]   end session; user runs /migrate-workflow <branch> from a develop worktree
+  [migrate]   end session; user runs /migrate-workflow from this worktree
   [defer]     continue this session; deferred drift will appear in the session-end summary
   [suppress]  continue this session; no session-end reminder
 
@@ -188,12 +188,9 @@ Branch Divergence Check.
 ### Migrate now
 
 End the current session and instruct the user to re-invoke the
-migration skill from a `develop` worktree:
+migration skill from this worktree:
 
-> Switch to a `develop` worktree (e.g., `cd ../develop`) and run
-> `/migrate-workflow <branch>` there. The `../develop` path is a
-> convention; users with a different layout substitute their own
-> develop-worktree path.
+> Run `/migrate-workflow` from this worktree.
 
 The Migrate now branch deliberately does not run the skill inline.
 The skill assumes a fresh session and runs its own context-check
@@ -216,19 +213,19 @@ end-of-turn protocol can recite it at session end. Per-phase work
 proceeds normally.
 
 State shape: a TaskCreate todo titled `Deferred workflow drift:
-<count> commits since <short-fork-SHA>`, where `<count>` is the full
-commit range total and `<short-fork-SHA>` is the seven-character
-abbreviation of `$FORK`. Subject lines are omitted — the user re-runs
-the detection bash for full context. The session-end summary reads
-the todo title verbatim. If TaskCreate is unavailable, hold the same
-two fields in in-context memory and recite the same line shape; the
-todo is preferred because in-context memory is unreliable across
-long sessions.
+<count> commits since <short-stamp-base-SHA>`, where `<count>` is the
+full commit range total and `<short-stamp-base-SHA>` is the seven-
+character abbreviation of `$BASE_SHA`. Subject lines are omitted —
+the user re-runs the detection bash for full context. The session-end
+summary reads the todo title verbatim. If TaskCreate is unavailable,
+hold the same two fields in in-context memory and recite the same
+line shape; the todo is preferred because in-context memory is
+unreliable across long sessions.
 
 The session-end summary appends the title line plus the same
-`cd ../develop` + `/migrate-workflow <branch>` instruction shown in
-the prompt — see `workflow.md` § What to do before ending a session
-for the residue contract. An on-disk sentinel would survive across
+in-branch `/migrate-workflow` instruction shown in the prompt — see
+`workflow.md` § What to do before ending a session for the residue
+contract. An on-disk sentinel would survive across
 `/execute-tracks` invocations and double-report against the next
 session's gate re-prompt, so the marker stays in-conversation only.
 
