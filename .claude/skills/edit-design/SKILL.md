@@ -183,6 +183,59 @@ element traces to a real code location. Do **not** pass `--plan-path` /
 `--plan-dir` (the cross-file ref check is naturally skipped — see the
 table above).
 
+For `length-trigger-crossing`: split a single-file `design.md` that has
+grown past the ~2,000-line / ~50,000-token threshold into the canonical
+pair. Caller-supplied `design_mechanics_path` carries the absolute path
+of the new sibling file; `target=both`. Move every long-form mechanism
+walk-through, full state-machine table, exhaustive worked example, and
+file:line citation out of `design.md` and into the freshly-created
+`design-mechanics.md`. Keep Overview, Core Concepts, every section's
+TL;DR + mechanism overview + edge cases + references footer in
+`design.md`; keep diagrams in `design.md` and duplicate any diagram into
+`design-mechanics.md` only when the mechanics-side prose needs the same
+visual context. Every section name in `design-mechanics.md` matches the
+corresponding section name in `design.md` byte-for-byte so that each
+section's `Mechanics: design-mechanics.md §"<exact same section name>"`
+link resolves and the plan / track-file `**Full design**` references
+land in either file by name. See
+[`design-document-rules.md` § Length-triggered split into
+`design-mechanics.md`](../../workflow/design-document-rules.md) for the
+canonical split rule.
+
+Stamp the freshly-created `design-mechanics.md` before continuing.
+The file is unstamped at creation, so the per-path presence check from
+[`conventions.md` §1.6(a1)](../../workflow/conventions.md) will always
+return non-zero on this path — but applying the guard keeps the
+directive symmetric with the `phase1-creation` paragraph above and
+tolerates a re-invocation against an already-split pair:
+
+```bash
+head -1 <design_mechanics_path> | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'
+```
+
+A non-zero exit code (the expected case) means the file is unstamped —
+compute `$WORKFLOW_SHA` via the §1.6(b) paired idiom and prepend
+`<!-- workflow-sha: $WORKFLOW_SHA -->` (followed by a newline) above the
+H1 in `design-mechanics.md`, then re-read the file to satisfy the next
+`Edit` precondition:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
+```
+
+The `$WORKFLOW_SHA` value is computed at trigger time, not at the
+original `phase1-creation` moment, so the new `design-mechanics.md`'s
+stamp can differ from its `design.md` sibling's stamp by however many
+workflow-format commits landed between the two creation events. The
+asymmetry is expected — the no-drift normalization in the drift gate
+collapses the divergence on the next clean gate run, and the
+per-branch migration reunifies the stamps when it next runs end-to-end.
+`design.md` already carries a stamp from its earlier creation; leave
+that stamp byte-for-byte intact (the move of mechanism content from
+`design.md` is a `content-edit`-shaped mutation against line 1's
+position-preservation contract from §1.6(a)).
+
 For `design-sync`: see Step 1.5 below — sync has a distillation sub-step
 before the apply.
 
