@@ -10,11 +10,11 @@ The enabling primitive is the stamp itself: a 40-character SHA written at artifa
 
 What else changes to fit: `create-plan` and `edit-design` gain stamping at every artifact-creation site; `workflow-drift-check.md` swaps its fork-point math for stamp-walking; `migrate-workflow/SKILL.md` drops its develop-worktree preflight and worktree-resolution step; `self-improvement-reflection.md` takes a session-type parameter that toggles the commit-clean check and the phase identifier.
 
-The rest of this document covers: Core Concepts (the six new domain terms), Workflow (drift-check + migration sequences), Stamp range computation (the `git merge-base` fold algorithm), Per-commit replay and lockstep advance (with crash-recovery semantics), and Reflection parameterization.
+The rest of this document covers: Core Concepts (the seven new domain terms), Workflow (drift-check + migration sequences), Stamp range computation (the `git merge-base` fold algorithm), Per-commit replay and lockstep advance (with crash-recovery semantics), Reflection parameterization, and Staging for workflow-modifying branches (the in-place migration's inverse case).
 
 ## Core Concepts
 
-Six new domain terms appear throughout this design. Each gets one paragraph below: name, plain-language definition, role in the architecture, and a pointer to the section that elaborates it.
+Seven new domain terms appear throughout this design. Each gets one paragraph below: name, plain-language definition, role in the architecture, and a pointer to the section that elaborates it.
 
 **Workflow-SHA stamp.** A line-1 HTML comment on every ephemeral `_workflow/**` artifact: `<!-- workflow-sha: <40-char SHA> -->`. Records the latest commit touching `.claude/workflow/` or `.claude/skills/` reachable from `HEAD` at the time the artifact was created or last migrated. Computed at creation time via `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills` (canonical rule in `conventions.md §1.6`; written verbatim into the templates by the `create-plan` and `edit-design` SKILLs in Track 2). Invisible in rendered Markdown; parseable with `head -1`. Replaces today's implicit "the artifact's effective workflow version is the branch's fork-point with develop." → §"Stamp range computation".
 
@@ -27,6 +27,8 @@ Six new domain terms appear throughout this design. Each gets one paragraph belo
 **No-drift normalization.** When the drift gate determines no drift but the `STAMPED_SHAS` set contains more than one distinct SHA, the gate rewrites every artifact's line-1 stamp to `BASE_SHA` (the fold result) and creates a separate commit. The next gate run sees uniform stamps and a single-element fold input. → §"Workflow → Drift detection at session startup".
 
 **Session-type parameter.** A new input to `self-improvement-reflection.md` distinguishing `execute-tracks` (existing behavior) from `migrate-workflow` (the new caller). Controls the commit-clean preflight, the `**Phase:**` value in the issue body, and the applicability sentence. Replaces today's hard-coded `/execute-tracks`-only scoping. → §"Reflection parameterization".
+
+**Staged workflow subtree.** A path inside the branch's `_workflow/` directory — `<plan-dir>/_workflow/staged-workflow/.claude/{workflow,skills}/...` — that mirrors the structure of the live workflow paths. Workflow-modifying branches accumulate their workflow document changes here instead of editing `.claude/workflow/` and `.claude/skills/` directly, so the live workflow in the branch's checkout stays at develop's state throughout execution. Phase 4 promotes the staged subtree to the live paths in one commit immediately before the final-artifacts commit, and the cleanup commit then removes `_workflow/` along with the staged subtree. → §"Staging for workflow-modifying branches".
 
 ## Workflow
 
@@ -317,3 +319,55 @@ check and end-of-session contract; nothing else fires after it returns.
 
 - D-records: D6 (parameterize, don't fork)
 - See also: §"Workflow → Reflection at end of migration" for the runtime sequence.
+
+## Staging for workflow-modifying branches
+
+**TL;DR.** Workflow document edits route to `<plan-dir>/_workflow/staged-workflow/.claude/{workflow,skills}/...` rather than touching `.claude/workflow/` and `.claude/skills/` directly. The live workflow in the branch's checkout stays at develop's state throughout execution, so the plan reads stable rules, reviewers see no drift, and the branch never migrates against itself. At Phase 4 a "Promote workflow changes" step copies the staged subtree to the live paths in one commit; the existing cleanup commit then removes `_workflow/` (the staged subtree included) so the squash-merge into develop carries only the live workflow files plus design-final and adr. The in-place migration (Tracks 1–6) handles drift on feature plans that do not author workflow changes; this section handles the inverse case where the plan is itself the source of drift.
+
+The bootstrap problem the staging convention solves: when a branch edits `.claude/workflow/X.md` directly in its own tree, its own subsequent sessions read the changed rules. Every plan citation authored before the edit goes stale immediately; the drift gate trips on the branch's own changes; reviewers waste cycles flagging "this anchor no longer exists"; Phase B implementers read a moving target. Staging isolates the workflow changes from the live workflow until Phase 4, so the plan's citations stay coherent against develop's workflow throughout execution.
+
+The staging tree mirrors the structure of the live workflow paths it replaces. For a workflow-modifying plan at `docs/adr/<dir-name>/`, the staged subtree lives at:
+
+```
+docs/adr/<dir-name>/_workflow/staged-workflow/
+  .claude/
+    workflow/
+      <files that change land here, same names as live>
+    skills/
+      <skill-name>/
+        SKILL.md
+```
+
+Only files the branch is changing land in the staged subtree. Unchanged workflow files do not get a staged copy; the implementer reads them from the live paths as usual.
+
+The implementer rulebook gains one rule: when the active plan is workflow-modifying (a property declared in `implementation-plan.md` Constraints) and a step writes to `.claude/workflow/**` or `.claude/skills/**`, the write routes to `<plan-dir>/_workflow/staged-workflow/<same-relative-path>` instead. Reads still hit the live paths. For a step that edits an existing live file, the implementer first copies the live file into the staged subtree if it is not already present, then applies the edit there. Subsequent steps that touch the same file edit the staged copy directly.
+
+The promotion step lands in `workflow.md § Final Artifacts` as a new Step 0, immediately before the final-artifacts commit:
+
+```bash
+PLAN_DIR="docs/adr/<dir-name>"
+STAGED_DIR="$PLAN_DIR/_workflow/staged-workflow"
+if [ -d "$STAGED_DIR" ]; then
+    (cd "$STAGED_DIR" && cp -r .claude/. "$(git rev-parse --show-toplevel)/.claude/")
+    git add .claude/workflow .claude/skills
+    git commit -m "Promote workflow changes from $PLAN_DIR/_workflow/staged-workflow"
+    git push
+fi
+```
+
+The cleanup commit that follows (the existing `git rm -r docs/adr/<dir-name>/_workflow/`) removes the staged subtree along with everything else under `_workflow/`.
+
+The drift gate's existing `git log` pathspec (`.claude/workflow .claude/skills`) naturally excludes the staged subtree because the staged paths live under `docs/adr/*/_workflow/staged-workflow/.claude/workflow/`, a different prefix. The gate scans commits that touch the live paths and does not see the staged commits as drift. A defensive comment at the pathspec site in `workflow-drift-check.md` records the exclusion so a future change that broadens the pathspec is forced to acknowledge it explicitly rather than introducing the broader matcher silently. The migration skill's range computation uses the same pathspec; the same exclusion applies symmetrically.
+
+### Edge cases / Gotchas
+
+- **Rebase during execution.** When develop's workflow has moved since the branch began, a rebase before Phase 4 brings new live workflow files into the branch. The staged subtree may now conflict with the new live shape (for example, the staged version of a file modified the section the rebase also modified). The branch's normal rebase conflict resolution applies; the staged subtree is conflict-resolved by hand against the new base before promotion runs.
+- **Staged file with no corresponding live target.** When develop's workflow deleted a file the branch was modifying, the staged version represents content that has nowhere to land. The promotion step warns when a staged path has no corresponding live file (the live file would be created fresh). The branch author decides whether the deletion should be reverted (the branch wants the file back) or the staged version dropped (the branch accepts the deletion).
+- **Mid-branch testing.** The branch's own sessions cannot exercise the new workflow rules during execution because the live workflow stays at develop's state. Testing happens via a sibling test branch that rebases on the promoted commit and runs a fresh workflow session. The cost of this deferred-testing pattern is the trade-off for plan-content coherence during execution.
+- **Aborted promotion.** When the promotion commit lands but the final-artifacts commit fails, the next session re-enters Phase 4 at State D with the promotion already on disk. The `if [ -d "$STAGED_DIR" ]` guard skips the copy when the staged subtree no longer exists; running `cp -r` against a non-existent source no-ops cleanly under shell semantics. The session resumes at the final-artifacts step.
+- **The branch's own `_workflow/implementation-plan.md`.** The plan file lives under `_workflow/`, not under `staged-workflow/`. Edits to the plan during execution land in `_workflow/implementation-plan.md` directly, the same as on feature branches. Only workflow document changes (under `.claude/workflow/` and `.claude/skills/`) route to the staged subtree.
+
+### References
+
+- D-records: D10 (branch as self-contained capsule), D13 (active-plan scope), D14 (staging convention)
+- Invariants: I6 (live workflow paths stay at develop's state during execution; the Phase 4 promotion commit is the only transition)

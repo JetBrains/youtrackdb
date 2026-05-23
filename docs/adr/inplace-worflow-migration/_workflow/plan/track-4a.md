@@ -11,6 +11,9 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 - [ ] Track-level code review
 - [ ] Track completion
 
+**PAUSED 2026-05-23 at Phase A Pre-Flight ESCALATE pending inline-replan completion (Track 7 staging architecture + design.md cold-read + plan-file edits)**
+- Handoff: ../handoff-inline-replan.md
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 

@@ -36,7 +36,7 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 
 ## Outcomes & Retrospective
 
-- [x] Technical: PASS at iteration 2 (10 findings, 10 accepted — 1 blocker, 5 should-fix, 4 suggestions). Iteration 1 surfaced a canonical-source mismatch (Plan of Work pointed at `design.md §"Stamp range computation"` whose bash uses the unanchored regex `conventions.md` §1.6(a1) rejects); the canonical block at `conventions.md` §1.6(h) is the byte-source. Iteration 1 also expanded the in-file scope from "Migrate-now wording only" to cover the prompt template, the Defer sub-section, the intro paragraph, and a tightened diff-shape primitive for the no-drift normalization. Cross-track impact (track-4a.md mirrors the same anchor mistake) and a cross-file follow-up (`workflow.md` § "What to do before ending a session") are recorded in `## Surprises & Discoveries`.
+- [x] Technical: PASS at iteration 2 (10 findings, 10 accepted — 1 blocker, 5 should-fix, 4 suggestions). Iteration 1 surfaced a canonical-source mismatch (Plan of Work pointed at `design.md §"Stamp range computation"` whose bash uses the unanchored regex `conventions.md` §1.6(a1) rejects); the canonical block at `conventions.md` §1.6(h) is the byte-source. Iteration 1 also expanded the in-file scope from "Migrate-now wording only" to cover the prompt template, the Defer sub-section, the intro paragraph, and a tightened diff-shape primitive for the no-drift normalization. Cross-track impact (track-4a.md mirrors the same anchor mistake) and a cross-file follow-up (the **What to do before ending a session** section in `workflow.md`) are recorded in `## Surprises & Discoveries`.
 
 ## Context and Orientation
 
