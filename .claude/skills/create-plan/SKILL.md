@@ -9,7 +9,7 @@ Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 > **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
 
-> **Stamp discipline.** Every `_workflow/**` artifact this SKILL creates carries a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation. Direct-mutation kinds applied later by `edit-design` (`content-edit`, `section-add`, `section-remove`, `section-move`, `structural-rewrite`, etc.) leave the stamp untouched and preserve its line-1 position; only artifact creation, migration replay, and no-drift normalization write the stamp. The format definition, parser idioms, and the paired SHA-computation idiom this SKILL copies into its planning-transition step are anchored in [conventions.md §1.6](../../workflow/conventions.md) — read that section for the single source of truth.
+> **Stamp discipline.** Every `_workflow/**` artifact this SKILL creates carries a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation. Direct-mutation kinds applied later by `edit-design` (`content-edit`, `section-add`, `section-remove`, `section-rename`, `section-move`, `structural-rewrite`, `mechanics-edit`, `design-sync`) leave the stamp untouched and preserve its line-1 position; only artifact creation, migration replay, and no-drift normalization write the stamp. The format definition, parser idioms, and the paired SHA-computation idiom this SKILL copies into its planning-transition step are anchored in [conventions.md §1.6](../../workflow/conventions.md). Read that section for the single source of truth.
 
 **Step 1 — Read workflow documents.**
 
@@ -176,12 +176,14 @@ WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
 [ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 
-Substitute the resolved 40-character SHA into the
-`<!-- workflow-sha: $WORKFLOW_SHA -->` line at the top of each
-template below before invoking `Write`. The fallback to
-`git rev-parse HEAD` covers fresh repos and repos where workflow
-paths have been moved; in every other case the path-scoped log
-already returns a usable SHA.
+Substitute the **resolved** value (not the literal `$WORKFLOW_SHA`
+token) into the line-1 stamp comment of each of the three fenced
+templates that follow. `Write` does not perform shell expansion. If
+you emit `$WORKFLOW_SHA` verbatim, the artifact's stamp is malformed
+and the drift check will route to migration on the next gate run.
+The fallback to `git rev-parse HEAD` covers fresh repos and repos
+where workflow paths have been moved; in every other case the
+path-scoped log already returns a usable SHA.
 
 The dual-seed `design-mechanics.md` case (when the planner seeds
 both `design.md` and `design-mechanics.md` together) does NOT get a
@@ -211,6 +213,9 @@ plan keeps `/execute-tracks` startup context small (see
 `.claude/workflow/conventions.md` §1.2 for the directory layout
 under `_workflow/` and `conventions-execution.md` §2.1 for the
 track-file shape and section lifecycle).
+
+Before writing this template, substitute the resolved 40-character
+SHA into the `$WORKFLOW_SHA` placeholder on line 1.
 
 ```
 <!-- workflow-sha: $WORKFLOW_SHA -->
@@ -279,6 +284,9 @@ template body is reproduced below so this SKILL stays
 self-sufficient (the lifecycle source is durable; the design-doc
 copy is ephemeral and removed in the Phase 4 cleanup commit, so it
 cannot be a durable pointer target).
+
+Before writing this template, substitute the resolved 40-character
+SHA into the `$WORKFLOW_SHA` placeholder on line 1.
 
 ````markdown
 <!-- workflow-sha: $WORKFLOW_SHA -->
@@ -370,7 +378,9 @@ and is omitted from the Phase 1 skeleton. Full lifecycle for every
 section above is tabulated in `conventions-execution.md` §2.1.
 
 Write the design document to
-`docs/adr/<dir-name>/_workflow/design.md` using this structure:
+`docs/adr/<dir-name>/_workflow/design.md` using this structure.
+Before writing this template, substitute the resolved 40-character
+SHA into the `$WORKFLOW_SHA` placeholder on line 1.
 
 ```
 <!-- workflow-sha: $WORKFLOW_SHA -->

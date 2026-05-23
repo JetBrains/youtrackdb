@@ -487,7 +487,9 @@ migration final-batch) copies the paired idiom above verbatim so the
 fallback behaves identically across writer sites. In every repo where
 workflow tooling exists in any reachable commit, the fallback never
 fires; documenting it keeps the rule portable to fresh repos and to
-repos where workflow paths have been moved.
+repos where workflow paths have been moved. Both commands returning
+empty is a precondition violation (a repo with no HEAD commits) — the
+skill halts rather than writes a malformed stamp.
 
 ### (c) Stamp range definition
 
@@ -562,7 +564,7 @@ Positive enumeration of stamped artifacts:
 
 Explicitly NOT stamped:
 
-- Phase 4 final artifacts (`design-final.md`, `adr.md`). These survive
+- Phase 4 final artifacts (`design-final.md`, `design-mechanics-final.md`, `adr.md`). These survive
   the merge into `develop` where per-branch migration never applies,
   so a stamp would be both stale on first commit and meaningless once
   the branch is squashed.
