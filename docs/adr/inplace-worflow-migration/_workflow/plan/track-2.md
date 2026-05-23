@@ -113,3 +113,6 @@ Per-step acceptance:
 
 **External interfaces:**
 - `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills` is the only new git invocation introduced. It runs at SKILL-invocation time, not at file-write time, so it is read-only with respect to the artifacts.
+
+## Base commit
+f97da6b26092fb5ae608af0c29905e1a03e79c1a
