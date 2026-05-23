@@ -125,6 +125,106 @@ on H1 lines containing a 40-hex run).
 
 ---
 
+## No-drift normalization
+
+Fires only when Phase 2 reports the empty `git log` (no drift) but
+`STAMPED_SHAS` carries more than one distinct SHA — the active plan's
+stamps fold to the same `BASE_SHA` yet sit on different commits on
+disk. Rewriting every artifact's line-1 stamp to `BASE_SHA` collapses
+the next gate's fold input to a single-element set and keeps the gate
+O(1) on subsequent runs. Branches whose stamps are already uniform
+(i.e., `STAMPED_SHAS` contains a single distinct SHA after
+deduplication) skip this sub-step and exit Detection silently.
+
+The sub-step preserves an all-or-nothing contract: either every stamp
+in the active plan moves to `BASE_SHA` in one commit, or the on-disk
+state is unchanged. The "stamps rewritten without a normalization
+commit" in-between state is unreachable under correct invocation. The
+diff-shape guard below is the mechanism: the rewrite is staged, the
+diff is verified against a strict shape, and on any mismatch the
+working tree is restored from `HEAD` before any commit is created.
+
+```bash
+# Recompute the stamped-artifact path list. The Phase 1 walk in
+# conventions.md §1.6(h) exports STAMPED_SHAS and UNSTAMPED_FILES but
+# not a companion path list for the stamped set; recomputing the
+# stamped set here (under the same enumeration `$PLAN_DIR/_workflow/`
+# uses) keeps the byte-copy contract with §1.6(h) intact.
+STAMPED_FILES=""
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    if head -1 "$f" | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'; then
+        STAMPED_FILES="$STAMPED_FILES $f"
+    fi
+done
+
+# Rewrite line 1 of every stamped artifact in place.
+for f in $STAMPED_FILES; do
+    sed -i "1s/.*/<!-- workflow-sha: $BASE_SHA -->/" "$f"
+done
+
+# Diff-shape guard #1: every hunk in the unstaged diff against the
+# stamped artifacts must start with `@@ -1` (line-1 only). Any hunk
+# header that names a different starting line means sed rewrote more
+# than the stamp; abort.
+DIFF_BAD="$(git diff -U0 -- $STAMPED_FILES | grep -E '^@@' | grep -vE '^@@ -1[, ]' || true)"
+
+# Diff-shape guard #2: porcelain status must list only the stamped
+# artifacts. Any other modified path means the rewrite touched
+# something outside the planned set; abort.
+PORCELAIN_BAD="$(git status --porcelain -- . | awk '{print $2}' | LC_ALL=C sort -u \
+    | comm -23 - <(printf '%s\n' $STAMPED_FILES | LC_ALL=C sort -u))"
+
+if [ -n "$DIFF_BAD" ] || [ -n "$PORCELAIN_BAD" ]; then
+    # Restore the pre-rewrite state for the stamped artifacts and
+    # surface a clear error. Nothing is staged at this point, so
+    # `git checkout --` is sufficient; no `git reset` is needed.
+    git checkout -- $STAMPED_FILES
+    echo "workflow-sha normalization aborted: diff shape mismatch" >&2
+    [ -n "$DIFF_BAD" ]      && echo "  off-line-1 hunks: $DIFF_BAD" >&2
+    [ -n "$PORCELAIN_BAD" ] && echo "  unexpected paths: $PORCELAIN_BAD" >&2
+    exit 1
+fi
+
+# Diff shape verified. Stage the stamped artifacts and commit.
+git add -- $STAMPED_FILES
+SHORT_BASE_SHA="$(printf '%s' "$BASE_SHA" | cut -c1-7)"
+git commit -m "Normalize workflow-sha stamps to $SHORT_BASE_SHA"
+```
+
+**Diff-shape guard rationale.** The two checks are complementary.
+Guard #1 catches a sed expression that rewrote line 1 plus stray
+trailing lines on the same file (e.g., a CRLF-stripped artifact where
+`1s/.*/.../` ate a trailing carriage return on every line). Guard #2
+catches a `STAMPED_FILES` set that silently expanded to include an
+artifact outside the active plan (e.g., a pathspec glob picking up a
+stray file). Either failure mode would land a malformed normalization
+commit; the abort+restore path keeps the working tree at HEAD on
+mismatch and surfaces the failure to the user instead of papering over
+it.
+
+**Restore-on-mismatch.** `git checkout -- $STAMPED_FILES` rewinds only
+the stamped artifacts because nothing else was touched; the working
+tree returns to the exact state Detection observed. If the rewrite
+left any path outside `$STAMPED_FILES` modified, guard #2 already
+fired and the abort message names the path so the user can clean it
+up manually — the gate refuses to guess at the recovery shape.
+
+**Commit shape.** One commit, subject `Normalize workflow-sha stamps
+to <short-BASE_SHA>`, body optional. The commit is independent of any
+phase work — Detection runs in turn 1 before the handoff scan, so no
+episode commit can interleave with the normalization commit. The next
+gate run reads the now-uniform stamps and Phase 1 exits with a
+single-element `STAMPED_SHAS`.
+
+After the commit lands, Detection exits silently and startup
+continues to step 4. The user sees no prompt; the normalization is a
+silent housekeeping step, not a drift signal.
+
+---
+
 ## Skip conditions
 
 The gate skips silently in three cases, all derivable from cheap
