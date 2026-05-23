@@ -413,7 +413,11 @@ When the deferred drift came from the unstamped short-circuit (the
 the todo title carries the unstamped variant verbatim (`Deferred
 workflow drift: unstamped artifacts in active plan, see
 /migrate-workflow`) and neither `<count>` nor `<short-stamp-base-SHA>`
-appear.
+appear. Subject-line recovery via § Detection's Phase 1+2 walk does
+not apply in this variant — Phase 2 ran no `git log` — so the user
+runs `/migrate-workflow` directly when they pick up the deferred
+work; the migration prompts for the unstamped-base SHA and
+enumerates the affected artifacts from there.
 
 The session-end summary appends the title line plus the same
 in-branch `/migrate-workflow` instruction shown in the prompt — see
