@@ -2483,7 +2483,7 @@ public abstract class AbstractStorage
    * engines with out-of-bounds IDs, null entries, or non-{@link BTreeIndexEngine}
    * instances (e.g., if an engine was concurrently dropped, leaving a stale delta).
    */
-  private void persistIndexCountDeltas(AtomicOperation atomicOperation) {
+  public void persistIndexCountDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getIndexCountDeltas();
     if (holder == null) {
       return;
@@ -2508,7 +2508,7 @@ public abstract class AbstractStorage
    * state only. On rollback, the delta holder is discarded with the
    * operation.
    */
-  private void applyIndexCountDeltas(AtomicOperation atomicOperation) {
+  public void applyIndexCountDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getIndexCountDeltas();
     if (holder == null) {
       return;
@@ -2537,7 +2537,7 @@ public abstract class AbstractStorage
    * in-memory CHM cache. Called after {@code endTxCommit()} succeeds so
    * that the cache always reflects committed state only.
    */
-  private void applyHistogramDeltas(AtomicOperation atomicOperation) {
+  public void applyHistogramDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getHistogramDeltas();
     if (holder == null) {
       return;
