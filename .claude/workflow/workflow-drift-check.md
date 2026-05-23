@@ -13,9 +13,9 @@ artifacts, step-file schema. Workflow-format commits land on
 drift.
 
 Detection is one `git log` over the active plan's stamp-derived range
-against HEAD. The branch is a self-contained capsule — workflow-format
+against HEAD. The branch is a self-contained capsule (workflow-format
 commits enter the branch's view only when the user explicitly rebases
-or merges `develop` — so the gate ranges against the branch's own
+or merges `develop`), so the gate ranges against the branch's own
 HEAD and never fetches `develop` independently. The plan dir the
 caller resolved at startup (see `conventions.md` §1.2 and §1.6(g))
 scopes the walk; cross-plan folding is out of scope (D13). Migration
@@ -68,47 +68,85 @@ artifacts contribute neither a stamp nor an unstamped flag.
 Phase 2 (drift-check-specific decision):
 
 ```bash
+# Both arrays empty: no stampable artifacts on disk under the active
+# plan's _workflow/ (a freshly-created plan dir holding only a transient
+# handoff-*.md, or a plan dir cleaned ahead of Phase 4). Silent no-op
+# skip per conventions.md §1.6(h).
+if [ -z "$STAMPED_SHAS" ] && [ -z "$UNSTAMPED_FILES" ]; then
+    DRIFT_DETECTED=0
+    exit 0
+fi
+
 if [ -n "$UNSTAMPED_FILES" ]; then
-    # Any unstamped artifact short-circuits to drift detected — no fold,
+    # Any unstamped artifact short-circuits to drift detected: no fold,
     # no git log. The /migrate-workflow skill's bootstrap prompt (per
     # conventions.md §1.6(d)) will gather a base SHA for the unstamped set.
     DRIFT_DETECTED=1
 else
     # Every artifact in the active plan is stamped. Fold the stamp set
-    # pairwise through git merge-base to derive BASE_SHA — the oldest
+    # pairwise through git merge-base to derive BASE_SHA, the oldest
     # stamp reachable from HEAD (conventions.md §1.6(c)).
     BASE_SHA=""
+    MERGE_BASE_FAILED=""
     for SHA in $STAMPED_SHAS; do
         if [ -z "$BASE_SHA" ]; then
-            BASE_SHA="$SHA"
-        else
-            BASE_SHA="$(git merge-base "$BASE_SHA" "$SHA")"
+            BASE_SHA="$SHA"; continue
         fi
+        NEW_BASE="$(git merge-base "$BASE_SHA" "$SHA" 2>/dev/null)" || NEW_BASE=""
+        if [ -z "$NEW_BASE" ]; then
+            # merge-base failure (a stamp pointing at a git-gc-pruned
+            # commit, or two stamps with no reachable common ancestor in
+            # the local repo). Per conventions.md §1.6(c), route the
+            # failing pair to the unstamped path so the bootstrap prompt
+            # in §1.6(d) covers them in the same user prompt as any
+            # other unstamped artifacts.
+            UNSTAMPED_FILES="$UNSTAMPED_FILES merge-base-failed:$BASE_SHA,$SHA"
+            MERGE_BASE_FAILED=1
+            BASE_SHA=""
+            break
+        fi
+        BASE_SHA="$NEW_BASE"
     done
-    # Range is BASE_SHA..HEAD; comparison is purely against HEAD
-    # (D10 — the branch is a self-contained capsule). Pathspecs use
-    # trailing slashes to make the directory intent explicit and
-    # prevent accidental matches against a same-named file in a
-    # sibling location.
-    git log --reverse --oneline "$BASE_SHA..HEAD" -- .claude/workflow/ .claude/skills/ | head -10
+    if [ -n "$MERGE_BASE_FAILED" ]; then
+        # Short-circuit to drift detected; the bootstrap prompt will
+        # cover the failing pair alongside any pre-existing unstamped
+        # artifacts in one batched user prompt.
+        DRIFT_DETECTED=1
+    else
+        # Range is BASE_SHA..HEAD; comparison is purely against HEAD
+        # (D10: the branch is a self-contained capsule). Pathspecs use
+        # trailing slashes to make the directory intent explicit and
+        # prevent accidental matches against a same-named file in a
+        # sibling location.
+        git log --reverse --oneline "$BASE_SHA..HEAD" -- .claude/workflow/ .claude/skills/ | head -10
+    fi
 fi
 ```
 
-The drift gate sees one of three outcomes:
+The drift gate sees one of five outcomes:
 
-- **Any unstamped artifact** — `DRIFT_DETECTED=1`. The Resolutions
+- **Any unstamped artifact**: `DRIFT_DETECTED=1`. The Resolutions
   prompt runs regardless of whether `git log` would have returned
   commits; the unstamped state is itself the signal that the artifact
   set predates the stamp scheme and must be migrated.
-- **All stamped, non-empty `git log`** — drift detected. The Resolutions
+- **All stamped, non-empty `git log`**: drift detected. The Resolutions
   prompt runs with `BASE_SHA` reported in place of the legacy
   fork-point SHA.
-- **All stamped, empty `git log`** — no drift in the strict sense. When
+- **All stamped, empty `git log`**: no drift in the strict sense. When
   `STAMPED_SHAS` carries more than one distinct SHA, the gate runs the
   no-drift normalization sub-step (§ No-drift normalization below)
   before exiting; when stamps are already uniform, the gate skips
   silently and startup continues to step 4. Any matched condition in
   § Skip conditions takes the same silent path before Phase 1 runs.
+- **No artifacts under `$PLAN_DIR/_workflow/`**: the walk matched
+  nothing (both `STAMPED_SHAS` and `UNSTAMPED_FILES` are empty). Silent
+  skip per `conventions.md` §1.6(h); the gate exits with no drift to
+  report and startup continues to step 4.
+- **`git merge-base` failure during the fold**: any failing pair routes
+  to the unstamped short-circuit per `conventions.md` §1.6(c). The gate
+  signals drift and the bootstrap prompt in §1.6(d) covers the failing
+  set alongside any other unstamped artifacts in one batched user
+  prompt.
 
 **Cross-reference.** The Phase 1 walk above is the byte-source
 shared with `/migrate-workflow`'s Step 2 range computation; both
@@ -143,6 +181,15 @@ commit" in-between state is unreachable under correct invocation. The
 diff-shape guard below is the mechanism: the rewrite is staged, the
 diff is verified against a strict shape, and on any mismatch the
 working tree is restored from `HEAD` before any commit is created.
+
+**Path-quoting assumption.** All paths under `_workflow/**` are
+constrained by convention to fixed-template names
+(`implementation-plan.md`, `design.md`, `design-mechanics.md`,
+`track-<digits>.md`); no path contains shell metacharacters, so
+unquoted expansion of `$STAMPED_FILES` in the bash block below is
+safe. A future change that introduced spaces or shell metacharacters
+in artifact names would require switching to a NUL-delimited path
+list before the unquoted expansions become hazardous.
 
 ```bash
 # Recompute the stamped-artifact path list. The Phase 1 walk in
@@ -192,6 +239,7 @@ fi
 git add -- $STAMPED_FILES
 SHORT_BASE_SHA="$(printf '%s' "$BASE_SHA" | cut -c1-7)"
 git commit -m "Normalize workflow-sha stamps to $SHORT_BASE_SHA"
+exit 0
 ```
 
 **Diff-shape guard rationale.** The two checks are complementary.
@@ -203,7 +251,12 @@ artifact outside the active plan (e.g., a pathspec glob picking up a
 stray file). Either failure mode would land a malformed normalization
 commit; the abort+restore path keeps the working tree at HEAD on
 mismatch and surfaces the failure to the user instead of papering over
-it.
+it. On `exit 1` (diff-shape mismatch), the gate halts the entire
+`/execute-tracks` session with a non-zero exit code; the user
+inspects the unexpected paths or hunks manually and re-invokes after
+resolving them. There is no automatic fallthrough to Resolutions. On
+`exit 0` (success path), Detection exits silently and startup
+continues to step 4.
 
 **Restore-on-mismatch.** `git checkout -- $STAMPED_FILES` rewinds only
 the stamped artifacts because nothing else was touched; the working
@@ -227,11 +280,14 @@ silent housekeeping step, not a drift signal.
 
 ## Skip conditions
 
-The gate skips silently in three cases, all derivable from cheap
-on-disk reads before the detection command runs. All three scope to
-the active plan dir (the `$PLAN_DIR` resolved at startup per
-`conventions.md` §1.6(g) and §1.2); cross-plan folding is out of scope
-(D13). Order matters for fail-fast — check the cheapest first:
+Three silent-skip conditions short-circuit before the prompt fires.
+Skip #1 and Skip #2 evaluate pre-Detection (cheap on-disk reads, no
+`git log` needed); Skip #3 evaluates post-Phase-2 (after the fold
+derives `$BASE_SHA` and Phase 2's `git log` returns its result). All
+three scope to the active plan dir (the `$PLAN_DIR` resolved at
+startup per `conventions.md` §1.6(g) and §1.2); cross-plan folding is
+out of scope (D13). Order matters for fail-fast: check the cheapest
+first:
 
 1. **Active plan's `_workflow/` directory doesn't exist.** Nothing to
    migrate for this plan. Check: `[ -d "$PLAN_DIR/_workflow" ]`.
@@ -290,8 +346,28 @@ Pick one (no default).
 
 Do **not** pick a default. The user must choose one of the three
 resolutions before startup proceeds. Malformed answers (`yes`, `ok`)
-trigger a re-prompt using the same shape — same contract as the
-Branch Divergence Check.
+trigger a re-prompt using the same shape. The retry is bounded at
+three attempts per the policy in `conventions.md` §1.6(d); after
+three malformed answers the gate halts and the user `/clear`s the
+session.
+
+**Unstamped short-circuit rendering.** When `$UNSTAMPED_FILES` is
+non-empty (the unstamped path or a `git merge-base` failure routed
+there per `conventions.md` §1.6(c)), Phase 2 runs no `git log` and
+neither `$BASE_SHA` nor the commit count is derived. The Resolutions
+prompt substitutes:
+
+- The commit-count line becomes: `One or more workflow artifacts in
+  the active plan are unstamped: the /migrate-workflow bootstrap
+  prompt will gather a base SHA.`
+- The "First commits" block is replaced with `<no commit list:
+  artifacts are unstamped>`.
+- The Defer todo title becomes `Deferred workflow drift: unstamped
+  artifacts in active plan, see /migrate-workflow`.
+
+The three sub-sections below (Migrate now / Defer / Suppress) read
+these substitutions verbatim; the Defer state-shape paragraph in
+particular points at the same rule.
 
 ### Migrate now
 
@@ -323,12 +399,21 @@ proceeds normally.
 State shape: a TaskCreate todo titled `Deferred workflow drift:
 <count> commits since <short-stamp-base-SHA>`, where `<count>` is the
 full commit range total and `<short-stamp-base-SHA>` is the seven-
-character abbreviation of `$BASE_SHA`. Subject lines are omitted —
-the user re-runs the detection bash for full context. The session-end
-summary reads the todo title verbatim. If TaskCreate is unavailable,
-hold the same two fields in in-context memory and recite the same
-line shape; the todo is preferred because in-context memory is
-unreliable across long sessions.
+character abbreviation of `$BASE_SHA`. Subject lines are omitted; the
+user re-runs § Detection's Phase 1 walk plus the Phase 2 `git log` to
+recover subject lines (the variables `$PLAN_DIR`, `$STAMPED_SHAS`,
+and `$BASE_SHA` come from those phases). The session-end summary
+reads the todo title verbatim. If TaskCreate is unavailable, hold the
+same two fields in in-context memory and recite the same line shape;
+the todo is preferred because in-context memory is unreliable across
+long sessions.
+
+When the deferred drift came from the unstamped short-circuit (the
+§ Resolutions § Unstamped short-circuit rendering paragraph above),
+the todo title carries the unstamped variant verbatim (`Deferred
+workflow drift: unstamped artifacts in active plan, see
+/migrate-workflow`) and neither `<count>` nor `<short-stamp-base-SHA>`
+appear.
 
 The session-end summary appends the title line plus the same
 in-branch `/migrate-workflow` instruction shown in the prompt — see
@@ -360,8 +445,10 @@ the unchanged on-disk shape of `_workflow/**`.
 
 **Remote-authoritative re-entry — forward-looking note.** A
 `git reset --hard origin/<branch>` from the divergence gate's
-Remote-authoritative resolution shifts the fork point and therefore
-the drift detection range. The divergence gate currently routes
+Remote-authoritative resolution shifts the fork point that the
+divergence gate computes, and the post-reset HEAD also moves the
+drift detection range (`$BASE_SHA..HEAD`) since both endpoints can
+change. The divergence gate currently routes
 post-reset only to workflow.md § Startup Protocol step 3, not back
 into this gate (step 3a); the re-entry contract is one-sided. Until
 that gap closes, an orchestrator resolving Remote-authoritative

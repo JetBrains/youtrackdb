@@ -416,15 +416,15 @@ work when context consumption is at `warning` level or above.
 - **Report deferred workflow drift.** If the Workflow Drift Check
   (see `workflow-drift-check.md`) recorded a Defer resolution in
   this session, read the `Deferred workflow drift: <count> commits
-  since <short-fork-SHA>` TaskCreate todo (or, if TaskCreate was
-  unavailable, the same two fields held in in-context conversation
-  memory) and recite the title verbatim, followed by an instruction
-  to switch to a `develop` worktree (e.g., `cd ../develop`) and run
-  `/migrate-workflow <branch>` there. The todo carries only the count
-  and the short fork SHA — no subject lines; the user can re-run the
-  detection bash for full context. Suppress and Migrate now leave no
-  residue; the marker lives in conversation memory (or the todo, if
-  one was created) and is discarded when the session ends.
+  since <short-stamp-base-SHA>` TaskCreate todo (or, if TaskCreate
+  was unavailable, the same two fields held in in-context
+  conversation memory) and recite the title verbatim, followed by an
+  instruction to run `/migrate-workflow` from this worktree. The
+  todo carries only the count and the short stamp-base SHA — no
+  subject lines; the user can re-run § Detection's Phase 1 walk plus
+  the Phase 2 `git log` for full context. Suppress and Migrate now
+  leave no residue; the marker lives in conversation memory (or the
+  todo, if one was created) and is discarded when the session ends.
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
