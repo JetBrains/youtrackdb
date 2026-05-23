@@ -281,10 +281,11 @@ public class AtomicOperationsManager {
         //
         // Failure handling: capture RuntimeException | AssertionError into
         // the local currentError slot, mark the storage in error mode
-        // (subject to the AssertionError guard at AbstractStorage.setInError
-        // lines 1769–1771, which deliberately skips the error-state flip
-        // for asserts so a stray dev/test invariant violation does not
-        // poison the storage), and flip the operation to rollback so the
+        // (subject to the AssertionError skip-branch in
+        // AbstractStorage.setInError, which deliberately skips the
+        // error-state flip for asserts so a stray dev/test invariant
+        // violation does not poison the storage), and flip the operation to
+        // rollback so the
         // subsequent commitChanges call is skipped. The captured throwable
         // is re-raised after the inner releaseLocks below to keep the lock
         // window correctness story intact (releaseLocks must run before the
@@ -355,6 +356,16 @@ public class AtomicOperationsManager {
       // RuntimeException short-circuits as-is so existing error-type
       // contracts (e.g. ConcurrentModificationException) survive intact.
       if (currentError != null && currentError != error) {
+        // currentError != error is true only when Hook A's catch above
+        // overwrote the slot, since Hook A is the only mutator inside this
+        // method. The bounded catch above narrows persistFailure to
+        // RuntimeException | AssertionError, so currentError here must be
+        // one of those; a future broadening of Hook A's catch that did
+        // not update this dispatch would be caught by the assert below.
+        assert currentError instanceof RuntimeException
+            || currentError instanceof AssertionError
+            : "Hook A inner-catch must yield RuntimeException | AssertionError, got "
+                + currentError.getClass().getName();
         if (currentError instanceof RuntimeException re) {
           throw re;
         }

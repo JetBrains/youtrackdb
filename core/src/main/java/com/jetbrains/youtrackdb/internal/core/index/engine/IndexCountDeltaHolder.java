@@ -51,6 +51,11 @@ public final class IndexCountDeltaHolder {
    * transaction. The latch is also a defensive belt against any future path
    * that re-enters persist within the same atomic operation.
    */
+  // Thread-confinement note: plain boolean because the holder lives on a
+  // single AtomicOperation, driven by exactly one thread between
+  // startAtomicOperation and endAtomicOperation. If a future path persists
+  // from a different thread, this field must become volatile or move behind
+  // a synchronizer.
   private boolean persisted = false;
 
   /**

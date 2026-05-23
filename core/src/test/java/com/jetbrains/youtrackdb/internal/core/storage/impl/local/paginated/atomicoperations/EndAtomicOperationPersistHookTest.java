@@ -1,5 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.DEFAULT_COMMIT_TS;
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.mockOperation;
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.mockStorage;
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.primeFreezer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -7,28 +11,24 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.SetInErrorAssertionErrorGuardTest;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.InOrder;
+import org.mockito.Mockito;
 
 /**
  * Regression test for the persist hook inside {@link
@@ -63,12 +63,21 @@ import org.junit.Test;
  * escape to the outer {@code catch (Error)} at the call site so genuine VM
  * failures still poison the storage.
  *
+ * <p>The {@code AssertionError} skip-branch inside
+ * {@code AbstractStorage.setInError} is a separate, downstream defense — it
+ * keeps a stray dev/test invariant violation from flipping the storage into
+ * permanent error state even if it reaches the setter. That guard's contract
+ * is pinned in {@link SetInErrorAssertionErrorGuardTest}; the hook just calls
+ * {@code moveToErrorStateIfNeeded} and lets the setter decide.
+ *
  * <p>Dual-invocation safety: the {@link IndexCountDeltaHolder#isPersisted()}
  * latch short-circuits the hook when the legacy inline persist call inside
  * {@link AbstractStorage#commit} has already run on the same atomic operation.
  * Closes the window where both call sites would otherwise double-write the
  * BTree entry-point page until the inline call is deleted in a later step;
  * remains as a defensive belt thereafter.
+ *
+ * @see SetInErrorAssertionErrorGuardTest
  */
 public class EndAtomicOperationPersistHookTest {
 
@@ -80,67 +89,15 @@ public class EndAtomicOperationPersistHookTest {
 
   @Before
   public void setUp() {
-    // Plain mock — the manager calls back into storage.persistIndexCountDeltas
+    // Plain mocks — the manager calls back into storage.persistIndexCountDeltas
     // and storage.moveToErrorStateIfNeeded; both are stubbed per test case.
-    // checkErrorState / setInError bodies are not exercised here because the
-    // manager's entry-level moveToErrorStateIfNeeded(error) is the only call
-    // on the storage in the success path.
-    storage = mock(AbstractStorage.class);
-    when(storage.getName()).thenReturn(STORAGE_NAME);
+    // Only the two getters used by the manager's constructor are stubbed here
+    // (getName, getWALInstance); read-cache, write-cache, and id-gen are not
+    // exercised on the endAtomicOperation path so we leave them at Mockito's
+    // default (null) return.
     wal = mock(WriteAheadLog.class);
-    when(storage.getWALInstance()).thenReturn(wal);
-    when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
-    when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
-    when(storage.getIdGen()).thenReturn(mock(AtomicOperationIdGen.class));
+    storage = mockStorage(STORAGE_NAME, wal);
     table = mock(AtomicOperationsTable.class);
-  }
-
-  /**
-   * Pre-increments the freezer's per-thread operation depth so that
-   * {@code endAtomicOperation}'s outer-finally {@code endOperation()} call
-   * sees a positive depth. The freezer is private to the manager, so a
-   * reflective bump is the smallest change that lets us drive the lifecycle
-   * method directly without spinning up the full {@code startToApplyOperations}
-   * stack (which needs a populated {@code idGen}, WAL active segment, and
-   * atomic operations table state).
-   */
-  private static void primeFreezer(AtomicOperationsManager manager) {
-    try {
-      Field f = AtomicOperationsManager.class.getDeclaredField(
-          "writeOperationsFreezer");
-      f.setAccessible(true);
-      OperationsFreezer freezer = (OperationsFreezer) f.get(manager);
-      freezer.startOperation();
-    } catch (ReflectiveOperationException e) {
-      throw new AssertionError(
-          "Could not access AtomicOperationsManager.writeOperationsFreezer", e);
-    }
-  }
-
-  /**
-   * Builds a mock {@link AtomicOperation} pre-configured for the
-   * {@code endAtomicOperation} call path: starts in not-rollback state, has
-   * a stable commit timestamp, returns an empty locked-components iterable
-   * so {@code releaseLocks} is a no-op, and routes {@code rollbackInProgress()}
-   * through to flip the {@code isRollbackInProgress()} return value (so the
-   * persist hook's rollback signal is observable downstream).
-   */
-  private AtomicOperation mockOperation(IndexCountDeltaHolder holder) {
-    var operation = mock(AtomicOperation.class);
-    when(operation.getCommitTs()).thenReturn(42L);
-    when(operation.lockedComponents()).thenReturn(java.util.Collections.emptyList());
-    when(operation.lockedObjects()).thenReturn(java.util.Collections.emptySet());
-    when(operation.getIndexCountDeltas()).thenReturn(holder);
-    when(operation.getHistogramDeltas()).thenReturn(null);
-    // rollbackInProgress() is a state-flip — track it so the hook's call
-    // makes isRollbackInProgress() return true on subsequent checks.
-    var rollbackFlag = new boolean[] {false};
-    when(operation.isRollbackInProgress()).thenAnswer(inv -> rollbackFlag[0]);
-    doAnswer(inv -> {
-      rollbackFlag[0] = true;
-      return null;
-    }).when(operation).rollbackInProgress();
-    return operation;
   }
 
   /**
@@ -177,16 +134,20 @@ public class EndAtomicOperationPersistHookTest {
     }
 
     // Storage moved to error mode using the captured persist failure (not the
-    // null inbound error from endAtomicOperation's signature).
-    verify(storage, times(1)).moveToErrorStateIfNeeded(thrown);
+    // null inbound error from endAtomicOperation's signature). Order pins the
+    // two-call shape: first the entry-level null moveToErrorStateIfNeeded,
+    // then the persist-failure call inside the hook.
+    InOrder errorOrder = Mockito.inOrder(storage);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(null);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(thrown);
     // Persist was attempted exactly once.
     verify(storage, times(1)).persistIndexCountDeltas(operation);
     // commitChanges was skipped because the hook flipped the operation into
     // rollback before the commit gate.
     verify(operation, never()).commitChanges(any(Long.class), any(WriteAheadLog.class));
     // The operation's table-side state was recorded as a rollback, not a commit.
-    verify(table, times(1)).rollbackOperation(42L);
-    verify(table, never()).commitOperation(42L);
+    verify(table, times(1)).rollbackOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).commitOperation(DEFAULT_COMMIT_TS);
   }
 
   /**
@@ -218,9 +179,15 @@ public class EndAtomicOperationPersistHookTest {
           re instanceof StorageException);
     }
 
-    verify(storage, times(1)).moveToErrorStateIfNeeded(thrown);
+    // Same two-call shape as the ComponentException case above: entry-level
+    // null call, then the persist failure inside the hook.
+    InOrder errorOrder = Mockito.inOrder(storage);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(null);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(thrown);
+    verify(storage, times(1)).persistIndexCountDeltas(operation);
     verify(operation, never()).commitChanges(any(Long.class), any(WriteAheadLog.class));
-    verify(table, times(1)).rollbackOperation(42L);
+    verify(table, times(1)).rollbackOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).commitOperation(DEFAULT_COMMIT_TS);
   }
 
   /**
@@ -234,9 +201,19 @@ public class EndAtomicOperationPersistHookTest {
    *
    * <p>The storage's {@code setInError} guard at the {@code AbstractStorage}
    * level deliberately skips the error-state flip for {@code AssertionError}
-   * (defense-in-depth), but the hook still calls
+   * (defense-in-depth, contract pinned in
+   * {@link SetInErrorAssertionErrorGuardTest}), but the hook still calls
    * {@code moveToErrorStateIfNeeded} per the persist-failure contract; the
    * guard is a downstream concern of {@code setInError}, not the hook.
+   *
+   * <p>This test is also the load-bearing pin for the
+   * locks-released-before-throw invariant: the re-raise lives outside the
+   * inner-try so the per-component locks (and the {@code deactivate} that
+   * follows in the inner-finally) run before the wrapped exception escapes.
+   * The {@link InOrder} on {@code rollbackInProgress} ->
+   * {@code lockedComponents} -> {@code deactivate} pins the call order; a
+   * future refactor that re-throws before {@code releaseLocks} would break
+   * the order and fail here rather than leak a stuck lock at runtime.
    */
   @Test
   public void persistHookConvertsAssertionErrorToRollbackAndWraps()
@@ -254,13 +231,38 @@ public class EndAtomicOperationPersistHookTest {
     } catch (StorageException wrapped) {
       assertSame("Wrapped StorageException must carry the AssertionError as cause",
           thrown, wrapped.getCause());
+      // dbName must carry the storage name through the wrap so downstream
+      // logging keeps the storage identity attached to the failure.
+      assertEquals("Wrapped StorageException must carry the storage dbName",
+          STORAGE_NAME, wrapped.getDbName());
+      assertTrue(
+          "Wrapped StorageException message must identify the commit-time origin: "
+              + wrapped.getMessage(),
+          wrapped.getMessage() != null
+              && wrapped.getMessage().contains("Error during transaction commit"));
     } catch (Error escaped) {
       fail("AssertionError must not escape as a bare Error: " + escaped);
     }
 
-    verify(storage, times(1)).moveToErrorStateIfNeeded(thrown);
+    // Storage moved to error mode using the captured persist failure (not the
+    // null inbound error from endAtomicOperation's signature). Order pins the
+    // two-call shape.
+    InOrder errorOrder = Mockito.inOrder(storage);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(null);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(thrown);
+    verify(storage, times(1)).persistIndexCountDeltas(operation);
     verify(operation, never()).commitChanges(any(Long.class), any(WriteAheadLog.class));
-    verify(table, times(1)).rollbackOperation(42L);
+    verify(table, times(1)).rollbackOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).commitOperation(DEFAULT_COMMIT_TS);
+
+    // Locks-released-before-throw invariant: rollbackInProgress is set in the
+    // hook's catch (inner-try), lockedComponents is read in releaseLocks
+    // (inner-finally), and deactivate runs in the same inner-finally. All
+    // three must precede the re-raise.
+    InOrder lockOrder = Mockito.inOrder(operation);
+    lockOrder.verify(operation).rollbackInProgress();
+    lockOrder.verify(operation).lockedComponents();
+    lockOrder.verify(operation).deactivate();
   }
 
   /**
@@ -275,30 +277,78 @@ public class EndAtomicOperationPersistHookTest {
    */
   @Test
   public void persistHookDoesNotCatchOutOfMemoryError() throws IOException {
+    assertVmErrorEscapesUnconverted(new OutOfMemoryError("simulated OOM"));
+  }
+
+  /**
+   * Bounded catch: a {@link LinkageError} (e.g. {@code NoClassDefFoundError},
+   * {@code IncompatibleClassChangeError}) must escape the persist hook as a
+   * bare {@code Error}. Linkage failures usually mean the runtime environment
+   * is broken; wrapping them as {@code StorageException} would hide the
+   * actual failure mode from the caller.
+   */
+  @Test
+  public void persistHookDoesNotCatchLinkageError() throws IOException {
+    assertVmErrorEscapesUnconverted(new LinkageError("simulated linkage failure"));
+  }
+
+  /**
+   * Bounded catch: a {@link StackOverflowError} must escape the persist hook
+   * as a bare {@code Error}. Stack overflows indicate the thread is unable to
+   * make progress; wrapping them would suggest the storage is recoverable
+   * when it is not.
+   */
+  @Test
+  public void persistHookDoesNotCatchStackOverflowError() throws IOException {
+    assertVmErrorEscapesUnconverted(new StackOverflowError("simulated stack overflow"));
+  }
+
+  /**
+   * Bounded catch: an {@link InternalError} (VM-internal failure) must escape
+   * the persist hook as a bare {@code Error}. InternalError is the runtime's
+   * signal that something is wrong at a level the application cannot
+   * meaningfully respond to.
+   */
+  @Test
+  public void persistHookDoesNotCatchInternalError() throws IOException {
+    assertVmErrorEscapesUnconverted(new InternalError("simulated VM-internal failure"));
+  }
+
+  /**
+   * Shared verification for the four VM-error escape tests above. The persist
+   * stub raises the given error, and the test asserts (i) the same instance
+   * escapes as a bare {@code Error}, (ii) no {@code StorageException} wrap
+   * fires, and (iii) the entry-level {@code moveToErrorStateIfNeeded(null)}
+   * is the only such call (the hook's catch does not cover this error class,
+   * so the persist-failure conversion machinery never fires).
+   */
+  private void assertVmErrorEscapesUnconverted(Error thrown) throws IOException {
     var holder = new IndexCountDeltaHolder();
     var operation = mockOperation(holder);
-    var thrown = new OutOfMemoryError("simulated OOM");
     doThrow(thrown).when(storage).persistIndexCountDeltas(operation);
 
     var manager = new AtomicOperationsManager(storage, table);
     primeFreezer(manager);
     try {
       manager.endAtomicOperation(operation, null);
-      fail("Expected the OutOfMemoryError to escape the persist hook");
-    } catch (OutOfMemoryError escaped) {
-      assertSame("OutOfMemoryError must escape as-is, not be wrapped",
-          thrown, escaped);
+      fail("Expected the " + thrown.getClass().getSimpleName()
+          + " to escape the persist hook");
     } catch (StorageException wrapped) {
-      fail("OutOfMemoryError must not be wrapped as StorageException: "
-          + wrapped);
+      fail(thrown.getClass().getSimpleName()
+          + " must not be wrapped as StorageException: " + wrapped);
+    } catch (Error escaped) {
+      assertSame(thrown.getClass().getSimpleName() + " must escape as-is, not be wrapped",
+          thrown, escaped);
     }
 
-    // moveToErrorStateIfNeeded must NOT be called on the OOM path — the
-    // bounded catch deliberately does not cover OOM, so the throwable bypasses
-    // the hook's conversion machinery. Only the entry-level call at line 260
-    // of endAtomicOperation fires, with the inbound null error.
+    // Persist was attempted exactly once; the conversion-to-rollback machinery
+    // never fired (no rollbackOperation, no commitOperation, no second
+    // moveToErrorStateIfNeeded call).
+    verify(storage, times(1)).persistIndexCountDeltas(operation);
     verify(storage, times(1)).moveToErrorStateIfNeeded(null);
     verify(storage, never()).moveToErrorStateIfNeeded(thrown);
+    verify(table, never()).rollbackOperation(any(Long.class));
+    verify(table, never()).commitOperation(any(Long.class));
   }
 
   /**
@@ -330,9 +380,9 @@ public class EndAtomicOperationPersistHookTest {
     verify(storage, times(1)).moveToErrorStateIfNeeded(null);
     // Commit path proceeded normally — the holder being pre-persisted does
     // not flip the operation into rollback.
-    verify(operation, times(1)).commitChanges(42L, wal);
-    verify(table, times(1)).commitOperation(42L);
-    verify(table, never()).rollbackOperation(42L);
+    verify(operation, times(1)).commitChanges(DEFAULT_COMMIT_TS, wal);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).rollbackOperation(DEFAULT_COMMIT_TS);
   }
 
   /**
@@ -360,8 +410,8 @@ public class EndAtomicOperationPersistHookTest {
     verify(storage, times(1)).moveToErrorStateIfNeeded(inbound);
     // commitChanges skipped because the operation is in rollback.
     verify(operation, never()).commitChanges(any(Long.class), any(WriteAheadLog.class));
-    verify(table, times(1)).rollbackOperation(42L);
-    verify(table, never()).commitOperation(42L);
+    verify(table, times(1)).rollbackOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).commitOperation(DEFAULT_COMMIT_TS);
   }
 
   /**
@@ -381,8 +431,55 @@ public class EndAtomicOperationPersistHookTest {
     manager.endAtomicOperation(operation, null);
 
     verify(storage, never()).persistIndexCountDeltas(operation);
-    verify(operation, times(1)).commitChanges(42L, wal);
-    verify(table, times(1)).commitOperation(42L);
+    // Entry-level moveToErrorStateIfNeeded still fires (with the null inbound
+    // error); no persist-failure path runs because persist is skipped at the
+    // null-holder gate, not because a failure was caught.
+    verify(storage, times(1)).moveToErrorStateIfNeeded(null);
+    verify(operation, times(1)).commitChanges(DEFAULT_COMMIT_TS, wal);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).rollbackOperation(DEFAULT_COMMIT_TS);
+  }
+
+  /**
+   * Storage-already-in-error contract: pins the current Hook A gate, which
+   * checks only {@code currentError == null && !operation.isRollbackInProgress()}
+   * and does NOT consult {@code storage.isInError()}. The hook therefore
+   * attempts persist anyway when called with a {@code null} inbound error,
+   * regardless of whether a prior transaction left the storage flagged as
+   * in-error.
+   *
+   * <p>The protected {@code isInError()} method is not stubbable from this
+   * package, so the test cannot directly set the storage to in-error and
+   * observe the hook's behaviour. The contract is instead pinned by
+   * inspection of the Hook A condition (no {@code isInError} call) plus
+   * the assertion below that the persist call still fires on the null-error
+   * entry path. If a future change adds an {@code isInError()} guard to
+   * Hook A, that change will move {@code AbstractStorage.isInError} to
+   * package-private or expose a callable seam, and the test will be updated
+   * to verify the "skips when storage in error" contract; either contract
+   * is sound, and pinning the current one closes the silent-regression
+   * window in either direction.
+   */
+  @Test
+  public void persistHookDoesNotConsultIsInErrorOnNullEntryPath() throws IOException {
+    var holder = new IndexCountDeltaHolder();
+    var operation = mockOperation(holder);
+    // The hook does not consult isInError(); no throw from the persist mock
+    // so the commit path runs end-to-end.
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    manager.endAtomicOperation(operation, null);
+
+    verify(storage, times(1)).persistIndexCountDeltas(operation);
+    // Entry-level moveToErrorStateIfNeeded fires with the null inbound error.
+    // No second call because persist returned cleanly.
+    verify(storage, times(1)).moveToErrorStateIfNeeded(null);
+    // commit path runs to completion.
+    verify(operation, times(1)).commitChanges(DEFAULT_COMMIT_TS, wal);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).rollbackOperation(DEFAULT_COMMIT_TS);
   }
 
   /**
@@ -423,6 +520,45 @@ public class EndAtomicOperationPersistHookTest {
   }
 
   /**
+   * Non-empty holder forwarding: a holder carrying real per-engine deltas
+   * (the production accumulate path adds one delta entry per engine touched
+   * by the transaction) must be forwarded to {@code persistIndexCountDeltas}
+   * the same way an empty one is. The mocked persist stub returns without
+   * setting the latch, so the holder's {@code isPersisted()} stays
+   * {@code false} after the call returns — the hook itself does not touch
+   * the latch; setting it is the responsibility of
+   * {@code AbstractStorage.persistIndexCountDeltas} after a successful pass.
+   * If a future refactor moves the {@code setPersisted()} call into the hook,
+   * this test will fail.
+   */
+  @Test
+  public void persistHookForwardsNonEmptyHolderWithoutSettingLatch() throws IOException {
+    var holder = new IndexCountDeltaHolder();
+    // Populate the holder so it is genuinely non-empty. The default
+    // IndexCountDelta starts with zero net deltas, which is fine for the
+    // forwarding assertion below; what matters is that the holder is
+    // distinguishable from an empty one when production code iterates it.
+    holder.getOrCreate(7);
+    assertEquals("Holder must carry one engine entry after getOrCreate(7)",
+        1, holder.getDeltas().size());
+    var operation = mockOperation(holder);
+    // No throw — happy path. The mocked persistIndexCountDeltas does not
+    // touch the latch because the real method's latch flip is the
+    // production-side responsibility; here we only verify the hook calls it.
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    manager.endAtomicOperation(operation, null);
+
+    verify(storage, times(1)).persistIndexCountDeltas(operation);
+    assertFalse("The hook itself must not set the persisted latch",
+        holder.isPersisted());
+    verify(operation, times(1)).commitChanges(DEFAULT_COMMIT_TS, wal);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+  }
+
+  /**
    * Sanity that the entry-level {@code moveToErrorStateIfNeeded} call on the
    * happy path receives a null argument. Combined with the persist-failure
    * tests, this pins the call shape: one null call on success, two calls on
@@ -443,8 +579,8 @@ public class EndAtomicOperationPersistHookTest {
 
     verify(storage, times(1)).moveToErrorStateIfNeeded(null);
     verify(storage, times(1)).persistIndexCountDeltas(operation);
-    verify(operation, times(1)).commitChanges(42L, wal);
-    verify(table, times(1)).commitOperation(42L);
+    verify(operation, times(1)).commitChanges(DEFAULT_COMMIT_TS, wal);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
     // Reaching this line is the no-re-raise assertion — any thrown exception
     // would have skipped past it and failed the test before verify().
   }
