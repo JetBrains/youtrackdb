@@ -12,62 +12,116 @@ artifacts, step-file schema. Workflow-format commits land on
 `develop` while the branch runs, and the branch's artifacts silently
 drift.
 
-Detection is one `git log` against the post-fetch `origin/develop`
-tip. The Branch Divergence Check's `git fetch` targets the branch's
-upstream (typically `origin/<branch>`), not `develop`, so this gate
-fetches `origin develop` independently before the `git log`. The
-fetch updates `refs/remotes/origin/develop` rather than the local
-`refs/heads/develop`, so every command after the fetch reads
-`origin/develop` to ensure the comparison is against the post-fetch
-state, not a stale local branch. Migration itself stays in the
-`/migrate-workflow` skill — the gate detects and gates, the skill
-replays. The skill assumes a fresh session, so the Migrate now
-resolution ends this session and asks the user to re-invoke from a
-`develop` worktree.
+Detection is one `git log` over the active plan's stamp-derived range
+against HEAD. The branch is a self-contained capsule — workflow-format
+commits enter the branch's view only when the user explicitly rebases
+or merges `develop` — so the gate ranges against the branch's own
+HEAD and never fetches `develop` independently. The plan dir the
+caller resolved at startup (see `conventions.md` §1.2 and §1.6(g))
+scopes the walk; cross-plan folding is out of scope (D13). Migration
+itself stays in the `/migrate-workflow` skill — the gate detects and
+gates, the skill replays. The skill assumes a fresh session, so the
+Migrate now resolution ends this session and asks the user to
+re-invoke `/migrate-workflow` from this worktree.
 
 ---
 
 ## Detection
 
-Run, in order:
+The Detection bash has two phases. **Phase 1** walks the active plan's
+`_workflow/**` artifacts and classifies each as stamped or unstamped
+(byte-copied from `conventions.md` §1.6(h) so the drift check and the
+migration agree on what "drift" means). **Phase 2** is caller-specific:
+the drift check signals drift unconditionally when any artifact is
+unstamped (no fold, no `git log`); when every artifact is stamped, the
+gate folds the stamp set pairwise through `git merge-base` to derive
+`BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths.
+
+The Phase 1 walk block, byte-for-byte from `conventions.md` §1.6(h):
 
 ```bash
-# Duplicate fetch: the Branch Divergence Check fetched the branch's
-# upstream (typically origin/<branch>), not develop. Tolerate failure
-# silently for offline / no-remote cases, mirroring the divergence
-# check's offline-tolerance pattern. The fetch updates origin/develop
-# (and FETCH_HEAD), not the local develop branch.
-git fetch origin develop 2>/dev/null || true
-# Verify the post-fetch tip exists. origin/develop is the canonical
-# ref used by every command below; if the user has never fetched
-# develop (bare repository, brand-new clone, develop never tracked)
-# the gate skips silently.
-git rev-parse --verify origin/develop >/dev/null 2>&1 || exit
-FORK="$(git merge-base origin/develop HEAD)"
-# merge-base returns empty when HEAD and origin/develop share no
-# common ancestor — a degenerate state where drift detection is
-# meaningless; skip silently.
-test -n "$FORK" || exit
-git log --reverse --oneline "$FORK..origin/develop" -- .claude/workflow/ .claude/skills/ | head -10
+PLAN_DIR="docs/adr/<resolved-dir-name>"
+STAMPED_SHAS=""
+UNSTAMPED_FILES=""
+# design-mechanics.md is optional; absent until the length trigger fires.
+# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+# yet present on disk, so missing files do not abort the walk.
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+    if [ -n "$SHA" ]; then
+        STAMPED_SHAS="$STAMPED_SHAS $SHA"
+    else
+        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+    fi
+done
 ```
 
-The verify command short-circuits when `origin/develop` is missing
-(no fetch ever ran, bare repository, detached checkout without a
-tracked develop). Using `origin/develop` rather than the local
-`develop` ref means the gate works even on contributors who never
-created a local `develop` branch and guarantees the comparison uses
-the post-fetch state. Pathspecs `.claude/workflow/` and
-`.claude/skills/` go to `git log` after `--`; the trailing slashes
-make the directory intent explicit and prevent accidental matches
-against a same-named file in a sibling location. `--reverse … |
-head -10` produces the oldest-first top-ten directly; run a separate
-`git log --oneline "$FORK..origin/develop" -- … | wc -l` to count
-the full range when the prompt also needs the total.
+The `<resolved-dir-name>` placeholder is the active plan dir the caller
+resolved at startup per `conventions.md` §1.6(g). The walk silently
+skips artifacts not yet on disk (`design-mechanics.md` before the
+length trigger, any `track-*.md` not yet created), so absent optional
+artifacts contribute neither a stamp nor an unstamped flag.
 
-The branch has drift iff the `git log` output is non-empty. Empty
-output skips the gate silently and startup continues to step 4.
-Any matched condition in § Skip conditions takes the same silent
-path before the detection command runs.
+Phase 2 (drift-check-specific decision):
+
+```bash
+if [ -n "$UNSTAMPED_FILES" ]; then
+    # Any unstamped artifact short-circuits to drift detected — no fold,
+    # no git log. The /migrate-workflow skill's bootstrap prompt (per
+    # conventions.md §1.6(d)) will gather a base SHA for the unstamped set.
+    DRIFT_DETECTED=1
+else
+    # Every artifact in the active plan is stamped. Fold the stamp set
+    # pairwise through git merge-base to derive BASE_SHA — the oldest
+    # stamp reachable from HEAD (conventions.md §1.6(c)).
+    BASE_SHA=""
+    for SHA in $STAMPED_SHAS; do
+        if [ -z "$BASE_SHA" ]; then
+            BASE_SHA="$SHA"
+        else
+            BASE_SHA="$(git merge-base "$BASE_SHA" "$SHA")"
+        fi
+    done
+    # Range is BASE_SHA..HEAD; comparison is purely against HEAD
+    # (D10 — the branch is a self-contained capsule). Pathspecs use
+    # trailing slashes to make the directory intent explicit and
+    # prevent accidental matches against a same-named file in a
+    # sibling location.
+    git log --reverse --oneline "$BASE_SHA..HEAD" -- .claude/workflow/ .claude/skills/ | head -10
+fi
+```
+
+The drift gate sees one of three outcomes:
+
+- **Any unstamped artifact** — `DRIFT_DETECTED=1`. The Resolutions
+  prompt runs regardless of whether `git log` would have returned
+  commits; the unstamped state is itself the signal that the artifact
+  set predates the stamp scheme and must be migrated.
+- **All stamped, non-empty `git log`** — drift detected. The Resolutions
+  prompt runs with `BASE_SHA` reported in place of the legacy
+  fork-point SHA.
+- **All stamped, empty `git log`** — no drift in the strict sense. When
+  `STAMPED_SHAS` carries more than one distinct SHA, the gate runs the
+  no-drift normalization sub-step (§ No-drift normalization below)
+  before exiting; when stamps are already uniform, the gate skips
+  silently and startup continues to step 4. Any matched condition in
+  § Skip conditions takes the same silent path before Phase 1 runs.
+
+**Cross-reference.** The Phase 1 walk above is the byte-source
+shared with `/migrate-workflow`'s Step 2 range computation; both
+files must remain text-identical. The range definition
+(`BASE_SHA..HEAD`, pairwise fold via `git merge-base`, merge-base-
+failure recovery), the canonical parser regex (`workflow-sha:`
+anchor plus `[0-9a-f]{40}` extraction), and the active-plan scope
+rule live in `conventions.md` §1.6(c), §1.6(h), and §1.6(a1)
+respectively. The `design.md` §"Stamp range computation" narrative
+is a soft reference for context but is not the byte-source for the
+bash block above — its walk uses an unanchored `[0-9a-f]{40}` regex
+that `conventions.md` §1.6(a1) explicitly rejects (false-positives
+on H1 lines containing a 40-hex run).
 
 ---
 
