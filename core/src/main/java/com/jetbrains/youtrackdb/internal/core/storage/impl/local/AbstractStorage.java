@@ -2499,6 +2499,12 @@ public abstract class AbstractStorage
         }
       }
     }
+    // Latch the holder so the lifecycle persist hook in
+    // AtomicOperationsManager.endAtomicOperation short-circuits the second
+    // pass on the same atomic operation. Closes the dual-invocation window
+    // between the inline call at commit() and the new lifecycle hook; the
+    // latch is defensive after the inline call is deleted in a later step.
+    holder.setPersisted();
   }
 
   /**

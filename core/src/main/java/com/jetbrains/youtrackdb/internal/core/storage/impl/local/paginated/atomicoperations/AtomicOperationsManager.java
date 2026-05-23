@@ -256,14 +256,65 @@ public class AtomicOperationsManager {
    */
   public void endAtomicOperation(@Nonnull final AtomicOperation operation, final Throwable error)
       throws IOException {
+    // Local mutable copy of the inbound error: Hook A below may capture a
+    // persist failure into this slot and convert the commit into a rollback,
+    // so the parameter cannot stay final downstream.
+    Throwable currentError = error;
     try {
-      storage.moveToErrorStateIfNeeded(error);
+      storage.moveToErrorStateIfNeeded(currentError);
 
-      if (error != null) {
+      if (currentError != null) {
         operation.rollbackInProgress();
       }
 
       try {
+        // Hook A — persist accumulated index count deltas to BTree entry
+        // point pages before WAL commit. Runs only on the success path
+        // (no inbound error, not already rolling back). The isPersisted()
+        // guard short-circuits the second pass when the legacy inline call
+        // inside AbstractStorage.commit has already persisted; the latch
+        // is set at the end of AbstractStorage.persistIndexCountDeltas and
+        // closes the dual-invocation window until the inline call is
+        // deleted in a later step. After deletion the latch remains as a
+        // defensive belt against any future re-entry into persist on the
+        // same atomic operation.
+        //
+        // Failure handling: capture RuntimeException | AssertionError into
+        // the local currentError slot, mark the storage in error mode
+        // (subject to the AssertionError guard at AbstractStorage.setInError
+        // lines 1769–1771, which deliberately skips the error-state flip
+        // for asserts so a stray dev/test invariant violation does not
+        // poison the storage), and flip the operation to rollback so the
+        // subsequent commitChanges call is skipped. The captured throwable
+        // is re-raised after the inner releaseLocks below to keep the lock
+        // window correctness story intact (releaseLocks must run before the
+        // exception escapes). IOException is not caught here because
+        // AbstractStorage.persistIndexCountDeltas does not declare it — the
+        // underlying BTree.addToApproximateEntriesCount routes IO failures
+        // through executeInsideComponentOperation, which converts them into
+        // CommonStorageComponentException (a runtime) before the persist
+        // method returns.
+        //
+        // Bounded catch: LinkageError, OutOfMemoryError, StackOverflowError,
+        // and InternalError are deliberately NOT caught. They escape this
+        // method and reach AbstractStorage.commit's outer catch (Error) at
+        // the call site, which routes through logAndPrepareForRethrow(Error)
+        // and lands setInError — genuine VM errors still poison the
+        // storage, matching the precedent in the four
+        // executeInsideAtomicOperation wrapper catches.
+        if (currentError == null && !operation.isRollbackInProgress()) {
+          var holder = operation.getIndexCountDeltas();
+          if (holder != null && !holder.isPersisted()) {
+            try {
+              storage.persistIndexCountDeltas(operation);
+            } catch (RuntimeException | AssertionError persistFailure) {
+              currentError = persistFailure;
+              storage.moveToErrorStateIfNeeded(persistFailure);
+              operation.rollbackInProgress();
+            }
+          }
+        }
+
         final LogSequenceNumber lsn;
         var commitTs = operation.getCommitTs();
         if (!operation.isRollbackInProgress()) {
@@ -272,7 +323,7 @@ public class AtomicOperationsManager {
           lsn = null;
         }
 
-        if (error != null) {
+        if (currentError != null) {
           atomicOperationsTable.rollbackOperation(commitTs);
         } else {
           atomicOperationsTable.commitOperation(commitTs);
@@ -288,6 +339,31 @@ public class AtomicOperationsManager {
       } finally {
         releaseLocks(operation);
         operation.deactivate();
+      }
+
+      // Re-raise a persist failure captured by Hook A above. Must run after
+      // the inner-finally releaseLocks so the per-index locks are released
+      // before the exception escapes. The wrap is structurally required for
+      // AssertionError: endAtomicOperation declares only throws IOException,
+      // so a raw throw of an arbitrary Throwable would not compile. Routing
+      // the AssertionError through StorageException (a RuntimeException via
+      // BaseException) lands at AbstractStorage.commit's outer
+      // catch (RuntimeException), which calls
+      // logAndPrepareForRethrow(RuntimeException) — that overload does not
+      // call setInError again, so the explicit moveToErrorStateIfNeeded
+      // above is the single source of the in-error flip on this path.
+      // RuntimeException short-circuits as-is so existing error-type
+      // contracts (e.g. ConcurrentModificationException) survive intact.
+      if (currentError != null && currentError != error) {
+        if (currentError instanceof RuntimeException re) {
+          throw re;
+        }
+        // currentError is an AssertionError here — the inner-catch types
+        // (RuntimeException | AssertionError) leave AssertionError as the
+        // only non-RuntimeException residual.
+        throw BaseException.wrapException(
+            new StorageException(storage.getName(), "Error during transaction commit"),
+            currentError, storage.getName());
       }
     } finally {
       writeOperationsFreezer.endOperation();

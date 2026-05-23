@@ -40,6 +40,20 @@ public final class IndexCountDeltaHolder {
       new Int2ObjectOpenHashMap<>();
 
   /**
+   * Idempotency latch set by {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage#persistIndexCountDeltas}
+   * after a successful pass. Read by the persist hook in {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
+   * to short-circuit a second persist on the same atomic operation. Closes the
+   * window where both the inline persist call inside the storage commit path
+   * and the lifecycle hook in {@code endAtomicOperation} would otherwise both
+   * fire and double-write the BTree entry-point page within a single
+   * transaction. The latch is also a defensive belt against any future path
+   * that re-enters persist within the same atomic operation.
+   */
+  private boolean persisted = false;
+
+  /**
    * Returns the delta for the given engine, creating it if absent.
    */
   public IndexCountDelta getOrCreate(int engineId) {
@@ -51,5 +65,20 @@ public final class IndexCountDeltaHolder {
    */
   public Int2ObjectOpenHashMap<IndexCountDelta> getDeltas() {
     return deltas;
+  }
+
+  /**
+   * Marks this holder as already persisted to the BTree entry-point pages.
+   * Idempotent: calling twice in a row is harmless.
+   */
+  public void setPersisted() {
+    this.persisted = true;
+  }
+
+  /**
+   * Returns {@code true} once {@link #setPersisted()} has been called.
+   */
+  public boolean isPersisted() {
+    return persisted;
   }
 }
