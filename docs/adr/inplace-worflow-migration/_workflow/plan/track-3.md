@@ -16,12 +16,14 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 - [x] 2026-05-23 [ctx=safe] Review + decomposition complete
 - [x] 2026-05-23T04:32Z [ctx=safe] Step 1 complete (commit 6ad91336b7)
 - [x] 2026-05-23T04:37Z [ctx=safe] Step 2 complete (commit 79e5d7c6ce)
+- [x] 2026-05-23T04:42Z [ctx=safe] Step 3 complete (commit 7ef6c4c1c6)
 
 ## Surprises & Discoveries
 
 - Phase A technical review (iteration 1) found that `design.md` §"Stamp range computation" carries a non-canonical unanchored regex (`grep -oE '[0-9a-f]{40}'`) that `conventions.md` §1.6(a1) explicitly rejects (false-positives on H1 lines containing a 40-hex run). The canonical anchored block lives at `conventions.md` §1.6(h). Cross-track impact: `track-4a.md` (line 40) also points at `design.md` as the byte-source; the same anchor correction needs to land in `track-4a.md` before Track 4a Phase B starts. Recorded here so Track 4a Pre-Flight Panel 1 picks it up.
 - The same review surfaced a cross-file follow-up: `workflow.md` § "What to do before ending a session" (lines 416–427) carries a `cd ../develop` + worktree-switch instruction that contradicts Track 3's in-branch flow. Track 3 fixes the in-file Defer section in `workflow-drift-check.md` but the cross-file passage in `workflow.md` is out of scope per the track boundary; recorded here as a follow-up.
 - The Phase 1 walk block is byte-identical between `conventions.md` §1.6(h) and `workflow-drift-check.md` §Detection after Step 1's landing; a one-liner `diff` between the extracted blocks verifies the byte-copy contract §1.6(h) commits to. Track 4a's Step 2 must copy the same block byte-for-byte; Phase C review of whichever track lands second should run the `diff` against the other copy. See Episodes §Step 1.
+- The §1.6(h) Phase 1 walk exports `STAMPED_SHAS` and `UNSTAMPED_FILES` but no companion stamped-paths list. Step 3's no-drift normalization needed the path set and the byte-copy contract forbids extending the walk locally, so the sub-section recomputes the stamped set under the same enumeration. If a future §1.6(h) change exports a companion path list, the normalization sub-step can collapse to consume it directly. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -78,7 +80,7 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 
 1. Rewrite Detection bash block + intro paragraph + add §1.6 cross-reference note in `workflow-drift-check.md` (byte-copy from `conventions.md` §1.6(h); drop `git fetch origin develop` + `origin/develop` references; replace develop-worktree re-invocation language; add the §Detection cross-reference paragraph citing §1.6(c), §1.6(h), §1.6(a1)) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 6ad91336b7
 2. Rewrite Resolutions section in `workflow-drift-check.md` — three prompt-template string substitutions ("commits on develop touch" → "commits in your branch's range touch"; "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree"), Migrate-now in-branch wording, Defer sub-section `$FORK` → `$BASE_SHA` and worktree-instruction update — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 79e5d7c6ce
-3. Add no-drift normalization sub-step in `workflow-drift-check.md` (sed-based stamp rewrite + `git diff -U0` `@@ -1` hunk-header guard + `git status --porcelain` cross-check + `git checkout -- <paths>` restore-on-mismatch + auto-commit) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+3. Add no-drift normalization sub-step in `workflow-drift-check.md` (sed-based stamp rewrite + `git diff -U0` `@@ -1` hunk-header guard + `git status --porcelain` cross-check + `git checkout -- <paths>` restore-on-mismatch + auto-commit) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [x] commit: 7ef6c4c1c6
 4. Tighten Skip conditions to active-plan scope (D13) + review After-the-choice Remote-authoritative re-entry note — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 
 ## Episodes
@@ -97,6 +99,16 @@ Add a one-line cross-reference note in the §Detection prose pointing readers at
 **What was discovered:** The Defer state-shape paragraph needed a small reflow after the `$FORK` → `$BASE_SHA` rename — the new variable name is longer and the natural ~70-char wrap shifted, producing one >100-char line. Reflowed in a follow-up patch within the same step. A name-length change in narrative prose can break paragraph wrap and Phase C reviewers may flag it; worth a re-check on similar future variable renames inside markdown narrative.
 
 **What changed from the plan:** none.
+
+**Key files:**
+- `.claude/workflow/workflow-drift-check.md` (modified)
+
+### Step 3 — commit 7ef6c4c1c6, 2026-05-23T04:42Z [ctx=safe]
+**What was done:** Added a new `## No-drift normalization` sub-section to `.claude/workflow/workflow-drift-check.md`, placed between §Detection's cross-reference and §Skip conditions. The sub-section fires when Phase 2 reports an empty `git log` but `STAMPED_SHAS` carries more than one distinct SHA: recomputes the stamped-artifact path list (the byte-copied Phase 1 walk does not export one), rewrites line 1 of each stamped artifact via `sed -i "1s/.*/<!-- workflow-sha: $BASE_SHA -->/"`, verifies the diff shape against two guards (`git diff -U0` hunk-header check that every hunk starts with `@@ -1`, plus `git status --porcelain` cross-check that only stamped paths are modified), restores via `git checkout -- <paths>` on mismatch, and otherwise stages the stamped artifacts and commits with subject `Normalize workflow-sha stamps to <short-BASE_SHA>`. The forward reference to "§ No-drift normalization below" already present in §Detection's third outcome bullet now resolves.
+
+**What was discovered:** The Phase 1 walk in `conventions.md` §1.6(h) — byte-copied into `workflow-drift-check.md` §Detection by Step 1 — exports `STAMPED_SHAS` and `UNSTAMPED_FILES` but not a companion stamped-paths list. The byte-copy contract forbids extending the walk locally, so the normalization sub-step recomputes the stamped set itself under the same `$PLAN_DIR/_workflow/` enumeration. The duplication is a single second pass over the same artifact set; the trade-off keeps the byte-identity property with §1.6(h) and Track 4a's copy intact. If a future §1.6(h) change exports a companion path list, the normalization sub-step can collapse to consume that list directly.
+
+**What changed from the plan:** None on substance. One presentation choice: the named-only "Invariant I5" cited in the Plan of Work was restated inline as a prose contract rather than cited by label, since the `implementation-plan.md` file that defines I5 is removed in the Phase 4 cleanup commit while `.claude/workflow/workflow-drift-check.md` survives the merge into `develop`. The semantic content of the all-or-nothing contract is preserved verbatim.
 
 **Key files:**
 - `.claude/workflow/workflow-drift-check.md` (modified)
