@@ -8,10 +8,12 @@ After this track lands, the `/execute-tracks` startup drift gate reads workflow-
 Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workflow/**` artifact in the active plan's `_workflow/` directory (D13), classify each as stamped or unstamped, and apply the two-phase rule: any unstamped artifact short-circuits to "drift detected" with no fold; when every artifact in the active plan is stamped, fold the SHA set pairwise through `git merge-base` to derive `BASE_SHA` and run `git log $BASE_SHA..HEAD` against workflow paths. Drop the `git fetch origin develop` step — comparison is purely against HEAD (D10). Update the "Migrate now" resolution text to instruct an in-branch re-invocation of `/migrate-workflow`. On no-drift with non-uniform stamps, normalize every artifact's stamp in the active plan to the fold result and create a separate commit (D11). Skip conditions tighten scope to the active plan (Track 3 Plan of Work); the Defer/Suppress flows stay structurally the same.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-05-23 [ctx=safe] Review + decomposition complete
 
 **PAUSED 2026-05-23 at Phase A post-reviews pending decomposition write**
 - Handoff: handoff-track-3-phaseA.md
@@ -70,8 +72,14 @@ Tighten the Skip conditions to the active plan (D13). Skip #1 ("No `_workflow/` 
 
 Add a one-line cross-reference note in the §Detection prose pointing readers at `conventions.md` §1.6(c) (range definition), §1.6(h) (Phase 1 walk byte-source), and §1.6(a1) (canonical parser regex). The `design.md` §"Stamp range computation" narrative remains a soft reference for context but not the byte-source for the bash block.
 
+> **Step sequencing.** All four steps modify `.claude/workflow/workflow-drift-check.md` so they are sequential, not parallel. Step 1 lands the Detection bash rewrite + intro paragraph + cross-reference note. Step 2 rewrites the Resolutions section (prompt template + Migrate-now + Defer). Step 3 adds the new no-drift normalization sub-section with the full diff-shape guard. Step 4 tightens Skip conditions and reviews the After-the-choice note (likely no edit per T10).
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the step roster here. -->
+
+1. Rewrite Detection bash block + intro paragraph + add §1.6 cross-reference note in `workflow-drift-check.md` (byte-copy from `conventions.md` §1.6(h); drop `git fetch origin develop` + `origin/develop` references; replace develop-worktree re-invocation language; add the §Detection cross-reference paragraph citing §1.6(c), §1.6(h), §1.6(a1)) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+2. Rewrite Resolutions section in `workflow-drift-check.md` — three prompt-template string substitutions ("commits on develop touch" → "commits in your branch's range touch"; "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree"), Migrate-now in-branch wording, Defer sub-section `$FORK` → `$BASE_SHA` and worktree-instruction update — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+3. Add no-drift normalization sub-step in `workflow-drift-check.md` (sed-based stamp rewrite + `git diff -U0` `@@ -1` hunk-header guard + `git status --porcelain` cross-check + `git checkout -- <paths>` restore-on-mismatch + auto-commit) — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
+4. Tighten Skip conditions to active-plan scope (D13) + review After-the-choice Remote-authoritative re-entry note — risk: low (default: workflow-machinery markdown edits; no HIGH or MEDIUM triggers)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -93,10 +101,17 @@ After Track 3 lands:
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
+**Per-step acceptance:**
+- Step 1: `workflow-drift-check.md` § Detection contains the §1.6(h) Phase 1 walk block byte-for-byte; the intro paragraph carries no `git fetch origin develop` claim and no develop-worktree re-invocation claim; a §Detection cross-reference paragraph cites §1.6(c), §1.6(h), and §1.6(a1).
+- Step 2: The Resolutions prompt template uses HEAD-relative wording (no "commits on develop", no "fork point", no "develop worktree"); the Migrate-now branch instructs in-branch `/migrate-workflow`; the Defer sub-section uses `$BASE_SHA` and in-branch wording.
+- Step 3: A new no-drift normalization sub-section names `sed -i "1s/.*/<!-- workflow-sha: $BASE_SHA -->/"`, the `git diff -U0` `@@ -1` hunk-header guard, the `git status --porcelain` cross-check, the `git checkout -- <paths>` restore-on-mismatch path, and the auto-commit.
+- Step 4: Skip conditions scope all three skips to the active plan dir (per `conventions.md §1.6(g)`); the After-the-choice Remote-authoritative re-entry note carries either no edit (if no worktree-switch claim was found) or the documented tweaks recorded in the step episode.
+
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+> **Per-step recovery:** All four steps are markdown edits to one file (`.claude/workflow/workflow-drift-check.md`). If a step fails mid-implementation, run `git restore .claude/workflow/workflow-drift-check.md` to drop uncommitted changes and re-apply the planned edits. No durable state, no DB or WAL interaction, no concurrency concerns. All four steps are idempotent — re-applying the same edit set produces the same final file state. Phase B's implementer governs the standard revert path on failure (`git reset --hard HEAD`) per `implementer-rules.md`.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Empty at Phase 1. -->
