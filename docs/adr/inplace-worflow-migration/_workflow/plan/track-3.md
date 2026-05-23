@@ -10,8 +10,8 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-05-23 [ctx=safe] Review + decomposition complete
 - [x] 2026-05-23T04:32Z [ctx=safe] Step 1 complete (commit 6ad91336b7)
@@ -20,6 +20,7 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 - [x] 2026-05-23T04:46Z [ctx=safe] Step 4 complete (commit 5b104b7cc0)
 - [x] 2026-05-23T05:54Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-05-23T06:02Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
+- [x] 2026-05-23T06:15Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 
