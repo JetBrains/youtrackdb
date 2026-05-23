@@ -13,8 +13,13 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 - [ ] Track-level code review
 - [ ] Track completion
 
+**PAUSED 2026-05-23 at Phase A post-reviews pending decomposition write**
+- Handoff: handoff-track-3-phaseA.md
+
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+
+- Phase A technical review (iteration 1) found that `design.md` §"Stamp range computation" carries a non-canonical unanchored regex (`grep -oE '[0-9a-f]{40}'`) that `conventions.md` §1.6(a1) explicitly rejects (false-positives on H1 lines containing a 40-hex run). The canonical anchored block lives at `conventions.md` §1.6(h). Cross-track impact: `track-4a.md` (line 40) also points at `design.md` as the byte-source; the same anchor correction needs to land in `track-4a.md` before Track 4a Phase B starts. Recorded here so Track 4a Pre-Flight Panel 1 picks it up.
+- The same review surfaced a cross-file follow-up: `workflow.md` § "What to do before ending a session" (lines 416–427) carries a `cd ../develop` + worktree-switch instruction that contradicts Track 3's in-branch flow. Track 3 fixes the in-file Defer section in `workflow-drift-check.md` but the cross-file passage in `workflow.md` is out of scope per the track boundary; recorded here as a follow-up.
 
 ## Decision Log
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -22,11 +27,12 @@ Rewrite the Detection section of `workflow-drift-check.md` to walk every `_workf
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+
+- [x] Technical: PASS at iteration 2 (10 findings, 10 accepted — 1 blocker, 5 should-fix, 4 suggestions). Iteration 1 surfaced a canonical-source mismatch (Plan of Work pointed at `design.md §"Stamp range computation"` whose bash uses the unanchored regex `conventions.md` §1.6(a1) rejects); the canonical block at `conventions.md` §1.6(h) is the byte-source. Iteration 1 also expanded the in-file scope from "Migrate-now wording only" to cover the prompt template, the Defer sub-section, the intro paragraph, and a tightened diff-shape primitive for the no-drift normalization. Cross-track impact (track-4a.md mirrors the same anchor mistake) and a cross-file follow-up (`workflow.md` § "What to do before ending a session") are recorded in `## Surprises & Discoveries`.
 
 ## Context and Orientation
 
-`.claude/workflow/workflow-drift-check.md` (~220 lines) is the turn-1 gate `/execute-tracks` runs after the Branch Divergence Check and before the handoff scan. Today's gate is branch-wide; the rewrite scopes it to the active plan's `_workflow/` directory (D13). Today's Detection section computes:
+`.claude/workflow/workflow-drift-check.md` (~220 lines) is the turn-1 gate `/execute-tracks` runs after the Branch Divergence Check and before the handoff scan (workflow.md § Startup Protocol step 3a). Today's gate is branch-wide; the rewrite scopes it to the active plan's `_workflow/` directory (D13). Today's Detection section computes:
 
 ```bash
 git fetch origin develop 2>/dev/null || true
@@ -36,25 +42,33 @@ test -n "$FORK" || exit
 git log --reverse --oneline "$FORK..origin/develop" -- .claude/workflow/ .claude/skills/ | head -10
 ```
 
-The new derivation matches `design.md` §"Stamp range computation" verbatim. Phase 1 (the walk) is shared with Track 4a: enumerate every ephemeral artifact under the active plan's `_workflow/**` (the plan dir the caller resolved at startup), classify each as stamped (line-1 stamp parses) or unstamped (no stamp on line 1), and collect `STAMPED_SHAS` and `UNSTAMPED_FILES`. Phase 2 (the decision) is caller-specific: the drift check signals drift unconditionally when `UNSTAMPED_FILES` is non-empty (no fold, no `git log`); when everything is stamped, it folds `STAMPED_SHAS` pairwise through `git merge-base` to derive `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths (no `git fetch` — the branch is a self-contained capsule per D10). The Phase 1 bash block is shared byte-for-byte with Track 4a — keeping them text-identical is what makes the drift check and the migration agree on what "drift" means.
+The new derivation reads from `conventions.md` §1.6(h)'s Phase 1 walk block byte-for-byte (the canonical anchored regex); `design.md` §"Stamp range computation" carries the narrative explainer but uses a non-canonical regex variant that `conventions.md` §1.6(a1) explicitly rejects. Phase 1 (the walk) is shared with Track 4a: enumerate every ephemeral artifact under the active plan's `_workflow/**` (the plan dir the caller resolved at startup per `conventions.md` §1.6(g) and §1.2), classify each as stamped (line-1 stamp parses) or unstamped (no stamp on line 1), and collect `STAMPED_SHAS` and `UNSTAMPED_FILES`. Phase 2 (the decision) is caller-specific: the drift check signals drift unconditionally when `UNSTAMPED_FILES` is non-empty (no fold, no `git log`); when everything is stamped, it folds `STAMPED_SHAS` pairwise through `git merge-base` to derive `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths (no `git fetch` — the branch is a self-contained capsule per D10). The Phase 1 bash block is shared byte-for-byte with Track 4a; keeping them text-identical is what makes the drift check and the migration agree on what "drift" means.
 
 A new behavior fires when Phase 2 determines no drift but `STAMPED_SHAS` contains more than one distinct SHA: normalize every artifact's line-1 stamp to `BASE_SHA` (the fold result) and create a separate commit titled along the lines of `Normalize workflow-sha stamps to <short-BASE_SHA>` (D11). The next gate's fold input is then a single-element set, and the gate becomes O(1). Branches whose stamps are already uniform skip the normalization silently.
 
-The Resolutions section needs a wording-only change in the "Migrate now" branch: today's "Switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>` there" becomes "Run `/migrate-workflow` from this worktree."
+The Resolutions section needs wording updates across the prompt template (three develop-relative strings — "commits on develop", "fork point `<short-FORK>`", "from a develop worktree" — that go wrong under D10's HEAD-as-upper-bound rule), the "Migrate now" branch (today's "Switch to a `develop` worktree (e.g., `cd ../develop`) and run `/migrate-workflow <branch>` there" becomes "Run `/migrate-workflow` from this worktree."), and the Defer sub-section (today's `$FORK` and `cd ../develop` references switch to `$BASE_SHA` and the in-branch instruction). The intro paragraph (today's lines 14–26) explains the dropped `git fetch origin develop` and the develop-worktree re-invocation, so it gets rewritten in lockstep.
 
 The Skip conditions section is structurally unchanged, but scopes tighten to the active plan (D13): the "Active plan's `_workflow/` doesn't exist" skip (was branch-wide "No `_workflow/` subtree") checks just the resolved plan dir; the "Plan complete plus Phase 4 active" skip reads only the active plan's `implementation-plan.md` (was every plan on the branch); the "Empty diff" skip reads from the new range and stays the same in spirit.
 
 ## Plan of Work
 
-Replace the Detection bash block with the stamp-walking variant defined in `design.md` §"Stamp range computation". The new block has no `git fetch` and no `git rev-parse --verify origin/develop` — both go away because comparison is purely against HEAD. Keep the surrounding prose explaining what the detection produces (the commit list, the short fork SHA in resolution prompts) but update any reference to `$FORK` so the prompt now reports `BASE_SHA` (the merge-base fold result) — the user wants to see which SHA the gate decided to compare against.
+Replace the Detection bash block by byte-copying `conventions.md` §1.6(h)'s Phase 1 walk block. `design.md` §"Stamp range computation" stays as the narrative explainer but is NOT the byte-source — its walk block uses the unanchored `[0-9a-f]{40}` regex `conventions.md` §1.6(a1) explicitly flags as non-canonical (see Surprises & Discoveries for the cross-track propagation). The new block has no `git fetch` and no `git rev-parse --verify origin/develop`; comparison is purely against HEAD.
 
-Add the no-drift normalization sub-step after the Phase 2 decision. When `STAMPED_SHAS` contains more than one distinct SHA and Phase 2 reports no drift, rewrite every artifact's line-1 stamp to `BASE_SHA` via `sed -i "1s/.*/<!-- workflow-sha: $BASE_SHA -->/"` and create a separate commit. Verify the diff touches only line-1 of stamped artifacts (no other content changes) before committing — refuse otherwise to avoid swallowing unrelated edits.
+Rewrite the intro paragraph (today's lines 14–26) to stay consistent with the new Detection. Replace "one `git log` against the post-fetch `origin/develop` tip" with "one `git log` over the active plan's stamp-derived range against HEAD"; drop the entire "Branch Divergence Check's `git fetch` targets the branch's upstream … so this gate fetches `origin develop` independently" paragraph; replace "re-invoke from a `develop` worktree" with "re-invoke from this worktree". Keep the skill-assumes-fresh-session framing (the contract still holds) but disconnect it from the worktree-switch rationale.
 
-Update the Resolutions section's "Migrate now" sub-section. Replace the two-worktree instruction with "Run `/migrate-workflow` from this worktree." Remove the rationale paragraph about why the skill assumes a fresh session (it still does, but no worktree switch is implied). Keep the early-exit contract (end session before reaching `workflow.md § What to do before ending a session`) — that part is unchanged.
+Update the Resolutions prompt template (today's lines 112–127) on three load-bearing strings: "commits on develop touch" → "commits in your branch's range touch" (or equivalent HEAD-relative phrasing); "since fork point `<short-FORK>`" → "since stamp base `<short-BASE_SHA>`"; "from a develop worktree" → "from this worktree". The `$FORK` variable references in the surrounding prose also become `$BASE_SHA` so the prompt and the implementation agree on which SHA is reported.
 
-Update the "After the choice" section's Remote-authoritative re-entry note. It currently refers to a one-sided contract pending a symmetric edit to `branch-divergence-check.md`. The contract stays one-sided in this track — fixing it is out of scope for the in-place migration work — but the prose may need a small tweak to reflect that the post-reset re-entry now lands the user back in the same worktree (no develop-worktree switch).
+Add the no-drift normalization sub-step after the Phase 2 decision. When `STAMPED_SHAS` contains more than one distinct SHA and Phase 2 reports no drift, rewrite every artifact's line-1 stamp to `BASE_SHA` via `sed -i "1s/.*/<!-- workflow-sha: $BASE_SHA -->/"` and create a separate commit. Before the commit, verify the diff touches only line 1 of stamped artifacts and nothing else: run `git diff -U0 -- <stamped-artifact-paths>` and confirm every hunk header starts with `@@ -1` (line-1 only), plus `git status --porcelain` shows no modifications outside the stamped artifacts. On mismatch, run `git checkout -- <stamped-artifact-paths>` to restore the pre-normalization state, abort the normalization, and surface a clear error. This preserves Invariant I5's "either all stamps + commit, or no on-disk change" semantics.
 
-Add a one-line note in the §Detection prose pointing readers at `design.md` §"Stamp range computation" and `conventions.md` §1.6 (the Track 1 section) for the canonical definitions of stamp format and SHA computation.
+Update the Resolutions section's "Migrate now" sub-section. Replace the two-worktree instruction with "Run `/migrate-workflow` from this worktree." Remove the standalone rationale paragraph about why the skill assumes a fresh session; the contract still holds, but the worktree-switch framing no longer applies. Keep the early-exit contract (end session before reaching `workflow.md § What to do before ending a session`).
+
+Update the Defer sub-section (today's lines 158–179) to match. Rename `$FORK` to `$BASE_SHA` in the "seven-character abbreviation" derivation. Change "the same `cd ../develop` + `/migrate-workflow <branch>` instruction" to "the same in-branch `/migrate-workflow` instruction". `workflow.md § What to do before ending a session` (lines 416–427) carries a parallel passage that needs the same update but lies OUT-of-scope per the track boundary; the cross-file fix is recorded in Surprises & Discoveries as a follow-up.
+
+Review the "After the choice" section's Remote-authoritative re-entry note for any worktree-switch claim that needs updating. The current text's only worktree-implying phrase is "re-invoke `/execute-tracks` in a fresh session", which is already worktree-agnostic. This bullet is review-only; the implementer confirms no edit is needed and notes that in the step episode.
+
+Tighten the Skip conditions to the active plan (D13). Skip #1 ("No `_workflow/` subtree", was branch-wide `ls -d docs/adr/*/_workflow/ 2>/dev/null`) becomes "Active plan's `_workflow/` directory doesn't exist". Skip #2 ("Plan complete plus Phase 4 active") reads only the active plan's `implementation-plan.md` and drops the cross-plan AND-fold. Skip #3 ("Empty diff") stays in spirit, now reading from the new `$BASE_SHA..HEAD` range. The active plan dir is the `<dir>` argument the caller resolved at startup (see `conventions.md` §1.6(g) and §1.2); the gate reads this from session state, no new resolution logic lands in `workflow-drift-check.md`.
+
+Add a one-line cross-reference note in the §Detection prose pointing readers at `conventions.md` §1.6(c) (range definition), §1.6(h) (Phase 1 walk byte-source), and §1.6(a1) (canonical parser regex). The `design.md` §"Stamp range computation" narrative remains a soft reference for context but not the byte-source for the bash block.
 
 ## Concrete Steps
 <!-- Phase A placeholder — decomposition writes the step roster here. -->
@@ -66,7 +80,8 @@ Add a one-line note in the §Detection prose pointing readers at `design.md` §"
 
 After Track 3 lands:
 
-- The Detection section of `workflow-drift-check.md` enumerates ephemeral artifacts under the active plan's `_workflow/**` (the plan dir the caller resolved at startup), reads line-1 stamps with regex `[0-9a-f]{40}`, classifies each artifact as stamped or unstamped, and applies the two-phase rule.
+- The Detection section of `workflow-drift-check.md` enumerates ephemeral artifacts under the active plan's `_workflow/**` (the plan dir the caller resolved at startup), reads line-1 stamps with the anchored regex `workflow-sha: [0-9a-f]{40}` (per `conventions.md` §1.6(a1)), classifies each artifact as stamped or unstamped, and applies the two-phase rule.
+- Absent optional artifacts (specifically `design-mechanics.md` before the length trigger fires) are silently skipped by the §1.6(h) walk via the `2>/dev/null` suppression and contribute neither a stamp nor an unstamped flag; no caller-side branching needed.
 - The Detection bash contains no `git fetch origin develop` and no `git rev-parse --verify origin/develop` — comparison is purely against HEAD.
 - The "Migrate now" resolution wording no longer mentions `develop` worktree, `cd ../develop`, or any worktree switch.
 - The "Empty diff" skip condition still triggers when `git log $BASE_SHA..HEAD -- .claude/workflow .claude/skills` is empty AND no artifact is unstamped.
