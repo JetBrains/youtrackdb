@@ -171,9 +171,11 @@ What changes:
 - **Shared MATCH IR builder package
   (`internal/core/sql/executor/match/builder/`, new)** — three classes:
   - `MatchPatternBuilder` — `addNode(alias, className, where, optional)`,
-    `addEdge(fromAlias, toAlias, direction, edgeLabel, edgeFilter,
-    whileCondition, maxDepth)`, `build()` returning `(Pattern, aliasClasses,
-    aliasFilters)`.
+    `addEdge(fromAlias, toAlias, direction, edgeLabel, edgeAlias,
+    edgeFilter, whileCondition, maxDepth)` — `edgeAlias` and
+    `edgeFilter` are optional (null for the no-edge-filter shape; GQL
+    keeps using the no-edge-filter form unchanged), `build()` returning
+    `(Pattern, aliasClasses, aliasFilters, edgeFilters)`.
   - `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
     `containsText`, `and`, `or`, `not` returning `SQLBooleanExpression`;
     `wrap()` to a `SQLWhereClause`. (No `startsWith` / `endsWith`
@@ -456,6 +458,42 @@ What changes:
   lands), and a refactor step in Track 5 (combining the two NotStep
   recognizers into one).
 
+#### D10: Walker supports multi-step claims via index-driven iteration
+
+- **Alternatives considered**: (a) keep the walker's for-each loop and
+  require every recognizer to claim exactly one step (original
+  design) — rejected because the non-adjacent edge-filtering shape
+  (`outE(L).has(...).inV()`) inherently spans 3+ steps that collapse
+  into one `SQLMatchPathItem` in MATCH IR; modelling it as three
+  separate single-step claims would require either per-recogniser
+  state-machine plumbing or a second pre-pass; (b) split the
+  multi-step shape across two recognizers (one for `outE`, one for the
+  closing vertex step) with cross-recogniser state in `WalkerContext`
+  to remember "we're inside an open edge chain" — rejected because
+  the open-state would leak into every other recogniser that fires in
+  between (e.g. `HasStepRecogniser` would need to know "the next has
+  is an edge filter, not a node filter"); (c) index-driven walker loop
+  with a recogniser-side `ctx.stepIndex` advance for multi-step claims
+  (chosen).
+- **Rationale**: A recogniser that claims `outE(L)` and peeks ahead
+  through `HasStep`s up to the closing `EdgeVertexStep` knows exactly
+  how many steps it consumed and can advance `ctx.stepIndex` past all
+  of them in one call. The walker switches from a for-each loop to
+  `while (ctx.stepIndex < steps.size()) { ... }` and treats any
+  recogniser-driven advance as "I consumed multiple steps"; if the
+  recogniser did not move the index, the walker falls back to the
+  default `++`. Single-step recogniser implementations are unchanged.
+- **Risks/Caveats**: Forgetting to advance `ctx.stepIndex` in a
+  multi-step recogniser would deadlock the walker (infinite loop on
+  the same step). The walker has a safety assertion (`stepIndex` is
+  strictly increasing after each successful recognise) that catches
+  the bug in unit tests rather than at runtime. Multi-step recognisers
+  must also publish `consumedSteps` for the dispatch-order test so the
+  cross-product matrix exercises both the single-step and multi-step
+  paths.
+- **Implemented in**: Track 3 (`EdgeStepRecogniser` is the first
+  multi-step recogniser; walker refactor lands with it).
+
 ### Invariants
 
 - `MatchExecutionPlanner` existing public method signatures are unchanged
@@ -640,7 +678,7 @@ What changes:
   > `YTDBMatchPlanStep` boundary step, minimal `g.V()` / `g.V(ids)`
   > translator, registration + Cucumber smoke.
 
-- [ ] Track 3: Edge traversal — `out`, `in`, `both`, `outE.inV`, `inE.outV`, `bothE.otherV`
+- [ ] Track 3: Edge traversal — `out`, `in`, `both`, `outE.inV`, `inE.outV`, `bothE.otherV`, plus non-adjacent edge filtering
   > Extends the recognized step set with edge-traversal patterns. Adds
   > handlers in `GremlinStepWalker` for:
   > - `VertexStep` with direction OUT/IN/BOTH and edge labels — produces
@@ -677,6 +715,20 @@ What changes:
   >   extracted in this track from the duplicated `buildClassEqExpression`
   >   logic in `StartStepRecogniser`; Track 4's `hasLabel` recognizer
   >   reuses it as the third call site.
+  > - **Non-adjacent edge filtering** (`outE(L).has(...).inV()` and
+  >   analogues): `EdgeStepRecogniser` claims the edge step and
+  >   peek-ahead-consumes every `HasStep` between it and the closing
+  >   `EdgeVertexStep` / `otherV`-form `VertexStep`. Edge filters are
+  >   AND-merged into `ctx.edgeFilters[$g2m_edge_N]` (translator-minted
+  >   anonymous edge alias from `anonEdgeAliasGenerator`); the merged
+  >   filter lands on `SQLMatchPathItem.filter` — the IR already
+  >   supports edge filters, no executor / planner change needed. Bare
+  >   `outE(L)` (without closing vertex hop) and user-facing
+  >   `outE(L).as("e")` stay out-of-scope (see design.md Out-of-scope
+  >   table). Walker mechanic: this is the first multi-step recognizer
+  >   in the registry, so the walker switches from for-each iteration
+  >   to index-driven iteration (`while (ctx.stepIndex < steps.size())`)
+  >   with a recogniser-side `ctx.stepIndex += consumedSteps` (D10).
   >
   > Verification: end-to-end tests for one-hop, two-hop, three-hop
   > patterns; mixed direction (out then in); multi-label edge; anonymous
@@ -694,18 +746,30 @@ What changes:
   > declines the entire traversal only when at least one unrecognized
   > step is present (D3 all-or-nothing). The walker becomes the load-
   > bearing entry point for Tracks 4-10 as well.
-  > **Scope:** ~5 steps covering simple direction handlers,
-  > outE+inV pairing, multi-label edge, anonymous alias generation,
-  > correctness tests vs SQL equivalent.
+  > **Scope:** ~7 steps covering simple direction handlers, outE+inV
+  > pairing (adjacent — already folded by IncidentToAdjacentStrategy),
+  > non-adjacent edge filtering via `EdgeStepRecogniser` with
+  > peek-ahead, walker refactor to index-driven iteration (D10),
+  > multi-label edge, anonymous-alias generation (both vertex and
+  > edge sides), correctness tests vs SQL equivalent including
+  > edge-side filter shapes.
   > **Depends on:** Track 2.
 
 - [ ] Track 4: Filtering + predicates
-  > Implements the predicate adapter and the four `has*` step handlers.
+  > Extends Track 3's `GremlinPredicateAdapter` skeleton with the
+  > remaining `P` variants (the Track 3 skeleton already covers
+  > `Compare.eq/neq/gt/gte/lt/lte`, `Contains.within/without`, and
+  > `P.between` because `EdgeStepRecogniser` needs them for edge-side
+  > `has(...)` translation). This track adds the four `has*` step
+  > handlers (`HasStepRecogniser`, `HasLabelStepRecogniser`,
+  > `HasIdStepRecogniser`, `hasNot` desugar) and the `Text`/`TextP`
+  > predicate translations on top of the same adapter.
   >
-  > **`GremlinPredicateAdapter`** translates TinkerPop `P<T>` instances
-  > into `SQLBooleanExpression` subtrees, using `MatchWhereBuilder`:
+  > **`GremlinPredicateAdapter` (full set)** translates TinkerPop
+  > `P<T>` instances into `SQLBooleanExpression` subtrees, using
+  > `MatchWhereBuilder`:
   > - `Compare.eq` → `op(field, EQ, lit)`; `neq` → `NE`; `gt`, `gte`, `lt`,
-  >   `lte` → corresponding operator.
+  >   `lte` → corresponding operator. *(Track 3 skeleton.)*
   > - `Contains.within` → `in(field, list)`; `Contains.without` →
   >   `notIn(field, list)`.
   > - `P.between(lo, hi)` → `between(field, lo, hi)`.
