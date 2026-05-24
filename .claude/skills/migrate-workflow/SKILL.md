@@ -115,6 +115,109 @@ skill at develop's state throughout execution, so the migration
 always reads the develop-state skill regardless of staged rewrites —
 the side-effect protection is no longer needed.
 
+## Step 2.0 — Bootstrap unstamped artifacts
+
+Walk the active plan's `_workflow/**` per `conventions.md` §1.6(h) and
+classify each artifact as stamped (line-1 stamp parses) or unstamped
+(no stamp). The classification feeds both this step's bootstrap prompt
+and Step 2's range derivation.
+
+```bash
+PLAN_DIR="$PLAN_DIR"  # resolved in Step 1
+STAMPED_SHAS=""
+UNSTAMPED_FILES=""
+# design-mechanics.md is optional; absent until the length trigger fires.
+# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+# yet present on disk, so missing files do not abort the walk.
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+    if [ -n "$SHA" ]; then
+        STAMPED_SHAS="$STAMPED_SHAS $SHA"
+    else
+        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+    fi
+done
+```
+
+The block is byte-identical to `conventions.md` §1.6(h). Step 2
+repeats the walk with a paired `(file, sha)` array so merge-base
+failures can name artifact paths; this step only needs the
+classification, so the simpler form lands here.
+
+**When `$UNSTAMPED_FILES` is empty.** No prompt fires. Continue to
+Step 2.
+
+**When `$UNSTAMPED_FILES` is non-empty.** Print the list of unstamped
+artifacts and ask the user once for a base SHA covering the set. The
+prompt must include the rationale below so the user understands why
+the migration cannot guess:
+
+> The artifacts listed above carry no `<!-- workflow-sha: ... -->`
+> stamp on line 1, so the migration has no anchor for "what workflow
+> version was this artifact last synced to." An auto-computed default
+> (the branch's fork-point with `develop`, `git merge-base
+> origin/develop HEAD`, HEAD itself, or any other variant) would shift
+> forward whenever the branch is rebased onto a newer `develop` and
+> silently mark unstamped artifacts as already-current, skipping the
+> migration. Provide the SHA of the workflow-format commit these
+> artifacts were last synced to; a short prefix or the full 40-char
+> form are both accepted.
+
+Validate the response with the two-subcommand check from
+`conventions.md` §1.6(d). The `^{commit}` peel rejects tag and ref
+names; only commit SHAs pass. The reachability check enforces the
+range's upper-bound rule from §1.6(c) (HEAD is the comparison anchor,
+so the bootstrap SHA must be reachable from HEAD):
+
+```bash
+if ! CANON_SHA="$(git rev-parse --verify "$SHA^{commit}" 2>&1)"; then
+    echo "ERROR: $SHA is not a valid commit SHA: $CANON_SHA"
+    # re-prompt; see retry policy below
+elif ! git merge-base --is-ancestor "$CANON_SHA" HEAD 2>/dev/null; then
+    echo "ERROR: $SHA ($CANON_SHA) is not reachable from HEAD."
+    # re-prompt; see retry policy below
+else
+    USER_BOOTSTRAP_SHA="$CANON_SHA"
+fi
+```
+
+Store the **canonical 40-char `rev-parse` stdout** (`$CANON_SHA`), not
+the user's raw input, as `$USER_BOOTSTRAP_SHA`. The canonicalization
+is mandatory: Step 4's per-commit lockstep advance writes the value
+into artifact stamps, and the stamp regex `[0-9a-f]{40}` in §1.6(a1)
+rejects shorter values on subsequent parse, so a short-prefix stamp
+would fail every drift-check re-read.
+
+**Retry policy (bounded, session-bound counter).** On validation
+failure (either subcommand returns non-zero), print the failure cause
+and re-prompt the user with the same artifact list. Cap the retry
+count at three attempts per `conventions.md` §1.6(d); after the third
+rejection halt the session with `ERROR: three rejected attempts;
+bootstrap aborted` and exit with no edits applied. The user `/clear`s
+the session to abandon the migration.
+
+The counter is **session-bound**: it lives in the conversation, not on
+disk. A `/clear` between attempts resets it. Step 3's `.migration-
+progress` file does not exist yet at Step 2.0 time, so no persistent
+counter is available; the bound is by design soft against `/clear`-
+based abandonment and re-entry. This matches §1.6(d)'s explicit
+"`/clear`s the session to abandon the migration" exit shape.
+
+The prompt records the user's best guess; the per-commit replay
+loop's halt-on-ambiguity in Step 4 is a partial safety net, not a
+guarantee. A too-old SHA silently bloats the replay range; a too-new
+SHA silently skips needed migrations. Both failure modes are
+documented in `conventions.md` §1.6(d) so debug sessions have a
+starting point.
+
+Step 2 consumes `$USER_BOOTSTRAP_SHA` (when set) alongside
+`$STAMPED_SHAS` in its fold input set. When Step 2.0 did not fire
+(because `$UNSTAMPED_FILES` was empty), `$USER_BOOTSTRAP_SHA` stays
+unset and the fold runs over `$STAMPED_SHAS` alone.
+
 ## Step 2 — Compute commit range
 
 ```bash
