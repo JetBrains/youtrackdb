@@ -119,21 +119,24 @@ shape declines along with anything else unrecognized.
 | Step labels | `as(label)` | propagated to most recent `SQLMatchFilter.alias` via `MatchPatternBuilder.alias(...)` | Track 6 |
 | Dedup | `dedup()` (no labels) | `info.distinct = true` → `DistinctExecutionStep` | Track 6 |
 | Dedup | `dedup(labels...)` | projection over labels + DISTINCT | Track 6 |
+| Dedup | `dedup(labels...).by(<recognized by-shape>)` | per-label dedup key extracted via the by-modulator (see "by-modulator translation" below) | Track 6 |
 | Projection | `select(label)` | `$matched.<label>` projection (single column) | Track 7 |
 | Projection | `select(l1, l2, …)` | multi-column `$matched.*` projection | Track 7 |
+| Projection | `select(labels...).by(<recognized by-shape>)` | per-label by-modulator applied to the projected value (one `by(...)` per label, applied in order) | Track 7 |
 | Projection | `values(keys...)` | property-extraction projection on current alias | Track 7 |
 | Projection | `valueMap(keys...)` | nested-map projection | Track 7 |
 | Projection | `elementMap()` | full schema-driven property map | Track 7 |
-| Projection | `project(keys...).by(...)` | composite map with by-modulators | Track 7 |
+| Projection | `project(keys...).by(<recognized by-shape>)` | composite map; one `by(...)` per key, applied positionally (TinkerPop semantics) | Track 7 |
 | Order | `order().by(key, Order.asc/desc)` | `SQLOrderBy` (`Order.shuffle` declines) | Track 8 |
-| Order | `order().by(__.values(key))`, `order().by(__.id())`, `order().by(__.label())` (pure property / identity sub-traversal) | unwrapped to the equivalent string-key form, then `SQLOrderBy`; nested traversals that introduce edges or filters decline | Track 8 |
+| Order | `order().by(<recognized by-shape>, Order.asc/desc)` | by-modulator unwrapped to a field/identity reference, then `SQLOrderBy` | Track 8 |
 | Pagination | `limit(n)` | `SQLLimit(n)` | Track 8 |
 | Pagination | `skip(n)` | `SQLSkip(n)` | Track 8 |
 | Pagination | `range(low, high)` | `SQLSkip(low) + SQLLimit(high - low)` | Track 8 |
 | Aggregation | `count()` | `RETURN count(*)` (output type `SCALAR`) | Track 9 |
 | Aggregation | `sum/min/max/mean(field)` | `RETURN sum(field)` etc. (output type `SCALAR`) | Track 9 |
-| Aggregation | `group()` / `group().by(key)` | `GROUP BY` + projection (output type `MAP`) | Track 9 |
-| Aggregation | `groupCount()` | `GROUP BY` + `count(*)` | Track 9 |
+| Aggregation | `group()` / `group().by(<recognized by-shape>)` (key only) | `GROUP BY` + projection of element-identity list (output type `MAP`) | Track 9 |
+| Aggregation | `group().by(<key>).by(<recognized value-side by-shape>)` | second `by(...)` is the value-side accumulator — `__.count()` → `count(*)`, `__.fold()` → `list($currentMatch)`, `__.values(k).count()` → `count(currentAlias.k)`; anything else declines | Track 9 |
+| Aggregation | `groupCount()` | `GROUP BY` + `count(*)` (shorthand for `group().by(...).by(__.count())`) | Track 9 |
 | Union | `union(traversal...)` (children agree on output type) | one `SelectExecutionPlan` per child, concatenated by `MultiPlanMatchStep` | Track 10 |
 
 **Always-transparent steps** that TinkerPop's optimization phase injects
@@ -662,6 +665,71 @@ a recognized YTDB-side predicate, decline.
 build it via `MatchWhereBuilder.not(...)` over a "field exists" check.
 Equivalently the `SQLBinaryCondition` can compare against a null literal —
 which one to use is settled in Track 4.
+
+## by-modulator translation
+
+`by(...)` is TinkerPop's uniform modulator — the same modulator attaches
+to `order()`, `select(...)`, `dedup(...)`, `group()`, and `project(...)`.
+Each modulator slot independently accepts one of several argument
+shapes; the translator recognizes a fixed set of those shapes
+(call them **recognized by-shapes**) and reuses the same unwrap logic
+across every modulator-bearing step. Shapes the translator cannot map
+to a field / identity / accumulator reference decline under D3.
+
+**Key-side by-shapes (used by `order`, `select`, `dedup`, `group` key,
+`project`).** These resolve to either a property reference or an
+element-identity token on the currently-bound alias:
+
+| Shape | Translation | Notes |
+|---|---|---|
+| `by("propertyKey")` | `currentAlias.propertyKey` | string-key form, simplest |
+| `by(T.id)` | `currentAlias.@rid` | element ID |
+| `by(T.label)` | `currentAlias.@class` | element class |
+| `by(__.values("propertyKey"))` | unwrapped to `currentAlias.propertyKey` | same target as the string-key form |
+| `by(__.id())` | unwrapped to `currentAlias.@rid` | same target as `T.id` |
+| `by(__.label())` | unwrapped to `currentAlias.@class` | same target as `T.label` |
+| `by(Order.asc / Order.desc)` | sort direction on `order()` only | comparator modulator, not a key |
+| `by(__.values(k).count())`, `by(__.out(L).count())`, anything carrying edges or aggregates | decline under D3 | requires nested sub-query support — Phase 2 |
+| `by(lambda)` / `by(<custom Comparator>)` | decline under D3 | arbitrary user code, untranslatable |
+| `by(Order.shuffle)` | decline under D3 | no MATCH equivalent |
+
+**Value-side by-shapes (used by `group().by(<key>).by(<value>)` only).**
+TinkerPop's two-arity `group().by(<key>).by(<value>)` form lets the
+second modulator name the accumulator. Recognized accumulators are:
+
+| Shape | Translation |
+|---|---|
+| `by(__.count())` | `count(*)` over the group |
+| `by(__.fold())` | `list($currentMatch)` — list of elements in the group (matches the no-by `group()` default) |
+| `by(__.values(k).count())` | `count(currentAlias.k)` |
+| `by(__.values(k).sum())` / `min` / `max` / `mean` | `sum(currentAlias.k)` / `min` / `max` / `mean(currentAlias.k)` — same drop-on-null-row policy as the boundary's scalar aggregates (see "Aggregation barrier semantics") |
+| anything else (lambdas, nested groups, custom accumulators) | decline under D3 |
+
+**Recognition flow.** A modulator-bearing recognizer (`OrderGlobalStep`,
+`SelectStep`, `DedupGlobalStep`, `GroupStep`, `ProjectStep`) walks each
+`by(...)` slot in order, calls the shared `ByModulatorTranslator` helper
+to resolve the shape to either a field-access AST or a decline
+sentinel, and merges the result into its step-specific output
+(`SQLOrderBy` entry, `SQLProjectionItem`, group-key expression, …).
+The helper lives in the shared `match.builder/` package so all five
+modulator-bearing recognizers reuse the same dispatch — adding a new
+recognized shape lands in one file, not five.
+
+**Edge cases.**
+
+- *No-by form*. `order()` without `by` sorts by element identity
+  (`@rid`); `group()` without `by` groups by element identity and
+  accumulates with `__.fold()`; `dedup()` without `by` and without
+  labels dedups full rows. These match the existing per-step
+  default-handling rules and need no by-modulator support.
+- *Per-label by-count mismatch*. TinkerPop allows fewer `by(...)`
+  modulators than labels — extras cycle. The translator declines on
+  cycle: each label must have its own explicit `by(...)` slot. This is
+  a deliberate Phase 1 restriction; equivalence is tested per-label.
+- *Sub-traversal carrying side-effects*. Any `by(__.aggregate(...))`,
+  `by(__.sack(...))`, or `by(...)` whose sub-traversal contains a
+  side-effect step declines whole — side effects have no MATCH
+  analogue.
 
 ## Parameter binding
 
