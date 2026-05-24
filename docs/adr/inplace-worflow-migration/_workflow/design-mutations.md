@@ -188,3 +188,15 @@ short labels inline.
 - suggestion (cold-read iter 2, not retried): §"Migration replay loop" TL;DR doesn't cross-link the merge-base-failure recovery contract. Carry as known debt.
 
 **Iterations**: 2 of 3 (PASS — mechanical iter 1 should-fix resolved in iter 2; cold-read iter 2 PASS with three suggestions held)
+
+## Mutation 12 — 2026-05-24 — content-edit (design.md)
+
+**Diff summary**: corrected the crash-window prose in §"Per-commit replay and lockstep advance" (paragraph at line 289) that mis-routed the 4.5→4.6 resume contract through "the no-drift normalization path advances every stamp to HEAD's SHA". The drift-check-side normalization (`workflow-drift-check.md`, Track 3 surface) and the migration-side resume (this section's per-commit loop with sub-step 4.5 lockstep advance, Track 4b surface) are distinct paths; a migration re-invocation does NOT enter no-drift normalization. Replacement prose names the migration-side resume contract directly: re-fold from uniform stamps at commit X yields `BASE_SHA = X` and range `X..HEAD` re-queues commits X+1..HEAD without re-applying X; if the crash hits mid-4.5 with non-uniform stamps, the fold over `{X-1, X}` yields the older common ancestor X-1, the range re-queues commit X, sub-step 4.4 re-applies its file-shape edits idempotently, and the user's pre-resume `git diff` catches non-idempotent residue. A closing sentence makes the cross-path boundary explicit: the no-drift normalization path fires only when the drift-check caller observes an empty `BASE_SHA..HEAD` range, which is a separate surface from the migration's per-commit loop.
+
+**Mechanical checks** (target=design, scope=bounded on `Per-commit replay and lockstep advance`): PASS (0 blockers, 1 should-fix pre-existing and out-of-scope at design.md:257). The fragmented-header heuristic flags the §"Per-commit replay and lockstep advance" TL;DR at line 259 for 75% content-word overlap with the heading; the paragraph this mutation rewrites is at line 289 and shares no overlap with the heading. Verified pre-existing by re-running the script against `git stash`-saved HEAD before the mutation landed: identical finding shape. Carry as known debt; the next mutation touching the TL;DR is the natural place to sweep it.
+**Cold-read** (scope: bounded): skipped per the Mutation 11 / Mutation 7 precedent for focused single-paragraph corrections with no narrative shift, compounded by the implementer-rulebook boundary against sub-agent spawns from implementer-level work. The change is a localized prose-routing fix that leaves every adjacent paragraph, every cross-reference, and the section's TL;DR / Edge cases / References footer byte-for-byte unchanged.
+
+**Findings**:
+- should-fix (mechanical iter 1, pre-existing and out-of-scope): `dsc-ai-tell` fragmented-header heuristic at line 257 against the TL;DR at line 259 (75% content-word overlap, threshold 50%). Carry as known debt; this mutation does not touch the TL;DR paragraph.
+
+**Iterations**: 1 of 3 (PASS — mechanical iter 1 PASS verdict with one pre-existing should-fix held; cold-read skipped per precedent and held as PASS-equivalent)
