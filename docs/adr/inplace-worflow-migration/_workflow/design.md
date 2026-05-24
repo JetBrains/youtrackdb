@@ -192,7 +192,7 @@ for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
               "$PLAN_DIR/_workflow/design.md" \
               "$PLAN_DIR/_workflow/design-mechanics.md" \
               "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
-    SHA="$(head -1 "$f" | grep -oE '[0-9a-f]{40}' | head -1)"
+    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
     if [ -n "$SHA" ]; then
         STAMPED_SHAS="$STAMPED_SHAS $SHA"
     else
@@ -204,36 +204,47 @@ done
 **Phase 2 (caller-specific):**
 
 - **Drift check** — `workflow-drift-check.md`: if `UNSTAMPED_FILES` is non-empty, signal drift unconditionally (no fold, no `git log`). Otherwise fold `STAMPED_SHAS` and run `git log $BASE_SHA..HEAD -- .claude/workflow .claude/skills`; non-empty output signals drift. When the range is empty and `STAMPED_SHAS` contains more than one distinct SHA, the gate rewrites every artifact's line-1 stamp to `BASE_SHA` and creates a separate normalization commit (D11).
-- **Migration** — `migrate-workflow/SKILL.md`: if `UNSTAMPED_FILES` is non-empty, prompt the user once for a base SHA, validate it (`git rev-parse --verify $SHA^{commit}` and `git merge-base --is-ancestor $SHA HEAD`), then fold `STAMPED_SHAS` plus the validated user SHA. Run the same `git log` to produce the replay queue.
+- **Migration** — `migrate-workflow/SKILL.md`: if `UNSTAMPED_FILES` is non-empty, prompt the user once for a base SHA, validate it (`git rev-parse --verify $SHA^{commit}` and `git merge-base --is-ancestor $SHA HEAD`), then fold `STAMPED_SHAS` plus the validated user SHA. Run the same `git log` to produce the replay queue. A mid-fold `git merge-base` failure (a stamp on a `git gc`-pruned commit, or two stamps with no reachable common ancestor) routes the failing stamps' owning artifacts back into the unstamped set and re-runs the same bootstrap prompt covering the combined `UNSTAMPED_FILES + MERGE_BASE_FAILED` set per `conventions.md` §1.6(c); three rejected validation attempts abort the session with no edits applied. When the Phase 1 walk produces both `STAMPED_SHAS` and `UNSTAMPED_FILES` empty (no stampable artifacts on disk), the migration halts with `no artifacts to migrate` and exits with no edits applied per `conventions.md` §1.6(h) final paragraph.
 
 The fold itself:
 
 ```bash
 BASE_SHA=""
+MERGE_BASE_FAILED=""
 for SHA in $STAMPED_SHAS $USER_SHA; do
     if [ -z "$BASE_SHA" ]; then
         BASE_SHA="$SHA"
-    else
-        # Fold pairwise through merge-base — yields the older ancestor
-        # for linear stamps and the common ancestor for divergent ones.
-        # Failure (no common ancestor) is treated as a fatal error;
-        # the caller aborts and asks the user to investigate.
-        BASE_SHA="$(git merge-base "$SHA" "$BASE_SHA" 2>/dev/null)" \
-            || { echo "merge-base failed on $SHA vs $BASE_SHA"; exit 1; }
+        continue
     fi
+    # Fold pairwise through merge-base — yields the older ancestor
+    # for linear stamps and the common ancestor for divergent ones.
+    # Failure (no common ancestor in HEAD's graph, e.g. a stamp on a
+    # git-gc-pruned commit) collects the participating stamps for
+    # caller-specific recovery per conventions.md §1.6(c) rather than
+    # aborting the fold.
+    if ! NEW_BASE="$(git merge-base "$SHA" "$BASE_SHA" 2>/dev/null)"; then
+        MERGE_BASE_FAILED="$MERGE_BASE_FAILED $SHA"
+        continue
+    fi
+    BASE_SHA="$NEW_BASE"
 done
 
+# Caller-specific recovery happens here when MERGE_BASE_FAILED is
+# non-empty: the drift check escalates to "drift detected"; the
+# migration extends its bootstrap prompt to cover the combined
+# unstamped + merge-base-failed set, then re-runs the fold. On the
+# success path, the range is BASE_SHA..HEAD.
 git log --reverse --format='%H %s' "$BASE_SHA..HEAD" -- .claude/workflow .claude/skills
 ```
 
-`git merge-base` is the load-bearing primitive — it picks the older of two linearly related SHAs, returns the common ancestor of two divergent ones, and exits non-zero when no common ancestor exists at all (treated as fatal so the caller surfaces it). Folding the whole set pairwise lands on the single SHA that's ancestor of every input, which is exactly the "earliest workflow version any artifact was synced to" anchor the range needs.
+`git merge-base` is the load-bearing primitive — it picks the older of two linearly related SHAs, returns the common ancestor of two divergent ones, and exits non-zero when no common ancestor exists at all. The fold collects the participating stamps in `MERGE_BASE_FAILED` and hands recovery to the caller per `conventions.md` §1.6(c): the drift check routes the affected stamps to drift detected; the migration re-prompts the user for a base SHA covering the combined unstamped + merge-base-failed set. Folding the whole set pairwise lands on the single SHA that's ancestor of every input, which is exactly the "earliest workflow version any artifact was synced to" anchor the range needs.
 
 **Why no silent auto-computed reference.** Any auto-computed reference for unstamped artifacts (`git merge-base origin/develop HEAD`, HEAD itself, fork-point with develop, or whatever else) fails the same way: it shifts forward whenever the user rebases the branch onto a newer develop. A legacy branch carrying unstamped artifacts, rebased onto a develop that has had workflow commits in the meantime, would have any auto-computed reference land at (or near) the new HEAD; a silent fallback would then declare the artifacts already-synced, skipping the migration entirely. The data loss is silent: artifacts stay at their unmigrated content while the drift gate reports "no drift." Asking the user once for an explicit SHA at migration time is the small ergonomic cost that buys correctness across rebase (D8).
 
 ### Edge cases / Gotchas
 
 - An artifact whose stamp parses but whose SHA isn't reachable from HEAD (e.g., a stamp left from a workflow commit that was dropped during rebase): the SHA enters the fold; `git merge-base` reduces it against the other stamps to whatever common ancestor exists in HEAD's graph, and `git log $BASE_SHA..HEAD` returns commits reachable from HEAD that aren't on that ancestor. The unreachable stamp itself contributes only to the fold input, not to the range upper bound.
-- The active plan's `_workflow/` directory exists but has zero artifacts: skipped silently (no fold contributor and no unstamped contributor). The drift check's existing "active plan's `_workflow/` doesn't exist" skip condition catches the brand-new-plan case before the loop runs.
+- The active plan's `_workflow/` directory exists but has zero stampable artifacts (a freshly-created `_workflow/` directory holding only a transient `handoff-*.md`, for example): per `conventions.md` §1.6(h) the drift check exits successfully with no drift to report, and the migration halts with `no artifacts to migrate` and exits with no edits applied. The drift check's existing "active plan's `_workflow/` doesn't exist" skip condition catches the brand-new-plan case before the loop runs.
 - The enumeration lists the four stamped artifact types explicitly inside the active plan's `_workflow/`. Adding a new stamped artifact type means adding one line to each call site, small enough to inline rather than pulling out a helper. `design-mutations.md` is an append-only log and is deliberately excluded: its stamp would always equal `design.md`'s stamp (same creation moment, same lockstep advance, untouched by I4 mutations), so it contributes nothing to the fold input, and schema commits affecting the log are replay-immune by virtue of the log's append-only contract.
 - The user-supplied bootstrap SHA fails validation (`git rev-parse --verify` rejects it, or `git merge-base --is-ancestor` says it's not reachable from HEAD): the migration re-prompts. Three rejected attempts in a row abort the session with a clear error and no edits applied.
 - The user supplies a SHA that's valid but semantically wrong (an unrelated commit): no system check can catch this. The fold yields a `BASE_SHA` that's correct given the input; the per-commit replay loop's classify-and-apply contract then determines whether the resulting edits make sense, with halt-on-ambiguity as the safety net.

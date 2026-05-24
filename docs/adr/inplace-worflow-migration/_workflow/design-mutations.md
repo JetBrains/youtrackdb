@@ -173,3 +173,18 @@ short labels inline.
 - suggestion (cold-read iter 1, not retried): Core Concepts entry could note "during Phase 3 execution" to distinguish the accumulation phase from the Phase 4 promotion phase. The body section makes the timing explicit; the one-paragraph definition is tolerable without it.
 
 **Iterations**: 2 of 3 (PASS — mechanical PASS on iter 1 against the as-paused state; cold-read iter 1 returned PASS verdict with 2 should-fix findings; iter 2 applied the design-side fix and re-ran mechanical; cold-read iter 2 sub-agent run skipped per Mutation 7 precedent; the plan-side should-fix is resolved by the companion plan edits landing in the same inline-replanning commit)
+
+## Mutation 11 — 2026-05-24 — content-edit (design.md)
+
+**Diff summary**: synced the §"Stamp range computation" bash + prose to the canonical `conventions.md` §1.6 contract. CR4 from the State 0 consistency review surfaced two drifts: (a) the Phase 1 walk used the unanchored regex `grep -oE '[0-9a-f]{40}'` that §1.6(a1) explicitly rejects, and (b) the Phase 2 fold treated `git merge-base` failure as fatal (`exit 1`) instead of routing failing stamps to caller-specific recovery per §1.6(c). Track 3 implemented §1.6(c) recovery in `workflow-drift-check.md` but design.md was missed at the time. Edits: switched the Phase 1 walk regex to the anchored `workflow-sha:`-prefixed form; rewrote the fold to collect failed stamps in `MERGE_BASE_FAILED` and signpost caller-specific recovery; extended the Migration Phase 2 bullet with the merge-base-failure re-prompt loop and the both-arrays-empty `no artifacts to migrate` halt (§1.6(h) final paragraph); updated the "git merge-base is the load-bearing primitive" paragraph to describe recovery instead of fatal abort; updated the Edge Cases bullet "directory has zero artifacts" to name the canonical migration halt.
+
+**Mechanical checks** (target=design, scope=bounded on `Stamp range computation`): iter 1 had 1 should-fix (em-dash density on line 207); iter 2 PASS (0 findings) after replacing the trailing em-dash with `per`.
+**Cold-read** (scope: bounded — Stamp range computation + Migration replay loop + Per-commit replay and lockstep advance + Overview + Core Concepts): iter 2 PASS with 3 suggestion-tier findings (References footer doesn't list the §1.6 anchors the body now cites; in-block comment near-duplicates the post-fold paragraph; Migration replay loop TL;DR doesn't cross-link the recovery contract). Suggestions are not retried per the mutation discipline.
+
+**Findings**:
+- should-fix (mechanical iter 1, resolved iter 2): em-dash density on line 207 — replaced the trailing em-dash before `conventions.md §1.6(h) final paragraph` with `per`.
+- suggestion (cold-read iter 2, not retried): References footer at line 255 omits the conventions.md anchors the body cites. Carry as known debt.
+- suggestion (cold-read iter 2, not retried): in-block comment at lines 232-236 duplicates the post-fold paragraph. Carry as known debt.
+- suggestion (cold-read iter 2, not retried): §"Migration replay loop" TL;DR doesn't cross-link the merge-base-failure recovery contract. Carry as known debt.
+
+**Iterations**: 2 of 3 (PASS — mechanical iter 1 should-fix resolved in iter 2; cold-read iter 2 PASS with three suggestions held)

@@ -46,6 +46,13 @@ flowchart LR
         SIR["self-improvement-reflection.md"]
     end
 
+    subgraph Staging["Workflow-modifying branches (D14)"]
+        IMPL["Implementer<br/>(step-implementation)"]
+        STAGED["_workflow/staged-workflow/<br/>.claude/{workflow,skills}/"]
+        P4P["Phase 4 promotion<br/>(workflow.md + create-final-design.md)"]
+        LIVE[".claude/workflow + .claude/skills<br/>(live paths)"]
+    end
+
     CP -->|stamp on create| IPM
     CP -->|stamp on create| TF
     CP -->|invokes at startup| WDC
@@ -57,6 +64,10 @@ flowchart LR
     MW -->|read + stamp to HEAD| TF
     MW -->|read + stamp to HEAD| DM
     MW -->|invoke at end| SIR
+    IMPL -->|writes on workflow-mod plans| STAGED
+    STAGED -->|copy at Phase 4| P4P
+    P4P -->|land on| LIVE
+    WDC -.->|pathspec excludes| STAGED
 ```
 
 - **`create-plan` SKILL** — emits the stamp on line 1 of `implementation-plan.md` and each `plan/track-N.md` it creates (Track 2). Invokes the drift gate at session start so re-invocation after the user rebases the branch onto a newer develop catches post-rebase drift before any research investment (Track 6). One-line bash helper computes the SHA: `git log -1 --format=%H HEAD -- .claude/workflow .claude/skills`.
@@ -64,6 +75,10 @@ flowchart LR
 - **`workflow-drift-check.md`** — parser walks every `_workflow/**` artifact in the active plan's `_workflow/` directory (D13) and reads each line-1 stamp. Any unstamped artifact triggers drift unconditionally; the gate skips the fold and routes to migration. When every artifact is stamped, the fold runs and the gate compares `BASE_SHA..HEAD` against workflow paths (no `git fetch`). On no-drift with non-uniform stamps, normalizes every stamp to the fold result and creates a separate commit (D11). Resolutions wording updated for in-branch flow. Invoked from both `/execute-tracks` turn 1 (existing) and `/create-plan` between Step 1 and Step 1a (Track 6). Touched in Track 3.
 - **`migrate-workflow` SKILL** — runs against the active plan's `_workflow/` directory (D13; one plan at a time, matching today's skill contract). Preflight refuses on develop-worktree requirement (drops) and on tracked-uncommitted or untracked files under the active plan's `_workflow/**` (D12; progress-sentinel carve-out kept). When unstamped artifacts exist, the skill prompts the user once for a base SHA covering the unstamped set, validates it, and folds it in with the stamped set. Range is `BASE_SHA..HEAD`. Per-commit replay loop unchanged in shape; after each successful replay, every stamp in the active plan advances to that commit's SHA in lockstep (crash-resume marker). A final post-loop step re-stamps every artifact in the active plan to `HEAD`'s SHA in one batch (D2). Touched in Track 4a (preflight + range derivation) and Track 4b (per-commit replay + final batch).
 - **`self-improvement-reflection.md`** — gains a session-type parameter (`execute-tracks` or `migrate-workflow`) controlling the commit-clean check, phase value, and applicability text. Touched in Track 5. The migrate-workflow SKILL gains a final step that invokes it.
+- **`implementer-rules.md` and `step-implementation.md`** — gain a path-mapping rule so an implementer working on a workflow-modifying plan writes to `<plan-dir>/_workflow/staged-workflow/.claude/{workflow,skills}/...` instead of the live paths. The rule is silent on plans that don't modify workflow tooling. Touched in Track 7; sourced from D14.
+- **`workflow.md` § Final Artifacts and `prompts/create-final-design.md`** — gain a "Promote workflow changes" step that copies the staged subtree to the live paths in one commit before the existing final-artifacts commit, on plans where `<plan-dir>/_workflow/staged-workflow/` exists. Changes Phase 4 from a two-commit shape to a three-commit shape on workflow-modifying plans. Touched in Track 7; sourced from D14.
+- **`workflow-drift-check.md` pathspec site** — gains a defensive comment at `git log ... -- .claude/workflow .claude/skills` noting that the path scoping naturally excludes the staged subtree under `docs/adr/*/_workflow/staged-workflow/...`. Touched in Track 7; the exclusion already holds by virtue of the prefix difference, the comment documents the property so future edits don't break it.
+- **`conventions.md` §1.6 staging invariant** — gains the I6 statement recording the staged-subtree convention as a single canonical source the plan-file restatement cross-references. Touched in Track 7; sourced from D14.
 
 #### D1: Per-artifact SHA stamp, not single sentinel
 
@@ -256,7 +271,13 @@ flowchart LR
   > **Depends on:** none (forward-applicable; no sequencing dependency on Tracks 4a/4b/5/6).
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed at iteration 2 (re-validation after Track 7 inline replan, 2026-05-24)
+
+**Auto-fixed (mechanical)**: CR4 design.md §"Stamp range computation" updated via edit-design mutation 11 — Phase 1 walk regex switched to canonical anchored form (`workflow-sha:`-prefixed), fold rewritten to collect `MERGE_BASE_FAILED` for caller-specific recovery per `conventions.md` §1.6(c) instead of fatal abort, Migration Phase 2 bullet extended with merge-base-failure re-prompt and the §1.6(h) both-arrays-empty halt (`no artifacts to migrate`); one mechanical em-dash density fix resolved iter 2.
+
+**Escalated (design decisions)**: CR1 (Track 4a Plan of Work Step 4 missing §1.6(c) recovery + §1.6(h) both-arrays-empty obligations — user picked "amend Track 4a to cite §1.6(c) and §1.6(h)"); CR3 (Component Map missing Track 7 staging components — user picked "add Staging subgraph + Phase 4 promotion node + 5 bullets"); CR4 design-decision branch (user picked "update design.md via edit-design now" — applied as mechanical edit through the mutation discipline).
+
+**Dropped as invalid**: CR2 (sub-agent claim that `### 5.5`/`### 5.6` headings don't exist in `migrate-workflow/SKILL.md` was wrong — verified they exist at lines 254 and 270).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
