@@ -508,6 +508,8 @@ If the level is `warning` (≥30%) or `critical` (≥40%):
 3. Instruct: "Context window is at <level>. Run `/clear` and re-invoke `/migrate-workflow` to resume — already-migrated commits will be skipped via the progress file. If you `/clear` between 4.4 and 4.5, the next session re-replays this commit's edits over already-edited content; run `git diff` before re-invoking."
 4. End the session.
 
+Reflection at Step 6 is deliberately skipped on this early-exit path to protect the already-tight context budget; the next session's reflection at Step 6 (once the migration completes successfully) reports this halt as friction.
+
 If `info` (`20% ≤ ctx < 30%`): continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/` or `.claude/skills/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
 
 **Sub-agent contracts.** The orchestrator must interpolate `$ARGUMENTS` and per-commit values into the sub-agent prompt before launch; sub-agents inherit no conversation context and operate against the current worktree.
@@ -647,7 +649,7 @@ After printing the summary lines above, mark Step 0's umbrella task 7 as `comple
 
 ## Step 6 — Self-improvement reflection
 
-Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`. Invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`. Migration friction worth recording typically lives in ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, or edge cases in the renames tracker. The protocol owns its own YouTrack MCP-reachability check and end-of-session contract; nothing else fires after it returns. After it returns, mark umbrella task 8 as `completed`.
+Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`, then mark umbrella task 8 as `completed` **before** invoking the reflection protocol. The flip is intentional: `self-improvement-reflection.md` ends the session at its Step 10 and never returns control here, so any post-invoke completion line is unreachable. Treating the umbrella task as "I am about to invoke reflection" (not "reflection completed") keeps the user's task list consistent even though the reflection itself runs after the flip. Then invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow` (see `self-improvement-reflection.md` §"What counts as a worth-recording issue" for the migration-shaped friction examples). The protocol owns its own YouTrack MCP-reachability check and end-of-session contract; nothing else fires after it returns.
 
 ## Notes
 

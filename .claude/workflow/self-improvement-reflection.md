@@ -25,9 +25,15 @@ agent would have benefited from a rule that did not exist.
   (e.g., "Invoke `.claude/workflow/self-improvement-reflection.md`
   with `session-type=migrate-workflow`"). When the caller omits the
   parameter, the document behaves as `session-type=execute-tracks`.
+  Any value other than `execute-tracks` or `migrate-workflow` halts
+  the document with `ERROR: unrecognized session-type "<value>";
+  expected `execute-tracks` or `migrate-workflow`` and ends the
+  session without writing any issue.
 
-Three clauses branch on `session-type`: §"When it runs" (which
-phase identifiers apply and which skip conditions fire),
+Four clauses branch on `session-type`: §"When it runs" (which
+phase identifiers apply and which skip conditions fire), §"What
+counts as a worth-recording issue" (the migration-shaped friction
+sub-bullets apply only when `session-type=migrate-workflow`),
 §"Reflection procedure" Step 2 (the commit-clean check is skipped
 for `migrate-workflow`), and §"Issue body template" (the `**Phase:**`
 field and the `**Source session:**` template literal extend to carry
@@ -82,23 +88,27 @@ phase identifiers a session contributes depend on `session-type`:
 Reflection runs on every session that reached at least one phase
 step applicable to its `session-type` (the five `/execute-tracks`
 phase steps above, the single `migrate-workflow` phase identifier,
-or — for `/execute-tracks` — the auto-resume / Track Pre-Flight
-gate logic). The friction that triggered an early exit (context-
-window warning, ESCALATE, two-failure rule, designed-in user gate
-at Track Pre-Flight or State 0) is itself often the most valuable
+or, for `/execute-tracks`, the auto-resume / Track Pre-Flight gate
+logic). The friction that triggered an early exit (context-window
+warning, ESCALATE, two-failure rule, designed-in user gate at
+Track Pre-Flight or State 0) is itself often the most valuable
 finding. On a designed-in user gate the agent should default to
-N=0 — unless the gate fired because the docs gave no rule for the
-situation, in which case the gap is exactly what reflection should
-record.
+N=0; if the gate fired because the docs gave no rule for the
+situation, the gap is exactly what reflection should record.
 
 Reflection is skipped only when:
 
 - the calling skill's startup protocol could not start any session
   work because of a missing prerequisite (for `/execute-tracks`:
   plan file does not exist, MCP cwd does not match, user cancels at
-  the startup prompt; for `/migrate-workflow`: no `_workflow/`
-  artifacts to migrate, MCP cwd does not match, user cancels at the
-  startup prompt) — there is no session content to reflect on; or
+  the startup prompt; for `/migrate-workflow`: any halt before
+  Step 5's final summary completes — the Step 1 narrow-scope
+  dirty-tree check, the Step 1 argument mismatch, the Step 2
+  both-arrays-empty halt, the Step 2.0 three-rejected-attempts
+  bootstrap halt, the Step 3 stale `range_start`, or the Step 4.3
+  stamp-format-change in-flight halt; the next session's reflection
+  at Step 6 reports the friction once the migration completes
+  successfully) — there is no session content to reflect on; or
 - YouTrack MCP is not reachable (see §YouTrack MCP requirement) —
   there is no sink for the output.
 
@@ -534,8 +544,7 @@ The Markdown body submitted to `create_issue.description`:
 **Source:** branch `<branch-name>`, commit `<40-char-SHA>`
 **Severity:** medium | high
 **Phase:** state-0 | phase-a | phase-b | phase-c | phase-4 | migrate-workflow
-**Source session:** <YYYY-MM-DD> /execute-tracks <adr-dir-name>
-                  | <YYYY-MM-DD> /migrate-workflow <adr-dir-name>
+**Source session:** <YYYY-MM-DD> /execute-tracks <adr-dir-name> | /migrate-workflow <adr-dir-name>
 
 ## Symptom
 
@@ -573,6 +582,14 @@ Or add a new recipe in `<file>` for <Y>. Or split <doc> into <A> and
 
 The **Source** line is mandatory — it lets the triager check out
 the exact branch and commit that produced the friction.
+
+For `session-type=migrate-workflow`, the recorded commit refers to
+pre-migration HEAD; the user's subsequent migration-output commit
+moves HEAD forward. The Source line is the migration's starting
+point, not its ending point.
+
+The `**Source session:**` field is a pipe-separated enumeration:
+pick the calling skill; drop the other branch.
 
 ---
 
