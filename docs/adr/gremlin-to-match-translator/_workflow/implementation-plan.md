@@ -300,13 +300,31 @@ What changes:
   world without the translator. Net effect: every recognized shape
   gains the planner; every unrecognized shape is at least as well
   served as before the translator existed.
-- **Start-step ownership.** Running first means `StartStepRecogniser`
-  cannot rely on `YTDBGraphStep` having absorbed adjacent `HasSteps`
-  via `YTDBGraphStepStrategy`. It instead walks ahead from the bare
-  `GraphStep` and absorbs any directly following `HasStep`s itself
-  (the same logic, but driven by the translator's recognizer). This
-  keeps the absorption result inside the translator's IR rather than
-  spread across two strategies.
+- **Step-by-step composition** (not peek-ahead absorption). Running
+  first means `StartStepRecogniser` cannot rely on `YTDBGraphStep`
+  having absorbed adjacent `HasStep`s via `YTDBGraphStepStrategy` —
+  but that is **not a problem to solve** at the start-step recognizer
+  level. The walker iterates the step list step by step:
+  `StartStepRecogniser` claims the bare `GraphStep` (pins the boundary
+  alias, optionally inlines RIDs from `g.V(ids)`), the next
+  `HasStep` claims through `HasStepRecogniser` (Track 4) and AND-merges
+  its predicate into `aliasFilters[boundaryAlias]`. The resulting IR
+  is identical to what the old `YTDBGraphStepStrategy` fold produced —
+  a node alias with a `where` clause — but composed from two
+  recognizer claims instead of a pre-folded single step. The walker
+  iteration **is** the absorption; no peek-ahead in the start-step
+  recognizer is needed.
+- **Half-measure idempotency when the translator succeeds.** When
+  `GremlinToMatchStrategy` recognizes the traversal and replaces the
+  step list with a single `YTDBMatchPlanStep`, the three half-measure
+  strategies still run because TinkerPop's strategy chain invokes
+  every registered strategy in the resolved order. They no-op: each
+  one introspects the step list looking for `GraphStep` (or
+  `MatchStep` for `YTDBGraphMatchStepStrategy`), finds none (only
+  `YTDBMatchPlanStep`), and returns without mutating anything. This
+  is **part of the contract**, not an accident — Phase 1 ships a
+  guard test (`HalfMeasuresAreNoOpOnTranslatedTraversalTest`) that
+  pins it.
 - **Ordering mechanism**: `GremlinToMatchStrategy.applyPrior()` returns
   `{YTDBGraphStepStrategy.class, YTDBGraphCountStrategy.class, YTDBGraphMatchStepStrategy.class}` —
   declaring that all three run **after** it. `applyPost()` returns
@@ -315,15 +333,31 @@ What changes:
   `LazyBarrierStrategy.class`) so the new strategy sees the post-fold
   shapes the recognizer table describes. No edit to existing
   strategies is required.
-- **Risks/Caveats**: Tests that exercise the YTDB half-measure
-  strategies must still pass when they run on declined traversals.
-  The ordering is verified by a unit test that builds a
-  `TraversalStrategies` set and asserts iteration order rather than
-  relying on `applyPrior` / `applyPost` declarations alone, plus an
-  end-to-end assertion that a declined traversal shows the half-measure
-  strategies' fingerprints (e.g. `YTDBGraphStep` after applying all
-  strategies on `g.V().has("name","Alice")` when the translator
-  declines it).
+- **Risks/Caveats**:
+  - Tests that exercise the YTDB half-measure strategies must still
+    pass when they run on declined traversals.
+  - The `applyPost` set references TinkerPop internal classes. If
+    upstream renames or restructures these classes (TinkerPop
+    major-version bump), the `applyPost` declaration silently
+    misfires — the strategies still run, but no longer guaranteed in
+    the order the translator depends on. Mitigation: a defensive
+    unit test asserts that every class named in `applyPost` is
+    present on the classpath at the expected fully-qualified name;
+    a TinkerPop upgrade then surfaces here as a failed test rather
+    than a runtime drift.
+  - The ordering is verified by a unit test that builds a
+    `TraversalStrategies` set and asserts iteration order rather than
+    relying on `applyPrior` / `applyPost` declarations alone, plus
+    **two** end-to-end assertions:
+    1. A declined traversal (e.g. `g.V().has("name","Alice").map(...)`
+       with a lambda) ends up with `YTDBGraphStep` after applying
+       all strategies — proves the half-measure fallback path fires.
+    2. A recognized traversal (e.g. `g.V().has("name","Alice")`)
+       ends up with **exactly one** step in the chain
+       (`YTDBMatchPlanStep`) — proves the half-measures no-op'd and
+       did not interfere with the translation. Without this dual
+       assertion, a regression where a half-measure starts mutating
+       a translated step list stays undetected.
 - **Implemented in**: Track 2.
 
 #### D5: Plan cache lands in Phase 1 keyed on (traversal-fingerprint × parameter values)
