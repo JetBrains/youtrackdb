@@ -154,9 +154,9 @@ What changes:
   - `GremlinStepWalker` — iterates `Traversal.getSteps()`, keeps a
     current "node-under-construction" context, dispatches each step
     via `Map<Class<? extends Step>, StepRecogniser>.get(step.getClass())`
-    (D9). Each recogniser claims a single Step class and handles every
+    (D9). Each recognizer claims a single Step class and handles every
     variant of that class internally (e.g. `NotStepRecogniser` branches
-    on `hasEdgeHops(subTraversal)`); an unrecognised class yields
+    on `hasEdgeHops(subTraversal)`); an unrecognized class yields
     `null` → traversal declines under D3.
   - `GremlinPredicateAdapter` — translates TinkerPop `P<T>` (predicate algebra)
     and `HasContainer` instances into `SQLBinaryCondition`/`SQLInCondition`/
@@ -263,7 +263,7 @@ What changes:
   decline. Track 12's perf baseline must measure against the recognized
   set as it stands at end of Phase 1, not against the full LDBC suite.
 - **Implemented in**: Track 2 (size-1 gate enforces all-or-nothing for
-  the minimal recognised set), Tracks 3-10 (extend the recognized set;
+  the minimal recognized set), Tracks 3-10 (extend the recognized set;
   walker classifies each step as recognized/unrecognized and declines the
   whole traversal on the first unrecognized step). Track 11 is retired
   (`[~]`) — boundary refinement is subsumed: output-type negotiation
@@ -293,14 +293,14 @@ What changes:
   aggregation decisions end-to-end. When the new strategy **declines**,
   the original step list is preserved verbatim and the two YTDB
   half-measure strategies see it next — exactly as they would in a
-  world without the translator. Net effect: every recognised shape
-  gains the planner; every unrecognised shape is at least as well
+  world without the translator. Net effect: every recognized shape
+  gains the planner; every unrecognized shape is at least as well
   served as before the translator existed.
 - **Start-step ownership.** Running first means `StartStepRecogniser`
   cannot rely on `YTDBGraphStep` having absorbed adjacent `HasSteps`
   via `YTDBGraphStepStrategy`. It instead walks ahead from the bare
   `GraphStep` and absorbs any directly following `HasStep`s itself
-  (the same logic, but driven by the translator's recogniser). This
+  (the same logic, but driven by the translator's recognizer). This
   keeps the absorption result inside the translator's IR rather than
   spread across two strategies.
 - **Ordering mechanism**: `GremlinToMatchStrategy.applyPrior()` returns
@@ -309,7 +309,7 @@ What changes:
   the TinkerPop structural folders the translator depends on
   (`IncidentToAdjacentStrategy.class`, `ConnectiveStrategy.class`,
   `LazyBarrierStrategy.class`) so the new strategy sees the post-fold
-  shapes the recogniser table describes. No edit to existing
+  shapes the recognizer table describes. No edit to existing
   strategies is required.
 - **Risks/Caveats**: Tests that exercise the YTDB half-measure
   strategies must still pass when they run on declined traversals.
@@ -403,7 +403,7 @@ What changes:
   must agree on `BoundaryOutputType`, otherwise the union step is
   unrecognized and under D3 the entire enclosing traversal declines.
   `optional`, by contrast, requires either a drop-on-null filter at the
-  boundary step (mirroring `SelectStep`'s `EmptyTraverser` behaviour) or
+  boundary step (mirroring `SelectStep`'s `EmptyTraverser` behavior) or
   a MATCH-level alternative pattern. Phase 2 owns that design.
 - **Risks/Caveats**: Phase 2's `optional` design must enumerate the
   empty-sub-traversal, nested-optional, and mid-chain-optional cases
@@ -412,17 +412,17 @@ What changes:
 - **Implemented in**: Track 10 (union recognition + multi-plan boundary
   step). `optional` is intentionally absent from Phase 1.
 
-#### D9: Type-keyed recogniser dispatch via `Map<Class<? extends Step>, StepRecogniser>`
+#### D9: Type-keyed recognizer dispatch via `Map<Class<? extends Step>, StepRecogniser>`
 
 - **Alternatives considered**: (a) `List<StepRecogniser>` with linear
   first-match-wins dispatch — rejected because `instanceof`-based claim
   silently sweeps unknown `HasStep` subclasses into the parent
-  recogniser's path; (b) `Map<Class, List<StepRecogniser>>` hybrid —
+  recognizer's path; (b) `Map<Class, List<StepRecogniser>>` hybrid —
   rejected as essentially "map keyed on class, list inside" which adds
-  a layer without removing the partial-write hazard the per-recogniser
+  a layer without removing the partial-write hazard the per-recognizer
   no-mutation contract is meant to address; (c) `Map<Class<? extends
   Step>, StepRecogniser>` keyed on `step.getClass()`, with multi-shape
-  steps (NotStep) handled by a single recogniser that branches
+  steps (NotStep) handled by a single recognizer that branches
   internally on the sub-traversal shape (chosen).
 - **Rationale**: `getClass()` returns the concrete runtime class, so
   YTDB-specific subclasses (`YTDBHasLabelStep extends HasStep`) route
@@ -437,22 +437,22 @@ What changes:
   discipline both branches need.
 - **Migration vs the in-flight implementation**: the
   `gremlin-to-match-translator` branch currently uses
-  `List<StepRecogniser>` with two separate recognisers
+  `List<StepRecogniser>` with two separate recognizers
   (`NotFilterStepRecogniser`, `NotPatternStepRecogniser`). The
   switch-over collapses those into one `NotStepRecogniser` with
   internal branching and replaces the linear walker dispatch with
   `map.get(step.getClass())`. `RecogniserDispatchOrderTest` collapses
-  into a duplicate-key-assertion check (key → expected recogniser
+  into a duplicate-key-assertion check (key → expected recognizer
   class) — the bulk of its matrix becomes vacuous once the map is the
   dispatcher.
 - **Risks/Caveats**: the no-mutation-on-decline contract stays as a
-  per-recogniser unit-test invariant for the recognisers that branch
+  per-recognizer unit-test invariant for the recognizers that branch
   internally (NotStep, SubTraversalPredicateAdapter callers); without
   the map dispatch it was load-bearing for the whole registry, with
-  the map it survives only inside the recognisers that need it.
+  the map it survives only inside the recognizers that need it.
 - **Implemented in**: Track 2 (initial map dispatch when the walker
   lands), and a refactor step in Track 5 (combining the two NotStep
-  recognisers into one).
+  recognizers into one).
 
 ### Invariants
 
@@ -481,12 +481,12 @@ What changes:
   `YTDBMatchPlanStep` is a no-op (verified by a unit test that calls
   `apply()` twice and asserts step list equality).
 - **Polymorphism uniformity**: the `polymorphicQuery` flag pinned by the
-  start-step recogniser at first claim applies to **every** node alias
+  start-step recognizer at first claim applies to **every** node alias
   the walk introduces — start node and chain targets alike. Recognisers
   that add chain-target nodes (`VertexStepRecogniser` from Track 3,
-  `hasLabel` recognisers from Track 4) read `WalkerContext.polymorphic`
+  `hasLabel` recognizers from Track 4) read `WalkerContext.polymorphic`
   and apply the same `@class = '<className>'` (or `@class IN [...]`)
-  narrowing the start-step recogniser does. Verified by parameterised
+  narrowing the start-step recognizer does. Verified by parameterised
   tests of `g.V().out(label)` under both polymorphic settings against
   a graph with subclass instances; the translated and native pipelines
   must agree on which subclass instances appear.
@@ -664,16 +664,16 @@ What changes:
   >   short-circuits when `pattern != null`, which is always the case for
   >   the `MatchPlanInputs` ctor). The translator's anonymous aliases only
   >   need to be locally unique and not collide with user-provided labels.
-  > - **Chain-target polymorphism**: the recogniser reads
+  > - **Chain-target polymorphism**: the recognizer reads
   >   `WalkerContext.polymorphic` (pinned by `StartStepRecogniser` at first
   >   claim) and, when non-polymorphic, augments each chain-target alias's
   >   `aliasFilters` with `@class = 'V'` via the shared
   >   `MatchClassFilters.classEq` helper. Without this the chain target
-  >   would silently fall back to MATCH's polymorphic-by-default behaviour
+  >   would silently fall back to MATCH's polymorphic-by-default behavior
   >   while the start node honours the flag — a result-set discrepancy
   >   versus the native pipeline. The `MatchClassFilters` helper is
   >   extracted in this track from the duplicated `buildClassEqExpression`
-  >   logic in `StartStepRecogniser`; Track 4's `hasLabel` recogniser
+  >   logic in `StartStepRecogniser`; Track 4's `hasLabel` recognizer
   >   reuses it as the third call site.
   >
   > Verification: end-to-end tests for one-hop, two-hop, three-hop
@@ -773,7 +773,7 @@ What changes:
   >     routed through the new ctor introduced in Track 2). The first
   >     alias of the NOT pattern must already exist in the positive
   >     pattern (planner constraint, see
-  >     `MatchExecutionPlanner.manageNotPatterns`); the recogniser
+  >     `MatchExecutionPlanner.manageNotPatterns`); the recognizer
   >     pre-validates the precondition against `ctx.boundaryAlias` and
   >     declines under D3 if it fails.
   >   - *Pure-filter sub-traversal* (`not(__.has(...))`,
@@ -797,7 +797,7 @@ What changes:
   > (`where("a", P.eq("b"))`).
   > **Scope:** ~4 steps covering and/or, single `NotStepRecogniser`
   > (both filter and pattern branches), where-traversal, where-predicate,
-  > equivalence tests. Drops one recogniser file vs the original split
+  > equivalence tests. Drops one recognizer file vs the original split
   > (`NotFilterStepRecogniser` + `NotPatternStepRecogniser` collapse
   > into `NotStepRecogniser` with internal `hasEdgeHops` dispatch — D9).
   > **Depends on:** Track 4.
@@ -901,9 +901,11 @@ What changes:
   >   so we know which field to aggregate. Translates to
   >   `RETURN sum(currentAlias.key)` etc. with empty group-by.
   > - **`GroupStep` (= `group()`)** — without `by`, produces
-  >   `Map<element, list>`; the no-by form mirrors `group().by(__.identity()).by(__.fold())`.
-  >   Translates to `GROUP BY currentAlias` + `RETURN currentAlias,
-  >   collect(*)`.
+  >   `Map<element, list-of-elements>`; the no-by form mirrors
+  >   `group().by(__.identity()).by(__.fold())`. Translates to
+  >   `GROUP BY currentAlias` + `RETURN currentAlias, list($currentMatch)`
+  >   (element-identity accumulator — `collect(*)` would gather all
+  >   projected fields rather than the element itself).
   > - **`GroupStep.by(key)`** — `GROUP BY currentAlias.key` + accumulator.
   > - **`GroupCountStep`** — `GROUP BY` + `RETURN count(*)`.
   >
@@ -990,9 +992,9 @@ What changes:
   >   measurement of the translator's value: it shows how much each
   >   pattern shape gains from cost-based MATCH planning vs. left-to-right
   >   native Gremlin execution. Queries whose Gremlin shape contains
-  >   anything outside the recognised set decline the strategy and run
+  >   anything outside the recognized set decline the strategy and run
   >   natively in both modes — those rows in the report show "no
-  >   translation" and serve as a sanity check on the recogniser
+  >   translation" and serve as a sanity check on the recognizer
   >   coverage at end of Phase 1.
   > - If the Gremlin-on / Gremlin-off comparison shows large wins,
   >   document which queries benefited and why (likely candidates:
