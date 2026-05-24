@@ -25,7 +25,7 @@ Convert `BTreeMultiValueIndexEngine.buildInitialHistogram()` and `BTreeSingleVal
 
 The two buildInitialHistogram bodies:
 
-- `BTreeMultiValueIndexEngine.buildInitialHistogram(AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java:574–623`. Computes `approxTotal` and `approxNull` from current in-memory counters at lines 582–583 (used for histogram bucket sizing in `mgr.buildHistogram`). Scans for exact `scannedNonNull` and `exactNullCount`. Final recalibration lines 619–622:
+- `BTreeMultiValueIndexEngine.buildInitialHistogram(AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java:585–634`. Computes `approxTotal` and `approxNull` from current in-memory counters at lines 593–594 (used for histogram bucket sizing in `mgr.buildHistogram`). Scans for exact `scannedNonNull` and `exactNullCount`. Final recalibration lines 630–633:
   ```java
   svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
   nullTree.setApproximateEntriesCount(atomicOperation, exactNullCount);
@@ -33,7 +33,7 @@ The two buildInitialHistogram bodies:
   approximateIndexEntriesCount.set(scannedNonNull + exactNullCount);
   ```
 
-- `BTreeSingleValueIndexEngine.buildInitialHistogram(AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java:581–617`. Same shape with one tree; recalibration lines 613–616:
+- `BTreeSingleValueIndexEngine.buildInitialHistogram(AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java:601–636`. Same shape with one tree; recalibration lines 632–635:
   ```java
   long exactTotal = scannedNonNull + exactNullCount;
   sbTree.setApproximateEntriesCount(atomicOperation, exactTotal);
@@ -41,7 +41,7 @@ The two buildInitialHistogram bodies:
   approximateNullCount.set(exactNullCount);
   ```
 
-Only one production caller: `IndexAbstract.buildHistogramAfterFill` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexAbstract.java:390–409`. The call site wraps `buildInitialHistogram` in `executeInsideAtomicOperation` at line 397–400, then swallows `IOException` with a warn at lines 401–408 ("Histogram build failure must not fail the index rebuild. The histogram will be built lazily on the next rebalance.").
+Only one production caller: `IndexAbstract.buildHistogramAfterFill` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexAbstract.java:390–409` (Phase A will re-verify post-Track-1 if drifted). The call site wraps `buildInitialHistogram` in `executeInsideAtomicOperation` at line 397–400, then swallows `IOException` with a warn at lines 401–408 ("Histogram build failure must not fail the index rebuild. The histogram will be built lazily on the next rebalance.").
 
 The recalibration arithmetic for the pure-delta conversion (per the design doc's mechanism block):
 - MV: `totalDelta = (scannedNonNull + exactNullCount) - currentTotal`, `nullDelta = exactNullCount - currentNull`.
@@ -53,7 +53,7 @@ For SV's `persistCountDelta` (`nullDelta` ignored): `totalDelta = exactTotal - c
 
 `applyIndexCountDeltas` then advances in-memory: total from `currentTotal` to `target`, null from `currentNull` to `exactNullCount`. Correct on both engines.
 
-The `approxTotal` / `approxNull` reads at MV:582–583 and the `approxTotal` read at SV:590 (paired with the `exactNullCount = countNulls(atomicOperation)` scan at SV:591) used for histogram bucket sizing are unaffected; they consume the in-memory counter *as-of* the start of buildInitialHistogram, before the recalibration delta is recorded.
+The `approxTotal` / `approxNull` reads at MV:593–594 and the `approxTotal` read at SV:609 (paired with the `exactNullCount = countNulls(atomicOperation)` scan at SV:610) used for histogram bucket sizing are unaffected; they consume the in-memory counter *as-of* the start of buildInitialHistogram, before the recalibration delta is recorded.
 
 The deliverable: two rewritten buildInitialHistogram bodies and a recalibration-rollback regression test.
 
@@ -61,7 +61,7 @@ The deliverable: two rewritten buildInitialHistogram bodies and a recalibration-
 
 Three logical edits:
 
-1. **Rewrite `BTreeMultiValueIndexEngine.buildInitialHistogram` lines 619–622**:
+1. **Rewrite `BTreeMultiValueIndexEngine.buildInitialHistogram` lines 630–633**:
    ```java
    long currentTotal = approximateIndexEntriesCount.get();
    long currentNull  = approximateNullCount.get();
@@ -69,9 +69,9 @@ Three logical edits:
    IndexCountDelta.accumulate(
        atomicOperation, id, targetTotal - currentTotal, exactNullCount - currentNull);
    ```
-   The four direct writes (two `setApproximateEntriesCount` on the trees, two `AtomicLong.set` on the in-memory counters) are removed. The histogram-build code at lines 590–595 and the null-tree scan at lines 600–610 are unchanged. Update the comment block at lines 612–617 to point at the design doc's pure-delta invariant.
+   The four direct writes (two `setApproximateEntriesCount` on the trees, two `AtomicLong.set` on the in-memory counters) are removed. The histogram-build code at lines 593–605 and the null-tree scan at lines 611–621 are unchanged. Update the comment block at lines 623–629 to point at the design doc's pure-delta invariant.
 
-2. **Rewrite `BTreeSingleValueIndexEngine.buildInitialHistogram` lines 613–616** with the structurally identical change for the single-tree case:
+2. **Rewrite `BTreeSingleValueIndexEngine.buildInitialHistogram` lines 632–635** with the structurally identical change for the single-tree case:
    ```java
    long exactTotal   = scannedNonNull + exactNullCount;
    long currentTotal = approximateIndexEntriesCount.get();
@@ -88,7 +88,7 @@ Three logical edits:
 
 Ordering constraint: this track depends on Track 3's `IndexCountDelta.accumulate(long, long)` overload. If Track 3 hasn't landed yet, this track adds the overload too (with an `if not exists` discipline during step decomposition). The two clear/recalibration sites are the only callers of the long-form overload, so there's no risk of a future caller losing the sign precondition guarantee.
 
-Invariants to preserve: the `approxTotal` read at MV:582 / SV:590, the `approxNull` read at MV:583, and the `exactNullCount = countNulls(atomicOperation)` scan at SV:591 still feed the histogram-bucket sizing. The null-tree scan logic (MV lines 600–610) is unchanged.
+Invariants to preserve: the `approxTotal` read at MV:593 / SV:609, the `approxNull` read at MV:594, and the `exactNullCount = countNulls(atomicOperation)` scan at SV:610 still feed the histogram-bucket sizing. The null-tree scan logic (MV lines 611–621) is unchanged.
 
 ## Concrete Steps
 
@@ -101,7 +101,7 @@ After Track 4 lands:
 - `buildInitialHistogram` on both engines does not mutate either the persisted EP page or the in-memory `AtomicLong` directly. Both sides advance through the same persist → commitChanges → apply pipeline as ordinary put/remove deltas.
 - The recalibration-rollback regression test passes: on a forced rollback after the delta accumulate, counters remain at pre-recalibration values; on a successful commit, counters land on the post-recalibration values.
 - The histogram-build itself (bucket creation, key scanning) is unchanged.
-- `IndexAbstract.buildHistogramAfterFill`'s outer `IOException` handler still swallows builder failures at lines 401–408.
+- `IndexAbstract.buildHistogramAfterFill`'s outer `IOException` handler still swallows builder failures at lines 401–408 (Phase A will re-verify post-Track-1).
 
 ## Idempotence and Recovery
 
@@ -116,7 +116,7 @@ After Track 4 lands:
 
 **Out of scope**:
 - `IndexHistogramManager.buildHistogram` itself (the histogram-bucket-creation logic).
-- The `IOException`-swallow at `IndexAbstract.buildHistogramAfterFill:401–408`.
+- The `IOException`-swallow at `IndexAbstract.buildHistogramAfterFill:401–408` (Phase A will re-verify post-Track-1).
 - `clear()` conversion (Track 3).
 - Adding the long-form `IndexCountDelta.accumulate` overload — Track 3 owns that, or this track adds it idempotently if Track 3 hasn't landed first.
 

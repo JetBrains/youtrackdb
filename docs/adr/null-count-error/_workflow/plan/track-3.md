@@ -25,15 +25,15 @@ Convert `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.cl
 
 The clear() bodies span:
 
-- `BTreeMultiValueIndexEngine.clear(Storage, AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java:270–315`. The body today: `clearSVTree(atomicOperation)`; two assertions confirming both trees emptied; `svTree.setApproximateEntriesCount(atomicOperation, 0)`; `nullTree.setApproximateEntriesCount(atomicOperation, 0)`; `indexesSnapshot.clear()`; `nullIndexesSnapshot.clear()`; `approximateIndexEntriesCount.set(0)`; `approximateNullCount.set(0)`; optional `histogramManager.resetOnClear(atomicOperation)` wrapped in try/catch.
+- `BTreeMultiValueIndexEngine.clear(Storage, AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java:282–326`. The body today: `clearSVTree(atomicOperation)`; two assertions confirming both trees emptied; `svTree.setApproximateEntriesCount(atomicOperation, 0)`; `nullTree.setApproximateEntriesCount(atomicOperation, 0)`; `indexesSnapshot.clear()`; `nullIndexesSnapshot.clear()`; `approximateIndexEntriesCount.set(0)`; `approximateNullCount.set(0)`; optional `histogramManager.resetOnClear(atomicOperation)` wrapped in try/catch.
 
-- `BTreeSingleValueIndexEngine.clear(Storage, AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java:221–263`. Same shape with one tree and a method-level `IOException` wrap.
+- `BTreeSingleValueIndexEngine.clear(Storage, AtomicOperation)` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java:241–282`. Same shape with one tree and a method-level `IOException` wrap.
 
 `IndexCountDelta` at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexCountDelta.java` has one `accumulate` overload today (the `±1` sign + isNullKey form). The new `(long, long)` overload accepts arbitrary-magnitude negative deltas. It must be added before the clear() conversions.
 
-`persistCountDelta` on MV engine (lines 651–664): splits the total delta as `nonNullDelta = totalDelta - nullDelta` and writes `svTree.addToApproximateEntriesCount(op, nonNullDelta)` + `nullTree.addToApproximateEntriesCount(op, nullDelta)`. For the proposed clear delta `(-currentTotal, -currentNull)`, this produces `nonNullDelta = -(currentTotal - currentNull) = -currentSv` and `nullDelta = -currentNull`. Writes apply correctly to both trees.
+`persistCountDelta` on MV engine (lines 707–719): splits the total delta as `nonNullDelta = totalDelta - nullDelta` and writes `svTree.addToApproximateEntriesCount(op, nonNullDelta)` + `nullTree.addToApproximateEntriesCount(op, nullDelta)`. For the proposed clear delta `(-currentTotal, -currentNull)`, this produces `nonNullDelta = -(currentTotal - currentNull) = -currentSv` and `nullDelta = -currentNull`. Writes apply correctly to both trees.
 
-`persistCountDelta` on SV engine (lines 647–656): writes only `sbTree.addToApproximateEntriesCount(op, totalDelta)`; deliberately ignores `nullDelta` because SV stores all entries (including nulls) in one tree. The clear delta `(-currentTotal, -currentNull)` produces total = `-currentTotal`, applied to the single tree. Correct.
+`persistCountDelta` on SV engine (lines 709–717): writes only `sbTree.addToApproximateEntriesCount(op, totalDelta)`; deliberately ignores `nullDelta` because SV stores all entries (including nulls) in one tree. The clear delta `(-currentTotal, -currentNull)` produces total = `-currentTotal`, applied to the single tree. Correct.
 
 Locking: the commit-path clear runs under the engine's exclusive lock via `lockIndexes` at `AbstractStorage.java:2233`; the `clearIndex` API path acquires the lock inside `executeInsideAtomicOperation`. The `approximateIndexEntriesCount.get()` and `approximateNullCount.get()` reads at the start of the new clear() body must happen under one of those locks. Both paths satisfy this.
 
@@ -45,7 +45,7 @@ Four logical edits:
 
 1. **Add `IndexCountDelta.accumulate(AtomicOperation, int, long, long)`** at `IndexCountDelta.java`. Mirrors the existing overload but takes raw long deltas with no sign precondition. Javadoc names the intended callers (clear, recalibration). The existing `±1` overload stays for the per-put/per-remove hot path.
 
-2. **Rewrite `BTreeMultiValueIndexEngine.clear()`** (lines 270–315) per the design doc's mechanism block:
+2. **Rewrite `BTreeMultiValueIndexEngine.clear()`** (lines 282–326) per the design doc's mechanism block:
    - Read `currentTotal = approximateIndexEntriesCount.get()` and `currentNull = approximateNullCount.get()` first.
    - Call `clearSVTree(atomicOperation)`.
    - Keep the two `svTree.firstKey` / `nullTree.firstKey` assertions confirming both trees emptied.
@@ -53,9 +53,9 @@ Four logical edits:
    - Call `IndexCountDelta.accumulate(atomicOperation, id, -currentTotal, -currentNull)`.
    - Remove the four direct writes (`svTree.setApproximateEntriesCount(0)`, `nullTree.setApproximateEntriesCount(0)`, `approximateIndexEntriesCount.set(0)`, `approximateNullCount.set(0)`).
    - Keep the `histogramManager.resetOnClear` block with its IOException-to-IndexException wrap unchanged. (Histogram reset is orthogonal to the index-count delta and stays as-is until histogram-delta refactor lands separately.)
-   - Replace the obsolete comment at lines 287–299 (the one documenting the rollback hazard) with a one-line comment noting that the persisted EP page is transiently out of sync with the empty tree until `persistCountDelta` runs.
+   - Replace the obsolete comment at lines 298–310 (the one documenting the rollback hazard) with a one-line comment noting that the persisted EP page is transiently out of sync with the empty tree until `persistCountDelta` runs.
 
-3. **Rewrite `BTreeSingleValueIndexEngine.clear()`** (lines 221–263) with the structurally identical change for the single-tree case. Keep the method-level `try/catch (IOException)` wrap because `doClearTree` propagates `IOException`.
+3. **Rewrite `BTreeSingleValueIndexEngine.clear()`** (lines 241–282) with the structurally identical change for the single-tree case. Keep the method-level `try/catch (IOException)` wrap because `doClearTree` propagates `IOException`.
 
 4. **Regression tests** under `core/src/test/.../engine/v1/`:
    - `BTreeMultiValueIndexEngineClearRollbackTest` — clear inside a TX, force the commit to fail (IOException injection at WAL flush), verify both in-memory and persisted counters retain pre-clear values. Cover both the commit-path clear (via `commitIndexes` with `changes.cleared = true`) and the `clearIndex` API path.
@@ -64,7 +64,7 @@ Four logical edits:
 
 Ordering constraint: Step 1 (the overload) before Steps 2 and 3 (the clear() rewrites). Step 4 last.
 
-Invariants to preserve: the postcondition that `clearSVTree` empties both trees (assertions at MV:274, :277 today; preserved). The lock contract on the in-memory reads (commit path: `lockIndexes`; API path: `executeInsideAtomicOperation`). The `IOException`-to-`IndexException` wrap on the histogram reset.
+Invariants to preserve: the postcondition that `clearSVTree` empties both trees (assertions at MV:285, :288 today; preserved). The lock contract on the in-memory reads (commit path: `lockIndexes`; API path: `executeInsideAtomicOperation`). The `IOException`-to-`IndexException` wrap on the histogram reset.
 
 ## Concrete Steps
 
