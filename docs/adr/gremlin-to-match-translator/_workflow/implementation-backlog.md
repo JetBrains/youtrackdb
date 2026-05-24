@@ -1,6 +1,6 @@
 # Gremlin-to-MATCH Translator — Track Details
 
-## Track 3: Edge traversal — `out`, `in`, `both`, `outE.inV`, `inE.outV`, `bothE.otherV`
+## Track 3: Edge traversal — `out`, `in`, `both`, `outE.inV`, `inE.outV`, `bothE.otherV`, plus non-adjacent edge filtering
 
 > **What**:
 > - Extend the recognized step set with edge-traversal patterns. Add
@@ -9,18 +9,32 @@
 >     a `SQLMatchPathItem` via the `SQLMatchPathItem.outPath/inPath/bothPath`
 >     helpers wrapped by `MatchPatternBuilder.addEdge`.
 >   - `EdgeVertexStep` (the `inV()`/`outV()` after an `outE(label)` /
->     `inE(label)`) — composes with the preceding `VertexStep` of `Edge`
->     class to form one `SQLMatchPathItem` carrying both the edge alias
->     and the terminal vertex alias. Walker peeks ahead one step to pair
->     them.
->   - `bothE(label).otherV()` — handled like the directional `bothE.inV`
->     chain but as a bidirectional edge.
+>     `inE(label)`) — when **adjacent** to the edge step, the chain is
+>     pre-folded by TinkerPop's `IncidentToAdjacentStrategy` and the
+>     recognizer sees `out(label)` / `in(label)`. When **not adjacent**
+>     (intervening `HasStep`s — see below), `EdgeStepRecogniser` claims
+>     the chain through multi-step consumption.
+>   - `bothE(label).otherV()` — same two cases (adjacent / non-adjacent).
+>   - **Non-adjacent edge filtering** (`outE(L).has(...).inV()` and
+>     analogues, including chained `has`): `EdgeStepRecogniser` mints a
+>     translator-private edge alias (`$g2m_edge_N` from
+>     `anonEdgeAliasGenerator`), peeks forward through every adjacent
+>     `HasStep`, AND-merges their predicates into
+>     `ctx.edgeFilters[$g2m_edge_N]`, and consumes the closing
+>     `EdgeVertexStep` (or `otherV`-form `VertexStep`) that targets a
+>     fresh `$g2m_anon_M` vertex alias. The merged filter is parked on
+>     `SQLMatchPathItem.filter` — the IR already supports edge filters,
+>     so no executor or planner change is needed. Bare `outE(L)`
+>     (without a paired vertex hop) and user-facing `outE(L).as("e")`
+>     stay out-of-scope (see design.md Out-of-scope table).
 >   - Multiple edge labels (`out("knows", "follows")`) — MATCH path-item
 >     with `IN [...]` edge filter; MATCH supports edge-label `IN` lists
 >     via the path-item filter mechanism.
->   - Anonymous intermediate vertex aliases — generated under a private
->     prefix (e.g. `$g2m_anon_N`) that is unique within the produced
->     pattern and cannot collide with user-provided labels.
+>   - Anonymous intermediate vertex and edge aliases — generated under
+>     private prefixes (`$g2m_anon_N` for vertices, `$g2m_edge_N` for
+>     edges) that are unique within the produced pattern and cannot
+>     collide with user-provided labels (`$` prefix is reserved — see
+>     "Anonymous alias generation" in design.md).
 >   - Chain-target polymorphism: every chain target inherits the
 >     `polymorphicQuery` flag set by `StartStepRecogniser`. When
 >     non-polymorphic, augment each chain target's `aliasFilters` with
@@ -32,28 +46,50 @@
 >   step as recognized/unrecognized and declines the entire traversal only
 >   when at least one unrecognized step is present (D3 all-or-nothing).
 >   The walker becomes the load-bearing entry point for Tracks 4-10.
+> - **Walker refactor to index-driven iteration** (D10): switch the
+>   walker loop from `for (Step step : steps)` to
+>   `while (ctx.stepIndex < steps.size())` so a recognizer can consume
+>   multiple steps in one claim via `ctx.stepIndex += consumedSteps`.
+>   `EdgeStepRecogniser` is the first multi-step recognizer; the
+>   single-step recognizers shipped before Track 3 (StartStepRecogniser
+>   in Track 2) are unchanged — when a recognizer does not advance the
+>   index, the walker defaults to the usual `++`.
 >
 > **How**:
 > - Step ordering (provisional):
->   1. Simple direction handlers for `VertexStep` (OUT, IN, BOTH) emitting
+>   1. Walker refactor to index-driven iteration with the
+>      strictly-increasing-stepIndex assertion (D10). Existing
+>      single-step recognizer (StartStepRecogniser) covered by the
+>      `if (notAdvanced) stepIndex++` fallback.
+>   2. Simple direction handlers for `VertexStep` (OUT, IN, BOTH) emitting
 >      one path-item per step.
->   2. `outE`+`inV` (and `inE`+`outV`) pairing — walker peek-ahead +
->      single-path-item composition.
->   3. Multi-label edge filter via `IN [...]` path-item filter.
->   4. Anonymous intermediate alias generator under the private prefix,
->      uniqueness scoped to the in-progress pattern.
->   5. Extract `MatchClassFilters.classEq(...)` helper from the duplicated
+>   3. Adjacent `outE`+`inV` (and `inE`+`outV`) — already folded by
+>      `IncidentToAdjacentStrategy`; verify the recognizer sees the
+>      folded shape with an integration test.
+>   4. **Non-adjacent edge filtering via `EdgeStepRecogniser`** —
+>      peek-ahead consuming the edge step, every adjacent `HasStep`,
+>      and the closing vertex step. Delegate `HasStep` predicate
+>      translation to the same `GremlinPredicateAdapter` Track 4
+>      builds, with a flag indicating the edge-alias is the current
+>      filter target.
+>   5. Multi-label edge filter via `IN [...]` path-item filter.
+>   6. Anonymous intermediate alias generators (vertex and edge) under
+>      their private prefixes, uniqueness scoped to the in-progress
+>      pattern.
+>   7. Extract `MatchClassFilters.classEq(...)` helper from the duplicated
 >      `buildClassEqExpression` logic in `StartStepRecogniser`; refactor
 >      the start-step recognizer to use it; pin polymorphism flag on
 >      `WalkerContext.polymorphic` at first claim.
->   6. `VertexStepRecogniser` reads `WalkerContext.polymorphic` and
+>   8. `VertexStepRecogniser` reads `WalkerContext.polymorphic` and
 >      applies `MatchClassFilters.classEq("V")` to every chain target
 >      when non-polymorphic. Add unit tests for both flag values.
->   7. Replace the size-1 decline gate with the recognition walker;
+>   9. Replace the size-1 decline gate with the recognition walker;
 >      correctness tests vs SQL `MATCH` for one-hop, two-hop, three-hop,
->      mixed-direction, multi-label, and anonymous-intermediate patterns.
-> - Reuse `MatchPatternBuilder.addEdge` from Track 1; the walker drives
->   it via `GremlinPatternAssembler`. The
+>      mixed-direction, multi-label, anonymous-intermediate, and
+>      edge-side-filter patterns.
+> - Reuse `MatchPatternBuilder.addEdge` from Track 1 (which exposes the
+>   optional `edgeAlias` / `edgeFilter` parameters); the walker drives it
+>   via `GremlinPatternAssembler`. The
 >   `MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX` convention is intentionally
 >   not reused — it is package-private to `internal/core/sql/executor/match`
 >   and `MatchExecutionPlanner.assignDefaultAliases` does not run on the
@@ -62,19 +98,35 @@
 >   the `MatchPlanInputs` ctor).
 >
 > **Constraints**:
-> - **In-scope files**: `GremlinStepWalker`, `GremlinPatternAssembler`
->   (both in `internal/core/gremlin/translator/`), the strategy class
+> - **In-scope files**: `GremlinStepWalker` (index-driven iteration
+>   refactor + strictly-increasing-stepIndex assertion),
+>   `GremlinPatternAssembler`, `EdgeStepRecogniser` (new) — all in
+>   `internal/core/gremlin/translator/`. Plus the strategy class
 >   (replacing the size-1 gate), the new `MatchClassFilters` helper
 >   class (extracted from `StartStepRecogniser`), `WalkerContext`
->   (adding the `polymorphic` field), and any reusable helpers added to
+>   (adding the `polymorphic` field, `edgeFilters` map, and
+>   `anonEdgeAliasGenerator`), and any reusable helpers added to
 >   `MatchPatternBuilder`.
-> - **Out of scope**: predicates / filters (Track 4), logical filters
->   (Track 5), step labels / optional / dedup (Track 6), projections
->   (Track 7).
+> - **Predicate adapter skeleton lands in Track 3** because
+>   `EdgeStepRecogniser` needs to translate edge-side `has(...)`
+>   container predicates into `SQLBooleanExpression`. The skeleton
+>   covers `Compare.eq/neq/gt/gte/lt/lte`, `Contains.within/without`,
+>   and `P.between(lo, hi)` — enough for the LDBC edge-filter shapes
+>   (IC2's `creationDate <= maxDate`, IC8's `creationDate IN range`).
+>   Track 4 extends the same adapter with the rest of the `P` variants,
+>   the `Text`/`TextP` translation, the `HasStep` family handlers, and
+>   the `HasLabel`/`HasId`/`HasNot` step-level shapes — i.e. Track 4
+>   adds the **step handlers** plus the **node-side** filter shapes on
+>   top of the adapter Track 3 bootstraps.
+> - **Out of scope**: full predicate set + node-side has* step
+>   handlers (Track 4), logical filters (Track 5), step labels / dedup
+>   (Track 6), projections (Track 7). Bare `outE(L)` terminator and
+>   user-facing `as("e")` on edge steps stay out-of-Phase-1.
 > - Result sets must match the equivalent SQL `MATCH` queries identically
 >   (same rows, same execution-plan step types in the same order),
 >   including under non-polymorphic mode where chain targets must
->   restrict to direct-class instances.
+>   restrict to direct-class instances, and including the edge-side
+>   filter shapes.
 > - All anonymous aliases must be locally unique within a single produced
 >   pattern.
 >
