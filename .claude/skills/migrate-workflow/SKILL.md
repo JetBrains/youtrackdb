@@ -28,7 +28,7 @@ Before any other tool call, create one task per step below using `TaskCreate`. M
 2. Bootstrap unstamped artifacts: prompt for a base SHA covering any unstamped `_workflow/**` artifact
 3. Compute commit range + format-relevant commit list
 4. Load or initialize progress file
-5. Per-commit migration loop (one task per commit will be added at the start of Step 5, after Step 4 trims the resume queue)
+5. Per-commit migration loop (one task per commit will be added at the start of Step 4, after Step 3 trims the resume queue)
 6. Final summary
 
 ## Step 1 — Preflight
@@ -99,7 +99,7 @@ if [ -n "$DIRTY" ]; then
 fi
 ```
 
-The `.migration-progress` sentinel (Step 4) is the only carve-out;
+The `.migration-progress` sentinel (Step 3) is the only carve-out;
 it is allowed to be untracked or modified mid-session. Any tracked
 file under the narrow scope showing a non-`?` status (modified,
 added, deleted, renamed, etc.) or any untracked file showing `??`
@@ -115,32 +115,7 @@ skill at develop's state throughout execution, so the migration
 always reads the develop-state skill regardless of staged rewrites —
 the side-effect protection is no longer needed.
 
-## Step 2 — Resolve migration worktree path
-
-The migration branch must be checked out in a separate worktree (never the develop worktree itself).
-
-```bash
-git worktree list --porcelain
-```
-
-Parse the porcelain output and find the entry whose `branch refs/heads/<X>` matches the argument. Capture its `worktree` path. Halt with a clear error if:
-
-- No worktree is checked out on the branch. Instruct the user to run `git worktree add ../<dir> <branch>` and re-invoke.
-- More than one worktree is checked out on the branch. Git is in an unusual state and the skill cannot decide which one to migrate; ask the user to consolidate first.
-- The matching worktree is the current develop worktree (would mean the branch label moved). Should not happen given Step 1; defensive check.
-
-After capturing the worktree path, verify it exists on disk (`test -d "<migration-worktree-path>"`); halt if the path is gone (stale porcelain entry).
-
-The migration worktree must also be clean. Filter out the skill's own progress file (created in Step 4) so a resumed run isn't flagged as dirty:
-
-```bash
-git -C "<migration-worktree-path>" status --porcelain \
-  | grep -v '^?? \.migration-progress$'
-```
-
-If the filtered output is non-empty, halt and ask the user to commit or stash there first. Migrations are non-trivial edits, and overlapping unrelated dirty work makes review impossible.
-
-## Step 3 — Compute commit range
+## Step 2 — Compute commit range
 
 ```bash
 # Fork point: where the branch diverged from develop
@@ -159,9 +134,9 @@ Record `$FORK` and `$HEAD_DEVELOP` — both are referenced in the progress file 
 If the list is empty, halt with:
 > No workflow-touching commits between fork point `<short-FORK>` and develop HEAD `<short-HEAD>`. Nothing to migrate.
 
-Otherwise, record the commit list as an in-conversation note. Do NOT call `TaskCreate` per commit here — per-commit tasks are added at the start of Step 5, after Step 4 has trimmed the resume queue, so the task list never drifts from the actual queue.
+Otherwise, record the commit list as an in-conversation note. Do NOT call `TaskCreate` per commit here — per-commit tasks are added at the start of Step 4, after Step 3 has trimmed the resume queue, so the task list never drifts from the actual queue.
 
-## Step 4 — Load or initialize progress file
+## Step 3 — Load or initialize progress file
 
 The progress file lives at the worktree root, not inside `_workflow/`:
 
@@ -185,7 +160,7 @@ Progress file format:
 ```
 
 - Header lines: `# migrate-workflow progress`, `# fork=... head=...`, and a `# renames:` block. The renames block starts empty; rename-classified commits (Step 5.5) append one indented `#   <old> -> <new>` line per recorded rename. Step 5.4 consults this block when resolving paths for later commits.
-- Body lines: one tab-separated record per migrated commit. Classification is one of `format`, `skill`, `rename`, `noop` (canonical short-names from Step 5.3). Step 6 reads these to produce per-classification counts.
+- Body lines: one tab-separated record per migrated commit. Classification is one of `format`, `skill`, `rename`, `noop` (canonical short-names from Step 5.3). Step 5 reads these to produce per-classification counts.
 
 File-existence handling:
 
@@ -194,11 +169,11 @@ File-existence handling:
   - If `fork=<recorded-sha>` differs from the current `git merge-base develop $ARGUMENTS`, halt and ask the user to delete the stale progress file before re-running. The branch has been rebased since the migration started. Warn that the worktree may carry partial edits from the prior run; recommend `git stash` (or commit-then-revert) before deleting the progress file.
   - If `head=<recorded-sha>` is not reachable from the current `develop` (check via `git merge-base --is-ancestor <head-sha> develop`), halt and ask the user to fetch or update develop before resuming. The local `develop` was reset to an older commit than the one the prior run recorded.
   - If `fork=` matches and `head=` is older than the current `$HEAD_DEVELOP`, append any new commits to the queue (the develop tip moved during the migration).
-- The commits already listed in the body are **done**. Skip them in Step 5.
+- The commits already listed in the body are **done**. Skip them in Step 4.
 
-## Step 5 — Per-commit migration loop
+## Step 4 — Per-commit migration loop
 
-On first entry to Step 5:
+On first entry to Step 4:
 
 1. Mark Step 0's umbrella task 5 ("Per-commit migration loop") as `in_progress`.
 2. For each commit *remaining* in the trimmed queue (i.e., the Step-3 list minus the commits already recorded in `.migration-progress`), call `TaskCreate` with `Migrate commit <short-sha> <subject>`. These are the per-commit tasks consumed by 5.6.
@@ -294,7 +269,7 @@ If none of these holds, apply the edit mechanically and continue.
 User outcomes:
 
 1. **User supplies a translation** — apply the edit per their guidance. Proceed to 5.5 and record the commit with its original classification (typically `format`).
-2. **User says "skip"** — apply no edit. Proceed to 5.5 and record the commit with classification `manual-review-needed`. Step 6 surfaces the count so the user knows which commits to revisit manually.
+2. **User says "skip"** — apply no edit. Proceed to 5.5 and record the commit with classification `manual-review-needed`. Step 5 surfaces the count so the user knows which commits to revisit manually.
 
 ### 5.5 Update the progress file
 
@@ -316,7 +291,7 @@ If the process is killed between applying edits in 5.4 and updating `.migration-
 
 `TaskUpdate` the matching task to `completed`. Move to the next commit.
 
-## Step 6 — Final summary
+## Step 5 — Final summary
 
 When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migration loop") as `completed`, then output:
 
