@@ -605,11 +605,23 @@ on a few corner cases that the recognizer must intercept:
 
 **Composite `P` instances** (`P.and(p1, p2)`, `P.or(p1, p2)`, `P.not(p)`)
 recurse: each child predicate is translated independently, then composed
-via `MatchWhereBuilder.and/or/not`. This makes `P.between`, `P.inside`,
-`P.outside` straightforward — they're typically implemented as `P.and(gte, lt)`
-or `P.or(lt, gt)` in TinkerPop, and recursion handles them. We override the
-common cases for cleaner output (`between` becomes a single
-`SQLBetweenCondition` if YTDB has one, else the AND form).
+via `MatchWhereBuilder.and/or/not`. This makes `P.inside` and `P.outside`
+straightforward — they translate to `AND(>lo, <hi)` and `OR(<lo, >hi)`
+respectively (note both are strict on both ends — Gremlin's `inside`
+and `outside` are open intervals).
+
+`P.between(lo, hi)` is the one composite where naïve composition would
+go wrong: Gremlin's `between` is **right-exclusive** `[lo, hi)`
+(matches `x >= lo AND x < hi`), but YTDB's `SQLBetweenCondition` is the
+SQL-standard **closed** interval `[lo, hi]` (matches `x >= lo AND x <= hi`).
+A direct translation to `SQLBetweenCondition` would over-match by one
+boundary value on the high end, returning a different multiset from
+the native pipeline. The recognizer therefore translates `P.between`
+to `AND(>=lo, <hi)` — two `SQLBinaryCondition`s composed by
+`MatchWhereBuilder.and(...)` — and **never** emits a
+`SQLBetweenCondition`. The `MatchWhereBuilder.between(...)` factory
+is reserved for callers (GQL) that already enforce the closed-interval
+semantics; the Gremlin path does not call it.
 
 **`TextP` predicates** (the modern TinkerPop entry point for string
 predicates — `TextP.containing`, `TextP.startingWith`, `TextP.endingWith`,
