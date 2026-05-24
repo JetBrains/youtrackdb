@@ -255,6 +255,8 @@ flowchart LR
   > **Cross-track impact for Track 4b:** five findings explicitly carry forward per Track 4a's `## Plan of Work` per-commit-loop carve-out — WI1 (sub-step renumber `### 5.x` → `### 4.x`), WI2 / WI12 (remaining `<migration-worktree>` placeholders in Step 4 sub-steps and Step 5 final summary), WP1 (line 463 `/migrate-workflow <branch>` example inside Step 4.1's context-check halt message), and WC2 / WI10 (the line-189 forward reference to Step 4's per-commit lockstep advance). Track 4b's per-commit loop must emit the progress-file header in the `range_start=<BASE_SHA> range_end=<HEAD-sha-at-skill-start>` shape; the WI5 `range_end`-advance handling in Step 3 gives Track 4b a documented seam to update the header when HEAD moves between sessions. Track 4b's lockstep advance consumes `$BASE_SHA` from the new Step 2 fold; Step 2.0's `CANON_SHA` capture carries 40-char stamps through.
   >
   > **Track file:** `plan/track-4a.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 4a's renumber-down (5.x → 4.x), STAMPED_PAIRS plumbing, range_start/range_end progress-file rename, and the five cross-track items it carried forward (WI1, WI2/WI12, WP1, WC2/WI10) all fall inside Track 4b's existing edit sites; decomposition absorbs the sub-step-level cleanup without a Plan-of-Work amendment.
 
 - [ ] Track 4b: Migration replay + final batch
   > Rewrite the migration skill's per-commit replay loop to advance every stamp in lockstep at each commit, then re-stamp every artifact to HEAD's SHA in one final batch (D2). Workflow-modifying branches accept dogfood semantics — their own workflow commits register as drift and trigger migration of in-progress workflow changes. Track file carries the step-by-step rewrite.
