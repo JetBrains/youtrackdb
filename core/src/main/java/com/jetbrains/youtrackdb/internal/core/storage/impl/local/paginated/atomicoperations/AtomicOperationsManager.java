@@ -360,30 +360,24 @@ public class AtomicOperationsManager {
         // absorb the engine-mutator clamp-and-error path. Bounded catch:
         // LinkageError, OutOfMemoryError, StackOverflowError, and
         // InternalError escape so genuine VM errors still poison the storage.
-        if (currentError == null) {
+        //
+        // Gate mirrors the persist hook above: currentError == null AND
+        // !operation.isRollbackInProgress(). The second clause is structurally
+        // redundant on this path (the only failure source between the persist
+        // gate and here is commitChanges, whose throw bypasses this block via
+        // the inner-finally), but it keeps Hook A and Hook B visually
+        // symmetric so a future intermediate mutator that flips rollback in
+        // place cannot silently bypass the apply gate.
+        if (currentError == null && !operation.isRollbackInProgress()) {
           var indexHolder = operation.getIndexCountDeltas();
           if (indexHolder != null && !indexHolder.isApplied()) {
-            try {
-              storage.applyIndexCountDeltas(operation);
-            } catch (RuntimeException | AssertionError applyFailure) {
-              LogManager.instance()
-                  .warn(this,
-                      "Index count delta application failed after successful"
-                          + " commit",
-                      applyFailure);
-            }
+            tryApply(() -> storage.applyIndexCountDeltas(operation),
+                "Index count delta application failed after successful commit");
           }
           var histogramHolder = operation.getHistogramDeltas();
           if (histogramHolder != null && !histogramHolder.isApplied()) {
-            try {
-              storage.applyHistogramDeltas(operation);
-            } catch (RuntimeException | AssertionError applyFailure) {
-              LogManager.instance()
-                  .warn(this,
-                      "Histogram delta application failed after successful"
-                          + " commit",
-                      applyFailure);
-            }
+            tryApply(() -> storage.applyHistogramDeltas(operation),
+                "Histogram delta application failed after successful commit");
           }
         }
 
@@ -433,6 +427,28 @@ public class AtomicOperationsManager {
 
   public void ensureThatComponentsUnlocked(@Nonnull final AtomicOperation operation) {
     releaseLocks(operation);
+  }
+
+  /**
+   * Runs a single apply call inside the lifecycle apply hook and absorbs any
+   * {@link RuntimeException} or {@link AssertionError} into a warn-level log
+   * record. Centralises the cache-only contract so the index-count and
+   * histogram branches above stay structurally identical: changing the catch
+   * surface or the log level once updates both sites.
+   *
+   * <p>VM errors ({@link OutOfMemoryError}, {@link LinkageError},
+   * {@link StackOverflowError}, {@link InternalError}) are deliberately not
+   * caught here. They escape to {@code AbstractStorage.commit}'s outer
+   * {@code catch (Error)} so genuine VM failures still poison the storage,
+   * matching the precedent set by the persist hook above and the four
+   * executeInsideAtomicOperation wrapper catches in this class.
+   */
+  private void tryApply(Runnable applyCall, String warnMessage) {
+    try {
+      applyCall.run();
+    } catch (RuntimeException | AssertionError applyFailure) {
+      LogManager.instance().warn(this, warnMessage, applyFailure);
+    }
   }
 
   private void releaseLocks(AtomicOperation operation) {

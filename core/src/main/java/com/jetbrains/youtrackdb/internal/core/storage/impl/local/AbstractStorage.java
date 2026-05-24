@@ -2529,6 +2529,13 @@ public abstract class AbstractStorage
     if (holder.isApplied()) {
       return;
     }
+    // Latch the holder up front so a partial-loop throw caught by the
+    // lifecycle hook's RuntimeException | AssertionError swallow still
+    // latches the holder. Without this, the inline apply call inside
+    // commit() below would re-iterate the same holder and double-apply the
+    // engines processed before the throw. Mirrors the setPersisted() latch
+    // at the top of persistIndexCountDeltas above.
+    holder.setApplied();
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
@@ -2546,10 +2553,6 @@ public abstract class AbstractStorage
         }
       }
     }
-    // Latch the holder so the inline apply call inside commit() short-circuits
-    // on the next pass. Mirrors the setPersisted() latch at the end of
-    // persistIndexCountDeltas above.
-    holder.setApplied();
   }
 
   /**
@@ -2570,6 +2573,13 @@ public abstract class AbstractStorage
     if (holder.isApplied()) {
       return;
     }
+    // Latch the holder up front so a partial-loop throw caught by the
+    // lifecycle hook's RuntimeException | AssertionError swallow still
+    // latches the holder. Without this, the inline apply call inside
+    // commit() below would re-iterate the same holder and double-apply the
+    // engines processed before the throw. Mirrors the setApplied() latch
+    // hoisted to the top of applyIndexCountDeltas above.
+    holder.setApplied();
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
@@ -2589,10 +2599,6 @@ public abstract class AbstractStorage
         }
       }
     }
-    // Latch the holder so the inline apply call inside commit() short-circuits
-    // on the next pass. Mirrors the setApplied() latch above on
-    // applyIndexCountDeltas.
-    holder.setApplied();
   }
 
   public int loadIndexEngine(final String name) {

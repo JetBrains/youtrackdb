@@ -6,7 +6,10 @@ import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginate
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
@@ -18,6 +21,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -26,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -111,6 +114,17 @@ public class EndAtomicOperationHookOrderingTest {
    * signal flows through observably, and stubs {@code commitChanges} to
    * return a non-null LSN by default so the happy-path table commit branch
    * runs (callers that exercise non-durable operations may re-stub).
+   *
+   * <p>This helper is a delta of
+   * {@code EndAtomicOperationHookTestSupport.mockOperation}. The four
+   * differences: (a) accepts a {@link HistogramDeltaHolder} parameter
+   * instead of stubbing {@code getHistogramDeltas() -> null}; (b) wires the
+   * {@code lockedComponents()} stub to a caller-provided mutable backing
+   * list rather than {@code Collections.emptyList()}, so the test can
+   * observe the {@code releaseLocks} drain; (c) wires {@code lockedObjects()}
+   * to a caller-provided mutable {@code Set} for the same reason; (d) stubs
+   * {@code commitChanges} to return a non-null LSN so the WAL-bound branch
+   * inside {@code endAtomicOperation} runs.
    */
   private AtomicOperation mockOperationWithLockedComponents(
       IndexCountDeltaHolder indexHolder,
@@ -208,6 +222,14 @@ public class EndAtomicOperationHookOrderingTest {
    * rollback, so {@code commitChanges} is skipped and neither apply hook
    * fires. Pins the apply-hook gate {@code (currentError == null)}: a
    * persist failure must short-circuit apply along with commit.
+   *
+   * <p>Also pins the persist hook's typed re-raise contract:
+   * {@code endAtomicOperation} rethrows the same {@link RuntimeException}
+   * instance the persist call threw rather than swallowing it or wrapping
+   * it as a {@link StorageException}. The {@code assertThrows} + {@code
+   * assertSame} pair makes both halves of the contract observable; an
+   * earlier bare {@code try/catch (RuntimeException) {}} would have passed
+   * even when the rethrow disappeared.
    */
   @Test
   public void persistFailureSkipsCommitAndBothApplyHooks() throws IOException {
@@ -223,11 +245,10 @@ public class EndAtomicOperationHookOrderingTest {
 
     var manager = new AtomicOperationsManager(storage, table);
     primeFreezer(manager);
-    try {
-      manager.endAtomicOperation(operation, null);
-    } catch (RuntimeException re) {
-      // RuntimeException short-circuit re-raise; expected by the persist hook.
-    }
+    var thrown = assertThrows(RuntimeException.class,
+        () -> manager.endAtomicOperation(operation, null));
+    assertSame("Persist failure must re-raise the same RuntimeException instance",
+        persistFailure, thrown);
 
     verify(storage, times(1)).persistIndexCountDeltas(operation);
     verify(operation, never()).commitChanges(any(Long.class), any(WriteAheadLog.class));
@@ -292,6 +313,13 @@ public class EndAtomicOperationHookOrderingTest {
     // The release sweep drained the list afterwards.
     assertTrue("Backing lockedComponents list must be empty post-release",
         lockedList.isEmpty());
+    // Explicit ordering: applyIndexCountDeltas must run strictly before
+    // unlockExclusive. The size-snapshot above proves the lock was held at
+    // apply time; the InOrder pin proves the manager did not unlock first
+    // and rely on a not-yet-cleared backing list.
+    InOrder applyThenUnlock = Mockito.inOrder(storage, component);
+    applyThenUnlock.verify(storage).applyIndexCountDeltas(operation);
+    applyThenUnlock.verify(component).unlockExclusive();
   }
 
   /**
@@ -310,8 +338,10 @@ public class EndAtomicOperationHookOrderingTest {
         indexHolder, histogramHolder, lockedList, new HashSet<>());
 
     var sizeAtApply = new AtomicInteger(-1);
+    var ownerAtApply = new AtomicReference<Boolean>(null);
     doAnswer(inv -> {
       sizeAtApply.set(lockedList.size());
+      ownerAtApply.set(component.isExclusiveOwner());
       return null;
     }).when(storage).applyHistogramDeltas(operation);
     doNothing().when(storage).persistIndexCountDeltas(operation);
@@ -324,6 +354,15 @@ public class EndAtomicOperationHookOrderingTest {
     assertEquals(
         "lockedComponents must still contain the per-index component when histogram apply runs",
         1, sizeAtApply.get());
+    assertNotNull("Component owner state must have been captured at apply time",
+        ownerAtApply.get());
+    assertTrue("Component must still be exclusive-owner when histogram apply runs",
+        ownerAtApply.get());
+    // Explicit ordering: applyHistogramDeltas must run strictly before
+    // unlockExclusive. Symmetric to the index-count sibling above.
+    InOrder applyThenUnlock = Mockito.inOrder(storage, component);
+    applyThenUnlock.verify(storage).applyHistogramDeltas(operation);
+    applyThenUnlock.verify(component).unlockExclusive();
   }
 
   /**
@@ -388,6 +427,18 @@ public class EndAtomicOperationHookOrderingTest {
     verify(storage, times(1)).applyHistogramDeltas(operation);
     verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
     verify(component, times(1)).unlockExclusive();
+    // releaseLocks must still run inside the inner-finally even after a
+    // swallowed apply failure; mirrors the index-count sibling above.
+    assertTrue("releaseLocks must run even when histogram apply fails",
+        lockedList.isEmpty());
+    // Apply ordering: applyIndexCountDeltas runs strictly before
+    // applyHistogramDeltas on the success path. Pins the per-branch
+    // structure inside the apply block: the index-count branch is always
+    // first, the histogram branch always second, both independently gated
+    // and independently caught.
+    InOrder applyOrder = Mockito.inOrder(storage);
+    applyOrder.verify(storage).applyIndexCountDeltas(operation);
+    applyOrder.verify(storage).applyHistogramDeltas(operation);
   }
 
   /**
@@ -584,34 +635,222 @@ public class EndAtomicOperationHookOrderingTest {
   }
 
   /**
-   * Sanity that {@link EndAtomicOperationHookTestSupport#mockStorage} keeps
-   * returning a usable storage mock for downstream tests in this class.
-   * Pins the contract so a future change to the helper that returns
-   * {@code null} or a partial mock fails here rather than as a cryptic
-   * {@link NullPointerException} inside the manager's constructor.
+   * Nested-op latch isolation: when a nested {@code endAtomicOperation}
+   * fires from inside the outer apply hook (the shape used by
+   * {@code IndexHistogramManager.flushSnapshotToPage} via
+   * {@code executeInsideAtomicOperation}), the inner apply call latches the
+   * inner holder only. The outer holder's {@code applied} latch must stay
+   * untouched so the outer apply path completes normally on return from the
+   * nested call.
+   *
+   * <p>Stubs the apply methods to call {@code setApplied()} on their inbound
+   * holders, mirroring the real {@code AbstractStorage.applyIndexCountDeltas}
+   * and {@code applyHistogramDeltas}. Asserts the outer histogram holder's
+   * latch is still {@code false} when the nested call returns, and the inner
+   * holder's latch is {@code true}.
    */
   @Test
-  public void storageMockExposesStableName() {
-    assertEquals(STORAGE_NAME, storage.getName());
-    assertFalse("WAL must be non-null on the mock storage",
-        storage.getWALInstance() == null);
+  public void nestedEndAtomicOperationDoesNotFlipOuterAppliedLatch()
+      throws IOException {
+    var outerIndex = new IndexCountDeltaHolder();
+    var outerHistogram = new HistogramDeltaHolder();
+    var outerComponent = mockComponent("outer.idx");
+    var outerList = new ArrayList<StorageComponent>();
+    outerList.add(outerComponent);
+    var outerOperation = mockOperationWithLockedComponents(
+        outerIndex, outerHistogram, outerList, new HashSet<>());
+
+    var innerIndex = new IndexCountDeltaHolder();
+    var innerHistogram = new HistogramDeltaHolder();
+    var innerComponent = mockComponent("inner.idx");
+    var innerList = new ArrayList<StorageComponent>();
+    innerList.add(innerComponent);
+    var innerOperation = mockOperationWithLockedComponents(
+        innerIndex, innerHistogram, innerList, new HashSet<>());
+
+    var manager = new AtomicOperationsManager(storage, table);
+
+    // Mirror real apply behaviour: each apply call latches the inbound
+    // holder. The doAnswer pattern lets the test pin that the outer holder's
+    // latch is still false at the moment the nested call returns.
+    doNothing().when(storage).persistIndexCountDeltas(any(AtomicOperation.class));
+    doAnswer(inv -> {
+      AtomicOperation arg = inv.getArgument(0);
+      arg.getIndexCountDeltas().setApplied();
+      return null;
+    }).when(storage).applyIndexCountDeltas(any(AtomicOperation.class));
+
+    var outerHistogramLatchWhenInnerReturns = new boolean[] {true};
+    var innerHistogramLatchAtNestedReturn = new boolean[] {false};
+    doAnswer(inv -> {
+      AtomicOperation arg = inv.getArgument(0);
+      if (arg == outerOperation) {
+        // Outer apply branch fires the nested endAtomicOperation. The
+        // nested call runs in full (persist + commit + apply + release)
+        // before this lambda continues.
+        primeFreezer(manager);
+        manager.endAtomicOperation(innerOperation, null);
+        outerHistogramLatchWhenInnerReturns[0] = outerHistogram.isApplied();
+        innerHistogramLatchAtNestedReturn[0] = innerHistogram.isApplied();
+      }
+      arg.getHistogramDeltas().setApplied();
+      return null;
+    }).when(storage).applyHistogramDeltas(any(AtomicOperation.class));
+
+    primeFreezer(manager);
+    manager.endAtomicOperation(outerOperation, null);
+
+    assertFalse("Outer histogram latch must still be false during the outer"
+        + " histogram apply call, even after the nested call returned",
+        outerHistogramLatchWhenInnerReturns[0]);
+    assertTrue("Inner histogram latch must be true after the nested call returned",
+        innerHistogramLatchAtNestedReturn[0]);
+    // After the outer apply finishes, both holders are latched.
+    assertTrue("Outer index-count latch must be true after outer apply",
+        outerIndex.isApplied());
+    assertTrue("Outer histogram latch must be true after outer apply",
+        outerHistogram.isApplied());
+    assertTrue("Inner index-count latch must be true after nested apply",
+        innerIndex.isApplied());
   }
 
   /**
-   * Test isolation: each test gets a fresh empty preexisting locked-objects
-   * set so the manager's {@code releaseLocks} does not see leftover state.
-   * Pins the {@code Collections.emptySet()} default contract.
+   * Mixed-null case: histogram holder is present but index-count holder is
+   * {@code null}. The histogram apply hook must still fire; the index-count
+   * branch must short-circuit. Pins the independence of the two
+   * {@code holder != null} gates inside the apply hook block.
    */
   @Test
-  public void lockedObjectsEmptyByDefault() throws IOException {
+  public void applyHistogramRunsWhenIndexHolderIsNull() throws IOException {
+    var histogramHolder = new HistogramDeltaHolder();
     var operation = mockOperationWithLockedComponents(
-        null, null, new ArrayList<>(), Collections.emptySet());
+        null, histogramHolder, new ArrayList<>(), new HashSet<>());
     doNothing().when(storage).persistIndexCountDeltas(operation);
+    doNothing().when(storage).applyHistogramDeltas(operation);
 
     var manager = new AtomicOperationsManager(storage, table);
     primeFreezer(manager);
     manager.endAtomicOperation(operation, null);
 
+    verify(storage, never()).applyIndexCountDeltas(operation);
+    verify(storage, times(1)).applyHistogramDeltas(operation);
     verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+  }
+
+  /**
+   * Mixed-null case: index-count holder is present but histogram holder is
+   * {@code null}. Symmetric to {@link #applyHistogramRunsWhenIndexHolderIsNull}.
+   */
+  @Test
+  public void applyIndexCountRunsWhenHistogramHolderIsNull() throws IOException {
+    var indexHolder = new IndexCountDeltaHolder();
+    var operation = mockOperationWithLockedComponents(
+        indexHolder, null, new ArrayList<>(), new HashSet<>());
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+    doNothing().when(storage).applyIndexCountDeltas(operation);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    manager.endAtomicOperation(operation, null);
+
+    verify(storage, times(1)).applyIndexCountDeltas(operation);
+    verify(storage, never()).applyHistogramDeltas(operation);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+  }
+
+  /**
+   * Bounded catch on the apply hook: an {@link OutOfMemoryError} thrown by
+   * {@code applyIndexCountDeltas} must escape the lifecycle method as a
+   * bare {@code Error} rather than be swallowed by the
+   * {@code RuntimeException | AssertionError} catch. Mirrors the four VM-
+   * error escape tests on the persist hook in
+   * {@link EndAtomicOperationPersistHookTest}: genuine VM errors must reach
+   * {@code AbstractStorage.commit}'s outer {@code catch (Error)} so the
+   * storage is poisoned via {@code logAndPrepareForRethrow(Error)} rather
+   * than appearing to succeed.
+   */
+  @Test
+  public void applyHookDoesNotCatchOutOfMemoryError() throws IOException {
+    assertApplyVmErrorEscapesUnconverted(new OutOfMemoryError("simulated OOM"));
+  }
+
+  /**
+   * Bounded catch: a {@link LinkageError} must escape the apply hook as a
+   * bare {@code Error}. Linkage failures usually mean the runtime
+   * environment is broken; wrapping them would hide the actual failure mode
+   * from the caller.
+   */
+  @Test
+  public void applyHookDoesNotCatchLinkageError() throws IOException {
+    assertApplyVmErrorEscapesUnconverted(new LinkageError("simulated linkage failure"));
+  }
+
+  /**
+   * Bounded catch: a {@link StackOverflowError} must escape the apply hook
+   * as a bare {@code Error}. Stack overflows indicate the thread is unable
+   * to make progress; wrapping them would suggest the storage is recoverable
+   * when it is not.
+   */
+  @Test
+  public void applyHookDoesNotCatchStackOverflowError() throws IOException {
+    assertApplyVmErrorEscapesUnconverted(new StackOverflowError("simulated stack overflow"));
+  }
+
+  /**
+   * Bounded catch: an {@link InternalError} (VM-internal failure) must
+   * escape the apply hook as a bare {@code Error}. InternalError is the
+   * runtime's signal that something is wrong at a level the application
+   * cannot meaningfully respond to.
+   */
+  @Test
+  public void applyHookDoesNotCatchInternalError() throws IOException {
+    assertApplyVmErrorEscapesUnconverted(new InternalError("simulated VM-internal failure"));
+  }
+
+  /**
+   * Shared verification for the four VM-error escape tests above. The
+   * {@code applyIndexCountDeltas} stub raises the given error, and the test
+   * asserts (i) the same instance escapes as a bare {@code Error}, (ii) no
+   * {@code StorageException} wrap fires, (iii) the histogram apply branch
+   * is not reached because the VM error short-circuits the apply block, and
+   * (iv) the inner-finally {@code releaseLocks} still ran (the apply hook
+   * lives inside the inner try whose finally is unconditional).
+   */
+  private void assertApplyVmErrorEscapesUnconverted(Error thrown) throws IOException {
+    var indexHolder = new IndexCountDeltaHolder();
+    var histogramHolder = new HistogramDeltaHolder();
+    var component = mockComponent("index.idx");
+    var lockedList = new ArrayList<StorageComponent>();
+    lockedList.add(component);
+    var operation = mockOperationWithLockedComponents(
+        indexHolder, histogramHolder, lockedList, new HashSet<>());
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+    doThrow(thrown).when(storage).applyIndexCountDeltas(operation);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    try {
+      manager.endAtomicOperation(operation, null);
+      fail("Expected the " + thrown.getClass().getSimpleName()
+          + " to escape the apply hook");
+    } catch (StorageException wrapped) {
+      fail(thrown.getClass().getSimpleName()
+          + " must not be wrapped as StorageException: " + wrapped);
+    } catch (Error escaped) {
+      assertSame(thrown.getClass().getSimpleName() + " must escape as-is, not be wrapped",
+          thrown, escaped);
+    }
+
+    // Apply was attempted exactly once on the index-count branch; the
+    // histogram branch never ran because the VM error short-circuited the
+    // apply block.
+    verify(storage, times(1)).applyIndexCountDeltas(operation);
+    verify(storage, never()).applyHistogramDeltas(operation);
+    // releaseLocks still ran in the inner-finally; the per-index lock was
+    // released before the Error propagated.
+    assertTrue("releaseLocks must run inside the inner-finally even when"
+        + " an apply VM error propagates",
+        lockedList.isEmpty());
+    verify(component, times(1)).unlockExclusive();
   }
 }

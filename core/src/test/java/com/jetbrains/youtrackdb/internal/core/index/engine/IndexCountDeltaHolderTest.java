@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -257,5 +258,51 @@ public class IndexCountDeltaHolderTest {
         () -> IndexCountDelta.accumulate(atomicOp, 7, 2, false));
     assertTrue("Must mention sign",
         error.getMessage().contains("sign"));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // applied latch tests
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Latch contract at the source: {@link IndexCountDeltaHolder} starts in
+   * the non-applied state, and {@link IndexCountDeltaHolder#setApplied()}
+   * is idempotent. The lifecycle apply hook inside
+   * {@code AtomicOperationsManager.endAtomicOperation} reads the latch in
+   * the gate, and {@code AbstractStorage.applyIndexCountDeltas} sets it at
+   * the top of the method (before the per-engine loop) so a partial-loop
+   * throw still latches the holder. Mirrors the {@code persistedLatchIsIdempotent}
+   * pattern on the persisted latch.
+   */
+  @Test
+  public void appliedLatchIsIdempotent() {
+    var holder = new IndexCountDeltaHolder();
+    assertFalse("Holder starts in the non-applied state", holder.isApplied());
+    holder.setApplied();
+    assertTrue("Latch flips after setApplied()", holder.isApplied());
+    holder.setApplied();
+    assertTrue("setApplied() must be idempotent", holder.isApplied());
+  }
+
+  /**
+   * Latch independence: setting {@link IndexCountDeltaHolder#setPersisted()}
+   * must not flip the {@code applied} latch and vice versa. The two latches
+   * gate two independent hook calls (persist before commit, apply after
+   * commit) and must stay independent so the gates short-circuit
+   * independently.
+   */
+  @Test
+  public void appliedAndPersistedLatchesAreIndependent() {
+    var holder = new IndexCountDeltaHolder();
+    holder.setPersisted();
+    assertTrue("Persisted latch flipped", holder.isPersisted());
+    assertFalse("Applied latch must stay false when only persisted is set",
+        holder.isApplied());
+
+    var holder2 = new IndexCountDeltaHolder();
+    holder2.setApplied();
+    assertTrue("Applied latch flipped", holder2.isApplied());
+    assertFalse("Persisted latch must stay false when only applied is set",
+        holder2.isPersisted());
   }
 }
