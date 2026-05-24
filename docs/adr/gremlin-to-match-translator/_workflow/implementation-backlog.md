@@ -224,12 +224,23 @@
 > - Implement TinkerPop's logical filter steps (which contain
 >   sub-traversals) by descending into their global children:
 >   - **`AndStep` / `OrStep` (the `ConnectiveStrategy` form)** —
->     barrier-style steps with N sub-traversals; each sub-traversal is a
->     sequence of filter steps applied to the current traverser. Each
->     sub-traversal becomes a `SQLBooleanExpression` subtree (recursively
->     walking filter steps as if they were a has-chain on the current
->     alias); the N subtrees are joined by `MatchWhereBuilder.and(...)` /
->     `or(...)` and merged into the current node's `where`.
+>     barrier-style steps with N sub-traversals; each child runs through
+>     a sub-walker against the same recognizer registry as the top-level
+>     walk (fresh `SubWalkerContext` inheriting the parent's
+>     `boundaryAlias`). The two recognizers diverge on what they accept:
+>     - `AndStepRecogniser` accepts any mix of pure-filter and
+>       edge-bearing children. Pure-filter children become
+>       `SQLBooleanExpression`s AND-composed into the boundary alias's
+>       WHERE; edge-bearing children contribute pattern fragments that
+>       append to the parent's `MatchPlanInputs` (MATCH IR composes them
+>       by implicit AND).
+>     - `OrStepRecogniser` requires all children pure-filter. Any
+>       edge-bearing child (transitively) declines the OR under D3 —
+>       no MATCH IR OR exists at the pattern-fragment level. Phase 2
+>       path documented in design.md Out-of-scope ("OR over edge-bearing
+>       sub-traversals" row).
+>     Two separate recognizer files so the asymmetry is visible in
+>     code.
 >   - **`NotStep`** — single `NotStepRecogniser` registered under
 >     `NotStep.class`; internal branch on `hasEdgeHops(subTraversal)`
 >     selects between the two MATCH IR slots:
