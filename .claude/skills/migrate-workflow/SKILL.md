@@ -460,7 +460,7 @@ The progress file lives at the worktree root, not inside `_workflow/`:
 
 Placing it at the worktree root keeps it outside any tracked subtree, so it does not interfere with the `_workflow/` review diff and `git status` only surfaces it as a single untracked sentinel (the `.migration-progress` carve-out in Step 1's narrow-scope clean check filters it out).
 
-Step 1 has already resolved the active plan directory as `$PLAN_DIR`; Step 5.4 edits files under `$PLAN_DIR/_workflow/`. No second enumeration is needed.
+Step 1 has already resolved the active plan directory as `$PLAN_DIR`; Step 4.4 edits files under `$PLAN_DIR/_workflow/`. No second enumeration is needed.
 
 Progress file format:
 
@@ -473,8 +473,8 @@ Progress file format:
 <sha>	<classification>	<subject>
 ```
 
-- Header lines: `# migrate-workflow progress`, `# range_start=... range_end=...`, and a `# renames:` block. `range_start` is the `BASE_SHA` produced by Step 2's stamp-walking fold (the oldest ancestor reachable from every fold input); `range_end` is `git rev-parse HEAD` captured at skill start — together they pin the commit range Step 4 replays. The renames block starts empty; rename-classified commits (Step 5.5) append one indented `#   <old> -> <new>` line per recorded rename. Step 5.4 consults this block when resolving paths for later commits.
-- Body lines: one tab-separated record per migrated commit. Classification is one of `format`, `skill`, `rename`, `noop` (canonical short-names from Step 5.3). Step 5 reads these to produce per-classification counts.
+- Header lines: `# migrate-workflow progress`, `# range_start=... range_end=...`, and a `# renames:` block. `range_start` is the `BASE_SHA` produced by Step 2's stamp-walking fold (the oldest ancestor reachable from every fold input); `range_end` is `git rev-parse HEAD` captured at skill start — together they pin the commit range Step 4 replays. The renames block starts empty; rename-classified commits (Step 4.6) append one indented `#   <old> -> <new>` line per recorded rename. Step 4.4 consults this block when resolving paths for later commits.
+- Body lines: one tab-separated record per migrated commit. Classification is one of `format`, `skill`, `rename`, `noop` (canonical short-names from Step 4.3). Step 5 reads these to produce per-classification counts.
 
 File-existence handling:
 
@@ -489,11 +489,11 @@ File-existence handling:
 On first entry to Step 4:
 
 1. Mark Step 0's umbrella task 5 ("Per-commit migration loop") as `in_progress`.
-2. For each commit *remaining* in the trimmed queue (i.e., the Step-2 list minus the commits already recorded in `.migration-progress`), call `TaskCreate` with `Migrate commit <short-sha> <subject>`. These are the per-commit tasks consumed by 5.6.
+2. For each commit *remaining* in the trimmed queue (i.e., the Step-2 list minus the commits already recorded in `.migration-progress`), call `TaskCreate` with `Migrate commit <short-sha> <subject>`. These are the per-commit tasks consumed by 4.7.
 
 Then iterate. For each commit in the queue, in order:
 
-### 5.1 Context check (mandatory before starting the commit)
+### 4.1 Context check (mandatory before starting the commit)
 
 ```bash
 cat /tmp/claude-code-context-usage-$PPID.txt 2>/dev/null || echo "ctx: unknown"
@@ -503,25 +503,25 @@ If the level is `warning` (≥30%) or `critical` (≥40%):
 
 1. Do NOT start the next commit.
 2. Report progress to the user: which commits are done, which is next, where the progress file lives.
-3. Instruct: "Context window is at <level>. Run `/clear` and re-invoke `/migrate-workflow <branch>` to resume — already-migrated commits will be skipped via the progress file."
+3. Instruct: "Context window is at <level>. Run `/clear` and re-invoke `/migrate-workflow` to resume — already-migrated commits will be skipped via the progress file. If you `/clear` between 4.4 and 4.5, the next session re-replays this commit's edits over already-edited content; run `git diff` before re-invoking."
 4. End the session.
 
 If `info` (`20% ≤ ctx < 30%`): continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/` or `.claude/skills/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
 
-**Sub-agent contracts.** The orchestrator must interpolate `$ARGUMENTS`, the absolute migration-worktree path, and per-commit values into the sub-agent prompt before launch; sub-agents inherit no conversation context.
+**Sub-agent contracts.** The orchestrator must interpolate `$ARGUMENTS` and per-commit values into the sub-agent prompt before launch; sub-agents inherit no conversation context and operate against the current worktree.
 
 - **`Explore`** — diff reading.
-  - Input: absolute migration-worktree path, commit SHA, list of files to inspect.
+  - Input: commit SHA and list of files to inspect under the active plan's `_workflow/`.
   - Output: bullet list of `(file, intent-of-change)` pairs. No source quotes longer than 5 lines.
 - **`general-purpose`** — batched edits.
-  - Input: absolute paths inside the migration worktree, plus exact find→replace pairs or a section-insertion template.
+  - Input: absolute paths under the active plan's `_workflow/`, plus exact find→replace pairs or a section-insertion template.
   - Output: list of files edited and the line count changed per file.
 
 This is a docs-only migration: sub-agents should use `git show`, `Read`, and `Grep`; mcp-steroid PSI is not required.
 
 If `safe` (`ctx < 20%`): continue normally. The `ctx: unknown` fallback (file missing or `$PPID` resolution failed) is treated as `safe` — the file is best-effort, not load-bearing.
 
-### 5.2 Read the commit
+### 4.2 Read the commit
 
 ```bash
 git show --stat <sha>
@@ -531,7 +531,7 @@ git log -1 --format='%B' <sha>
 
 The commit message is load-bearing: it states the intent of the format change. Read it first, then the diff.
 
-### 5.3 Classify the commit
+### 4.3 Classify the commit
 
 **First, detect path renames as a side concern** (independent of the classification chosen below):
 
@@ -539,26 +539,26 @@ The commit message is load-bearing: it states the intent of the format change. R
 git show --diff-filter=R --name-status <sha> -- .claude/workflow .claude/skills
 ```
 
-For each `R<percentage>\t<old>\t<new>` entry, plan to append one `#   <old> -> <new>` line under the `# renames:` header in Step 5.5. The renames block is populated regardless of which classification wins, so later commits can follow path mappings.
+For each `R<percentage>\t<old>\t<new>` entry, plan to append one `#   <old> -> <new>` line under the `# renames:` header in Step 4.6. The renames block is populated regardless of which classification wins, so later commits can follow path mappings.
 
 **Then classify the commit into one canonical short-name.** Apply the predicates in order; the first match wins:
 
-1. **`format`** — the commit modifies `.claude/workflow/*.md` (rules, conventions, prompts), or makes substantive (non-typo, non-rename-only) edits to `.claude/skills/*/SKILL.md` bodies. Produces migration edits in Step 5.4.
-2. **`skill`** — the commit adds or removes a `.claude/skills/*/SKILL.md` file with no `.claude/workflow/` changes. Promote to `format` iff the new or changed SKILL body contains either (a) a reference to `_workflow/`, `docs/adr/*/`, or a per-branch artifact filename (e.g., `implementation-plan.md`, `design-mutations.md`, `tracks/`); or (b) a `MANDATORY` / `required` / `must` statement creating a new mandatory artifact. Otherwise stay `skill`; no edits in Step 5.4.
+1. **`format`** — the commit modifies `.claude/workflow/*.md` (rules, conventions, prompts), or makes substantive (non-typo, non-rename-only) edits to `.claude/skills/*/SKILL.md` bodies. Produces migration edits in Step 4.4.
+2. **`skill`** — the commit adds or removes a `.claude/skills/*/SKILL.md` file with no `.claude/workflow/` changes. Promote to `format` iff the new or changed SKILL body contains either (a) a reference to `_workflow/`, `docs/adr/*/`, or a per-branch artifact filename (e.g., `implementation-plan.md`, `design-mutations.md`, `tracks/`); or (b) a `MANDATORY` / `required` / `must` statement creating a new mandatory artifact. Otherwise stay `skill`; no edits in Step 4.4.
 3. **`rename`** — the commit's diff under `.claude/workflow/` and `.claude/skills/` consists exclusively of file renames (no content changes beyond the rename detection threshold). The rename block was populated above; no further edits.
-4. **`noop`** — comment-only, whitespace, or single-line typo or wording fixes that do not rename sections, add or remove required fields, or change conventions. Skip 5.4.
+4. **`noop`** — comment-only, whitespace, or single-line typo or wording fixes that do not rename sections, add or remove required fields, or change conventions. Skip 4.4.
 
 Before invoking any edit tool, print one line to the user in the form `commit <short-sha>: <classification> — <reason>` (e.g., `commit 1de3cb0e: format — adds Phase-2 review section to implementation-plan.md`).
 
-A fifth classification value, `manual-review-needed`, may be set in Step 5.5 only when the user invokes the "skip" escape from a Step 5.4 ambiguity halt. It is not selected here in 5.3.
+A fifth classification value, `manual-review-needed`, may be set in Step 4.6 only when the user invokes the "skip" escape from a Step 4.4 ambiguity halt. It is not selected here in 4.3.
 
-### 5.4 Apply the migration in the migration worktree
+### 4.4 Apply the migration
 
-For **Format change** commits, identify which files in the migration worktree's `_workflow/**` (or `.claude/**` if the branch carries local workflow overrides) match the format being changed. Use `Read` and `Bash` (`git -C "<migration-worktree>" ls-files docs/adr/*/_workflow/`) to find them.
+For **Format change** commits, identify which files under the active plan's `_workflow/**` (or `.claude/**` if the branch carries local workflow overrides) match the format being changed. Use `Read` and `Bash` (`git ls-files "$PLAN_DIR/_workflow/"`) to find them.
 
-When the develop-side diff references a path that may have been renamed earlier in the branch's history, consult the `# renames:` header block in `.migration-progress` and follow any `<old> -> <new>` mappings recorded by prior `rename`-classified commits.
+When the diff references a path that may have been renamed earlier in the branch's history, consult the `# renames:` header block in `.migration-progress` and follow any `<old> -> <new>` mappings recorded by prior `rename`-classified commits.
 
-Apply edits with the `Edit` tool against absolute paths inside the migration worktree. **Do not** edit files in the develop worktree; develop is the source of truth.
+Apply edits with the `Edit` tool against absolute paths under the active plan's `_workflow/`. The migration mutates the current worktree in place; there is no separate source-of-truth worktree.
 
 Common migration patterns to expect (not exhaustive; read the actual diff):
 
@@ -577,30 +577,40 @@ Halt the loop and ask the user only if one of these three concrete conditions ho
 
 If none of these holds, apply the edit mechanically and continue.
 
-**Halt resume contract.** When the halt fires, include this warning in the question: *"If you `/clear` or interrupt before resolving, this commit will be replayed on resume. Run `git -C "<migration-worktree>" diff` first to detect duplicate edits."* (Same crash-window contract as Step 5.5.)
+**Halt resume contract.** When the halt fires, include this warning in the question: *"If you `/clear` or interrupt before resolving, this commit will be replayed on resume. Run `git diff` first to detect duplicate edits."* (Same crash-window contract as Step 4.6.)
 
 User outcomes:
 
-1. **User supplies a translation** — apply the edit per their guidance. Proceed to 5.5 and record the commit with its original classification (typically `format`).
-2. **User says "skip"** — apply no edit. Proceed to 5.5 and record the commit with classification `manual-review-needed`. Step 5 surfaces the count so the user knows which commits to revisit manually.
+1. **User supplies a translation** — apply the edit per their guidance. Proceed to 4.6 and record the commit with its original classification (typically `format`).
+2. **User says "skip"** — apply no edit. Proceed to 4.6 and record the commit with classification `manual-review-needed`. Step 5 surfaces the count so the user knows which commits to revisit manually.
 
-### 5.5 Update the progress file
+### 4.5 Advance stamps in lockstep
 
-Append one tab-separated line to the body of `.migration-progress` at the migration worktree root:
+After sub-step 4.4's edits land and before sub-step 4.6 records the commit in `.migration-progress`, rewrite line 1 of every artifact under the active plan's `_workflow/` (per `conventions.md` §1.6(h)'s walk) to `<!-- workflow-sha: <current-commit-sha> -->`. The order is load-bearing: edits → advance → progress sentinel, never another order. Reversing edits and advance leaves stamps ahead of artifact content on crash; deferring the advance past the progress sentinel breaks the resume contract because the next session reads the sentinel and the stamp set and they disagree about which commit was last replayed. The design.md sequence diagram in §"Per-commit replay and lockstep advance" is the authoritative ordering.
+
+For each stamped artifact, use the `Edit` tool against line 1 with the **prior stamp** as `old_string` and the new `<!-- workflow-sha: <current-commit-sha> -->` as `new_string`. The exact-string match makes the writer idempotent on equal SHAs (re-running on an artifact already at this commit's SHA fails the `old_string` precondition harmlessly) and portable across platforms (no `sed -i` BSD/GNU dialect difference).
+
+Artifacts that were not stamped at session start (legacy bootstrap path; covered by `$UNSTAMPED_FILES` in Step 2.0) gain their first stamp here as a side effect: for those files, the `Edit` writer has no prior stamp to match, so use `Read` to capture line 1, then `Write` the full file back with the new stamp line prepended above the existing line 1. After the first successful per-commit replay these artifacts join the stamped set and the standard `Edit` path applies on subsequent commits.
+
+This sub-step is the crash-resume marker. Without it, a mid-loop crash leaves no durable record of "the migration replayed up to commit X"; with it, the next session reads any stamp, finds the last successfully-replayed SHA, and resumes at the next commit. See design.md §"Per-commit replay and lockstep advance" for the sequence diagram and crash-window analysis.
+
+### 4.6 Update the progress file
+
+Append one tab-separated line to the body of `.migration-progress` at the worktree root:
 
 ```
 <sha>	<classification>	<subject>
 ```
 
-`<classification>` is the canonical short-name from Step 5.3 (`format`, `skill`, `rename`, or `noop`), or the special value `manual-review-needed` when the user invoked "skip" from a Step 5.4 ambiguity halt.
+`<classification>` is the canonical short-name from Step 4.3 (`format`, `skill`, `rename`, or `noop`), or the special value `manual-review-needed` when the user invoked "skip" from a Step 4.4 ambiguity halt.
 
 For `rename`-classified commits, **also** insert one indented `#   <old-path> -> <new-path>` line under the `# renames:` header (one line per rename recorded by the commit) so later commits can follow the mapping. For `manual-review-needed`, skip the renames update and apply no edits; the body line alone is enough to keep the commit out of the replay queue on the next run.
 
 Mechanism: read the file with `Read`, mutate the contents in memory (append the body line and, for renames, insert the header line(s) under `# renames:`), then write the full file back with `Write`. Do not use `Edit` here; the initial file may have no trailing newline, so the `old_string`-based path is unreliable. Do not stage or commit the file; it lives outside git history.
 
-If the process is killed between applying edits in 5.4 and updating `.migration-progress` here, the next run will replay the same commit. After a crash, run `git -C "<migration-worktree>" diff` before resuming to detect duplicate edits.
+If the process is killed between applying edits in 4.4 and updating `.migration-progress` here, the next run will replay the same commit. After a crash, run `git diff` before resuming to detect duplicate edits.
 
-### 5.6 Mark the per-commit task completed
+### 4.7 Mark the per-commit task completed
 
 `TaskUpdate` the matching task to `completed`. Move to the next commit.
 
