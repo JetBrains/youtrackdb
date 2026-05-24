@@ -162,8 +162,8 @@ What changes:
     and `HasContainer` instances into `SQLBinaryCondition`/`SQLInCondition`/
     `SQLContainsTextCondition`.
   - `GremlinPatternAssembler` — drives `MatchPatternBuilder` to construct
-    `Pattern` + alias maps; handles `as()`, `optional()`, edge methods, NOT
-    expressions.
+    `Pattern` + alias maps; handles `as()`, edge methods, NOT
+    expressions. (`optional()` is deferred to Phase 2 — D8.)
   - `GremlinProjectionAssembler` — drives `MatchLiteralBuilder` and direct
     construction of `SQLProjection`/`SQLOrderBy`/`SQLLimit`/`SQLSkip`/
     `SQLGroupBy` to populate a `QueryPlanningInfo` for
@@ -386,37 +386,31 @@ What changes:
   must scan the entire step list, not just the start step.
 - **Implemented in**: Track 2.
 
-#### D8: Optional and union — well-formed shapes only join the recognized set
+#### D8: Union enters the recognized set; `optional` is deferred to Phase 2
 
-- **Alternatives considered**: (a) translate the well-formed `optional` /
-  `union` shapes inline and decline mid-chain to a hybrid suffix for
-  ill-formed shapes — incompatible with D3 which retired the hybrid
-  mechanism; (b) drop `optional` / `union` from the recognized set
-  entirely in Phase 1 — defers a useful capability with no offsetting
-  simplification, since the well-formed-shape detector is needed in
-  Phase 2 anyway; (c) recognize only the well-formed shapes; let any
-  other shape decline the whole traversal under D3 (chosen).
-- **Rationale**: Gremlin's `optional(traversal)` emits the original
-  traverser when the sub-traversal yields nothing; MATCH's
-  `{optional:true}` null-fills an alias in the result row. These coincide
-  only when the Gremlin shape matches "extend a path with one optional
-  terminal hop"; deeper nested or mid-chain optionals diverge. Similarly
-  Gremlin's `union(...)` is concatenation of result streams; MATCH
-  supports disjoint patterns joined by **cartesian product** via
-  `splitDisjointPatterns` / `CartesianProductStep`, which is not the same.
-  `optional` and `union` therefore enter the recognized set only for the
-  well-formed shapes — terminal `optional` mapping to MATCH
-  `{optional:true}`, and `union` of independent pattern matches each
-  emitting one row per match, implemented as a sequence of independent
-  translated plans whose result streams are concatenated by the boundary
-  step. Any other shape (deeper nested or mid-chain optional,
-  type-divergent union children) falls outside the recognized set, so
-  under D3 the entire traversal declines.
-- **Risks/Caveats**: "Well-formed shape detection" is a non-trivial
-  predicate; tests must cover both translate-and-correct and
-  decline-the-whole-traversal paths to avoid silent semantic drift.
-- **Implemented in**: Track 6 (optional well-formed shape recognition),
-  Track 10 (union recognition + multi-plan boundary step).
+- **Alternatives considered**: (a) translate the well-formed `optional`
+  shape inline (terminal optional with downstream `select`) — rejected
+  because TinkerPop's `OptionalStep` drops rows whose sub-traversal yields
+  nothing while MATCH `{optional:true}` emits them with null alias, and
+  the divergence flips result-set membership on the case `optional` is
+  used for; (b) recognize only the well-formed shapes for both `optional`
+  and `union` — incompatible with the divergence above; (c) recognize
+  `union` (concatenation maps onto sequenced plans cleanly) and defer
+  `optional` to Phase 2 along with the alignment design (chosen).
+- **Rationale**: `union(...)` is concatenation of result streams; we
+  implement it as a sequence of independent translated plans whose
+  result streams are concatenated by the boundary step. All children
+  must agree on `BoundaryOutputType`, otherwise the union step is
+  unrecognized and under D3 the entire enclosing traversal declines.
+  `optional`, by contrast, requires either a drop-on-null filter at the
+  boundary step (mirroring `SelectStep`'s `EmptyTraverser` behaviour) or
+  a MATCH-level alternative pattern. Phase 2 owns that design.
+- **Risks/Caveats**: Phase 2's `optional` design must enumerate the
+  empty-sub-traversal, nested-optional, and mid-chain-optional cases
+  and pin their multiset semantics against TinkerPop's actual runtime,
+  not the table-level approximation.
+- **Implemented in**: Track 10 (union recognition + multi-plan boundary
+  step). `optional` is intentionally absent from Phase 1.
 
 #### D9: Type-keyed recogniser dispatch via `Map<Class<? extends Step>, StepRecogniser>`
 
@@ -542,6 +536,9 @@ What changes:
 - **`choose().option()`** — imperative branching. Phase 2.
 - **`executeInTx()`, `computeInTx()`** — execution model concerns, not
   pattern matching. Stay native.
+- **Optional sub-traversal (`optional(traversal)`)** — Gremlin and MATCH
+  disagree on the empty-sub-traversal case (Gremlin drops the row,
+  MATCH null-fills the alias). Phase 2 owns the alignment design.
 
 ## Checklist
 
@@ -805,8 +802,8 @@ What changes:
   > into `NotStepRecogniser` with internal `hasEdgeHops` dispatch — D9).
   > **Depends on:** Track 4.
 
-- [ ] Track 6: Step labels + optional + dedup
-  > Adds the recognized-step set: `as(label)`, `optional(traversal)`,
+- [ ] Track 6: Step labels + dedup
+  > Adds the recognized-step set: `as(label)`,
   > `dedup()`/`dedup(labels...)`.
   >
   > - **`as(label)`** — the walker reads the `Step.getLabels()` of every
@@ -818,12 +815,10 @@ What changes:
   >   `assignDefaultAliases` does not run on our path, so we do not need
   >   to share the executor's package-private
   >   `MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX`).
-  > - **`OptionalStep`** — translates to MATCH `{optional:true}` only when
-  >   the wrapped sub-traversal is a "well-formed terminal optional shape":
-  >   one or more edge hops ending in a node with an optional flag. Any
-  >   deeper or mid-chain optional shape is unrecognized, so under D3
-  >   all-or-nothing the entire traversal declines (D8). Detection happens
-  >   during walker pre-pass.
+  > - **`OptionalStep`** — deferred to Phase 2 (D8). The Gremlin /
+  >   MATCH divergence on empty sub-traversal flips result-set
+  >   membership, so any traversal containing `OptionalStep` declines
+  >   under D3 in Phase 1.
   > - **`DedupStep` (no labels)** — translates to `info.distinct = true`
   >   on the `QueryPlanningInfo`, materialized as a `DistinctExecutionStep`
   >   by `handleProjectionsBlock`.
@@ -833,11 +828,11 @@ What changes:
   >   by the traversal's projection (`select`).
   >
   > Verification: `as` labels survive through the boundary and downstream
-  > `select` works; optional emits the matched node when present and
-  > `null` when absent (verified against equivalent SQL `MATCH`); dedup
-  > over (a) full row, (b) a single label, (c) multiple labels.
-  > **Scope:** ~4 steps covering as-label propagation, optional well-formed
-  > shape detection, dedup, parity tests with SQL.
+  > `select` works; dedup over (a) full row, (b) a single label, (c)
+  > multiple labels; traversals containing `OptionalStep` decline
+  > (verified by boundary-step engagement assertion).
+  > **Scope:** ~3 steps covering as-label propagation, dedup, parity
+  > tests with SQL.
   > **Depends on:** Track 5.
 
 - [ ] Track 7: Projections — `select`, `values`, `valueMap`, `elementMap`, `project`
