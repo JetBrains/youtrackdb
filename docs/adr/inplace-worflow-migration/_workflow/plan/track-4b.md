@@ -9,7 +9,7 @@ The dogfood claim is transient. Once Track 7 (staging architecture, D14) lands a
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -17,9 +17,11 @@ The dogfood claim is transient. Once Track 7 (staging architecture, D14) lands a
 - [x] 2026-05-24T11:39Z [ctx=safe] Step 1 complete (commit d396f579ca)
 - [x] 2026-05-24T11:44Z [ctx=info] Step 2 complete (commit 3d5fb65fe9)
 - [x] 2026-05-24T11:47Z [ctx=info] Step 3 complete (commit 158c4a49e6)
+- [x] 2026-05-24T11:56Z [ctx=info] Step 4 complete (commit 3911292576)
 
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-05-24T11:56Z [ctx=info] design.md §"Per-commit replay and lockstep advance" TL;DR at line 259 fails the design-mechanical-checks fragmented-header heuristic (75% content-word overlap with the heading at line 257). Pre-existing — verified by stashing Mutation 12 and re-running against HEAD. Held debt; the next content-edit that touches that section's TL;DR is the natural place to sweep it. Phase 4's design-final pass will inherit it if no intervening track addresses it. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -60,7 +62,7 @@ The rewrite proceeds in roughly three edits, in order. Step numbers below are th
 
 3. Step 5 final summary rewrite in `migrate-workflow/SKILL.md` — drop the two `<migration-worktree>` references at lines 613 and 614 in favour of in-branch worktree wording ("Review the diff in this worktree, then commit + push when satisfied. Delete `.migration-progress` after the commit."); add a new "Workflow stamps now at `<HEAD-sha>`" line above the existing per-classification counts (sourced from the sub-step 4.8 batch); add a conditional one-line bootstrap-count report ("Bootstrapped N previously unstamped artifacts using SHA `<user-bootstrap-sha>`") that fires only when Step 2.0's `$USER_BOOTSTRAP_SHA` is set — risk: low (single-section prose rewrite; placeholder removal + two reporting lines; no semantic shift beyond what Steps 1-2 already deliver)  [x] commit: 158c4a49e6
 
-4. design.md crash-window prose hygiene via `/edit-design` content-edit mutation — correct §"Per-commit replay and lockstep advance" around line 289 which currently mis-routes the 4.5→4.6 resume contract through "the no-drift normalization path advances every stamp to HEAD's SHA". The drift-check-side normalization (Track 3, in `workflow-drift-check.md`) and the migration-side resume (Track 4b's per-commit loop) are distinct paths; the migration's re-invocation does not enter no-drift normalization. Replacement prose names the migration-side resume contract: re-fold from non-uniform stamps gives `BASE_SHA` at the lowest, range computation re-queues the not-yet-stamped commit, Step 4 re-applies its edits idempotently for file-shape edits, the user's pre-resume `git diff` catches non-idempotent diffs. One mutation through the established edit-design discipline; `design-mutations.md` records the change — risk: low (single-paragraph documentation hygiene via established edit-design discipline; no semantic shift to the design — just clarifying which resume path the contract follows)  [ ]
+4. design.md crash-window prose hygiene via `/edit-design` content-edit mutation — correct §"Per-commit replay and lockstep advance" around line 289 which currently mis-routes the 4.5→4.6 resume contract through "the no-drift normalization path advances every stamp to HEAD's SHA". The drift-check-side normalization (Track 3, in `workflow-drift-check.md`) and the migration-side resume (Track 4b's per-commit loop) are distinct paths; the migration's re-invocation does not enter no-drift normalization. Replacement prose names the migration-side resume contract: re-fold from non-uniform stamps gives `BASE_SHA` at the lowest, range computation re-queues the not-yet-stamped commit, Step 4 re-applies its edits idempotently for file-shape edits, the user's pre-resume `git diff` catches non-idempotent diffs. One mutation through the established edit-design discipline; `design-mutations.md` records the change — risk: low (single-paragraph documentation hygiene via established edit-design discipline; no semantic shift to the design — just clarifying which resume path the contract follows)  [x] commit: 3911292576
 
 ## Episodes
 
@@ -90,6 +92,16 @@ The rewrite proceeds in roughly three edits, in order. Step numbers below are th
 
 **Key files:**
 - `.claude/skills/migrate-workflow/SKILL.md` (modified)
+
+### Step 4 — commit 3911292576, 2026-05-24T11:56Z [ctx=info]
+
+**What was done:** Applied a content-edit mutation through the `/edit-design` skill to §"Per-commit replay and lockstep advance" in `design.md`. Replaced the mis-routed clause that pinned the 4.5→4.6 resume to the no-drift normalization path. Replacement prose names the migration-side resume contract directly: a 4.5→4.6 crash leaves uniform stamps at commit X, the fold yields `BASE_SHA = X`, the range X..HEAD re-queues commits X+1..HEAD without re-applying X; a mid-4.5 crash leaves non-uniform stamps {X-1, X}, the fold yields the older common ancestor, the range re-queues commit X, sub-step 4.4 re-applies file-shape edits idempotently, and the user's pre-resume `git diff` catches non-idempotent residue. A closing sentence makes the cross-path boundary between drift-check-side normalization and migration-side resume explicit. Mutation 12 appended to `design-mutations.md` per the skill's review-log shape; mechanical checks PASS verdict with one pre-existing should-fix held.
+
+**What was discovered:** The design-mechanical-checks heuristic flags the §"Per-commit replay and lockstep advance" TL;DR at line 259 for 75% content-word overlap with the heading at line 257. Verified pre-existing — stash + rerun against HEAD shows the same finding shape. Out of scope for this prose-routing fix; on the cleanup queue for any future content-edit that touches the same section. See Surprises & Discoveries §Step 4.
+
+**Key files:**
+- `docs/adr/inplace-worflow-migration/_workflow/design.md` (modified)
+- `docs/adr/inplace-worflow-migration/_workflow/design-mutations.md` (modified)
 
 ## Validation and Acceptance
 
