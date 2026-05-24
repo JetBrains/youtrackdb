@@ -859,14 +859,26 @@ What changes:
   > sub-traversals) by descending into their global children.
   >
   > Behavior:
-  > - **`AndStep` / `OrStep` (the `ConnectiveStrategy` form)** — these are
-  >   barrier-style steps that contain N sub-traversals; each sub-traversal
-  >   is a sequence of filter steps applied to the current traverser.
-  >   Translation: each sub-traversal becomes a `SQLBooleanExpression`
-  >   subtree (recursively walking filter steps as if they were a
-  >   has-chain on the current alias); the N subtrees are joined by
-  >   `MatchWhereBuilder.and(...)` / `or(...)` and merged into the
-  >   current node's `where`.
+  > - **`AndStep` / `OrStep` (the `ConnectiveStrategy` form)** —
+  >   barrier-style steps with N sub-traversals; each child runs through
+  >   a sub-walker against the same recognizer registry as the top-level
+  >   walk (fresh `SubWalkerContext` inheriting the parent's
+  >   `boundaryAlias`). The two recognizers diverge on what they accept
+  >   because MATCH IR composes pattern fragments by AND only:
+  >   - **`AndStepRecogniser`** accepts any mix of pure-filter and
+  >     edge-bearing children. Pure-filter children become
+  >     `SQLBooleanExpression`s AND-composed into the boundary alias's
+  >     WHERE; edge-bearing children contribute pattern fragments that
+  >     append to the parent's `MatchPlanInputs` (MATCH IR composes them
+  >     by implicit AND).
+  >   - **`OrStepRecogniser`** requires all children to be pure-filter.
+  >     If any child (transitively, including nested AndStep / NotStep)
+  >     carries edges, the OR is unrecognized and declines under D3 —
+  >     no MATCH IR OR exists at the pattern-fragment level. Phase 2
+  >     path: union-of-plans via `MultiPlanMatchStep` from Track 10 +
+  >     boundary-level dedup on the parent boundary alias.
+  >   The two recognizers ship as separate files so the asymmetry is
+  >   visible in code, not buried in shared branching.
   > - **`NotStep`** (single `NotStepRecogniser` registered under
   >   `NotStep.class` — internal branch on
   >   `hasEdgeHops(subTraversal)`):
