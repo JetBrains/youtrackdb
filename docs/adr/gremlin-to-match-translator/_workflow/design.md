@@ -117,7 +117,6 @@ shape declines along with anything else unrecognised.
 | Logical filters | `WhereTraversalStep` (pure filter / edge pattern) | inline filter on `where` / extra `SQLMatchExpression` | Track 5 |
 | Logical filters | `WherePredicateStep` (`where(P.eq("a"))`) | `WHERE` referencing `$matched.<label>` | Track 5 |
 | Step labels | `as(label)` | propagated to most recent `SQLMatchFilter.alias` via `MatchPatternBuilder.alias(...)` | Track 6 |
-| Optional | `optional(traversal)` (well-formed terminal shape) | `SQLMatchFilter.optional = true` on the terminal node | Track 6 |
 | Dedup | `dedup()` (no labels) | `info.distinct = true` → `DistinctExecutionStep` | Track 6 |
 | Dedup | `dedup(labels...)` | projection over labels + DISTINCT | Track 6 |
 | Projection | `select(label)` | `$matched.<label>` projection (single column) | Track 7 |
@@ -500,11 +499,15 @@ input list). The translator pins this on construction via a
 | `count` / `sum` / `min` / `max` / `mean` (Track 9) | `SCALAR`     | aggregate value |
 | `group` / `groupCount` (Track 9)       | `MAP`                | aggregated `Map<K, V>` |
 
-Phase 1 ships with `ELEMENT` only; later tracks add their variants as the
-recogniser registry gains terminator-owning recognisers (each track pins
-the output type for its own terminal step). The boundary step's
-`processNextStart` switches on the `BoundaryOutputType` and projects each
-`Result` row accordingly.
+Phase 1 ships all four output types — `ELEMENT` from Track 3 (vertex
+hops), `MAP` and `SINGLE_VALUE` from Track 7 (projections), and `SCALAR`
+plus `MAP` from Track 9 (aggregations). Each track pins the output type
+for the terminal step it adds to the recognised set. Track 3 is the
+first track that wires a boundary step at all — so the temporal
+sequencing is "Track 3 lands `ELEMENT`; subsequent tracks add their
+variants" — but every output type is part of Phase 1. The boundary
+step's `processNextStart` switches on the `BoundaryOutputType` and
+projects each `Result` row accordingly.
 
 There is no cross-boundary output-type negotiation — under all-or-nothing
 no native step consumes the boundary's output, so the boundary picks its
@@ -642,34 +645,24 @@ returns non-literal objects (e.g. lazy `Supplier`s), `MatchLiteralBuilder`
 declines on the `default ->` branch in its type switch, and the entire
 traversal declines under D3 all-or-nothing.
 
-## Optional and union semantics divergence
+## Union semantics divergence
 
-These two Gremlin steps share a structural risk: their TinkerPop semantics
-do not exactly match the closest MATCH construct. We translate the
-well-formed common shape and decline (native fallback) the rest.
-
-**`optional(traversal)`.** TinkerPop semantics: for each input traverser,
-run the sub-traversal; if it produces ≥1 output, emit those outputs;
-otherwise emit the original input. MATCH semantics for `{optional:true}`
-on a node: if no neighbor matches, the alias is null in the result row, but
-other aliases are still bound. These coincide only for the shape
-
-```
-g.V().as("a").optional(__.out("knows").as("b")).select("a","b")
-```
-
-— the optional is terminal, the input is preserved on null match, and the
-absence is null in `select`. They diverge for nested optionals
-(`optional(optional(...))`), optionals in mid-chain
-(`optional(out("knows")).has("city","NY")`), and optionals whose sub-traversal
-contains side effects.
-
-We detect "well-formed terminal optional" structurally: the optional step
-is followed only by projection/limit/order/dedup steps; the sub-traversal
-is a pure pattern (one or more edges with optional filters). When this
-shape holds, the translator emits MATCH `{optional:true}` on the terminal
-node. When it doesn't, the optional step is unrecognised — under D3
-all-or-nothing the entire traversal declines and runs natively unchanged.
+**`optional(traversal)` is deferred to Phase 2.** TinkerPop and MATCH
+disagree on the empty-sub-traversal case in a way that flips result-set
+membership, not just ordering: when the sub-traversal yields zero
+results, Gremlin's `OptionalStep.processNextStart()` returns the original
+input traverser unchanged — its path carries the outer label but not the
+inner one — and a downstream `select("a","b")` calls
+`Scoping.getScopeValue("b", ...)` which fails on the missing key, so
+`SelectStep` returns `EmptyTraverser.instance()` and **the row is
+dropped**. MATCH's `OptionalMatchEdgeTraverser` plus
+`RemoveEmptyOptionalsStep` instead **emit the row with `b: null`**. The
+two outputs differ exactly on the case `optional` exists to express.
+Phase 2 will design the alignment (a boundary-step filter that drops
+rows whose inner alias is null, or a MATCH-level alternative pattern,
+or both) and ship the recogniser then. Phase 1 declines every traversal
+containing `OptionalStep` under D3 all-or-nothing, and the native
+TinkerPop pipeline handles it unchanged.
 
 **`union(traversals…)`.** TinkerPop semantics: for each input traverser,
 concatenate the outputs of all child traversals. MATCH `splitDisjointPatterns`
@@ -805,7 +798,19 @@ native pipeline. The shared
 helper produces the AST shape; every chain-introducing recogniser uses
 it.
 
-If schema enumeration is unavailable (no schema, or the class doesn't
+**Schema-less graphs.** The translator must support the same surface
+MATCH supports today, which includes schema-less graphs — every vertex
+is class `V`, every edge is class `E`, and links are polymorphic. In
+that regime, `g.V()` translates to a pattern node with `aliasClasses[a]
+= "V"` (the default), `out(label)` adds an edge with the literal label
+as its `directionLabel` and does not touch `aliasClasses`, and
+`hasLabel(label)` declines only when a user-supplied label cannot be
+resolved to a real class in a partially-typed graph (mixed mode). The
+non-polymorphic narrowing described above is skipped for schema-less
+traversals because there is no class hierarchy to narrow against.
+
+If schema enumeration is unavailable for a class the user explicitly
+named (a `hasLabel("Person")` against a graph where `Person` does not
 exist), the recogniser declines and under D3 all-or-nothing the entire
 traversal declines. The graph step strategy still handles the root scan
 natively in that case.
@@ -919,9 +924,22 @@ boundary step pulls exactly one `Result` from the plan and emits one
 
 **Empty input.** TinkerPop's `count` of an empty stream emits `0L` (a
 single traverser); `sum`/`min`/`max`/`mean` of an empty stream emit
-nothing in modern TinkerPop. MATCH's behavior is the same for `count`
-(returns one row with `0`) and `null` for the others. We verify in tests
-that empty-input behavior matches per-aggregate.
+**nothing** in modern TinkerPop. MATCH's behaviour is the same for
+`count` (returns one row with `0`) but emits a row with a **null** cell
+for the other aggregates. The two are observably different on the empty
+case: a Gremlin consumer that calls `.tryNext()` expects `Optional.empty()`,
+while a translated traversal would hand it a traverser carrying `null`.
+
+The boundary step closes the gap. For `BoundaryOutputType.SCALAR`,
+`processNextStart` drops a `Result` whose aggregate column is `null` for
+`sum`/`min`/`max`/`mean` (and any aggregate other than `count`) instead
+of emitting a traverser. The null→empty conversion is per-aggregate (a
+small enum lookup); `count` and any user-defined Gremlin aggregate that
+defines an empty-input result still emit. For
+`BoundaryOutputType.ELEMENT` / `MAP`, MATCH null cells in the row remain
+null — they reach the consumer through `valueMap` / `select` exactly as
+they would under native Gremlin. We verify in tests that empty-input
+behaviour matches per-aggregate.
 
 **Group with `by(key)`.** TinkerPop emits one map keyed by group keys.
 We translate to `info.groupBy = SQLGroupBy(currentAlias.key)`,
@@ -1133,6 +1151,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 
 | Category | Steps | Why out | Phase 2 path |
 |---|---|---|---|
+| Optional sub-traversal | `optional(traversal)` | Gremlin drops the row when the sub-traversal yields nothing; MATCH emits the row with the inner alias `null`. The two outputs differ on the case `optional` exists to express. | Drop-on-null filter at the boundary step, or a MATCH-level alternative pattern, or both — designed in Phase 2 |
 | Variable-depth traversal | `repeat().until(...)`, `repeat().times(n)` | MATCH `WHILE` / `maxDepth` requires careful translation of the loop condition + termination semantics | Map `until` → `whileCondition`, `times` → `maxDepth` on `SQLMatchPathItem` |
 | Stateful side-effects | `sack()`, `store()`, `aggregate()` | TinkerPop traverser-state-machine has no MATCH analogue | Likely never; stay native |
 | Lambda steps | TinkerPop lambda steps (`map(λ)`, `filter(λ)`, `sideEffect(λ)`, …) | Arbitrary user code is untranslatable | Stay native; potentially inline simple Gremlin expression lambdas later |
@@ -1152,3 +1171,12 @@ on traversal bytecode fingerprint plus resolved parameter values (see
 "Parameter binding"), so the cache survives parameter variation without
 serving stale plans. Track 12 measures end-to-end perf with cache
 enabled.
+
+**Phase 2 step-list audit.** Phase 2 opens with a sweep of the full
+TinkerPop step reference (https://tinkerpop.apache.org/docs/current/reference/),
+classifying every step into one of: *(a)* candidate for translation
+(produce a recogniser), *(b)* permanent decline (stays native — lambda
+steps, sack(), store(), subgraph(), …), *(c)* needs design effort
+(optional, path manipulation, repeat(), choose()). The table above
+captures the Phase 1 decisions; the audit fills in the long tail
+before any Phase 2 implementation track lands.
