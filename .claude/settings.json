@@ -4,6 +4,11 @@
     "pr": ""
   },
   "model": "opus[1m]",
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "300000",
+    "BASH_MAX_TIMEOUT_MS": "1800000",
+    "BASH_MAX_OUTPUT_LENGTH": "50000"
+  },
   "statusLine": {
     "type": "command",
     "command": "bash ${CLAUDE_PROJECT_DIR}/.claude/scripts/statusline-command.sh"
