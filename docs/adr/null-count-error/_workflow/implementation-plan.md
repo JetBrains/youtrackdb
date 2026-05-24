@@ -20,18 +20,35 @@ The fix has two layers. First, **convert both sites to pure-delta encoding** so 
 - **Lock-window invariant**: `applyIndexCountDeltas` and `applyHistogramDeltas` run with the per-index lock acquired at `lockIndexes` (AbstractStorage:2255) still held. Achieved by placing the apply hooks inside `endAtomicOperation` before `releaseLocks` returns the lock; the manual call at AbstractStorage:2365 (which runs after the lock release) is deleted.
 - **Independent revertability**: each track lands one logical change so reverts are surgical.
 
-### Implementer pacing (YTDB-971)
+### Implementer pacing (YTDB-971, YTDB-979)
 
-Every implementer prompt spawned from this plan (Phase B step implementers, Phase C track-level fix implementers) carries the YTDB-971 anti-pattern guidance verbatim. The pattern this prevents is background `./mvnw` paired with `tail -f`, no PID registration, no explicit kill before exit. Both Step 2 spawns on this branch hit it: each implementer emitted a Maven test tool_use, exhausted its message budget waiting on Monitor, exited without a `RESULT` block, and left an orphan Maven JVM plus the watcher consuming resources. Cumulative cost: ~56 minutes of orchestrator time across two spawns.
+Every implementer prompt spawned from this plan (Phase B step implementers, Phase C track-level fix implementers) carries the pacing guidance verbatim. The original anti-pattern (YTDB-971) is background `./mvnw` paired with `tail -f`, no PID registration, no explicit kill before exit. Both Step 2 spawns on this branch hit it: each implementer emitted a Maven test tool_use, exhausted its message budget waiting on Monitor, exited without a `RESULT` block, and left an orphan Maven JVM plus the watcher consuming resources. Cumulative cost: ~56 minutes of orchestrator time across two spawns.
+
+YTDB-979 extends the scope after Step 3's `RESULT_MISSING` recovery: the Step 3 implementer launched `./mvnw -pl core clean package -P coverage 2>&1 | tail -15` in background to satisfy the coverage gate for a production-source-touching step, then burned its budget polling. The fix is to take the surgical-change path: targeted tests + targeted coverage report + gate check, all foreground, ~75 s wall-clock total.
 
 Required clauses in every implementer prompt:
 
 - **Prefer foreground Maven** for single-class or focused reruns (`./mvnw -pl core test -Dtest=<TouchedTestClass>`). The runtime stays aware of implementer activity; `RESULT_MISSING` recovery is unnecessary.
 - **Route longer builds through `steroid_execute_code`** when the build exceeds the foreground budget but fits within the MCP HTTP timeout. The IDE returns structured pass/fail without orchestrator polling.
-- **Background mode is a last resort** (full coverage build, integration suite that exceeds the foreground budget). When unavoidable: register the background PID, emit periodic progress lines so the runtime stays aware, and explicitly `kill -TERM` the background task plus any watcher before emitting any exit message (RESULT, budget-exit, or otherwise).
-- **Never pair a background `./mvnw` with `tail -f`** on the same shell. The pair is the orphan-pattern signature; the foreground and IDE-routed alternatives avoid it.
+- **Background mode is a last resort** (integration suite that exceeds the foreground budget, broad cumulative-diff coverage builds). When unavoidable: register the background PID, emit periodic progress lines so the runtime stays aware, and explicitly `kill -TERM` the background task plus any watcher before emitting any exit message (RESULT, budget-exit, or otherwise).
+- **Never pipe a background `./mvnw` through a buffering tail/head/grep.** `tail -f`, `tail -N`, `head -N`, `grep -m N`, and any other pipe that defers stdout until upstream EOF all leave the output file empty during the build. The Monitor and any progress poller go blind, the implementer feels uncertain, and the budget burns on idle file reads. Write Maven output to a log file directly: `./mvnw … > /tmp/claude-code-build-$$.log 2>&1 &`; poll with `grep -E 'BUILD (SUCCESS|FAILURE)' /tmp/claude-code-build-$$.log` if needed.
+- **Use the targeted coverage path for surgical production-source steps.** When the step's diff is small (<50 changed lines across <5 files) and the focused tests cover the new code, run the gate as a four-command foreground sequence:
 
-Applies to every implementer prompt for Tracks 2, 3, 4 of this branch and any Phase C fix-application implementer. Track 1's implementers ran before YTDB-971 was filed; the rule does not apply retroactively.
+  ```
+  ./mvnw -pl <module> test -Dtest=<focused tests> -P coverage
+  ./mvnw -pl <module> jacoco:report -P coverage
+  mkdir -p .coverage/reports/<artifactId>
+  cp <module>/target/site/jacoco/jacoco.xml .coverage/reports/<artifactId>/jacoco.xml
+  python3 .github/scripts/coverage-gate.py --line-threshold 85 \
+      --branch-threshold 70 --compare-branch origin/develop \
+      --coverage-dir .coverage/reports
+  ```
+
+  Total wall-clock on Track 2 Step 3 was ~75 s (43 s focused tests with agent, 2 s report, <1 s copy, 30 s gate). The gate computed 96.7% line / 96.9% branch on the cumulative branch diff. This path replaces `./mvnw clean package -P coverage` for any step where the change is surgical; reserve the full-suite coverage build for steps that touch broadly-used code or change cumulative-diff totals across many files.
+
+- **Avoid the full-suite coverage build mid-step.** `./mvnw -pl core clean package -P coverage` runs the full ~1500-test core suite with the JaCoCo agent attached and routinely takes 20-30 min wall-clock — beyond both the foreground budget and the implementer's message budget when polled in background. Run the full-suite coverage build only at track completion (Phase C) or when the step's diff genuinely requires broader coverage that the focused tests cannot provide.
+
+Applies to every implementer prompt for Tracks 3 and 4 of this branch and any Phase C fix-application implementer. Track 1's implementers ran before YTDB-971 was filed; the rule does not apply retroactively. Track 2 Steps 1 and 2 ran under YTDB-971; Step 3's RESULT_MISSING recovery surfaced the gap closed here.
 
 ### Architecture Notes
 
