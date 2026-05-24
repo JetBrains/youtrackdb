@@ -424,23 +424,21 @@ Progress file format:
 
 ```
 # migrate-workflow progress
-# fork=<FORK-sha> head=<HEAD_DEVELOP-sha-at-skill-start>
+# range_start=<BASE_SHA> range_end=<HEAD-sha-at-skill-start>
 # renames:
 #   <old-path> -> <new-path>
 <sha>	<classification>	<subject>
 <sha>	<classification>	<subject>
 ```
 
-- Header lines: `# migrate-workflow progress`, `# fork=... head=...`, and a `# renames:` block. The renames block starts empty; rename-classified commits (Step 5.5) append one indented `#   <old> -> <new>` line per recorded rename. Step 5.4 consults this block when resolving paths for later commits.
+- Header lines: `# migrate-workflow progress`, `# range_start=... range_end=...`, and a `# renames:` block. `range_start` is the `BASE_SHA` produced by Step 2's stamp-walking fold (the oldest ancestor reachable from every fold input); `range_end` is `git rev-parse HEAD` captured at skill start — together they pin the commit range Step 4 replays. The renames block starts empty; rename-classified commits (Step 5.5) append one indented `#   <old> -> <new>` line per recorded rename. Step 5.4 consults this block when resolving paths for later commits.
 - Body lines: one tab-separated record per migrated commit. Classification is one of `format`, `skill`, `rename`, `noop` (canonical short-names from Step 5.3). Step 5 reads these to produce per-classification counts.
 
 File-existence handling:
 
 - If the file does not exist, create it with the three header lines and an empty body. The file is a sentinel that the user removes after committing the migration. Do not modify `.gitignore`.
-- If the file exists, read its header and apply these checks in order:
-  - If `fork=<recorded-sha>` differs from the current `git merge-base develop $ARGUMENTS`, halt and ask the user to delete the stale progress file before re-running. The branch has been rebased since the migration started. Warn that the worktree may carry partial edits from the prior run; recommend `git stash` (or commit-then-revert) before deleting the progress file.
-  - If `head=<recorded-sha>` is not reachable from the current `develop` (check via `git merge-base --is-ancestor <head-sha> develop`), halt and ask the user to fetch or update develop before resuming. The local `develop` was reset to an older commit than the one the prior run recorded.
-  - If `fork=` matches and `head=` is older than the current `$HEAD_DEVELOP`, append any new commits to the queue (the develop tip moved during the migration).
+- If the file exists, read its header and apply this check:
+  - If `range_start=<recorded-sha>` differs from the freshly-computed `BASE_SHA` (Step 2's fold output for this session), halt and ask the user to delete the stale progress file before re-running. The branch's stamp set has shifted since the prior session — either new stamps landed, an earlier stamp was rewritten, or the branch was rebased — and the recorded body refers to a range that no longer matches the current artifact state. Warn that the worktree may carry partial edits from the prior run; recommend `git stash` (or commit-then-revert) before deleting the progress file.
 - The commits already listed in the body are **done**. Skip them in Step 4.
 
 ## Step 4 — Per-commit migration loop
