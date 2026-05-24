@@ -14,9 +14,11 @@ Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3
 - [ ] Track completion
 
 - [x] 2026-05-24T19:50Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-24T20:00Z [ctx=info] Step 1 complete (commit 6bc6bf762b)
 
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-05-24T20:00Z: After Step 1's intro rewrite, line numbers in Step 2's description are stale (+1 shift across the body). Step 2's implementer must re-resolve target lines against the post-Step-1 file rather than trust the roster's literal numbers. See Episodes §Step 1.
 
 ## Decision Log
 
@@ -68,14 +70,25 @@ Track 3's `workflow-drift-check.md` Detection / Defer / After-the-choice prose a
 
 ## Concrete Steps
 
-1. Generalize `.claude/workflow/workflow-drift-check.md`'s intro paragraph (lines 3-5 plus adjacent prose) to name both callers: `/execute-tracks` (turn 1) and `/create-plan` (between Step 1 and Step 1a). Line 5's "step 4" reference is rewritten as part of the intro generalization (out of scope for Step 2's body sweep); line 4's "Startup Protocol step 3" reference is similarly handled here. — risk: low (default)  [ ]
+1. Generalize `.claude/workflow/workflow-drift-check.md`'s intro paragraph (lines 3-5 plus adjacent prose) to name both callers: `/execute-tracks` (turn 1) and `/create-plan` (between Step 1 and Step 1a). Line 5's "step 4" reference is rewritten as part of the intro generalization (out of scope for Step 2's body sweep); line 4's "Startup Protocol step 3" reference is similarly handled here. — risk: low (default)  [x]
 2. Sweep `.claude/workflow/workflow-drift-check.md` body for caller-specific wording. Rewrite the 6 body "step 4" references (lines 139, 144, 265, 282, 324, 453), the 3 explicit `/execute-tracks` references (lines 261, 432, 466), the 1 body "Startup Protocol step 3" reference (line 462), the body "turn 1" / "handoff scan" references at line 276, and § After-the-choice's "auto-resume decision" framing at line 453 — to caller-agnostic forms ("the calling session's next startup step", "the calling session") or caller-qualified forms where the anchor genuinely differs. Bash blocks and decision logic stay unchanged. — risk: medium (override: 10+ coordinated edit sites in one file requiring mutual consistency; the same coordinate-edit pattern Track 5 Step 1 used the override for, warranting focal-point Phase C review across the workflow-consistency dimension)  [ ]
 3. Update `.claude/workflow/workflow-drift-check.md` Migrate-now § session-end framing (anchor "End the session before reaching `workflow.md § What to do before ending a session`" at lines 392-396) and Defer state-shape's recital-surface description (lines 405-415) to handle both callers conditionally. The Migrate-now rewrite folds both branches into one paragraph: `/execute-tracks` exits before `workflow.md § What to do before ending a session`; `/create-plan` exits before Step 5's commit/push. The Defer rewrite names per-caller recital surfaces: `/execute-tracks` reads the todo at `workflow.md § What to do before ending a session`; `/create-plan` reads it at the recital added in Step 5 of this track. — risk: low (default)  [ ]
 4. Add Step 1.5 (Workflow drift check) to `.claude/skills/create-plan/SKILL.md` between the `<dir-name>` resolver block (SKILL.md:26-29) and Step 1a (SKILL.md:31). The new step invokes `.claude/workflow/workflow-drift-check.md`'s detection: runs the bash, presents the three-resolution prompt on drift, ends the session on Migrate now with in-branch wording ("end the session; run `/migrate-workflow` from this worktree; re-invoke `/create-plan` afterward"), continues silently on no-drift / Defer / Suppress. Ordering: Step 1.5 must run after the resolver (so `$PLAN_DIR` is defined) and before Step 1b's `mkdir` (so the gate's Skip-#1 check `[ -d "$PLAN_DIR/_workflow" ]` sees the pre-creation state on fresh invocations). — risk: low (default)  [ ]
 5. Add a minimal session-end recital to `.claude/skills/create-plan/SKILL.md` Step 5. After the `git push -u origin <branch>` block (SKILL.md:419-423) and before the PR-prefix prompt (SKILL.md:424), insert a recital that reads the deferred-drift TaskCreate todo (if any was created in this session by Step 1.5's Defer resolution) and prints the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` line shape `workflow.md § What to do before ending a session` uses for `/execute-tracks`. The recital fires before the PR opens so the user sees it in the same session. If no todo exists, the recital is a silent no-op. — risk: low (default)  [ ]
 
 ## Episodes
-<!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 6bc6bf762b, 2026-05-24T20:00Z [ctx=info]
+**What was done:** Rewrote the intro paragraph of `.claude/workflow/workflow-drift-check.md` (lines 3-14 in the post-edit file) to name both callers of the drift gate: `/execute-tracks` (turn 1, between Branch Divergence Check at workflow.md § Startup Protocol step 3 and the handoff scan at step 4) and `/create-plan` (between Step 1's workflow-docs read and Step 1a's handoff scan). The per-caller anchors fold into a single parenthetical on each caller, so the line-4 "Startup Protocol step 3" and line-5 "step 4" references that previously named only `/execute-tracks`'s gate position are now caller-qualified inline. The "Detection is one git log…" paragraph (lines 16-26) and everything below stay untouched; Step 2 sweeps the body's caller-specific phrasing, Step 3 handles Migrate-now / Defer / After-the-choice anchors.
+
+**What was discovered:** Line numbers Phase A's audit cited in Step 2's roster description are stale post-Step-1. The rewritten intro grew from 11 to 12 lines, shifting every body reference by +1. Affected: the body "step 4" references (originally lines 139, 144, 265, 282, 324, 453), the `/execute-tracks` references (originally lines 261, 432, 466), and the "Startup Protocol step 3" body reference (originally line 462). Step 2's implementer must re-resolve these against the post-Step-1 file.
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/workflow/workflow-drift-check.md` (modified)
+
+**Critical context:** none
 
 ## Validation and Acceptance
 
