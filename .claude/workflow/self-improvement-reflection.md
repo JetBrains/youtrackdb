@@ -105,8 +105,9 @@ Reflection is skipped only when:
   Step 5's final summary completes — the Step 1 narrow-scope
   dirty-tree check, the Step 1 argument mismatch, the Step 2
   both-arrays-empty halt, the Step 2.0 three-rejected-attempts
-  bootstrap halt, the Step 3 stale `range_start`, or the Step 4.3
-  stamp-format-change in-flight halt; the next session's reflection
+  bootstrap halt, the Step 3 stale `range_start`, the Step 4.1
+  context-window halt, or the Step 4.3 stamp-format-change in-flight
+  halt; the next session's reflection
   at Step 6 reports the friction once the migration completes
   successfully) — there is no session content to reflect on; or
 - YouTrack MCP is not reachable (see §YouTrack MCP requirement) —
