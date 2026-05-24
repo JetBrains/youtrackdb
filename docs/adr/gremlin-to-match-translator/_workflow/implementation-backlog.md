@@ -174,16 +174,24 @@
 >     walking filter steps as if they were a has-chain on the current
 >     alias); the N subtrees are joined by `MatchWhereBuilder.and(...)` /
 >     `or(...)` and merged into the current node's `where`.
->   - **`NotStep`** with a sub-traversal that is a pure pattern match
->     (one or more edge hops with optional filters) — translates to a new
->     `SQLMatchExpression` added to `MatchPlanInputs.notMatchExpressions`
->     (consistency review CR1; routed through Track 2's new ctor). The
->     first alias of the NOT pattern must already exist in the positive
->     pattern (planner constraint, see
->     `MatchExecutionPlanner.manageNotPatterns`).
->   - **`NotStep`** with a pure filter sub-traversal (no edge hops) —
->     translates inline to `MatchWhereBuilder.not(...)` on the current
->     node's `where`.
+>   - **`NotStep`** — single `NotStepRecogniser` registered under
+>     `NotStep.class`; internal branch on `hasEdgeHops(subTraversal)`
+>     selects between the two MATCH IR slots:
+>     - *Edge-bearing sub-traversal* (`not(__.out("knows"))`,
+>       `not(__.out("knows").has("city","NY"))`) — translates to a new
+>       `SQLMatchExpression` added to
+>       `MatchPlanInputs.notMatchExpressions` (consistency review CR1;
+>       routed through Track 2's new ctor). The first alias of the NOT
+>       pattern must already exist in the positive pattern (planner
+>       constraint, see `MatchExecutionPlanner.manageNotPatterns`); the
+>       recogniser pre-validates this against `ctx.boundaryAlias` and
+>       declines under D3 if it fails.
+>     - *Pure-filter sub-traversal* (`not(__.has(...))`, `hasNot(key)`
+>       desugar) — translates inline to `MatchWhereBuilder.not(...)` on
+>       the current node's `where`.
+>     Both branches share the no-mutation-on-decline contract — the
+>     sub-traversal is translated through a pure function first; `ctx`
+>     is mutated only on success.
 >   - **`WhereTraversalStep`** — same as `NotStep` but positive: a
 >     sub-traversal that must yield ≥1 result for the current row to
 >     pass. Translated as either an inline filter (when the sub-traversal
@@ -197,15 +205,14 @@
 > - Step ordering (provisional):
 >   1. `AndStep` / `OrStep` recursive walker — sub-traversal as
 >      `SQLBooleanExpression` subtree.
->   2. `NotStep` with pure-filter sub-traversal — inline
->      `MatchWhereBuilder.not(...)`.
->   3. `NotStep` with pure-pattern sub-traversal — emit a
->      `SQLMatchExpression` and add to
->      `MatchPlanInputs.notMatchExpressions`.
->   4. `WhereTraversalStep` — pure-filter inline path + pattern-emit
+>   2. `NotStepRecogniser` — one recogniser for both shapes, internal
+>      branch on `hasEdgeHops(subTraversal)`: pure-filter →
+>      `MatchWhereBuilder.not(...)`; edge-bearing → append
+>      `SQLMatchExpression` to `MatchPlanInputs.notMatchExpressions`.
+>   3. `WhereTraversalStep` — pure-filter inline path + pattern-emit
 >      path.
->   5. `WherePredicateStep` — `$matched.<label>` accessor in the where.
->   6. Equivalence tests for each combinator including negated edge
+>   4. `WherePredicateStep` — `$matched.<label>` accessor in the where.
+>   5. Equivalence tests for each combinator including negated edge
 >      patterns (`not(out("knows"))`) and where-with-step-label
 >      (`where("a", P.eq("b"))`).
 > - Recognition for each combinator's children must be recursive: if any
@@ -527,18 +534,19 @@
 >   Gremlin-on vs. Gremlin-off delta is the load-bearing measurement of
 >   the translator's value; the SQL row provides an absolute reference
 >   point ("how close does Gremlin-translated get to native SQL?"). The
->   aim is **a measured number, not a pass/fail gate** — the spec defers
->   cache to Phase 2, so any regression in Gremlin-translated vs. SQL
->   baseline is the expected cost of "no cache" and informs Phase 2
->   cache priority.
+>   aim is **a measured number, not a pass/fail gate** — cache is on per
+>   D5, so the measured delta is the steady-state regression budget the
+>   Phase 1 implementation must fit inside.
 > - If the Gremlin on/off comparison shows large wins, document which
 >   queries benefited and why (likely candidates: queries with multi-hop
 >   patterns where MATCH's cost-based scheduler picks better starting
 >   points than TinkerPop's left-to-right execution).
 > - If the comparison shows acceptable performance overall, finalize.
-> - If the comparison shows unacceptable regressions (Gremlin-translated
->   slower than Gremlin-native on representative queries), ESCALATE: pull
->   Phase 2 cache (`GremlinPlanCache`) into Phase 1.
+> - If the comparison shows unacceptable regressions
+>   (Gremlin-translated slower than Gremlin-native on representative
+>   queries), ESCALATE: the cache key may be missing a discriminator,
+>   or `MatchExecutionPlanner` may be hitting a planner-side path that
+>   the translator's IR shape exercises differently than SQL `MATCH`.
 >
 > **How**:
 > - Step ordering (provisional):

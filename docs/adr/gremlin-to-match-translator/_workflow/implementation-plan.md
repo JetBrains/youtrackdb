@@ -46,11 +46,13 @@ this shared layer in the same Phase 1 with no behavior change.
 - **`polymorphicQuery` config is honored.** Translator reads
   `YTDBStrategyUtil.isPolymorphic(traversal)` and conveys polymorphism into
   the IR via class-IN constructs when necessary. Default = polymorphic.
-- **No plan caching in Phase 1.** The boundary step requests
-  `MatchExecutionPlanner.createExecutionPlan(ctx, profiling, /*useCache=*/false)`.
-  This is consistent with the spec's Phase 2 caching deferral. Phase 1 includes
-  a perf-baseline measurement track to quantify the cost of "no cache" against
-  the current native pipeline and guide Phase 2 cache implementation.
+- **Plan caching is on in Phase 1.** The boundary step requests
+  `MatchExecutionPlanner.createExecutionPlan(ctx, profiling, /*useCache=*/true)`,
+  and `GremlinPlanCache` keys on traversal bytecode fingerprint plus
+  resolved parameter values inlined into the IR (see design.md §
+  "Parameter binding"). Disabling cache would regress JetBrains client
+  applications, so Phase 1 carries the cache and Track 12 measures the
+  end-to-end cost.
 - **Gremlin steps marked out-of-scope in the spec stay native** (`repeat`,
   `until`, `times`, `sack`, `store`, `aggregate`, lambdas, `subgraph`,
   `simplePath`, `cyclicPath`, advanced `path()`, `choose`, `option`,
@@ -74,13 +76,13 @@ flowchart LR
 
     subgraph YTDBPROV["YTDB strategies registered on Graph class"]
         direction TB
-        SGS[YTDBGraphStepStrategy<br/>ProviderOptimization]
-        CGS[YTDBGraphCountStrategy<br/>ProviderOptimization]
-        NEW[GremlinToMatchStrategy<br/>ProviderOptimization, NEW]
+        NEW[GremlinToMatchStrategy<br/>ProviderOptimization, NEW<br/>runs first]
+        SGS[YTDBGraphStepStrategy<br/>ProviderOptimization<br/>fallback when NEW declines]
+        CGS[YTDBGraphCountStrategy<br/>ProviderOptimization<br/>fallback when NEW declines]
         MMS[YTDBGraphMatchStepStrategy<br/>ProviderOptimization]
         IOS[YTDBGraphIoStepStrategy<br/>FinalizationStrategy]
         QMS[YTDBQueryMetricsStrategy<br/>FinalizationStrategy<br/>runs after all ProviderOpt]
-        SGS --> CGS --> NEW --> MMS
+        NEW --> SGS --> CGS --> MMS
         MMS -.runs before.-> IOS
         MMS -.runs before.-> QMS
     end
@@ -149,8 +151,13 @@ What changes:
 - **`GremlinToMatchTranslator` package
   (`internal/core/gremlin/translator/`)** — orchestrates the translation. Has
   four collaborators:
-  - `GremlinStepWalker` — iterates `Traversal.getSteps()`, keeps a current
-    "node-under-construction" context, decides where each step belongs.
+  - `GremlinStepWalker` — iterates `Traversal.getSteps()`, keeps a
+    current "node-under-construction" context, dispatches each step
+    via `Map<Class<? extends Step>, StepRecogniser>.get(step.getClass())`
+    (D9). Each recogniser claims a single Step class and handles every
+    variant of that class internally (e.g. `NotStepRecogniser` branches
+    on `hasEdgeHops(subTraversal)`); an unrecognised class yields
+    `null` → traversal declines under D3.
   - `GremlinPredicateAdapter` — translates TinkerPop `P<T>` (predicate algebra)
     and `HasContainer` instances into `SQLBinaryCondition`/`SQLInCondition`/
     `SQLContainsTextCondition`.
@@ -264,61 +271,85 @@ What changes:
   introduced; cross-boundary label propagation and `path()` interaction
   are no-ops under all-or-nothing.
 
-#### D4: Strategy ordering — after `YTDBGraphStepStrategy` and `YTDBGraphCountStrategy`, before `YTDBGraphMatchStepStrategy`
+#### D4: Strategy ordering — `GremlinToMatchStrategy` runs first; YTDB half-measure strategies are the fallback path
 
-- **Alternatives considered**: (a) Run before `YTDBGraphStepStrategy` — but
-  then we don't see `YTDBGraphStep` with absorbed has-containers and the
-  step walker misses already-folded label predicates; (b) Run after
-  `YTDBGraphMatchStepStrategy` — but its label-folding is now
-  superseded by the translator's full `g.V().match()` handling, and the
-  ordering would never let the translator reach `match()`-bearing
-  traversals; (c) Replace `YTDBGraphMatchStepStrategy` entirely.
-- **Rationale**: After the graph-step strategy: we receive `YTDBGraphStep`
-  with `hasContainers` already attached, which the translator reads as the
-  "root selectivity" of the pattern. After count strategy: avoids touching
-  `g.V().count()` traversals already optimized to class-count. Before the
-  match-step label folder: when our translator handles `g.V().match(...)`
-  end-to-end, the label folder becomes a no-op for that traversal — but if
-  the translator declines, the label folder still applies as fallback.
-  `YTDBGraphIoStepStrategy` and `YTDBQueryMetricsStrategy` are
-  `FinalizationStrategy` instances and run after all `ProviderOpt`s —
-  irrelevant to this ordering.
-- **Ordering mechanism**: TinkerPop's strategy resolver uses both
-  `applyPrior()` (predecessors) and `applyPost()` (successors) to build a
-  total order. Reading the existing code, `YTDBGraphMatchStepStrategy.applyPrior()`
-  returns `singleton(YTDBGraphStepStrategy.class)` — it does not constrain
-  the new strategy's position relative to itself. Therefore the new strategy
-  must declare both `applyPrior() = {YTDBGraphStepStrategy.class,
-  YTDBGraphCountStrategy.class}` AND `applyPost() = {YTDBGraphMatchStepStrategy.class}`
-  to enforce the desired position. No edit to existing strategies is
-  required when we use this two-sided declaration.
-- **Risks/Caveats**: Cucumber test runs that exercised the old label folder
-  must still pass. Translator must be ready to decline gracefully when it
-  cannot make a complete IR. The ordering is verified by a unit test that
-  builds a `TraversalStrategies` set and asserts iteration order rather
-  than relying on `applyPrior`/`applyPost` declarations alone.
+- **Alternatives considered**: (a) Run after `YTDBGraphStepStrategy` and
+  `YTDBGraphCountStrategy` so the translator sees `YTDBGraphStep` with
+  absorbed has-containers (original draft) — rejected after review: the
+  half-measure strategies mutate the step list before the translator
+  ever sees it, so a translator that later declines leaves a partially
+  optimized step list to the native pipeline, mixing two optimization
+  paths in one query; (b) Replace `YTDBGraphMatchStepStrategy`
+  entirely — rejected because its label-folding still has value as the
+  decline-path fallback; (c) Run **first** and own the start-step
+  absorption logic ourselves, leaving the YTDB half-measure strategies
+  to handle traversals the translator declines (chosen).
+- **Rationale**: The new strategy is the primary path. When it
+  recognizes the traversal, every step including the start step is
+  translated to MATCH IR and the cost-based planner takes over —
+  `YTDBGraphStepStrategy`'s has-container folding and
+  `YTDBGraphCountStrategy`'s class-count shortcut are no longer needed
+  on that traversal because the planner now owns selectivity and
+  aggregation decisions end-to-end. When the new strategy **declines**,
+  the original step list is preserved verbatim and the two YTDB
+  half-measure strategies see it next — exactly as they would in a
+  world without the translator. Net effect: every recognised shape
+  gains the planner; every unrecognised shape is at least as well
+  served as before the translator existed.
+- **Start-step ownership.** Running first means `StartStepRecogniser`
+  cannot rely on `YTDBGraphStep` having absorbed adjacent `HasSteps`
+  via `YTDBGraphStepStrategy`. It instead walks ahead from the bare
+  `GraphStep` and absorbs any directly following `HasStep`s itself
+  (the same logic, but driven by the translator's recogniser). This
+  keeps the absorption result inside the translator's IR rather than
+  spread across two strategies.
+- **Ordering mechanism**: `GremlinToMatchStrategy.applyPrior()` returns
+  `{YTDBGraphStepStrategy.class, YTDBGraphCountStrategy.class, YTDBGraphMatchStepStrategy.class}` —
+  declaring that all three run **after** it. `applyPost()` returns
+  the TinkerPop structural folders the translator depends on
+  (`IncidentToAdjacentStrategy.class`, `ConnectiveStrategy.class`,
+  `LazyBarrierStrategy.class`) so the new strategy sees the post-fold
+  shapes the recogniser table describes. No edit to existing
+  strategies is required.
+- **Risks/Caveats**: Tests that exercise the YTDB half-measure
+  strategies must still pass when they run on declined traversals.
+  The ordering is verified by a unit test that builds a
+  `TraversalStrategies` set and asserts iteration order rather than
+  relying on `applyPrior` / `applyPost` declarations alone, plus an
+  end-to-end assertion that a declined traversal shows the half-measure
+  strategies' fingerprints (e.g. `YTDBGraphStep` after applying all
+  strategies on `g.V().has("name","Alice")` when the translator
+  declines it).
 - **Implemented in**: Track 2.
 
-#### D5: No plan cache in Phase 1; perf baseline measured
+#### D5: Plan cache lands in Phase 1 keyed on (traversal-fingerprint × parameter values)
 
-- **Alternatives considered**: (a) Phase 1 with no cache (per spec); (b)
-  Reuse `YqlExecutionPlanCache` with a synthetic
-  `"GREMLIN_BC:" + normalized-bytecode` key in Phase 1; (c) Build a
-  separate `GremlinPlanCache` modeled on `GqlExecutionPlanCache` in Phase 1.
-- **Rationale**: The spec explicitly defers "Cross-query caching: Cache
-  translated plans keyed by traversal bytecode fingerprint" to Phase 2.
-  Adding cache in Phase 1 expands scope (bytecode normalizer, parameter
-  extraction, cache invalidation discipline) without a measured perf
-  signal. We measure first, then implement targeted caching in Phase 2.
-- **Risks/Caveats**: Per-call planning cost (`estimateRootEntries`,
-  topological sort, cost model) is paid every time. For LDBC-style
-  workloads (same-shape query in a loop) this can produce a measurable
-  per-query regression vs the current native pipeline (which has zero
-  planning overhead and instead pays in JVM materialization). The Phase 1
-  perf-baseline track quantifies this so Phase 2 has a target. If the
-  baseline shows unacceptable regression, Phase 2 cache moves into
-  Phase 1 with an ESCALATE.
-- **Implemented in**: Track 12 (perf baseline).
+- **Alternatives considered**: (a) ship Phase 1 with cache disabled and
+  measure the cost first (original draft) — rejected: JetBrains client
+  applications rely on cached plans and a cache-disabled rollout would
+  cause a measurable regression that we cannot ship past code review;
+  (b) reuse `YqlExecutionPlanCache` with a synthetic
+  `"GREMLIN_BC:" + normalized-bytecode + ':' + parameter-hash` key —
+  rejected because invalidation hooks differ subtly between YQL and
+  Gremlin and the cross-front-end coupling would leak; (c) ship a
+  dedicated `GremlinPlanCache` modeled on `GqlExecutionPlanCache`, keyed
+  on traversal bytecode fingerprint plus the resolved parameter values
+  that the translator inlines into the IR (chosen).
+- **Rationale**: The `GremlinPlanCache` key already has both halves
+  available at strategy time — bytecode comes from
+  `Bytecode.fromTraversal(traversal)` (or equivalent) and the resolved
+  parameter list falls out of `MatchLiteralBuilder.toLiteral`
+  invocations, so capturing them costs one extra list per walk. Cache
+  invalidation on schema change piggybacks on the YQL plan-cache
+  invalidation hook so `CREATE CLASS` / `CREATE INDEX` flushes Gremlin
+  plans alongside SQL plans.
+- **Risks/Caveats**: Parameter-hash collisions (different parameter
+  values with the same hash) would serve stale plans — we therefore
+  use the parameter list, not just a hash, as part of the cache-key
+  equality check. Cache-key memory grows with parameter-value size; the
+  cache has the same eviction policy as `GqlExecutionPlanCache` and the
+  same memory ceiling.
+- **Implemented in**: Track 12 (cache plumbing + perf measurement).
 
 #### D6: Shared MATCH IR builder package; GQL refactor in Phase 1
 
@@ -387,6 +418,48 @@ What changes:
 - **Implemented in**: Track 6 (optional well-formed shape recognition),
   Track 10 (union recognition + multi-plan boundary step).
 
+#### D9: Type-keyed recogniser dispatch via `Map<Class<? extends Step>, StepRecogniser>`
+
+- **Alternatives considered**: (a) `List<StepRecogniser>` with linear
+  first-match-wins dispatch — rejected because `instanceof`-based claim
+  silently sweeps unknown `HasStep` subclasses into the parent
+  recogniser's path; (b) `Map<Class, List<StepRecogniser>>` hybrid —
+  rejected as essentially "map keyed on class, list inside" which adds
+  a layer without removing the partial-write hazard the per-recogniser
+  no-mutation contract is meant to address; (c) `Map<Class<? extends
+  Step>, StepRecogniser>` keyed on `step.getClass()`, with multi-shape
+  steps (NotStep) handled by a single recogniser that branches
+  internally on the sub-traversal shape (chosen).
+- **Rationale**: `getClass()` returns the concrete runtime class, so
+  YTDB-specific subclasses (`YTDBHasLabelStep extends HasStep`) route
+  to their own entries without an ordering invariant. A future
+  TinkerPop subclass nobody registered for yields `map.get → null` and
+  declines the whole traversal under D3 — the "safe failure" outcome
+  lpld asked for in the review. `NotStep` is the one Phase 1 step
+  class with two MATCH IR slots (`aliasFilters` for filter sub-trees,
+  `notMatchExpressions` for edge sub-patterns); the `NotStepRecogniser`
+  inspects `hasEdgeHops(subTraversal)` once and routes accordingly,
+  sharing the same sub-traversal shape detector and the no-mutation
+  discipline both branches need.
+- **Migration vs the in-flight implementation**: the
+  `gremlin-to-match-translator` branch currently uses
+  `List<StepRecogniser>` with two separate recognisers
+  (`NotFilterStepRecogniser`, `NotPatternStepRecogniser`). The
+  switch-over collapses those into one `NotStepRecogniser` with
+  internal branching and replaces the linear walker dispatch with
+  `map.get(step.getClass())`. `RecogniserDispatchOrderTest` collapses
+  into a duplicate-key-assertion check (key → expected recogniser
+  class) — the bulk of its matrix becomes vacuous once the map is the
+  dispatcher.
+- **Risks/Caveats**: the no-mutation-on-decline contract stays as a
+  per-recogniser unit-test invariant for the recognisers that branch
+  internally (NotStep, SubTraversalPredicateAdapter callers); without
+  the map dispatch it was load-bearing for the whole registry, with
+  the map it survives only inside the recognisers that need it.
+- **Implemented in**: Track 2 (initial map dispatch when the walker
+  lands), and a refactor step in Track 5 (combining the two NotStep
+  recognisers into one).
+
 ### Invariants
 
 - `MatchExecutionPlanner` existing public method signatures are unchanged
@@ -430,8 +503,11 @@ What changes:
 ### Integration Points
 
 - **Strategy registration**: `YTDBGraphImplAbstract.registerOptimizationStrategies(Class)`,
-  one new line adding `GremlinToMatchStrategy.instance()` between
-  `YTDBGraphCountStrategy.instance()` and `YTDBGraphMatchStepStrategy.instance()`.
+  one new line adding `GremlinToMatchStrategy.instance()`. Insertion
+  order is informational — the runtime order is fixed by
+  `applyPrior()` / `applyPost()` declarations on the new strategy
+  itself, which place it before all three YTDB half-measure strategies
+  (see D4).
 - **Polymorphism flag**: Translator reads
   `YTDBStrategyUtil.isPolymorphic(traversal)` and conveys polymorphism into
   the IR (e.g. `SQLMatchFilter.className` for the polymorphic case is
@@ -466,8 +542,6 @@ What changes:
 - **`choose().option()`** — imperative branching. Phase 2.
 - **`executeInTx()`, `computeInTx()`** — execution model concerns, not
   pattern matching. Stay native.
-- **Bytecode-keyed plan caching (`GremlinPlanCache`)** — Phase 2 per spec.
-  Phase 1 measures the cost of "no cache" via the perf-baseline track.
 
 ## Checklist
 
@@ -514,7 +588,12 @@ What changes:
   >    construct a `MatchPlanInputs` (Pattern + alias maps +
   >    return/order/limit metadata) via the shared builders and obtains a
   >    `SelectExecutionPlan` from `new MatchExecutionPlanner(inputs)
-  >    .createExecutionPlan(ctx, profiling, /*useCache=*/false)`.
+  >    .createExecutionPlan(ctx, profiling, /*useCache=*/true)` (D5).
+  >    Step dispatch inside the walker uses
+  >    `map.get(step.getClass())` against the type-keyed registry
+  >    (D9) — Track 2 lands the map skeleton with one entry
+  >    (`YTDBGraphStep.class → StartStepRecogniser`); subsequent tracks
+  >    add their map entries without touching the walker.
   > 5. Replaces the entire step list with one `YTDBMatchPlanStep` that
   >    terminates the traversal — emitting TinkerPop traversers of the
   >    negotiated output type for `.toList()` / `.iterate()` / etc.
@@ -526,10 +605,12 @@ What changes:
   > `Result` per `next`, projects it to the configured output type, and
   > emits a `Traverser`. Closes the stream and the plan on traversal close.
   >
-  > Registers the strategy in `YTDBGraphImplAbstract.registerOptimizationStrategies`
-  > between `YTDBGraphCountStrategy.instance()` and
-  > `YTDBGraphMatchStepStrategy.instance()` (D4). Configures
-  > `applyPrior()` and `applyPost()` to enforce the ordering programmatically.
+  > Registers the strategy in
+  > `YTDBGraphImplAbstract.registerOptimizationStrategies` (insertion
+  > order is informational; runtime order is fixed by `applyPrior()`
+  > placing `GremlinToMatchStrategy` before the three YTDB half-measure
+  > strategies — D4). The new strategy is the primary path; old
+  > strategies are the fallback when this one declines.
   >
   > Verifies via integration test that `g.V().toList()` produces the same
   > vertices as the un-translated path (acts as a strategy-engagement
@@ -685,16 +766,26 @@ What changes:
   >   has-chain on the current alias); the N subtrees are joined by
   >   `MatchWhereBuilder.and(...)` / `or(...)` and merged into the
   >   current node's `where`.
-  > - **`NotStep`** with a sub-traversal that is a pure pattern match
-  >   (one or more edge hops with optional filters) — translates to a
-  >   new `SQLMatchExpression` added to `MatchPlanInputs.notMatchExpressions`
-  >   (consistency review CR1; routed through the new ctor introduced in
-  >   Track 2). The first alias of the NOT pattern must already exist in
-  >   the positive pattern (planner constraint, see
-  >   `MatchExecutionPlanner.manageNotPatterns`).
-  > - **`NotStep`** with a pure filter sub-traversal (no edge hops) —
-  >   translates inline to `MatchWhereBuilder.not(...)` on the current
-  >   node's `where`.
+  > - **`NotStep`** (single `NotStepRecogniser` registered under
+  >   `NotStep.class` — internal branch on
+  >   `hasEdgeHops(subTraversal)`):
+  >   - *Edge-bearing sub-traversal* (`not(__.out("knows"))`,
+  >     `not(__.out("knows").has("city","NY"))`) — translates to a new
+  >     `SQLMatchExpression` added to
+  >     `MatchPlanInputs.notMatchExpressions` (consistency review CR1;
+  >     routed through the new ctor introduced in Track 2). The first
+  >     alias of the NOT pattern must already exist in the positive
+  >     pattern (planner constraint, see
+  >     `MatchExecutionPlanner.manageNotPatterns`); the recogniser
+  >     pre-validates the precondition against `ctx.boundaryAlias` and
+  >     declines under D3 if it fails.
+  >   - *Pure-filter sub-traversal* (`not(__.has(...))`,
+  >     `hasNot(key)` desugar) — translates inline to
+  >     `MatchWhereBuilder.not(...)` on the current node's `where`.
+  >   Both branches share the no-mutation-on-decline contract — the
+  >   sub-traversal is translated to a `SQLBooleanExpression` /
+  >   `SQLMatchExpression` as a pure function first; `ctx` is mutated
+  >   only on a successful translation.
   > - **`WhereTraversalStep`** — same as `NotStep` but positive: a
   >   sub-traversal that must yield ≥1 result for the current row to
   >   pass. Translated as either an inline filter (when the sub-traversal
@@ -707,8 +798,11 @@ What changes:
   > Verification: tests for each combinator, including negated edge
   > patterns (`not(out("knows"))`) and where-with-step-label
   > (`where("a", P.eq("b"))`).
-  > **Scope:** ~5 steps covering and/or, not-with-pattern, not-with-filter,
-  > where-traversal, where-predicate, equivalence tests.
+  > **Scope:** ~4 steps covering and/or, single `NotStepRecogniser`
+  > (both filter and pattern branches), where-traversal, where-predicate,
+  > equivalence tests. Drops one recogniser file vs the original split
+  > (`NotFilterStepRecogniser` + `NotPatternStepRecogniser` collapse
+  > into `NotStepRecogniser` with internal `hasEdgeHops` dispatch — D9).
   > **Depends on:** Track 4.
 
 - [ ] Track 6: Step labels + optional + dedup
@@ -884,9 +978,9 @@ What changes:
   >   check that the additive `MatchPlanInputs` ctor does not regress
   >   the SQL `MATCH` path. Capture the delta in a benchmark report on
   >   the branch (worktree only — do not commit). The aim is **a
-  >   measured number, not a pass/fail gate**: the spec defers cache to
-  >   Phase 2, so any regression here is the expected cost of "no cache"
-  >   and informs Phase 2 cache priority.
+  >   measured number, not a pass/fail gate**: cache is on (D5), so this
+  >   is the steady-state regression budget the Phase 1 implementation
+  >   must fit inside.
   > - **Gremlin-equivalent JMH benchmark suite.** Port each LDBC SNB
   >   read query (IS1–IS7, IC1–IC13) to its Gremlin form alongside the
   >   existing SQL benchmark in `jmh-ldbc/`. Single-threaded and

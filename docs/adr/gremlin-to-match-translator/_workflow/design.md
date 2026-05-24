@@ -38,14 +38,26 @@ same Phase 1; its observable behavior is unchanged.
 
 The design has four moving parts:
 
-1. **Strategy** — the entry point. Idempotent, ordered after
-   `YTDBGraphCountStrategy` and before `YTDBGraphMatchStepStrategy`. Walks
-   the step list, decides yes/no for the whole traversal, and on yes
-   replaces the entire step list with `YTDBMatchPlanStep`.
+1. **Strategy** — the entry point. Idempotent. Runs **before** both
+   pre-existing YTDB strategies (`YTDBGraphStepStrategy`,
+   `YTDBGraphCountStrategy`) — `applyPrior()` advertises them so the
+   TinkerPop strategy framework guarantees this order. It still runs
+   **after** TinkerPop's structural folders (`IncidentToAdjacentStrategy`,
+   `ConnectiveStrategy`, `LazyBarrierStrategy`) so the recognisers see
+   the post-fold shapes the table below describes. Walks the step list,
+   decides yes/no for the whole traversal, and on yes replaces the
+   entire step list with `YTDBMatchPlanStep`. **The old half-measure
+   strategies become a fallback path**: when the Gremlin-to-MATCH
+   strategy declines, the original step list is preserved verbatim and
+   `YTDBGraphStepStrategy` / `YTDBGraphCountStrategy` see it next — they
+   keep delivering today's behaviour for queries the new translator does
+   not yet cover. The new strategy is therefore additive: every recognised
+   shape gains MATCH's planner; every unrecognised shape is at least as
+   well-served as before.
 2. **Translator** — a `GremlinStepWalker` that iterates
-   `Traversal.getSteps()` and, for each step, dispatches to a fixed-order
-   registry of `StepRecogniser` instances; the first recogniser whose
-   `recognize(Step, WalkerContext)` returns `true` owns the step and
+   `Traversal.getSteps()` and, for each step, looks up its runtime
+   class in a `Map<Class<? extends Step>, StepRecogniser>` registry.
+   The matching recogniser (or none, declining the whole traversal)
    contributes to a shared `WalkerContext` accumulator (pattern builder,
    alias maps, return-projection lists, boundary metadata, anonymous-alias
    generator). Concrete recognisers ship per-track: `StartStepRecogniser`
@@ -101,8 +113,7 @@ shape declines along with anything else unrecognised.
 | Predicate ops | `Text.containing` / `notContaining` | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
 | Predicate ops | `Text.startingWith` / `endingWith` | `startsWith` / `endsWith` operator | Track 4 |
 | Logical filters | `AndStep` / `OrStep` (`ConnectiveStrategy` form) | recursive `MatchWhereBuilder.and(...)` / `or(...)` over per-child sub-trees | Track 5 |
-| Logical filters | `NotStep` (pure filter sub-traversal) | `MatchWhereBuilder.not(...)` over the sub-tree, merged into current node `where` | Track 5 |
-| Logical filters | `NotStep` (edge-bearing sub-traversal) | new `SQLMatchExpression` added to `notMatchExpressions` | Track 5 |
+| Logical filters | `NotStep` (one recogniser, branches by sub-traversal shape) | pure-filter sub-traversal → `MatchWhereBuilder.not(...)` merged into current node `where`; edge-bearing sub-traversal → new `SQLMatchExpression` added to `notMatchExpressions` | Track 5 |
 | Logical filters | `WhereTraversalStep` (pure filter / edge pattern) | inline filter on `where` / extra `SQLMatchExpression` | Track 5 |
 | Logical filters | `WherePredicateStep` (`where(P.eq("a"))`) | `WHERE` referencing `$matched.<label>` | Track 5 |
 | Step labels | `as(label)` | propagated to most recent `SQLMatchFilter.alias` via `MatchPatternBuilder.alias(...)` | Track 6 |
@@ -153,7 +164,7 @@ classDiagram
     }
 
     class GremlinStepWalker {
-        -recognisers List~StepRecogniser~
+        -recognisers Map~Class~Step~, StepRecogniser~
         +walk(Traversal.Admin) Optional~MatchPlanInputs~
     }
     class StepRecogniser {
@@ -193,9 +204,9 @@ classDiagram
     }
     class FutureRecognisers {
         <<Tracks 5-10>>
-        Logical / Optional / Dedup
-        Projection / Order / Pagination
-        Aggregation / Union
+        Logical (And, Or, NotStep with internal branch)
+        Dedup, Projection, Order, Pagination
+        Aggregation, Union
     }
     class AnonAliasGenerator {
         -counter int
@@ -322,41 +333,65 @@ The diagram shows three layers:
 encapsulating the three IR pieces the planner expects, so callers don't have
 to assemble them from separate getters.
 
-### Recogniser dispatch: list now, map later
+### Recogniser dispatch: `Map<Class<? extends Step>, StepRecogniser>` from day one
 
-The walker stores recognisers in a `List<StepRecogniser>` and dispatches
-each step via a linear first-match-wins scan. With ~28 recognisers
-expected at end of Phase 1 (Tracks 2-10) and 5-15 steps per traversal,
-that's a few-hundred `instanceof` checks per `apply()` call —
-microsecond-scale on a planning path that is itself millisecond-scale,
-so the cost is below the noise threshold for the LDBC measurement
-budget.
+The walker stores recognisers in a
+`Map<Class<? extends Step>, StepRecogniser>` keyed on the step's runtime
+class. For each step the walker calls `map.get(step.getClass())`; if
+the result is non-null, the recogniser owns the step. If the lookup
+returns `null` — i.e. TinkerPop handed us a `Step` subclass nobody
+registered for — the walker treats it as unrecognised and declines the
+whole traversal under D3.
 
-The list shape is deliberate for incremental delivery:
+**Safe failure on unknown subclasses.** `step.getClass()` returns the
+**concrete** runtime class, not any superclass. A future TinkerPop
+release introducing `BespokeHasStep extends HasStep` would yield
+`map.get(BespokeHasStep.class) → null` and decline cleanly, instead of
+silently routing through the generic `HasStep` recogniser via an
+`instanceof` near-miss. The decline is the **safe** outcome — the
+native TinkerPop pipeline takes over and behaviour is preserved; a
+quiet acceptance via the parent recogniser would risk wrong IR for a
+step shape we never validated. The same property covers YTDB-specific
+subclasses we maintain in-tree, e.g. `YTDBHasLabelStep extends HasStep`:
+its concrete `getClass()` routes it to `HasLabelStepRecogniser`
+deterministically, without an ordering invariant between the two
+recognisers.
 
-- **Order-independent registration**. Each track's recogniser opens its
-  own pull-request — `recognisers.add(NewRecogniser.INSTANCE)` — without
-  having to coordinate a key allocation in a shared map. Two tracks
-  landing in parallel don't conflict.
-- **Debug-friendly**. When a step fails to recognise, the trace is the
-  obvious "for each recogniser in order, here's what each returned" — a
-  single linear walk. Map-keyed dispatch hides the failure as
-  "`Map.get` returned null because the step's runtime class isn't
-  exactly the registered key" which is harder to diagnose when
-  TinkerPop hands us a subclass we did not anticipate.
-- **One recogniser per step class** is enforced by convention from the
-  start (one `VertexStepRecogniser` handling OUT/IN/BOTH internally; not
-  three separate recognisers). This keeps the migration path open: the
-  invariant "every recogniser claims exactly one runtime class" is the
-  precondition for type-keyed dispatch.
+**One map entry per Step class — variants handled inside the
+recogniser.** Each recogniser is responsible for every variant of its
+step class internally. `VertexStepRecogniser` covers OUT / IN / BOTH;
+`HasStepRecogniser` unpacks `HasContainer`s for the property /
+predicate shapes; **`NotStepRecogniser` branches by sub-traversal
+shape** (`hasEdgeHops(subTraversal)`) — pure-filter form folds into
+`aliasFilters[boundaryAlias]` via `WHERE NOT (...)`; edge-bearing form
+appends a `SQLMatchExpression` to `notMatchExpressions` for the planner
+to execute as an anti-join. The branch lives in one place; the two
+variants share the sub-traversal shape detector and the no-mutation
+discipline below. Two tracks attempting to register two recognisers
+for the same Step class is caught at registration time by a
+duplicate-key assertion.
 
-Once the registry stabilises (Phase 2 — see "Out of scope" below),
-migrating to a `Map<Class<? extends Step>, StepRecogniser>` dispatch
-table is a localised change in `GremlinStepWalker` (the `StepRecogniser`
-interface stays untouched, every concrete recogniser stays untouched).
-The migration is gated on Track 12's perf baseline: if LDBC numbers
-show measurable dispatch overhead, the migration is justified;
-otherwise it is "code clean-up" deferred until needed.
+**No-mutation-on-decline discipline.** Every recogniser follows
+validate-then-commit: cheap rejection checks first
+(`instanceof`, precondition), then compute the translation as a pure
+function over `ctx`, only then mutate `ctx` and return `true`. This
+keeps internal branches (e.g. `NotStepRecogniser`'s filter-vs-pattern
+fork) and shared adapters (e.g. `SubTraversalPredicateAdapter` used
+inside the filter branch) free of partial-write hazards. The map
+dispatch does not strictly require this discipline at the walker
+level — `map.get` returns one recogniser and the walker never tries a
+sibling on the same step — but a recogniser that branches internally
+still needs it, so the contract stays as a per-recogniser
+unit-test invariant
+(`SubTraversalPredicateAdapterTest.decline_doesNotCommitPartialStateToOuterContext`
+is the canonical example).
+
+**Parallel-track ergonomics.** Each track's PR adds one map entry
+under a freshly-imported `Step` subclass — there is no shared key
+space to coordinate, so two tracks landing in parallel cannot
+conflict by definition (different classes → different keys). The
+duplicate-key assertion catches the rare same-class-different-recogniser
+case at unit-test time.
 
 `YTDBMatchPlanStep` is the boundary that bridges the YTDB execution stream
 back to TinkerPop's traverser-driven model. It carries the configured
@@ -386,7 +421,7 @@ sequenceDiagram
         Strat->>Walker: walk(traversal)
         Walker->>Walker: pre-flight (reserved-prefix label scan)
         loop for each step in traversal
-            Walker->>Recog: recognize(step, ctx) [first-match-wins over registry]
+            Walker->>Recog: recognize(step, ctx) [Map.get(step.getClass())]
             alt some recogniser claims
                 Recog->>Build: addNode / addEdge / where via shared builders
                 Build-->>Recog: SQLMatch* / SQLWhereClause
@@ -401,7 +436,7 @@ sequenceDiagram
             Walker->>Walker: build MatchPlanInputs from ctx
             Walker-->>Strat: MatchPlanInputs (Pattern + alias maps + return/order/limit)
             Strat->>MEP: new(MatchPlanInputs)
-            Strat->>MEP: createExecutionPlan(ctx, prof, useCache=false)
+            Strat->>MEP: createExecutionPlan(ctx, prof, useCache=true)
             Note over MEP,SEP: planner internally calls<br/>SEP.handleProjectionsBlock<br/>with populated info
             MEP->>SEP: handleProjectionsBlock(plan, info, ctx, prof)
             SEP-->>MEP: plan with projection / order / limit / etc.
@@ -585,13 +620,19 @@ because the translator runs at strategy-application time, not at
 plan-execution time. The resulting `SelectExecutionPlan` is specific to
 the parameter value.
 
-**Implication for plan caching.** Phase 1 ships with caching disabled
-(D5), so each `apply()` builds a fresh plan. Phase 2's plan cache
-(`GremlinPlanCache`) must therefore key on **traversal shape plus
-parameter values** — not just shape — to avoid serving a plan compiled
-for one parameter value to a query carrying a different one. This is
-the same constraint YQL parameter caching already enforces; the
-shared-builder layer makes it natural to inherit the same behaviour.
+**Implication for plan caching.** Disabling the plan cache is not an
+option — JetBrains client applications rely on cached plans, and
+shipping without cache would cause a measurable regression. Phase 1
+therefore wires `GremlinPlanCache` from day one, keyed on **traversal
+bytecode fingerprint plus the resolved parameter values inlined into
+the IR**. The composite key prevents a plan compiled for one parameter
+value from serving a query carrying a different one, which is the same
+constraint YQL parameter caching already enforces. The shared-builder
+layer feeds the parameter-value list into the key automatically because
+every literal is funnelled through `MatchLiteralBuilder.toLiteral`. Cache
+invalidation on schema change reuses the existing YQL plan-cache
+invalidation hook so a `CREATE CLASS` / `CREATE INDEX` does not leave
+stale Gremlin plans behind.
 
 **Custom Bindings instances.** TinkerPop allows users to attach a
 custom `Bindings` resolver. By the time the strategy fires, the
@@ -661,14 +702,32 @@ produces a `SQLBooleanExpression` per child, then composes them via
 `MatchWhereBuilder.and(...)` / `or(...)`. The composed result merges into
 the current node's `where` slot in `aliasFilters`.
 
-**`NotStep` with a pure-filter sub-traversal** (no edge hops) — the
-sub-traversal becomes a `SQLBooleanExpression`; the result is wrapped in
-`MatchWhereBuilder.not(...)` and merged into the current node's `where`.
+**`NotStep` — one recogniser, two sub-traversal shapes.** TinkerPop
+emits a single `NotStep` class for every `not(...)`; the recogniser
+inspects the wrapped sub-traversal once and routes to the appropriate
+MATCH IR slot:
 
-**`NotStep` with an edge-bearing sub-traversal** — translates to a fresh
-`SQLMatchExpression` added to `MatchPlanInputs.notMatchExpressions`. The
-first alias of the NOT pattern must already exist in the positive
-pattern (planner constraint, see `MatchExecutionPlanner.manageNotPatterns`).
+- *Pure-filter sub-traversal* (no edge hops — `not(__.has(...))`,
+  `not(__.hasLabel(...))`, `hasNot(key)` after TinkerPop's desugar to
+  `NotStep(__.values(key))`): translated to a `SQLBooleanExpression`,
+  wrapped in `MatchWhereBuilder.not(...)`, and AND-merged into the
+  current node's `where` slot in `aliasFilters`.
+- *Edge-bearing sub-traversal* (`not(__.out("knows"))`,
+  `not(__.out("knows").has("city","NY"))`): translated to a fresh
+  `SQLMatchExpression` and appended to
+  `MatchPlanInputs.notMatchExpressions`. The first alias of the NOT
+  pattern must already exist in the positive pattern (planner
+  constraint — see `MatchExecutionPlanner.manageNotPatterns`); the
+  recogniser pre-validates this against `ctx.boundaryAlias` and
+  declines under D3 if the precondition fails, surfacing the
+  precondition as a translation-time decline rather than a runtime
+  exception inside the planner.
+
+The shape predicate is `hasEdgeHops(subTraversal)` — a structural walk
+that returns true on the first `VertexStep` encountered. Both branches
+share the recogniser's no-mutation-on-decline contract: the sub-traversal
+is translated through a pure function first, then merged into `ctx`
+only when the translation succeeds.
 
 **`WhereTraversalStep`** is the positive counterpart of `NotStep`: a
 sub-traversal that must yield ≥1 result for the current row to pass.
@@ -1084,16 +1143,12 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Edge-returning terminals | `outE(L)` / `inE(L)` / `bothE(L)` (without paired vertex hop, or after `as(label)` that prevents folding) | `BoundaryOutputType` would need an `EDGE` variant; `PatternEdge` doesn't carry an alias today | Add `EDGE` output type and an edge-alias slot in the shared builder |
 | Multi-label edges | `out("a", "b")` | `MatchPatternBuilder.addEdge` accepts a single edge-label string; an edge-label `IN [...]` filter slot doesn't exist yet | Variadic `SQLMethodCall.params` retrofit on the shared builder |
 
-**Type-keyed recogniser dispatch** is also Phase 2 (see "Recogniser
-dispatch: list now, map later" in Class Design). Phase 1 keeps the
-list-based first-match-wins registry for incremental-delivery
-ergonomics; the migration to `Map<Class<? extends Step>, StepRecogniser>`
-is gated on Track 12's perf baseline showing measurable overhead.
-Without that signal it stays as code-clarity follow-up. The
-`StepRecogniser` interface and every concrete recogniser stay
-unchanged across the migration; only the walker's dispatch loop
-flips from a linear scan to a one-call `Map.get`.
+**Type-keyed recogniser dispatch ships in Phase 1** (see "Recogniser
+dispatch" in Class Design). No follow-up migration is queued for
+Phase 2.
 
-**Cross-query plan caching** keyed by traversal bytecode fingerprint is
-also Phase 2 (D5 in the implementation plan); Phase 1 ships with caching
-disabled and a perf baseline (Track 12) measuring the cost.
+**Cross-query plan caching is Phase 1**, not Phase 2. The cache keys
+on traversal bytecode fingerprint plus resolved parameter values (see
+"Parameter binding"), so the cache survives parameter variation without
+serving stale plans. Track 12 measures end-to-end perf with cache
+enabled.
