@@ -174,9 +174,11 @@ What changes:
     `addEdge(fromAlias, toAlias, direction, edgeLabel, edgeFilter,
     whileCondition, maxDepth)`, `build()` returning `(Pattern, aliasClasses,
     aliasFilters)`.
-  - `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`, `containsText`,
-    `startsWith`, `endsWith`, `and`, `or`, `not` returning
-    `SQLBooleanExpression`; `wrap()` to a `SQLWhereClause`.
+  - `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
+    `containsText`, `and`, `or`, `not` returning `SQLBooleanExpression`;
+    `wrap()` to a `SQLWhereClause`. (No `startsWith` / `endsWith`
+    factories — those TinkerPop predicates decline under D3; see
+    design.md § Predicate translation.)
   - `MatchLiteralBuilder` — `toLiteral(Object) → SQLExpression`, extracted
     verbatim from `GqlMatchStatement.toLiteral`.
 - **`YTDBMatchPlanStep` (new,
@@ -709,8 +711,12 @@ What changes:
   > - `P.between(lo, hi)` → `between(field, lo, hi)`.
   > - `P.inside(lo, hi)` → `and(op(field, GT, lo), op(field, LT, hi))`.
   > - `P.outside(lo, hi)` → `or(op(field, LT, lo), op(field, GT, hi))`.
-  > - `Text.containing` → `containsText(field, substring)`.
-  > - `Text.startingWith` / `endingWith` → `startsWith` / `endsWith`.
+  > - `Text.containing` (and `TextP.containing`) →
+  >   `containsText(field, substring)`.
+  > - `Text.startingWith` / `endingWith` (and equivalent `TextP.*` plus
+  >   `TextP.regex`) → recognizer declines; native TinkerPop pipeline
+  >   handles them. See design.md § Predicate translation for the
+  >   case-sensitivity / `matches`-vs-`find` divergence rationale.
   > - `P.and(...)` / `P.or(...)` / `P.not(...)` → recursive composition
   >   via `MatchWhereBuilder.and/or/not`.
   >
