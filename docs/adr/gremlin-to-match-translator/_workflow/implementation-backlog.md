@@ -238,23 +238,17 @@
 
 ---
 
-## Track 6: Step labels + optional + dedup
+## Track 6: Step labels + dedup
 
 > **What**:
-> - Add the recognized-step set: `as(label)`, `optional(traversal)`,
->   `dedup()` / `dedup(labels...)`.
+> - Add the recognized-step set: `as(label)`, `dedup()` /
+>   `dedup(labels...)`.
 >   - **`as(label)`** — walker reads `Step.getLabels()` of every step it
 >     visits and propagates the label to the most recent `SQLMatchFilter`
 >     via `MatchPatternBuilder.alias(...)` updates. Default aliases
 >     (when a node has none) are generated under the translator's own
 >     private prefix (e.g. `$g2m_anon_N`); see Track 3 for the rationale
 >     (consistency review CR4).
->   - **`OptionalStep`** — translates to MATCH `{optional:true}` only
->     when the wrapped sub-traversal is a "well-formed terminal optional
->     shape" (one or more edge hops ending in a node with an optional
->     flag). Any deeper or mid-chain optional shape is unrecognized, so
->     under D3 all-or-nothing the entire traversal declines (D8).
->     Detection happens during walker pre-pass.
 >   - **`DedupStep` (no labels)** — translates to `info.distinct = true`
 >     on the `QueryPlanningInfo`, materialized as a
 >     `DistinctExecutionStep` by `handleProjectionsBlock`.
@@ -262,35 +256,30 @@
 >     labels followed by `DISTINCT`. If the labels reference step labels
 >     not surfaced by the traversal's projection, the step is
 >     unrecognized and the whole traversal declines under D3.
+>   - **`OptionalStep`** — deferred to Phase 2 (D8); any traversal
+>     containing it declines under D3 in Phase 1.
 >
 > **How**:
 > - Step ordering (provisional):
 >   1. `as`-label propagation — walker reads `Step.getLabels()` and
 >      pushes the label to the most recent node via
 >      `MatchPatternBuilder.alias(...)`.
->   2. `OptionalStep` well-formed-shape detector + translation to MATCH
->      `{optional:true}`; ill-formed shapes become unrecognized.
->   3. `DedupStep` (no labels) — set `info.distinct = true`.
->   4. `DedupStep(labels...)` — projection-then-distinct, with decline
+>   2. `DedupStep` (no labels) — set `info.distinct = true`.
+>   3. `DedupStep(labels...)` — projection-then-distinct, with decline
 >      semantics for labels not in the projection.
->   5. Parity tests vs SQL: labels survive through the boundary into
->      downstream `select`; optional emits the matched node when present
->      and `null` when absent; dedup over (a) full row, (b) single label,
->      (c) multiple labels.
+>   4. Parity tests vs SQL: labels survive through the boundary into
+>      downstream `select`; dedup over (a) full row, (b) single label,
+>      (c) multiple labels; traversals containing `OptionalStep` decline.
 >
 > **Constraints**:
 > - **In-scope files**: `GremlinStepWalker`, `GremlinPatternAssembler`,
->   the optional well-formed-shape detector helper (new), strategy /
->   translator integration glue.
-> - **Out of scope**: projections (Track 7), order/pagination (Track 8),
->   aggregations (Track 9), union (Track 10).
+>   strategy / translator integration glue.
+> - **Out of scope**: optional (Phase 2 — D8), projections (Track 7),
+>   order/pagination (Track 8), aggregations (Track 9), union (Track 10).
 > - Default aliases must use the translator's private prefix; do not
 >   reuse `MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX` (package-private
 >   to the executor, and `assignDefaultAliases` does not run on this
 >   path).
-> - Optional well-formed-shape detection must cover both
->   translate-and-correct and decline-the-whole-traversal paths to avoid
->   silent semantic drift.
 >
 > **Interactions**:
 > - Depends on Track 5 (NOT pattern emission and where-traversal alias
