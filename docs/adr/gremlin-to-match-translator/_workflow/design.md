@@ -113,7 +113,8 @@ shape declines along with anything else unrecognized.
 | Predicate ops | `P.inside(lo, hi)` | `AND(GT lo, LT hi)` | Track 4 |
 | Predicate ops | `P.outside(lo, hi)` | `OR(LT lo, GT hi)` | Track 4 |
 | Predicate ops | `Text.containing` / `notContaining` (and the equivalent `TextP.containing` / `TextP.notContaining`) | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
-| Logical filters | `AndStep` / `OrStep` (`ConnectiveStrategy` form) | recursive `MatchWhereBuilder.and(...)` / `or(...)` over per-child sub-trees | Track 5 |
+| Logical filters | `AndStep` (`ConnectiveStrategy` form) | per-child sub-walker; pure-filter children → AND-composed `SQLBooleanExpression` in WHERE; edge-bearing children → pattern fragments appended to positive pattern (MATCH IR composes them by AND naturally); mixed children supported | Track 5 |
+| Logical filters | `OrStep` (`ConnectiveStrategy` form) | all children must be pure-filter (sub-walker contributes no pattern fragments / NOT expressions); booleans OR-composed via `MatchWhereBuilder.or(...)`; declines on any edge-bearing child because MATCH IR has no OR at the pattern-fragment level (Phase 2 path: union-of-plans via `MultiPlanMatchStep`) | Track 5 |
 | Logical filters | `NotStep` (one recognizer, branches by sub-traversal shape) | pure-filter sub-traversal → `MatchWhereBuilder.not(...)` merged into current node `where`; edge-bearing sub-traversal → new `SQLMatchExpression` added to `notMatchExpressions` | Track 5 |
 | Logical filters | `WhereTraversalStep` (pure filter / edge pattern) | inline filter on `where` / extra `SQLMatchExpression` | Track 5 |
 | Logical filters | `WherePredicateStep` (`where(P.eq("a"))`) | `WHERE` referencing `$matched.<label>` | Track 5 |
@@ -902,21 +903,89 @@ the `P<T>`-level boolean composition handled by the predicate adapter —
 they describe filtering at the **step** layer, where each child carries
 its own sub-traversal of arbitrary recognized filter steps.
 
-**`AndStep` / `OrStep`** wrap N sub-traversals; each sub-traversal is a
-sequence of filter steps applied to the current traverser. TinkerPop's
+**`AndStep` / `OrStep` — sub-walker dispatch with asymmetric child
+support.** Both steps wrap N sub-traversals. TinkerPop's
 `ConnectiveStrategy` rewrites the boolean-flat form (`and(P, P)`) into
 this step form, so what the recognizer sees is the step-level shape.
-Sub-traversals are not restricted to `HasStep` chains: any combination
-of recognized filter / predicate / edge steps is allowed inside each
-child, as long as every step in every child is itself in the recognized
-set. The translator walks each child against the same recognizer
-registry (recursing via a child-`WalkerContext` so alias mutations
-stay scoped), produces a `SQLBooleanExpression` per child if the child
-is a pure filter or a `SQLMatchExpression` if the child carries edges,
-then composes the booleans via `MatchWhereBuilder.and(...)` /
-`or(...)` and merges into the current node's `where`. A child that
-contains an unrecognized step makes the whole `AndStep` / `OrStep`
-unrecognized, which under D3 declines the enclosing traversal.
+Sub-traversals are **not** restricted to `HasStep` chains — any
+combination of recognized filter / predicate / edge steps is allowed
+inside each child, as long as every step in every child is itself in
+the recognized set.
+
+For every child the translator runs a **sub-walker** against the same
+recognizer registry the top-level walker uses, with a fresh
+`SubWalkerContext` that inherits the parent's `boundaryAlias` (so the
+child's filters apply to the right alias) but accumulates its own
+pattern fragments, alias filters, and NOT expressions. The sub-walker
+classifies its output:
+
+- **Pure-filter child** — produced one `SQLBooleanExpression` and
+  contributed nothing to pattern fragments or NOT expressions.
+- **Edge-bearing child** — added one or more `SQLMatchExpression`
+  entries (positive pattern fragments) and/or `notMatchExpressions`.
+
+`AndStep` and `OrStep` then diverge in how they combine these
+classifications, because MATCH IR composes pattern fragments by AND
+(implicit) and has no OR construct at the pattern-fragment level:
+
+### `AndStep` — supports both pure-filter and edge-bearing children
+
+AND distributes naturally over MATCH IR:
+
+- Pure-filter children → `SQLBooleanExpression`s AND-composed via
+  `MatchWhereBuilder.and(...)`, merged into the boundary alias's
+  `where` slot in `aliasFilters`.
+- Edge-bearing children → their pattern fragments and NOT expressions
+  are appended to the parent's `MatchPlanInputs`. MATCH IR composes
+  multiple `SQLMatchExpression` entries by AND (cartesian-product /
+  join), so the parent pattern naturally absorbs the children's
+  fragments.
+- Mixed children — apply both rules per child class. A single AndStep
+  can contribute both extra pattern fragments and extra WHERE
+  conjuncts.
+
+### `OrStep` — pure-filter children only
+
+OR over pattern fragments has no MATCH IR equivalent — MATCH joins
+pattern fragments by AND. Expressing
+`g.V().or(__.out("knows"), __.has("admin"))` would require either a
+union-of-plans (one plan per OR child, results concatenated at the
+boundary step) or a sub-query in WHERE, neither of which Phase 1 ships
+inside a single `SelectExecutionPlan`. The translator therefore
+restricts `OrStep` to **all-children-pure-filter** shapes:
+
+- All children must produce only `SQLBooleanExpression` (no pattern
+  fragments, no NOT expressions in the sub-walker output).
+- The N booleans compose via `MatchWhereBuilder.or(...)` and merge
+  into the boundary alias's `where`.
+- If **any** child carries edges (or contains a nested AndStep / OrStep
+  / NotStep / WhereTraversalStep that itself carries edges — the
+  `hasEdges` flag propagates recursively up sub-walker results), the
+  `OrStep` is unrecognized and under D3 the enclosing traversal
+  declines. The native pipeline handles it correctly via TinkerPop's
+  step-level OR evaluation.
+
+The asymmetry is load-bearing: AND distributes, OR does not. Track 5
+ships `AndStepRecogniser` and `OrStepRecogniser` as two separate
+recognizer files so the asymmetry is visible in code, not buried in
+shared branching.
+
+### Phase 2 path for edge-bearing `OrStep`
+
+When LDBC or client workloads start using `or(__.outE(...), filter)`
+shapes meaningfully, Phase 2 can grow an "OR-of-plans" recognizer that
+emits each child as its own `SelectExecutionPlan` and concatenates them
+through `MultiPlanMatchStep` (the same boundary primitive that backs
+`union()` from Track 10), plus a boundary-level dedup on the parent's
+boundary alias to preserve OR's set semantics. Phase 1 declines and
+the native pipeline keeps working — no regression.
+
+### Unrecognized step inside any child
+
+For both `AndStep` and `OrStep`: a child that contains a step outside
+the recognized set makes the sub-walker decline. The enclosing
+`AndStep` / `OrStep` is then unrecognized and under D3 the entire
+top-level traversal declines.
 
 **`NotStep` — one recognizer, two sub-traversal shapes.** TinkerPop
 emits a single `NotStep` class for every `not(...)`; the recognizer
@@ -1396,6 +1465,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Category | Steps | Why out | Phase 2 path |
 |---|---|---|---|
 | Optional sub-traversal | `optional(traversal)` | Gremlin drops the row when the sub-traversal yields nothing; MATCH emits the row with the inner alias `null`. The two outputs differ on the case `optional` exists to express. | Drop-on-null filter at the boundary step, or a MATCH-level alternative pattern, or both — designed in Phase 2 |
+| OR over edge-bearing sub-traversals | `or(__.out(L), __.has(...))` and any `OrStep` whose sub-traversal (transitively) carries a vertex hop or NOT-pattern | MATCH IR composes pattern fragments by AND only; expressing OR between pattern fragments would require a union-of-plans (one `SelectExecutionPlan` per OR child concatenated by `MultiPlanMatchStep`) plus a boundary-level dedup on the parent boundary alias. Phase 1 declines and the native TinkerPop pipeline handles it. | Reuse `union()`'s `MultiPlanMatchStep` infrastructure from Track 10 — recognizer splits the OR children into independent plans, dedup on the parent boundary alias preserves OR's set semantics |
 | Variable-depth traversal | `repeat().until(...)`, `repeat().times(n)` | MATCH `WHILE` / `maxDepth` requires careful translation of the loop condition + termination semantics | Map `until` → `whileCondition`, `times` → `maxDepth` on `SQLMatchPathItem` |
 | Stateful side-effects | `sack()`, `store()`, `aggregate()` | TinkerPop traverser-state-machine has no MATCH analogue | Likely never; stay native |
 | Lambda steps | TinkerPop lambda steps (`map(λ)`, `filter(λ)`, `sideEffect(λ)`, …) | Arbitrary user code is untranslatable | Stay native; potentially inline simple Gremlin expression lambdas later |
