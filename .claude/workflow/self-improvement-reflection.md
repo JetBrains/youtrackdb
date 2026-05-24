@@ -1,10 +1,12 @@
 # Self-Improvement Reflection
 
-A mandatory final step at the end of every `/execute-tracks` session.
-The session-running agent reflects on what it just did and proposes
-0..N workflow-improvement issues, **created directly in YouTrack**
-under the `YTDB` project with the `dev-workflow` tag. The user gates
-which proposals become real issues.
+A mandatory final step at the end of every session run by a calling
+skill that opts into reflection (`/execute-tracks` today;
+`/migrate-workflow` from this track forward). The session-running
+agent reflects on what it just did and proposes 0..N workflow-
+improvement issues, **created directly in YouTrack** under the
+`YTDB` project with the `dev-workflow` tag. The user gates which
+proposals become real issues.
 
 This is **process feedback**, not code review and not plan correction.
 Code findings belong to the dimensional review loop. Plan flaws belong
@@ -12,6 +14,25 @@ to inline replanning or the plan-review pass. Reflection only captures
 problems with the workflow itself: ambiguous instructions, missing
 recipes, brittle automation, recurring frictions, gaps where a future
 agent would have benefited from a rule that did not exist.
+
+---
+
+## Inputs
+
+- `session-type` — one of `execute-tracks` (default; existing
+  behavior) or `migrate-workflow` (new). A calling skill names the
+  value on the line that invokes this document
+  (e.g., "Invoke `.claude/workflow/self-improvement-reflection.md`
+  with `session-type=migrate-workflow`"). When the caller omits the
+  parameter, the document behaves as `session-type=execute-tracks`.
+
+Three clauses branch on `session-type`: §"When it runs" (which
+phase identifiers apply and which skip conditions fire),
+§"Reflection procedure" Step 2 (the commit-clean check is skipped
+for `migrate-workflow`), and §"Issue body template" (the `**Phase:**`
+field and the `**Source session:**` template literal extend to carry
+the `migrate-workflow` value). Every other section of this document
+is session-type-agnostic.
 
 ---
 
@@ -45,31 +66,39 @@ Reflection is best-effort, not load-bearing.
 
 ## When it runs
 
-As the **last step** of every `/execute-tracks` session, immediately
-before "End the session". Applies to:
+As the **last step** of every session run by a calling skill that
+opts into reflection, immediately before "End the session". The
+phase identifiers a session contributes depend on `session-type`:
 
-- State 0 (autonomous plan review)
-- Phase A (review + decomposition)
-- Phase B (step implementation)
-- Phase C (code review + track completion)
-- Phase 4 (final artifacts)
+- `session-type=execute-tracks` covers:
+  - State 0 (autonomous plan review)
+  - Phase A (review + decomposition)
+  - Phase B (step implementation)
+  - Phase C (code review + track completion)
+  - Phase 4 (final artifacts)
+- `session-type=migrate-workflow` covers the single phase identifier
+  `migrate-workflow` (the migration replay loop end-to-end).
 
 Reflection runs on every session that reached at least one phase
-step (State 0, A, B, C, or 4) or that invoked the auto-resume /
-Track Pre-Flight gate logic. The friction that triggered an early
-exit (context-window warning, ESCALATE, two-failure rule,
-designed-in user gate at Track Pre-Flight or State 0) is itself
-often the most valuable finding. On a designed-in user gate the
-agent should default to N=0 — unless the gate fired because the
-docs gave no rule for the situation, in which case the gap is
-exactly what reflection should record.
+step applicable to its `session-type` (the five `/execute-tracks`
+phase steps above, the single `migrate-workflow` phase identifier,
+or — for `/execute-tracks` — the auto-resume / Track Pre-Flight
+gate logic). The friction that triggered an early exit (context-
+window warning, ESCALATE, two-failure rule, designed-in user gate
+at Track Pre-Flight or State 0) is itself often the most valuable
+finding. On a designed-in user gate the agent should default to
+N=0 — unless the gate fired because the docs gave no rule for the
+situation, in which case the gap is exactly what reflection should
+record.
 
 Reflection is skipped only when:
 
-- the auto-resume protocol could not start any session work because
-  of a missing prerequisite (plan file does not exist, MCP cwd does
-  not match, user cancels at the startup prompt) — there is no
-  session content to reflect on; or
+- the calling skill's startup protocol could not start any session
+  work because of a missing prerequisite (for `/execute-tracks`:
+  plan file does not exist, MCP cwd does not match, user cancels at
+  the startup prompt; for `/migrate-workflow`: no `_workflow/`
+  artifacts to migrate, MCP cwd does not match, user cancels at the
+  startup prompt) — there is no session content to reflect on; or
 - YouTrack MCP is not reachable (see §YouTrack MCP requirement) —
   there is no sink for the output.
 
@@ -95,6 +124,21 @@ In scope (record):
   manually.
 - A reviewer (Phase A or Phase C sub-agent) repeatedly raised the
   same low-value finding the workflow could have prevented upstream.
+- Migration-shaped frictions (`session-type=migrate-workflow` only):
+  - Ambiguous classification rules — replay logic could not decide
+    whether a commit-shape entry belonged in the migration scope or
+    outside it, and the docs did not resolve the ambiguity.
+  - Missing replay patterns — the migration encountered a commit-
+    shape pattern the replay rules did not cover, and the agent had
+    to invent a one-off decision.
+  - Halt-and-ask conditions firing without docs — the skill's
+    halt-and-ask gate triggered for a situation the documentation
+    did not anticipate, leaving the agent without a documented
+    recovery path.
+  - Edge cases in the renames tracker — the renames tracker did not
+    handle a real-world rename (multi-hop chain, rename-plus-edit,
+    conflicting rename targets) and the agent had to reconstruct
+    intent by hand.
 
 Out of scope (do not record here):
 
@@ -264,6 +308,12 @@ correct outcome, not a failure to look hard enough.
    first, then resume reflection from this step. Issue creation
    relies on `git rev-parse HEAD` pointing at the session's final
    commit.
+
+   *If `session-type=migrate-workflow`, skip this check —
+   migration intentionally leaves the worktree dirty for user
+   review. The Source line points at `HEAD` (pre-migration);
+   `git rev-parse HEAD` and `git rev-parse --abbrev-ref HEAD` in
+   Step 3 still run.*
 
 3. **Capture branch + commit SHA.** These are baked into every
    issue's body so the triager can trace the issue back to the
@@ -483,8 +533,9 @@ The Markdown body submitted to `create_issue.description`:
 ```markdown
 **Source:** branch `<branch-name>`, commit `<40-char-SHA>`
 **Severity:** medium | high
-**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4
+**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4 | migrate-workflow
 **Source session:** <YYYY-MM-DD> /execute-tracks <adr-dir-name>
+                  | <YYYY-MM-DD> /migrate-workflow <adr-dir-name>
 
 ## Symptom
 
@@ -494,7 +545,7 @@ sub-agent.
 
 ## Reproduction context
 
-- Phase: <state-0 / phase-a / phase-b / phase-c / phase-4>
+- Phase: <state-0 / phase-a / phase-b / phase-c / phase-4 / migrate-workflow>
 - Workflow doc(s) involved: `path/to/doc.md` §Section
 - Tool / sub-agent involved (if any): <name>
 - ADR directory at the time: `docs/adr/<dir-name>/`
