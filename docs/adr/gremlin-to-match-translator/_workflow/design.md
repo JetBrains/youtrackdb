@@ -111,8 +111,7 @@ shape declines along with anything else unrecognized.
 | Predicate ops | `P.between(lo, hi)` | `AND(>=lo, <hi)` — Gremlin's `between` is right-exclusive `[lo, hi)`; YTDB's `SQLBetweenCondition` is closed `[lo, hi]`, so we cannot use it directly | Track 4 |
 | Predicate ops | `P.inside(lo, hi)` | `AND(GT lo, LT hi)` | Track 4 |
 | Predicate ops | `P.outside(lo, hi)` | `OR(LT lo, GT hi)` | Track 4 |
-| Predicate ops | `Text.containing` / `notContaining` | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
-| Predicate ops | `Text.startingWith(prefix)` / `endingWith(suffix)` | `SQLLikeOperator` with the prefix/suffix escaped and wildcarded (`prefix%` / `%suffix`) — YTDB has no native `startsWith` / `endsWith` operator | Track 4 |
+| Predicate ops | `Text.containing` / `notContaining` (and the equivalent `TextP.containing` / `TextP.notContaining`) | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
 | Logical filters | `AndStep` / `OrStep` (`ConnectiveStrategy` form) | recursive `MatchWhereBuilder.and(...)` / `or(...)` over per-child sub-trees | Track 5 |
 | Logical filters | `NotStep` (one recognizer, branches by sub-traversal shape) | pure-filter sub-traversal → `MatchWhereBuilder.not(...)` merged into current node `where`; edge-bearing sub-traversal → new `SQLMatchExpression` added to `notMatchExpressions` | Track 5 |
 | Logical filters | `WhereTraversalStep` (pure filter / edge pattern) | inline filter on `where` / extra `SQLMatchExpression` | Track 5 |
@@ -609,28 +608,49 @@ or `P.or(lt, gt)` in TinkerPop, and recursion handles them. We override the
 common cases for cleaner output (`between` becomes a single
 `SQLBetweenCondition` if YTDB has one, else the AND form).
 
-**`TextP` predicates** (the modern TinkerPop entry point —
-`TextP.containing`, `TextP.startingWith`, `TextP.endingWith`,
-`TextP.notContaining`, `TextP.notStartingWith`, `TextP.notEndingWith`,
-plus regex via `TextP.regex` / `TextP.notRegex` on newer TinkerPop):
+**`TextP` predicates** (the modern TinkerPop entry point for string
+predicates — `TextP.containing`, `TextP.startingWith`, `TextP.endingWith`,
+their `not*` variants, plus `TextP.regex` / `TextP.notRegex` on newer
+TinkerPop). Only `containing` / `notContaining` translate in Phase 1:
 
 | Predicate | YTDB target |
 |---|---|
 | `TextP.containing(sub)` | `SQLContainsTextCondition(field, sub)` |
 | `TextP.notContaining(sub)` | `NOT(SQLContainsTextCondition(field, sub))` |
-| `TextP.startingWith(prefix)` | `SQLLikeOperator` with `prefix%` (prefix escaped) |
-| `TextP.notStartingWith(prefix)` | `NOT(SQLLikeOperator(field, 'prefix%'))` |
-| `TextP.endingWith(suffix)` | `SQLLikeOperator` with `%suffix` (suffix escaped) |
-| `TextP.notEndingWith(suffix)` | `NOT(SQLLikeOperator(field, '%suffix'))` |
-| `TextP.regex(pattern)` | `SQLMatchesOperator(field, pattern)` |
-| `TextP.notRegex(pattern)` | `NOT(SQLMatchesOperator(field, pattern))` |
 
-`SQLContainsTextCondition` and `SQLLikeOperator` are String-only
-operators; if the predicate is applied to a non-String field the
-recognizer declines, and under D3 all-or-nothing the entire traversal
-declines with it. The legacy `Text` algebra (pre-TextP) routes through
-the same translation by sharing the same `BiPredicate` instances inside
-`P`.
+`SQLContainsTextCondition` evaluates via `String.indexOf(sub) > -1` —
+case-sensitive substring search, matching TinkerPop's `TextP.containing`
+exactly. It is a String-only operator; if the predicate is applied to a
+non-String field the recognizer declines and under D3 all-or-nothing
+the entire traversal declines. The legacy `Text` algebra (pre-TextP)
+routes through the same translation by sharing the same `BiPredicate`
+instances inside `P`.
+
+**`TextP.startingWith` / `endingWith` / `regex` decline under D3.** We
+considered translating them via `SQLLikeOperator` (for the prefix /
+suffix forms) and `SQLMatchesCondition` (for regex), but both diverge
+semantically from TinkerPop:
+
+- `SQLLikeOperator`'s engine (`QueryHelper.like`) lowercases both
+  operands before matching, so it is **case-insensitive**. TinkerPop's
+  `TextP.startingWith("Al")` is case-sensitive — it matches `"Alice"`
+  but not `"alice"`. Translating through LIKE would return a different
+  multiset on case-mixed data. `QueryHelper.like` also has no escape
+  mechanism for its `%` / `?` wildcards, so a user-supplied prefix
+  containing `%` (e.g. `"50%"`) silently turns into a wildcard pattern.
+- `SQLMatchesCondition` calls `Pattern.matcher(value).matches()`, which
+  requires the **entire** string to match the regex. TinkerPop's
+  `TextP.regex` uses `find()` — partial match anywhere in the string.
+  Wrapping the user's pattern in `.*pattern.*` to convert `find` →
+  `matches` semantics breaks user-supplied patterns that already use
+  anchors (`^...$`) or that contain backreferences whose meaning shifts
+  with extra wrapping.
+
+Rather than ship a translation with documented divergence, the
+recognizer declines under D3 and the native TinkerPop pipeline handles
+these predicates exactly as it does today. Phase 2 can revisit if YTDB
+gains a case-sensitive prefix/suffix operator and a `find`-semantic
+regex operator.
 
 **Custom user predicates** — TinkerPop allows users to extend `P<T>` with
 their own `BiPredicate`. We cannot translate arbitrary code. Detection: if
@@ -1223,6 +1243,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Non-adjacent edge filtering | `outE(L).has(key, value).inV()` / `outE(L).as(e).inV()` and analogues | `IncidentToAdjacentStrategy` only folds the **adjacent** `outE(L).inV()` shape — a `has` or `as` between them breaks the fold and the edge step survives as `outE(L)`, which falls under the edge-returning-terminals row above. Phase 1 declines. | Same fix as above (edge-alias slot in the shared builder) plus a recognizer that emits a named `PatternEdge` with its own filter slot |
 | Multi-label edges | `out("a", "b")` | `MatchPatternBuilder.addEdge` accepts a single edge-label string; an edge-label `IN [...]` filter slot doesn't exist yet | Variadic `SQLMethodCall.params` retrofit on the shared builder |
 | Collection / list ops | `fold`, `unfold`, `reverse` | TinkerPop list-shaping steps that materialize / re-shape the traverser stream; MATCH has no in-pipeline list operator that mirrors them precisely, and `fold` interacts with aggregator semantics differently | Phase 2 audit of the whole TinkerPop step list will decide whether `fold` becomes a boundary-step variant, whether `unfold` is implementable on top of `collect(*)` output, and whether `reverse` is even reachable via MATCH |
+| Case-sensitive string predicates | `TextP.startingWith` / `endingWith` / `notStartingWith` / `notEndingWith` / `regex` / `notRegex` (and the equivalent `Text.*` legacy forms) | `SQLLikeOperator` is case-insensitive (`QueryHelper.like` lowercases both operands) so it would return a different multiset from TinkerPop's case-sensitive `startingWith` / `endingWith`; `SQLMatchesCondition` uses `Pattern.matches()` (whole-string) where TinkerPop uses `find()` (partial). Phase 1 declines and lets the native pipeline handle it correctly. | Phase 2: add a case-sensitive prefix/suffix operator (or expose a case-sensitivity flag on LIKE) and a `find`-semantic regex operator on the YTDB side |
 | Tail | `tail(n)` | Order-dependent — Gremlin's `tail` keeps the last N traversers in arrival order, which is not what `ORDER BY ... LIMIT` produces; needs either a `Tail` execution step on the MATCH side or a buffer in the boundary step | Simple add: model as a bounded ring buffer in the boundary step, fed by `ELEMENT` / `MAP` output |
 
 **Type-keyed recognizer dispatch ships in Phase 1** (see "Recogniser

@@ -101,8 +101,12 @@
 >   - `P.between(lo, hi)` → `between(field, lo, hi)`.
 >   - `P.inside(lo, hi)` → `and(op(field, GT, lo), op(field, LT, hi))`.
 >   - `P.outside(lo, hi)` → `or(op(field, LT, lo), op(field, GT, hi))`.
->   - `Text.containing` → `containsText(field, substring)`.
->   - `Text.startingWith` / `endingWith` → `startsWith` / `endsWith`.
+>   - `Text.containing` (and `TextP.containing`) →
+>     `containsText(field, substring)`.
+>   - `Text.startingWith` / `endingWith` (and the equivalent `TextP.*`
+>     plus `TextP.regex`) → recognizer declines; native pipeline
+>     handles them. See design.md § Predicate translation for the
+>     case-sensitivity / `matches`-vs-`find` divergence rationale.
 >   - `P.and(...)` / `P.or(...)` / `P.not(...)` → recursive composition
 >     via `MatchWhereBuilder.and/or/not`.
 > - Implement four `has*` step handlers in `GremlinStepWalker`:
