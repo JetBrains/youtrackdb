@@ -59,6 +59,23 @@ public final class IndexCountDeltaHolder {
   private boolean persisted = false;
 
   /**
+   * Idempotency latch set by {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage#applyIndexCountDeltas}
+   * after a successful pass. Read by the apply hook in {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
+   * to short-circuit a second apply on the same atomic operation. Closes the
+   * window where both the inline apply call inside the storage commit path
+   * and the lifecycle hook in {@code endAtomicOperation} would otherwise both
+   * fire and double-increment the engine's in-memory {@code AtomicLong}
+   * counters within a single transaction. The latch is also a defensive belt
+   * against any future path that re-enters apply within the same atomic
+   * operation. See the thread-confinement note on {@link #persisted} above:
+   * the latch is a plain boolean because the holder is single-threaded
+   * between {@code startAtomicOperation} and {@code endAtomicOperation}.
+   */
+  private boolean applied = false;
+
+  /**
    * Returns the delta for the given engine, creating it if absent.
    */
   public IndexCountDelta getOrCreate(int engineId) {
@@ -85,5 +102,21 @@ public final class IndexCountDeltaHolder {
    */
   public boolean isPersisted() {
     return persisted;
+  }
+
+  /**
+   * Marks this holder as already applied to the engines' in-memory
+   * {@code AtomicLong} counters. Idempotent: calling twice in a row is
+   * harmless.
+   */
+  public void setApplied() {
+    this.applied = true;
+  }
+
+  /**
+   * Returns {@code true} once {@link #setApplied()} has been called.
+   */
+  public boolean isApplied() {
+    return applied;
   }
 }

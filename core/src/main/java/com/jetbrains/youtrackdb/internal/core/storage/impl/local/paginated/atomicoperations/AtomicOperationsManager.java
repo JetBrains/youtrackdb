@@ -23,6 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
@@ -334,6 +335,55 @@ public class AtomicOperationsManager {
           } else {
             // Pure non-durable operation — no WAL record to wait for.
             atomicOperationsTable.persistOperation(commitTs);
+          }
+        }
+
+        // Apply hook for index count deltas and histogram deltas. Runs on the
+        // success path only, after commitChanges and atomicOperationsTable
+        // commit/persist, and before the inner-finally releaseLocks below.
+        //
+        // Placement before releaseLocks is load-bearing. The per-index lock
+        // acquired by AbstractStorage.lockIndexes at AbstractStorage.java:2255
+        // lives on operation.lockedComponents() and is released by
+        // releaseLocks below. Holding the lock during apply keeps the next
+        // transaction's pure-delta encoding from reading a stale in-memory
+        // counter at clear() or buildInitialHistogram. Downstream consumers:
+        // the clear() pure-delta encoding in BTreeMultiValueIndexEngine and
+        // BTreeSingleValueIndexEngine, and the buildInitialHistogram
+        // recalibration on both engines. Regression guard:
+        // EndAtomicOperationHookOrderingTest.
+        //
+        // Cache-only contract: apply failure must not mask a successful
+        // commit. The WAL record is already durable; counters will be
+        // recalibrated by load() on restart or buildInitialHistogram() on
+        // recovery. Catch covers RuntimeException and AssertionError to
+        // absorb the engine-mutator clamp-and-error path. Bounded catch:
+        // LinkageError, OutOfMemoryError, StackOverflowError, and
+        // InternalError escape so genuine VM errors still poison the storage.
+        if (currentError == null) {
+          var indexHolder = operation.getIndexCountDeltas();
+          if (indexHolder != null && !indexHolder.isApplied()) {
+            try {
+              storage.applyIndexCountDeltas(operation);
+            } catch (RuntimeException | AssertionError applyFailure) {
+              LogManager.instance()
+                  .warn(this,
+                      "Index count delta application failed after successful"
+                          + " commit",
+                      applyFailure);
+            }
+          }
+          var histogramHolder = operation.getHistogramDeltas();
+          if (histogramHolder != null && !histogramHolder.isApplied()) {
+            try {
+              storage.applyHistogramDeltas(operation);
+            } catch (RuntimeException | AssertionError applyFailure) {
+              LogManager.instance()
+                  .warn(this,
+                      "Histogram delta application failed after successful"
+                          + " commit",
+                      applyFailure);
+            }
           }
         }
 

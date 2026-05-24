@@ -2519,6 +2519,16 @@ public abstract class AbstractStorage
     if (holder == null) {
       return;
     }
+    // Idempotency latch: if the lifecycle apply hook in
+    // AtomicOperationsManager.endAtomicOperation has already applied this
+    // holder, a second pass from the inline call inside commit() would
+    // double-increment the engine counters. The latch closes that window
+    // until the inline call is deleted in a later step; it remains as a
+    // defensive belt against any future re-entry into apply on the same
+    // atomic operation.
+    if (holder.isApplied()) {
+      return;
+    }
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
@@ -2536,6 +2546,10 @@ public abstract class AbstractStorage
         }
       }
     }
+    // Latch the holder so the inline apply call inside commit() short-circuits
+    // on the next pass. Mirrors the setPersisted() latch at the end of
+    // persistIndexCountDeltas above.
+    holder.setApplied();
   }
 
   /**
@@ -2546,6 +2560,14 @@ public abstract class AbstractStorage
   public void applyHistogramDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getHistogramDeltas();
     if (holder == null) {
+      return;
+    }
+    // Idempotency latch: same role as the IndexCountDeltaHolder.applied
+    // latch read above. If the lifecycle apply hook in
+    // AtomicOperationsManager.endAtomicOperation has already applied this
+    // holder, the inline call inside commit() must short-circuit so the
+    // CHM cache is not re-mutated within a single transaction.
+    if (holder.isApplied()) {
       return;
     }
     for (var entry : holder.getDeltas().entrySet()) {
@@ -2567,6 +2589,10 @@ public abstract class AbstractStorage
         }
       }
     }
+    // Latch the holder so the inline apply call inside commit() short-circuits
+    // on the next pass. Mirrors the setApplied() latch above on
+    // applyIndexCountDeltas.
+    holder.setApplied();
   }
 
   public int loadIndexEngine(final String name) {
