@@ -16,9 +16,7 @@ The skill edits files in place and leaves the worktree dirty for the user to rev
 `$ARGUMENTS` — optional. When supplied, it must equal the current
 branch name (`git branch --show-current`); the migration always runs
 in the current worktree on the current branch. Step 1 enforces the
-equality and rejects mismatches. The argument exists only for
-invocations that want the branch name explicit in the command line;
-omitting it is the common case.
+equality and rejects mismatches.
 
 ## Step 0 — Create progress tracker
 
@@ -123,7 +121,6 @@ classify each artifact as stamped (line-1 stamp parses) or unstamped
 and Step 2's range derivation.
 
 ```bash
-PLAN_DIR="$PLAN_DIR"  # resolved in Step 1
 STAMPED_SHAS=""
 UNSTAMPED_FILES=""
 # design-mechanics.md is optional; absent until the length trigger fires.
@@ -142,10 +139,12 @@ for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
 done
 ```
 
-The block is byte-identical to `conventions.md` §1.6(h). Step 2
-repeats the walk with a paired `(file, sha)` array so merge-base
-failures can name artifact paths; this step only needs the
-classification, so the simpler form lands here.
+The walk pattern matches `conventions.md` §1.6(h); `$PLAN_DIR` is
+documentary here (resolved in Step 1), versus the literal
+placeholder `docs/adr/<resolved-dir-name>` in §1.6(h)'s canonical
+form. Step 2 repeats the walk with a paired `(file, sha)` array so
+merge-base failures can name artifact paths; this step only needs
+the classification, so the simpler form lands here.
 
 **When `$UNSTAMPED_FILES` is empty.** No prompt fires. Continue to
 Step 2.
@@ -170,15 +169,22 @@ Validate the response with the two-subcommand check from
 `conventions.md` §1.6(d). The `^{commit}` peel rejects tag and ref
 names; only commit SHAs pass. The reachability check enforces the
 range's upper-bound rule from §1.6(c) (HEAD is the comparison anchor,
-so the bootstrap SHA must be reachable from HEAD):
+so the bootstrap SHA must be reachable from HEAD).
+
+The validation block below runs inside a retry loop bounded at three
+attempts. On either subcommand failure, print the cause, increment
+the attempt counter, and re-prompt the user with the same artifact
+list. On the third rejection halt the session with `ERROR: three
+rejected attempts; bootstrap aborted` and exit with no edits applied;
+do not fall through to Step 2:
 
 ```bash
 if ! CANON_SHA="$(git rev-parse --verify "$SHA^{commit}" 2>&1)"; then
     echo "ERROR: $SHA is not a valid commit SHA: $CANON_SHA"
-    # re-prompt; see retry policy below
+    # increment attempt counter, re-enter the prompt; see retry policy below
 elif ! git merge-base --is-ancestor "$CANON_SHA" HEAD 2>/dev/null; then
     echo "ERROR: $SHA ($CANON_SHA) is not reachable from HEAD."
-    # re-prompt; see retry policy below
+    # increment attempt counter, re-enter the prompt; see retry policy below
 else
     USER_BOOTSTRAP_SHA="$CANON_SHA"
 fi
@@ -195,16 +201,23 @@ would fail every drift-check re-read.
 failure (either subcommand returns non-zero), print the failure cause
 and re-prompt the user with the same artifact list. Cap the retry
 count at three attempts per `conventions.md` §1.6(d); after the third
-rejection halt the session with `ERROR: three rejected attempts;
-bootstrap aborted` and exit with no edits applied. The user `/clear`s
-the session to abandon the migration.
+rejection print a one-line diagnostic naming the current HEAD SHA
+(`echo "Reachability is checked against git rev-parse HEAD =
+$(git rev-parse HEAD); if the SHA you supplied is on a different
+branch, check out the migration branch first."`), then halt the
+session with `ERROR: three rejected attempts; bootstrap aborted` and
+exit with no edits applied. The user `/clear`s the session to abandon
+the migration.
 
 The counter is **session-bound**: it lives in the conversation, not on
-disk. A `/clear` between attempts resets it. Step 3's `.migration-
-progress` file does not exist yet at Step 2.0 time, so no persistent
-counter is available; the bound is by design soft against `/clear`-
-based abandonment and re-entry. This matches §1.6(d)'s explicit
-"`/clear`s the session to abandon the migration" exit shape.
+disk. The orchestrator holds the counter across both Step 2.0's
+initial prompt and Step 2's recovery re-prompt; the bash blocks above
+run once per attempt, and the orchestrator decides whether to
+re-invoke them. A `/clear` between attempts resets it. Step 3's
+`.migration-progress` file does not exist yet at Step 2.0 time, so no
+persistent counter is available; the bound is by design soft against
+`/clear`-based abandonment and re-entry. This matches §1.6(d)'s
+explicit "`/clear`s the session to abandon the migration" exit shape.
 
 The prompt records the user's best guess; the per-commit replay
 loop's halt-on-ambiguity in Step 4 is a partial safety net, not a
@@ -346,9 +359,20 @@ unstamped + merge-base-failed file set back through Step 2.0's
 bootstrap prompt per `conventions.md` §1.6(c). The user supplies one
 new SHA covering the combined set; the validated value **replaces**
 the prior `$USER_BOOTSTRAP_SHA` (the variable stays singular, matching
-`conventions.md` §1.6(d)'s one-SHA-per-prompt shape). After the
-re-prompt, restart this step's Phase 2 fold from the top with the
-fresh `$USER_BOOTSTRAP_SHA` in `FOLD_INPUT`:
+`conventions.md` §1.6(d)'s one-SHA-per-prompt shape).
+
+Drop the merge-base-failed SHAs from `STAMPED_SHAS` before restarting
+the fold. Their owning artifacts are reclassified as unstamped for
+the rest of the session (matching the "treat as unstamped" framing in
+`conventions.md` §1.6(c)), so the user's fresh `$USER_BOOTSTRAP_SHA`
+serves as the bootstrap anchor for both the originally-unstamped set
+and the dropped stamps' artifacts. Without this drop, the restarted
+fold would re-run `git merge-base` over the same failing pair and
+fail again at the same point regardless of how valid the user's
+bootstrap SHA is, exhausting the 3-attempt cap on input the user
+cannot fix. After the re-prompt, restart this step's Phase 2 fold
+from the top with the pruned `$STAMPED_SHAS` plus the fresh
+`$USER_BOOTSTRAP_SHA` in `FOLD_INPUT`:
 
 ```bash
 if [ -n "$MERGE_BASE_FAILED" ]; then
@@ -363,15 +387,33 @@ if [ -n "$MERGE_BASE_FAILED" ]; then
             esac
         done
     done
+    # Drop the merge-base-failed SHAs from STAMPED_SHAS so the
+    # restarted fold does not re-run git merge-base over the same
+    # failing pair. The dropped stamps' artifacts are now covered by
+    # the upcoming $USER_BOOTSTRAP_SHA.
+    PRUNED_STAMPED_SHAS=""
+    for SHA in $STAMPED_SHAS; do
+        DROP=0
+        for FAILED_SHA in $MERGE_BASE_FAILED; do
+            [ "$SHA" = "$FAILED_SHA" ] && DROP=1 && break
+        done
+        [ "$DROP" = "0" ] && PRUNED_STAMPED_SHAS="$PRUNED_STAMPED_SHAS $SHA"
+    done
+    STAMPED_SHAS="$PRUNED_STAMPED_SHAS"
     # Combine with any pre-existing unstamped files and re-enter the
     # bootstrap prompt. The 3-attempt cap in conventions.md §1.6(d) is
     # SHARED with Step 2.0's initial prompt; the counter is session-
     # wide, not per-prompt. A user who already burned 2 attempts in
     # Step 2.0's initial run has 1 attempt left here.
     UNSTAMPED_FILES="$UNSTAMPED_FILES$FAILED_FILES"
+    # After the append, $UNSTAMPED_FILES is guaranteed non-empty
+    # because the recovery only fires when $MERGE_BASE_FAILED is
+    # non-empty; Step 2.0's prompt branch fires unconditionally on
+    # re-entry.
     # Re-enter Step 2.0's prompt with the combined file set; on
-    # success, restart Phase 2 with the fresh $USER_BOOTSTRAP_SHA.
-    # On three rejected attempts (shared counter), halt the session.
+    # success, restart Phase 2 with the pruned STAMPED_SHAS plus the
+    # fresh $USER_BOOTSTRAP_SHA. On three rejected attempts (shared
+    # counter), halt the session.
 fi
 ```
 
@@ -438,7 +480,8 @@ File-existence handling:
 
 - If the file does not exist, create it with the three header lines and an empty body. The file is a sentinel that the user removes after committing the migration. Do not modify `.gitignore`.
 - If the file exists, read its header and apply this check:
-  - If `range_start=<recorded-sha>` differs from the freshly-computed `BASE_SHA` (Step 2's fold output for this session), halt and ask the user to delete the stale progress file before re-running. The branch's stamp set has shifted since the prior session — either new stamps landed, an earlier stamp was rewritten, or the branch was rebased — and the recorded body refers to a range that no longer matches the current artifact state. Warn that the worktree may carry partial edits from the prior run; recommend `git stash` (or commit-then-revert) before deleting the progress file.
+  - If `range_start=<recorded-sha>` differs from the freshly-computed `BASE_SHA` (Step 2's fold output for this session), halt and ask the user to delete the stale progress file before re-running. The branch's stamp set has shifted since the prior session (new stamps landed, an earlier stamp was rewritten, or the branch was rebased), and the recorded body refers to a range that no longer matches the current artifact state. Warn that the worktree may carry partial edits from the prior run; recommend `git stash` (or commit-then-revert) before deleting the progress file.
+  - If `range_start` matches but the recorded `range_end` differs from `git rev-parse HEAD` at this session's start, the branch has advanced since the prior session. Step 2's freshly-computed `git log $BASE_SHA..HEAD` already covers any commits added after the prior run; Step 4's queue is the new log minus the commits already recorded in the body. Update the progress file's `range_end` field to current HEAD before entering Step 4.
 - The commits already listed in the body are **done**. Skip them in Step 4.
 
 ## Step 4 — Per-commit migration loop
@@ -446,7 +489,7 @@ File-existence handling:
 On first entry to Step 4:
 
 1. Mark Step 0's umbrella task 5 ("Per-commit migration loop") as `in_progress`.
-2. For each commit *remaining* in the trimmed queue (i.e., the Step-3 list minus the commits already recorded in `.migration-progress`), call `TaskCreate` with `Migrate commit <short-sha> <subject>`. These are the per-commit tasks consumed by 5.6.
+2. For each commit *remaining* in the trimmed queue (i.e., the Step-2 list minus the commits already recorded in `.migration-progress`), call `TaskCreate` with `Migrate commit <short-sha> <subject>`. These are the per-commit tasks consumed by 5.6.
 
 Then iterate. For each commit in the queue, in order:
 
@@ -577,4 +620,4 @@ Then end the session.
 - The skill is read-only on develop and edit-only on the migration worktree; no automatic commits in either worktree.
 - For large diffs, delegate to `Explore` to summarize commit diffs and `general-purpose` to apply repetitive edits across many files; pass absolute paths inside the migration worktree.
 - This is a docs-only migration; mcp-steroid IDE control adds no value here.
-- Re-invoking with the same `$ARGUMENTS` is safe: commits already in `.migration-progress` are skipped. To force a full re-run, delete the progress file.
+- Re-invoking the skill in the same worktree is safe: commits already recorded in `.migration-progress` are skipped. To force a full re-run, delete the progress file.

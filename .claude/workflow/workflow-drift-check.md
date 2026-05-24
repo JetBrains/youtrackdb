@@ -149,17 +149,23 @@ The drift gate sees one of five outcomes:
   prompt.
 
 **Cross-reference.** The Phase 1 walk above is the byte-source
-shared with `/migrate-workflow`'s Step 2 range computation; both
-files must remain text-identical. The range definition
-(`BASE_SHA..HEAD`, pairwise fold via `git merge-base`, merge-base-
-failure recovery), the canonical parser regex (`workflow-sha:`
-anchor plus `[0-9a-f]{40}` extraction), and the active-plan scope
-rule live in `conventions.md` §1.6(c), §1.6(h), and §1.6(a1)
-respectively. The `design.md` §"Stamp range computation" narrative
-is a soft reference for context but is not the byte-source for the
-bash block above — its walk uses an unanchored `[0-9a-f]{40}` regex
-that `conventions.md` §1.6(a1) explicitly rejects (false-positives
-on H1 lines containing a 40-hex run).
+shared with `/migrate-workflow`'s Step 2 range computation. The
+migration side extends the walk with a paired `STAMPED_PAIRS` array
+(one init line plus one assignment inside the stamped branch) so its
+merge-base-failure recovery can resolve failing SHAs to artifact
+paths; the loop body otherwise stays text-identical between the two
+files. The migration side names the same contract explicitly in its
+Step 2 prose, so a future edit to the §1.6(h) block applies to both
+files in lockstep with the pairing rows as the only legitimate
+divergence. The range definition (`BASE_SHA..HEAD`, pairwise fold via
+`git merge-base`, merge-base-failure recovery), the canonical parser
+regex (`workflow-sha:` anchor plus `[0-9a-f]{40}` extraction), and the
+active-plan scope rule live in `conventions.md` §1.6(c), §1.6(h), and
+§1.6(a1) respectively. The `design.md` §"Stamp range computation"
+narrative is a soft reference for context but is not the byte-source
+for the bash block above — its walk uses an unanchored `[0-9a-f]{40}`
+regex that `conventions.md` §1.6(a1) explicitly rejects
+(false-positives on H1 lines containing a 40-hex run).
 
 ---
 
