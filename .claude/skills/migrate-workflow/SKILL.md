@@ -29,6 +29,7 @@ Before any other tool call, create one task per step below using `TaskCreate`. M
 5. Per-commit migration loop (one task per commit will be added at the start of Step 4, after Step 3 trims the resume queue)
 6. Final stamp-to-HEAD batch
 7. Final summary
+8. Self-improvement reflection: invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`
 
 ## Step 1 — Preflight
 
@@ -642,7 +643,11 @@ Output:
 - Total files edited in the branch's worktree, excluding the progress-file sentinel: `git status --porcelain | grep -v '^?? \.migration-progress$' | wc -l`.
 - One-line next-step prompt: "Review the diff in this worktree, then commit + push when satisfied. Delete `.migration-progress` after the commit."
 
-After printing the summary lines above, mark Step 0's umbrella task 7 as `completed`. Then end the session.
+After printing the summary lines above, mark Step 0's umbrella task 7 as `completed`. Then proceed to Step 6.
+
+## Step 6 — Self-improvement reflection
+
+Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`. Invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`. Migration friction worth recording typically lives in ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, or edge cases in the renames tracker. The protocol owns its own YouTrack MCP-reachability check and end-of-session contract; nothing else fires after it returns. After it returns, mark umbrella task 8 as `completed`.
 
 ## Notes
 
