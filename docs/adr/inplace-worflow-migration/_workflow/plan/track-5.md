@@ -136,3 +136,6 @@ Per-step acceptance:
 **External interfaces:**
 - `mcp__youtrack__*` MCP tools (already used by reflection). No new tools required.
 - `git rev-parse HEAD` and `git rev-parse --abbrev-ref HEAD` (already used in Step 3 of reflection). No new git invocations.
+
+## Base commit
+7e93e7535bddfd57cd168a0291a014c31a0efd91
