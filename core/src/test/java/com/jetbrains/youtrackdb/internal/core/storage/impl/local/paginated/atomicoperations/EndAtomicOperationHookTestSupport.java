@@ -78,10 +78,12 @@ final class EndAtomicOperationHookTestSupport {
    * {@code isRollbackInProgress()} return value (so the persist hook's
    * rollback signal is observable downstream).
    *
-   * <p>The {@code getHistogramDeltas() -> null} stub is forward-compatibility
-   * for the histogram-delta persist hook landed in the next step; the
-   * lifecycle method calls the getter regardless of which hook variant is
-   * active.
+   * <p>The {@code getHistogramDeltas() -> null} stub is a focus-narrowing
+   * default for the index-count branch tests this helper serves: it
+   * short-circuits the lifecycle method's histogram branch at its null-holder
+   * gate so verifications stay focused on the index-count side. Tests that
+   * exercise the histogram branch supply their own operation mock with a
+   * non-null {@code HistogramDeltaHolder}.
    */
   static AtomicOperation mockOperation(IndexCountDeltaHolder holder) {
     var operation = mock(AtomicOperation.class);
