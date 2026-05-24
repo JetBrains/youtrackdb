@@ -137,12 +137,14 @@ The drift gate sees one of five outcomes:
   `STAMPED_SHAS` carries more than one distinct SHA, the gate runs the
   no-drift normalization sub-step (§ No-drift normalization below)
   before exiting; when stamps are already uniform, the gate skips
-  silently and startup continues to step 4. Any matched condition in
-  § Skip conditions takes the same silent path before Phase 1 runs.
+  silently and startup continues to the calling session's next
+  startup step. Any matched condition in § Skip conditions takes the
+  same silent path before Phase 1 runs.
 - **No artifacts under `$PLAN_DIR/_workflow/`**: the walk matched
   nothing (both `STAMPED_SHAS` and `UNSTAMPED_FILES` are empty). Silent
   skip per `conventions.md` §1.6(h); the gate exits with no drift to
-  report and startup continues to step 4.
+  report and startup continues to the calling session's next startup
+  step.
 - **`git merge-base` failure during the fold**: any failing pair routes
   to the unstamped short-circuit per `conventions.md` §1.6(c). The gate
   signals drift and the bootstrap prompt in §1.6(d) covers the failing
@@ -259,11 +261,11 @@ stray file). Either failure mode would land a malformed normalization
 commit; the abort+restore path keeps the working tree at HEAD on
 mismatch and surfaces the failure to the user instead of papering over
 it. On `exit 1` (diff-shape mismatch), the gate halts the entire
-`/execute-tracks` session with a non-zero exit code; the user
-inspects the unexpected paths or hunks manually and re-invokes after
-resolving them. There is no automatic fallthrough to Resolutions. On
-`exit 0` (success path), Detection exits silently and startup
-continues to step 4.
+calling session with a non-zero exit code; the user inspects the
+unexpected paths or hunks manually and re-invokes after resolving
+them. There is no automatic fallthrough to Resolutions. On `exit 0`
+(success path), Detection exits silently and startup continues to
+the calling session's next startup step.
 
 **Restore-on-mismatch.** `git checkout -- $STAMPED_FILES` rewinds only
 the stamped artifacts because nothing else was touched; the working
@@ -274,14 +276,15 @@ up manually — the gate refuses to guess at the recovery shape.
 
 **Commit shape.** One commit, subject `Normalize workflow-sha stamps
 to <short-BASE_SHA>`, body optional. The commit is independent of any
-phase work — Detection runs in turn 1 before the handoff scan, so no
-episode commit can interleave with the normalization commit. The next
-gate run reads the now-uniform stamps and Phase 1 exits with a
-single-element `STAMPED_SHAS`.
+phase work — Detection runs at session start before any phase work,
+so no episode commit can interleave with the normalization commit.
+The next gate run reads the now-uniform stamps and Phase 1 exits with
+a single-element `STAMPED_SHAS`.
 
 After the commit lands, Detection exits silently and startup
-continues to step 4. The user sees no prompt; the normalization is a
-silent housekeeping step, not a drift signal.
+continues to the calling session's next startup step. The user sees
+no prompt; the normalization is a silent housekeeping step, not a
+drift signal.
 
 ---
 
@@ -322,8 +325,8 @@ first:
    run).
 
 First match returns silent skip; the gate emits no prose and startup
-continues to step 4. None matching falls through to the
-three-resolution prompt below.
+continues to the calling session's next startup step. None matching
+falls through to the three-resolution prompt below.
 
 ---
 
@@ -429,9 +432,9 @@ enumerates the affected artifacts from there.
 The session-end summary appends the title line plus the same
 in-branch `/migrate-workflow` instruction shown in the prompt — see
 `workflow.md` § What to do before ending a session for the residue
-contract. An on-disk sentinel would survive across
-`/execute-tracks` invocations and double-report against the next
-session's gate re-prompt, so the marker stays in-conversation only.
+contract. An on-disk sentinel would survive across calling-session
+invocations and double-report against the next session's gate
+re-prompt, so the marker stays in-conversation only.
 
 ### Suppress
 
@@ -450,20 +453,25 @@ ignore for now" versus "remind me at session end".
 
 The user's choice applies for the remainder of the session; no
 re-check is required in the normal startup flow. After Migrate now,
-the session ends. After Defer or Suppress, startup continues to
-step 4 (handoff scan) and the auto-resume decision proceeds against
-the unchanged on-disk shape of `_workflow/**`.
+the session ends. After Defer or Suppress, startup continues to the
+calling session's next startup step (the handoff scan in both
+callers) and proceeds against the unchanged on-disk shape of
+`_workflow/**`.
 
-**Remote-authoritative re-entry — forward-looking note.** A
-`git reset --hard origin/<branch>` from the divergence gate's
-Remote-authoritative resolution shifts the fork point that the
-divergence gate computes, and the post-reset HEAD also moves the
-drift detection range (`$BASE_SHA..HEAD`) since both endpoints can
-change. The divergence gate currently routes
-post-reset only to workflow.md § Startup Protocol step 3, not back
-into this gate (step 3a); the re-entry contract is one-sided. Until
-that gap closes, an orchestrator resolving Remote-authoritative
-within a session should treat the post-reset drift state as
+**Remote-authoritative re-entry — forward-looking note
+(`/execute-tracks` only).** The Branch Divergence Check exists only
+in `/execute-tracks`'s Startup Protocol (intro lines 3-5), so this
+re-entry path applies only when the calling session is
+`/execute-tracks`. A `git reset --hard origin/<branch>` from the
+divergence gate's Remote-authoritative resolution shifts the fork
+point that the divergence gate computes, and the post-reset HEAD
+also moves the drift detection range (`$BASE_SHA..HEAD`) since both
+endpoints can change. The divergence gate currently routes post-reset
+only to workflow.md § Startup Protocol step 3 (the
+`/execute-tracks`-specific divergence-gate anchor), not back into
+this gate (step 3a); the re-entry contract is one-sided. Until that
+gap closes, an orchestrator resolving Remote-authoritative within an
+`/execute-tracks` session should treat the post-reset drift state as
 unverified and re-invoke `/execute-tracks` in a fresh session. Once
 symmetric, this gate will re-fire on the post-reset HEAD with any
 prior Defer state discarded first. Local-authoritative and Defer in
