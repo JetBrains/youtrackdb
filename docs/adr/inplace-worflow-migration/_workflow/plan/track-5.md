@@ -8,7 +8,7 @@ After this track lands, every `/migrate-workflow` session ends with the same sel
 Parameterize `self-improvement-reflection.md` to accept a session-type input (`execute-tracks` or `migrate-workflow`) that controls the commit-clean check, the phase identifier in the issue body, the applicability sentence in §"When it runs", and the in-scope examples in §"What counts as a worth-recording issue". Then wire a final reflection step into the rewritten `migrate-workflow` SKILL that invokes it with `session-type=migrate-workflow`. Skip rules (YouTrack MCP unreachable, no work happened) carry through unchanged.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-05-24T14:23Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -22,7 +22,7 @@ Parameterize `self-improvement-reflection.md` to accept a session-type input (`e
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 1 (6 findings — T1, T2, T3 should-fix absorbed into Step 1 / Step 2 decomposition; T4, T5, T6 suggestion absorbed as polish; no blockers).
 
 ## Context and Orientation
 
@@ -76,12 +76,16 @@ with `session-type=migrate-workflow`. The protocol handles its own MCP-reachabil
 check and end-of-session contract; nothing else fires after it returns.
 ```
 
-Update Step 0's umbrella task list to include "Self-improvement reflection" as task 6 (under Tracks 4a/4b's renumber, the umbrella task numbering tracks the new step numbers).
+Update Step 0's umbrella task list to include "Self-improvement reflection" as task 8 (post-Track-4b the umbrella has 7 slots, so reflection lands as task 8; the SKILL's new H2 step is Step 6, sitting after today's Step 5 final summary).
 
 Verify after both edits: a fresh `/migrate-workflow` invocation that exhausts the queue and reaches Step 5's final summary then enters reflection, which scans the session, presents candidates (or "No improvements proposed"), and ends the session.
 
+Phase A decomposition lands two steps. Step 1 sweeps `self-improvement-reflection.md` in one pass, applying the parameterization plus all ten session-type-dependent surfaces in a single commit so a partial revert never leaves the doc internally inconsistent. Step 2 wires the SKILL to call the parameterized reflection; ordering is Step 1 then Step 2 because Step 2's call site references the `## Inputs` block and the `session-type=migrate-workflow` value Step 1 introduces. Step 2 also fixes Step 5's trailing end-of-session line so the new Step 6 actually fires. Phase A technical review surfaced seven session-type-dependent surfaces beyond the three named above (top-of-file intro at line 3; §"When it runs" body enumeration of phase steps at lines 60–65; skip-conditions list at lines 67–74; `**Source session:**` template literal at line 487; `## Reproduction context` second `**Phase:**` enumeration at line 497; plus the `## Inputs` block's calling-convention contract and the in-scope friction examples sub-bullets); Step 1 covers them all.
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the step roster here. -->
+
+1. Parameterize `.claude/workflow/self-improvement-reflection.md` to accept a `session-type` input (`execute-tracks` default; `migrate-workflow` new). Add the `## Inputs` block at the top documenting the parameter, the default value, and the calling-convention (a calling skill names the value in its invocation line; when omitted the document behaves as `session-type=execute-tracks`). Sweep every session-type-dependent surface in one pass: line 3 intro generalized to name both callers; §"When it runs" intro plus body enumeration of phase steps (lines 46–65) plus skip-conditions list (lines 67–74) lifted to session-type-agnostic phrasing; new in-scope examples sub-bullets under §"What counts as a worth-recording issue" for migration-shaped frictions (ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, edge cases in the renames tracker); §"Reflection procedure" Step 2 conditional clause skipping the commit-clean check when `session-type=migrate-workflow` (the Source line points at HEAD pre-migration; `git rev-parse HEAD` and `git rev-parse --abbrev-ref HEAD` in Step 3 still run); §"Issue body template" `**Phase:**` field (line 486) and `**Source session:**` template literal (line 487) extended to carry `migrate-workflow`; `## Reproduction context` `**Phase:**` enumeration (line 497) extended in parallel. — `risk: medium` (override: ten edit sites in one file requiring mutual consistency; coordinate-edit risk warrants focal-point Phase C review across the workflow-consistency dimension)  [ ]
+2. Wire the reflection invocation into `.claude/skills/migrate-workflow/SKILL.md` as a new "## Step 6 — Self-improvement reflection" section sitting after today's Step 5 (Final summary). Step 6's body opens with "Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`", invokes the reflection protocol at `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`, mirrors the existing-caller friction-seeding paragraph (migration-shaped frictions: ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, edge cases in the renames tracker), closes with "mark umbrella task 8 as `completed`", and notes that the protocol owns its own MCP-reachability check and end-of-session contract. Replace Step 5's trailing "Then end the session." line at `SKILL.md:645` with "Then proceed to Step 6." so the session-end moves from Step 5 to Step 6. Update Step 0's umbrella task list at `SKILL.md:25-31` to add task 8 as the eighth bullet, mirroring the existing slot phrasing: "Self-improvement reflection: invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`". — `risk: low` (default: single-file isolated change, markdown-only, provable behavior preservation)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -98,12 +102,17 @@ After Track 5 lands:
 - A `/migrate-workflow` session with YouTrack MCP reachable produces a reflection prompt at session end (Step 6) listing 0..3 candidate issues.
 - A `/migrate-workflow` session with YouTrack MCP unreachable produces the "YouTrack MCP unreachable — self-improvement reflection skipped" notice and ends the session.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+Per-step acceptance:
+
+- **Step 1** (Parameterize `self-improvement-reflection.md`): given the post-Step-1 doc, when an `/execute-tracks` phase doc loads reflection without passing `session-type`, then the default `execute-tracks` applies and the document reads correctly for all five `/execute-tracks` phase identifiers (state-0, phase-a, phase-b, phase-c, phase-4); when `/migrate-workflow` loads reflection with `session-type=migrate-workflow`, then §"Reflection procedure" Step 2 skips the commit-clean check, both the §"Issue body template" `**Phase:**` field and the `## Reproduction context` `**Phase:**` enumeration accept `migrate-workflow`, the `**Source session:**` template renders `<YYYY-MM-DD> /migrate-workflow <adr-dir-name>`, §"When it runs" reads correctly without any `/execute-tracks`-exclusive phrasing, and the in-scope examples list carries the four migration-shaped friction sub-bullets.
+- **Step 2** (Wire `migrate-workflow/SKILL.md` Step 6): given the post-Step-2 SKILL, when a `/migrate-workflow` session reaches the end of Step 5 (Final summary), then Step 5 ends with "Then proceed to Step 6." and Step 6 invokes reflection with `session-type=migrate-workflow`; when reflection's MCP-reachability check passes, then the user is prompted with 0..3 candidate issues and the session ends via reflection's end-of-session contract; when MCP is unreachable, then the "YouTrack MCP unreachable — self-improvement reflection skipped" notice prints and the session ends; Step 0's umbrella task list contains exactly eight slots, with task 8 named "Self-improvement reflection".
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+- **Step 1** — `git revert <SHA>` restores `.claude/workflow/self-improvement-reflection.md` to its pre-Step-1 state. The ten edit sites land in one commit, so the revert removes the `## Inputs` block, the generalized §"When it runs" prose, the migration-shaped in-scope examples sub-bullets, the conditional clause in §"Reflection procedure" Step 2, and the `migrate-workflow` values in both `**Phase:**` enumerations plus the session-type-aware `**Source session:**` template literal in one operation. Existing `/execute-tracks` callers — none of which passes a `session-type` argument today — keep working through the document because every conditional clause defaults to `session-type=execute-tracks`; the revert drops the conditionals without breaking any caller.
+- **Step 2** — `git revert <SHA>` restores `.claude/skills/migrate-workflow/SKILL.md` to its pre-Step-2 state. The new Step 6 section disappears, Step 5's trailing line returns to "Then end the session.", and Step 0's umbrella task list drops back to seven slots. A `/migrate-workflow` session run on the reverted SKILL hits Step 5's "Then end the session." path and exits without reflection — behaviour identical to pre-Step-2.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Empty at Phase 1. -->
