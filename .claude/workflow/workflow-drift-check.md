@@ -1,16 +1,17 @@
 # Workflow Drift Check
 
-Runs in turn 1 of every `/execute-tracks` session, immediately after
-the Branch Divergence Check (workflow.md § Startup Protocol step 3)
-and before the handoff scan (step 4). Undetected drift surfaces later
-as confused reviewers in Phase C, missing required sections during
-track completion, or auto-resume tripping on a schema field the
-branch never gained — exactly the failure mode this gate prevents.
-The branch carries per-branch `_workflow/**` artifacts whose required
-shape is dictated by current `develop`: section names, mandatory
-artifacts, step-file schema. Workflow-format commits land on
-`develop` while the branch runs, and the branch's artifacts silently
-drift.
+Runs at session start for two callers: `/execute-tracks` (turn 1,
+immediately after the Branch Divergence Check at workflow.md §
+Startup Protocol step 3 and before the handoff scan at step 4) and
+`/create-plan` (between Step 1's workflow-docs read and Step 1a's
+handoff scan). Undetected drift surfaces later as confused reviewers
+in Phase C, missing required sections during track completion, or
+auto-resume tripping on a schema field the branch never gained —
+exactly the failure mode this gate prevents. The branch carries
+per-branch `_workflow/**` artifacts whose required shape is dictated
+by current `develop`: section names, mandatory artifacts, step-file
+schema. Workflow-format commits land on `develop` while the branch
+runs, and the branch's artifacts silently drift.
 
 Detection is one `git log` over the active plan's stamp-derived range
 against HEAD. The branch is a self-contained capsule (workflow-format
