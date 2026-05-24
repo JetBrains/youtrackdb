@@ -28,6 +28,40 @@ the user asks to create the plan (Step 4). Load them on demand at that point.
 running any command that uses it. If `"$ARGUMENTS"` is non-empty, use
 it. Otherwise, default to `$(git branch --show-current)`.
 
+**Step 1.5 — Workflow drift check (mandatory, before any other on-disk work).**
+
+Invoke the drift gate defined in
+[`.claude/workflow/workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
+The gate is shared with `/execute-tracks`; its intro names both callers
+and its body is caller-symmetric, so this step is a thin orchestration
+handoff rather than a re-statement of the bash. Run the gate's
+§ Detection (Phase 1 walk plus Phase 2 fold or unstamped
+short-circuit) against `$PLAN_DIR = docs/adr/<dir-name>` resolved in
+the previous block, and follow its § Skip conditions, § No-drift
+normalization, and § Resolutions flow verbatim.
+
+The three-resolution prompt fires only when drift surfaces and no
+skip condition matched. The user picks one:
+
+- **Migrate now** — end this session; the user runs `/migrate-workflow`
+  from this worktree, then re-invokes `/create-plan` afterward.
+  Exit before Step 1b's `mkdir`, before Step 2's aim prompt, and
+  before Step 5's commit and push (no phase work has run, so no
+  episode commits or PR exist yet).
+- **Defer** — continue this session. Record the deferred-drift count
+  via the TaskCreate todo described in `workflow-drift-check.md`
+  § Defer; Step 5's session-end recital reads that todo and prints
+  the same line shape `workflow.md § What to do before ending a
+  session` uses for `/execute-tracks`.
+- **Suppress** — continue this session with no recital at session
+  end.
+
+No-drift, Defer, and Suppress all proceed silently to Step 1a.
+Ordering matters: Step 1.5 runs after the `<dir-name>` resolver (so
+`$PLAN_DIR` is defined) and before Step 1b's `mkdir` (so the gate's
+Skip-#1 check `[ -d "$PLAN_DIR/_workflow" ]` reads the pre-creation
+state on fresh `/create-plan` invocations).
+
 **Step 1a — Handoff check (mandatory, before any other on-disk work).**
 Run:
 ```bash
