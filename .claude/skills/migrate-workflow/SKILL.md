@@ -645,16 +645,18 @@ The final batch and the per-commit advance use the same `Edit`-against-line-1 wr
 
 When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migration loop") as `completed`, then output:
 
+- Workflow stamps now at `$HEAD_SHA` (the value sub-step 4.8 captured from `git rev-parse HEAD`). This is the post-condition I2 lands; surfacing it in the summary gives the user a one-glance confirmation that every artifact in the active plan reached the same SHA.
+- When `$USER_BOOTSTRAP_SHA` is set (Step 2.0 fired because the session started with at least one unstamped artifact), emit: "Bootstrapped N previously unstamped artifacts using SHA `$USER_BOOTSTRAP_SHA`", where N is the size of the `$UNSTAMPED_FILES` set Step 2.0 collected. Skip this line entirely when `$USER_BOOTSTRAP_SHA` is unset (fully-stamped session) so the summary stays terse on the common path.
 - Count of commits migrated, of each classification (`format`, `skill`, `rename`, `noop`, `manual-review-needed`). Compute by reading the body of `.migration-progress` and counting each value of column 2.
 - If any commits were recorded as `manual-review-needed`, list their short-SHA and subject so the user knows which to revisit manually.
-- Total files edited in the migration worktree, excluding the progress-file sentinel: `git -C "<migration-worktree>" status --porcelain | grep -v '^?? \.migration-progress$' | wc -l`.
-- One-line next-step prompt: "Review the diff in `<migration-worktree>`, then commit when satisfied. Delete `.migration-progress` after the commit."
+- Total files edited in the branch's worktree, excluding the progress-file sentinel: `git status --porcelain | grep -v '^?? \.migration-progress$' | wc -l`.
+- One-line next-step prompt: "Review the diff in this worktree, then commit + push when satisfied. Delete `.migration-progress` after the commit."
 
 Then end the session.
 
 ## Notes
 
-- The skill is read-only on develop and edit-only on the migration worktree; no automatic commits in either worktree.
-- For large diffs, delegate to `Explore` to summarize commit diffs and `general-purpose` to apply repetitive edits across many files; pass absolute paths inside the migration worktree.
+- The skill edits artifacts in the branch's own worktree and never commits on the user's behalf; the user reviews the diff and commits + pushes after the session ends.
+- For large diffs, delegate to `Explore` to summarize commit diffs and `general-purpose` to apply repetitive edits across many files; pass absolute paths inside the branch's worktree.
 - This is a docs-only migration; mcp-steroid IDE control adds no value here.
-- Re-invoking the skill in the same worktree is safe: commits already recorded in `.migration-progress` are skipped. To force a full re-run, delete the progress file.
+- Re-invoking the skill on the same branch is safe: commits already recorded in `.migration-progress` are skipped. To force a full re-run, delete the progress file.
