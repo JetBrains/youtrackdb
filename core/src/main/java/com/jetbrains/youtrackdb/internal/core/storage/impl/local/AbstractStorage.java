@@ -2332,22 +2332,17 @@ public abstract class AbstractStorage
 
             commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
                 indexOperations);
-
-            // Persist accumulated index count deltas to BTree entry point pages.
-            // Runs inside the same WAL atomic operation as commitIndexes — any
-            // failure triggers rollback, ensuring persisted counts always match
-            // index data (design decision D2).
-            persistIndexCountDeltas(atomicOperation);
           } catch (final IOException | RuntimeException | AssertionError e) {
             // AssertionError is caught so a persisted-side underflow from
-            // BTree.addToApproximateEntriesCount (raised inside
-            // persistIndexCountDeltas or commitIndexes) routes through the
-            // rollback path. Without this, the assert would escape the
-            // outer catch (Error), call setInError, and put the storage in
-            // permanent error state. Persisted-side underflow signals a
-            // structural inconsistency on the entry-point page; rolling
-            // back the WAL atomic operation reverts the offending writes
-            // and leaves the storage usable for subsequent commits.
+            // BTree.addToApproximateEntriesCount (raised inside commitIndexes
+            // or the lifecycle persist hook later in endAtomicOperation)
+            // routes through the rollback path. Without this, the assert
+            // would escape the outer catch (Error), call setInError, and
+            // put the storage in permanent error state. Persisted-side
+            // underflow signals a structural inconsistency on the
+            // entry-point page; rolling back the WAL atomic operation
+            // reverts the offending writes and leaves the storage usable
+            // for subsequent commits.
             error = e;
             if (e instanceof RuntimeException runtimeException) {
               throw runtimeException;
@@ -2360,44 +2355,28 @@ public abstract class AbstractStorage
             if (error != null) {
               rollback(error, atomicOperation);
             } else {
+              // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
+              // the single lifecycle gate that now owns persist (before
+              // commitChanges) and apply (after commitChanges, before the
+              // inner-finally releaseLocks). The pre-endTxCommit catch above
+              // still owns commitIndexes failures plus any failure that
+              // escapes the lifecycle persist hook; the lifecycle apply hook
+              // logs-and-swallows its own failures, so no catch is needed
+              // around endTxCommit here. Removing the prior post-endTxCommit
+              // applyIndexCountDeltas / applyHistogramDeltas calls and their
+              // log-and-swallow catches closes the lock-window race the old
+              // apply path had: today's apply runs while the per-index lock
+              // acquired at lockIndexes is still held.
               endTxCommit(atomicOperation);
               try {
-                applyIndexCountDeltas(atomicOperation);
-              } catch (final RuntimeException | AssertionError e) {
-                // Counter application is a cache-only operation — its failure
-                // must never mask a successful commit. Counters will be
-                // recalibrated by load() on restart or buildInitialHistogram().
-                // AssertionError caught here for symmetry with the broadened
-                // pre-endTxCommit catch above: if a future regression
-                // reintroduces an `assert` along the apply path, the
-                // AssertionError must not escape and re-open the cascade.
-                LogManager.instance()
-                    .warn(this,
-                        "Index count delta application failed after successful"
-                            + " commit",
-                        e);
-              }
-              try {
-                applyHistogramDeltas(atomicOperation);
-              } catch (final RuntimeException | AssertionError e) {
-                // Delta application is a cache-only operation — its failure
-                // must never mask a successful commit. The cache will be
-                // reconstructed from the .ixs page on next restart.
-                // AssertionError caught here for symmetry with the broadened
-                // pre-endTxCommit catch above: an `assert` regression along
-                // the apply path must not escape and re-open the cascade.
-                LogManager.instance()
-                    .warn(this,
-                        "Histogram delta application failed after successful commit",
-                        e);
-              }
-              try {
                 cleanupSnapshotIndex();
-              } catch (final RuntimeException e) {
+              } catch (final RuntimeException | AssertionError e) {
                 // Cleanup is best-effort — its failure must never mask a successful commit.
                 // The commit is already durable (WAL flushed, pages applied). If cleanup
                 // throws, stale snapshot entries simply accumulate until the next successful
-                // cleanup pass.
+                // cleanup pass. AssertionError caught here for symmetry with the
+                // pre-endTxCommit catch above: an `assert` regression along the cleanup
+                // path must not escape and re-open the cascade.
                 LogManager.instance()
                     .warn(this, "Snapshot index cleanup failed after successful commit", e);
               }
@@ -2519,22 +2498,21 @@ public abstract class AbstractStorage
     if (holder == null) {
       return;
     }
-    // Idempotency latch: if the lifecycle apply hook in
-    // AtomicOperationsManager.endAtomicOperation has already applied this
-    // holder, a second pass from the inline call inside commit() would
-    // double-increment the engine counters. The latch closes that window
-    // until the inline call is deleted in a later step; it remains as a
-    // defensive belt against any future re-entry into apply on the same
-    // atomic operation.
+    // Idempotency latch: serves as a defensive belt against any future
+    // re-entry into apply on the same atomic operation (for example, a
+    // nested or mistakenly-replayed lifecycle pass). The lifecycle apply
+    // hook reads the latch in its gate and short-circuits the call when
+    // the holder is already applied.
     if (holder.isApplied()) {
       return;
     }
     // Latch the holder up front so a partial-loop throw caught by the
     // lifecycle hook's RuntimeException | AssertionError swallow still
-    // latches the holder. Without this, the inline apply call inside
-    // commit() below would re-iterate the same holder and double-apply the
-    // engines processed before the throw. Mirrors the setPersisted() latch
-    // at the top of persistIndexCountDeltas above.
+    // latches the holder. The latch closes the partial-loop window: any
+    // subsequent re-entry on the same holder sees isApplied() and skips
+    // the per-engine loop, preventing a double-apply on engines processed
+    // before the throw. Mirrors the setPersisted() latch at the top of
+    // persistIndexCountDeltas above.
     holder.setApplied();
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
@@ -2566,19 +2544,20 @@ public abstract class AbstractStorage
       return;
     }
     // Idempotency latch: same role as the IndexCountDeltaHolder.applied
-    // latch read above. If the lifecycle apply hook in
-    // AtomicOperationsManager.endAtomicOperation has already applied this
-    // holder, the inline call inside commit() must short-circuit so the
-    // CHM cache is not re-mutated within a single transaction.
+    // latch read above. A re-entry on the same atomic operation (for
+    // example, a nested or mistakenly-replayed lifecycle pass) must
+    // short-circuit so the CHM cache is not re-mutated within a single
+    // transaction.
     if (holder.isApplied()) {
       return;
     }
     // Latch the holder up front so a partial-loop throw caught by the
     // lifecycle hook's RuntimeException | AssertionError swallow still
-    // latches the holder. Without this, the inline apply call inside
-    // commit() below would re-iterate the same holder and double-apply the
-    // engines processed before the throw. Mirrors the setApplied() latch
-    // hoisted to the top of applyIndexCountDeltas above.
+    // latches the holder. The latch closes the partial-loop window: any
+    // subsequent re-entry on the same holder sees isApplied() and skips
+    // the per-engine loop, preventing a double-apply on engines processed
+    // before the throw. Mirrors the setApplied() latch hoisted to the top
+    // of applyIndexCountDeltas above.
     holder.setApplied();
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();

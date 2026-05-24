@@ -272,13 +272,11 @@ public class AtomicOperationsManager {
         // Hook A — persist accumulated index count deltas to BTree entry
         // point pages before WAL commit. Runs only on the success path
         // (no inbound error, not already rolling back). The isPersisted()
-        // guard short-circuits the second pass when the legacy inline call
-        // inside AbstractStorage.commit has already persisted; the latch
-        // is set at the end of AbstractStorage.persistIndexCountDeltas and
-        // closes the dual-invocation window until the inline call is
-        // deleted in a later step. After deletion the latch remains as a
-        // defensive belt against any future re-entry into persist on the
-        // same atomic operation.
+        // latch is set at the end of AbstractStorage.persistIndexCountDeltas
+        // and serves as a defensive belt against any future re-entry into
+        // persist on the same atomic operation: the persist hook short-
+        // circuits when the holder is already latched, so a nested or
+        // mistakenly-replayed lifecycle pass cannot double-persist.
         //
         // Failure handling: capture RuntimeException | AssertionError into
         // the local currentError slot, mark the storage in error mode

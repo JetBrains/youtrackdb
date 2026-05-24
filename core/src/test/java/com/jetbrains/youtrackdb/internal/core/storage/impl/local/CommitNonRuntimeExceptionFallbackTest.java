@@ -169,8 +169,9 @@ public class CommitNonRuntimeExceptionFallbackTest {
     // Third load-bearing assertion: the inner finally took the rollback
     // branch. endAtomicOperation(op, error) with a non-null error sets
     // operation.rollbackInProgress(); the unwrapped-bypass path would have
-    // run the success branch (endTxCommit followed by applyIndexCountDeltas)
-    // instead. Pins the inner-finally routing claim in the test's contract.
+    // run the success branch (endTxCommit, which now invokes the lifecycle
+    // persist and apply hooks inside endAtomicOperation) instead. Pins the
+    // inner-finally routing claim in the test's contract.
     assertThat(capturedOp.isRollbackInProgress())
         .as("Atomic operation must be marked rollback-in-progress, proving "
             + "the inner finally took the rollback branch rather than the "

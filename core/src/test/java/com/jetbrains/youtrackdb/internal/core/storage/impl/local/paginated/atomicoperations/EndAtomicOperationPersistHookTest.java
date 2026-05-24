@@ -504,12 +504,12 @@ public class EndAtomicOperationPersistHookTest {
    * Anchor for the {@code AbstractStorage.persistIndexCountDeltas} side of
    * the latch contract: the holder is created via
    * {@code AtomicOperation.getOrCreateIndexCountDeltas()} on the accumulate
-   * path, lives on the operation, and is read back by both the inline
-   * persist call (until it is deleted) and the lifecycle hook. The hook's
-   * {@code isPersisted()} gate ties the two call sites together. This test
-   * pins the empty-holder shape so a future regression that defaults
-   * {@code persisted} to {@code true} (or skips the field altogether) fails
-   * here rather than in a higher-level commit test.
+   * path, lives on the operation, and is read by the lifecycle persist hook
+   * inside {@code AtomicOperationsManager.endAtomicOperation}. The hook's
+   * {@code isPersisted()} gate guards against re-entry on the same atomic
+   * operation. This test pins the empty-holder shape so a future regression
+   * that defaults {@code persisted} to {@code true} (or skips the field
+   * altogether) fails here rather than in a higher-level commit test.
    */
   @Test
   public void emptyHolderHasNoDeltasAndIsNotPersisted() {
