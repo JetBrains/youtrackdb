@@ -96,22 +96,23 @@ shape declines along with anything else unrecognised.
 | Vertex source | `g.V(id1, id2, …)` | as above + `aliasFilters[boundary] = WHERE @rid IN [...]` | Track 2 |
 | Edge traversal | `out(label)` / `in(label)` | `addEdge(from, to, OUT/IN, label)` + `addNode(to, "V", null, false)` | Track 3 |
 | Edge traversal | `both(label)` | `addEdge(..., BOTH, label)` | Track 3 |
-| Edge traversal | `outE(L).inV()` / `inE(L).outV()` | folded by TinkerPop's `IncidentToAdjacentStrategy` to `out(L)` / `in(L)` before our strategy fires; recogniser sees the folded shape | Track 3 |
-| Edge traversal | `bothE(L).otherV()` | folded by `IncidentToAdjacentStrategy` to `both(L)` | Track 3 |
+| Edge traversal | `outE(L).inV()` / `inE(L).outV()` (adjacent) | folded by TinkerPop's `IncidentToAdjacentStrategy` to `out(L)` / `in(L)` before our strategy fires; recogniser sees the folded shape | Track 3 |
+| Edge traversal | `bothE(L).otherV()` (adjacent) | folded by `IncidentToAdjacentStrategy` to `both(L)` | Track 3 |
+| Filtering | `has(key)` (presence) | `aliasFilters` `key IS NOT NULL` (record-layer absent property is treated as null — see "Predicate translation") | Track 4 |
 | Filtering | `has(key, value)` | `aliasFilters` `key = value` | Track 4 |
 | Filtering | `has(key, predicate)` | `aliasFilters` predicate (per "Predicate translation" below) | Track 4 |
 | Filtering | `has(label, key, value)` | `aliasClasses[a] = label` + `aliasFilters` `key = value` | Track 4 |
 | Filtering | `hasLabel(label)` | folded by `YTDBGraphStepStrategy` into start-step `hasContainers`; `aliasClasses[a] = label` | Track 4 |
 | Filtering | `hasId(id)` (single) | `aliasRids[a] = SQLRid(id)` | Track 4 |
 | Filtering | `hasId(id1, id2, …)` (multi) | `aliasFilters[a] = WHERE @rid IN [...]` | Track 4 |
-| Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NULL` | Track 4 |
+| Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NULL` (see caveat under "Predicate translation": YTDB's record layer treats `absent` and `null` as distinct, so the Phase 1 mapping holds only while `MATCH` itself treats both as `IS NULL`; if the engine grows a separate "absent" predicate we re-route there) | Track 4 |
 | Predicate ops | `Compare.eq` / `neq` / `gt` / `gte` / `lt` / `lte` | `SQLBinaryCondition` + corresponding operator | Track 4 |
 | Predicate ops | `Contains.within` / `Contains.without` | `SQLInCondition` / `SQLNotInCondition` | Track 4 |
-| Predicate ops | `P.between(lo, hi)` | `SQLBetweenCondition` (or `AND(>=lo, <hi)`) | Track 4 |
+| Predicate ops | `P.between(lo, hi)` | `AND(>=lo, <hi)` — Gremlin's `between` is right-exclusive `[lo, hi)`; YTDB's `SQLBetweenCondition` is closed `[lo, hi]`, so we cannot use it directly | Track 4 |
 | Predicate ops | `P.inside(lo, hi)` | `AND(GT lo, LT hi)` | Track 4 |
 | Predicate ops | `P.outside(lo, hi)` | `OR(LT lo, GT hi)` | Track 4 |
 | Predicate ops | `Text.containing` / `notContaining` | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
-| Predicate ops | `Text.startingWith` / `endingWith` | `startsWith` / `endsWith` operator | Track 4 |
+| Predicate ops | `Text.startingWith(prefix)` / `endingWith(suffix)` | `SQLLikeOperator` with the prefix/suffix escaped and wildcarded (`prefix%` / `%suffix`) — YTDB has no native `startsWith` / `endsWith` operator | Track 4 |
 | Logical filters | `AndStep` / `OrStep` (`ConnectiveStrategy` form) | recursive `MatchWhereBuilder.and(...)` / `or(...)` over per-child sub-trees | Track 5 |
 | Logical filters | `NotStep` (one recogniser, branches by sub-traversal shape) | pure-filter sub-traversal → `MatchWhereBuilder.not(...)` merged into current node `where`; edge-bearing sub-traversal → new `SQLMatchExpression` added to `notMatchExpressions` | Track 5 |
 | Logical filters | `WhereTraversalStep` (pure filter / edge pattern) | inline filter on `where` / extra `SQLMatchExpression` | Track 5 |
@@ -126,6 +127,7 @@ shape declines along with anything else unrecognised.
 | Projection | `elementMap()` | full schema-driven property map | Track 7 |
 | Projection | `project(keys...).by(...)` | composite map with by-modulators | Track 7 |
 | Order | `order().by(key, Order.asc/desc)` | `SQLOrderBy` (`Order.shuffle` declines) | Track 8 |
+| Order | `order().by(__.values(key))`, `order().by(__.id())`, `order().by(__.label())` (pure property / identity sub-traversal) | unwrapped to the equivalent string-key form, then `SQLOrderBy`; nested traversals that introduce edges or filters decline | Track 8 |
 | Pagination | `limit(n)` | `SQLLimit(n)` | Track 8 |
 | Pagination | `skip(n)` | `SQLSkip(n)` | Track 8 |
 | Pagination | `range(low, high)` | `SQLSkip(low) + SQLLimit(high - low)` | Track 8 |
@@ -572,6 +574,28 @@ operators:
 | `Compare.lt` | `SQLLtOperator` |
 | `Compare.lte` | `SQLLeOperator` |
 
+**NULL and collection comparison semantics.** TinkerPop and YTDB diverge
+on a few corner cases that the recogniser must intercept:
+
+- `P.eq(null)` / `P.neq(null)`: TinkerPop returns `false` for both when
+  the field value is `null` (per `Compare.eq(null, null)` returning
+  `false` — `null` is not equal to anything, including itself). YTDB's
+  `SQLEqualsOperator` against a `null` literal evaluates to `null` per
+  three-valued SQL logic, which the planner treats as filter-false. The
+  result-set effect is identical (the row is filtered out), but the
+  `P.neq(null)` case differs: TinkerPop returns `true` when the field
+  is non-null; YTDB returns `null` (filter-false). The recogniser
+  rewrites `P.neq(null)` to `field IS NOT NULL` and `P.eq(null)` to
+  `field IS NULL` so the result matches Gremlin's boolean view.
+- `P.eq([a])` against a scalar field: TinkerPop's `Compare.eq` is
+  reference / structural equality on the predicate's argument; a
+  singleton collection compares unequal to its element (a Java `List`
+  with one entry is not `.equals` to the entry). YTDB applies the same
+  rule. No special handling needed.
+- `Contains.within([a])` over a scalar field: collapses to `field = a`
+  via `SQLInCondition` (single-element list); the recogniser does not
+  optimise this — the planner handles it.
+
 **Contains predicates**: `Contains.within` → `SQLInCondition` with the
 `SQLCollection` populated from the predicate's value (which is always a
 `Collection`); `Contains.without` → `SQLNotInCondition`.
@@ -584,12 +608,28 @@ or `P.or(lt, gt)` in TinkerPop, and recursion handles them. We override the
 common cases for cleaner output (`between` becomes a single
 `SQLBetweenCondition` if YTDB has one, else the AND form).
 
-**Text predicates** (`Text.containing`, `Text.startingWith`, `Text.endingWith`,
-`Text.notContaining`, etc.) map to `SQLContainsTextCondition` for the
-positive forms and a NOT-wrapped variant for the negatives. YTDB's
-`SQLContainsTextCondition` is a String-only operator; if the predicate is
-applied to a non-String field the recogniser declines, and under D3
-all-or-nothing the entire traversal declines with it.
+**`TextP` predicates** (the modern TinkerPop entry point —
+`TextP.containing`, `TextP.startingWith`, `TextP.endingWith`,
+`TextP.notContaining`, `TextP.notStartingWith`, `TextP.notEndingWith`,
+plus regex via `TextP.regex` / `TextP.notRegex` on newer TinkerPop):
+
+| Predicate | YTDB target |
+|---|---|
+| `TextP.containing(sub)` | `SQLContainsTextCondition(field, sub)` |
+| `TextP.notContaining(sub)` | `NOT(SQLContainsTextCondition(field, sub))` |
+| `TextP.startingWith(prefix)` | `SQLLikeOperator` with `prefix%` (prefix escaped) |
+| `TextP.notStartingWith(prefix)` | `NOT(SQLLikeOperator(field, 'prefix%'))` |
+| `TextP.endingWith(suffix)` | `SQLLikeOperator` with `%suffix` (suffix escaped) |
+| `TextP.notEndingWith(suffix)` | `NOT(SQLLikeOperator(field, '%suffix'))` |
+| `TextP.regex(pattern)` | `SQLMatchesOperator(field, pattern)` |
+| `TextP.notRegex(pattern)` | `NOT(SQLMatchesOperator(field, pattern))` |
+
+`SQLContainsTextCondition` and `SQLLikeOperator` are String-only
+operators; if the predicate is applied to a non-String field the
+recogniser declines, and under D3 all-or-nothing the entire traversal
+declines with it. The legacy `Text` algebra (pre-TextP) routes through
+the same translation by sharing the same `BiPredicate` instances inside
+`P`.
 
 **Custom user predicates** — TinkerPop allows users to extend `P<T>` with
 their own `BiPredicate`. We cannot translate arbitrary code. Detection: if
@@ -689,11 +729,20 @@ they describe filtering at the **step** layer, where each child carries
 its own sub-traversal of arbitrary recognised filter steps.
 
 **`AndStep` / `OrStep`** wrap N sub-traversals; each sub-traversal is a
-sequence of filter steps applied to the current traverser. The translator
-walks each child as if it were a `HasStep` chain on the current alias,
-produces a `SQLBooleanExpression` per child, then composes them via
-`MatchWhereBuilder.and(...)` / `or(...)`. The composed result merges into
-the current node's `where` slot in `aliasFilters`.
+sequence of filter steps applied to the current traverser. TinkerPop's
+`ConnectiveStrategy` rewrites the boolean-flat form (`and(P, P)`) into
+this step form, so what the recogniser sees is the step-level shape.
+Sub-traversals are not restricted to `HasStep` chains: any combination
+of recognised filter / predicate / edge steps is allowed inside each
+child, as long as every step in every child is itself in the recognised
+set. The translator walks each child against the same recogniser
+registry (recursing via a child-`WalkerContext` so alias mutations
+stay scoped), produces a `SQLBooleanExpression` per child if the child
+is a pure filter or a `SQLMatchExpression` if the child carries edges,
+then composes the booleans via `MatchWhereBuilder.and(...)` /
+`or(...)` and merges into the current node's `where`. A child that
+contains an unrecognised step makes the whole `AndStep` / `OrStep`
+unrecognised, which under D3 declines the enclosing traversal.
 
 **`NotStep` — one recogniser, two sub-traversal shapes.** TinkerPop
 emits a single `NotStep` class for every `not(...)`; the recogniser
@@ -825,15 +874,25 @@ GQL's `$c` and from the planner's package-private
 `MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX` so generator-minted aliases
 cannot collide with either front-end's namespace.
 
+**Collision policy: forbid the `$` prefix in user aliases.** We chose
+the strict variant over the "generate-then-rename-on-collision" variant
+because (a) the `$`-prefix space is already reserved by YTDB MATCH for
+engine-internal aliases (`$matched`, `$currentMatch`, …) so a Gremlin
+user who picks one is already on shaky ground, and (b) the strict rule
+is one cheap lexical check at walk-time, whereas the rename-on-collision
+variant requires the walker to track every user alias before minting any
+anonymous one, then re-rename downstream references when a collision is
+detected — additional state and a bigger surface for subtle bugs.
+
 A pre-flight scan in the walker iterates every step's `Step.getLabels()`
 once before dispatching to recognisers and declines the entire traversal
-if any user-supplied label starts with `$g2m_anon_`. Without this guard,
-a user explicitly aliasing a step under the translator's private prefix
-would collide with a generator-minted alias inside `aliasClasses` /
-`aliasFilters`, producing silently-merged predicates and incorrect query
-results. The pre-flight is purely lexical (no graph access) so it is
-safe to run before any recogniser-specific gate, including those that
-depend on the session being resolved.
+if any user-supplied label starts with `$`. Declining (rather than
+throwing) preserves the D3 fallback: the native TinkerPop pipeline keeps
+handling such a traversal exactly as it does today, so a user with a
+pre-existing `as("$foo")` query sees no behaviour change. The pre-flight
+is purely lexical (no graph access) so it is safe to run before any
+recogniser-specific gate, including those that depend on the session
+being resolved.
 
 The counter is per-`WalkerContext` and resets for each new walk so the
 alias sequence is deterministic per query rather than monotonic across
@@ -1160,7 +1219,10 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Imperative branching | `choose(traversal).option(...)` | Branch-on-traverser has no MATCH equivalent | Stay native or future per-row branch construct |
 | Custom DSL steps | `executeInTx()`, `computeInTx()` | Execution-model concerns, not a query shape | Stay native |
 | Edge-returning terminals | `outE(L)` / `inE(L)` / `bothE(L)` (without paired vertex hop, or after `as(label)` that prevents folding) | `BoundaryOutputType` would need an `EDGE` variant; `PatternEdge` doesn't carry an alias today | Add `EDGE` output type and an edge-alias slot in the shared builder |
+| Non-adjacent edge filtering | `outE(L).has(key, value).inV()` / `outE(L).as(e).inV()` and analogues | `IncidentToAdjacentStrategy` only folds the **adjacent** `outE(L).inV()` shape — a `has` or `as` between them breaks the fold and the edge step survives as `outE(L)`, which falls under the edge-returning-terminals row above. Phase 1 declines. | Same fix as above (edge-alias slot in the shared builder) plus a recogniser that emits a named `PatternEdge` with its own filter slot |
 | Multi-label edges | `out("a", "b")` | `MatchPatternBuilder.addEdge` accepts a single edge-label string; an edge-label `IN [...]` filter slot doesn't exist yet | Variadic `SQLMethodCall.params` retrofit on the shared builder |
+| Collection / list ops | `fold`, `unfold`, `reverse` | TinkerPop list-shaping steps that materialise / re-shape the traverser stream; MATCH has no in-pipeline list operator that mirrors them precisely, and `fold` interacts with aggregator semantics differently | Phase 2 audit of the whole TinkerPop step list will decide whether `fold` becomes a boundary-step variant, whether `unfold` is implementable on top of `collect(*)` output, and whether `reverse` is even reachable via MATCH |
+| Tail | `tail(n)` | Order-dependent — Gremlin's `tail` keeps the last N traversers in arrival order, which is not what `ORDER BY ... LIMIT` produces; needs either a `Tail` execution step on the MATCH side or a buffer in the boundary step | Simple add: model as a bounded ring buffer in the boundary step, fed by `ELEMENT` / `MAP` output |
 
 **Type-keyed recogniser dispatch ships in Phase 1** (see "Recogniser
 dispatch" in Class Design). No follow-up migration is queued for
