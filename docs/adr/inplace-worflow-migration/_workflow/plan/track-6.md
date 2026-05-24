@@ -125,3 +125,7 @@ After Track 6 lands:
 
 **External interfaces:**
 - The Step 1.5 invocation runs the same bash detection block as the `/execute-tracks` turn-1 gate. No new external commands.
+
+## Base commit
+
+555efea03aab1df18d7bb0c154cf626250839249
