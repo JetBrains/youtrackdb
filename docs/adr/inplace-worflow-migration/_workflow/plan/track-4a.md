@@ -130,3 +130,6 @@ No step depends on a runtime sentinel file, lock, or external service. The `.mig
 - `git rev-parse --verify "$SHA^{commit}"` and `git merge-base --is-ancestor "$SHA" HEAD` — used by Step 2.0 to validate the user-supplied bootstrap SHA before it enters the fold. HEAD is the reachability anchor because the range upper bound is HEAD (D10).
 - `git merge-base <a> <b>` — pairwise fold across stamps to find the oldest reachable ancestor (`BASE_SHA`). Handles linear and divergent histories uniformly.
 - `git log $BASE_SHA..HEAD -- .claude/workflow .claude/skills` — the commit range for replay.
+
+## Base commit
+e27d6478600371b35c2948d867ed47154d0b8822
