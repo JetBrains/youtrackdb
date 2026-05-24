@@ -9,7 +9,7 @@ Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -18,6 +18,8 @@ Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3
 - [x] 2026-05-24T20:07Z [ctx=info] Step 2 complete (commit e06217e50f)
 - [x] 2026-05-24T20:12Z [ctx=info] Step 3 complete (commit f8e6c406e0)
 - [x] 2026-05-24T20:16Z [ctx=info] Step 4 complete (commit eb5d129611)
+- [x] 2026-05-24T20:20Z [ctx=info] Step 5 complete (commit 8bb259dc00)
+- [x] 2026-05-24T20:20Z [ctx=info] Step implementation complete (5/5 steps)
 
 ## Surprises & Discoveries
 
@@ -79,7 +81,7 @@ Track 3's `workflow-drift-check.md` Detection / Defer / After-the-choice prose a
 2. Sweep `.claude/workflow/workflow-drift-check.md` body for caller-specific wording. Rewrite the 6 body "step 4" references (lines 139, 144, 265, 282, 324, 453), the 3 explicit `/execute-tracks` references (lines 261, 432, 466), the 1 body "Startup Protocol step 3" reference (line 462), the body "turn 1" / "handoff scan" references at line 276, and § After-the-choice's "auto-resume decision" framing at line 453 — to caller-agnostic forms ("the calling session's next startup step", "the calling session") or caller-qualified forms where the anchor genuinely differs. Bash blocks and decision logic stay unchanged. — risk: medium (override: 10+ coordinated edit sites in one file requiring mutual consistency; the same coordinate-edit pattern Track 5 Step 1 used the override for, warranting focal-point Phase C review across the workflow-consistency dimension)  [x]
 3. Update `.claude/workflow/workflow-drift-check.md` Migrate-now § session-end framing (anchor "End the session before reaching `workflow.md § What to do before ending a session`" at lines 392-396) and Defer state-shape's recital-surface description (lines 405-415) to handle both callers conditionally. The Migrate-now rewrite folds both branches into one paragraph: `/execute-tracks` exits before `workflow.md § What to do before ending a session`; `/create-plan` exits before Step 5's commit/push. The Defer rewrite names per-caller recital surfaces: `/execute-tracks` reads the todo at `workflow.md § What to do before ending a session`; `/create-plan` reads it at the recital added in Step 5 of this track. — risk: low (default)  [x]
 4. Add Step 1.5 (Workflow drift check) to `.claude/skills/create-plan/SKILL.md` between the `<dir-name>` resolver block (SKILL.md:26-29) and Step 1a (SKILL.md:31). The new step invokes `.claude/workflow/workflow-drift-check.md`'s detection: runs the bash, presents the three-resolution prompt on drift, ends the session on Migrate now with in-branch wording ("end the session; run `/migrate-workflow` from this worktree; re-invoke `/create-plan` afterward"), continues silently on no-drift / Defer / Suppress. Ordering: Step 1.5 must run after the resolver (so `$PLAN_DIR` is defined) and before Step 1b's `mkdir` (so the gate's Skip-#1 check `[ -d "$PLAN_DIR/_workflow" ]` sees the pre-creation state on fresh invocations). — risk: low (default)  [x]
-5. Add a minimal session-end recital to `.claude/skills/create-plan/SKILL.md` Step 5. After the `git push -u origin <branch>` block (SKILL.md:419-423) and before the PR-prefix prompt (SKILL.md:424), insert a recital that reads the deferred-drift TaskCreate todo (if any was created in this session by Step 1.5's Defer resolution) and prints the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` line shape `workflow.md § What to do before ending a session` uses for `/execute-tracks`. The recital fires before the PR opens so the user sees it in the same session. If no todo exists, the recital is a silent no-op. — risk: low (default)  [ ]
+5. Add a minimal session-end recital to `.claude/skills/create-plan/SKILL.md` Step 5. After the `git push -u origin <branch>` block (SKILL.md:419-423) and before the PR-prefix prompt (SKILL.md:424), insert a recital that reads the deferred-drift TaskCreate todo (if any was created in this session by Step 1.5's Defer resolution) and prints the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` line shape `workflow.md § What to do before ending a session` uses for `/execute-tracks`. The recital fires before the PR opens so the user sees it in the same session. If no todo exists, the recital is a silent no-op. — risk: low (default)  [x]
 
 ## Episodes
 
@@ -130,6 +132,18 @@ Track 3's `workflow-drift-check.md` Detection / Defer / After-the-choice prose a
 - `.claude/skills/create-plan/SKILL.md` (modified)
 
 **Critical context:** The new Step 1.5 description references a Step 5 recital that does not yet exist on disk; Step 5 of this track (the SKILL.md Step 5 recital addition) is still `[ ]` in the roster. Between this commit and Step 5's commit, `/create-plan`'s Step 1.5 documents a Defer recital host that Step 5 of the SKILL itself has not yet implemented. This forward reference is consistent with the forward reference Step 3 already introduced in `workflow-drift-check.md`'s § Defer paragraph. Once Step 5 lands, the SKILL's Step 1.5 description, Step 5's recital body, and `workflow-drift-check.md`'s § Defer paragraph all align.
+
+### Step 5 — commit 8bb259dc00, 2026-05-24T20:20Z [ctx=info]
+**What was done:** Inserted a new sub-step 3 ("Deferred-drift recital") into `.claude/skills/create-plan/SKILL.md` Step 5, between the `git push -u origin <branch>` block and the PR-prefix prompt. The recital reads the deferred-drift TaskCreate todo when Step 1.5's Defer resolution created one earlier in the session and recites the `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` line verbatim (plus the unstamped variant), followed by an instruction to run `/migrate-workflow` from this worktree. The recital is a silent no-op when no Defer resolution fired. Existing sub-steps 3-6 (PR-prefix prompt, title compose, body compose, `gh pr create`) shifted to 4-7 to preserve the linear "push then recite then open PR" reading; no other sites reference Step 5's sub-step numbers, so the shift is local.
+
+**What was discovered:** The orchestrator's heads-up about line-number drift held; Step 4's Step 1.5 insertion shifted the push block from SKILL.md:419-423 to SKILL.md:453-457 and the PR-prefix prompt from :424 to :458. Grep on `git push -u origin` and the PR-prefix prompt's adjacent phrasing was the right resolver; the roster's cited literal numbers would have missed by 34 lines. The pre-commit ephemeral-identifier gate produced two matches ("Step 1.5" inside the new recital prose); both resolve to self-contained intra-document section references inside the same SKILL.md, matching the precedent Step 4 set with its seven similar matches. The matches pass through as allowed in-document section labels rather than forbidden workflow-internal "Track N / Step N" leaks.
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/skills/create-plan/SKILL.md` (modified)
+
+**Critical context:** The three-site forward-reference chain that Steps 3 and 4 introduced now aligns on disk. `workflow-drift-check.md` § Defer describes the recital, `create-plan/SKILL.md` Step 1.5's Defer resolution points at it, and Step 5 sub-step 3 implements it. The Surprises note about `workflow-drift-check.md` § Defer's final residue-contract paragraph (post-Step-3 lines 442-447) is deliberately untouched per the orchestrator's scope note; that paragraph lives in `workflow-drift-check.md`, not `create-plan/SKILL.md`, and Phase C will adjudicate the extend-or-defer call.
 
 ## Validation and Acceptance
 
