@@ -8,21 +8,30 @@ After this track lands, `/create-plan` re-detects workflow drift at session star
 Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3) to the `/create-plan` SKILL, between Step 1 (read workflow docs) and Step 1a (handoff scan). Without this gate, a re-invocation after the user rebases the branch to pick up critical workflow changes from develop would silently mutate `_workflow/**` artifacts on top of the drifted shape: stamps still point at the pre-rebase workflow tip, but HEAD's history has advanced to include the newly-imported workflow commits. The gate's `BASE_SHA..HEAD` walk surfaces those imported commits (D10) and routes the user through migration first. Three resolutions stay symmetric with `/execute-tracks` (Migrate now / Defer / Suppress). `/edit-design` runs only inside parent skills, so transitive coverage holds; no separate wiring there.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-05-24T19:50Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 
 ## Decision Log
-<!-- Continuous-log. Empty at Phase 1. -->
+
+#### DL1: Full caller symmetry for `workflow-drift-check.md` and a new `/create-plan` recital surface
+
+- **Alternatives considered**: Targeted scope (update intro paragraph + add Step 1.5; defer the 11 caller-specific surfaces to a Surprise or a follow-up track); inline replanning (split work across tracks); the chosen Full caller symmetry path.
+- **Rationale**: Phase A's technical review iteration 1 ran the boundary-condition audit the Track 5 strategy-refresh signal recommended (implementation-plan.md:277). The audit surfaced 12 caller-specific surfaces in `workflow-drift-check.md` beyond the intro paragraph: 7 "step 4" references, 3 explicit `/execute-tracks` references, 2 "Startup Protocol step 3" references, Migrate-now's `workflow.md § What to do before ending a session` anchor, and § After the choice's "auto-resume decision" / "turn 1" framing. The original Plan-of-Work claim "the rest of the file stays caller-agnostic" was materially wrong, replicating the first→second-caller drift pattern Track 5 lived through with `self-improvement-reflection.md`. Targeted-scope would leave the gate file caller-asymmetric and force future Phase C escalations or a follow-up track; concentrating the cost here is one 5-step decomposition rather than 11 scattered later fixes. The Defer-from-`/create-plan` semantics question (`/create-plan` has no session-end recital protocol, so the TaskCreate todo would die with the session) is coupled to the same audit and is resolved by a minimal recital addition to `/create-plan` Step 5.
+- **Risks/Caveats**: Track 6's complexity moves from Simple (2-3 steps) to Moderate (5 steps). No step crosses into HIGH-risk territory; all are markdown edits with `low` risk per `risk-tagging.md`. The session-end recital addition to `/create-plan` Step 5 is the only piece touching that SKILL beyond the gate invocation; the recital body reads from the same TaskCreate todo `workflow.md § What to do before ending a session` already reads for `/execute-tracks`.
+- **Implemented in**: Track 6 — Steps 1 through 5 (decomposition below).
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+
+- [x] Technical: PASS at iteration 2 (5 findings, all accepted) — T1 (boundary-condition audit) drove the Plan-of-Work expansion from 2-3 steps to 5 work areas covering 12 caller-specific surfaces; T2 added the Defer-from-`/create-plan` recital at Step 5; T3 / T4 fold into decomposition (canonical `[ -d "$PLAN_DIR/_workflow" ]` wording, `<dir-name>` resolver-block ordering); T5 was a counting fix applied inline.
 
 ## Context and Orientation
 
@@ -43,16 +52,27 @@ The SHA-stamp design (Track 1) and the SHA-aware gate (Track 3) handle the rebas
 
 ## Plan of Work
 
-Add a new step to `.claude/skills/create-plan/SKILL.md`, between Step 1 (Read workflow documents) and Step 1a (Handoff check). Call it Step 1.5 — Workflow drift check. The step instructs the agent to invoke the gate defined in `.claude/workflow/workflow-drift-check.md`: run the detection block, present the three-resolution prompt if drift surfaces, end the session on Migrate now, continue silently on no-drift or on Defer/Suppress.
+Five structural areas, per DL1's Full caller symmetry resolution. Each maps to one decomposed step.
 
-Update `.claude/workflow/workflow-drift-check.md`'s intro paragraph to name both callers. Today's single mention of `/execute-tracks` becomes a small list covering `/execute-tracks` (turn 1) and `/create-plan` (between Step 1 and Step 1a). The rest of the file (Detection, Skip conditions, Resolutions, After the choice) stays caller-agnostic and needs no change beyond Track 3's existing rewrite.
+1. **Generalize `workflow-drift-check.md`'s intro paragraph** to name both callers — `/execute-tracks` (turn 1) and `/create-plan` (between Step 1 and Step 1a). Today's intro mentions only `/execute-tracks` at line 3.
 
-Verify the gate's skip-#1 condition ("Active plan's `_workflow/` doesn't exist") catches the brand-new `/create-plan` case. On a fresh `/create-plan` invocation, the resolved `docs/adr/<dir-name>/_workflow/` doesn't exist yet, so the `ls -d "$PLAN_DIR/_workflow/"` check returns nothing, the gate skips silently, and Step 1b (the `mkdir`) runs after. Order matters: Step 1.5 must run before Step 1b so the skip-#1 check sees the pre-creation state.
+2. **Sweep caller-specific references in the body of `workflow-drift-check.md`** for caller-agnostic wording. The boundary-condition audit (technical review iteration 1) enumerated the surfaces: 7 "step 4" references (line 5 in the intro covered by area 1; lines 139, 144, 265, 282, 324, 453 in the body), 3 explicit `/execute-tracks` references (lines 261, 432, 466), 2 "Startup Protocol step 3" references (line 4 in the intro covered by area 1; line 462 in the body). Rewrite to caller-agnostic forms ("the calling session's next startup step", "the calling session") or qualify by caller where the anchor genuinely differs. Bash blocks and decision logic stay unchanged; this is a prose sweep.
 
-Mirror the Migrate-now wording from Track 3's rewrite in `/create-plan`'s Step 1.5 instructions: end the session; user runs `/migrate-workflow` in this worktree, then re-invokes `/create-plan`. Both copies point at the in-branch flow.
+3. **Update Migrate-now's session-end framing in `workflow-drift-check.md`** so the "End the session before reaching `workflow.md § What to do before ending a session`" anchor reads correctly for both callers. `/execute-tracks` uses that anchor; `/create-plan` ends the session naturally after Step 5 (commit + push). One paragraph covers both branches rather than two parallel paragraphs.
+
+4. **Add Step 1.5 to `.claude/skills/create-plan/SKILL.md`** between the `<dir-name>` resolver block (SKILL.md:26-29) and Step 1a (SKILL.md:31). Step 1.5 invokes `.claude/workflow/workflow-drift-check.md`'s detection: run the bash, present the three-resolution prompt on drift, end the session on Migrate now (mirroring Track 3's in-branch wording — user runs `/migrate-workflow` in this worktree, then re-invokes `/create-plan`), continue silently on no-drift / Defer / Suppress. Ordering: Step 1.5 runs after the resolver (so `$PLAN_DIR` is defined) and before Step 1b's `mkdir` (so the gate's Skip-#1 check `[ -d "$PLAN_DIR/_workflow" ]` sees the pre-creation state on fresh invocations).
+
+5. **Add a minimal session-end recital to `/create-plan` Step 5** so Defer-from-`/create-plan` has a host. After Step 5's `git push` (SKILL.md:419-423) and before Step 5's PR-prefix prompt (SKILL.md:424), append a recital that reads the deferred-drift TaskCreate todo (if any) and prints the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` line `workflow.md § What to do before ending a session` reads for `/execute-tracks`. Recital fires before the PR is opened so the user sees it in the same session.
+
+Track 3's `workflow-drift-check.md` Detection / Defer / After-the-choice prose already accommodates this expansion at the structural level — Steps 2-3 rewrite caller-specific phrasing without re-architecting the gate's behavior.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the step roster here. -->
+
+1. Generalize `.claude/workflow/workflow-drift-check.md`'s intro paragraph (lines 3-5 plus adjacent prose) to name both callers: `/execute-tracks` (turn 1) and `/create-plan` (between Step 1 and Step 1a). Line 5's "step 4" reference is rewritten as part of the intro generalization (out of scope for Step 2's body sweep); line 4's "Startup Protocol step 3" reference is similarly handled here. — risk: low (default)  [ ]
+2. Sweep `.claude/workflow/workflow-drift-check.md` body for caller-specific wording. Rewrite the 6 body "step 4" references (lines 139, 144, 265, 282, 324, 453), the 3 explicit `/execute-tracks` references (lines 261, 432, 466), the 1 body "Startup Protocol step 3" reference (line 462), the body "turn 1" / "handoff scan" references at line 276, and § After-the-choice's "auto-resume decision" framing at line 453 — to caller-agnostic forms ("the calling session's next startup step", "the calling session") or caller-qualified forms where the anchor genuinely differs. Bash blocks and decision logic stay unchanged. — risk: medium (override: 10+ coordinated edit sites in one file requiring mutual consistency; the same coordinate-edit pattern Track 5 Step 1 used the override for, warranting focal-point Phase C review across the workflow-consistency dimension)  [ ]
+3. Update `.claude/workflow/workflow-drift-check.md` Migrate-now § session-end framing (anchor "End the session before reaching `workflow.md § What to do before ending a session`" at lines 392-396) and Defer state-shape's recital-surface description (lines 405-415) to handle both callers conditionally. The Migrate-now rewrite folds both branches into one paragraph: `/execute-tracks` exits before `workflow.md § What to do before ending a session`; `/create-plan` exits before Step 5's commit/push. The Defer rewrite names per-caller recital surfaces: `/execute-tracks` reads the todo at `workflow.md § What to do before ending a session`; `/create-plan` reads it at the recital added in Step 5 of this track. — risk: low (default)  [ ]
+4. Add Step 1.5 (Workflow drift check) to `.claude/skills/create-plan/SKILL.md` between the `<dir-name>` resolver block (SKILL.md:26-29) and Step 1a (SKILL.md:31). The new step invokes `.claude/workflow/workflow-drift-check.md`'s detection: runs the bash, presents the three-resolution prompt on drift, ends the session on Migrate now with in-branch wording ("end the session; run `/migrate-workflow` from this worktree; re-invoke `/create-plan` afterward"), continues silently on no-drift / Defer / Suppress. Ordering: Step 1.5 must run after the resolver (so `$PLAN_DIR` is defined) and before Step 1b's `mkdir` (so the gate's Skip-#1 check `[ -d "$PLAN_DIR/_workflow" ]` sees the pre-creation state on fresh invocations). — risk: low (default)  [ ]
+5. Add a minimal session-end recital to `.claude/skills/create-plan/SKILL.md` Step 5. After the `git push -u origin <branch>` block (SKILL.md:419-423) and before the PR-prefix prompt (SKILL.md:424), insert a recital that reads the deferred-drift TaskCreate todo (if any was created in this session by Step 1.5's Defer resolution) and prints the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` line shape `workflow.md § What to do before ending a session` uses for `/execute-tracks`. The recital fires before the PR opens so the user sees it in the same session. If no todo exists, the recital is a silent no-op. — risk: low (default)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -61,19 +81,29 @@ Mirror the Migrate-now wording from Track 3's rewrite in `/create-plan`'s Step 1
 
 After Track 6 lands:
 
-- `/create-plan` SKILL contains a Step 1.5 between Step 1 (Read workflow documents) and Step 1a (Handoff check) that invokes the drift gate defined in `workflow-drift-check.md`.
-- On a branch with `_workflow/**` artifacts whose stamps lie behind workflow commits reachable from HEAD (because HEAD was advanced via rebase or merge since the artifacts were last migrated), invoking `/create-plan` triggers the three-resolution prompt with no default before any research begins.
-- On a fresh `/create-plan` invocation where the resolved `docs/adr/<dir-name>/_workflow/` doesn't exist yet, the gate skips silently and proceeds to Step 1a.
-- Step 1.5 runs before Step 1b (mkdir) so the skip-#1 check sees the pre-creation state.
-- `workflow-drift-check.md`'s intro paragraph names both `/execute-tracks` and `/create-plan` as callers.
-- Migrate-now resolution wording in both `/create-plan` SKILL and `workflow-drift-check.md` points at in-branch `/migrate-workflow` re-invocation; neither mentions `develop` worktree or `cd ../develop`.
+- `/create-plan` SKILL contains a Step 1.5 between the `<dir-name>` resolver block and Step 1a that invokes the drift gate defined in `workflow-drift-check.md`.
+- Step 1.5 runs after the `<dir-name>` resolver (so `$PLAN_DIR` is defined) and before Step 1b's `mkdir`, so the gate's Skip-#1 check (`[ -d "$PLAN_DIR/_workflow" ]`) sees the pre-creation state on fresh invocations.
+- On a branch with `_workflow/**` artifacts whose stamps lie behind workflow commits reachable from HEAD (rebase or merge advanced HEAD since artifacts were last migrated), invoking `/create-plan` triggers the three-resolution prompt with no default before any research begins.
+- On a fresh `/create-plan` invocation where the resolved `docs/adr/<dir-name>/_workflow/` doesn't exist, the gate skips silently and proceeds to Step 1a.
+- `workflow-drift-check.md`'s intro paragraph names both `/execute-tracks` (turn 1) and `/create-plan` (between Step 1 and Step 1a) as callers.
+- Every "step 4" / "Startup Protocol step 3" reference in `workflow-drift-check.md` reads correctly from either caller — generalized ("the calling session's next startup step") or qualified by caller name where the anchor genuinely differs.
+- Every `/execute-tracks`-explicit mention in `workflow-drift-check.md` is either generalized ("the calling session") or kept caller-specific where it is truly `/execute-tracks`-only (with `/create-plan` symmetry handled in adjacent prose).
+- Migrate-now resolution wording in both `/create-plan` SKILL Step 1.5 and `workflow-drift-check.md` points at in-branch `/migrate-workflow` re-invocation; neither mentions `develop` worktree or `cd ../develop`.
+- Migrate-now's session-end framing in `workflow-drift-check.md` reads correctly for both callers — `/execute-tracks` exits before `workflow.md § What to do before ending a session`, `/create-plan` exits before Step 5's commit/push.
+- Defer-from-`/create-plan` produces an in-session recital before Step 5 opens the draft PR; the recital reads the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` TaskCreate todo `workflow.md § What to do before ending a session` reads from `/execute-tracks`.
+- § After the choice in `workflow-drift-check.md` reads correctly from either caller.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+- **Step 1** — `git revert <SHA>` restores `.claude/workflow/workflow-drift-check.md`'s intro paragraph (and lines 4-5's caller-specific anchors) to its Track-3-completion state. The intro generalization is a self-contained prose edit; reverting it leaves the body's caller-specific references untouched (those land in Steps 2 / 3). The drift gate's behavior is unchanged by Step 1 alone (callers are documentation surface).
+- **Step 2** — `git revert <SHA>` restores the body of `.claude/workflow/workflow-drift-check.md` to its Step-1-completion state. The 10+-site sweep lands in one commit, so the revert drops every caller-agnostic rewrite as a unit; no partial-revert mode is supported (and none needed — the sweep is one consistency boundary). After revert, the body still names `/execute-tracks`-specific anchors throughout; the intro generalization from Step 1 survives (intro and body are separate edit boundaries).
+- **Step 3** — `git revert <SHA>` restores Migrate-now's session-end framing and Defer's state-shape to their Step-2-completion state. The revert drops the per-caller conditional prose in both sections; the body's other caller-agnostic rewrites from Step 2 survive (those touch different lines).
+- **Step 4** — `git revert <SHA>` restores `.claude/skills/create-plan/SKILL.md` to its pre-Step-4 state. Step 1.5 disappears; the SKILL's Step 1 → Step 1a → Step 1b flow returns to pre-Track-6 behavior (no drift gate on `/create-plan` startup). Existing `/create-plan` sessions continue working; the only regression after revert is the absence of the drift gate the track was wiring in.
+- **Step 5** — `git revert <SHA>` restores `.claude/skills/create-plan/SKILL.md` Step 5 to its Step-4-completion state. The session-end recital between `git push` and the PR-prefix prompt disappears; Defer-from-`/create-plan` (added in Step 4) reverts to the no-host shape DL1 documented as the alternative resolution. The two changes (Step 1.5 from Step 4 and the recital from Step 5) are separately revertable because they land in two commits at different SKILL line ranges.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Empty at Phase 1. -->
@@ -81,8 +111,8 @@ After Track 6 lands:
 ## Interfaces and Dependencies
 
 **In-scope files:**
-- `.claude/skills/create-plan/SKILL.md` (new Step 1.5 between Step 1 and Step 1a; Migrate-now wording mirroring Track 3)
-- `.claude/workflow/workflow-drift-check.md` (intro paragraph generalization to name both callers; Detection / Skip conditions / Resolutions / After the choice unchanged here — Track 3 owns those)
+- `.claude/skills/create-plan/SKILL.md` (new Step 1.5 between the `<dir-name>` resolver block and Step 1a; session-end recital added to Step 5; Migrate-now wording mirroring Track 3)
+- `.claude/workflow/workflow-drift-check.md` (intro paragraph generalization to name both callers; sweep of 11 caller-specific surfaces in Detection / Resolutions / Defer / After-the-choice prose; Migrate-now and Defer session-end-anchor adjustments — Track 3 owns the underlying bash and decision-logic structure)
 
 **Out-of-scope files:**
 - `.claude/skills/edit-design/SKILL.md` — `/edit-design` is reached only through `/create-plan` and `/execute-tracks`; transitive coverage holds.
