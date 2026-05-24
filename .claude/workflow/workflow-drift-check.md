@@ -393,12 +393,17 @@ protocols in one session risks a mid-migration context warning that
 triggers the wrong handoff path. Ending the session and asking the
 user to re-invoke is the cleaner boundary.
 
-End the session before reaching `workflow.md § What to do before
-ending a session` — this is the only Startup-Protocol-side early
-exit. No phase work has run, so there are no episodes to commit, no
-unpushed-commit residue beyond what the Branch Divergence Check may
-have produced, and self-improvement reflection has nothing to record.
-The session-end output is the single instruction line above.
+End the session before the calling session reaches its session-end
+surface: `/execute-tracks` exits before `workflow.md § What to do
+before ending a session` (the only Startup-Protocol-side early exit
+for that caller); `/create-plan` exits before Step 5's commit and
+push (the Migrate-now branch cuts the session short of the recital
+added in Step 5 of `/create-plan`). No phase work has run in either
+caller, so there are no episodes to commit, no unpushed-commit
+residue beyond what the Branch Divergence Check may have produced
+(`/execute-tracks` only — `/create-plan` has no such check), and
+self-improvement reflection has nothing to record. The session-end
+output is the single instruction line above.
 
 ### Defer
 
@@ -412,11 +417,16 @@ full commit range total and `<short-stamp-base-SHA>` is the seven-
 character abbreviation of `$BASE_SHA`. Subject lines are omitted; the
 user re-runs § Detection's Phase 1 walk plus the Phase 2 `git log` to
 recover subject lines (the variables `$PLAN_DIR`, `$STAMPED_SHAS`,
-and `$BASE_SHA` come from those phases). The session-end summary
-reads the todo title verbatim. If TaskCreate is unavailable, hold the
-same two fields in in-context memory and recite the same line shape;
-the todo is preferred because in-context memory is unreliable across
-long sessions.
+and `$BASE_SHA` come from those phases). The session-end recital
+reads the todo title verbatim from the per-caller recital surface:
+`/execute-tracks` reads it at `workflow.md § What to do before
+ending a session`; `/create-plan` reads it at the recital added in
+Step 5 of `/create-plan` (the recital fires before Step 5 opens the
+draft PR so the user sees the residue in the same session). If
+TaskCreate is unavailable, hold the same two fields in in-context
+memory and recite the same line shape from whichever recital surface
+the calling session uses; the todo is preferred because in-context
+memory is unreliable across long sessions.
 
 When the deferred drift came from the unstamped short-circuit (the
 § Resolutions § Unstamped short-circuit rendering paragraph above),
