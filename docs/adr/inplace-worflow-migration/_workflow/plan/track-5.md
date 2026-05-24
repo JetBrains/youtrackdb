@@ -10,7 +10,8 @@ Parameterize `self-improvement-reflection.md` to accept a session-type input (`e
 ## Progress
 - [x] 2026-05-24T14:23Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-24T15:47Z [ctx=safe] Step 1 complete (commit 6ff21361a8)
-- [ ] Step implementation
+- [x] 2026-05-24T15:52Z [ctx=info] Step 2 complete (commit bbac5771b1)
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -86,7 +87,7 @@ Phase A decomposition lands two steps. Step 1 sweeps `self-improvement-reflectio
 ## Concrete Steps
 
 1. Parameterize `.claude/workflow/self-improvement-reflection.md` to accept a `session-type` input (`execute-tracks` default; `migrate-workflow` new). Add the `## Inputs` block at the top documenting the parameter, the default value, and the calling-convention (a calling skill names the value in its invocation line; when omitted the document behaves as `session-type=execute-tracks`). Sweep every session-type-dependent surface in one pass: line 3 intro generalized to name both callers; §"When it runs" intro plus body enumeration of phase steps (lines 46–65) plus skip-conditions list (lines 67–74) lifted to session-type-agnostic phrasing; new in-scope examples sub-bullets under §"What counts as a worth-recording issue" for migration-shaped frictions (ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, edge cases in the renames tracker); §"Reflection procedure" Step 2 conditional clause skipping the commit-clean check when `session-type=migrate-workflow` (the Source line points at HEAD pre-migration; `git rev-parse HEAD` and `git rev-parse --abbrev-ref HEAD` in Step 3 still run); §"Issue body template" `**Phase:**` field (line 486) and `**Source session:**` template literal (line 487) extended to carry `migrate-workflow`; `## Reproduction context` `**Phase:**` enumeration (line 497) extended in parallel. — `risk: medium` (override: ten edit sites in one file requiring mutual consistency; coordinate-edit risk warrants focal-point Phase C review across the workflow-consistency dimension)  [x] commit: 6ff21361a8
-2. Wire the reflection invocation into `.claude/skills/migrate-workflow/SKILL.md` as a new "## Step 6 — Self-improvement reflection" section sitting after today's Step 5 (Final summary). Step 6's body opens with "Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`", invokes the reflection protocol at `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`, mirrors the existing-caller friction-seeding paragraph (migration-shaped frictions: ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, edge cases in the renames tracker), closes with "mark umbrella task 8 as `completed`", and notes that the protocol owns its own MCP-reachability check and end-of-session contract. Replace Step 5's trailing "Then end the session." line at `SKILL.md:645` with "Then proceed to Step 6." so the session-end moves from Step 5 to Step 6. Update Step 0's umbrella task list at `SKILL.md:25-31` to add task 8 as the eighth bullet, mirroring the existing slot phrasing: "Self-improvement reflection: invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`". — `risk: low` (default: single-file isolated change, markdown-only, provable behavior preservation)  [ ]
+2. Wire the reflection invocation into `.claude/skills/migrate-workflow/SKILL.md` as a new "## Step 6 — Self-improvement reflection" section sitting after today's Step 5 (Final summary). Step 6's body opens with "Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`", invokes the reflection protocol at `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`, mirrors the existing-caller friction-seeding paragraph (migration-shaped frictions: ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, edge cases in the renames tracker), closes with "mark umbrella task 8 as `completed`", and notes that the protocol owns its own MCP-reachability check and end-of-session contract. Replace Step 5's trailing "Then end the session." line at `SKILL.md:645` with "Then proceed to Step 6." so the session-end moves from Step 5 to Step 6. Update Step 0's umbrella task list at `SKILL.md:25-31` to add task 8 as the eighth bullet, mirroring the existing slot phrasing: "Self-improvement reflection: invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`". — `risk: low` (default: single-file isolated change, markdown-only, provable behavior preservation)  [x] commit: bbac5771b1
 
 ## Episodes
 
@@ -99,6 +100,14 @@ Phase A decomposition lands two steps. Step 1 sweeps `self-improvement-reflectio
 - `.claude/workflow/self-improvement-reflection.md` (modified)
 
 **Critical context:** The `**Source session:**` template literal in the issue body template now renders as a two-line alternation, one line per session-type. An issue triager reading a rendered body sees exactly one of the two lines populated per issue.
+
+### Step 2 — commit bbac5771b1, 2026-05-24T15:52Z [ctx=info]
+**What was done:** Appended a new "## Step 6 — Self-improvement reflection" section to `.claude/skills/migrate-workflow/SKILL.md`. Step 6's body opens with the umbrella task 8 in-progress mark, invokes the reflection protocol at `.claude/workflow/self-improvement-reflection.md` with explicit `session-type=migrate-workflow`, seeds the four migration-shaped friction examples (ambiguous classification rules, missing replay patterns, halt-and-ask conditions firing without docs, edge cases in the renames tracker), notes that the protocol owns its own MCP-reachability check and end-of-session contract, and closes with the umbrella task 8 completion mark. Redirected Step 5's trailing line from "Then end the session." to "Then proceed to Step 6." Extended Step 0's umbrella task list from seven slots to eight by appending task 8 in the same slot-phrasing as the existing entries.
+
+**What was discovered:** Advisory line numbers in the step description (`SKILL.md:645`, `SKILL.md:25-31`) matched the post-Track-4b file state byte-for-byte, so content-anchored verification landed on the same anchors the description named. Step 1's forward guidance about citing the explicit `session-type=migrate-workflow` parameter was followed in three places: the new Step 6 body, the Step 0 umbrella list entry, and the commit message. Any of the three surfaces gives a future reader the same contract.
+
+**Key files:**
+- `.claude/skills/migrate-workflow/SKILL.md` (modified)
 
 ## Validation and Acceptance
 
