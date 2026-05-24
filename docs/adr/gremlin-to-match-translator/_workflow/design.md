@@ -98,6 +98,7 @@ shape declines along with anything else unrecognized.
 | Edge traversal | `both(label)` | `addEdge(..., BOTH, label)` | Track 3 |
 | Edge traversal | `outE(L).inV()` / `inE(L).outV()` (adjacent) | folded by TinkerPop's `IncidentToAdjacentStrategy` to `out(L)` / `in(L)` before our strategy fires; recognizer sees the folded shape | Track 3 |
 | Edge traversal | `bothE(L).otherV()` (adjacent) | folded by `IncidentToAdjacentStrategy` to `both(L)` | Track 3 |
+| Edge filtering | `outE(L).has(filter)*.inV()` / `inE(L).has(filter)*.outV()` / `bothE(L).has(filter)*.otherV()` (one or more `has(...)` between the edge step and its paired vertex hop) | `EdgeStepRecogniser` peek-ahead collects every adjacent `HasStep` into the edge's filter slot via `SQLMatchPathItem.filter`; the edge gets a translator-minted anonymous alias (`$g2m_edge_N`). Predicates inside the `has(...)` chain follow the same translation table as node-side filters. | Track 3 |
 | Filtering | `has(key)` (presence) | `aliasFilters` `key IS NOT NULL` (record-layer absent property is treated as null — see "Predicate translation") | Track 4 |
 | Filtering | `has(key, value)` | `aliasFilters` `key = value` | Track 4 |
 | Filtering | `has(key, predicate)` | `aliasFilters` predicate (per "Predicate translation" below) | Track 4 |
@@ -178,8 +179,10 @@ classDiagram
         +traversal Traversal.Admin
         +patternBuilder MatchPatternBuilder
         +anonAliasGenerator AnonAliasGenerator
+        +anonEdgeAliasGenerator AnonAliasGenerator
         +aliasFilters Map
         +aliasRids Map
+        +edgeFilters Map
         +returnItems List
         +returnAliases List
         +returnNestedProjections List
@@ -225,7 +228,7 @@ classDiagram
 
     class MatchPatternBuilder {
         +addNode(alias, className, where, optional)
-        +addEdge(from, to, dir, label, filter, while_, maxDepth)
+        +addEdge(from, to, dir, label, edgeAlias, edgeFilter, while_, maxDepth)
         +build() PatternIR
     }
     class MatchWhereBuilder {
@@ -742,6 +745,76 @@ recognized shape lands in one file, not five.
   `by(__.sack(...))`, or `by(...)` whose sub-traversal contains a
   side-effect step declines whole — side effects have no MATCH
   analogue.
+
+## Edge filtering in non-adjacent chains
+
+TinkerPop's `IncidentToAdjacentStrategy` only folds the adjacent
+`outE(L).inV()` (and analogue) shape. Insert anything between the edge
+step and its paired vertex hop — most commonly a `has(...)` filtering
+the edge itself — and the fold does not fire; the traversal arrives at
+our strategy as three or more separate steps:
+
+```
+g.V("p:1").outE("KNOWS").has("creationDate", P.lte(maxDate)).inV()
+//
+//  After IncidentToAdjacentStrategy (no fold):
+//    [GraphStep, VertexStep(outE, KNOWS), HasStep(creationDate), EdgeVertexStep(inV)]
+```
+
+The `outE(L)`/`inE(L)`/`bothE(L)` step survives, the `has(...)` filters
+the **edge** (not the current alias), and the closing `inV()`/`outV()`/
+`otherV()` step jumps to the target vertex. This shape is common — LDBC
+IC2 ("most recent messages of friends") uses it to filter knows-edges
+by creation date.
+
+**`EdgeStepRecogniser` handles this with peek-ahead.** When the walker
+reaches an `outE(L)` (or `inE(L)`/`bothE(L)`), the recognizer:
+
+1. Mints an anonymous edge alias `$g2m_edge_N` from the per-walk
+   counter. The alias is internal — Phase 1 never exposes it to the
+   user, and the `$` prefix is already reserved (see "Anonymous alias
+   generation"), so no collision with user labels.
+2. Peeks at successive steps from `ctx.stepIndex + 1`. For each
+   adjacent `HasStep`, translates its `HasContainer`s through the same
+   predicate adapter that handles node-side filters and AND-merges the
+   result into `ctx.edgeFilters[$g2m_edge_N]`.
+3. Stops peeking when it sees `EdgeVertexStep(inV/outV)` (closing the
+   `out`/`in` shape) or the `VertexStep(otherV)` form (closing the
+   `both` shape). Consumes that closing step too, minting a fresh
+   anonymous **vertex** alias `$g2m_anon_M` for the target.
+4. Calls `MatchPatternBuilder.addEdge(fromAlias, $g2m_anon_M,
+   direction, L, $g2m_edge_N, accumulatedEdgeFilter)`. The builder
+   parks the edge alias and filter on the `SQLMatchPathItem.filter`
+   slot — **the IR already supports edge-side filters**, so no
+   executor or planner change is needed.
+5. Advances `ctx.stepIndex` past every consumed step (the edge step,
+   the chain of `has` steps, the closing vertex step) so the walker's
+   outer loop resumes at the next step beyond the chain.
+
+The peek terminates and the recognizer declines if it encounters:
+
+- A non-`HasStep` between the edge step and the closing vertex step
+  (e.g. `outE(L).order().by(...)` — an order modulator on edges).
+- No closing `EdgeVertexStep` / `otherV`-form `VertexStep` at all
+  (the edge step is a terminal — that case falls under
+  "Edge-returning terminals" in Out-of-scope; D3 declines the whole
+  traversal).
+- An `as(label)` on the edge step (the user-facing edge alias case —
+  Out-of-scope until Track 6 grows an edge-side label propagation).
+
+`HasStep`s that filter the **target vertex** (after the closing
+`inV()`/`outV()`/`otherV()`) are not consumed by the edge recognizer —
+the walker continues, the next step is a `HasStep` against the new
+boundary alias ($g2m_anon_M), and the regular `HasStepRecogniser`
+claims it as a node-side filter. This is the same separation TinkerPop
+makes: pre-`inV` `has` → edge filter, post-`inV` `has` → target-vertex
+filter.
+
+Walker mechanics: peek-ahead is the first multi-step claim in the
+recogniser registry; the walker loop is index-driven so a recognizer
+can consume N steps in one call (`ctx.stepIndex += N` instead of the
+single-step default `++`). See D10 in the implementation plan for the
+mechanic.
 
 ## Parameter binding
 
@@ -1330,8 +1403,8 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Path manipulation | `simplePath()`, `cyclicPath()`, advanced `path()` | Per-traverser path history isn't materialized by MATCH | `returnPaths = true` / `returnPathElements = true` on `MatchPlanInputs` covers basic `path()`; `simplePath` / `cyclicPath` need extra checks |
 | Imperative branching | `choose(traversal).option(...)` | Branch-on-traverser has no MATCH equivalent | Stay native or future per-row branch construct |
 | Custom DSL steps | `executeInTx()`, `computeInTx()` | Execution-model concerns, not a query shape | Stay native |
-| Edge-returning terminals | `outE(L)` / `inE(L)` / `bothE(L)` (without paired vertex hop, or after `as(label)` that prevents folding) | `BoundaryOutputType` would need an `EDGE` variant; `PatternEdge` doesn't carry an alias today | Add `EDGE` output type and an edge-alias slot in the shared builder |
-| Non-adjacent edge filtering | `outE(L).has(key, value).inV()` / `outE(L).as(e).inV()` and analogues | `IncidentToAdjacentStrategy` only folds the **adjacent** `outE(L).inV()` shape — a `has` or `as` between them breaks the fold and the edge step survives as `outE(L)`, which falls under the edge-returning-terminals row above. Phase 1 declines. | Same fix as above (edge-alias slot in the shared builder) plus a recognizer that emits a named `PatternEdge` with its own filter slot |
+| Edge-returning terminals | `outE(L)` / `inE(L)` / `bothE(L)` (without paired vertex hop) | `BoundaryOutputType` would need an `EDGE` variant; the boundary step would have to project `TinkerPop.Edge` traversers instead of `Vertex` ones | Add `EDGE` output type + edge-projection logic in the boundary step |
+| User-facing edge alias | `outE(L).as("e").inV()` (or any explicit `as(label)` on an edge step) | Phase 1 mints anonymous edge aliases (`$g2m_edge_N`) internally for `outE(L).has(...).inV()` shapes, but user-supplied edge labels need propagation into `WalkerContext.userLabelToAlias` with an edge-vs-node disambiguator | Extend the label-propagation helper (Track 6) with an edge-side branch |
 | Multi-label edges | `out("a", "b")` | `MatchPatternBuilder.addEdge` accepts a single edge-label string; an edge-label `IN [...]` filter slot doesn't exist yet | Variadic `SQLMethodCall.params` retrofit on the shared builder |
 | Collection / list ops | `fold`, `unfold`, `reverse` | TinkerPop list-shaping steps that materialize / re-shape the traverser stream; MATCH has no in-pipeline list operator that mirrors them precisely, and `fold` interacts with aggregator semantics differently | Phase 2 audit of the whole TinkerPop step list will decide whether `fold` becomes a boundary-step variant, whether `unfold` is implementable on top of `collect(*)` output, and whether `reverse` is even reachable via MATCH |
 | Case-sensitive string predicates | `TextP.startingWith` / `endingWith` / `notStartingWith` / `notEndingWith` / `regex` / `notRegex` (and the equivalent `Text.*` legacy forms) | `SQLLikeOperator` is case-insensitive (`QueryHelper.like` lowercases both operands) so it would return a different multiset from TinkerPop's case-sensitive `startingWith` / `endingWith`; `SQLMatchesCondition` uses `Pattern.matches()` (whole-string) where TinkerPop uses `find()` (partial). Phase 1 declines and lets the native pipeline handle it correctly. | Phase 2: add a case-sensitive prefix/suffix operator (or expose a case-sensitivity flag on LIKE) and a `find`-semantic regex operator on the YTDB side |
