@@ -946,13 +946,24 @@ AND distributes naturally over MATCH IR:
 
 ### `OrStep` — pure-filter children only
 
-OR over pattern fragments has no MATCH IR equivalent — MATCH joins
-pattern fragments by AND. Expressing
-`g.V().or(__.out("knows"), __.has("admin"))` would require either a
-union-of-plans (one plan per OR child, results concatenated at the
-boundary step) or a sub-query in WHERE, neither of which Phase 1 ships
-inside a single `SelectExecutionPlan`. The translator therefore
-restricts `OrStep` to **all-children-pure-filter** shapes:
+YTDB IR has full OR support **inside WHERE expressions** —
+`SQLOrBlock` composes `SQLBooleanExpression` trees, which is exactly
+what `MatchWhereBuilder.or(...)` produces. What it does **not** have
+is OR between pattern fragments inside a single MATCH statement:
+multiple `SQLMatchExpression` entries separated by `,` are always
+AND-composed (cartesian-product / join) — there is no MATCH-level
+`P1 OR P2` syntax in the grammar.
+
+So `OrStep` with pure-filter children translates cleanly through
+WHERE-side OR composition. `OrStep` with at least one **edge-bearing**
+child cannot be expressed as a single MATCH statement because the
+edge-bearing child contributes a pattern fragment (not a
+`SQLBooleanExpression`), and there is no in-statement way to OR a
+pattern fragment with a WHERE conjunct or with another pattern
+fragment.
+
+The translator therefore restricts `OrStep` to **all-children-pure-filter**
+shapes in Phase 1:
 
 - All children must produce only `SQLBooleanExpression` (no pattern
   fragments, no NOT expressions in the sub-walker output).
@@ -970,15 +981,36 @@ ships `AndStepRecogniser` and `OrStepRecogniser` as two separate
 recognizer files so the asymmetry is visible in code, not buried in
 shared branching.
 
-### Phase 2 path for edge-bearing `OrStep`
+### Phase 2 paths for edge-bearing `OrStep`
 
 When LDBC or client workloads start using `or(__.outE(...), filter)`
-shapes meaningfully, Phase 2 can grow an "OR-of-plans" recognizer that
-emits each child as its own `SelectExecutionPlan` and concatenates them
-through `MultiPlanMatchStep` (the same boundary primitive that backs
-`union()` from Track 10), plus a boundary-level dedup on the parent's
-boundary alias to preserve OR's set semantics. Phase 1 declines and
-the native pipeline keeps working — no regression.
+shapes meaningfully, three Phase 2 paths are available — the choice
+depends on what the YTDB SQL planner ends up optimizing best:
+
+1. **Union-of-plans.** Emit each OR child as its own
+   `SelectExecutionPlan`, concatenate the result streams through
+   `MultiPlanMatchStep` (the same boundary primitive that backs
+   `union()` from Track 10), and dedup on the parent's boundary alias
+   to preserve OR's set semantics. Clean composition; cost is the
+   per-child planning overhead and the boundary-side dedup. Best fit
+   when children have very different selectivities.
+2. **Subquery in WHERE.** Wrap each edge-bearing child as a
+   correlated subquery —
+   `(SELECT count(*) FROM (MATCH child-pattern WHERE x = a) LIMIT 1) > 0` —
+   and OR it with the filter-only children via `SQLOrBlock`. Reuses
+   the existing WHERE OR mechanism inside a single plan; cost is
+   per-row subquery evaluation unless the planner has correlated
+   subquery rewriting. Best fit when children share most of their
+   sub-pattern with the main pattern.
+3. **Optional pattern + null check.** Emit each edge-bearing child as
+   an `optional: true` path-item and OR the alias-not-null checks in
+   WHERE. Requires the Phase 2 `optional` recognizer to land first
+   (see Out-of-scope row "Optional sub-traversal"). Best fit if the
+   `optional` mechanism is going to ship anyway for `optional(...)`
+   support.
+
+Phase 1 declines and the native pipeline keeps working — zero
+regression. Phase 2 picks the path after a real workload measurement.
 
 ### Unrecognized step inside any child
 
@@ -1465,7 +1497,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Category | Steps | Why out | Phase 2 path |
 |---|---|---|---|
 | Optional sub-traversal | `optional(traversal)` | Gremlin drops the row when the sub-traversal yields nothing; MATCH emits the row with the inner alias `null`. The two outputs differ on the case `optional` exists to express. | Drop-on-null filter at the boundary step, or a MATCH-level alternative pattern, or both — designed in Phase 2 |
-| OR over edge-bearing sub-traversals | `or(__.out(L), __.has(...))` and any `OrStep` whose sub-traversal (transitively) carries a vertex hop or NOT-pattern | MATCH IR composes pattern fragments by AND only; expressing OR between pattern fragments would require a union-of-plans (one `SelectExecutionPlan` per OR child concatenated by `MultiPlanMatchStep`) plus a boundary-level dedup on the parent boundary alias. Phase 1 declines and the native TinkerPop pipeline handles it. | Reuse `union()`'s `MultiPlanMatchStep` infrastructure from Track 10 — recognizer splits the OR children into independent plans, dedup on the parent boundary alias preserves OR's set semantics |
+| OR over edge-bearing sub-traversals | `or(__.out(L), __.has(...))` and any `OrStep` whose sub-traversal (transitively) carries a vertex hop or NOT-pattern | YTDB IR has full OR inside WHERE (`SQLOrBlock`), but no OR between pattern fragments inside a single MATCH — fragments are always AND-composed. Edge-bearing OR children produce pattern fragments, not boolean expressions, so a single MATCH cannot express their OR. Phase 1 declines and the native TinkerPop pipeline handles it. | Three Phase 2 paths (chosen after workload measurement): union-of-plans via `MultiPlanMatchStep` + boundary dedup; correlated subquery in WHERE via `SQLBaseExpression.extractSubQueries`; optional-pattern with WHERE null-check (needs Phase 2 `optional` first) |
 | Variable-depth traversal | `repeat().until(...)`, `repeat().times(n)` | MATCH `WHILE` / `maxDepth` requires careful translation of the loop condition + termination semantics | Map `until` → `whileCondition`, `times` → `maxDepth` on `SQLMatchPathItem` |
 | Stateful side-effects | `sack()`, `store()`, `aggregate()` | TinkerPop traverser-state-machine has no MATCH analogue | Likely never; stay native |
 | Lambda steps | TinkerPop lambda steps (`map(λ)`, `filter(λ)`, `sideEffect(λ)`, …) | Arbitrary user code is untranslatable | Stay native; potentially inline simple Gremlin expression lambdas later |
