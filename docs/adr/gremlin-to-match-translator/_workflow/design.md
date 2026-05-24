@@ -1010,16 +1010,27 @@ for the other aggregates. The two are observably different on the empty
 case: a Gremlin consumer that calls `.tryNext()` expects `Optional.empty()`,
 while a translated traversal would hand it a traverser carrying `null`.
 
-The boundary step closes the gap. For `BoundaryOutputType.SCALAR`,
-`processNextStart` drops a `Result` whose aggregate column is `null` for
-`sum`/`min`/`max`/`mean` (and any aggregate other than `count`) instead
-of emitting a traverser. The null→empty conversion is per-aggregate (a
-small enum lookup); `count` and any user-defined Gremlin aggregate that
-defines an empty-input result still emit. For
-`BoundaryOutputType.ELEMENT` / `MAP`, MATCH null cells in the row remain
-null — they reach the consumer through `valueMap` / `select` exactly as
-they would under native Gremlin. We verify in tests that empty-input
-behavior matches per-aggregate.
+The boundary step closes the gap with a single `dropNullRows` flag set
+by the Track 9 recognizer at translation time. The flag is a
+recognizer-side decision (`sum`/`min`/`max`/`mean` → `true`; `count`,
+`group`, `groupCount`, `ELEMENT`, `MAP` outputs → `false`), so the
+boundary step itself does not know aggregate names — it only knows
+"drop rows whose primary value is null". `processNextStart` loops
+over the stream, skipping a `Result` whose `boundaryAlias`-keyed value
+is `null` when `dropNullRows` is set, and returns the next non-null
+row (or signals exhaustion if the stream drains). For
+`BoundaryOutputType.ELEMENT` / `MAP`, `dropNullRows` is always
+`false` — MATCH null cells in the row remain null and reach the
+consumer through `valueMap` / `select` exactly as they would under
+native Gremlin. We verify in tests that empty-input behavior matches
+per-aggregate.
+
+A single boolean is enough for Phase 1's four drop-on-null aggregates;
+if Phase 2 introduces custom aggregates with finer-grained empty-input
+policies (e.g. an aggregate that returns a sentinel value), the flag
+evolves into a small enum or a `Predicate<Result> skipRow` without
+touching the boundary's iteration logic — only the recognizer-side
+configuration changes.
 
 **Group with `by(key)`.** TinkerPop emits one map keyed by group keys.
 We translate to `info.groupBy = SQLGroupBy(currentAlias.key)`,
