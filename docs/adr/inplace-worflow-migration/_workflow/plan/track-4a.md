@@ -16,6 +16,7 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 - [x] 2026-05-24T09:10Z [ctx=safe] Step 3 complete (commit 51ca98d078)
 - [x] 2026-05-24T09:16Z [ctx=safe] Step 4 complete (commit e449dec277)
 - [x] 2026-05-24T09:21Z [ctx=safe] Step 5 complete (commit 72dd4f77af)
+- [x] 2026-05-24T10:05Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 - 2026-05-24T08:53Z — The ephemeral-identifier pre-commit gate's exclusion list covers `_workflow/**` and `.claude/workflow/**` but not `.claude/skills/**`. Plan-file Decision Record IDs cited inside SKILL bodies fail the same resolvability test the rule applies to source code and Phase 4 artifacts, since SKILL.md survives the squash but the plan-file DR identifiers do not. Inline-prose restatement of the staging convention sidesteps the issue; future tracks touching SKILL bodies should anticipate the same trap. See Episodes §Step 1.
