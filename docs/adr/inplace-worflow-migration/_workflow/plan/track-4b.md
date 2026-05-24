@@ -110,3 +110,6 @@ After Track 4b lands:
 **External interfaces:**
 - `git rev-parse HEAD` — the final-batch stamp value (sub-step 4.8).
 - `Edit` against line 1 of each artifact — the lockstep advance writer (sub-step 4.5) and the final-batch writer (sub-step 4.8). Replaces the existing `<!-- workflow-sha: <old-sha> -->` text with `<!-- workflow-sha: <new-sha> -->` via exact-string match on the prior stamp. Matches the rest of the migrate-workflow skill's writer pattern (today's 5.4 / future 4.4 also uses `Edit`). Portable across platforms — no `sed -i` BSD/GNU dialect difference. Idempotent: re-running on an already-stamped file with the same SHA is a no-op.
+
+## Base commit
+9fe505ef29c327aee02d03f32414156b7550f6e0
