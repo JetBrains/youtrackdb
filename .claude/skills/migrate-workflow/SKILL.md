@@ -1,6 +1,6 @@
 ---
 name: migrate-workflow
-description: "Migrate a branch's `docs/adr/<dir>/_workflow/**` artifacts to match workflow-format commits that landed on `develop` after the fork point. Replays each format-relevant commit's edits onto the branch's artifacts. Resumable across `/clear`. TRIGGER: branch has stale `_workflow/` after a workflow-format change on develop. SKIP: branches with no `_workflow/`."
+description: "Migrate a branch's `docs/adr/<dir>/_workflow/**` artifacts to match workflow-format commits reachable from HEAD after the stamp base. Replays each format-relevant commit's edits onto the branch's artifacts. Resumable across `/clear`. TRIGGER: branch has stale `_workflow/` after a workflow-format change on develop. SKIP: branches with no `_workflow/`."
 argument-hint: "[branch-name]"
 user-invocable: true
 ---
@@ -220,24 +220,193 @@ unset and the fold runs over `$STAMPED_SHAS` alone.
 
 ## Step 2 — Compute commit range
 
+The range derivation runs in two phases. **Phase 1** walks the active
+plan's `_workflow/**` artifacts and classifies each as stamped or
+unstamped (byte-copied from `conventions.md` §1.6(h) so the migration
+and the drift check agree on what "drift" means). **Phase 2** folds
+the stamp set pairwise through `git merge-base` to derive `BASE_SHA`,
+then runs `git log $BASE_SHA..HEAD` against workflow paths.
+
+Step 2.0 has already walked the same artifacts and set
+`$STAMPED_SHAS` / `$UNSTAMPED_FILES` / `$USER_BOOTSTRAP_SHA`. This step
+repeats the walk because the fold needs a **paired `(file, sha)`
+array** so merge-base failures can name artifact paths in the recovery
+re-prompt rather than bare SHAs; Step 2.0's simpler-form walk did not
+carry that pairing.
+
+The Phase 1 walk block, byte-for-byte from `conventions.md` §1.6(h),
+extended with a paired path-and-SHA array (`STAMPED_PAIRS` — one
+`<path>=<sha>` entry per stamped artifact) so the Phase 2 recovery
+path can name failing artifact paths:
+
 ```bash
-# Fork point: where the branch diverged from develop
-FORK=$(git merge-base develop "$ARGUMENTS")
-
-# Current develop tip
-HEAD_DEVELOP=$(git rev-parse develop)
-
-# Workflow-touching commits in chronological order (oldest first)
-git log --reverse --format='%H %s' "$FORK..$HEAD_DEVELOP" \
-  -- .claude/workflow .claude/skills
+PLAN_DIR="docs/adr/<resolved-dir-name>"
+STAMPED_SHAS=""
+UNSTAMPED_FILES=""
+STAMPED_PAIRS=""
+# design-mechanics.md is optional; absent until the length trigger fires.
+# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+# yet present on disk, so missing files do not abort the walk.
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+    if [ -n "$SHA" ]; then
+        STAMPED_SHAS="$STAMPED_SHAS $SHA"
+        STAMPED_PAIRS="$STAMPED_PAIRS $f=$SHA"
+    else
+        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+    fi
+done
 ```
 
-Record `$FORK` and `$HEAD_DEVELOP` — both are referenced in the progress file and the final summary.
+The `<resolved-dir-name>` placeholder is the active plan dir captured
+as `$PLAN_DIR` in Step 1 per `conventions.md` §1.6(g); substitute it
+literally at invocation time. The walk silently skips artifacts not
+yet on disk (`design-mechanics.md` before the length trigger, any
+`track-*.md` not yet created), so absent optional artifacts contribute
+neither a stamp nor an unstamped flag. Apart from the `STAMPED_PAIRS`
+extension, the loop body is text-identical to the drift check's copy
+in `workflow-drift-check.md`; a future edit to the §1.6(h) block
+applies to both files in lockstep.
+
+**Phase 1 halt — no stampable artifacts.** When both `$STAMPED_SHAS`
+and `$UNSTAMPED_FILES` are empty after the walk, the active plan has
+no stampable artifacts on disk (a freshly-created `_workflow/` dir
+holding only a transient `handoff-*.md`, for example). Per
+`conventions.md` §1.6(h)'s both-arrays-empty rule, halt the migration
+with `no artifacts to migrate` and exit without entering Phase 2. This
+case is distinct from the all-stamped case (where Phase 2 runs the
+fold) and from the partially-stamped case (where Step 2.0 already
+prompted for `$USER_BOOTSTRAP_SHA`).
+
+```bash
+if [ -z "$STAMPED_SHAS" ] && [ -z "$UNSTAMPED_FILES" ]; then
+    echo "ERROR: no artifacts to migrate (the active plan's _workflow/ has no stampable files)."
+    exit 1
+fi
+```
+
+Phase 2 — fold the stamp set pairwise through `git merge-base` to
+derive `BASE_SHA`, the oldest stamp reachable from HEAD per
+`conventions.md` §1.6(c). The fold input set is `$STAMPED_SHAS` plus
+`$USER_BOOTSTRAP_SHA` when Step 2.0 fired; when Step 2.0 was a no-op
+(every artifact stamped), `$USER_BOOTSTRAP_SHA` stays unset and the
+fold runs over `$STAMPED_SHAS` alone:
+
+```bash
+FOLD_INPUT="$STAMPED_SHAS"
+if [ -n "$USER_BOOTSTRAP_SHA" ]; then
+    FOLD_INPUT="$FOLD_INPUT $USER_BOOTSTRAP_SHA"
+fi
+
+# Continue-and-collect fold: every failing pair contributes to
+# MERGE_BASE_FAILED. The fold continues past failures rather than
+# breaking on the first one so a single recovery re-prompt covers the
+# full failing set, matching the batch semantics in conventions.md
+# §1.6(c).
+BASE_SHA=""
+MERGE_BASE_FAILED=""
+for SHA in $FOLD_INPUT; do
+    if [ -z "$BASE_SHA" ]; then
+        BASE_SHA="$SHA"; continue
+    fi
+    NEW_BASE="$(git merge-base "$BASE_SHA" "$SHA" 2>/dev/null)" || NEW_BASE=""
+    if [ -z "$NEW_BASE" ]; then
+        # merge-base failure: a stamp pointing at a git-gc-pruned commit,
+        # or two stamps with no reachable common ancestor in the local
+        # repo. Collect both SHAs into MERGE_BASE_FAILED; the recovery
+        # path below routes their owning artifacts back through the
+        # bootstrap prompt per conventions.md §1.6(c).
+        MERGE_BASE_FAILED="$MERGE_BASE_FAILED $BASE_SHA $SHA"
+        # Reset BASE_SHA so the fold continues from the next stamp
+        # without propagating the failed value into subsequent
+        # merge-base calls.
+        BASE_SHA=""
+        continue
+    fi
+    BASE_SHA="$NEW_BASE"
+done
+```
+
+The drift check uses `break` on its first merge-base failure because
+the gate has no recovery prompt to amortise. The migration's
+bootstrap re-prompt is user-interactive, so the fold continues past
+each failure to collect every failing SHA into `MERGE_BASE_FAILED`
+before exiting the loop. A single recovery re-prompt then covers the
+combined unstamped + merge-base-failed set in one user interaction;
+the break-shape would re-prompt the user once per failing pair
+encountered serially.
+
+**Merge-base failure recovery.** When `$MERGE_BASE_FAILED` is
+non-empty, resolve each failing SHA to the artifact path that emitted
+it via the `$STAMPED_PAIRS` table, then route the **combined**
+unstamped + merge-base-failed file set back through Step 2.0's
+bootstrap prompt per `conventions.md` §1.6(c). The user supplies one
+new SHA covering the combined set; the validated value **replaces**
+the prior `$USER_BOOTSTRAP_SHA` (the variable stays singular, matching
+`conventions.md` §1.6(d)'s one-SHA-per-prompt shape). After the
+re-prompt, restart this step's Phase 2 fold from the top with the
+fresh `$USER_BOOTSTRAP_SHA` in `FOLD_INPUT`:
+
+```bash
+if [ -n "$MERGE_BASE_FAILED" ]; then
+    # Resolve failing SHAs to artifact paths via STAMPED_PAIRS.
+    FAILED_FILES=""
+    for FAILED_SHA in $MERGE_BASE_FAILED; do
+        for PAIR in $STAMPED_PAIRS; do
+            case "$PAIR" in
+                *"=$FAILED_SHA")
+                    FAILED_FILES="$FAILED_FILES ${PAIR%=*}"
+                    ;;
+            esac
+        done
+    done
+    # Combine with any pre-existing unstamped files and re-enter the
+    # bootstrap prompt. The 3-attempt cap in conventions.md §1.6(d) is
+    # SHARED with Step 2.0's initial prompt; the counter is session-
+    # wide, not per-prompt. A user who already burned 2 attempts in
+    # Step 2.0's initial run has 1 attempt left here.
+    UNSTAMPED_FILES="$UNSTAMPED_FILES$FAILED_FILES"
+    # Re-enter Step 2.0's prompt with the combined file set; on
+    # success, restart Phase 2 with the fresh $USER_BOOTSTRAP_SHA.
+    # On three rejected attempts (shared counter), halt the session.
+fi
+```
+
+The re-prompt's user-facing text uses the combined file list. The
+3-attempt counter is **shared** across Step 2.0's initial prompt and
+this recovery prompt — the counter is session-wide so a user cannot
+chain failures across both prompts to escape the bound. On three
+rejections (across any combination of initial + recovery attempts)
+the migration halts with `ERROR: three rejected attempts; bootstrap
+aborted` and exits with no edits applied.
+
+**Range computation and the empty-log halt.** Once Phase 2 produces
+a non-empty `BASE_SHA` with no outstanding merge-base failures, run
+the path-scoped `git log` over the range `BASE_SHA..HEAD`:
+
+```bash
+# Workflow-touching commits in chronological order (oldest first)
+git log --reverse --format='%H %s' "$BASE_SHA..HEAD" \
+  -- .claude/workflow/ .claude/skills/
+```
 
 If the list is empty, halt with:
-> No workflow-touching commits between fork point `<short-FORK>` and develop HEAD `<short-HEAD>`. Nothing to migrate.
+> No workflow-touching commits between stamp base `<short-BASE_SHA>` and HEAD `<short-HEAD>`. Nothing to migrate.
 
-Otherwise, record the commit list as an in-conversation note. Do NOT call `TaskCreate` per commit here — per-commit tasks are added at the start of Step 4, after Step 3 has trimmed the resume queue, so the task list never drifts from the actual queue.
+The empty-log halt fires on a fully-stamped branch whose stamps
+already point at HEAD (or at every workflow-touching commit between
+them and HEAD): the fold collapses to a stamp that is itself the
+newest workflow-format commit reachable from HEAD, so the range is
+empty and the migration has nothing to replay.
+
+Otherwise, record the commit list as an in-conversation note, and
+record `$BASE_SHA`. Both values are referenced in the progress file
+and the final summary. Do NOT call `TaskCreate` per commit here; per-commit tasks
+are added at the start of Step 4, after Step 3 has trimmed the resume
+queue, so the task list never drifts from the actual queue.
 
 ## Step 3 — Load or initialize progress file
 
