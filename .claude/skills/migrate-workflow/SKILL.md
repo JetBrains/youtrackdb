@@ -1,29 +1,31 @@
 ---
 name: migrate-workflow
 description: "Migrate a branch's `docs/adr/<dir>/_workflow/**` artifacts to match workflow-format commits that landed on `develop` after the fork point. Replays each format-relevant commit's edits onto the branch's artifacts. Resumable across `/clear`. TRIGGER: branch has stale `_workflow/` after a workflow-format change on develop. SKIP: branches with no `_workflow/`."
-argument-hint: "<migration-branch-name>"
+argument-hint: "[branch-name]"
 user-invocable: true
 ---
 
 Auto-detection runs in `/execute-tracks` startup via [`workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
 
-Diff `.claude/workflow/` and `.claude/skills/` between the branch's fork point and current `develop` HEAD, then apply each format-relevant commit to the corresponding artifact files in the migration worktree. The skill runs from the `develop` worktree; the migration branch lives in a separate worktree.
+The skill runs inside the branch's own worktree. The branch is a self-contained capsule: workflow-format commits enter its view only when the user explicitly rebases or merges `develop`, so the migration's commit range is derived from per-artifact stamps and HEAD (see `conventions.md` §1.6), never from a develop-relative fork point. The skill applies each format-relevant commit's edits to the corresponding artifact files under the active plan's `_workflow/`.
 
-The skill edits files in place in the migration worktree and leaves it dirty for the user to review and commit. No automatic commits.
+The skill edits files in place and leaves the worktree dirty for the user to review and commit. No automatic commits.
 
 ## Inputs
 
-`$ARGUMENTS` — the name of the migration branch. Required.
-
-If `$ARGUMENTS` is empty, halt with:
-> Pass the migration branch name as the only argument, e.g., `/migrate-workflow ytdb-614-property-map`.
+`$ARGUMENTS` — optional. When supplied, it must equal the current
+branch name (`git branch --show-current`); the migration always runs
+in the current worktree on the current branch. Step 1 enforces the
+equality and rejects mismatches. The argument exists only for
+invocations that want the branch name explicit in the command line;
+omitting it is the common case.
 
 ## Step 0 — Create progress tracker
 
 Before any other tool call, create one task per step below using `TaskCreate`. Mark each `in_progress` when starting, `completed` when done. This list is the checklist; do not skip entries.
 
-1. Preflight: verify develop + clean tree
-2. Resolve migration worktree path
+1. Preflight: verify clean tree under the active plan's `_workflow/` and resolve the active plan dir
+2. Bootstrap unstamped artifacts: prompt for a base SHA covering any unstamped `_workflow/**` artifact
 3. Compute commit range + format-relevant commit list
 4. Load or initialize progress file
 5. Per-commit migration loop (one task per commit will be added at the start of Step 5, after Step 4 trims the resume queue)
@@ -31,34 +33,87 @@ Before any other tool call, create one task per step below using `TaskCreate`. M
 
 ## Step 1 — Preflight
 
-Run these checks. Halt on any failure.
+Run these checks in order. Halt on any failure.
+
+**Argument check.** When `$ARGUMENTS` is non-empty, it must equal the
+current branch name. The single equality covers every legacy reject
+case — `refs/heads/...`, `origin/...`, a 7- to 40-character hex SHA,
+or a non-existent branch name all fail this check, since none of them
+can equal `git branch --show-current`'s plain-branch-name output:
 
 ```bash
-# Must be on develop in the current worktree
-test "$(git branch --show-current)" = "develop" \
-  || { echo "ERROR: run from develop worktree"; exit 1; }
-
-# Working tree must be clean
-test -z "$(git status --porcelain)" \
-  || { echo "ERROR: develop worktree has uncommitted changes"; exit 1; }
-
-# Argument must look like a plain branch name, not a ref path or SHA
-case "$ARGUMENTS" in
-  refs/*|origin/*) echo "ERROR: pass a plain branch name, not a ref path"; exit 1;;
-esac
-echo "$ARGUMENTS" | grep -Eq '^[0-9a-f]{7,40}$' \
-  && { echo "ERROR: pass a branch name, not a commit SHA"; exit 1; }
-
-# Argument must be a real branch
-git rev-parse --verify "refs/heads/$ARGUMENTS" \
-  || { echo "ERROR: branch $ARGUMENTS does not exist"; exit 1; }
+if [ -n "$ARGUMENTS" ] \
+   && [ "$ARGUMENTS" != "$(git branch --show-current)" ]; then
+  echo "ERROR: \$ARGUMENTS ($ARGUMENTS) does not match the current branch ($(git branch --show-current))"
+  exit 1
+fi
 ```
 
-If develop is clean but not up to date with the remote, tell the user and ask whether to `git fetch && git pull --ff-only origin develop` first. Do not pull silently. Cover three failure modes:
+**Active-plan-dir resolution.** Enumerate `docs/adr/*/_workflow/`
+directories in the current worktree:
 
-- If `pull --ff-only` fails (local develop diverged from origin), halt and ask the user to resolve manually.
-- If no `origin` remote is configured, proceed against the local develop tip and record that fact in the final summary.
-- If the user declines the pull, also proceed against the local tip and record the choice.
+```bash
+ls -d docs/adr/*/_workflow/ 2>/dev/null
+```
+
+Apply this ladder and capture the result as `$PLAN_DIR` (the parent
+directory, without the trailing `/_workflow/`):
+
+1. **Zero matches** — halt with "no `_workflow/` directory on the
+   current branch; nothing to migrate".
+2. **Exactly one match** — use it. The parent directory name need
+   not match the current branch; branch names and ADR directory
+   names are not guaranteed to match.
+3. **More than one match** — list them and ask the user which one to
+   migrate. One plan at a time.
+
+Subsequent steps reference `$PLAN_DIR` (e.g.,
+`$PLAN_DIR/_workflow/implementation-plan.md`) instead of re-running
+the ladder.
+
+**Narrow-scope dirty check.** Refuse to start when any tracked file
+under the active plan's §1.6(h) artifact paths has uncommitted
+changes (working tree or index), or when any untracked file lives
+there. The scope covers the implementation plan, the design files,
+and every track file under `$PLAN_DIR/_workflow/plan/`. The staged
+subtree at `$PLAN_DIR/_workflow/staged-workflow/` is deliberately
+outside the check: on workflow-modifying branches, in-flight
+workflow-document changes accumulate under that subtree during
+execution (Phase 4 then promotes them to the live paths in one
+commit), and a whole-subtree check would refuse every such session
+with staged content present — the dogfood path this skill accepts.
+
+```bash
+DIRTY=$(git status --porcelain -- \
+  "$PLAN_DIR/_workflow/implementation-plan.md" \
+  "$PLAN_DIR/_workflow/design.md" \
+  "$PLAN_DIR/_workflow/design-mechanics.md" \
+  "$PLAN_DIR/_workflow/plan/" \
+  | grep -v '^?? \.migration-progress$')
+
+if [ -n "$DIRTY" ]; then
+  echo "ERROR: uncommitted or untracked changes under the active plan's _workflow/ artifacts:"
+  printf '%s\n' "$DIRTY"
+  echo "Commit, stash, or remove these files before re-running /migrate-workflow."
+  exit 1
+fi
+```
+
+The `.migration-progress` sentinel (Step 4) is the only carve-out;
+it is allowed to be untracked or modified mid-session. Any tracked
+file under the narrow scope showing a non-`?` status (modified,
+added, deleted, renamed, etc.) or any untracked file showing `??`
+halts the session with the offending paths printed; the user must
+commit, stash, or remove them before re-invoking.
+
+The check is deliberately narrow. The dropped develop-side
+whole-tree check incidentally guarded the live skill file
+(`.claude/skills/migrate-workflow/SKILL.md`); the staging convention
+for workflow-modifying branches (in-flight rewrites land under
+`staged-workflow/` rather than the live paths) now keeps the live
+skill at develop's state throughout execution, so the migration
+always reads the develop-state skill regardless of staged rewrites —
+the side-effect protection is no longer needed.
 
 ## Step 2 — Resolve migration worktree path
 
@@ -106,27 +161,17 @@ If the list is empty, halt with:
 
 Otherwise, record the commit list as an in-conversation note. Do NOT call `TaskCreate` per commit here — per-commit tasks are added at the start of Step 5, after Step 4 has trimmed the resume queue, so the task list never drifts from the actual queue.
 
-## Step 4 — Load or initialize progress file and identify target `_workflow/`
+## Step 4 — Load or initialize progress file
 
-The progress file lives at the **migration worktree root**, not inside `_workflow/`:
+The progress file lives at the worktree root, not inside `_workflow/`:
 
 ```
-<migration-worktree>/.migration-progress
+.migration-progress
 ```
 
-Placing it at the worktree root keeps it outside any tracked subtree, so it does not interfere with the `_workflow/` review diff and `git status` only surfaces it as a single untracked sentinel (filtered out by Step 2's clean check).
+Placing it at the worktree root keeps it outside any tracked subtree, so it does not interfere with the `_workflow/` review diff and `git status` only surfaces it as a single untracked sentinel (the `.migration-progress` carve-out in Step 1's narrow-scope clean check filters it out).
 
-Also identify the **target `_workflow/` directory** that Step 5.4 will edit. Enumerate `docs/adr/*/_workflow/` directories in the migration worktree:
-
-```bash
-ls -d "<migration-worktree>"/docs/adr/*/_workflow/ 2>/dev/null
-```
-
-Apply this ladder:
-
-1. **Zero matches** — halt with "no `_workflow/` directory on `$ARGUMENTS`; nothing to migrate".
-2. **Exactly one match** — use it. Do not require the parent directory name to match `$ARGUMENTS`; the branch name and the ADR directory name are not guaranteed to match.
-3. **More than one match** — list them and ask the user which one to migrate. The skill targets exactly one plan at a time.
+Step 1 has already resolved the active plan directory as `$PLAN_DIR`; Step 5.4 edits files under `$PLAN_DIR/_workflow/`. No second enumeration is needed.
 
 Progress file format:
 
@@ -146,7 +191,7 @@ File-existence handling:
 
 - If the file does not exist, create it with the three header lines and an empty body. The file is a sentinel that the user removes after committing the migration. Do not modify `.gitignore`.
 - If the file exists, read its header and apply these checks in order:
-  - If `fork=<recorded-sha>` differs from the current `git merge-base develop $ARGUMENTS`, halt and ask the user to delete the stale progress file before re-running. The branch has been rebased since the migration started. Warn that the migration worktree may carry partial edits from the prior run; recommend `git -C "<migration-worktree>" stash` (or commit-then-revert) before deleting the progress file.
+  - If `fork=<recorded-sha>` differs from the current `git merge-base develop $ARGUMENTS`, halt and ask the user to delete the stale progress file before re-running. The branch has been rebased since the migration started. Warn that the worktree may carry partial edits from the prior run; recommend `git stash` (or commit-then-revert) before deleting the progress file.
   - If `head=<recorded-sha>` is not reachable from the current `develop` (check via `git merge-base --is-ancestor <head-sha> develop`), halt and ask the user to fetch or update develop before resuming. The local `develop` was reset to an older commit than the one the prior run recorded.
   - If `fork=` matches and `head=` is older than the current `$HEAD_DEVELOP`, append any new commits to the queue (the develop tip moved during the migration).
 - The commits already listed in the body are **done**. Skip them in Step 5.
