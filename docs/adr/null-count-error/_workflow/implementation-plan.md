@@ -20,18 +20,45 @@ The fix has two layers. First, **convert both sites to pure-delta encoding** so 
 - **Lock-window invariant**: `applyIndexCountDeltas` and `applyHistogramDeltas` run with the per-index lock acquired at `lockIndexes` (AbstractStorage:2255) still held. Achieved by placing the apply hooks inside `endAtomicOperation` before `releaseLocks` returns the lock; the manual call at AbstractStorage:2365 (which runs after the lock release) is deleted.
 - **Independent revertability**: each track lands one logical change so reverts are surgical.
 
-### Implementer pacing (YTDB-971, YTDB-979)
+### Implementer pacing (YTDB-971)
 
-Every implementer prompt spawned from this plan (Phase B step implementers, Phase C track-level fix implementers) carries the pacing guidance verbatim. The original anti-pattern (YTDB-971) is background `./mvnw` paired with `tail -f`, no PID registration, no explicit kill before exit. Both Step 2 spawns on this branch hit it: each implementer emitted a Maven test tool_use, exhausted its message budget waiting on Monitor, exited without a `RESULT` block, and left an orphan Maven JVM plus the watcher consuming resources. Cumulative cost: ~56 minutes of orchestrator time across two spawns.
+Every implementer prompt spawned from this plan (Phase B step implementers, Phase C track-level fix implementers) carries the pacing guidance verbatim. The anti-pattern is background `./mvnw` paired with `tail -f` (or any other buffering pipe), no PID registration, no explicit kill before exit, and idle file reads burning message budget while the build runs. The branch saw three concrete cases:
 
-YTDB-979 extends the scope after Step 3's `RESULT_MISSING` recovery: the Step 3 implementer launched `./mvnw -pl core clean package -P coverage 2>&1 | tail -15` in background to satisfy the coverage gate for a production-source-touching step, then burned its budget polling. The fix is to take the surgical-change path: targeted tests + targeted coverage report + gate check, all foreground, ~75 s wall-clock total.
+- Both Step 2 spawns hit the original shape. Each implementer emitted a Maven test tool_use, exhausted its message budget waiting on Monitor, exited without a `RESULT` block, and left an orphan Maven JVM plus the watcher consuming resources. Cumulative cost: ~56 minutes of orchestrator time across two spawns.
+- Step 3 hit the same anti-pattern via a different surface: `./mvnw -pl core clean package -P coverage 2>&1 | tail -15` launched in background to satisfy the coverage gate. The `tail -15` buffers until upstream EOF, so the output log stays empty and the implementer's polling cannot tell whether the build is alive. The implementer burned its budget re-reading source files while waiting and exited without a `RESULT` block, even though all 761 lines of the actual work were correct and ready to commit. Cumulative cost: ~34 minutes for one spawn.
 
 Required clauses in every implementer prompt:
 
 - **Prefer foreground Maven** for single-class or focused reruns (`./mvnw -pl core test -Dtest=<TouchedTestClass>`). The runtime stays aware of implementer activity; `RESULT_MISSING` recovery is unnecessary.
 - **Route longer builds through `steroid_execute_code`** when the build exceeds the foreground budget but fits within the MCP HTTP timeout. The IDE returns structured pass/fail without orchestrator polling.
-- **Background mode is a last resort** (integration suite that exceeds the foreground budget, broad cumulative-diff coverage builds). When unavoidable: register the background PID, emit periodic progress lines so the runtime stays aware, and explicitly `kill -TERM` the background task plus any watcher before emitting any exit message (RESULT, budget-exit, or otherwise).
-- **Never pipe a background `./mvnw` through a buffering tail/head/grep.** `tail -f`, `tail -N`, `head -N`, `grep -m N`, and any other pipe that defers stdout until upstream EOF all leave the output file empty during the build. The Monitor and any progress poller go blind, the implementer feels uncertain, and the budget burns on idle file reads. Write Maven output to a log file directly: `./mvnw … > /tmp/claude-code-build-$$.log 2>&1 &`; poll with `grep -E 'BUILD (SUCCESS|FAILURE)' /tmp/claude-code-build-$$.log` if needed.
+- **For any task that exceeds both the foreground budget and the IDE timeout, use `.claude/scripts/bg-task.sh`.** It is a generic safe-background wrapper that works for any shell command (`./mvnw`, `./gradlew`, integration suites, async-profiler, Python scripts, etc.) — not just Maven. The script handles PID registration, output redirection without buffering pipes, exit-code capture into a file, and a single-notification wait pattern. The implementer never polls in a loop:
+
+  ```bash
+  # 1. Launch (returns immediately; the wrapper subshell is fully detached
+  #    from the caller's stdout so the eval does not block).
+  eval "$(.claude/scripts/bg-task.sh launch './mvnw -pl core test')"
+  # exports JOB_ID, LOG, PID, WAIT_CMD, STATUS_CMD, TAIL_CMD, KILL_CMD,
+  # CLEANUP_CMD into the caller's shell.
+
+  # 2. Wait via a SINGLE Bash tool call with run_in_background: true. The
+  #    runtime fires ONE completion notification when the until-loop exits;
+  #    no message-budget burn while the task runs.
+  eval "$WAIT_CMD"     # until [ -f "<base>.exit" ]; do sleep 30; done
+
+  # 3. After notification: structured pass/fail without parsing the log.
+  eval "$STATUS_CMD"   # STATE=success|failed|running JOB_ID=... EXIT=...
+
+  # 4. Optional inspection.
+  eval "$TAIL_CMD"     # last 50 lines (or `bg-task.sh tail <id> N`)
+
+  # 5. Always run before exit (idempotent if already dead).
+  eval "$KILL_CMD"
+  eval "$CLEANUP_CMD"
+  ```
+
+  Override the poll interval with `BG_TASK_POLL_SEC=<seconds>` (e.g. `5` for short tasks). The script's design constraints — `.exit`-file-authoritative status, `bash -c` isolation so the user command's own `exit` cannot terminate the wrapper, subshell stdout routed to `/dev/null` so command substitution does not block, synthetic exit values written by `kill` so any waiter unblocks — are documented in the script header.
+
+- **Never pipe a background `./mvnw` through a buffering tail/head/grep.** `tail -f`, `tail -N`, `head -N`, `grep -m N`, and any other pipe that defers stdout until upstream EOF all leave the output file empty during the build. The Monitor and any progress poller go blind, the implementer feels uncertain, and the budget burns on idle file reads. Use `bg-task.sh` (which writes the log directly via `> $LOG 2>&1` with no pipe), not a hand-rolled background pattern.
 - **Use the targeted coverage path for surgical production-source steps.** When the step's diff is small (<50 changed lines across <5 files) and the focused tests cover the new code, run the gate as a four-command foreground sequence:
 
   ```
@@ -46,9 +73,9 @@ Required clauses in every implementer prompt:
 
   Total wall-clock on Track 2 Step 3 was ~75 s (43 s focused tests with agent, 2 s report, <1 s copy, 30 s gate). The gate computed 96.7% line / 96.9% branch on the cumulative branch diff. This path replaces `./mvnw clean package -P coverage` for any step where the change is surgical; reserve the full-suite coverage build for steps that touch broadly-used code or change cumulative-diff totals across many files.
 
-- **Avoid the full-suite coverage build mid-step.** `./mvnw -pl core clean package -P coverage` runs the full ~1500-test core suite with the JaCoCo agent attached and routinely takes 20-30 min wall-clock — beyond both the foreground budget and the implementer's message budget when polled in background. Run the full-suite coverage build only at track completion (Phase C) or when the step's diff genuinely requires broader coverage that the focused tests cannot provide.
+- **Avoid the full-suite coverage build mid-step.** `./mvnw -pl core clean package -P coverage` runs the full ~1500-test core suite with the JaCoCo agent attached and routinely takes 20-30 min wall-clock, beyond both the foreground budget and the implementer's message budget when polled in background. If the step genuinely requires it, route it through `bg-task.sh` plus the single-notification wait pattern above. Otherwise reserve the full-suite coverage build for track completion (Phase C).
 
-Applies to every implementer prompt for Tracks 3 and 4 of this branch and any Phase C fix-application implementer. Track 1's implementers ran before YTDB-971 was filed; the rule does not apply retroactively. Track 2 Steps 1 and 2 ran under YTDB-971; Step 3's RESULT_MISSING recovery surfaced the gap closed here.
+Applies to every implementer prompt for Tracks 3 and 4 of this branch and any Phase C fix-application implementer. Track 1's implementers ran before YTDB-971 was filed; the rule does not apply retroactively. Track 2 Steps 1 and 2 ran under the original (narrow) YTDB-971 rule set; Step 3's RESULT_MISSING recovery surfaced the gap closed here and prompted both the rule extensions above and the `bg-task.sh` helper.
 
 ### Architecture Notes
 
