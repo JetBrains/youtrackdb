@@ -44,7 +44,7 @@
 >      uniqueness scoped to the in-progress pattern.
 >   5. Extract `MatchClassFilters.classEq(...)` helper from the duplicated
 >      `buildClassEqExpression` logic in `StartStepRecogniser`; refactor
->      the start-step recogniser to use it; pin polymorphism flag on
+>      the start-step recognizer to use it; pin polymorphism flag on
 >      `WalkerContext.polymorphic` at first claim.
 >   6. `VertexStepRecogniser` reads `WalkerContext.polymorphic` and
 >      applies `MatchClassFilters.classEq("V")` to every chain target
@@ -83,7 +83,7 @@
 >   ctor must be in place; this track replaces the size-1 decline gate).
 > - Enables Tracks 4-10 — they all extend the walker on top of the
 >   recognition machinery this track introduces. The `MatchClassFilters`
->   helper extracted here is reused by Track 4's `hasLabel` recogniser
+>   helper extracted here is reused by Track 4's `hasLabel` recognizer
 >   (third call site for `@class = '<name>'` filter construction).
 
 ---
@@ -184,7 +184,7 @@
 >       routed through Track 2's new ctor). The first alias of the NOT
 >       pattern must already exist in the positive pattern (planner
 >       constraint, see `MatchExecutionPlanner.manageNotPatterns`); the
->       recogniser pre-validates this against `ctx.boundaryAlias` and
+>       recognizer pre-validates this against `ctx.boundaryAlias` and
 >       declines under D3 if it fails.
 >     - *Pure-filter sub-traversal* (`not(__.has(...))`, `hasNot(key)`
 >       desugar) — translates inline to `MatchWhereBuilder.not(...)` on
@@ -205,7 +205,7 @@
 > - Step ordering (provisional):
 >   1. `AndStep` / `OrStep` recursive walker — sub-traversal as
 >      `SQLBooleanExpression` subtree.
->   2. `NotStepRecogniser` — one recogniser for both shapes, internal
+>   2. `NotStepRecogniser` — one recognizer for both shapes, internal
 >      branch on `hasEdgeHops(subTraversal)`: pure-filter →
 >      `MatchWhereBuilder.not(...)`; edge-bearing → append
 >      `SQLMatchExpression` to `MatchPlanInputs.notMatchExpressions`.
@@ -407,9 +407,14 @@
 >     aggregate. Translates to `RETURN sum(currentAlias.key)` etc. with
 >     empty group-by.
 >   - **`GroupStep` (= `group()`)** — without `by`, produces
->     `Map<element, list>`; the no-by form mirrors
+>     `Map<element, list-of-elements>`; the no-by form mirrors
 >     `group().by(__.identity()).by(__.fold())`. Translates to
->     `GROUP BY currentAlias` + `RETURN currentAlias, collect(*)`.
+>     `GROUP BY currentAlias` + `RETURN currentAlias, list($currentMatch)`.
+>     Using `list($currentMatch)` (an element-identity accumulator)
+>     rather than `collect(*)` keeps the value side a list of the
+>     elements themselves, matching Gremlin's fold semantics. `collect(*)`
+>     would gather all projected fields of the result row, which is a
+>     different shape.
 >   - **`GroupStep.by(key)`** — `GROUP BY currentAlias.key` + accumulator.
 >   - **`GroupCountStep`** — `GROUP BY` + `RETURN count(*)`.
 > - Pin the boundary output type to the aggregate result type (scalar
@@ -423,8 +428,9 @@
 >   2. `SumGlobalStep` / `MinGlobalStep` / `MaxGlobalStep` /
 >      `MeanGlobalStep` — coupled with the preceding `values(key)`;
 >      decline if no property-extraction precedes them.
->   3. `GroupStep` (no `by`, with `by(key)`) — `GROUP BY` + `collect(*)`
->      / aggregate accumulator; pin boundary output to `Map`.
+>   3. `GroupStep` (no `by`, with `by(key)`) — `GROUP BY` +
+>      `list($currentMatch)` / aggregate accumulator; pin boundary
+>      output to `Map`.
 >   4. `GroupCountStep` — `GROUP BY` + `RETURN count(*)`.
 >   5. Aggregate equivalence tests vs SQL; group-by equivalence;
 >      empty-result handling (count of empty match → 0, not absence).
@@ -547,8 +553,8 @@
 >      single-threaded and multi-threaded suites; capture per-query
 >      mean-time deltas in a worktree-only report.
 >   4. Port LDBC queries to Gremlin alongside their SQL benchmarks. Each
->      query that maps onto the recognised set gets a Gremlin
->      benchmark; queries that hit unrecognised steps (e.g. those
+>      query that maps onto the recognized set gets a Gremlin
+>      benchmark; queries that hit unrecognized steps (e.g. those
 >      requiring `repeat()` or `path()`) are documented as
 >      "decline-only" and run natively only. Run the Gremlin suite
 >      twice (translator off / on) on the branch HEAD; capture the
