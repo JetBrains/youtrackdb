@@ -27,7 +27,8 @@ Before any other tool call, create one task per step below using `TaskCreate`. M
 3. Compute commit range + format-relevant commit list
 4. Load or initialize progress file
 5. Per-commit migration loop (one task per commit will be added at the start of Step 4, after Step 3 trims the resume queue)
-6. Final summary
+6. Final stamp-to-HEAD batch
+7. Final summary
 
 ## Step 1 — Preflight
 
@@ -613,6 +614,32 @@ If the process is killed between applying edits in 4.4 and updating `.migration-
 ### 4.7 Mark the per-commit task completed
 
 `TaskUpdate` the matching task to `completed`. Move to the next commit.
+
+### 4.8 Final stamp-to-HEAD batch
+
+After the per-commit loop exits (the queue is exhausted) and before Step 5's final summary runs, re-stamp every artifact present on disk to `git rev-parse HEAD`. This sub-step lands invariant I2: at session end, every stamped artifact's line-1 SHA equals HEAD's SHA.
+
+Capture HEAD once, then walk the active plan's `_workflow/**` per `conventions.md` §1.6(h) and rewrite line 1 of each artifact via `Edit`:
+
+```bash
+HEAD_SHA="$(git rev-parse HEAD)"
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    # Edit line 1: old_string is the artifact's prior stamp (the last
+    # per-commit-advance SHA from sub-step 4.5, or — for an artifact
+    # whose 4.5 first-stamp branch ran this session — that bootstrap
+    # stamp); new_string is <!-- workflow-sha: $HEAD_SHA -->.
+    :
+done
+```
+
+The walk uses §1.6(h)'s shared bash block byte-for-byte; the `ls 2>/dev/null` shape silently skips optional artifacts that never landed on disk (for example, `design-mechanics.md` on a branch that never crossed the length trigger), so no extra existence check is needed.
+
+Re-stamp every artifact in the walk, including artifacts whose stamp the per-commit advance in sub-step 4.5 already updated to a SHA inside the range. The writer is idempotent on equal SHA: when an artifact's last per-commit advance already left it at `HEAD_SHA` (the range's final commit advanced it there), the `Edit` call rewrites the line to the same text and the file content does not change. A re-stamp that does change content covers two cases — an artifact whose last per-commit advance landed at a non-HEAD SHA inside the range (because no later replayed commit touched its file shape), and an artifact whose first stamp arrived through 4.5's unstamped-artifact bootstrap branch at a pre-HEAD SHA.
+
+The final batch and the per-commit advance use the same `Edit`-against-line-1 writer, so the recovery story is uniform: a killed-mid-4.8 session leaves some artifacts at `HEAD_SHA` and the rest at the prior per-commit advance SHA, which the next `/migrate-workflow` session reads as non-uniform stamps. Step 2.0's fold collapses to the lowest, range derivation re-queues the not-yet-stamped commits (an empty range when every commit has already been replayed), and 4.8 fires again to land I2.
 
 ## Step 5 — Final summary
 
