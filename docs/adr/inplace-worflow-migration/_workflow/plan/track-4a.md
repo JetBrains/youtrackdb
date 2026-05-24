@@ -8,7 +8,7 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-05-24T05:32Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-24T08:53Z [ctx=safe] Step 1 complete (commit e04b5334ba)
@@ -17,6 +17,7 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 - [x] 2026-05-24T09:16Z [ctx=safe] Step 4 complete (commit e449dec277)
 - [x] 2026-05-24T09:21Z [ctx=safe] Step 5 complete (commit 72dd4f77af)
 - [x] 2026-05-24T10:05Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-24T10:08Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 - 2026-05-24T08:53Z — The ephemeral-identifier pre-commit gate's exclusion list covers `_workflow/**` and `.claude/workflow/**` but not `.claude/skills/**`. Plan-file Decision Record IDs cited inside SKILL bodies fail the same resolvability test the rule applies to source code and Phase 4 artifacts, since SKILL.md survives the squash but the plan-file DR identifiers do not. Inline-prose restatement of the staging convention sidesteps the issue; future tracks touching SKILL bodies should anticipate the same trap. See Episodes §Step 1.
@@ -31,6 +32,7 @@ After this track lands, `/migrate-workflow`'s preflight and range computation ru
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (4 findings, 4 accepted)
 - [x] Adversarial: PASS at iteration 2 (7 findings, 5 accepted + 2 deferred — A3 D8 challenge per Decision Record immutability, A7 progress-file field rename intentional)
+- [x] Code review: PASS at iteration 1 (13 findings, 13 accepted across consistency/prompt-design/instruction-completeness/writing-style; 0 deferred this iteration; 5 deferred to Track 4b per the existing per-commit-loop carve-out: WI1 / WI2 / WI12 / WP1 / WC2-WI10. 2 rejected as invalid: WI7 / WI8.)
 
 ## Context and Orientation
 
