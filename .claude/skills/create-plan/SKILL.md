@@ -455,16 +455,31 @@ teammates as a draft PR:
    git push -u origin <branch>
    ```
    (Use `git push` on subsequent pushes once upstream is set.)
-3. Ask the user **once**, before opening the PR:
+3. **Deferred-drift recital (silent no-op when nothing was deferred).**
+   If Step 1.5's Defer resolution created the TaskCreate todo titled
+   `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>`
+   (or the unstamped variant `Deferred workflow drift: unstamped
+   artifacts in active plan, see /migrate-workflow`) earlier in this
+   session, read the todo title and recite it verbatim, followed by
+   an instruction to run `/migrate-workflow` from this worktree to
+   pick up the deferred work. If TaskCreate was unavailable at
+   Step 1.5 and the two fields are held in in-context memory
+   instead, recite the same line shape from memory. If no Defer
+   resolution fired this session, skip this sub-step silently. The
+   recital fires before the draft PR is opened so the user sees the
+   residue in the same session; it mirrors the recital
+   `workflow.md § What to do before ending a session` runs for
+   `/execute-tracks`.
+4. Ask the user **once**, before opening the PR:
    *"Provide an issue prefix for the PR title (e.g. `YTDB-123`)?
    Leave blank to skip."*
    Branch names in this project often do not encode the issue
    prefix; the user tracks it in the PR title instead.
-4. Compose the PR title:
+5. Compose the PR title:
    - With a prefix `<P>`: `[<P>] <feature title>` — e.g.
      `[YTDB-123] Index histogram for selective range scans`
    - Without a prefix: `<feature title>`
-5. Compose the PR body from the plan: `## Motivation` (the plan's
+6. Compose the PR body from the plan: `## Motivation` (the plan's
    Goals + Constraints, distilled into prose — apply the Ephemeral
    identifier rule from `conventions-execution.md` §2.3 to the body
    since PR titles and descriptions are durable), `## Plan` (one
@@ -472,7 +487,7 @@ teammates as a draft PR:
    `## Status` line stating *"Draft — workflow scaffolding under
    `docs/adr/<dir-name>/_workflow/` will be removed in the Phase 4
    cleanup commit before merge."*
-6. Open the PR in **draft** mode using `gh`:
+7. Open the PR in **draft** mode using `gh`:
    ```bash
    gh pr create --draft --base develop \
        --title "<title built above>" \
