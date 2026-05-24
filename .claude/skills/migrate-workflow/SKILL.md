@@ -1,6 +1,6 @@
 ---
 name: migrate-workflow
-description: "Migrate a branch's `docs/adr/<dir>/_workflow/**` artifacts to match workflow-format commits reachable from HEAD after the stamp base. Replays each format-relevant commit's edits onto the branch's artifacts. Resumable across `/clear`. TRIGGER: branch has stale `_workflow/` after a workflow-format change on develop. SKIP: branches with no `_workflow/`."
+description: "Migrate a branch's docs/adr/<dir>/_workflow/** artifacts by replaying workflow-format commits from the per-artifact stamp base through HEAD. Resumable across /clear. TRIGGER: branch has stale _workflow/ after a workflow-format change on develop. SKIP: branches with no _workflow/."
 argument-hint: "[branch-name]"
 user-invocable: true
 ---
@@ -551,7 +551,9 @@ For each `R<percentage>\t<old>\t<new>` entry, plan to append one `#   <old> -> <
 
 Before invoking any edit tool, print one line to the user in the form `commit <short-sha>: <classification> — <reason>` (e.g., `commit 1de3cb0e: format — adds Phase-2 review section to implementation-plan.md`).
 
-A fifth classification value, `manual-review-needed`, may be set in Step 4.6 only when the user invokes the "skip" escape from a Step 4.4 ambiguity halt. It is not selected here in 4.3.
+**Stamp-format-change halt.** If the commit's diff modifies `conventions.md` §1.6 stamp-format definition (the `workflow-sha:` regex shape or the line-1 stamp position rule), halt and route the commit to manual review — the in-place migration cannot self-bootstrap a stamp-format change because the writer's `old_string`-match contract assumes the prior format's text shape. Record the commit at 4.6 with classification `manual-review-needed` and skip the per-commit edits in 4.4.
+
+A fifth classification value, `manual-review-needed`, may be set in Step 4.6 only when the user invokes the "skip" escape from a Step 4.4 ambiguity halt, or when 4.3's stamp-format-change halt fires above. It is not selected here in 4.3 as a primary classification.
 
 ### 4.4 Apply the migration
 
@@ -587,13 +589,13 @@ User outcomes:
 
 ### 4.5 Advance stamps in lockstep
 
-After sub-step 4.4's edits land and before sub-step 4.6 records the commit in `.migration-progress`, rewrite line 1 of every artifact under the active plan's `_workflow/` (per `conventions.md` §1.6(h)'s walk) to `<!-- workflow-sha: <current-commit-sha> -->`. The order is load-bearing: edits → advance → progress sentinel, never another order. Reversing edits and advance leaves stamps ahead of artifact content on crash; deferring the advance past the progress sentinel breaks the resume contract because the next session reads the sentinel and the stamp set and they disagree about which commit was last replayed. The design.md sequence diagram in §"Per-commit replay and lockstep advance" is the authoritative ordering.
+After sub-step 4.4's edits land and before sub-step 4.6 records the commit in `.migration-progress`, rewrite line 1 of every artifact enumerated by `conventions.md` §1.6(h)'s canonical walk under the active plan's `_workflow/` to `<!-- workflow-sha: <current-commit-sha> -->`. The order is load-bearing: edits → advance → progress sentinel, never another order. Reversing edits and advance, or deferring the advance past the progress sentinel, breaks crash resume — see design.md §"Per-commit replay and lockstep advance" for the case analysis. The design.md sequence diagram in §"Migration replay loop" is the authoritative ordering; §"Per-commit replay and lockstep advance" carries the crash-window analysis.
 
-For each stamped artifact, use the `Edit` tool against line 1 with the **prior stamp** as `old_string` and the new `<!-- workflow-sha: <current-commit-sha> -->` as `new_string`. The exact-string match makes the writer idempotent on equal SHAs (re-running on an artifact already at this commit's SHA fails the `old_string` precondition harmlessly) and portable across platforms (no `sed -i` BSD/GNU dialect difference).
+For each stamped artifact, use the `Edit` tool against line 1 with the **prior stamp** as `old_string` and the new `<!-- workflow-sha: <current-commit-sha> -->` as `new_string`. For the K-th commit in the queue (K ≥ 2), the **prior stamp** is the SHA 4.5 wrote on its previous iteration. Re-read `head -1 "$f"` at the start of each 4.5 fire to capture the current `PREV_SHA`; do not reuse the session-start stamp value. For K=1, `PREV_SHA` is the artifact's line-1 stamp at session start (Step 2's stamped set), or the bootstrap SHA after 4.5's unstamped-artifact branch ran for the artifact. The exact-string match makes the writer idempotent on equal SHAs (re-running on an artifact already at this commit's SHA: the prior stamp text is no longer present, so `Edit` raises an `old_string` mismatch — treat this as a benign no-op, do not retry and do not halt, because the post-condition `<!-- workflow-sha: <current-commit-sha> -->` on line 1 already holds) and portable across platforms (no `sed -i` BSD/GNU dialect difference).
 
-Artifacts that were not stamped at session start (legacy bootstrap path; covered by `$UNSTAMPED_FILES` in Step 2.0) gain their first stamp here as a side effect: for those files, the `Edit` writer has no prior stamp to match, so use `Read` to capture line 1, then `Write` the full file back with the new stamp line prepended above the existing line 1. After the first successful per-commit replay these artifacts join the stamped set and the standard `Edit` path applies on subsequent commits.
+Artifacts that were not stamped at session start gain their first stamp here as a side effect. At 4.5 invocation time, an artifact takes this bootstrap branch iff `head -1 "$f"` does not start with `<!-- workflow-sha:`; the `$UNSTAMPED_FILES` set Step 2.0 computed is informational (it drives Step 5's count summary), so do not rely on its membership at 4.5 — re-check per artifact. For files on the bootstrap branch, the `Edit` writer has no prior stamp to match. Use `Read` to capture the **full file content**, prepend a new line `<!-- workflow-sha: <current-commit-sha> -->\n` above the existing line 1, then `Write` the entire concatenated content back to the same path. After the first successful per-commit replay these artifacts join the stamped set and the standard `Edit` path applies on subsequent commits. A crash between `Read` and `Write` on this path leaves the artifact unstamped (the on-disk content is identical to its pre-4.5 state). The next session re-enters Step 2.0 with the same `$UNSTAMPED_FILES` set, re-prompts for the bootstrap SHA, and 4.5's bootstrap branch fires again on this artifact for the same commit — idempotent under the user supplying the same SHA.
 
-This sub-step is the crash-resume marker. Without it, a mid-loop crash leaves no durable record of "the migration replayed up to commit X"; with it, the next session reads any stamp, finds the last successfully-replayed SHA, and resumes at the next commit. See design.md §"Per-commit replay and lockstep advance" for the sequence diagram and crash-window analysis.
+This sub-step is the crash-resume marker: the next session reads any stamp, finds the last successfully-replayed SHA, and resumes at the next commit. See design.md §"Migration replay loop" for the sequence diagram and §"Per-commit replay and lockstep advance" for the crash-window analysis.
 
 ### 4.6 Update the progress file
 
@@ -613,37 +615,25 @@ If the process is killed between applying edits in 4.4 and updating `.migration-
 
 ### 4.7 Mark the per-commit task completed
 
-`TaskUpdate` the matching task to `completed`. Move to the next commit.
+`TaskUpdate` the matching task to `completed`. Move to the next commit. When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migration loop") as `completed` before falling through to sub-step 4.8.
 
 ### 4.8 Final stamp-to-HEAD batch
 
-After the per-commit loop exits (the queue is exhausted) and before Step 5's final summary runs, re-stamp every artifact present on disk to `git rev-parse HEAD`. This sub-step lands invariant I2: at session end, every stamped artifact's line-1 SHA equals HEAD's SHA.
+Mark Step 0's umbrella task 6 ("Final stamp-to-HEAD batch") as `in_progress`. After the per-commit loop exits (the queue is exhausted) and before Step 5's final summary runs, re-stamp every artifact present on disk to `git rev-parse HEAD`. This sub-step lands invariant I2: at session end, every stamped artifact's line-1 SHA equals HEAD's SHA.
 
-Capture HEAD once, then walk the active plan's `_workflow/**` per `conventions.md` §1.6(h) and rewrite line 1 of each artifact via `Edit`:
+Capture HEAD once via `git rev-parse HEAD` into `$HEAD_SHA`. Then walk every artifact under `$PLAN_DIR/_workflow/**` per `conventions.md` §1.6(h)'s enumeration; for each artifact, read the current line-1 stamp (`head -1 "$f"`) and call `Edit` with that value as `old_string` and `<!-- workflow-sha: $HEAD_SHA -->` as `new_string`. Artifacts already at HEAD (their prior 4.5 fire already wrote this SHA) fail the `old_string` precondition — treat the mismatch as a benign no-op (the post-condition already holds), do not retry, do not halt. Optional artifacts absent from disk (`design-mechanics.md` on branches that never crossed the length trigger) are silently skipped by §1.6(h)'s `ls 2>/dev/null` shape.
 
-```bash
-HEAD_SHA="$(git rev-parse HEAD)"
-for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
-              "$PLAN_DIR/_workflow/design.md" \
-              "$PLAN_DIR/_workflow/design-mechanics.md" \
-              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
-    # Edit line 1: old_string is the artifact's prior stamp (the last
-    # per-commit-advance SHA from sub-step 4.5, or — for an artifact
-    # whose 4.5 first-stamp branch ran this session — that bootstrap
-    # stamp); new_string is <!-- workflow-sha: $HEAD_SHA -->.
-    :
-done
-```
-
-The walk uses §1.6(h)'s shared bash block byte-for-byte; the `ls 2>/dev/null` shape silently skips optional artifacts that never landed on disk (for example, `design-mechanics.md` on a branch that never crossed the length trigger), so no extra existence check is needed.
-
-Re-stamp every artifact in the walk, including artifacts whose stamp the per-commit advance in sub-step 4.5 already updated to a SHA inside the range. The writer is idempotent on equal SHA: when an artifact's last per-commit advance already left it at `HEAD_SHA` (the range's final commit advanced it there), the `Edit` call rewrites the line to the same text and the file content does not change. A re-stamp that does change content covers two cases — an artifact whose last per-commit advance landed at a non-HEAD SHA inside the range (because no later replayed commit touched its file shape), and an artifact whose first stamp arrived through 4.5's unstamped-artifact bootstrap branch at a pre-HEAD SHA.
+Re-stamp every artifact in the walk, including artifacts whose stamp the per-commit advance in sub-step 4.5 already updated to a SHA inside the range. A re-stamp that does change content covers two cases — an artifact whose last per-commit advance landed at a non-HEAD SHA inside the range (because no later replayed commit touched its file shape), and an artifact whose first stamp arrived through 4.5's unstamped-artifact bootstrap branch at a pre-HEAD SHA.
 
 The final batch and the per-commit advance use the same `Edit`-against-line-1 writer, so the recovery story is uniform: a killed-mid-4.8 session leaves some artifacts at `HEAD_SHA` and the rest at the prior per-commit advance SHA, which the next `/migrate-workflow` session reads as non-uniform stamps. Step 2.0's fold collapses to the lowest, range derivation re-queues the not-yet-stamped commits (an empty range when every commit has already been replayed), and 4.8 fires again to land I2.
 
+After the walk exits, mark Step 0's umbrella task 6 as `completed`.
+
 ## Step 5 — Final summary
 
-When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migration loop") as `completed`, then output:
+Mark Step 0's umbrella task 7 ("Final summary") as `in_progress`. `$HEAD_SHA` is the value sub-step 4.8 captured via `git rev-parse HEAD`; re-derive it here by running `git rev-parse HEAD` again — the value is unchanged since 4.8. `$USER_BOOTSTRAP_SHA` was captured at Step 2.0; if it is no longer in conversation state, recover it by reading line 1 of any artifact in `$UNSTAMPED_FILES` (the bootstrap branch stamped them at this value during the first commit's 4.5 fire). If Step 2.0 did not run this session (no unstamped artifacts), omit the bootstrap-count summary line entirely.
+
+Output:
 
 - Workflow stamps now at `$HEAD_SHA` (the value sub-step 4.8 captured from `git rev-parse HEAD`). This is the post-condition I2 lands; surfacing it in the summary gives the user a one-glance confirmation that every artifact in the active plan reached the same SHA.
 - When `$USER_BOOTSTRAP_SHA` is set (Step 2.0 fired because the session started with at least one unstamped artifact), emit: "Bootstrapped N previously unstamped artifacts using SHA `$USER_BOOTSTRAP_SHA`", where N is the size of the `$UNSTAMPED_FILES` set Step 2.0 collected. Skip this line entirely when `$USER_BOOTSTRAP_SHA` is unset (fully-stamped session) so the summary stays terse on the common path.
@@ -652,7 +642,7 @@ When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migratio
 - Total files edited in the branch's worktree, excluding the progress-file sentinel: `git status --porcelain | grep -v '^?? \.migration-progress$' | wc -l`.
 - One-line next-step prompt: "Review the diff in this worktree, then commit + push when satisfied. Delete `.migration-progress` after the commit."
 
-Then end the session.
+After printing the summary lines above, mark Step 0's umbrella task 7 as `completed`. Then end the session.
 
 ## Notes
 
