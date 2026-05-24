@@ -983,9 +983,9 @@ shared branching.
 
 ### Phase 2 paths for edge-bearing `OrStep`
 
-When LDBC or client workloads start using `or(__.outE(...), filter)`
-shapes meaningfully, three Phase 2 paths are available — the choice
-depends on what the YTDB SQL planner ends up optimizing best:
+If `or(__.outE(...), filter)` shapes come up as a real need, three
+Phase 2 paths exist. The trade-offs differ — which one fits depends
+on the actual use case:
 
 1. **Union-of-plans.** Emit each OR child as its own
    `SelectExecutionPlan`, concatenate the result streams through
@@ -1010,7 +1010,7 @@ depends on what the YTDB SQL planner ends up optimizing best:
    support.
 
 Phase 1 declines and the native pipeline keeps working — zero
-regression. Phase 2 picks the path after a real workload measurement.
+regression.
 
 ### Unrecognized step inside any child
 
@@ -1497,7 +1497,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Category | Steps | Why out | Phase 2 path |
 |---|---|---|---|
 | Optional sub-traversal | `optional(traversal)` | Gremlin drops the row when the sub-traversal yields nothing; MATCH emits the row with the inner alias `null`. The two outputs differ on the case `optional` exists to express. | Drop-on-null filter at the boundary step, or a MATCH-level alternative pattern, or both — designed in Phase 2 |
-| OR over edge-bearing sub-traversals | `or(__.out(L), __.has(...))` and any `OrStep` whose sub-traversal (transitively) carries a vertex hop or NOT-pattern | YTDB IR has full OR inside WHERE (`SQLOrBlock`), but no OR between pattern fragments inside a single MATCH — fragments are always AND-composed. Edge-bearing OR children produce pattern fragments, not boolean expressions, so a single MATCH cannot express their OR. Phase 1 declines and the native TinkerPop pipeline handles it. | Three Phase 2 paths (chosen after workload measurement): union-of-plans via `MultiPlanMatchStep` + boundary dedup; correlated subquery in WHERE via `SQLBaseExpression.extractSubQueries`; optional-pattern with WHERE null-check (needs Phase 2 `optional` first) |
+| OR over edge-bearing sub-traversals | `or(__.out(L), __.has(...))` and any `OrStep` whose sub-traversal (transitively) carries a vertex hop or NOT-pattern | YTDB IR has full OR inside WHERE (`SQLOrBlock`), but no OR between pattern fragments inside a single MATCH — fragments are always AND-composed. Edge-bearing OR children produce pattern fragments, not boolean expressions, so a single MATCH cannot express their OR. Phase 1 declines and the native TinkerPop pipeline handles it. | Three Phase 2 paths exist: union-of-plans via `MultiPlanMatchStep` + boundary dedup; correlated subquery in WHERE via `SQLBaseExpression.extractSubQueries`; optional-pattern with WHERE null-check (needs Phase 2 `optional` first) |
 | Variable-depth traversal | `repeat().until(...)`, `repeat().times(n)` | MATCH `WHILE` / `maxDepth` requires careful translation of the loop condition + termination semantics | Map `until` → `whileCondition`, `times` → `maxDepth` on `SQLMatchPathItem` |
 | Stateful side-effects | `sack()`, `store()`, `aggregate()` | TinkerPop traverser-state-machine has no MATCH analogue | Likely never; stay native |
 | Lambda steps | TinkerPop lambda steps (`map(λ)`, `filter(λ)`, `sideEffect(λ)`, …) | Arbitrary user code is untranslatable | Stay native; potentially inline simple Gremlin expression lambdas later |
