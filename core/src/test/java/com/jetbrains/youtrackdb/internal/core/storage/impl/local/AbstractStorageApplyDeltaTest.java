@@ -35,11 +35,13 @@ import org.junit.Test;
 /**
  * Coverage for the {@code isApplied()} short-circuit gates inside
  * {@link AbstractStorage#applyIndexCountDeltas} and
- * {@link AbstractStorage#applyHistogramDeltas}. The lifecycle hook in
- * {@code AtomicOperationsManager.endAtomicOperation} latches the holder
- * once it has run; the inline call inside {@code AbstractStorage.commit}
- * then short-circuits on the second pass via the latch gate. This test
- * pins both halves of the latch contract on the production methods:
+ * {@link AbstractStorage#applyHistogramDeltas}. The first apply pass
+ * latches the holder via {@code setApplied()} at the entry of the method;
+ * any subsequent pass observes the latch and short-circuits before the
+ * per-engine loop. The latch is a defensive belt against any future re-
+ * entry into apply within the same atomic operation, for example a nested
+ * or mistakenly-replayed lifecycle pass. This test pins both halves of the
+ * latch contract on the production methods:
  *
  * <ul>
  *   <li>First call latches the holder.</li>
@@ -49,9 +51,10 @@ import org.junit.Test;
  *
  * <p>The hook test {@code EndAtomicOperationHookOrderingTest} pins the
  * manager-side gate; this test pins the storage-side gate at the entry of
- * the apply methods. Both are required to close the dual-invocation
- * window between the lifecycle hook and the legacy inline call inside
- * {@code commit()}.
+ * the apply methods. Both layers cover the latch contract from different
+ * angles: the manager-side test verifies the hook reads the latch and
+ * skips its call, the storage-side test (this class) verifies the apply
+ * method itself sets the latch before doing any per-engine work.
  *
  * <p>Uses {@code Mockito.doCallRealMethod()} on a mocked
  * {@link AbstractStorage} rather than constructing the abstract subclass.
@@ -146,10 +149,10 @@ public class AbstractStorageApplyDeltaTest {
    * {@link AbstractStorage#applyIndexCountDeltas} sets the {@code applied}
    * latch at the top of the method, not at the bottom. The lifecycle hook
    * in {@code AtomicOperationsManager.endAtomicOperation} swallows a throw
-   * from the apply call; without the up-front latch, the legacy inline
-   * call inside {@code AbstractStorage.commit} would re-enter the apply
-   * method and double-increment any engine counters processed before the
-   * throw.
+   * from the apply call; without the up-front latch, any future re-entry
+   * on the same holder (a nested or mistakenly-replayed lifecycle pass)
+   * would re-iterate and double-increment the engine counters processed
+   * before the throw.
    *
    * <p>Drives the partial-loop throw by populating a holder with a delta
    * entry that the real method will iterate, then letting the
@@ -181,8 +184,8 @@ public class AbstractStorageApplyDeltaTest {
         + " contract that requires the up-front latch",
         expected != null);
     assertTrue("Latch must be set even though the loop threw; without this"
-        + " the inline call inside commit() would re-iterate the holder"
-        + " and double-apply engines processed before the throw",
+        + " any future re-entry on the same holder would re-iterate and"
+        + " double-apply engines processed before the throw",
         holder.isApplied());
   }
 

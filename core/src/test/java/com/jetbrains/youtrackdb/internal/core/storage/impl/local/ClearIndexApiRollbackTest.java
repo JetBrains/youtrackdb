@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -117,6 +118,21 @@ public class ClearIndexApiRollbackTest {
 
     // Follow-up implementer wires: clearIndex invocation + forced WAL-flush
     // rollback. After that, the assertions below pin the contract.
+    //
+    // The fail() below is a scaffolding tripwire. Without the clearIndex
+    // call and the forced rollback, the post-clear read below trivially
+    // matches the pre-clear read (two reads of an untouched AtomicLong),
+    // so the assertions would pass on a body that does not exercise the
+    // contract under test. Removing the @Ignore annotation without first
+    // wiring the clearIndex invocation and the rollback injection would
+    // land a passing-but-meaningless test that names a contract it does
+    // not verify. The follow-up implementer that fills in the body must
+    // also remove this fail() in the same edit.
+    fail("Scaffold body incomplete: the clearIndex invocation and forced"
+        + " rollback injection are still missing. The follow-up that"
+        + " un-@Ignores this test must wire both before removing the"
+        + " annotation, otherwise the post-clear read trivially matches"
+        + " the pre-clear read and the assertions verify nothing.");
 
     long[] postClearCounts = new long[2];
     db.getStorage().getAtomicOperationsManager()

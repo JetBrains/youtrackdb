@@ -33,8 +33,13 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InOrder;
@@ -218,6 +223,47 @@ public class EndAtomicOperationHookOrderingTest {
   }
 
   /**
+   * Apply hooks fire after the {@code atomicOperationsTable.commitOperation}
+   * call rather than before it. The source comment above the apply block
+   * reads "after commitChanges and atomicOperationsTable commit/persist, and
+   * before the inner-finally releaseLocks"; the happy-path ordering test
+   * above pins the {@code commitChanges} half but leaves the
+   * {@code atomicOperationsTable.commitOperation} half unverified. A future
+   * refactor that moved apply before the table commit would not be caught
+   * by the existing test, so this one pins the table-side ordering
+   * separately.
+   *
+   * <p>InOrder chain: {@code table.commitOperation} →
+   * {@code storage.applyIndexCountDeltas} → {@code storage.applyHistogramDeltas}
+   * → {@code component.unlockExclusive}. Pins both apply branches as
+   * running strictly after the table-side commit was recorded and strictly
+   * before {@code releaseLocks} drained the locks.
+   */
+  @Test
+  public void applyHooksRunAfterTableCommitOperation() throws IOException {
+    var indexHolder = new IndexCountDeltaHolder();
+    var histogramHolder = new HistogramDeltaHolder();
+    var component = mockComponent("index.idx");
+    var lockedList = new ArrayList<StorageComponent>();
+    lockedList.add(component);
+    var operation = mockOperationWithLockedComponents(
+        indexHolder, histogramHolder, lockedList, new HashSet<>());
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+    doNothing().when(storage).applyIndexCountDeltas(operation);
+    doNothing().when(storage).applyHistogramDeltas(operation);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    manager.endAtomicOperation(operation, null);
+
+    InOrder tableBeforeApply = Mockito.inOrder(table, storage, component);
+    tableBeforeApply.verify(table).commitOperation(DEFAULT_COMMIT_TS);
+    tableBeforeApply.verify(storage).applyIndexCountDeltas(operation);
+    tableBeforeApply.verify(storage).applyHistogramDeltas(operation);
+    tableBeforeApply.verify(component).unlockExclusive();
+  }
+
+  /**
    * Persist failure: the captured throwable flips the operation into
    * rollback, so {@code commitChanges} is skipped and neither apply hook
    * fires. Pins the apply-hook gate {@code (currentError == null)}: a
@@ -261,6 +307,22 @@ public class EndAtomicOperationHookOrderingTest {
         lockedList.isEmpty());
     // Component was actually unlocked.
     verify(component, times(1)).unlockExclusive();
+
+    // Two-call shape on moveToErrorStateIfNeeded: the entry-level call with
+    // the null inbound error, followed by the persist-failure call from
+    // inside the persist-hook catch. The apply-hook skip claim's load-
+    // bearing precondition is that the persist-hook catch flipped
+    // currentError between those two calls; without pinning both, a
+    // regression that dropped moveToErrorStateIfNeeded(persistFailure) from
+    // the catch would still pass the apply-skip + rollback-recorded
+    // assertions above even though the storage error-mode contract would
+    // silently degrade on the persist-failure path. Deliberate overlap with
+    // the equivalent pin in EndAtomicOperationPersistHookTest — defense in
+    // depth across the two test files that exercise the same path from
+    // different angles.
+    InOrder errorOrder = Mockito.inOrder(storage);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(null);
+    errorOrder.verify(storage).moveToErrorStateIfNeeded(persistFailure);
   }
 
   /**
@@ -370,7 +432,9 @@ public class EndAtomicOperationHookOrderingTest {
    * {@code applyIndexCountDeltas} must not escape the lifecycle method on
    * the success path. The histogram apply hook still runs (each branch has
    * its own catch), the commit is still recorded, and {@code releaseLocks}
-   * runs in the inner-finally.
+   * runs in the inner-finally. The swallow path also logs the failure at
+   * warn level so operators retain visibility of a real apply failure in
+   * production; the JUL handler installed below captures the emission.
    */
   @Test
   public void applyIndexCountFailureIsSwallowed() throws IOException {
@@ -381,15 +445,20 @@ public class EndAtomicOperationHookOrderingTest {
     lockedList.add(component);
     var operation = mockOperationWithLockedComponents(
         indexHolder, histogramHolder, lockedList, new HashSet<>());
+    var thrown = new RuntimeException("simulated apply failure");
     doNothing().when(storage).persistIndexCountDeltas(operation);
-    doThrow(new RuntimeException("simulated apply failure"))
-        .when(storage).applyIndexCountDeltas(operation);
+    doThrow(thrown).when(storage).applyIndexCountDeltas(operation);
     doNothing().when(storage).applyHistogramDeltas(operation);
 
     var manager = new AtomicOperationsManager(storage, table);
     primeFreezer(manager);
-    // No throw from endAtomicOperation — the apply failure must be swallowed.
-    manager.endAtomicOperation(operation, null);
+    var capturedLogs = installWarnCapture(AtomicOperationsManager.class);
+    try {
+      // No throw from endAtomicOperation — the apply failure must be swallowed.
+      manager.endAtomicOperation(operation, null);
+    } finally {
+      capturedLogs.uninstall();
+    }
 
     verify(storage, times(1)).applyIndexCountDeltas(operation);
     // Histogram apply still runs even when index-count apply throws.
@@ -399,11 +468,26 @@ public class EndAtomicOperationHookOrderingTest {
     verify(component, times(1)).unlockExclusive();
     assertTrue("releaseLocks must run even when apply fails",
         lockedList.isEmpty());
+
+    // Warn-log emission contract: the swallow must not be silent. Without
+    // this assertion a future simplification of the tryApply helper to a
+    // silent swallow would still pass the throw-and-state assertions above,
+    // and operators would lose all observability of a real apply failure
+    // in production.
+    var indexBranchRecords = capturedLogs.recordsMatching(
+        Level.WARNING, "Index count delta", thrown);
+    assertEquals(
+        "Exactly one WARNING record must be emitted for the swallowed"
+            + " index-count apply failure, carrying the original throwable"
+            + " as its cause",
+        1, indexBranchRecords.size());
   }
 
   /**
    * Apply failure on the histogram branch is also swallowed. Symmetric to
-   * the index-count case above.
+   * the index-count case above; the warn-log emission contract applies to
+   * the histogram branch separately because the two branches route through
+   * the same helper but the message text identifies which one failed.
    */
   @Test
   public void applyHistogramFailureIsSwallowed() throws IOException {
@@ -414,15 +498,20 @@ public class EndAtomicOperationHookOrderingTest {
     lockedList.add(component);
     var operation = mockOperationWithLockedComponents(
         indexHolder, histogramHolder, lockedList, new HashSet<>());
+    var thrown = new AssertionError("simulated histogram apply assertion");
     doNothing().when(storage).persistIndexCountDeltas(operation);
     doNothing().when(storage).applyIndexCountDeltas(operation);
-    doThrow(new AssertionError("simulated histogram apply assertion"))
-        .when(storage).applyHistogramDeltas(operation);
+    doThrow(thrown).when(storage).applyHistogramDeltas(operation);
 
     var manager = new AtomicOperationsManager(storage, table);
     primeFreezer(manager);
-    // No throw — AssertionError on the histogram branch is also swallowed.
-    manager.endAtomicOperation(operation, null);
+    var capturedLogs = installWarnCapture(AtomicOperationsManager.class);
+    try {
+      // No throw — AssertionError on the histogram branch is also swallowed.
+      manager.endAtomicOperation(operation, null);
+    } finally {
+      capturedLogs.uninstall();
+    }
 
     verify(storage, times(1)).applyHistogramDeltas(operation);
     verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
@@ -439,16 +528,29 @@ public class EndAtomicOperationHookOrderingTest {
     InOrder applyOrder = Mockito.inOrder(storage);
     applyOrder.verify(storage).applyIndexCountDeltas(operation);
     applyOrder.verify(storage).applyHistogramDeltas(operation);
+
+    // Warn-log emission contract for the histogram branch. Same role as the
+    // index-count sibling above; the message-substring match also pins the
+    // per-branch message identity so a future helper refactor that collapses
+    // both branches under one shared message would surface here.
+    var histogramBranchRecords = capturedLogs.recordsMatching(
+        Level.WARNING, "Histogram delta", thrown);
+    assertEquals(
+        "Exactly one WARNING record must be emitted for the swallowed"
+            + " histogram apply failure, carrying the original throwable"
+            + " as its cause",
+        1, histogramBranchRecords.size());
   }
 
   /**
    * Latch-already-set short-circuit: when the {@link
    * IndexCountDeltaHolder#isApplied()} latch is set going into
    * {@code endAtomicOperation}, the apply hook must not call
-   * {@code storage.applyIndexCountDeltas} a second time. Closes the
-   * window where both the lifecycle hook and the pre-existing inline
-   * call inside {@code AbstractStorage.commit} would otherwise double-apply
-   * the deltas within a single transaction.
+   * {@code storage.applyIndexCountDeltas} a second time. Defensive belt
+   * against any future re-entry into apply within the same atomic
+   * operation, for example a nested or mistakenly-replayed lifecycle pass;
+   * without the short-circuit the deltas would be double-applied to the
+   * engine's in-memory counters within a single transaction.
    *
    * <p>Symmetric to the {@code persistHookSkipsWhenHolderAlreadyPersisted}
    * coverage in {@link EndAtomicOperationPersistHookTest}.
@@ -850,6 +952,195 @@ public class EndAtomicOperationHookOrderingTest {
     // released before the Error propagated.
     assertTrue("releaseLocks must run inside the inner-finally even when"
         + " an apply VM error propagates",
+        lockedList.isEmpty());
+    verify(component, times(1)).unlockExclusive();
+  }
+
+  /**
+   * Bounded catch on the histogram apply hook: an {@link OutOfMemoryError}
+   * thrown by {@code applyHistogramDeltas} must escape the lifecycle method
+   * as a bare {@code Error} rather than be swallowed by the
+   * {@code RuntimeException | AssertionError} catch. Sibling of
+   * {@link #applyHookDoesNotCatchOutOfMemoryError} for the index-count
+   * branch; both branches route through the same {@code tryApply} helper in
+   * production, but the call sites are independently gated and the
+   * pre-condition state differs (index-count branch already ran successfully
+   * and latched its holder when histogram apply fires). A future refactor
+   * that inlines one of the branches would slip through index-count-only
+   * coverage; pinning the histogram branch separately makes either drift
+   * loud.
+   */
+  @Test
+  public void applyHistogramHookDoesNotCatchOutOfMemoryError() throws IOException {
+    assertHistogramApplyVmErrorEscapesUnconverted(new OutOfMemoryError("simulated OOM"));
+  }
+
+  /**
+   * Bounded catch: a {@link LinkageError} thrown by the histogram apply
+   * branch must escape as a bare {@code Error}. Sibling of
+   * {@link #applyHookDoesNotCatchLinkageError} for the index-count branch.
+   */
+  @Test
+  public void applyHistogramHookDoesNotCatchLinkageError() throws IOException {
+    assertHistogramApplyVmErrorEscapesUnconverted(
+        new LinkageError("simulated linkage failure"));
+  }
+
+  /**
+   * Bounded catch: a {@link StackOverflowError} thrown by the histogram
+   * apply branch must escape as a bare {@code Error}. Sibling of
+   * {@link #applyHookDoesNotCatchStackOverflowError} for the index-count
+   * branch.
+   */
+  @Test
+  public void applyHistogramHookDoesNotCatchStackOverflowError() throws IOException {
+    assertHistogramApplyVmErrorEscapesUnconverted(
+        new StackOverflowError("simulated stack overflow"));
+  }
+
+  /**
+   * Bounded catch: an {@link InternalError} thrown by the histogram apply
+   * branch must escape as a bare {@code Error}. Sibling of
+   * {@link #applyHookDoesNotCatchInternalError} for the index-count branch.
+   */
+  @Test
+  public void applyHistogramHookDoesNotCatchInternalError() throws IOException {
+    assertHistogramApplyVmErrorEscapesUnconverted(
+        new InternalError("simulated VM-internal failure"));
+  }
+
+  /**
+   * Installs a capturing JUL handler on the logger named after the given
+   * class so the test can assert on warn-level emissions routed through
+   * {@code LogManager.instance().warn(this, ...)}. The SLF4J facade in
+   * production binds to JUL via {@code slf4j-jdk14}, so the warn lands as
+   * a {@link Level#WARNING} record on {@code Logger.getLogger(className)}.
+   *
+   * <p>Returns a small handle that exposes the captured records and an
+   * {@code uninstall()} method the caller invokes in a {@code finally}
+   * block so the handler is removed even if the body throws. The handle
+   * also offers a {@code recordsMatching} helper that filters by level,
+   * message substring, and original throwable identity, keeping the
+   * per-test verification compact.
+   */
+  private static CapturedLogs installWarnCapture(Class<?> requesterClass) {
+    var records = new CopyOnWriteArrayList<LogRecord>();
+    var logger = Logger.getLogger(requesterClass.getName());
+    var priorLevel = logger.getLevel();
+    Handler handler =
+        new Handler() {
+          @Override
+          public void publish(LogRecord record) {
+            records.add(record);
+          }
+
+          @Override
+          public void flush() {
+          }
+
+          @Override
+          public void close() throws SecurityException {
+          }
+        };
+    handler.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    logger.setLevel(Level.ALL);
+    return new CapturedLogs(logger, handler, records, priorLevel);
+  }
+
+  /**
+   * Handle returned by {@link #installWarnCapture}. Owns the JUL handler
+   * registration so the test can {@code uninstall()} in a {@code finally}
+   * block, and exposes the captured records for assertions.
+   */
+  private static final class CapturedLogs {
+    private final Logger logger;
+    private final Handler handler;
+    private final List<LogRecord> records;
+    private final Level priorLevel;
+
+    CapturedLogs(Logger logger, Handler handler, List<LogRecord> records, Level priorLevel) {
+      this.logger = logger;
+      this.handler = handler;
+      this.records = records;
+      this.priorLevel = priorLevel;
+    }
+
+    /**
+     * Removes the capturing handler and restores the prior logger level.
+     * Idempotent across repeated invocations within a single test.
+     */
+    void uninstall() {
+      logger.removeHandler(handler);
+      logger.setLevel(priorLevel);
+    }
+
+    /**
+     * Returns captured records matching the given level, message substring,
+     * and original throwable. The throwable comparison uses identity
+     * ({@code getThrown() == expected}) so a wrapped exception does not
+     * silently match. The message check uses {@code contains} so the SLF4J
+     * "[dbName]" prefix added by {@code SLF4JLogManager.log} does not
+     * disqualify the match.
+     */
+    List<LogRecord> recordsMatching(Level level, String messageSubstring, Throwable expected) {
+      return records.stream()
+          .filter(r -> r.getLevel() == level)
+          .filter(r -> r.getMessage() != null && r.getMessage().contains(messageSubstring))
+          .filter(r -> r.getThrown() == expected)
+          .toList();
+    }
+  }
+
+  /**
+   * Shared verification for the four histogram-branch VM-error escape tests
+   * above. Stubs {@code applyIndexCountDeltas} to succeed so the index-
+   * count branch completes and latches its holder before the histogram
+   * branch fires the given error. The test then asserts (i) the same
+   * instance escapes as a bare {@code Error}, (ii) no
+   * {@code StorageException} wrap fires, (iii) the index-count branch ran
+   * once (so the verification covers the post-index-count state, not a
+   * skipped-everything path), (iv) the histogram branch ran once (the VM
+   * error came from inside it, not before it), and (v) the inner-finally
+   * {@code releaseLocks} still drained the locked-components list. The
+   * helper is a delta of {@link #assertApplyVmErrorEscapesUnconverted}: it
+   * shifts the error source from the index-count call to the histogram
+   * call and updates the post-error verifications to match.
+   */
+  private void assertHistogramApplyVmErrorEscapesUnconverted(Error thrown) throws IOException {
+    var indexHolder = new IndexCountDeltaHolder();
+    var histogramHolder = new HistogramDeltaHolder();
+    var component = mockComponent("index.idx");
+    var lockedList = new ArrayList<StorageComponent>();
+    lockedList.add(component);
+    var operation = mockOperationWithLockedComponents(
+        indexHolder, histogramHolder, lockedList, new HashSet<>());
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+    doNothing().when(storage).applyIndexCountDeltas(operation);
+    doThrow(thrown).when(storage).applyHistogramDeltas(operation);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    try {
+      manager.endAtomicOperation(operation, null);
+      fail("Expected the " + thrown.getClass().getSimpleName()
+          + " to escape the histogram apply hook");
+    } catch (StorageException wrapped) {
+      fail(thrown.getClass().getSimpleName()
+          + " must not be wrapped as StorageException: " + wrapped);
+    } catch (Error escaped) {
+      assertSame(thrown.getClass().getSimpleName() + " must escape as-is, not be wrapped",
+          thrown, escaped);
+    }
+
+    // Index-count branch ran successfully before the histogram branch fired
+    // the VM error; the histogram branch ran exactly once and threw.
+    verify(storage, times(1)).applyIndexCountDeltas(operation);
+    verify(storage, times(1)).applyHistogramDeltas(operation);
+    // releaseLocks still ran in the inner-finally; the per-index lock was
+    // released before the Error propagated.
+    assertTrue("releaseLocks must run inside the inner-finally even when"
+        + " a histogram apply VM error propagates",
         lockedList.isEmpty());
     verify(component, times(1)).unlockExclusive();
   }

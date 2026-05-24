@@ -44,12 +44,11 @@ public final class IndexCountDeltaHolder {
    * com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage#persistIndexCountDeltas}
    * after a successful pass. Read by the persist hook in {@link
    * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
-   * to short-circuit a second persist on the same atomic operation. Closes the
-   * window where both the inline persist call inside the storage commit path
-   * and the lifecycle hook in {@code endAtomicOperation} would otherwise both
-   * fire and double-write the BTree entry-point page within a single
-   * transaction. The latch is also a defensive belt against any future path
-   * that re-enters persist within the same atomic operation.
+   * to short-circuit a second persist on the same atomic operation. Defensive
+   * belt against any future re-entry into persist within the same atomic
+   * operation, for example a nested or mistakenly-replayed lifecycle pass. The
+   * latch would also prevent a double-write to the BTree entry-point page if
+   * any path tried to invoke persist twice in a row.
    */
   // Thread-confinement note: plain boolean because the holder lives on a
   // single AtomicOperation, driven by exactly one thread between
@@ -63,15 +62,14 @@ public final class IndexCountDeltaHolder {
    * com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage#applyIndexCountDeltas}
    * after a successful pass. Read by the apply hook in {@link
    * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
-   * to short-circuit a second apply on the same atomic operation. Closes the
-   * window where both the inline apply call inside the storage commit path
-   * and the lifecycle hook in {@code endAtomicOperation} would otherwise both
-   * fire and double-increment the engine's in-memory {@code AtomicLong}
-   * counters within a single transaction. The latch is also a defensive belt
-   * against any future path that re-enters apply within the same atomic
-   * operation. See the thread-confinement note on {@link #persisted} above:
-   * the latch is a plain boolean because the holder is single-threaded
-   * between {@code startAtomicOperation} and {@code endAtomicOperation}.
+   * to short-circuit a second apply on the same atomic operation. Defensive
+   * belt against any future re-entry into apply within the same atomic
+   * operation, for example a nested or mistakenly-replayed lifecycle pass.
+   * The latch would also prevent a double-increment of the engine's in-memory
+   * {@code AtomicLong} counters if any path tried to invoke apply twice in a
+   * row. See the thread-confinement note on {@link #persisted} above: the
+   * latch is a plain boolean because the holder is single-threaded between
+   * {@code startAtomicOperation} and {@code endAtomicOperation}.
    */
   private boolean applied = false;
 

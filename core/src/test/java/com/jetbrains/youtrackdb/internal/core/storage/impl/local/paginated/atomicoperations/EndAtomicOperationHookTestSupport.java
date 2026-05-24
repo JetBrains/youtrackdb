@@ -89,10 +89,12 @@ final class EndAtomicOperationHookTestSupport {
     when(operation.lockedComponents()).thenReturn(Collections.emptyList());
     when(operation.lockedObjects()).thenReturn(Collections.emptySet());
     when(operation.getIndexCountDeltas()).thenReturn(holder);
-    // Stub for the histogram persist hook installed in a later step — the
-    // lifecycle method reads this getter regardless of which hook is active,
-    // so returning null keeps the persist-hook tests focused on the
-    // index-count branch without pulling in histogram fixtures.
+    // The histogram-delta getter is stubbed to null on the baseline mock so
+    // the lifecycle method's histogram branch short-circuits at its null-
+    // holder gate. Tests that exercise the histogram branch supply their own
+    // operation mock with a non-null HistogramDeltaHolder; the index-count
+    // branch tests (which this helper serves) want the histogram path to be
+    // a no-op so the verifications stay focused on the index-count side.
     when(operation.getHistogramDeltas()).thenReturn(null);
     // rollbackInProgress() is a state-flip — track it so the hook's call
     // makes isRollbackInProgress() return true on subsequent checks.

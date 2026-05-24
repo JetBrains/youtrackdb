@@ -60,7 +60,7 @@ public class MainCommitCounterSyncTest {
     // DISK type — the restart half of the nominal-commit assertion needs
     // persisted-state survival across close-and-reopen, which the
     // in-memory engine does not provide.
-    youTrackDB = DbTestBase.createYTDBManagerAndDb(dbName, DatabaseType.MEMORY, getClass());
+    youTrackDB = DbTestBase.createYTDBManagerAndDb(dbName, DatabaseType.DISK, getClass());
     db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
@@ -112,6 +112,32 @@ public class MainCommitCounterSyncTest {
           assertEquals(
               "Null count must reflect the single null-key entry",
               1L, engine.getNullCount(atomicOp));
+        });
+
+    // Close-and-reopen cycle. The reopen's load() recalibrates the
+    // in-memory AtomicLong counters from the persisted EP pages, so
+    // post-restart equality with the in-memory values read above proves
+    // the persist hook landed the right values on disk. A regression that
+    // turned persistIndexCountDeltas into a no-op (or that decoupled the
+    // persist-side from the apply-side) would survive the in-memory check
+    // above — apply runs from the in-tx delta accumulator regardless of
+    // the persisted-side effect — but would fail the restart half:
+    // load() would either read zero (no persist landed) or a stale value
+    // (the EP page was not refreshed).
+    db.close();
+    db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
+
+    var enginePostRestart = getBTreeIndexEngine(db, "CounterSync.tag");
+    db.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          assertEquals(
+              "Total count must survive restart, proving the persist hook"
+                  + " landed the value on the BTree entry-point page",
+              5L, enginePostRestart.getTotalCount(atomicOp));
+          assertEquals(
+              "Null count must survive restart, proving the persist hook"
+                  + " landed the null-tree counter on disk",
+              1L, enginePostRestart.getNullCount(atomicOp));
         });
   }
 

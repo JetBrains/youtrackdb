@@ -71,11 +71,11 @@ import org.mockito.Mockito;
  * {@code moveToErrorStateIfNeeded} and lets the setter decide.
  *
  * <p>Dual-invocation safety: the {@link IndexCountDeltaHolder#isPersisted()}
- * latch short-circuits the hook when the legacy inline persist call inside
- * {@link AbstractStorage#commit} has already run on the same atomic operation.
- * Closes the window where both call sites would otherwise double-write the
- * BTree entry-point page until the inline call is deleted in a later step;
- * remains as a defensive belt thereafter.
+ * latch short-circuits the hook when a prior pass has already latched the
+ * holder on the same atomic operation. Defensive belt against any future
+ * re-entry into persist, for example a nested or mistakenly-replayed
+ * lifecycle pass; without the latch a second pass would double-write the
+ * BTree entry-point page within a single transaction.
  *
  * @see SetInErrorAssertionErrorGuardTest
  */
@@ -353,10 +353,11 @@ public class EndAtomicOperationPersistHookTest {
 
   /**
    * Dual-invocation safety: when the holder has already been marked
-   * persisted (by the legacy inline call inside {@link AbstractStorage#commit}),
-   * the lifecycle hook must NOT re-invoke {@code persistIndexCountDeltas}.
-   * Closes the window where both the inline call and the hook would
-   * double-write the BTree entry-point page within a single transaction.
+   * persisted (by any prior pass on the same atomic operation), the
+   * lifecycle hook must not re-invoke {@code persistIndexCountDeltas}.
+   * Closes the window where a nested or mistakenly-replayed lifecycle pass
+   * would double-write the BTree entry-point page within a single
+   * transaction.
    *
    * <p>The check is symmetric: the hook also runs the normal commit path
    * (i.e., commit is not converted to rollback). Verifying both halves of

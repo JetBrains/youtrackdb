@@ -44,12 +44,11 @@ public final class HistogramDeltaHolder {
    * com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage#applyHistogramDeltas}
    * after a successful pass. Read by the apply hook in {@link
    * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
-   * to short-circuit a second apply on the same atomic operation. Closes the
-   * window where both the inline apply call inside the storage commit path
-   * and the lifecycle hook in {@code endAtomicOperation} would otherwise both
-   * fire and double-apply histogram deltas to the in-memory CHM cache within
-   * a single transaction. The latch is also a defensive belt against any
-   * future path that re-enters apply within the same atomic operation.
+   * to short-circuit a second apply on the same atomic operation. Defensive
+   * belt against any future re-entry into apply within the same atomic
+   * operation, for example a nested or mistakenly-replayed lifecycle pass.
+   * The latch would also prevent a double-apply of histogram deltas to the
+   * in-memory CHM cache if any path tried to invoke apply twice in a row.
    *
    * <p>Thread-confinement: plain boolean because the holder lives on a single
    * AtomicOperation, driven by exactly one thread between
