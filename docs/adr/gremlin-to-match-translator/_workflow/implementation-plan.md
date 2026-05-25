@@ -112,8 +112,10 @@ flowchart LR
     subgraph SHARED["Shared MATCH IR builders (NEW)"]
         direction TB
         MPB[MatchPatternBuilder]
-        MWB[MatchWhereBuilder]
+        MWB[MatchWhereBuilder<br/>+ isDefined / isNotDefined factories]
         MLB[MatchLiteralBuilder]
+        ISDEF[SQLIsDefinedCondition<br/>SQLIsNotDefinedCondition<br/>NEW AST nodes, Track 1]
+        MWB --> ISDEF
     end
     PASM --> MPB
     PASM --> MWB
@@ -124,9 +126,11 @@ flowchart LR
         direction TB
         MEP[MatchExecutionPlanner<br/>Pattern, aliasClasses, aliasFilters ctor]
         SEP[SelectExecutionPlanner<br/>handleProjectionsBlock]
+        GRAMMAR[YouTrackDBSql.jjt<br/>+ IS DEFINED / IS NOT DEFINED productions<br/>Track 1, additive]
     end
     MPB --> MEP
     PROJ --> SEP
+    ISDEF -.parsed from.-> GRAMMAR
 
     BOUND[YTDBMatchPlanStep<br/>boundary step, NEW]
     MEP --> BOUND
@@ -199,7 +203,15 @@ What changes:
   `internal/core/gremlin/translator/step/`)** — TinkerPop `AbstractStep` that
   wraps a `SelectExecutionPlan`. On `processNextStart()` it pulls one row from
   the plan's stream, projects the configured boundary output type
-  (Vertex/Edge/Map/property-value/scalar), and emits a `Traverser`.
+  (`ELEMENT` / `MAP` / `SINGLE_VALUE` / `SCALAR` / `LIST`), and emits a
+  `Traverser`. Holds three Track 11 post-processor flags
+  (`unfoldOutput: bool`, `reverseOutput: bool`, `tailLimit: int?`) for
+  `unfold` / `reverse` / `tail` terminators that re-shape the projected
+  value without changing the output type; `LIST` is the dedicated output
+  type for `fold` materialization. Track 7 sets a `dropOnAbsent` flag
+  (queries `EntityImpl.hasProperty(key)` to drop only absent-property
+  rows from `values(key)` output, distinct from `dropNullRows` which
+  drops on projected-value-null).
 - **`GqlMatchStatement` (refactored)** — its inline IR construction is replaced
   by calls into the shared builders. Public API unchanged. Tests must pass.
 - **`YTDBGraphImplAbstract.registerOptimizationStrategies` (1-line change)** —
@@ -631,6 +643,19 @@ What changes:
 - Cucumber suite test count: count after Phase 1 ≥ count before Phase 1.
   The PR title carries `[no-test-number-check]` only if intentional
   test consolidation was done (it is not expected here).
+- **Property-presence semantics**: `has(key)` / `hasNot(key)` filter
+  steps and `valueMap`/`elementMap`/`values`/`select.by` projection
+  steps treat *absent* and *null-valued* properties exactly as native
+  TP does, by routing the question through
+  `EntityImpl.hasProperty(key)` (Track 1's new `IS DEFINED` /
+  `IS NOT DEFINED` operators for the filter layer; Track 7's
+  projection classifier for the projection layer). `IS NULL` /
+  `IS NOT NULL` (which only check the projected value) are reserved
+  for `P.eq(null)` / `P.neq(null)` predicate rewrites where the
+  Gremlin user explicitly asked for value-null semantics. Verified by
+  Track 4 / Track 7 regression tests pinning both absent and
+  null-valued cases against the TP wrapper's
+  `Property.isPresent()` behavior.
 
 ### Integration Points
 
@@ -648,14 +673,32 @@ What changes:
 - **Boundary step output**: `YTDBMatchPlanStep` extends
   `org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep`,
   emits `Traverser`s whose payload types are negotiated by the
-  traversal's terminal step (Vertex, Edge, `Map<String,Object>`,
-  property value, scalar). Under D3 all-or-nothing the boundary step
+  traversal's terminal step (`ELEMENT` / `MAP` / `SINGLE_VALUE` /
+  `SCALAR` / `LIST` — five enum values; `LIST` is new for `fold` per
+  Track 11). Boundary post-processor flags (`unfoldOutput`,
+  `reverseOutput`, `tailLimit`) re-shape the projected value without
+  changing the output type. Under D3 all-or-nothing the boundary step
   terminates a fully-translated traversal — there is no native suffix
   consuming its output.
 - **Shared builder package**: `internal/core/sql/executor/match/builder/` —
   `MatchPatternBuilder`, `MatchWhereBuilder`, `MatchLiteralBuilder`.
   Consumed by both the new translator and refactored
-  `GqlMatchStatement`.
+  `GqlMatchStatement`. `MatchWhereBuilder` exposes `isDefined` /
+  `isNotDefined` factories for Track 1's new YTDB SQL operators
+  (D-IS-DEFINED).
+- **Entity-presence primitive**: `EntityImpl.hasProperty(key)` is the
+  single shared accessor for "is this property defined on the
+  record". Track 1's `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition`
+  evaluators call it from the filter layer; Track 7's projection
+  classifier calls it for `valueMap` / `values` / `select.by` to
+  distinguish absent from null-valued. Same primitive, two consumers
+  — no duplicate code path.
+- **YTDB SQL grammar**: `core/src/main/grammar/YouTrackDBSql.jjt`
+  receives one additive edit in Track 1 — `IS DEFINED` /
+  `IS NOT DEFINED` productions added alongside the existing
+  `IS NULL` / `IS NOT NULL` ones. The parser regenerates via
+  `javacc-maven-plugin`; no manual edits to generated files. Existing
+  GQL / SQL queries are unaffected (new tokens only).
 - **Cucumber feature suite**: `core` module's `YTDBGraphFeatureTest` and
   `embedded` module's `EmbeddedGraphFeatureTest` exercise the strategy
   end-to-end with no test changes. Strategy is registered through
@@ -677,6 +720,23 @@ What changes:
 - **Optional sub-traversal (`optional(traversal)`)** — Gremlin and MATCH
   disagree on the empty-sub-traversal case (Gremlin drops the row,
   MATCH null-fills the alias). Phase 2 owns the alignment design.
+- **GQL user-facing `IS DEFINED` / `IS NOT DEFINED` syntax** — Track 1
+  adds the operators to the YTDB SQL grammar and AST (D-IS-DEFINED),
+  but does **not** expose them in GQL's user-facing MATCH WHERE
+  surface. GQL users continue to write `IS NULL` / `IS NOT NULL` with
+  the existing semantics. Exposing the new operators in GQL syntax is
+  a separate decision out of scope for this PR.
+- **Mid-traversal list-shaping** — `fold` / `unfold` / `reverse` /
+  `tail` are accepted only as the **terminal** step under D3
+  all-or-nothing. Mid-chain use (e.g. `g.V().fold().unfold().has(...)`)
+  declines. Phase 2 path described in design.md "Out of scope"
+  table.
+- **Schema-aware narrowing of `P.eq(Collection)` size-1 decline** —
+  Track 4 declines all `P.eq([a])` / `P.neq([a])` against any field
+  (conservative because schema-less / mixed-mode classes can hold
+  scalar or collection at runtime). Phase 2 narrows the decline to
+  schema-less only, with scalar-typed fields rewriting to literal
+  `false` and collection-typed fields translating normally.
 
 ## Checklist
 
