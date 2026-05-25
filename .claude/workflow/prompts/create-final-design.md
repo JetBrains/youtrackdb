@@ -277,13 +277,13 @@ partially-stripped or empty `staged-workflow/` shell would otherwise
 trigger a no-op promotion commit on a non-workflow-modifying plan.
 
 Before copying, the step runs a divergence sanity check against
-`develop`'s live workflow content. A non-empty divergence means the
-branch fell behind `develop` after the staged baseline was taken, so
-`cp -r` would silently overwrite live changes the staging copy never
-saw — the rebase-precedes-promotion rule in `../conventions.md`
-§1.7(f). The step halts with a manual-reconciliation instruction in
-that case; the user rebases the branch onto current `develop` and
-restarts Phase 4.
+`origin/develop`'s live workflow content. A non-empty divergence means
+`origin/develop` carries workflow commits this branch has not absorbed
+via rebase, so `cp -r` would silently overwrite live changes that
+already exist on `develop`'s side — the rebase-precedes-promotion rule
+in `../conventions.md` §1.7(f). The step halts with a
+manual-reconciliation instruction in that case; the user rebases the
+branch onto current `origin/develop` and restarts Phase 4.
 
 Run:
 
@@ -292,21 +292,22 @@ PLAN_DIR="docs/adr/<dir-name>"
 STAGED_DIR="$PLAN_DIR/_workflow/staged-workflow"
 
 if [ -d "$STAGED_DIR/.claude" ]; then
-  DIVERGENCE=$(git diff "$(git merge-base develop HEAD)..HEAD" -- .claude/workflow .claude/skills)
+  git fetch origin develop --quiet
+  DIVERGENCE=$(git log "$(git merge-base origin/develop HEAD)..origin/develop" -- .claude/workflow .claude/skills)
   if [ -n "$DIVERGENCE" ]; then
-    echo "ERROR: live .claude/workflow or .claude/skills diverged from develop."
-    echo "Rebase the branch onto current develop before promotion (conventions.md §1.7(f))."
+    echo "ERROR: origin/develop carries .claude/workflow or .claude/skills commits this branch has not absorbed."
+    echo "Rebase the branch onto current origin/develop before promotion (conventions.md §1.7(f))."
     exit 1
   fi
   cp -r "$STAGED_DIR/.claude/." .claude/
   git add .claude/workflow .claude/skills
-  git commit -m "Promote workflow changes from $STAGED_DIR"
+  git diff --cached --quiet || git commit -m "Promote workflow changes from $STAGED_DIR"
   git push
 fi
 ```
 
 The commit message prefix
-`Promote workflow changes from <plan-dir>/_workflow/staged-workflow`
+`Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
 matches the implementer-rules live-workflow-path gate's allow-clause
 verbatim per `../conventions.md` §1.7(b)/(e) and
 `../implementer-rules.md` § *Pre-commit gate, live-workflow-path

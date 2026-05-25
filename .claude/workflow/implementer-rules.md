@@ -349,7 +349,7 @@ implementer reads the prepared commit message from the `-m`
 argument it is about to pass to `git commit` (the implementer
 composes its commit message before staging). When the prepared
 message begins with the exact prefix
-`Promote workflow changes from <plan-dir>/_workflow/staged-workflow`
+`Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
 (the Phase 4 promotion commit signature per `conventions.md`
 §1.7(e)), the live-path diff is the legitimate work product and
 the gate passes. Every other prepared message must produce an

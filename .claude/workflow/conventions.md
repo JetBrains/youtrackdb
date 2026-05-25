@@ -817,13 +817,15 @@ catch the bypass shapes (an absolute live path passed to a tool, a
 A workflow-modifying branch that has not rebased onto the current
 `develop` HEAD must do so before Phase 4 promotion runs. The Phase 4
 prompt's pre-promotion divergence sanity check computes
-`$(git merge-base develop HEAD)..HEAD` on the live `.claude/workflow`
-and `.claude/skills` paths; a non-empty diff halts with a
-manual-reconciliation instruction. The rebase is the
-manual-reconciliation path: rebasing onto current `develop` brings the
-branch's working tree up to a state where the only live workflow
-content is what Phase 4 is about to promote, and the staged subtree
-holds the branch's own authoring against that current base.
+`$(git merge-base origin/develop HEAD)..origin/develop` on the live
+`.claude/workflow` and `.claude/skills` paths after a `git fetch origin
+develop`; a non-empty diff halts with a manual-reconciliation
+instruction. The rebase is the manual-reconciliation path: rebasing
+onto current `origin/develop` brings the branch's working tree up to a
+state where `origin/develop` no longer carries workflow commits the
+branch has not absorbed, so the only live workflow content remaining
+for Phase 4 to write is the staged subtree's authoring against that
+current base.
 
 Promotion before rebase risks `cp -r` overwriting a live file that
 moved forward on `develop` after the staging copy was taken, silently
@@ -903,3 +905,30 @@ entire `_workflow/` tree (the staged subtree included). After merge
 to `develop`, the history carries the live promoted `X.md` plus the
 durable artifacts (`design-final.md`, `adr.md`) and nothing else from
 this branch's staging machinery.
+
+### (j) Aborted-promotion resume semantics
+
+Phase 4 on a workflow-modifying plan opens a pause window between the
+promote-staged-workflow commit (Step 4 of
+`prompts/create-final-design.md`) and the subsequent final-artifacts
+commit (Step 5). If the session ends inside that window — manual
+interruption, context exhaustion, host loss — the next session
+re-enters Phase 4 from the top.
+
+On re-entry, the staged subtree is still on disk (cleanup runs in
+Step 6, not Step 4), so the `[ -d "$STAGED_DIR/.claude" ]` guard
+evaluates true and the bash re-enters the guarded block. The
+corrected divergence check per (f) compares against `origin/develop`
+forward of the merge-base, which is neutral on the branch's own
+promote commit; the check passes without false-positive on a clean
+resume. The `cp -r` re-copies identical content over the already-
+promoted live tree; `git add` produces an empty index for the
+already-committed paths; the `git diff --cached --quiet || git
+commit` short-circuit in the Step 4 bash means the no-op resume
+produces no second promote commit, and `git push` is a no-op when
+nothing changed locally.
+
+For plans without the staged subtree, the directory-presence guard
+evaluates false and the existing State D resume from `workflow.md`
+§ *Startup Protocol* covers the path; this sub-anchor governs
+workflow-modifying plans only.

@@ -371,12 +371,13 @@ orchestrator MUST:
      final-artifacts commit and copies the staged subtree onto the
      live tree; a pause window opens between the two. On resume,
      the `[ -d "$STAGED_DIR/.claude" ]` guard in that same Step 4
-     handles re-entry idempotently per the *Aborted promotion* edge
-     case in `design.md` § *Edge cases / Gotchas*: when the next
-     session re-enters Phase 4 with the promotion already on disk,
-     `cp -r` runs again against the already-promoted live tree as a
-     no-op and the promotion commit may then be empty (which the
-     implementer detects and skips). For plans without the staged
+     handles re-entry idempotently per `conventions.md` §1.7(j)
+     *Aborted-promotion resume semantics*: when the next session
+     re-enters Phase 4 with the promotion already on disk, `cp -r`
+     runs again against the already-promoted live tree as a no-op
+     (the bash's `git diff --cached --quiet || git commit`
+     short-circuit keeps the no-op resume from producing a second
+     promote commit). For plans without the staged
      subtree (the default — the directory-presence guard evaluates
      false), the existing State D resume from `workflow.md`
      § *Startup Protocol* covers the path; this pause site exists

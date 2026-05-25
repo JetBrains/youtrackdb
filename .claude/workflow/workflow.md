@@ -522,7 +522,7 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    When `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/` exists,
    copy the staged subtree onto the live `.claude/workflow/` and
    `.claude/skills/` paths, then commit with the message prefix
-   `Promote workflow changes from <plan-dir>/_workflow/staged-workflow`
+   `Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
    per `conventions.md` §1.7(e) and the implementer-rules
    live-workflow-path gate's allow-clause. The Phase 4 prompt at
    `prompts/create-final-design.md` § Step 4 carries the full bash,
