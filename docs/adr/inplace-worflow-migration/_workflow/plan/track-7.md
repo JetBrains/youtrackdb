@@ -11,7 +11,7 @@ The in-place migration (Tracks 1–6) handles drift on feature plans whose execu
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-05-25T05:59Z [ctx=warning] Review + decomposition complete
 - [x] 2026-05-25T06:19Z [ctx=safe] Step 1 complete (commit bc04eeea134a5a4128c82af4ed9138a20de2c3f5)
@@ -23,6 +23,7 @@ The in-place migration (Tracks 1–6) handles drift on feature plans whose execu
 - [x] 2026-05-25T07:33Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations; iteration 1 recovered from RESULT_MISSING via re-spawn finalizer with halved findings; commit a749bbd17089cf2509ad68ee6ebbfacf364e0af1)
 - [x] 2026-05-25T07:50Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations; commit 61b36abe290a38fad6381d0ee7543c1b22f474cb)
 - [x] 2026-05-25T07:54Z [ctx=warning] Track-level code review PASS (8/8 in-scope findings VERIFIED across iter-2 gate-check; 17 STILL OPEN findings all documented deferrals — design enhancements, ephemeral / orchestrator-side files, or context-budget refactors)
+- [x] 2026-05-25T08:00Z [ctx=warning] Track complete
 
 ## Surprises & Discoveries
 - 2026-05-25T06:19Z Step 1 fixed the canonical workflow-modifying marker sentence (`This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.`) and the Phase 4 promotion commit-message prefix (`Promote workflow changes from <plan-dir>/_workflow/staged-workflow`); Steps 2 and 4 must match both verbatim. See Episodes §Step 1.
