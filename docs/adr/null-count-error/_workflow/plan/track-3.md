@@ -143,3 +143,7 @@ Phase 4 action: `design-final.md` § Pure-delta encoding § Edge cases (currentl
 - `BTreeMultiValueIndexEngine.clear(Storage, AtomicOperation)` — rewritten body with new ordering (clearSVTree first, then snapshot read, then accumulate).
 - `BTreeSingleValueIndexEngine.clear(Storage, AtomicOperation)` — rewritten body with same new ordering.
 - `IndexHistogramManager` (package `com.jetbrains.youtrackdb.internal.core.index.engine`) — `resetOnClear(AtomicOperation)` unchanged; still throws IOException on failure (and is the chosen seam for `ClearIndexApiRollbackTest`'s rollback-injection in Step 4).
+
+## Base commit
+
+c2e99ebd3a90bbbe0a906ec940db7e5416eb231c
