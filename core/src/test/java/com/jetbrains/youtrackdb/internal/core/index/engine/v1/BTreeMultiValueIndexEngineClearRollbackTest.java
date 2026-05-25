@@ -139,14 +139,13 @@ public class BTreeMultiValueIndexEngineClearRollbackTest {
     // Failing transaction: mark the index for clear plus a fresh put, then
     // queue a record-serialization operation that throws a wrapped
     // IOException from inside the inner try of the commit phase. The
-    // pre-endTxCommit catch at AbstractStorage.java:2335 catches the
-    // RuntimeException-wrapped IOException (its clause already covers
-    // IOException | RuntimeException | AssertionError) and routes the
-    // failure through rollback. commitIndexes (where the cleared flag
-    // would trigger doClearIndex) never runs because the push throws
-    // first. The contract under test is that the cleared-flag
-    // transaction's rollback leaves both counter sides at the
-    // preparatory values.
+    // pre-endTxCommit catch in AbstractStorage.commit (whose clause
+    // covers IOException | RuntimeException | AssertionError) catches
+    // the RuntimeException-wrapped IOException and routes the failure
+    // through rollback. commitIndexes (where the cleared flag would
+    // trigger doClearIndex) never runs because the push throws first.
+    // The contract under test is that the cleared-flag transaction's
+    // rollback leaves both counter sides at the preparatory values.
     db.begin();
     var index = db.getSharedContext().getIndexManager().getIndex(indexName);
     var tx = db.getTransactionInternal();
