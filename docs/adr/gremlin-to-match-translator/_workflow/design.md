@@ -99,14 +99,14 @@ shape declines along with anything else unrecognized.
 | Edge traversal | `outE(L).inV()` / `inE(L).outV()` (adjacent) | folded by TinkerPop's `IncidentToAdjacentStrategy` to `out(L)` / `in(L)` before our strategy fires; recognizer sees the folded shape | Track 3 |
 | Edge traversal | `bothE(L).otherV()` (adjacent) | folded by `IncidentToAdjacentStrategy` to `both(L)` | Track 3 |
 | Edge filtering | `outE(L).has(filter)*.inV()` / `inE(L).has(filter)*.outV()` / `bothE(L).has(filter)*.otherV()` (one or more `has(...)` between the edge step and its paired vertex hop) | `EdgeStepRecogniser` peek-ahead collects every adjacent `HasStep` into the edge's filter slot via `SQLMatchPathItem.filter`; the edge gets a translator-minted anonymous alias (`$g2m_edge_N`). Predicates inside the `has(...)` chain follow the same translation table as node-side filters. | Track 3 |
-| Filtering | `has(key)` (presence) | `aliasFilters` `key IS DEFINED` — **new YTDB SQL operator** added as a Phase 1 dependency in Track 1 (see "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators"). Asks the entity layer whether the property exists (matching TP `Property.isPresent() == true`), distinct from `IS NOT NULL` which only checks the projected value. | Track 4 (uses) / Track 1 (operator) |
+| Filtering | `has(key)` (presence form, single key argument) | `aliasFilters` `key IS DEFINED` via `MatchWhereBuilder.isDefined`. Recognised by **`TraversalFilterStepRecogniser`** (Case A — `__.values(key)` desugar), NOT `HasStepRecogniser`: TinkerPop 3.8.1's DSL encodes bare `has(key)` as `TraversalFilterStep(__.values(key))`, mirror of `hasNot(key)`'s `NotStep(__.values(key))` desugar handled by `NotFilterStepRecogniser`. The operators (`SQLIsDefinedCondition` / `SQLIsNotDefinedCondition`) already exist in YTDB SQL — see "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators". `has(key, value)` and `has(key, predicate)` stay on `HasStepRecogniser`. | Track 4 |
 | Filtering | `has(key, value)` | `aliasFilters` `key = value` | Track 4 |
 | Filtering | `has(key, predicate)` | `aliasFilters` predicate (per "Predicate translation" below) | Track 4 |
 | Filtering | `has(label, key, value)` | `aliasClasses[a] = label` + `aliasFilters` `key = value` | Track 4 |
 | Filtering | `hasLabel(label)` | folded by `YTDBGraphStepStrategy` into start-step `hasContainers`; `aliasClasses[a] = label` | Track 4 |
 | Filtering | `hasId(id)` (single) | `aliasRids[a] = SQLRid(id)` | Track 4 |
 | Filtering | `hasId(id1, id2, …)` (multi) | `aliasFilters[a] = WHERE @rid IN [...]` | Track 4 |
-| Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NOT DEFINED` — symmetric to `has(key)`; matches TP `Property.isPresent() == false` (property absent at the record layer). NOT `IS NULL`, which would over-match for properties stored with literal `null` value (TP wrapper keeps those visible as present). See "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators". | Track 4 (uses) / Track 1 (operator) |
+| Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NOT DEFINED` via `MatchWhereBuilder.isNotDefined`. Recognised by **`NotFilterStepRecogniser`** (Case A — `__.values(key)` desugar wrapped in `NotStep`), mirror of `has(key)` handled by `TraversalFilterStepRecogniser`. NOT `IS NULL` — would over-match against properties stored with literal `null` value (TP wrapper keeps those visible as `Property.isPresent() == true`). See "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators". | Track 4 |
 | Predicate ops | `Compare.eq` / `neq` / `gt` / `gte` / `lt` / `lte` | `SQLBinaryCondition` + corresponding operator | Track 4 |
 | Predicate ops | `Contains.within` / `Contains.without` | `SQLInCondition` / `SQLNotInCondition` | Track 4 |
 | Predicate ops | `P.between(lo, hi)` | `AND(>=lo, <hi)` — Gremlin's `between` is right-exclusive `[lo, hi)`; YTDB's `SQLBetweenCondition` is closed `[lo, hi]`, so we cannot use it directly | Track 4 |
@@ -1010,16 +1010,22 @@ their own `BiPredicate`. We cannot translate arbitrary code. Detection: if
 `P.getBiPredicate()` is not an instance of `Compare`, `Contains`, `Text`, or
 a recognized YTDB-side predicate, decline.
 
-**`hasNot(key)`**: maps to `key IS NOT DEFINED` via the new YTDB SQL
-operator added in Track 1 — see "Phase 1 dependency: `IS DEFINED` /
-`IS NOT DEFINED` operators". The translator builds the AST node via
-`MatchWhereBuilder.isNotDefined(SQLExpression key)` (a Track 1 factory
-that wraps `SQLIsNotDefinedCondition`). **Not** `key IS NULL`: TP
+**`hasNot(key)` and `has(key)` (bare presence forms)**: both desugar to
+`__.values(key)` sub-traversals inside different wrapper steps —
+`hasNot(key)` becomes `NotStep(__.values(key))`, `has(key)` becomes
+`TraversalFilterStep(__.values(key))`. Neither lands on `HasStep`, so
+both bypass `HasStepRecogniser` (which handles `has(key, value)` and
+`has(key, predicate)` only). `NotFilterStepRecogniser` Case A and
+`TraversalFilterStepRecogniser` Case A detect the desugar shape
+(`__.values` extracted from the sub-traversal's single property key)
+and emit `key IS NOT DEFINED` / `key IS DEFINED` respectively via
+`MatchWhereBuilder.isNotDefined` / `isDefined` — wrappers around the
+pre-existing `SQLIsNotDefinedCondition` / `SQLIsDefinedCondition` AST
+nodes (D-IS-DEFINED). **Not** `IS NULL` / `IS NOT NULL`: TP
 `hasNot(key)` returns false for properties stored with literal `null`
 value (because YTDB's TP wrapper exposes them as `isPresent() == true`),
 whereas `IS NULL` would match them — the two operators only agree on
-absent properties, not on the null-valued case. Symmetric: **`has(key)`**
-maps to `key IS DEFINED` via `MatchWhereBuilder.isDefined(...)`.
+absent properties, not on the null-valued case.
 
 ## by-modulator translation
 

@@ -373,17 +373,23 @@ flowchart LR
 >     `aliasRids` is single-RID-per-alias by the MATCH SQL grammar. `@rid`
 >     is `SQLRecordAttribute`, not `SQLIdentifier`, so the IN AST is built
 >     by hand.
->   - `HasStep` with `hasNot(key)` — translates to `field IS NOT DEFINED`
->     via `MatchWhereBuilder.isNotDefined(field)` using the new YTDB SQL
->     operator added in Track 1 (see plan.md D-IS-DEFINED and design.md
->     "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators").
->     Symmetric: `has(key)` → `MatchWhereBuilder.isDefined(field)`.
->     **Not** `IS NULL` / `IS NOT NULL` — those over-match against
->     properties stored with literal `null` value (TP `hasNot` would
->     not match such properties because TP `Property.isPresent()`
->     returns `true` for them — confirmed against
->     `YTDBElementImpl.readFromEntity` + `EntityImpl.getPropertyAndChooseReturnValue`
->     during PR #1038 review).
+>   - **`hasNot(key)` (presence-form NOT)** — TinkerPop 3.8.1 desugars
+>     `hasNot(key)` to `NotStep(__.values(key))`, so it does **not** land
+>     on `HasStep`. Recognised by `NotFilterStepRecogniser` (Case A) —
+>     emits `field IS NOT DEFINED` via `MatchWhereBuilder.isNotDefined(field)`.
+>     **Symmetric `has(key)` (bare presence form)** is encoded by TP as
+>     `TraversalFilterStep(__.values(key))` (not `HasStep` either) and
+>     recognised by `TraversalFilterStepRecogniser` (Case A — added in
+>     Track 4) → `MatchWhereBuilder.isDefined(field)`. Both paths use
+>     the pre-existing YTDB SQL operators (D-IS-DEFINED — design.md
+>     "Phase 1 dependency"). **NOT** `IS NULL` / `IS NOT NULL` — those
+>     over-match against properties stored with literal `null` value
+>     (TP `hasNot` would not match such properties because TP
+>     `Property.isPresent()` returns `true` for them — confirmed against
+>     `YTDBElementImpl.readFromEntity` +
+>     `EntityImpl.getPropertyAndChooseReturnValue` during PR #1038
+>     review). `HasStep` still handles `has(key, value)` and
+>     `has(key, predicate)` — those routes are unchanged.
 > - Lift the cached `SQLInCondition.operator` reflection helper into a
 >   shared helper in `match.builder/`. The multi-ID `hasId` site becomes
 >   the third call site for that helper (Track 1's `MatchWhereBuilder`
