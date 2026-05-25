@@ -9,11 +9,14 @@ Convert `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.cl
 
 ## Progress
 - [x] 2026-05-25T03:06Z [ctx=safe] Review + decomposition complete
+- [x] 2026-05-25T03:19Z [ctx=info] Step 1 complete (commit 5f7f882830)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 ## Surprises & Discoveries
+
+- 2026-05-25T03:19Z [ctx=info] Track 4 preflight verified green: `IndexCountDelta.accumulateClearOrRecalibrate(AtomicOperation, int, long, long)` did not exist before Step 1's commit (PSI-verified). Track 4 Phase A must skip the preflight-add branch and reuse the overload landed here. See Episodes §Step 1.
 
 ## Decision Log
 
@@ -88,12 +91,25 @@ Invariants to preserve: the postcondition that `clearSVTree` empties both trees 
 
 ## Concrete Steps
 
-1. Add `IndexCountDelta.accumulateClearOrRecalibrate(AtomicOperation, int, long totalDelta, long nullDelta)` overload at `IndexCountDelta.java` — additive semantics (`+= totalDelta; += nullDelta`); runtime assert `|nullDelta| <= |totalDelta| && sign-aligned`; Javadoc names the four production callers (MV/SV `clear()`, MV/SV `buildInitialHistogram()`) and forbids per-put/per-remove use; Track 4 preflight: skip if it already exists. Add unit tests covering the additive composition, the assert trigger paths, and the four sign/magnitude bands — `risk: medium` (default: new overload + runtime assert on the durability-adjacent IndexCountDelta holder; no behavioral change to production paths until Steps 2/3 wire it)  [ ]
+1. Add `IndexCountDelta.accumulateClearOrRecalibrate(AtomicOperation, int, long totalDelta, long nullDelta)` overload at `IndexCountDelta.java` — additive semantics (`+= totalDelta; += nullDelta`); runtime assert `|nullDelta| <= |totalDelta| && sign-aligned`; Javadoc names the four production callers (MV/SV `clear()`, MV/SV `buildInitialHistogram()`) and forbids per-put/per-remove use; Track 4 preflight: skip if it already exists. Add unit tests covering the additive composition, the assert trigger paths, and the four sign/magnitude bands — `risk: medium` (default: new overload + runtime assert on the durability-adjacent IndexCountDelta holder; no behavioral change to production paths until Steps 2/3 wire it)  [x] commit: 5f7f882830
 2. Rewrite `BTreeMultiValueIndexEngine.clear()` (lines 282–326) per Plan of Work Step 2: `clearSVTree(atomicOperation)` first → two emptiness asserts → snapshot reads `currentTotal`/`currentNull` under the per-tree lock → `indexesSnapshot.clear()` + `nullIndexesSnapshot.clear()` → `accumulateClearOrRecalibrate(op, id, -currentTotal, -currentNull)` → keep histogram `resetOnClear` block unchanged → drop the four direct writes → replace the obsolete rollback-hazard comment at lines 298–310 with the two-line post-Track-3 comment — `risk: high` (crash-safety: WAL-relevant clear() rewrite + concurrency: snapshot-read placement under per-tree lock is load-bearing for race-freedom against concurrent Hook B apply on the clearIndex API path)  [ ]
 3. Rewrite `BTreeSingleValueIndexEngine.clear()` (lines 241–282) with the structurally identical change for the single-tree case per Plan of Work Step 3. Keep the method-level `try/catch (IOException)` wrap. SV's `persistCountDelta` ignores `nullDelta` (single tree stores nulls and non-nulls together) — the `nullDelta` half drives in-memory `approximateNullCount` apply only, persisted side moves by `totalDelta` alone — `risk: high` (crash-safety: same shape as Step 2 on SV; concurrency: same lock contract holds) *(parallel with Step 2)*  [ ]
 4. Add `BTreeMultiValueIndexEngineClearRollbackTest` + `BTreeSingleValueIndexEngineClearRollbackTest` under `core/src/test/.../engine/v1/` (commit-path rollback via `RecordSerializationOperation` push pattern matching Track 2's `MainCommitCounterSyncTest:186-214`); activate `ClearIndexApiRollbackTest` (Track 2 Step 4 staged) with the four edits enumerated in Plan of Work Step 4 — remove `@Ignore` at lines 50-53, remove `fail()` tripwire at lines 131-135, wire `clearIndex(indexId)` call, wire reflective `histogramManager.resetOnClear` IOException stub. Assertions pin the post-rollback `(svTree, nullTree, in-mem total, in-mem null)` quad against the pre-clear values — `risk: medium` (test infrastructure: novel reflective histogramManager stub seam is local-to-test but acts as the validation gate for Steps 2/3 — failure here means Steps 2/3 silently shipped broken)  [ ]
 
 ## Episodes
+
+### Step 1 — commit 5f7f882830, 2026-05-25T03:19Z [ctx=info]
+**What was done:** Added `IndexCountDelta.accumulateClearOrRecalibrate(AtomicOperation, int, long totalDelta, long nullDelta)` alongside the existing `±1` `accumulate` overload. Additive semantics (`delta.totalDelta += totalDelta; delta.nullDelta += nullDelta;`) mirror the existing `+= sign` pattern so per-put activity and a subsequent clear or recalibration compose algebraically within one atomic op. A runtime assert pins `|nullDelta| <= |totalDelta|` and sign-alignment (allowing either delta to be zero). Javadoc names the four production callers (MV/SV `clear`, MV/SV `buildInitialHistogram`) and forbids per-put/per-remove use. Added 8 unit tests in `IndexCountDeltaHolderTest`: four sign/magnitude bands (0/0; both-negative aligned; both-positive aligned; one-zero-one-nonzero); additive composition mixing the short-form and long-form overloads; per-engine isolation; two assert trigger paths (magnitude violation, opposed signs). Coverage gate on the cumulative branch diff: 90.4% line, 95.8% branch.
+
+**What was discovered:** Spotless reformatted the multi-line assert's continuation lines on commit-hook apply. The project's Eclipse formatter spec sets continuation indent at 4 spaces; initial hand-formatting wrapped the second clause at 12 spaces and Spotless normalised it to 8 spaces of total indent. No behavior change. Track 4 preflight is confirmed green: `accumulateClearOrRecalibrate` did not exist before this step (PSI-verified via `JavaPsiFacade.findClass` + `cls.methods`), so Track 4 must not re-add the method.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexCountDelta.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexCountDeltaHolderTest.java` (modified)
+
+**Critical context:** Tests live in `IndexCountDeltaHolderTest` rather than a new `IndexCountDeltaTest` class because the holder test already covers the short-form `accumulate` static. Step 2/3/4 implementers reusing test infrastructure should look in this file first.
 
 ## Validation and Acceptance
 
