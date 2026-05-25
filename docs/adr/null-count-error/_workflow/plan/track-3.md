@@ -18,10 +18,7 @@ Convert `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.cl
 - [x] 2026-05-25T09:20Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations; Review fix commit ced57f481d)
 - [x] 2026-05-25T09:29Z [ctx=info] Track-level code review iteration 3 complete (3/3 iterations; Review fix commit cbe2219fb8)
 - [x] 2026-05-25T09:34Z [ctx=warning] Track-level code review
-- [ ] Track completion
-
-**PAUSED 2026-05-25 at Phase C between post-iter-3 gate-check PASS and Track Completion approval pending session refresh**
-- Handoff: `docs/adr/null-count-error/_workflow/handoff-track-3-phaseC.md`
+- [x] 2026-05-25T09:42Z [ctx=safe] Track completion
 
 ## Surprises & Discoveries
 
@@ -52,6 +49,7 @@ Convert `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.cl
 - [x] 2026-05-25T09:20Z [ctx=info] Track-level code review iteration 2: post-iter-1 gate-check fan-out (9 dimensions) cleared 11 of 12 F-findings; CQ1 (residual `AbstractStorage.java:2335` literal cite on MV ClearRollbackTest in-method comment line 142, same anti-pattern as F3 at a different location) + WC9 + WC10 (F4 sub-items: stale MV `persistCountDelta` + snapshot-maps citations on track-3.md after the F4 reconciliation pass shifted lines downstream) applied in Review fix commit `ced57f481d`.
 - [x] 2026-05-25T09:29Z [ctx=info] Track-level code review iteration 3: post-iter-2 gate-check fan-out (CQ + WC, 2 dimensions) cleared CQ1 / WC9 / WC10; new findings CQ2 (residual `:2335` cite at MV ClearRollbackTest in-method body comment line 142 — SV counterpart at line 149 was already clean) + WC11 (SV `persistCountDelta` cite drift `724–733` → PSI-verified `723–732` on track-3.md:61) applied in Review fix commit `cbe2219fb8`.
 - [x] 2026-05-25T09:34Z [ctx=warning] Track-level code review PASS: post-iter-3 gate-check fan-out (CQ + WC, 2 dimensions) returned VERIFIED on CQ2 + WC11 with no new findings. All in-scope F-findings, CQ-findings, and WC-findings cleared across 3 iterations.
+- [x] 2026-05-25T09:42Z [ctx=safe] Track complete: 4 steps, 0 failed, 3 Phase C iterations (all VERIFIED at post-iter-3 gate-check).
 
 ## Context and Orientation
 
