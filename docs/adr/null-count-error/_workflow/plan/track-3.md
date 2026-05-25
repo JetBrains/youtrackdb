@@ -18,9 +18,6 @@ Convert `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.cl
 - [ ] Track-level code review
 - [ ] Track completion
 
-**PAUSED 2026-05-25 at Phase C between iter-1 SUCCESS and iter-2 gate-check fan-out pending session refresh**
-- Handoff: `docs/adr/null-count-error/_workflow/handoff-track-3-phaseC.md`
-
 ## Surprises & Discoveries
 
 - 2026-05-25T03:19Z [ctx=info] Track 4 preflight verified green: `IndexCountDelta.accumulateClearOrRecalibrate(AtomicOperation, int, long, long)` did not exist before Step 1's commit (PSI-verified). Track 4 Phase A must skip the preflight-add branch and reuse the overload landed here. See Episodes §Step 1.
