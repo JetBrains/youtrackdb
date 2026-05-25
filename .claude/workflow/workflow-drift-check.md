@@ -119,6 +119,18 @@ else
         # trailing slashes to make the directory intent explicit and
         # prevent accidental matches against a same-named file in a
         # sibling location.
+        # The pathspecs `.claude/workflow/` and `.claude/skills/`
+        # deliberately exclude the staged subtree at
+        # `docs/adr/*/_workflow/staged-workflow/.claude/workflow/` and
+        # `.../staged-workflow/.claude/skills/`. The exclusion holds by
+        # prefix difference: staged paths sit under
+        # `docs/adr/*/_workflow/staged-workflow/`, which neither
+        # `.claude/workflow/` nor `.claude/skills/` matches. This
+        # drift-check file is the single canonical source for the
+        # exclusion; `migrate-workflow/SKILL.md`'s range computation
+        # uses the same pathspecs for symmetry. A future change that
+        # broadens these pathspecs must re-check the staged-subtree
+        # exclusion at both sites.
         git log --reverse --oneline "$BASE_SHA..HEAD" -- .claude/workflow/ .claude/skills/ | head -10
     fi
 fi
