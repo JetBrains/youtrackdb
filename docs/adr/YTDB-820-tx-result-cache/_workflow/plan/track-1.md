@@ -20,7 +20,8 @@ Lay down the foundational pieces with no behavioral change: three `GlobalConfigu
 - `CacheableShape` enum.
 - `CacheKey` class skeleton (statement + params holder; equals/hashCode stubs).
 - `FrontendTransactionImpl.queryResultCache` field (nullable; lazy-allocated via `getQueryResultCache()`).
-- `beginInternal()` defensive `queryResultCache.clear()` if non-null.
+- `FrontendTransactionImpl.mutationVersion: long` field (initialized to 0) + `getMutationVersion()` accessor. Incremented inside `addRecordOperation(record, status)` on every call — including when the call collapses an existing entry's type (e.g., UPDATED→DELETED on same RID; size unchanged but dispatch outcome differs). This is the version key for `DeltaBuilder`'s cross-view delta sharing (per design.md § Cross-view delta sharing via mutationVersion).
+- `beginInternal()` defensive `queryResultCache.clear()` if non-null. Resets `mutationVersion = 0`.
 - `clearUnfinishedChanges()` calls `queryResultCache.clear()` if non-null.
 - Three knobs in `GlobalConfiguration`: `QUERY_TX_RESULT_CACHE_ENABLED` (Boolean, default false), `QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (Integer, default 200), `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` (Integer, default 10000). All hot-changeable per project convention.
 
@@ -57,6 +58,6 @@ Lay down the foundational pieces with no behavioral change: three `GlobalConfigu
 - `QueryResultCache.lookup(CacheKey) → CachedEntry` (returns null on miss).
 - `QueryResultCache.put(CacheKey, CachedEntry) → void`.
 - `QueryResultCache.invalidateAll() → void`.
-- `QueryResultCache.clear() → void` (idempotent).
+- `QueryResultCache.clear() → void` (idempotent; empties `entries`, `nonCacheableKeys`, and resets `cacheCodeDepth` to 0).
 - `CachedEntry.close() → void` (idempotent).
 - `FrontendTransactionImpl.getQueryResultCache() → @Nullable QueryResultCache` (lazy alloc).

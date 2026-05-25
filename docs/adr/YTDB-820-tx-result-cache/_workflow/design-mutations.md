@@ -434,3 +434,44 @@ No D-record added or removed. No invariant changed. No class-diagram change. No 
 **Findings**: pre-existing 26 should-fix dsc-ai-tell — deferred to Phase 4 sweep.
 
 **Iterations**: 1 of 3 (PASS — addresses L1-L12 jointly; no NEW logical findings introduced beyond pre-existing house-style category).
+
+## Mutation 14 — 2026-05-25 — content-edit (design.md + implementation-plan.md + track-1/4/5/7)
+
+**Second-order issues from Mutation 13 logical pass.** A re-review of Mutation 13 surfaced four second-order issues (SO1, SO4, SO5, SO6) plus a cross-reference nit, all addressed in this mutation.
+
+**SO1 — Cross-view delta sharing (Option C)**:
+
+The per-view `skipSet + injectList` allocation could grow unbounded in pathological tx (e.g., bulk-delete-10000 followed by 100 reads → ~48 MB beyond documented bound). User decision: adopt Option C from the review — share the immutable `(skipSet, injectList)` pair across views on the same entry built at the same recordOperations state.
+
+Key insight: `recordOperations.size()` is NOT a sufficient version key because `FrontendTransactionImpl.addRecordOperation` collapses repeated ops on the same RID in place (UPDATED → DELETED changes the type but keeps the size). Adopted `mutationVersion: long` counter on `FrontendTransactionImpl`, incremented on every `addRecordOperation` call (including type collapses).
+
+Design changes:
+- `design.md § Class Design`: `FrontendTransactionImpl` gains `mutationVersion: long` + `getMutationVersion()`; `CachedEntry` gains `cachedSkipSet`, `cachedInjectList`, `cachedDeltaVersion: long`; `QueryResultCache` exposes `nonCacheableKeys` + `inFlightLookup` in the class shape.
+- `design.md § Lazy merge-on-read`: new subsection "Cross-view delta sharing via mutationVersion" inserted before "Stream-pull dispatch unification" documents the version-keyed reuse algorithm + GC lifecycle.
+- `design.md § Memory bounds`: total bound updated to `(maxEntries × maxRecordsPerEntry × Result_ref_size) + (entries_with_live_views × p_max × 2 × 48B)`. Hub case: 1 shared delta pair per entry.
+- `plan/track-1.md`: `mutationVersion` field + `getMutationVersion` accessor added to skeleton deliverables; `beginInternal` resets to 0.
+- `plan/track-4.md`: `DeltaBuilder.buildForRecord` algorithm rewritten to do version check first; promote-to-entry-cache step added after sort.
+- Tests T4o (delta sharing — reference equality between views at same version) and T4p (UPDATE-then-DELETE collapse — version sensitivity to type changes) added.
+- `implementation-plan.md` Component Map: CachedEntry + FrontendTransactionImpl bullets updated.
+
+**SO4 — Eager-drive exception safety**:
+
+`plan/track-5.md` step 6 rewritten: eager drive (`plan.start(ctx).next(ctx)`) runs INSIDE a try block; `cache.put(key, entry)` only on successful drain; on throw the partial entry is NEVER inserted into `cache.entries`, plan closed best-effort, exception re-thrown. Test T5l covers the StorageIOException-mid-drain scenario.
+
+**SO5 — `inFlightLookup` scope ambiguity**:
+
+`plan/track-7.md` step 8 rewritten: boolean `inFlightLookup` replaced by counter `cacheCodeDepth: int`. The counter is incremented/decremented (try/finally) at every cache-mutating code path: `lookup`, `put`, `invalidateAll`, the stream-pull-append loop inside `view.next()`, and `DeltaBuilder.buildFor*`. While `cacheCodeDepth > 0`, any re-entrant `cache.lookup` short-circuits to "skip cache" mode. Catches L9 hazard regardless of which cache-internal code path fires the re-entrant UDF query.
+
+**SO6 — `nonCacheableKeys` lifecycle explicit**:
+
+`plan/track-1.md` `QueryResultCache.clear()` signature updated: "empties `entries`, `nonCacheableKeys`, and resets `cacheCodeDepth` to 0". Makes tx-end cleanup contract complete.
+
+**Cross-ref nit**:
+
+D11's `**Full design**` link updated from `"Lazy merge-on-read" → Class filter` (not a real heading) to `"Lazy merge-on-read" → TxDeltaCursor (step 1: Class filter)` (resolves to the actual subsection heading).
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=content-edit): 0 blockers; 26 should-fix `dsc-ai-tell` em-dash density findings (unchanged from Mutation 13 baseline — new prose net-neutral on em-dashes). Pre-existing house-style debt; deferred to Phase 4 sweep.
+
+**Cold-read** (bounded — § Class Design + § Cross-view delta sharing + § Stream-pull dispatch unification + § Memory bounds + plan/track-1.md skeleton + plan/track-4.md DeltaBuilder + plan/track-5.md step 6 + plan/track-7.md step 8): self-audited. The mutationVersion key handles both new-add and type-collapse cases (verified by tracing UPDATE-then-DELETE-on-same-RID scenario — version increments on every addRecordOperation regardless of new/existing RID). Eager-drive try/catch covered. cacheCodeDepth counter is correct for arbitrarily-nested cache-internal calls. nonCacheableKeys lifecycle now explicit in clear() contract.
+
+**Iterations**: 1 of 3 (PASS — closes 4 second-order issues from Mutation 13 + cross-ref nit; no NEW findings).

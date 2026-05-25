@@ -35,13 +35,17 @@ classDiagram
     class FrontendTransactionImpl {
         -queryResultCache: QueryResultCache
         -recordOperations: HashMap
+        -mutationVersion: long
         +beginInternal() int
         +addRecordOperation(record, status) void
         -clearUnfinishedChanges() void
         +getQueryResultCache() QueryResultCache
+        +getMutationVersion() long
     }
     class QueryResultCache {
         -entries: LinkedHashMap
+        -nonCacheableKeys: Set
+        -inFlightLookup: boolean
         -maxEntries: int
         -maxRecordsPerEntry: int
         +lookup(key) CachedEntry
@@ -68,6 +72,9 @@ classDiagram
         -whereClause: SQLWhereClause
         -orderBy: SQLOrderBy
         -returnProjector: Function
+        -cachedSkipSet: Set
+        -cachedInjectList: List
+        -cachedDeltaVersion: long
         +sizeHint() int
         +close() void
     }
@@ -292,6 +299,39 @@ A static helper `ShapeClassifier.classify(SQLStatement) → CacheableShape` deci
 6. **For MATCH Etap A** — wrap each `inject_list` record through `entry.returnProjector(rec, ctx)` to produce a single-binding tuple `Result` matching the original RETURN-clause shape. The sort then operates on projected tuples (ORDER BY on projection values is supported via the comparator).
 7. Return `new TxDeltaCursor(skipSet, injectList)`.
 
+### Cross-view delta sharing via mutationVersion
+
+The `(skipSet, injectList)` pair is a pure function of `(entry's frozen metadata, tx.recordOperations content)`. Two views constructed on the same entry at the same recordOperations state have identical deltas. To avoid per-view allocation (Hub pattern: 1-3 mutations followed by many same-class reads → up to 50-200 views built against the same stable recordOperations), the entry caches the latest computed pair and reuses it for any new view whose construction observes the same state.
+
+`recordOperations.size()` is NOT a sufficient key: `FrontendTransactionImpl.addRecordOperation` collapses repeated operations on the same RID in place (UPDATED→DELETED keeps the size constant but changes the dispatch outcome — DELETED suppresses inject_list while UPDATED contributes to it). To capture every change, `FrontendTransactionImpl` exposes `mutationVersion: long`, a monotonic counter incremented on every `addRecordOperation` call (whether a new record or a type-change on an existing one).
+
+`DeltaBuilder.buildForRecord(entry, tx, ctx)` algorithm:
+
+```
+v = tx.getMutationVersion()
+if entry.cachedDeltaVersion == v && entry.cachedSkipSet != null:
+    // Reuse: another view on this entry already built the delta at this exact tx state
+    skipSet = entry.cachedSkipSet          // shared immutable ref
+    injectList = entry.cachedInjectList    // shared immutable ref
+else:
+    // Build (single pass over recordOperations)
+    skipSet = new HashSet<>()
+    injectList = new ArrayList<>()
+    iterate(tx.recordOperations) → populate skipSet, injectList per dispatch table
+    sort(injectList, entry.orderBy)
+    // Promote to entry cache (overwriting any older version's cache)
+    entry.cachedSkipSet = Collections.unmodifiableSet(skipSet)
+    entry.cachedInjectList = Collections.unmodifiableList(injectList)
+    entry.cachedDeltaVersion = v
+return new TxDeltaCursor(skipSet, injectList, injectPosition=0)
+```
+
+Each `TxDeltaCursor` holds its own `injectPosition` counter (the iteration cursor) — that's per-view mutable state. The underlying skipSet and injectList are immutable; sharing them is safe.
+
+**Garbage collection**: when a new view at a fresher `mutationVersion` triggers rebuild, `entry.cachedSkipSet` and `entry.cachedInjectList` point at the new pair. Older views still hold their TxDeltaCursor references to the OLD pair via their `deltaCursor` field — those older pairs stay live for as long as any view references them, then become unreachable and are GC'd. The entry only ever holds a strong ref to the **latest** pair, so it does not pin older versions.
+
+**Memory footprint**: bounded by `Σᵢ pᵢ` where the sum is over the distinct mutationVersion values currently alive across all live views. For Hub typical (1 view alive at a time, modest p): O(p) per entry. Worst case (V live views at V distinct mutationVersions): O(V × p_max). Each entry's overhead is at most `2 × p × 48B` for the cached pair plus the per-view injectPosition cursor (one int).
+
 ### Stream-pull dispatch unification
 
 **The skip_set is consulted twice**, not once: at every cache-cursor advance (the standard merge) AND at every stream-pull-append. The latter closes the gap created by lazy stream-pulling: a tx-mutated RID that lives in storage beyond the cached prefix would otherwise emerge from the stream pull with stale state (or duplicate the delta's inject_list emission). Per the dispatch table above, every tx-mutation regardless of `cached_at_build` value adds the RID to `skip_set` for UPDATED and DELETED cases. CREATED RIDs are temporary and storage never emits them.
@@ -465,9 +505,9 @@ Extending `NOCACHE` to MATCH is a v2 candidate. Decision gate is the D13 Hub-rep
 - `youtrackdb.query.txResultCache.maxEntries` (default 200) — LRU cap on cache-entry count per transaction. Eviction closes the evicted entry's stream.
 - `youtrackdb.query.txResultCache.maxRecordsPerEntry` (default 10000) — per-entry cap on `results.size()`. When the cap is hit while populating, the entry switches to "do-not-cache" mode: the view continues to return live stream results to the consumer but stops appending to `results`. The entry is marked `overflow=true` and is no longer used for replay (next `query()` of the same key gets a miss and starts over).
 
-Together, worst-case per-tx memory is bounded at `maxEntries × maxRecordsPerEntry` Result references. A `Result` typically holds either a `RecordAbstract` reference (which already lives in `localCache` so no duplicate heap cost) or a small projection map. 200×10000 = 2M Result references → manageable for typical Hub workloads.
+Total per-tx memory bound is `(maxEntries × maxRecordsPerEntry × Result_ref_size) + (entries_with_live_views × p_max × 2 × 48B)` where the second term is the delta-cache overhead per entry that has at least one live view: a `(skipSet, injectList)` pair sized O(p) at the latest mutationVersion observed by any view on that entry. A `Result` typically holds either a `RecordAbstract` reference (which already lives in `localCache` so no duplicate heap cost) or a small projection map. 200 × 10000 = 2M Result refs → manageable for typical Hub workloads.
 
-Each view also allocates a `TxDeltaCursor` whose size is bounded by the per-tx mutation count `p` on relevant classes — typically small (Hub is read-mostly).
+The delta-cache pair is **shared across views** on the same entry built at the same `mutationVersion` (per § Cross-view delta sharing via mutationVersion above) — Hub workload with 1-3 mutations + 50-200 reads on the same class typically results in **one** shared delta pair per entry, not one per view. Older mutationVersion pairs become unreachable as soon as their last live view's TxDeltaCursor is released; the entry pins only the latest.
 
 ### Edge cases / Gotchas
 - **Backpressure on overflow.** When an entry crosses `maxRecordsPerEntry`, the consumer iterates normally — they just don't get cached. The overflow entry is **removed from `entries` atomically** with overflow detection, and the cache key is added to per-tx `nonCacheableKeys: Set<CacheKey>`. Subsequent `lookup(key)` short-circuits via this set, skipping cache entirely. This prevents the LRU-churn pathology where every query() of an oversize-shape repopulates and re-evicts (defeating the cache for that key AND evicting other useful entries via LRU promotion).

@@ -24,8 +24,9 @@ Existing relevant code:
 - `OrderByComparator(SQLOrderBy, CommandContext)` building a `Comparator<Result>` that delegates per-item to `SQLOrderByItem.compare`. Handles ascending/descending and modifier chains.
 - `CachedEntry` populated metadata: `effectiveFromClasses` (closure-expanded), `whereClause`, `orderBy`, `skip`, `limit`, `shape = RECORD`. Built at entry construction in `DatabaseSessionEmbedded.query()` miss path.
 - `cachedRids: Set<RID>` populated alongside `entry.results` during stream pull.
-- `DeltaBuilder.buildForRecord(entry, recordOps, ctx) → TxDeltaCursor`:
-  - Iterate `recordOps.values()`.
+- `DeltaBuilder.buildForRecord(entry, tx, ctx) → TxDeltaCursor`:
+  - **Version check first**: `v = tx.getMutationVersion()`. If `entry.cachedDeltaVersion == v && entry.cachedSkipSet != null`: reuse `entry.cachedSkipSet` and `entry.cachedInjectList` (both immutable shared refs); return `new TxDeltaCursor(entry.cachedSkipSet, entry.cachedInjectList, injectPosition=0)`. Otherwise rebuild below and promote to entry cache.
+  - Iterate `tx.recordOperations.values()`.
   - For each: class filter (`effectiveFromClasses.contains(record.getSchemaClass().getName())` + Entity-shape guard), WHERE eval, cache-membership check.
   - Dispatch table (from design.md § Lazy merge-on-read → TxDeltaCursor):
     - CREATED + match_after=true → inject_list.add (CREATED RIDs are temp; cached_at_build irrelevant)
@@ -35,7 +36,8 @@ Existing relevant code:
     - DELETED → skip_set.add (suppress any cache OR stream emission, regardless of cached_at_build)
   - Note: cached_at_build (entry.cachedRids.contains) is read for diagnostic / metrics purposes; it does NOT branch the dispatch, since the lazy stream-pull may still produce mutated RIDs from storage. The skip_set unifies cache-prefix and stream-pull filtering.
   - Sort inject_list by `OrderByComparator`. For no ORDER BY: append in iteration order.
-  - Return `new TxDeltaCursor(skipSet, injectList)`.
+  - Promote to entry cache: `entry.cachedSkipSet = unmodifiableSet(skipSet); entry.cachedInjectList = unmodifiableList(injectList); entry.cachedDeltaVersion = v`. Older versions held by live views' TxDeltaCursor refs stay reachable; once those views close, the old pair is GC'd.
+  - Return `new TxDeltaCursor(skipSet, injectList, injectPosition=0)`.
 - `CachedResultSetView.next()` sorted-merge logic (see design.md § Lazy merge-on-read → view.next pseudocode). LIMIT clip enforced via returned-count counter; SKIP applied via initial position offset (`position = skip` at view construction for SKIP entries).
 - `DatabaseSessionEmbedded.query(...)` integration: after `cache.lookup` / `cache.put`, call `DeltaBuilder.buildForRecord(entry, tx.recordOperations, ctx)` and pass the resulting `TxDeltaCursor` to the view constructor.
 
@@ -62,6 +64,8 @@ Existing relevant code:
    - T4l (L2 regression): partial-populated entry + UPDATED on un-pulled storage record where ORDER-BY key changed — second view emits the record EXACTLY ONCE at the post-update ORDER-BY position (from inject_list), not at the pre-update storage position.
    - T4m (L12 regression): partial-populated entry + DELETED on un-pulled storage record — second view does NOT emit the deleted record when the stream reaches it.
    - T4n (L10 empty-SKIP edge case): `SELECT FROM Foo SKIP 100 LIMIT 10` against empty class with 5 mid-tx CREATEs — view returns empty (the CREATEs don't push the count past SKIP, matching fresh-execution semantics).
+   - T4o (SO1 / Option C — delta sharing): construct view-A on entry at `mutationVersion=5`; verify `entry.cachedDeltaVersion == 5` and the deltaCursor's skipSet+injectList are the same Java refs as `entry.cachedSkipSet/cachedInjectList`. Construct view-B (no further mutations between, version still 5); assert view-B's deltaCursor.skipSet IS view-A's deltaCursor.skipSet (reference equality, not just content equality). Then `session.save(record)` → version increments to 6. Construct view-C; assert view-C builds a fresh skipSet+injectList, `entry.cachedDeltaVersion == 6`, but view-A's frozen refs unchanged.
+   - T4p (SO1 — UPDATE-then-DELETE collapse version sensitivity): construct view-A at version=2 (after one UPDATE). Then a second mutation flips UPDATE→DELETE on the same RID (recordOperations.size() unchanged but version increments to 3). Construct view-B; assert view-B's delta does NOT inject the now-DELETED record (proves the version key catches type-collapsing mutations that size alone misses).
 
 **Invariants to preserve.** I4: view output equivalent to fresh execution against (cache + delta) snapshot. I7: view's deltaCursor immutable post-construction, and the cached `entry.results` / `entry.cachedRids` are append-only during stream pull, never mutated by tx state.
 
