@@ -163,4 +163,4 @@ After Track 7 lands:
 - `git log` pathspec in the drift gate (`.claude/workflow .claude/skills`) carries the defensive comment but stays byte-identical; no behavioral change there beyond the comment.
 
 ## Base commit
-<!-- Phase B writes the SHA of HEAD here at session start. -->
+e435cc11ba8012d614169657f158af1d53ad9580
