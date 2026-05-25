@@ -9,7 +9,7 @@ The in-place migration (Tracks 1–6) handles drift on feature plans whose execu
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
