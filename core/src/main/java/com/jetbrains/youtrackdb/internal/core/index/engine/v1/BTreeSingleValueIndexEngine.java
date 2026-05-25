@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -240,36 +241,49 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     try {
+      // Order is load-bearing for race-freedom on the clearIndex API path:
+      // when doClearTree() enters its while-loop body (the common case for any
+      // populated index), the per-tree exclusive lock is acquired transitively
+      // via tree.remove → executeInsideComponentOperation →
+      // acquireExclusiveLockTillOperationComplete and held for the remainder
+      // of this call. For genuinely empty indexes, no lock is taken; the
+      // snapshot reads then race against any concurrent commit's apply hook on
+      // the same engine, but currentTotal/currentNull are 0 in normal
+      // operation and the resulting (0, 0) delta is a no-op. The commit path
+      // independently holds the per-engine lock at AbstractStorage.lockIndexes
+      // before clear() runs, so this race is API-path-only.
       doClearTree(atomicOperation);
       // Postcondition: doClearTree must remove every entry from the B-tree.
       // If entries remain, the iterate-and-remove loop missed them (e.g., due
       // to cursor invalidation during page rebalancing). This assert fires
-      // BEFORE the approximate count reset, so the CI stack trace
-      // distinguishes "doClearTree left entries" from "entries appeared later."
+      // BEFORE the snapshot read, so the CI stack trace distinguishes
+      // "doClearTree left entries" from "entries appeared later."
       assert sbTree.firstKey(atomicOperation) == null
           : "doClearTree() left entries in engine=" + name + " id=" + id
               + " treeSize=" + sbTree.size(atomicOperation)
               + " approximateCount=" + approximateIndexEntriesCount.get();
-      // Reset persisted count on entry point page after clearing tree data.
-      // persistIndexCountDeltas adds only deltas from replayed entries after
-      // the clear, yielding the correct final count.
-      sbTree.setApproximateEntriesCount(atomicOperation, 0);
+      // Snapshot under the per-tree lock acquired by doClearTree() above.
+      final long currentTotal = approximateIndexEntriesCount.get();
+      final long currentNull = approximateNullCount.get();
+      assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
+          : "clear() snapshot invariant violated on engine=" + name + " id=" + id
+              + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
       indexesSnapshot.clear();
-      // In-memory counters are set eagerly inside the atomic operation. If the
-      // enclosing transaction rolls back:
-      // 1. WAL reverts the persisted page to pre-clear count (e.g., 1000)
-      // 2. In-memory counters stay at 0
-      // 3. Next commit's persistCountDelta adds delta (e.g., +5) to reverted
-      //    page → 1005
-      // 4. applyIndexCountDeltas adds delta to in-memory 0 → 5
-      // 5. On restart, load() reads 1005, diverging from the 5 the live
-      //    instance has
-      //
-      // Self-healing: buildInitialHistogram() recalibrates both from an exact
-      // scan. This divergence is tolerable because counters are approximate and
-      // rollback of clear() is an extremely rare edge case.
-      approximateIndexEntriesCount.set(0);
-      approximateNullCount.set(0);
+      // Pure-delta encoding: record the collapse as Δ = -current on the atomic
+      // op. The persist hook writes totalDelta=-currentTotal to the single
+      // tree's EP page before commitChanges; persistCountDelta deliberately
+      // ignores nullDelta because the single-value engine stores nulls and
+      // non-nulls in one tree (the persisted side moves by totalDelta alone,
+      // which is the correct full-tree collapse). The apply hook then advances
+      // both in-memory AtomicLong counters after commitChanges but before lock
+      // release. The persisted EP page is transiently out of sync with the
+      // now-empty tree until the persist hook runs. Any pre-existing drift
+      // between in-memory and persisted is intentionally not normalised here;
+      // eagerly zeroing the persisted side would re-introduce the in-atomic-op
+      // write that this encoding removes, and buildInitialHistogram()
+      // recalibration covers the rare residual case on next touch.
+      IndexCountDelta.accumulateClearOrRecalibrate(
+          atomicOperation, id, -currentTotal, -currentNull);
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.resetOnClear(atomicOperation);

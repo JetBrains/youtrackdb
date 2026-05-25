@@ -876,23 +876,126 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // clear() — pure-delta encoding (MV) and reset-to-zero (SV, until SV clear() is rewritten)
+  // clear() — pure-delta encoding (MV and SV)
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void singleValue_clear_resetsBothCountersToZero() throws IOException {
-    // clear() must reset both approximateIndexEntriesCount and
-    // approximateNullCount to 0.
+  public void singleValue_clear_recordsNegativeDeltaWithoutInMemoryMutation()
+      throws IOException {
+    // Pure-delta contract for the single-value engine's clear(): the snapshot
+    // read of the in-memory counters happens after doClearTree() acquires the
+    // per-tree exclusive lock, the resulting -current delta is accumulated on
+    // the atomic op, and neither the in-memory AtomicLong counters nor the
+    // persisted EP page is mutated inside clear() itself. Both sides advance
+    // later: the persisted EP page via persistCountDelta before commitChanges
+    // (totalDelta only; the single-value engine intentionally ignores
+    // nullDelta because nulls live in the same tree as non-null keys), the
+    // in-memory AtomicLongs via the apply hook before lock release.
     var f = new SingleValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
 
     f.engine.clear(f.storage, f.op);
 
+    // In-memory counters must NOT move inside clear() — they are advanced by
+    // the apply hook after commitChanges, so a rolled-back clear leaves them
+    // intact.
+    assertEquals(10, f.engine.getTotalCount(f.op));
+    assertEquals(3, f.engine.getNullCount(f.op));
+    // The collapse is encoded as a negative delta on the atomic op.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-10L, delta.getTotalDelta());
+    assertEquals(-3L, delta.getNullDelta());
+    // The persisted EP page must not be touched directly inside clear();
+    // persistCountDelta owns that write at Hook A.
+    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+  }
+
+  /**
+   * Pins the zero-zero boundary of the snapshot delta and of the accumulator's
+   * sign-aligned magnitude assert on the single-value engine: clear() on an
+   * engine whose in-memory counters were never seeded must record an additive
+   * (0, 0) delta on the holder and must not call setApproximateEntriesCount
+   * on the single tree.
+   */
+  @Test
+  public void singleValue_clear_onEmptyEngine_accumulatesZeroDelta()
+      throws IOException {
+    var f = new SingleValueFixture();
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
     assertEquals(0, f.engine.getTotalCount(f.op));
     assertEquals(0, f.engine.getNullCount(f.op));
-    // Persisted count on entry point page must also be reset
-    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+  }
+
+  /**
+   * Pins the |nullDelta| == |totalDelta| boundary of the accumulator's
+   * sign-aligned magnitude assert on the single-value engine: when every entry
+   * is a null key, the accumulated delta has equal magnitudes on both axes.
+   */
+  @Test
+  public void singleValue_clear_nullOnlyEngine_accumulatesEqualDeltas()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(7);
+    f.engine.addToApproximateNullCount(7);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-7L, delta.getTotalDelta());
+    assertEquals(-7L, delta.getNullDelta());
+  }
+
+  /**
+   * Pins the nullDelta == 0 boundary of the accumulator's sign-aligned
+   * magnitude assert on the single-value engine: when no entry is a null key,
+   * only the total delta is non-zero and the assert's one-zero clause covers
+   * the configuration.
+   */
+  @Test
+  public void singleValue_clear_nonNullOnlyEngine_accumulatesZeroNullDelta()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(5);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-5L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+  }
+
+  /**
+   * Pins additive composition across the two accumulate overloads on the
+   * single-value engine: two prior null-key put accumulations (short-form
+   * sign=+1, isNullKey=true) followed by a clear of a (10, 3)-seeded engine
+   * must leave the holder at (-10 + 2, -3 + 2) == (-8, -1).
+   */
+  @Test
+  public void singleValue_clear_composesWithPriorPutDeltas()
+      throws IOException {
+    var f = new SingleValueFixture();
+    IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
+    IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-8L, delta.getTotalDelta());
+    assertEquals(-1L, delta.getNullDelta());
   }
 
   @Test
