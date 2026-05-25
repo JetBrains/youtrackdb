@@ -1,5 +1,182 @@
 # Gremlin-to-MATCH Translator — Track Details
 
+## Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` operators
+
+> **What**:
+> - Create a new package `internal/core/sql/executor/match/builder/` with
+>   three builder classes — `MatchLiteralBuilder`, `MatchWhereBuilder`,
+>   `MatchPatternBuilder` — that own all mechanical MATCH IR construction
+>   (Pattern/PatternNode/PatternEdge assembly, AND/OR/NOT composition,
+>   Java-value → `SQLExpression` conversion).
+> - Refactor `GqlMatchStatement` onto the shared builders. Public API
+>   unchanged; existing GQL tests must pass 1:1.
+> - **Add two new YTDB SQL operators** `IS DEFINED` / `IS NOT DEFINED`
+>   (D-IS-DEFINED). Entity-presence predicates, distinct from
+>   `IS NULL` / `IS NOT NULL` (which check the projected value). The
+>   evaluators call `EntityImpl.hasProperty(key)` directly — the same
+>   primitive Track 7 uses for the projection presence classifier.
+>   `MatchWhereBuilder` exposes `isDefined(...)` / `isNotDefined(...)`
+>   factories.
+>
+> **How**:
+> - Step ordering (provisional):
+>   1. `MatchLiteralBuilder` — `toLiteral(Object) → SQLExpression`,
+>      extracted verbatim from `GqlMatchStatement.toLiteral`.
+>   2. `MatchPatternBuilder` — `addNode(alias, className, where, optional)`,
+>      `addEdge(fromAlias, toAlias, direction, edgeLabel, edgeAlias,
+>      edgeFilter, whileCondition, maxDepth)`, `build()` returning
+>      `(Pattern, aliasClasses, aliasFilters, edgeFilters)`.
+>   3. `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
+>      `containsText`, `and`, `or`, `not` returning `SQLBooleanExpression`;
+>      `wrap()` to a `SQLWhereClause`.
+>   4. Grammar edit: add `IS DEFINED` / `IS NOT DEFINED` productions to
+>      `core/src/main/grammar/YouTrackDBSql.jjt` in the same slot as the
+>      existing `IS NULL` / `IS NOT NULL` productions. Parser regenerates
+>      via `javacc-maven-plugin`; no manual edits to generated files.
+>   5. AST + evaluator: `SQLIsDefinedCondition` and
+>      `SQLIsNotDefinedCondition` extend `SQLBooleanExpression` parallel
+>      to `SQLIsNullCondition` / `SQLIsNotNullCondition`. Evaluators walk
+>      the child expression to identify the root alias + property name,
+>      resolve the alias to its bound `EntityImpl`, and call
+>      `EntityImpl.hasProperty(name)`. `IndexFinder` integration returns
+>      `Operation.None` (presence predicates can't use value-keyed
+>      indexes).
+>   6. `MatchWhereBuilder.isDefined(...)` / `isNotDefined(...)` factory
+>      methods exposing the new AST nodes to the Gremlin translator.
+>   7. `GqlMatchStatement` refactor onto the shared builders — inline IR
+>      construction replaced by builder calls.
+>   8. Golden-string regression tests over `prettyPrint(0,2)` for
+>      representative queries (single-node anonymous, multi-property AND
+>      filter, multi-filter map) plus parser tests for the new operators
+>      and evaluator unit tests covering all four cases (absent /
+>      null-valued / non-null-valued / non-existent alias).
+>
+> **Constraints**:
+> - **In-scope files**: `internal/core/sql/executor/match/builder/`
+>   (new package), `GqlMatchStatement` (refactor),
+>   `core/src/main/grammar/YouTrackDBSql.jjt` (additive grammar edit
+>   only — `IS DEFINED` / `IS NOT DEFINED` productions), new
+>   `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST classes.
+> - **Out of scope**: GQL user-facing `IS DEFINED` syntax exposure (the
+>   addition is internal-facing only; GQL users continue using
+>   `IS NULL` / `IS NOT NULL` with existing semantics). Any change to
+>   `MatchExecutionPlanner` (lands in Track 2 via additive `MatchPlanInputs`
+>   ctor only). Index integration for the new operators beyond
+>   `Operation.None`.
+> - Behavior-preserving GQL refactor: all existing GQL tests pass
+>   unchanged. "Byte-identical" `prettyPrint(0,2)` not required —
+>   semantically equivalent (same step types in the same order, same
+>   alias bindings) is the bar.
+>
+> **Interactions**:
+> - Depends on nothing — this track is the foundation; everything else
+>   depends on it.
+> - Enables every other track via the shared builder package.
+> - Track 4 consumes `MatchWhereBuilder.isDefined` / `isNotDefined`
+>   factories for the `has(key)` / `hasNot(key)` filter mapping.
+> - Track 7 calls `EntityImpl.hasProperty(key)` directly (same primitive
+>   the new operators use under the hood) for the `valueMap` / `values` /
+>   `select.by` projection presence classifier.
+
+---
+
+## Track 2: Strategy skeleton + boundary step + minimal `g.V()`/`g.V(ids)` translation
+
+> **What**:
+> - Wire the new strategy into the optimization chain and establish the
+>   end-to-end pipeline with the simplest possible recognized traversal
+>   (`g.V()` / `g.V(ids)`).
+> - Introduce **`MatchPlanInputs`** (record in
+>   `internal/core/sql/executor/match/`, new) holding `Pattern`,
+>   `aliasClasses`, `aliasFilters`, `aliasRids`, `matchExpressions`,
+>   `notMatchExpressions`, `returnItems`, `returnAliases`,
+>   `returnNestedProjections`, `groupBy`, `orderBy`, `unwind`, `limit`,
+>   `skip`, `returnDistinct`, and the four return-flags
+>   (`returnElements`/`returnPaths`/`returnPatterns`/`returnPathElements`).
+> - Add the additive constructor `MatchExecutionPlanner(MatchPlanInputs)`
+>   that field-by-field defensive-copies the inputs (mirroring the
+>   existing `(SQLMatchStatement)` ctor's pattern). The three existing
+>   constructors stay untouched. This is the **only** modification to
+>   `MatchExecutionPlanner` planned for Phase 1 (D2).
+> - Create **`GremlinToMatchStrategy`** in
+>   `internal/core/gremlin/translator/strategy/` as a
+>   `ProviderOptimizationStrategy` singleton.
+> - Create **`YTDBMatchPlanStep`** in
+>   `internal/core/gremlin/translator/step/`, extending
+>   `GraphStep<Object, E>`. Holds an `InternalExecutionPlan` and a
+>   configured `BoundaryOutputType` (initially `ELEMENT`). Drives the
+>   plan's `ExecutionStream`, pulls one `Result` per `next`, projects
+>   it to the configured output type, and emits a `Traverser`.
+>
+> **How**:
+> - `GremlinToMatchStrategy.apply(Traversal.Admin)` walks the entire
+>   step list under D3 (all-or-nothing):
+>   1. Returns immediately if the traversal contains `YTDBMatchPlanStep`
+>      anywhere (idempotency, D7).
+>   2. Returns immediately if the start step is not a `GraphStep` /
+>      `YTDBGraphStep` (D1: only translate traversals starting with
+>      `g.V()` / `g.E()`).
+>   3. Walks every step in the traversal. Track 2's recognized set is
+>      exactly `{ YTDBGraphStep with optional ID list }` — i.e. the
+>      start step alone. If any step beyond the start is present, it is
+>      unrecognized and the strategy declines the entire traversal.
+>   4. If the whole traversal is recognized, invokes the translator to
+>      construct a `MatchPlanInputs` (Pattern + alias maps +
+>      return/order/limit metadata) via the shared builders and obtains
+>      a `SelectExecutionPlan` from
+>      `new MatchExecutionPlanner(inputs).createExecutionPlan(ctx,
+>      profiling, /*useCache=*/true)` (D5). Step dispatch inside the
+>      walker uses `map.get(step.getClass())` against the type-keyed
+>      registry (D9) — Track 2 lands the map skeleton with one entry
+>      (`YTDBGraphStep.class → StartStepRecogniser`); subsequent tracks
+>      add their map entries without touching the walker.
+>   5. Replaces the entire step list with one `YTDBMatchPlanStep` that
+>      terminates the traversal — emitting TinkerPop traversers of the
+>      negotiated output type for `.toList()` / `.iterate()` / etc.
+> - Register the strategy in
+>   `YTDBGraphImplAbstract.registerOptimizationStrategies` (insertion
+>   order is informational; runtime order is fixed by `applyPrior()`
+>   placing `GremlinToMatchStrategy` before the three YTDB half-measure
+>   strategies — D4). The new strategy is the primary path; old
+>   strategies are the fallback when this one declines.
+>
+> **Constraints**:
+> - **In-scope files**: `internal/core/sql/executor/match/`
+>   (`MatchPlanInputs` record), `MatchExecutionPlanner` (one additive
+>   ctor), `internal/core/gremlin/translator/strategy/`,
+>   `internal/core/gremlin/translator/step/`,
+>   `YTDBGraphImplAbstract.registerOptimizationStrategies` (one line).
+> - **Out of scope**: every recognised step beyond the start step
+>   (Tracks 3-11 extend the recognised set).
+> - Strategy must be idempotent — re-applying to a traversal that
+>   already contains `YTDBMatchPlanStep` is a no-op (D7).
+> - Cucumber suite must pass — the very minimal recognized set means
+>   most scenarios decline the whole traversal and run native unmodified
+>   (D3 all-or-nothing), validating that the native-fallback contract
+>   preserves all current behavior.
+>
+> **Interactions**:
+> - Depends on Track 1 (shared builders + new `MatchWhereBuilder`
+>   factories).
+> - Enables Tracks 3-11 (each adds one or more recogniser entries to
+>   the walker's type-keyed registry, no walker changes).
+
+```mermaid
+flowchart LR
+    T[Traversal] --> S[GremlinToMatchStrategy.apply]
+    S --> ID[idempotency check]
+    ID -->|already translated| END1[no-op]
+    ID -->|fresh| W[walk full step list]
+    W --> P[entire traversal recognized?]
+    P -->|no| END2[decline whole traversal — leave native]
+    P -->|yes| TR[translator → IR]
+    TR --> MEP[MatchExecutionPlanner]
+    MEP --> PLAN[SelectExecutionPlan]
+    PLAN --> RPL[replace whole step list with YTDBMatchPlanStep]
+```
+
+---
+
 ## Track 3: Edge traversal — `out`, `in`, `both`, `outE.inV`, `inE.outV`, `bothE.otherV`, plus non-adjacent edge filtering
 
 > **What**:
