@@ -25,11 +25,11 @@ Existing relevant code:
 
 ## Plan of Work
 
-1. `AggregateState.observe(result)` — for COUNT(*): `contributingRids.add(rec.rid); count++`. For SUM/AVG: same + `contributingValues.put(rid, value); currentScalar += value`. For MIN/MAX: same + track `extremumRid` by RID identity. RID identity (not `Number.equals`) sidesteps the cross-Number-subtype hazard (`Long.valueOf(5L).equals(Integer.valueOf(5))` returns `false` in Java), and gives ties unambiguous semantics — one RID owns the slot at any time; the next ties-recompute picks whichever survives.
+1. `AggregateState.observe(result)` — for COUNT(*): `contributingRids.add(rec.rid); count++`. For SUM/AVG: same + `contributingValues.put(rid, value); currentScalar += value`. For MIN/MAX: same + track `extremumRid` by RID identity (the RID currently holding the cached extremum value). RID identity (not `Number.equals`) sidesteps the cross-`Number`-subtype hazard (`Long.valueOf(5L).equals(Integer.valueOf(5))` returns `false` in Java) and gives ties unambiguous semantics — one RID owns the slot at any time; the next ties-recompute picks whichever survives.
 2. `AggregateState.applyMutation(rec, status, matchAfter)` — transition matrix per design.md §"Aggregate delta — AGGREGATE_* shapes":
    - COUNT: T→T no-op, F→F no-op, T→F decrement + remove from rids, F→T increment + add.
    - SUM/AVG: same matrix, with `delta = new_value - old_value` for T→T and full add/subtract for F→T / T→F.
-   - MIN/MAX: same matrix, with O(n) recompute over `contributingValues` if `was_extremum` and new state loses the extremum direction. Where `was_extremum = rid.equals(extremumRid)` — RID identity.
+   - MIN/MAX: same matrix, with O(n) recompute over `contributingValues` if `was_extremum = rid.equals(extremumRid)` is true and the new state loses the extremum direction. Otherwise O(1): compare new value to `currentScalar` and adopt if it wins (in which case `extremumRid` also flips to the new winner's RID). Bounded by `maxRecordsPerEntry`. The D14 sorted-value index for `O(log n)` consistent performance is v2-deferred per D14 cost-benefit; promotion gated on D13 measurement of extremum-churn frequency.
    - **Empty-set semantics (L3 fix)**: if `contributingValues.isEmpty()` (or `contributingRids.isEmpty()` for COUNT) after applyMutation, set `extremumRid = null` and `currentScalar = null` for MIN/MAX; `currentScalar = null, count = 0` for AVG; `currentScalar = 0` for SUM; `count = 0` for COUNT. `toResult()` emits SQL `NULL` when `currentScalar == null` (MIN/MAX/AVG of empty set is NULL per SQL standard; SUM of empty set is 0; COUNT of empty set is 0).
 3. `AggregateState.copy()` — shallow-deep: new mutable containers (`new HashSet<>(contributingRids)`, `new HashMap<>(contributingValues)`) but reuse underlying RID and Number refs.
 4. `AggregateCacheTapStep` — implement as transparent side-tap. Tests: tap observes every record that reaches the aggregate step; tap doesn't change downstream result.
@@ -41,8 +41,8 @@ Existing relevant code:
    - T5a: COUNT(*) — CREATE matching/non-matching, UPDATE in/out of WHERE, DELETE matching.
    - T5b: SUM(prop) — same matrix + UPDATE changing prop value (T→T with delta).
    - T5c: AVG(prop) — same as SUM + count tracking.
-   - T5d: MIN(prop) — UPDATE extremum to non-extremum value triggers O(n) recompute. UPDATE non-extremum (no recompute).
-   - T5e: MAX(prop) — symmetric to MIN.
+   - T5d: MIN(prop) — UPDATE extremum to non-extremum value triggers O(n) recompute over `contributingValues` to find new extremum. UPDATE non-extremum (no recompute — O(1) `was_extremum` check returns false). Verify both paths produce the correct extremum across the transition matrix.
+   - T5e: MAX(prop) — symmetric to T5d.
    - T5f: Aggregate expression (`SUM(a+b)`) — classify returns NONE; not cached.
    - T5g: GROUP BY — NONE.
    - T5h (L6 fallback): Plan-rewrite splice failure — use a planner-mock that returns a plan WITHOUT `AggregateProjectionCalculationStep`. Verify: (i) consumer receives a working `ResultSet` via `statement.execute(...)` fallback; (ii) no cache entry created; (iii) `QueryCacheMetrics.spliceFailures` incremented; (iv) no NPE, no resource leak.

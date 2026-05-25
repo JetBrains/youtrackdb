@@ -16,13 +16,16 @@ The earlier eager K1 sharp-merge design mutated `entry.results` in place on ever
 
 **The choice is not perf-driven; it is architecture-driven.** Honest cost accounting: per-mutation work drops to O(0); per-query delta build is O(N) where N is total tx mutations (O(p) with a per-class index, deferred to v2); per-`next()` stays O(1) when the delta is empty for this query's class and O(log p) otherwise. The "delta empty" condition holds only when no tx-mutation has happened on a class in this query's `effectiveFromClasses`. In Hub-shaped workloads (1-3 writes followed by 50-200 reads on the same classes — the DNQ "save then query" pattern), once the first write lands every subsequent same-class read pays the delta-build cost while eager would have amortized that cost over the writes. **For these workloads lazy has measurably higher total work than eager** — estimated 10-20× more raw operations, but in absolute terms sub-millisecond per request, noise-floor against Hub's hundreds-of-milliseconds HTTP response time. We accept this perf hit explicitly as the price of architectural simplification: no K1 dispatch, no `entry.version`, no `expectedEntryVersion`, no fail-fast `IllegalStateException`, and the "transparent cache invisible behind ResultSet API" promise honored. D13 Hub-replay (Track 8) measures the actual cost; if measurements show a >5% request-latency regression, the per-class indexing optimization (deferred to v2) activates as a hardening response rather than v2 work.
 
-### Known v1 limitations (deferred to v2 / hardening)
+### Known v1 limitations
 
-Three correctness-bounded trade-offs accepted for v1, each tracked by a deferred D-record:
+Two correctness-bounded trade-offs accepted for v1; the LIMIT/UPDATED-out short-list limitation is fixed in-design via over-fetch.
 
-- **LIMIT after DELETE may return a short list.** When a cached record is tx-DELETED, the view's delta skip-set hides it without backfilling from beyond the cached prefix. The next call returns up to LIMIT-1 records even if a fresh execution would have N records by promoting one from beyond the original window. Acceptable per I4's "WHERE/ORDER BY/LIMIT contract honored against the cached + delta snapshot" framing.
-- **MIN/MAX worst-case O(n) recompute.** When the cached extremum element leaves at delta-build time (DELETED, transitions out of WHERE, or UPDATED away from the extremum), `AggregateState.applyMutation` re-scans `contributingValues` to find the new extremum — bounded by `maxRecordsPerEntry` (10000). D14 in `implementation-plan.md` proposes a `TreeMap` sorted-value index (O(log n)) as a deferred opt-in. Decision gate: D13 Hub-replay measurement.
-- **MATCH multi-alias CREATED (Etap B) deferred.** Track 6 Etap A handles single-alias MATCH CREATED by folding to RECORD shape with a RETURN projector. Multi-alias / cross-join / pattern-with-edges CREATED is classified `NONE` (non-cacheable) — the cache misses on the first such mutation. v2 candidate using `MatchPrefetchStep` + `PREFETCHED_MATCH_ALIAS_PREFIX` for constrained pattern execution; see § Open questions deferred to execution.
+- **MATCH multi-alias CREATED (Etap B) deferred to separate ADR.** Track 6 Etap A handles single-alias MATCH CREATED by folding to RECORD shape with a RETURN projector. Multi-alias / cross-join / pattern-with-edges CREATED is classified `NONE` (non-cacheable) — the cache misses on the first such mutation. v2 candidate using `MatchPrefetchStep` + `PREFETCHED_MATCH_ALIAS_PREFIX` for constrained pattern execution; the work belongs in a dedicated ADR (constrained pattern walk + edge-CREATED dispatch is a substantial infrastructure piece, not a localized hardening fix). See § Open questions deferred to execution.
+- **MIN/MAX worst-case O(n) recompute** at delta-build time when the cached extremum element leaves (DELETED, transitions out of WHERE, or UPDATED away from the extremum). Bounded by `maxRecordsPerEntry` (default 10000). D14 in `implementation-plan.md` proposes a `TreeMap` sorted-value index (O(log n)) as a v2 candidate — decision gate is D13 Hub-replay measurement of extremum-churn frequency. The implementation cost is ~150 lines of `AggregateState` rewrites + ~3× memory growth per MIN/MAX entry, against a Hub-typical perf gain of ~5 μs per HTTP request (worst case in absolute terms ~100 μs against ~hundreds of ms response time). Cost-benefit does not justify v1 promotion absent the D13 measurement.
+
+The LIMIT-after-DELETE / UPDATED-out-of-WHERE short-list limitation from prior iterations is resolved:
+
+- **LIMIT-after-DELETE short list — RESOLVED via over-fetch.** Per § Lazy merge-on-read → Over-fetch for backfill, the cache populates entries with up to `maxRecordsPerEntry` records by overriding the plan's `SkipStep` and `LimitStep` at cache-miss (when the query has `LIMIT m` with `m <= maxRecordsPerEntry`); the view applies the original SKIP and LIMIT at iteration. A DELETED or UPDATED-out-of-WHERE record now reveals the next-ranked cached record naturally via sorted-merge instead of returning a short list. Queries with `LIMIT > maxRecordsPerEntry` (or `SKIP + LIMIT > maxRecordsPerEntry`) classify as NONE — they cannot be cached and bypass to direct execution.
 
 `AST equals` fragility (D2 risk) and per-call allocation rate are tracked under § Open questions deferred to execution and validated pre-merge by D13.
 
@@ -71,6 +74,8 @@ classDiagram
         -effectiveFromClasses: Set
         -whereClause: SQLWhereClause
         -orderBy: SQLOrderBy
+        -skip: int
+        -limit: int
         -returnProjector: Function
         -cachedSkipSet: Set
         -cachedInjectList: List
@@ -117,6 +122,9 @@ classDiagram
     class CachedResultSetView {
         -entry: CachedEntry
         -position: int
+        -emitted: int
+        -skip: int
+        -limit: int
         -deltaCursor: TxDeltaCursor
         -deltaAggregateState: AggregateState
         -session: DatabaseSessionEmbedded
@@ -255,7 +263,7 @@ Critically — unlike the eager design — `entry.results` is only ever appended
 
 ### Edge cases / Gotchas
 - **WeakValueHashMap interaction.** `DatabaseSessionEmbedded.activeQueries` is weak-valued in embedded mode (DatabaseSessionEmbedded:256). The cache holds its own strong reference to the stream inside `CachedEntry`, which keeps the consumer-facing `LocalResultSet` reachable only if the cache also tracks it — but the cache deliberately does NOT track the original wrapper, only the bare `ExecutionStream`. So the original `LocalResultSet` wrapping the stream may be GC'd, which is fine: we only need the stream itself.
-- **`session.closeActiveQueries()` in `clear()`** (FrontendTransactionImpl:973) iterates `activeQueries.values()` and calls `close()`. Cached streams are NOT in that map. The cache's own `clear()` — called from `clearUnfinishedChanges()` — is what closes paused streams on tx end.
+- **`session.closeActiveQueries()` in `clear()`** (`DatabaseSessionEmbedded.java:3431`) iterates `activeQueries.values()` and calls `close()`. Cached streams are NOT in that map. The cache's own `clear()` — called from `clearUnfinishedChanges()` (`FrontendTransactionImpl.java:998`) — is what closes paused streams on tx end.
 - **Mid-iteration mutation.** When `addRecordOperation` fires, no cache state changes. The currently-live view's `deltaCursor` was snapshotted at view construction and remains frozen — the new mutation is invisible to it. The next `query()` constructs a fresh view with a fresh delta snapshot that sees the mutation. This matches the `OrderByStep` blocking-materializer contract (uncached `query()` results don't reflect mid-iteration mutations either).
 - **Storage cursor lifetime.** YTDB transactions are thread-affine (`assertOnOwningThread`). A paused stream's underlying B-tree cursor stays alive between the originating `next()` and the resuming `next()` — no concurrent mutation can sneak in on another thread.
 
@@ -271,9 +279,9 @@ Critically — unlike the eager design — `entry.results` is only ever appended
 
 A static helper `ShapeClassifier.classify(SQLStatement) → CacheableShape` decides cacheability and merge composition for a parsed statement. Computed once per entry on first cache put. Returns one of `RECORD`, `AGGREGATE_COUNT`, `AGGREGATE_SUM`, `AGGREGATE_AVG`, `AGGREGATE_MIN`, `AGGREGATE_MAX`, or `NONE`.
 
-- **RECORD** — simple SELECT shape (`SELECT [projection] FROM Class [WHERE simple-predicate] [ORDER BY columns | deterministic-modifier-chain] [SKIP n] [LIMIT m]` with `n + m <= maxRecordsPerEntry`), no GROUP BY, no aggregates, no LET, no subqueries, no LET-based unionall. Also: single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <projection of u>` (Etap A) classifies as RECORD with a stored `returnProjector` that constructs single-binding tuples from a record.
+- **RECORD** — simple SELECT shape (`SELECT [projection] FROM Class [WHERE simple-predicate] [ORDER BY columns | deterministic-modifier-chain] [SKIP n] [LIMIT m]`), no GROUP BY, no aggregates, no LET, no subqueries, no LET-based unionall. `LIMIT` cacheability gate: `LIMIT m` with `m <= maxRecordsPerEntry` (or no LIMIT) is cacheable; `m > maxRecordsPerEntry` → NONE (the cache cannot fit the user's requested rowcount; truncating the plan to the cap would silently shorten the user's result). `SKIP` analogous: `SKIP n LIMIT m` with `n + m <= maxRecordsPerEntry` is cacheable; above the cap → NONE. The over-fetch mechanism (§ Over-fetch for backfill) provides backfill within the cap. Also: single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <projection of u>` (Etap A) classifies as RECORD with a stored `returnProjector` that constructs single-binding tuples from a record.
 - **AGGREGATE_***  — single-aggregate SELECT shape (`SELECT <COUNT(*)|SUM(prop)|AVG(prop)|MIN(prop)|MAX(prop)> FROM Class [WHERE simple-predicate]`), no GROUP BY, no HAVING, no expression in aggregate argument.
-- **NONE** — anything else: GROUP BY, HAVING, expression-aggregates, MEDIAN/MODE/PERCENTILE/COUNT DISTINCT, subqueries in WHERE/target, LET clauses, expression-ORDER BY containing non-deterministic functions, SKIP with `n + m > maxRecordsPerEntry`, multi-alias MATCH (Etap B deferred), MATCH patterns with cross-alias-state WHEREs (`$current`, `$matched`). NONE entries are **non-cacheable** — `cache.put` skips them; the query falls through to direct execution. There is no "wipe on first mutation" path under lazy.
+- **NONE** — anything else: GROUP BY, HAVING, expression-aggregates, MEDIAN/MODE/PERCENTILE/COUNT DISTINCT, subqueries in WHERE/target, LET clauses, expression-ORDER BY containing non-deterministic functions, `LIMIT > maxRecordsPerEntry`, `SKIP + LIMIT > maxRecordsPerEntry`, multi-alias MATCH (Etap B deferred to separate ADR), MATCH patterns with cross-alias-state WHEREs (`$current`, `$matched`). NONE entries are **non-cacheable** — `cache.put` skips them; the query falls through to direct execution. There is no "wipe on first mutation" path under lazy.
 
 ### TxDeltaCursor — record/match shape
 
@@ -365,17 +373,45 @@ The view's `next()` then performs sorted-merge:
 view.next():
   while true:
     cache_head = (position < entry.results.size()) ? entry.results[position] : null
+
+    // Suppress cached rows whose RID the delta marks for replacement or deletion.
     if cache_head != null && deltaCursor.shouldSkip(cache_head.rid):
       position++; continue
-    delta_head = deltaCursor.peek()  // null if exhausted
 
+    // Materialize cache_head from the live stream BEFORE looking at delta_head.
+    // The stream is the only source of records that sort between the already-
+    // pulled prefix and the storage tail — if we skipped this step and the
+    // delta has any inject whose ORDER BY key sorts AFTER some not-yet-pulled
+    // storage row, we would return the delta inject ahead of those storage
+    // rows, violating the sorted-merge invariant. Pulling here materializes
+    // the next storage row (filtered through the skip-set so any post-mutation
+    // RID is dropped), appends it to entry.results, and re-enters the loop —
+    // the next iteration sees cache_head = that newly-pulled row.
+    if cache_head == null && !entry.exhausted:
+      r = stream_pull_one()  // skip-set-filtered append; sets entry.exhausted on drain
+      if r != null:
+        continue  // re-loop; cache_head will be r at position
+      // r == null means the stream just exhausted; fall through with cache_head still null
+
+    delta_head = deltaCursor.peek()  // null if delta exhausted
+
+    // Both cursors exhausted — view is done.
     if cache_head == null && delta_head == null:
-      r = stream_pull_one()  // skip-set-filtered append
-      if r == null: throw NoSuchElementException
-      re-loop  // cache_head is now r
+      throw NoSuchElementException
 
-    if cache_head == null: return deltaCursor.pop()
-    if delta_head == null: position++; return cache_head
+    // Cache exhausted, delta has rows — drain delta in sort order.
+    if cache_head == null:
+      return deltaCursor.pop()
+
+    // Delta exhausted, cache has rows — drain cache in sort order.
+    if delta_head == null:
+      position++; return cache_head
+
+    // Both cursors carry a head — emit the smaller per ORDER BY. Ties favour
+    // delta, since the only way a tie can occur is between distinct RIDs (a
+    // skip-set hit on cache_head would have been consumed above), so either
+    // ordering is correct per SQL-standard tie semantics; choosing delta keeps
+    // mutated rows at-or-before equally-ranked cached rows.
     if cmp(delta_head, cache_head, orderBy) <= 0:
       return deltaCursor.pop()
     position++; return cache_head
@@ -405,7 +441,13 @@ Entry-population for `AGGREGATE_*` shapes requires per-RID material to seed `con
 
 **Splice failure fallback.** If the planner emits an unexpected shape (no `AggregateProjectionCalculationStep` found after walking `SelectExecutionPlan.steps`, or the cast to `SelectExecutionPlan` fails), the cache code: (1) closes the constructed plan (best-effort), (2) increments `QueryCacheMetrics.spliceFailures`, (3) falls back by calling `statement.execute(session, args)` to obtain a standard `LocalResultSet`, (4) returns that `LocalResultSet` directly to the consumer (no cache entry, no view wrapping). A warning is logged identifying the unexpected step types so the planner-versioning issue is surfaced. Track 5 owns this wiring.
 
-**Eager drive on cache-put**. Unlike the RECORD/MATCH shapes (which use lazy stream-pull), aggregate cache-miss MUST fully drive the plan before returning the view. The reason: the tap observes records only when the aggregate step pulls them. If the consumer aborts before calling `.next()`, the tap never fires and `aggregateState` is partially populated — a subsequent view reading the entry would return wrong numbers. Eager drive forces full population at cache-put time; the cost is identical to executing the query uncached (the consumer would wait for the aggregate row anyway).
+**Eager drive on cache-put — and why this asymmetry is fundamental**. Aggregate cache-miss fully drives the plan before returning the view; RECORD / MATCH-Etap-A cache-miss does not. The asymmetry is not a design inconsistency — the two shapes have different cacheability semantics:
+
+- **RECORD / MATCH-Etap-A**: the cache stores per-row Results. Each row is independent. A consumer who pulls 3 rows and abandons the view has cached 3 valid rows; the entry is partially-populated but every cached row is correct and usable. A subsequent view at the same key picks up where the stream paused. Lazy stream-pull is safe and saves storage I/O.
+
+- **AGGREGATE_***: the cache stores a single scalar (`AggregateState.currentScalar` etc.) derived from observing EVERY contributing record. A consumer who never iterates the view causes the tap to fire zero times; `aggregateState` reflects no observations; the cached scalar is structurally meaningless. A subsequent view reading the entry would return a wrong number (silently). Lazy stream-pull would produce silent corruption.
+
+Eager drive on aggregate cache-put resolves this by FORCING `aggregateState` to full population at cache-put time — the tap observes every record because the aggregate step's blocking drain pulls every record. The cost equals an uncached aggregate execution (the consumer would wait for the aggregate row anyway). The trade-off is: aggregates cannot defer storage I/O to consumer-pace; the I/O happens at `query()` time. For aggregates this is correct semantics, not a perf hit — every aggregate query already exhibits this latency profile uncached.
 
 ### MATCH Etap A — RECORD-shape composition
 
@@ -417,18 +459,36 @@ Single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <project
 
 Delta-build for MATCH Etap A is the RECORD path with the `returnProjector` applied to each inject-list entry. Equivalence vs fresh re-execution validated by a Track 6 step-g test that runs the same MATCH twice (cache miss then hit + delta) and asserts result-set equality across CREATED/UPDATED/DELETED scenarios.
 
-### SKIP support
+### Over-fetch for backfill (SKIP and LIMIT handling)
 
-When `ShapeClassifier.classify(stmt) == RECORD` and the statement carries `SKIP n LIMIT m` with `n + m <= maxRecordsPerEntry`, the cache entry's record list is the **full prefix** of size `n + m` rather than just the visible window of size `m`. `CachedResultSetView` returns records at positions `[n, n + m)` from the merged cursor (cache + delta).
+For queries with `LIMIT m` (and optionally `SKIP n`) where `m <= maxRecordsPerEntry` (and `n + m <= maxRecordsPerEntry`), cached entries do NOT respect the query's original `SKIP` and `LIMIT` at storage-fetch time. Instead, at cache-miss the cache rewrites the constructed plan so the executor produces up to `maxRecordsPerEntry` records — bypassing the plan's `SkipStep` and `LimitStep`. The view then applies the original `SKIP` and `LIMIT` at iteration time, on top of the sorted-merge of cached list + delta cursor.
 
-Sorted-merge operates on the full prefix list. CREATED splices into the inject_list and sorts; the view-level LIMIT clipping enforces the visible `m` rows after `n` skips. If a CREATED record sorts before position `n`, it shifts the visible window — correct behavior. If a DELETED removal also shifts the window, again correct.
+For queries with `LIMIT m > maxRecordsPerEntry` (or `n + m > maxRecordsPerEntry`), the entry cannot fit the user's requested rowcount within the per-entry cap; `ShapeClassifier` returns NONE and the query bypasses the cache. Truncating the plan to the cap would silently shorten the user-visible result — wrong semantics.
 
-When `n + m > maxRecordsPerEntry`, classify returns `NONE` — the query is non-cacheable. Pathological deep pagination (`SKIP 1000000 LIMIT 10`) bypasses the cache entirely.
+For queries with no LIMIT, no plan rewrite is performed — the executor produces all matching records up to the cap; if storage has more matching records than `maxRecordsPerEntry`, the entry overflows and is removed from the cache atomically with the overflow detection (per § Memory bounds → Edge cases → Backpressure on overflow), with the key added to `nonCacheableKeys`. The consumer of the overflowing query still receives all storage results directly from the live stream (the view stops appending after the cap but continues forwarding to the consumer).
+
+**Why over-fetch is required.** Without it, a `LIMIT m` query whose cached entry then sees a DELETED record from the visible window or an UPDATED record that no longer matches WHERE would return `m - 1` rows — a "short list" — because there is no source beyond the cached prefix to backfill from. A fresh execution at the same moment would have produced `m` rows by promoting a record from beyond the original window. Over-fetch closes this gap: the cached list extends beyond the visible window by enough margin that backfill is always satisfied from the cache itself, bounded by `maxRecordsPerEntry`.
+
+**Mechanism — plan rewrite at cache-miss.** During cache-miss for `RECORD` shape (including MATCH Etap A), when the parsed statement carries a `LIMIT m` with `m <= maxRecordsPerEntry`, `DatabaseSessionEmbedded.query()`:
+1. Builds the plan via `statement.createExecutionPlan(ctx, false)` and downcasts to `SelectExecutionPlan`.
+2. Walks `plan.steps`: for each `LimitStep`, mutates its limit value to `maxRecordsPerEntry` (or removes the step from the chain if the API requires it); for each `SkipStep`, mutates its skip value to 0 (or removes). The rewrite preserves all other steps (`FilterStep`, `OrderByStep`, `ProjectionStep`, etc.) unchanged.
+3. Executes the rewritten plan; the resulting `ExecutionStream` produces up to `maxRecordsPerEntry` records (subject to storage availability and WHERE filter).
+4. Stores the original `skip` and `limit` from the parsed statement on `CachedEntry` so the view can apply them at iteration.
+
+For queries with no LIMIT, the rewrite is skipped entirely — the executor's natural stream produces matching records and the cache appends up to the cap. Overflow handling per § Memory bounds.
+
+**View-level SKIP and LIMIT.** `CachedResultSetView` carries `skip: int` and `limit: int` from the entry, and:
+1. On `next()`: increments an internal `emitted: int` counter (independent of `position` which is the cache-cursor index). Discards the first `skip` results from the sorted-merge stream; emits the next `limit` results to the consumer; throws `NoSuchElementException` once `emitted == limit` or the merged stream exhausts.
+2. SKIP-past-end (e.g., `SKIP 100` against a 10-row result) returns empty — matching fresh-execution semantics.
+
+**Splice failure fallback.** If the plan walk does not find the expected `SkipStep` / `LimitStep` shape (planner emitted something different) for a query whose AST has non-null `skip` or `limit`, the cache: closes the partial plan, increments `QueryCacheMetrics.spliceFailures`, falls back to `statement.execute(...)`, and returns the resulting `LocalResultSet` to the consumer with no caching. Same fallback shape as the aggregate side-tap (§ Aggregate side-tap → Splice failure fallback). Track 4 step 8 owns this wiring.
+
+**Non-Goal — canonical key for (skip, limit).** `CacheKey.equals` still compares `skip` and `limit` (via `SQLStatement.equals`), so distinct (skip, limit) values create distinct entries — paginated UIs scrolling through pages allocate one entry per page. A canonical key that strips skip/limit and shares one entry across pages is a v2 optimization (gated on D13 measurement of paginated-workload frequency). v1 accepts the per-page-entry duplication; memory is bounded by `maxEntries × maxRecordsPerEntry` regardless.
 
 ### Edge cases / Gotchas
 
 - **Aggregate over expression** — `SUM(age + bonus)` is NOT cacheable (classify returns NONE). The map would have to cache the result of the expression, not the property value, which mixes evaluation context with cache storage. Not worth the complexity for v1.
-- **MIN/MAX recompute cost** — worst case O(n) when the current extremum element leaves at delta-build time (DELETED, transitions out of WHERE, or UPDATED to a non-extremum value). Bounded by `maxRecordsPerEntry`. Amortized O(1) for typical workloads where most mutations don't target the extremum. D14 covers the v2 sorted-value index optimization.
+- **MIN/MAX recompute cost** — worst case O(n) when the current extremum element leaves at delta-build time (DELETED, transitions out of WHERE, or UPDATED to a non-extremum value). Bounded by `maxRecordsPerEntry`. Amortized O(1) for typical workloads where most mutations don't target the extremum. `AggregateState` for MIN/MAX carries an `extremumRid: @Nullable RID` field; `was_extremum = rid.equals(extremumRid)` (boolean RID identity, never `Number.equals`) sidesteps the cross-`Number`-subtype hazard. D14 in `implementation-plan.md` proposes a `TreeMap` sorted-value index for `O(log n)` consistent performance — deferred to v2 gated on D13 measurement of extremum-churn frequency.
 - **WHERE re-evaluation per query** — under lazy, the same Alice gets re-evaluated through `WHERE.matchesFilters` on every `query()` for an entry whose `effectiveFromClasses` includes her class, for the entire tx duration. Eager evaluated her once at mutation time. Per-entry per-RID memoization could amortize this; left as v2 optimization gated on D13 measurement.
 - **Aggregate result type** — `COUNT(*)` returns `Long`, `SUM/AVG/MIN/MAX` return whatever the underlying numeric type is. The cached `Result` wrapping needs the same shape on replay as a fresh execution — preserve numeric type fidelity (don't coerce everything to `double`).
 - **WHERE references helper variables (`LET`, `$current`)** — these can't be re-evaluated on a single dirty record outside the original execution context. `classify` returns NONE when `LET` is present or when `$current` / `$matched` is referenced anywhere in the WHERE AST.
@@ -439,7 +499,7 @@ When `n + m > maxRecordsPerEntry`, classify returns `NONE` — the query is non-
 - **MATCH pattern WHEREs referencing cross-alias state** (`$current`, `$matched`, `${otherAlias}.field`) — `classify` returns `NONE`. Per-record re-evaluation can't reconstruct the pattern context for a single dirty record.
 
 ### References
-- D-records: D5-lazy, D8-lazy, D9 (deterministic ORDER BY admission), D10-lazy (SKIP prefix cap), D11 (effectiveFromClasses closure), D15 (snapshot-at-construction)
+- D-records: D5-lazy, D8-lazy, D9 (deterministic ORDER BY admission), D10-lazy (over-fetch for backfill), D11 (effectiveFromClasses closure), D14 (MIN/MAX sorted-value index — v2-deferred), D15 (snapshot-at-construction)
 - Invariants: I4 (view output equals fresh-execution composed with tx-delta-applied snapshot), I7 (deltaCursor immutable post-construction)
 
 ## Cache invalidation
@@ -551,12 +611,21 @@ YouTrackDB's tx model already accepts this for `localCache.clear()` and `closeAc
 
 ### Idempotent close requirement
 
-Because the LocalResultSet wrapper (when still alive in `activeQueries`) and the cache both hold references to the same `ExecutionStream`, `closeActiveQueries()` (line 973) and `queryResultCache.clear()` (called from line 993) can both invoke `stream.close()` on the same instance. Order is fixed by the existing code (`closeActiveQueries` before `clearUnfinishedChanges`), but it doesn't matter for correctness — the second invocation MUST be a no-op.
+Because the LocalResultSet wrapper (when still alive in `activeQueries`) and the cache both hold references to the same `ExecutionStream`, `closeActiveQueries()` (`DatabaseSessionEmbedded.java:3431`) and `queryResultCache.clear()` (called from `clearUnfinishedChanges()` at `FrontendTransactionImpl.java:998`) can both invoke `stream.close()` on the same instance. Order is fixed by the existing code (`closeActiveQueries` before `clearUnfinishedChanges`), but it doesn't matter for correctness — the second invocation MUST be a no-op.
+
+The pool-shutdown ordering — `closeActiveQueries()` runs BEFORE `clearUnfinishedChanges()` (which fires `queryResultCache.clear()`) — means that for any cache entry whose paired `LocalResultSet` is still alive in `activeQueries` (not yet GC'd), the underlying `ExecutionStream` would receive **two close calls** under a naive design: one from `LocalResultSet.close()` via `closeActiveQueries()`, one from `entry.close()` via `cache.clear()`. The cache cannot prevent the LocalResultSet from closing the stream (it doesn't own that path), and the `ExecutionStream` interface itself does NOT mandate idempotency.
+
+To make the close path safe regardless of `ExecutionStream` implementation behaviour, the cache wraps every stream it stores in an `IdempotentExecutionStream` wrapper at cache-put time. The wrapper:
+1. Holds the underlying `ExecutionStream` and a `closed: boolean` flag (initially false).
+2. `hasNext(ctx)` / `next(ctx)` forward unconditionally to the underlying stream.
+3. `close(ctx)`: if `!closed`, sets `closed = true` and calls `underlying.close(ctx)`; otherwise no-op.
+
+Both the cache (via `entry.close()`) and the `LocalResultSet` (via `LocalResultSet.close()`) hold references to the SAME wrapper instance, because the cache substitutes the wrapper into the `LocalResultSet`'s stream slot at cache-put time. Whichever caller fires first calls the underlying close once; the second caller hits the no-op branch.
 
 ENFORCED requirements:
-- `ExecutionStream.close(ctx)` is idempotent. Track 3 adds a regression test calling `close` twice and asserting no exception.
-- `QueryResultCache.clear()` is idempotent. Track 1 adds a test calling `clear` twice and asserting no exception + `size() == 0` both times.
-- `CachedEntry.close()` is idempotent (null-guards `stream`, `plan`, `ctx`; second invocation early-returns).
+- `CachedEntry.close()` is idempotent — null-guards `stream`, `plan`, `ctx` and early-returns on second invocation. First close calls `stream.close(ctx)` then nulls `stream`; second close sees null and returns. The wrapped stream's own idempotency (above) defends against the cross-caller case where `closeActiveQueries()` reaches the same wrapped stream via the `LocalResultSet` after the cache has already closed it.
+- `QueryResultCache.clear()` is idempotent — null-safe iteration over snapshot copy, then drops the map. Track 1 adds a test calling `clear` twice and asserting no exception + `size() == 0` both times.
+- `IdempotentExecutionStream.close(ctx)` is idempotent by construction. Track 3 adds a test that constructs an entry with a non-idempotent underlying stream impl (e.g., one that throws on second close), then closes via both paths (cache.clear AND LocalResultSet.close) and asserts the underlying close is observed exactly once and no exception bubbles up.
 
 ### Lifecycle hooks
 - **Creation:** lazy. First call to `getQueryResultCache()` on the transaction allocates the cache (only when `QUERY_TX_RESULT_CACHE_ENABLED` is true).
@@ -589,7 +658,7 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 - **I3 — Paused stream lives at most as long as its `CachedEntry`.** When the entry is evicted or the tx ends, the stream is closed. Test: pause a stream, evict the entry via LRU, assert `stream.isClosed()`.
 - **I4 — View output equals fresh-execution result composed with tx-delta-applied snapshot.** For each shape (RECORD, AGGREGATE_*, MATCH Etap A), a view constructed at moment T over recordOperations snapshot returns the same result as a fresh uncached execution at moment T against the same storage + tx state — honoring WHERE / ORDER BY / LIMIT. Test: cache a SELECT with various tx-mutation patterns; verify view output matches fresh-execution output across CREATED/UPDATED/DELETED mid-tx scenarios.
 - **I5 — Cache only stores results of idempotent, deterministic statements.** Test: query with `sysdate()`, `random()`, and `noCache` hint; assert no entry is created.
-- **I6 — Tx-end `clear()` is idempotent and safe under cross-thread invocation.** `QueryResultCache.clear()`, `CachedEntry.close()`, and `ExecutionStream.close()` are all idempotent — a second invocation is a no-op, not an exception. Required because pool shutdown can invoke `close() → cache.clear()` from a thread different than the one running `view.next()`, and because `closeActiveQueries()` (line 973) and `cache.clear()` (line 993) may both reach the same stream. Test: call `cache.clear()` twice, assert no exception + `size()==0` both times; call `ExecutionStream.close(ctx)` twice on a populated stream, assert no exception.
+- **I6 — Tx-end `clear()` is idempotent and safe under cross-thread invocation.** `QueryResultCache.clear()` and `CachedEntry.close()` are idempotent by local null-out — second invocations are no-ops. The underlying `ExecutionStream.close(ctx)` is not contractually idempotent; the cache wraps every stream in `IdempotentExecutionStream` at cache-put time and threads the wrapper into BOTH `entry.stream` AND the paired `LocalResultSet`'s stream slot, so cross-caller double-close (closeActiveQueries on `DatabaseSessionEmbedded.java:3431` + cache.clear via `FrontendTransactionImpl.java:998`) reaches the same wrapper and closes the underlying exactly once. Tests: call `cache.clear()` twice → no exception + `size()==0` both times. Call `entry.close()` twice on a populated entry → wrapper's underlying observes exactly one close. **Cross-caller test (T3f)**: install a non-idempotent underlying-stream mock that throws on second close; trigger BOTH `closeActiveQueries()` and `cache.clear()` against the same entry; assert underlying observes exactly one close and no exception propagates.
 - **I7 — View's `TxDeltaCursor` (or `deltaAggregateState`) is immutable post-construction.** The snapshot is built once at view construction by `DeltaBuilder` from the `recordOperations` state at that moment. Subsequent `recordOperations` growth — appending new mutations on the owning thread mid-iteration — does NOT affect any live view's delta or output. Matches the existing `OrderByStep` blocking-materializer contract. **Scope of "frozen"**: I7 guarantees the deltaCursor's `skipSet` and `injectList` (and `deltaAggregateState` for aggregate shapes) — i.e., the set of records the view emits and their relative order — is fixed at view construction. It does NOT guarantee snapshot isolation at the record-property level: cached `Result` instances wrap record references, and mid-iteration `save()` on a record mutates its properties in place; both the cache-cursor read and any stream-pulled record observe the post-mutation values. This is the standard YTDB record-reference semantics; the L1/L2 stream-pull-skip-set unification ensures the SET and ORDER of emitted records is still correct under this property-level live-binding. Test: cache a SELECT, start iterating the view, mutate a matching record mid-iteration, assert the SET of RIDs returned by the view is unchanged from its pre-mutation construction (does not include the new mutation if it was a CREATE; does not skip if it was a DELETE); then issue a fresh `query()` and assert the new view DOES reflect the mutation in both set and order.
 - **I8 — Schema is immutable for the lifetime of a transaction (ENFORCED upstream).** `SchemaShared.saveInternal` throws `SchemaException("Cannot change the schema while a transaction is active...")` at `SchemaShared.java:820-823` for every CREATE/DROP/ALTER CLASS|PROPERTY operation. `IndexManagerEmbedded` throws `IllegalStateException("Cannot create/drop an index inside a transaction")` at lines 307 (create) and 459 (drop). Therefore `effectiveFromClasses` and every other AST-derived metadata on `CachedEntry` is stable from `beginInternal` through the matching tx-end path; no recomputation is needed after entry construction. Test: with an active tx, invoke `CREATE CLASS X EXTENDS Person` via SQL DDL and `schemaClass.setSuperClasses(...)` via the programmatic API; assert both throw, the cache state is unchanged.
 
@@ -599,11 +668,12 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 
 ## Open questions deferred to execution
 
-**TL;DR.** One item punted from v1 design to a separate ADR: MATCH CREATED Etap B (multi-alias incremental tuple discovery). Track 6 covers Etap A (single-alias CREATED via RECORD-shape composition) in v1; Etap B requires constrained pattern walk via `MatchPrefetchStep` plus edge-CREATED dispatch — too large a scope-bump for v1 even under lazy. Other deferred items live in `implementation-plan.md` as D-records: D13 (Hub-replay validation gate, in Track 8 scope), D14 (MIN/MAX sorted-value index, v2 candidate gated on D13). Per-entry per-RID WHERE-evaluation memoization is also v2-deferred — measured under D13.
+**TL;DR.** Two items deferred. One belongs in a separate ADR (MATCH CREATED Etap B — multi-alias incremental tuple discovery); the other is a measurement-gated v2 candidate (D14 MIN/MAX sorted-value index). The earlier SKIP-cap limitation (`skip + limit > maxRecordsPerEntry` forced NONE) is resolved in-design via over-fetch — the cache now stores up to `maxRecordsPerEntry` records and the view applies SKIP and LIMIT at iteration; the cacheability gate becomes `LIMIT <= maxRecordsPerEntry` / `SKIP + LIMIT <= maxRecordsPerEntry`, with queries above the cap classified NONE (cannot fit). D13 (Hub-replay validation gate) remains as the pre-merge measurement step that informs whether the remaining v2 optimizations (D14, per-class index for delta-build, per-RID WHERE memoization, canonical CacheKey for SKIP/LIMIT) become v1.1 hardening or stay v2.
 
-- **MATCH CREATED Etap B (multi-alias).** v2 candidate: pre-populate `ctx[PREFETCHED_MATCH_ALIAS_PREFIX + alias] = [rec]` and re-execute the cached `MatchExecutionPlan` (using `MatchFirstStep`'s prefetch fallback) for each alias that the CREATED record could bind into. Plus edge-CREATED dispatch — a freshly-created vertex only appears in multi-alias tuples once its edges are created, so each edge-CREATED separately triggers re-execution. Out of scope for v1; separate ADR.
+- **MATCH CREATED Etap B (multi-alias)** — separate ADR (not a v1 hardening pass). Approach: pre-populate `ctx[PREFETCHED_MATCH_ALIAS_PREFIX + alias] = [rec]` and re-execute the cached `MatchExecutionPlan` (using `MatchFirstStep`'s prefetch fallback) for each alias that the CREATED record could bind into. Plus edge-CREATED dispatch — a freshly-created vertex only appears in multi-alias tuples once its edges are created, so each edge-CREATED separately triggers re-execution. Scope: new `MATCH_TUPLE_MULTI` shape, per-tuple reverse index, dedicated `DeltaBuilder.buildForMatchMulti`, edge-CREATED hook on `addRecordOperation`. Comparable to the rest of YTDB-820 in implementation effort.
+- **D14 MIN/MAX sorted-value index — v2-deferred, measurement-gated.** A `TreeMap<BigDecimal, Set<RID>>` on `AggregateState` would replace the current O(n) extremum-recompute path with O(log n) at the cost of ~3× memory growth per MIN/MAX entry. Cost-benefit analysis against Hub-typical workloads (5-20 MIN/MAX queries × 100-1000 contributors × 1-5 mutations × ~1/n hit rate on extremum): saves ~5 μs per HTTP request against ~hundreds of ms response time — not observable. The promotion is gated on D13 Hub-replay measurement of extremum-churn frequency; if extremum-leaves fires non-trivially across a typical Hub request, v1.1 implements it. Implementation cost when promoted: ~150 lines across `AggregateState.observe` / `applyMutation` / `copy` plus track-5 tests.
 - **Per-entry per-RID WHERE memoization.** Under lazy the same `WHERE.matchesFilters(rec, ctx)` evaluation can fire on every `query()` for an entry that touches `rec.class`. Eager evaluated it once at mutation-time. Memoization would cache `(rid → match_after)` per entry; cost is correctness (entries become mutable again — defeating part of lazy's simplification) vs CPU. Measured under D13 Hub replay; implemented only if measurements show hot.
 
 ### References
-- D-records: D8-lazy (Etap A in scope; Etap B deferred), D13 (Hub-replay), D14 (MIN/MAX sorted index)
+- D-records: D8-lazy (Etap A in scope; Etap B deferred to separate ADR), D10-lazy (over-fetch for backfill — in v1), D13 (Hub-replay), D14 (MIN/MAX sorted-value index — v2-deferred, measurement-gated)
 - Tracks: T8 (JMH + metrics), T6 (Etap A delivery)

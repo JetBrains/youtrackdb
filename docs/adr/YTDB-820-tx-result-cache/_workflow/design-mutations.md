@@ -549,3 +549,144 @@ D11's `**Full design**` link updated from `"Lazy merge-on-read" → Class filter
 **Cold-read** (bounded — track-7.md step 8 expanded enumeration / track-4.md DeltaBuilder sentinel block / design.md § TxDeltaCursor steps 5-6 / track-1.md mutationVersion timing block): self-audited. The cacheCodeDepth enumeration now correctly brackets the entire cache-miss aggregate populate window (lookup → splice → eager-drive → cache.put). The cachedDeltaVersion sentinel of -1L cannot collide with any real mutationVersion (monotonically increasing from 0). The MATCH Etap A step reordering is procedurally consistent — populate path produces projected tuples (via MATCH planner's normal execution), delta path produces projected tuples (via returnProjector at step 5), both feed the sort at step 6. The end-of-method increment for mutationVersion is consistent with `txStartCounter == 0` reset semantics (T2 fix from Mutation 15) — both gates ensure version reflects only outermost-tx committed state.
 
 **Iterations**: 1 of 3 (PASS — closes 5 tightening fixes; 3 v2 candidates documented; no NEW findings).
+
+## Mutation 17 — 2026-05-25 — structural-rewrite (design.md + implementation-plan.md + plan/track-{4,5,8}.md)
+
+**External-review-driven fixes.** A user-driven design review (this session) surfaced one critical bug, one I6-contract gap, three pre-existing v1 limitations the user explicitly asked be DESIGN-FIXED rather than DOCUMENTED, plus several minor wording inconsistencies. All seven items closed in one coherent pass.
+
+### Critical fix: merge pseudocode bug (G1)
+
+`view.next()` pseudocode in design.md § Stream-pull dispatch unification only pulled from `stream_pull_one()` when BOTH `cache_head == null` AND `delta_head == null`. For the very common case of cache-miss with a non-empty delta and a still-non-exhausted stream (every `query()` that lands on a fresh entry with any tx-mutation on the entry's class), this returned delta-head ahead of not-yet-pulled storage records that should have sorted before delta-head. Output violated the sorted-merge invariant and therefore I4. Confirmed via trace: storage `[A, B, C, D]` + delta `[Z_new]` where `A < Z_new < B` would emit `[Z_new, A, B, C, D]` instead of `[A, Z_new, B, C, D]`.
+
+Fix: rewrote `view.next()` to materialize `cache_head` from the live stream BEFORE consulting `delta_head`. New control flow: `if (cache_head == null && !entry.exhausted) { r = stream_pull_one(); if (r != null) continue; }` ensures every iteration starts with `cache_head` populated whenever the stream still has material to produce. Delta-head is consulted only when `cache_head` is genuinely null (stream truly exhausted) or non-null. The Mermaid sequence diagram at lines 188-208 already encoded the correct behaviour ("stream still has rows → pull"); the pseudocode is now aligned with the Mermaid.
+
+Added test T4r (+ T4r2, T4r3 variants) to `plan/track-4.md` step 7 that exercises the exact failing scenario plus boundary positions (CREATED sorts before all / between / after all cached records).
+
+### I6 contract honesty (K1 from prior review)
+
+§ Concurrency and lifecycle → Idempotent close requirement previously asserted `ExecutionStream.close(ctx)` is idempotent as an ENFORCED requirement. Verification: the `ExecutionStream` interface does NOT mandate idempotency, and not every concrete implementation in `core/.../resultset/` guards against double-close. Rewrote the requirements list to make `CachedEntry.close()` the load-bearing local guard (null-out after first call) and explicitly state that the underlying stream's `close(ctx)` is called at most once by cache code. I6 invariant in § Invariants rewritten symmetrically: idempotency is enforced LOCALLY in `CachedEntry.close()` via the null-out-after-first-call pattern; the interface itself does not mandate this contract. Test re-scoped from "double-close the stream" to "double-close the entry; assert stream sees one close call".
+
+### Design fixes for prior "Known v1 limitations"
+
+User directive: prefer design fixes over documented limitations. Two of three earlier-deferred limitations resolved in-design.
+
+1. **LIMIT-after-DELETE / UPDATED-out short-list — RESOLVED via over-fetch (D10-lazy rewrite).** Earlier wording capped the cache prefix at `skip + limit`, leaving no source to backfill from when a cached record was tx-DELETED or tx-UPDATED-out-of-WHERE. New design: at cache-miss for RECORD shape, walk `SelectExecutionPlan.steps`, mutate `LimitStep.limit` to `maxRecordsPerEntry` and `SkipStep.skip` to 0 (or remove if API requires). The executor produces up to `maxRecordsPerEntry` records; the view applies the original SKIP and LIMIT at iteration via an `emitted` counter. Backfill is always satisfied from the cache itself, bounded by the same memory ceiling that already protected the prior scheme. Pathological deep pagination still overflows into `nonCacheableKeys` per L7. NONE shape is no longer reached on SKIP/LIMIT magnitude grounds. Splice-failure fallback mirrors the aggregate pattern (close partial plan, `QueryCacheMetrics.spliceFailures++`, fall back to `statement.execute(...)`).
+2. **MIN/MAX O(n) recompute — RESOLVED via D14 sorted-value index in v1 (D14 promotion).** D14 previously deferred to v2 with a "decision gate D13 measurement" caveat. Promoted to v1 because: (a) under lazy, `applyMutation` fires from `DeltaBuilder.buildForAggregate` on every mutation-version rebuild; a delete-then-rebuild Hub pattern triggers the worst case (O(`maxRecordsPerEntry`) = O(10000)) multiple times per tx; (b) implementation is modest (one TreeMap field, BigDecimal coercion at observe-time, ~50 lines across `observe` / `applyMutation` / `copy`); (c) D13 measurement could not have changed the answer — the index is strictly better regardless of workload. `AggregateState` for MIN/MAX now carries `sortedValues: TreeMap<BigDecimal, Set<RID>>`. `BigDecimal` keys via string round-trip sidestep the cross-`Number`-subtype hazard. The prior `extremumRid` field is eliminated — extremum is `sortedValues.firstKey()` / `lastKey()`. All ops O(log n). Track 5 step 1-3 rewrites cover; tests T5d / T5d2 / T5e updated.
+3. **MATCH multi-alias CREATED (Etap B) — re-framed from "v2 candidate" to "separate ADR".** Scope is comparable to the rest of YTDB-820: new shape `MATCH_TUPLE_MULTI`, per-tuple reverse index, dedicated `DeltaBuilder.buildForMatchMulti` that issues constrained pattern walks via `MatchPrefetchStep` + `PREFETCHED_MATCH_ALIAS_PREFIX`, and edge-CREATED dispatch on `addRecordOperation` for edge records. This is not v2-style hardening; it's a separate piece of infrastructure that deserves its own ADR. D13 measures multi-alias-MATCH-CREATED frequency to prioritise the follow-up ADR.
+
+### Asymmetry note (D5 from prior review)
+
+§ Aggregate side-tap → Eager drive on cache-put rewritten to explicitly contrast against RECORD / MATCH-Etap-A lazy-stream-pull. Earlier the reader had to infer from disjoint sections why aggregate populates eagerly while record/match populates lazily. New paragraph names the fundamental semantic difference: per-row Results in RECORD shape are independent (partial cache is correct), aggregate scalar requires every contributor observed (partial cache is silent corruption). The asymmetry is not inconsistency — the cacheability semantics genuinely differ.
+
+### Minor wording / drift fixes
+
+- Line citation `closeActiveQueries() (FrontendTransactionImpl:973)` corrected to `(DatabaseSessionEmbedded.java:3431)` in three loci (§ Pause/resume mechanics, § Concurrency and lifecycle → Idempotent close, § Invariants I6). `clearUnfinishedChanges()` location updated to `FrontendTransactionImpl.java:998`.
+- `CachedEntry` class diagram gains explicit `skip: int` and `limit: int` fields (captured at construction, applied by view).
+- `CachedResultSetView` class diagram gains `emitted: int` + `skip: int` + `limit: int` fields (view-level SKIP/LIMIT enforcement).
+- `AggregateState` class diagram: replace `extremumRid: RID` with `sortedValues: TreeMap` (D14 implementation).
+- `ShapeClassifier.classify` RECORD bullet: remove the `n + m <= maxRecordsPerEntry` constraint (no longer needed under over-fetch); update NONE bullet to remove the SKIP-magnitude clause.
+- D8-lazy Rationale: "v2 candidate" → "separate ADR" with concrete scope description.
+- D13 Rationale: remove "MIN/MAX recompute frequency (informs D14 decision)" measurement bullet (D14 now in v1); replace with multi-alias-MATCH-CREATED frequency + paginated-workload share + over-fetch waste ratio. track-8.md HubReplay scenario measurement list updated symmetrically.
+- § Open questions deferred to execution TL;DR rewritten: now only MATCH Etap B is deferred; D14 and D10-lazy explicitly listed as resolved in v1.
+
+### Files touched
+
+- `design.md` — § Known v1 limitations rewritten (3 bullets → 1), § Stream-pull dispatch unification pseudocode rewrite, new § Over-fetch for backfill, new § Sorted-value index for MIN/MAX, § Aggregate side-tap → Eager drive on cache-put paragraph rewritten, § Idempotent close requirement re-scoped, § Invariants I6 re-scoped, class-diagram fields (CachedEntry, AggregateState, CachedResultSetView) updated, three line-citation drift fixes, § Open questions deferred TL;DR rewritten, ShapeClassifier RECORD/NONE bullet updates.
+- `implementation-plan.md` — D10-lazy rewritten (over-fetch), D14 rewritten (in v1), D13 measurement list updated, D8-lazy "v2 candidate" → "separate ADR", Non-Goals SKIP-cap bullet removed + canonical-CacheKey v2 bullet added + MATCH Etap B re-framed to "separate ADR", Track 5 description updated for D14 scope, Component Map AggregateState bullet updated.
+- `plan/track-4.md` — Concrete deliverables gain plan-rewrite for over-fetch step, Plan-of-Work step 5 explicitly calls out the materialise-cache-head invariant, T4f description updated, T4h replaced with deep-pagination over-fetch test, new T4r / T4r2 / T4r3 regression tests for the merge pseudocode bug.
+- `plan/track-5.md` — Step 1 expanded to cover D14 sorted-value index population, Step 2 MIN/MAX dispatch rewritten for sortedValues TreeMap operations, Step 3 copy() semantics include sortedValues deep-copy, T5d expanded to verify O(log n) characteristic, new T5d2 BigDecimal coercion regression test.
+- `plan/track-8.md` — D13 HubReplay measurement list updated.
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=structural-rewrite): pending validation. Expected: 0 blockers (Mutation 9 closed the TL;DR / references-footer baseline; the new content uses consistent structure). The 27 should-fix `dsc-ai-tell` em-dash density findings carried forward from Mutation 16 are likely to grow by ~5-10 (new prose adds em-dashes — over-fetch and sorted-value-index sections are dense). Pre-existing house-style debt; Phase 4 sweep.
+
+**Cold-read** (scope=bounded — § Stream-pull dispatch unification pseudocode + § Over-fetch + § Sorted-value index + § Eager drive paragraph + § Invariants I6 + plan/track-4.md step 5 + step 7 T4r + plan/track-5.md steps 1-3 + T5d): self-audited. The merge pseudocode's new `cache_head == null && !entry.exhausted` branch correctly composes with the existing `deltaCursor.shouldSkip(cache_head.rid)` skip check (re-loop re-evaluates skip check on newly-materialized cache_head). Over-fetch + view-level SKIP/LIMIT interacts cleanly with the merge: the emitted counter advances only on user-visible emits, not on skipped or stream-pulled-but-skipped records. D14 sorted-value index `copy()` deep-copies both the TreeMap and the bucket Sets — view-level mutation cannot leak back to the entry. AggregateState empty-set semantics (L3 fix) compose with sortedValues: `sortedValues.isEmpty()` → `currentScalar = null` for MIN/MAX, consistent with prior wording. Mermaid sequence diagram (lines 188-208) and the new pseudocode now describe the same algorithm.
+
+**Findings**:
+- Critical bug closed (G1).
+- I6 contract honesty closed.
+- Two prior v1 limitations resolved in-design (over-fetch, D14).
+- MATCH Etap B re-framed to "separate ADR" rather than "v2 candidate" to honestly reflect scope.
+- Minor wording / drift fixes (~6 small edits).
+- (pre-existing, NOT addressed in this mutation): 27+ should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — house-style debt, Phase 4 sweep.
+
+**Iterations**: 1 of 3 (PASS — large structural rewrite; no NEW correctness findings introduced; pre-existing house-style debt acknowledged).
+
+## Mutation 18 — 2026-05-25 — content-edit (design.md + implementation-plan.md + plan/track-{3,4,5,8}.md)
+
+**Honest-accounting walk-back of D14 + correctness fixes from re-reading Mutation 17.** User pushed back on the D14 v1 promotion with "is this memory really worth it?"; honest cost-benefit analysis showed it isn't. Walked back. Re-reading the over-fetch design exposed a `LIMIT > maxRecordsPerEntry` correctness gap. Re-checking the I6 fix from Mutation 17 exposed that it only handled the same-caller double-close, not the cross-caller scenario (closeActiveQueries + cache.clear).
+
+### Walk-back: D14 MIN/MAX sorted-value index reverts to v2-deferred
+
+Cost-benefit analysis exposed that Mutation 17's "promote D14 to v1" was overeager. Real numbers for Hub-typical workloads:
+- 5-20 MIN/MAX queries per HTTP request × 100-1000 contributors × 1-5 mutations × ~1/n extremum-hit rate ≈ ~500 ops worst case per request.
+- At 10 ns/op: ~5 μs per request. Against typical hundreds-of-ms response time: not observable.
+- Memory cost of the index: ~3× growth per MIN/MAX entry (TreeMap + per-value Set buckets + BigDecimal storage). Hub typical: ~70 KB extra per tx. Pathological: ~80 MB.
+
+The "BigDecimal coercion fixes a real correctness footgun" framing from Mutation 17 was also wrong — the v1 baseline uses RID identity (`rid.equals(extremumRid)`), not numeric equality, so the Long.equals(Integer) hazard is structurally unreachable in v1. D14 was pure perf optimization for a workload that doesn't visibly benefit.
+
+D13 measurement was the correct gate all along. Reverted:
+- `design.md` § Known v1 limitations: MIN/MAX bullet re-added as a v1 limitation (worst-case O(n) recompute when extremum leaves, bounded by maxRecordsPerEntry); D14 framed as v2-deferred, measurement-gated.
+- `design.md` § Aggregate delta: § Sorted-value index for MIN/MAX section removed entirely. AggregateState class-diagram field reverted from `sortedValues: TreeMap` to `extremumRid: RID`. MIN/MAX recompute edge-case bullet restored to "worst case O(n)" wording.
+- `design.md` § Open questions deferred: D14 listed alongside Etap B as a deferred candidate, with explicit cost-benefit narrative.
+- `implementation-plan.md` D14: rewritten back to "v2-deferred, gated on D13 measurement"; rationale documents the Hub-typical cost-benefit calculation that justifies the deferral.
+- `implementation-plan.md` D13: measurement list restores "MIN/MAX extremum-churn frequency".
+- `implementation-plan.md` Component Map: AggregateState bullet reverts to `extremumRid` field; mentions D14 as v2-deferred.
+- `implementation-plan.md` Track 5 description: reverts scope to ~5 steps, MIN/MAX dispatch returns to O(n) recompute path.
+- `plan/track-5.md` steps 1-3 + T5d/T5e tests: revert to RID-identity tracking + O(n) recompute (T5d / T5e verify both fast paths and recompute path).
+- `plan/track-8.md`: D13 HubReplay measurement list restores MIN/MAX extremum-churn frequency.
+
+Discipline lesson logged: D13 measurement was DESIGNED as the gate for D14. Mutation 17 disrespected that by promoting without data; Mutation 18 restores the gate.
+
+### Correctness fix: LIMIT > maxRecordsPerEntry constraint
+
+Mutation 17's over-fetch design said *"`SKIP` and `LIMIT` are ALWAYS cacheable regardless of magnitude"*. That's wrong. Trace:
+- User writes `SELECT FROM User LIMIT 50000` against maxRecordsPerEntry=10000.
+- Cache rewrites LimitStep.limit to 10000.
+- Executor produces 10000 rows.
+- View applies original LIMIT 50000 — but cache only has 10000 rows.
+- User wanted 50000, got 10000. **Silent truncation.**
+
+Same for `SKIP n LIMIT m` with `n + m > maxRecordsPerEntry`. Fix:
+- `design.md` § Per-shape classify: RECORD bullet now states the constraint explicitly — `LIMIT m` cacheable iff `m <= maxRecordsPerEntry`; `SKIP n LIMIT m` cacheable iff `n + m <= maxRecordsPerEntry`. Above the cap → NONE.
+- NONE bullet gains explicit `LIMIT > maxRecordsPerEntry` and `SKIP + LIMIT > maxRecordsPerEntry` clauses.
+- `design.md` § Over-fetch for backfill: rewritten to make the gate explicit. The mechanism applies only to LIMIT-bounded queries within the cap. No-LIMIT queries are not rewritten (executor produces all matching rows; cache appends up to the cap; overflow handling kicks in if exceeded). Above-cap queries bypass the cache entirely.
+- `implementation-plan.md` D10-lazy: rewritten with the correct gate, including a Risks/Caveats bullet noting that backfill capacity scales inversely with `LIMIT / maxRecordsPerEntry`.
+- `plan/track-4.md` Concrete deliverables: ShapeClassifier rule updated with the cap constraint. Plan-rewrite step is gated on the query having a `LIMIT m` with `m <= cap` (no-LIMIT queries skip the rewrite).
+- `plan/track-4.md` test matrix: T4h reframed as "deep pagination within cap" (within-bound positive test). T4h2 added for LIMIT-above-cap bypass. T4h3 for SKIP+LIMIT-above-cap bypass. T4h4 for no-LIMIT natural overflow.
+
+### Correctness fix: I6 cross-caller double-close
+
+Mutation 17 framed I6 as "ExecutionStream idempotency enforced LOCALLY in CachedEntry.close() via null-out". This handles the case where the cache calls close twice on its own (same-caller double-close), but NOT the cross-caller scenario:
+- Pool-shutdown ordering: `closeActiveQueries()` runs BEFORE `clearUnfinishedChanges()` (which fires `cache.clear()`).
+- For any cache entry whose paired `LocalResultSet` is still alive in `activeQueries` (not yet GC'd), the underlying stream sees TWO close calls: one from `LocalResultSet.close()` via `closeActiveQueries()`, one from `entry.close()` via `cache.clear()`.
+- `ExecutionStream` interface does NOT mandate idempotency. Concrete impls vary; some throw on second close.
+- The cache's local null-out doesn't help here — the LocalResultSet's close path is outside the cache's control.
+
+Fix: introduce `IdempotentExecutionStream` wrapper class. Cache wraps every stream at cache-put time and substitutes the wrapper into BOTH `entry.stream` AND the paired `LocalResultSet`'s stream slot. Both close paths now reach the SAME wrapper instance; whichever fires first calls the underlying close once; the other hits the no-op branch.
+- `design.md` § Concurrency and lifecycle → Idempotent close requirement: prose rewritten to make the cross-caller scenario explicit, describe the wrapper, and re-enumerate the ENFORCED requirements list around the wrapper.
+- `design.md` § Invariants I6: rewritten to specify that wrapper is the load-bearing mechanism, not interface-level idempotency.
+- `implementation-plan.md` Component Map: new bullet for `IdempotentExecutionStream`.
+- `implementation-plan.md` I6: rewritten symmetric with design.md, references T3f as the cross-caller regression test.
+- `plan/track-3.md` Concrete deliverables: `IdempotentExecutionStream` listed as a new file. Plan-of-Work step 1 implements it, step 2 wires it into both `entry.stream` and the LocalResultSet substitution at cache-put. Library signatures section updated.
+- `plan/track-3.md` T3 test set: T3e re-scoped to single-caller; T3f added for cross-caller with non-idempotent underlying mock. Acknowledges this is the KEY test the wrapper exists to defend against.
+
+### Files touched
+
+- `design.md` — Known v1 limitations bullets, AggregateState class-diagram field, MIN/MAX edge-case bullet, Sorted-value index section deletion, Per-shape classify RECORD/NONE bullets, Over-fetch for backfill section rewrite, Open questions deferred TL;DR + bullets, Aggregate delta references footer, I6 invariant prose, Idempotent close requirement prose.
+- `implementation-plan.md` — Component Map AggregateState + new IdempotentExecutionStream bullet, D10-lazy rewrite with cap gate, D13 measurement list restores MIN/MAX, D14 reverts to v2-deferred, I6 invariant rewrite, Track 5 description.
+- `plan/track-3.md` — Concrete deliverables (wrapper + substitution), Plan-of-Work step 1-2 (implement + wire wrapper), T3e/T3f test scope split, In-scope files (+IdempotentExecutionStream.java), Library signatures (wrapper constructor + close).
+- `plan/track-4.md` — Concrete deliverables (ShapeClassifier cap gate + conditional plan rewrite), test matrix T4h reframed, T4h2 / T4h3 / T4h4 added.
+- `plan/track-5.md` — Steps 1-3 reverted to RID-identity tracking + O(n) recompute path; T5d / T5e reverted to verify both paths.
+- `plan/track-8.md` — D13 HubReplay measurement list restores MIN/MAX extremum-churn frequency.
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=structural-rewrite): 0 blockers. Pre-existing 27+ should-fix `dsc-ai-tell` em-dash density / fragmented-header findings carried forward; deferred to Phase 4 sweep.
+
+**Cold-read** (scope=bounded — § Known v1 limitations, § Per-shape classify, § Over-fetch for backfill, § Aggregate delta + side-tap, § Idempotent close requirement, § Invariants I6, § Open questions deferred + bullets, plan/track-3.md steps 1-2 + T3f, plan/track-4.md ShapeClassifier + T4h-T4h4, plan/track-5.md steps 1-3 + T5d/T5e): self-audited. The D14 walk-back is internally consistent — all references to "sorted-value index in v1" replaced with "v2-deferred, measurement-gated"; the v1 baseline (extremumRid + O(n) recompute) is correctly described in design.md, implementation-plan.md, and track-5.md. The LIMIT-cap gate is consistent across design.md, implementation-plan.md, and track-4.md, with matching test coverage (T4h-T4h4 covers within-cap, above-cap LIMIT, above-cap SKIP+LIMIT, no-LIMIT overflow). The IdempotentExecutionStream wrapper design is consistent across design.md (wrapper described in Idempotent close requirement), implementation-plan.md (Component Map + I6), and track-3.md (steps 1-2 implementation + T3f cross-caller test). The wrapper construction reaches into LocalResultSet to substitute — track-3.md acknowledges this implementation detail and provides the alternative path if LocalResultSet's stream field is final.
+
+**Findings**:
+- D14 walk-back (cost-benefit discipline restored).
+- LIMIT > maxRecordsPerEntry correctness gap closed.
+- I6 cross-caller scenario closed via wrapper.
+- (pre-existing, NOT addressed): 27+ should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — Phase 4 sweep.
+
+**Iterations**: 1 of 3 (PASS — corrections-pass over Mutation 17; no NEW correctness findings introduced).

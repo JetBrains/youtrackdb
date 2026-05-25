@@ -32,7 +32,7 @@ Existing relevant code:
   - Run all queries in single tx against a test database matching Hub schema.
   - Assert: ≥70% of repeat-shape queries classify as `!= NONE`.
   - Assert: view output matches fresh-execution at every mutation site.
-  - Measure: per-query delta-build cost histogram, WHERE re-evaluation top-RIDs, MIN/MAX recompute frequency.
+  - Measure: per-query delta-build cost histogram, WHERE re-evaluation top-RIDs, MIN/MAX extremum-churn frequency (informs D14 sorted-value index v1.1/v2 decision), multi-alias-MATCH-CREATED frequency (informs whether the separate Etap-B ADR is high-priority), paginated-workload share (informs canonical-CacheKey v2 decision), over-fetch waste ratio (cached-rows-pulled / cached-rows-emitted for LIMIT-bounded queries).
   - Outputs committed to `_workflow/` as `hub-replay-results.md`.
 
 ## Plan of Work
