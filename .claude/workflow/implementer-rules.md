@@ -201,6 +201,45 @@ rules:
   Steroid applies: `steroid_list_projects` once at the start of the
   spawn confirms the open project matches the working tree before
   any IDE-routed action; do not re-probe.
+- **Path mapping for workflow-modifying plans.** Workflow-modifying
+  plans accumulate their `.claude/workflow/**` and `.claude/skills/**`
+  edits under a plan-scoped staged subtree so the branch's live
+  workflow stays at develop's state through Phase B and Phase C. The
+  implementer detects the mode per-spawn by reading the plan file's
+  `### Constraints` section and matching the canonical marker sentence
+  defined in [`conventions.md`](conventions.md) §1.7(b) verbatim:
+
+  ```
+  This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
+  ```
+
+  When the marker is present, route every write whose target path
+  begins with `.claude/workflow/` or `.claude/skills/` to the
+  corresponding staged path under
+  `docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/...` —
+  byte-for-byte mirror of the live relative path under the `.claude/`
+  prefix. A write to `.claude/workflow/X.md` rewrites to
+  `docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/workflow/X.md`.
+  The rewrite covers every write surface — `Edit`, `Write`,
+  `steroid_apply_patch`, `steroid_execute_code` file writes, and `Bash`
+  redirections — per `conventions.md` §1.7(e). On first touch of a
+  live file with no staged copy, copy the live file to the staged path
+  verbatim, then apply the edit to the staged copy; subsequent writes
+  to the same file edit the staged copy directly. The copy-then-edit
+  step preserves develop's state as the staged baseline so the eventual
+  Phase 4 promotion overwrites the live tree with a coherent target.
+
+  Reads precedence follows `conventions.md` §1.7(d): the staged copy
+  is authoritative when present, otherwise read the live file. A step
+  that authors a rule in the staged `conventions.md` is visible to
+  every subsequent step in the same plan that cites or extends it.
+
+  When the marker is absent (the default), the implementer writes to
+  live paths normally; the staging rule does not apply. The pre-commit
+  gate in Sub-step 3 below catches bypass shapes (an absolute live
+  path passed to a tool, a `Bash` redirection the implementer forgot
+  to rewrite) at commit time.
+
 - **Do not reference workflow-internal identifiers** (`Track N`,
   `Step N`, finding IDs, iteration counters, or named-only plan
   invariants) in source code, Javadoc, test names, or test
@@ -283,6 +322,52 @@ iteration. The gate scope is the current spawn's
 committed leak is a separate finding for the next iteration. The
 gate applies on every spawn including `mode=FIX_REVIEW_FINDINGS`
 respawns.
+
+**Pre-commit gate, live-workflow-path check.** Workflow-modifying
+plans route every `.claude/workflow/**` and `.claude/skills/**`
+write to the staged subtree per Sub-step 1's Path-mapping rule
+above. The gate catches bypass shapes — an absolute live path
+passed to a tool, a `Bash` redirection that the implementer
+forgot to rewrite — at commit time, before the bypass lands in
+history. The gate fires only when the active plan declares
+workflow-modifying in its `### Constraints` section per
+[`conventions.md`](conventions.md) §1.7(b); on plans without the
+marker, the staging convention does not apply and the gate is a
+no-op.
+
+After staging and before `git commit`, run:
+
+```bash
+git diff --cached --name-only -- .claude/workflow/ .claude/skills/
+```
+
+Non-empty output means the staged diff contains live workflow
+paths, which is the bypass shape the gate refuses.
+
+The gate's allow-clause is the Phase 4 promotion commit. The
+implementer reads the prepared commit message from the `-m`
+argument it is about to pass to `git commit` (the implementer
+composes its commit message before staging). When the prepared
+message begins with the exact prefix
+`Promote workflow changes from <plan-dir>/_workflow/staged-workflow`
+(the Phase 4 promotion commit signature per `conventions.md`
+§1.7(e)), the live-path diff is the legitimate work product and
+the gate passes. Every other prepared message must produce an
+empty diff to commit.
+
+Non-empty diffs outside the promotion commit cause the gate to
+refuse the commit. Recovery is symmetric with the ephemeral-
+identifier gate: rewrite the offending write's target to the
+staged subtree per `conventions.md` §1.7(e), re-stage, and re-run
+the gate until empty (or until the legitimate Phase 4 promotion
+commit replaces the implementer-level commit message).
+
+The check is a hard gate. Catching it locally costs milliseconds
+versus a downstream dim-review iteration. The gate scope is the
+current spawn's `git diff --cached`, not the cumulative diff
+against `origin/develop`; a pre-existing committed leak is a
+separate finding for the next iteration. The gate applies on
+every spawn including `mode=FIX_REVIEW_FINDINGS` respawns.
 
 **After the commit lands, run `git push` immediately** per
 [`commit-conventions.md`](commit-conventions.md) § Push every commit.
