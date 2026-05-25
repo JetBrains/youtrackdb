@@ -178,9 +178,17 @@
 >     `aliasRids` is single-RID-per-alias by the MATCH SQL grammar. `@rid`
 >     is `SQLRecordAttribute`, not `SQLIdentifier`, so the IN AST is built
 >     by hand.
->   - `HasStep` with `hasNot(key)` — translates to `field IS NULL` /
->     `NOT exists(field)` via `MatchWhereBuilder.not(op(field, EQ, ...))`
->     or a dedicated null-check helper.
+>   - `HasStep` with `hasNot(key)` — translates to `field IS NOT DEFINED`
+>     via `MatchWhereBuilder.isNotDefined(field)` using the new YTDB SQL
+>     operator added in Track 1 (see plan.md D-IS-DEFINED and design.md
+>     "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators").
+>     Symmetric: `has(key)` → `MatchWhereBuilder.isDefined(field)`.
+>     **Not** `IS NULL` / `IS NOT NULL` — those over-match against
+>     properties stored with literal `null` value (TP `hasNot` would
+>     not match such properties because TP `Property.isPresent()`
+>     returns `true` for them — confirmed against
+>     `YTDBElementImpl.readFromEntity` + `EntityImpl.getPropertyAndChooseReturnValue`
+>     during PR #1038 review).
 > - Lift the cached `SQLInCondition.operator` reflection helper into a
 >   shared helper in `match.builder/`. The multi-ID `hasId` site becomes
 >   the third call site for that helper (Track 1's `MatchWhereBuilder`
@@ -195,9 +203,15 @@
 >   4. `HasIdStep` (single-ID via `aliasRids`, multi-ID via
 >      `aliasFilters @rid IN [...]`); lift the `setInOperator` reflection
 >      helper into `match.builder/`.
->   5. `HasNotStep` + null-check semantics.
+>   5. `HasNotStep` + `HasStep` presence form using
+>      `MatchWhereBuilder.isDefined` / `isNotDefined` (depends on
+>      Track 1 landing the SQL operator first).
 >   6. Comprehensive predicate-equivalence tests vs SQL `MATCH` with
 >      explicit `WHERE`, including multi-`has` AND combinations.
+>      Regression tests MUST pin the null-valued vs absent distinction:
+>      a vertex with `foo` set to literal `null` is dropped by
+>      `hasNot(foo)` (matches native TP, not the legacy `IS NULL`
+>      semantics).
 >
 > **Constraints**:
 > - **In-scope files**: `GremlinPredicateAdapter`, `GremlinStepWalker`
@@ -213,8 +227,16 @@
 > **Interactions**:
 > - Depends on Track 3 (recognition walker + edge-traversal handlers
 >   are the substrate the `has*` handlers attach to).
+> - Depends on Track 1 for `MatchWhereBuilder.isDefined` /
+>   `isNotDefined` factories and the `SQLIsDefinedCondition` /
+>   `SQLIsNotDefinedCondition` AST nodes (D-IS-DEFINED). Steps 1-4
+>   of this track can land before Track 1 finishes the operator work;
+>   step 5 (`HasNotStep`) is the gating step.
 > - Enables Track 5 (logical combinators that contain filter
 >   sub-traversals reuse the predicate adapter).
+> - Track 7 reuses the same `EntityImpl.hasProperty(key)` primitive
+>   for `valueMap`/`values`/`select.by` projection presence
+>   classification — no separate helper.
 
 ---
 
@@ -384,6 +406,20 @@
 >   `Map` for `select` / `project` / `valueMap` / `elementMap`, value
 >   type for `values(singleKey)`, full record for no-projection
 >   traversals. (This subsumes part of the retired Track 11.)
+> - **Distinguish absent vs null-valued properties at the projection
+>   layer** (design.md "Track 7 commitment"). YTDB's TP wrapper exposes
+>   the two states differently (null-valued surfaces as
+>   `Property.isPresent() == true`; absent surfaces as
+>   `VertexProperty.empty()`), and `Result.getProperty` on the query
+>   side collapses them to `null` regardless. To match native TP
+>   `valueMap` / `values` / `select.by` semantics, the projection
+>   layer queries the underlying entity directly via
+>   `EntityImpl.hasProperty(key)` (the same primitive Track 1 uses
+>   for the `IS DEFINED` / `IS NOT DEFINED` operators) and classifies:
+>   absent → omit the key (for `valueMap`/`elementMap`) or drop the
+>   row (for `values`); null-valued → include the key with `null`
+>   value (for `valueMap`) or emit a traverser carrying `null` (for
+>   `values`). Regression tests MUST pin both cases.
 >
 > **How**:
 > - Step ordering (provisional):
@@ -391,13 +427,21 @@
 >      `QueryPlanningInfo.projection` directly.
 >   2. `SelectStep` / `SelectOneStep` — `$matched.<label>` accessors.
 >   3. `values` / `valueMap` — property-name projection over current
->      alias.
->   4. `elementMap` — schema-driven map / `SELECT *`.
+>      alias, with `EntityImpl.hasProperty(key)` presence classification
+>      (absent vs null-valued — see "What" bullet on absent-vs-null).
+>   4. `elementMap` — schema-driven map / `SELECT *`, same presence
+>      classification rule applied per included property.
 >   5. `project(...).by(...)` — composite projection with sub-traversal
 >      recursion (pure-filter-or-property only); mid-chain decline for
->      complex `by`.
+>      complex `by`. `by("key")` against an absent vs present-with-null
+>      `key` follows the same classification rule.
 >   6. Equivalence tests vs explicit SQL `RETURN`, including the
->      decline-on-unknown-label edge case.
+>      decline-on-unknown-label edge case. Regression tests for the
+>      absent-vs-null projection commitment: vertex with `foo=null`
+>      surfaces in `valueMap` with `{foo: [null]}` (or per TP's
+>      cardinality wrapping); vertex with `foo` absent surfaces without
+>      the `foo` key. Same fixture for `values(foo)` and for
+>      `select(...).by("foo")`.
 >
 > **Constraints**:
 > - **In-scope files**: `GremlinProjectionAssembler`,
@@ -414,6 +458,10 @@
 > **Interactions**:
 > - Depends on Track 6 (label propagation must be in place — projections
 >   reference `as` labels).
+> - Depends on Track 1's `EntityImpl.hasProperty(key)` exposure for the
+>   absent-vs-null classification rule (same primitive landed for
+>   `IS DEFINED` / `IS NOT DEFINED` operators — D-IS-DEFINED). No
+>   separate helper needed.
 > - Enables Track 8 (order/pagination is layered on top of projection).
 
 ---

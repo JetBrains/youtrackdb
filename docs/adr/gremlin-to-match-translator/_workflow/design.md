@@ -99,14 +99,14 @@ shape declines along with anything else unrecognized.
 | Edge traversal | `outE(L).inV()` / `inE(L).outV()` (adjacent) | folded by TinkerPop's `IncidentToAdjacentStrategy` to `out(L)` / `in(L)` before our strategy fires; recognizer sees the folded shape | Track 3 |
 | Edge traversal | `bothE(L).otherV()` (adjacent) | folded by `IncidentToAdjacentStrategy` to `both(L)` | Track 3 |
 | Edge filtering | `outE(L).has(filter)*.inV()` / `inE(L).has(filter)*.outV()` / `bothE(L).has(filter)*.otherV()` (one or more `has(...)` between the edge step and its paired vertex hop) | `EdgeStepRecogniser` peek-ahead collects every adjacent `HasStep` into the edge's filter slot via `SQLMatchPathItem.filter`; the edge gets a translator-minted anonymous alias (`$g2m_edge_N`). Predicates inside the `has(...)` chain follow the same translation table as node-side filters. | Track 3 |
-| Filtering | `has(key)` (presence) | `aliasFilters` `key IS NOT NULL` (query layer flattens record-layer absent into null via `Result.getProperty`'s null-on-absent contract — see "Predicate translation" caveat under `hasNot`) | Track 4 |
+| Filtering | `has(key)` (presence) | `aliasFilters` `key IS DEFINED` — **new YTDB SQL operator** added as a Phase 1 dependency in Track 1 (see "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators"). Asks the entity layer whether the property exists (matching TP `Property.isPresent() == true`), distinct from `IS NOT NULL` which only checks the projected value. | Track 4 (uses) / Track 1 (operator) |
 | Filtering | `has(key, value)` | `aliasFilters` `key = value` | Track 4 |
 | Filtering | `has(key, predicate)` | `aliasFilters` predicate (per "Predicate translation" below) | Track 4 |
 | Filtering | `has(label, key, value)` | `aliasClasses[a] = label` + `aliasFilters` `key = value` | Track 4 |
 | Filtering | `hasLabel(label)` | folded by `YTDBGraphStepStrategy` into start-step `hasContainers`; `aliasClasses[a] = label` | Track 4 |
 | Filtering | `hasId(id)` (single) | `aliasRids[a] = SQLRid(id)` | Track 4 |
 | Filtering | `hasId(id1, id2, …)` (multi) | `aliasFilters[a] = WHERE @rid IN [...]` | Track 4 |
-| Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NULL` (see caveat under "Predicate translation": YTDB's record layer treats `absent` and `null` as distinct, so the Phase 1 mapping holds only while `MATCH` itself treats both as `IS NULL`; if the engine grows a separate "absent" predicate we re-route there) | Track 4 |
+| Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NOT DEFINED` — symmetric to `has(key)`; matches TP `Property.isPresent() == false` (property absent at the record layer). NOT `IS NULL`, which would over-match for properties stored with literal `null` value (TP wrapper keeps those visible as present). See "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators". | Track 4 (uses) / Track 1 (operator) |
 | Predicate ops | `Compare.eq` / `neq` / `gt` / `gte` / `lt` / `lte` | `SQLBinaryCondition` + corresponding operator | Track 4 |
 | Predicate ops | `Contains.within` / `Contains.without` | `SQLInCondition` / `SQLNotInCondition` | Track 4 |
 | Predicate ops | `P.between(lo, hi)` | `AND(>=lo, <hi)` — Gremlin's `between` is right-exclusive `[lo, hi)`; YTDB's `SQLBetweenCondition` is closed `[lo, hi]`, so we cannot use it directly | Track 4 |
@@ -655,58 +655,146 @@ two-phase boundary which Phase 1 does not implement — Phase 1
 declines this shape).
 
 **Track 7 commitment: absent vs null-valued properties in `MAP` /
-`SINGLE_VALUE` output.** Native TinkerPop's `Property` API does not
-permit null property values: `vertex.property(key)` returns
-`VertexProperty.empty()` both for absent properties and for properties
-whose record-layer value is null, so `valueMap(keys…)` /
-`elementMap(…)` / `values(key)` collapse the two cases by omitting the
-key (for `valueMap`/`elementMap`) or emitting no traverser (for
-`values`). YTDB MATCH projects `alias.key` through `Result.getProperty`,
-which by contract returns `null` for both absent and null-valued
-properties (see "Predicate translation" `hasNot` caveat for the record-
-layer distinction); the row therefore carries a `null` cell in both
-cases. Native and MATCH agree on the set of *which rows* are produced
-but can disagree on *what each row contains*:
+`SINGLE_VALUE` output.** YTDB's record layer distinguishes *absent*
+(property does not exist on the entity) from *null-valued* (property
+exists with literal `null` value); andrii0lomakin confirmed in PR
+#1038 review that the team intentionally keeps this distinction (does
+**not** unify the two states at the storage layer). The YTDB TP
+wrapper preserves the distinction too: `YTDBElementImpl.readFromEntity`
+(`core/.../gremlin/YTDBElementImpl.java:128-139`) calls
+`EntityImpl.getPropertyAndType(key)`, which returns `null` only when
+the property is absent (`EntityImpl.java:488-491` —
+`entry == null || !entry.exists()`); a null-valued property returns
+a non-null `ValueAndType` wrapper carrying `value=null` and the
+declared `type`. The wrapper then either returns `propFactory.empty()`
+(absent → TP `Property.isPresent() == false`) or constructs a real
+`YTDBProperty` with `value=null` and a non-null `key` (null-valued →
+TP `Property.isPresent() == true`).
 
-- `valueMap(keys…)` / `elementMap(…)`: native omits the key entirely
-  when the property is absent / null-valued; MATCH would emit the key
-  with value `null` unless the boundary step filters it. **Track 7
-  MUST omit null-valued entries** from the projected `Map<String,
-  Object>` so the boundary's `MAP` output matches TinkerPop's
-  `valueMap` / `elementMap` set membership exactly. Track 7's
-  regression-test suite MUST pin: (a) a vertex with property `foo`
-  set to null surfaces as a map without the `foo` key, and (b) a
-  vertex with `foo` absent surfaces the same way (both engines treat
-  them identically through this output path).
-- `values(key)` (single-key): native emits no traverser when the
-  property is absent or null; the `SINGLE_VALUE` output already
-  reuses the boundary's `dropNullRows = true` configuration for this
-  shape, so a `null` projected value is filtered before reaching the
-  consumer. Track 7 MUST set `dropNullRows = true` for `values(key)`
-  and pin the behavior in a regression test.
+Native TinkerPop projections therefore see the two states **differently**:
+
+| Vertex state | `vertex.property("foo")` | `valueMap()` includes "foo"? | `values("foo")` emits? |
+|---|---|---|---|
+| `foo` absent | `VertexProperty.empty()` | NO | NO traverser |
+| `foo` set to literal `null` | `YTDBProperty(key="foo", value=null)` — `isPresent() == true` | YES, with `[null]` (or wrapped accordingly) | YES, one traverser carrying `null` |
+| `foo` set to non-null value `v` | `YTDBProperty(key="foo", value=v)` — `isPresent() == true` | YES, with `[v]` | YES, one traverser carrying `v` |
+
+YTDB MATCH projects `alias.key` through `Result.getProperty`, which
+returns `null` for both absent **and** null-valued properties (the
+query-layer accessor does collapse the two states even though the
+record layer keeps them distinct — see `BasicResult.getProperty` and
+`ResultInternal.java:460-476`). Without compensation, a MATCH
+projection would over-collapse and emit `{foo: null}` for both states
+where native emits `{foo: [null]}` for the present-but-null case and
+omits the key entirely for the absent case.
+
+**Track 7 MUST distinguish the two states at the projection layer**
+to preserve TP-equivalent output:
+
+- `valueMap(keys…)` / `elementMap(…)`: query the entity (not just
+  `Result.getProperty`) so the projection knows whether the property
+  is absent or present-with-null. Use `EntityImpl.hasProperty(key)`
+  (already exposed via the `Entity` view of the matched alias) to
+  classify: absent → omit the key from the projected map; present
+  (including value=null) → include the key with its value. Regression
+  tests MUST pin: (a) vertex with `foo` set to null surfaces as a map
+  with `foo` entry carrying `null` (matching native); (b) vertex with
+  `foo` absent surfaces as a map without the `foo` key.
+- `values(key)` (single-key): native emits one traverser per **present**
+  property occurrence, including those with value=null. Track 7 sets
+  the boundary post-processor to drop only the **absent** rows (via
+  `hasProperty(key)` check), letting null-valued rows through with
+  the null traverser-value. This is **not** the existing `dropNullRows`
+  flag (which checks the projected value for null); it is a new
+  `dropOnAbsent` flag that queries the entity layer for presence.
 - `select(label)` / `select(labels…).by("key")` /
   `project(keys…).by("key")`: native `Scoping.getScopeValue` throws on
   a missing key (drops the row via `EmptyTraverser`), but a present-
   with-null binding is delivered to the consumer as the literal `null`.
   Phase 1 only emits `select`/`project` against aliases the recogniser
   binds during translation, so the "missing key" failure mode does
-  not arise — every selected label resolves to an alias that the
-  MATCH plan projects. Null-valued *property* by-modulators
-  (`by("foo")` against an absent / null-valued `foo`) follow the same
-  rule as `values(key)`: Track 7's `MAP` output omits the entry,
-  matching native's by-modulator semantics. The `optional`-induced
-  missing-label case is already deferred to Phase 2 (`OptionalStep`
-  declines under D3).
+  not arise. For `by("foo")` against an absent vs present-with-null
+  `foo`, Track 7 follows the same `hasProperty(key)` classification
+  as `values(key)` and `valueMap` above.
 
-The distinction matters even though `hasNot` ↔ `IS NULL` is correct in
-Phase 1: the equivalence holds at the *filter* layer where rows are
-kept or dropped, but the *projection* layer separately decides what
-each kept row exposes to the consumer. Without the Track 7 omission
-rule, a query like `g.V().has("name", "Alice").valueMap()` would emit
-`{name: "Alice", age: null}` from MATCH against a vertex with `age`
-absent, where native TinkerPop emits `{name: ["Alice"]}` (no `age`
-key). The omission rule closes the divergence; the regression tests
-ensure no future refactor reintroduces it.
+This commitment is **load-bearing**: without the entity-layer presence
+check, MATCH projections silently merge two states that TP keeps
+separate, producing a different multiset on data with literal-null
+properties. Track 7 owns the implementation; the `IS DEFINED` /
+`IS NOT DEFINED` operators added in Track 1 (see "Phase 1
+dependency") share the same underlying entity-presence check, so the
+two tracks coordinate on the helper.
+
+## Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators
+
+Track 4's `has(key)` / `hasNot(key)` mappings require a YTDB SQL
+operator that distinguishes *absent* (property does not exist on the
+record) from *present-with-null-value* (property exists, value is
+literal `null`). The existing `IS NULL` / `IS NOT NULL` operators
+only inspect the projected value — they cannot see the record-layer
+state — so a `WHERE foo IS NULL` filter over-matches against
+vertices that have `foo` set to `null` (which TP `hasNot` would not
+match, because TP `Property.isPresent()` returns `true` for null-
+valued YTDB properties — see "Track 7 commitment" above for the
+wrapper-level evidence). lpld raised this on the PR #1038 review at
+line 95 ("`prop IS NULL` and `hasNot(prop)` are not equivalent");
+andrii0lomakin confirmed the team's "do not unify" position; lpld
+followed up with the suggestion to introduce `IS DEFINED` /
+`IS NOT DEFINED` operators. **Phase 1 adopts this suggestion** —
+the alternatives (decline `has` / `hasNot` entirely in Phase 1, or
+ship a known divergence) either lose first-class filtering or
+silently produce wrong results.
+
+**Scope of the operator addition** (owned by Track 1, the shared
+MATCH IR builder track — it already covers grammar-adjacent shared
+infrastructure):
+
+1. **Grammar.** Add `IS DEFINED` / `IS NOT DEFINED` productions to
+   `core/src/main/grammar/YouTrackDBSql.jjt` in the same slot as the
+   existing `IS NULL` / `IS NOT NULL` productions. The parser
+   regenerates via `javacc-maven-plugin`; no manual edits to
+   generated parser files.
+2. **AST nodes.** `SQLIsDefinedCondition` and
+   `SQLIsNotDefinedCondition` extend `SQLBooleanExpression`, parallel
+   to `SQLIsNullCondition` / `SQLIsNotNullCondition`. Each carries a
+   single `SQLExpression` child (the property reference, typically
+   `alias.key`).
+3. **Evaluator.** Both classes implement `evaluate(Identifiable, ctx)`
+   and `evaluate(Result, ctx)` by walking the child expression to
+   identify the *root alias* and the *property name*, resolving the
+   alias to its bound `EntityImpl` from the command context, and
+   calling `EntityImpl.hasProperty(propertyName)` —
+   `IS DEFINED` returns the result, `IS NOT DEFINED` returns its
+   negation. The `hasProperty` accessor already exists
+   (`EntityImpl.java`) and is the same primitive Track 7 uses for
+   `valueMap` / `values` / `select.by` projection classification, so
+   the two tracks share the entity-presence check.
+4. **Index integration.** `IS DEFINED` / `IS NOT DEFINED` are
+   property-presence predicates, not value predicates — they cannot
+   use any of the value-keyed indexes. The `IndexFinder` integration
+   returns `Operation.None` for both operators (skip index lookup,
+   fall back to per-record scan). Track 1 documents this in the AST
+   classes' Javadoc so future index work doesn't accidentally try to
+   route through them.
+5. **Tests.** Track 1 ships:
+   - parser tests pinning the grammar productions (round-trip
+     `toString()` reproduces the original WHERE clause);
+   - evaluator unit tests with a fixture covering all four cases
+     (absent / null-valued / non-null-valued / non-existent alias);
+   - integration tests via existing SQL test harness against an
+     entity with each cell state.
+6. **GQL exposure.** Optional. `MatchWhereBuilder` (the Track 1
+   shared builder) exposes `isDefined(...)` / `isNotDefined(...)`
+   factory methods for the Gremlin translator. GQL's MATCH grammar
+   does not currently expose these — adding them to the GQL
+   user-facing syntax is **out of scope** for Phase 1 and gated by a
+   separate decision (GQL users can keep using `IS NULL` /
+   `IS NOT NULL` with the existing semantics).
+
+The operator addition is the **single planner-adjacent surface
+change** Phase 1 makes outside the additive `MatchPlanInputs` ctor.
+It does not modify `MatchExecutionPlanner` — only the grammar and
+the AST/evaluator layer below it.
 
 ## Predicate translation
 
@@ -736,7 +824,9 @@ inside a `HasStep`) and routes:
 - `hasId(id1, id2, …)` (multi) → `aliasFilters[a]` `WHERE @rid IN [...]`
   (same routing the start step uses for `g.V(id1, id2, …)` because
   `aliasRids` is single-RID-per-alias by SQL grammar).
-- `hasNot(key)` → `key IS NULL` predicate (see below).
+- `hasNot(key)` → `key IS NOT DEFINED` predicate via the new operator
+  (Track 1 — see "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED`
+  operators" and the dedicated paragraph below).
 
 Multiple HasContainers on the same `HasStep` AND together via
 `MatchWhereBuilder.and(...)` before merging into the alias's
@@ -925,11 +1015,16 @@ their own `BiPredicate`. We cannot translate arbitrary code. Detection: if
 `P.getBiPredicate()` is not an instance of `Compare`, `Contains`, `Text`, or
 a recognized YTDB-side predicate, decline.
 
-**`hasNot(key)`**: maps to `key IS NULL` semantically. YTDB's WHERE supports
-`field is null` via `SQLBaseExpression` plus an equality / null-check; we
-build it via `MatchWhereBuilder.not(...)` over a "field exists" check.
-Equivalently the `SQLBinaryCondition` can compare against a null literal —
-which one to use is settled in Track 4.
+**`hasNot(key)`**: maps to `key IS NOT DEFINED` via the new YTDB SQL
+operator added in Track 1 — see "Phase 1 dependency: `IS DEFINED` /
+`IS NOT DEFINED` operators". The translator builds the AST node via
+`MatchWhereBuilder.isNotDefined(SQLExpression key)` (a Track 1 factory
+that wraps `SQLIsNotDefinedCondition`). **Not** `key IS NULL`: TP
+`hasNot(key)` returns false for properties stored with literal `null`
+value (because YTDB's TP wrapper exposes them as `isPresent() == true`),
+whereas `IS NULL` would match them — the two operators only agree on
+absent properties, not on the null-valued case. Symmetric: **`has(key)`**
+maps to `key IS DEFINED` via `MatchWhereBuilder.isDefined(...)`.
 
 ## by-modulator translation
 
