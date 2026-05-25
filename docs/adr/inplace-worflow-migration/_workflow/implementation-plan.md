@@ -303,3 +303,6 @@ flowchart LR
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
+
+**PAUSED 2026-05-25 at Phase 4 between design-final.md and adr.md pending adr.md write + Step 4-8 sequence**
+- Handoff: `_workflow/handoff-phase4.md`
