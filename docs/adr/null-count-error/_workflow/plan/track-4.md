@@ -13,9 +13,6 @@ Convert `BTreeMultiValueIndexEngine.buildInitialHistogram()` and `BTreeSingleVal
 - [ ] Track-level code review
 - [ ] Track completion
 
-**PAUSED 2026-05-25 at Phase A iteration 2 pending gate-check + decomposition (warning ctx)**
-- Handoff: `../handoff-track-4-phaseA.md`
-
 ## Surprises & Discoveries
 
 ## Decision Log
