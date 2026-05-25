@@ -72,7 +72,7 @@ survive merge into `develop`. Every other workflow file —
 `implementation-plan.md`, `plan/track-N.md`, `design.md`,
 `design-mechanics.md`, `design-mutations.md` — lives under
 `docs/adr/<dir-name>/_workflow/` and is removed in the cleanup commit
-at the end of Phase 4 (Step 5 below) before the PR is merged. Anything
+at the end of Phase 4 (Step 6 below) before the PR is merged. Anything
 these final artifacts say must survive that deletion.
 
 **The authoritative rule, forbidden/allowed lists, and rewrite examples
@@ -260,7 +260,62 @@ Rules:
   especially to Decision Records ("Implemented in: …" lines) and Key
   Discoveries, which are the two most frequent leak sites.
 
-**Step 4 — Commit the final artifacts.**
+**Step 4 — Promote staged workflow changes (workflow-modifying plans only).**
+
+Workflow-modifying plans accumulate every `.claude/workflow/**` and
+`.claude/skills/**` edit under `<plan-dir>/_workflow/staged-workflow/`
+throughout Phase B and Phase C per
+[`../conventions.md`](../conventions.md) §1.7; this step copies the
+staged subtree onto the live tree in one commit before the
+final-artifacts commit. Non-workflow-modifying plans have no staged
+subtree on disk and the step is a silent no-op for them — Phase 4
+stays in its two-commit shape.
+
+The directory-presence guard checks for the `.claude/` subdirectory
+under the staged path rather than the bare staged directory: a
+partially-stripped or empty `staged-workflow/` shell would otherwise
+trigger a no-op promotion commit on a non-workflow-modifying plan.
+
+Before copying, the step runs a divergence sanity check against
+`develop`'s live workflow content. A non-empty divergence means the
+branch fell behind `develop` after the staged baseline was taken, so
+`cp -r` would silently overwrite live changes the staging copy never
+saw — the rebase-precedes-promotion rule in `../conventions.md`
+§1.7(f). The step halts with a manual-reconciliation instruction in
+that case; the user rebases the branch onto current `develop` and
+restarts Phase 4.
+
+Run:
+
+```bash
+PLAN_DIR="docs/adr/<dir-name>"
+STAGED_DIR="$PLAN_DIR/_workflow/staged-workflow"
+
+if [ -d "$STAGED_DIR/.claude" ]; then
+  DIVERGENCE=$(git diff "$(git merge-base develop HEAD)..HEAD" -- .claude/workflow .claude/skills)
+  if [ -n "$DIVERGENCE" ]; then
+    echo "ERROR: live .claude/workflow or .claude/skills diverged from develop."
+    echo "Rebase the branch onto current develop before promotion (conventions.md §1.7(f))."
+    exit 1
+  fi
+  cp -r "$STAGED_DIR/.claude/." .claude/
+  git add .claude/workflow .claude/skills
+  git commit -m "Promote workflow changes from $STAGED_DIR"
+  git push
+fi
+```
+
+The commit message prefix
+`Promote workflow changes from <plan-dir>/_workflow/staged-workflow`
+matches the implementer-rules live-workflow-path gate's allow-clause
+verbatim per `../conventions.md` §1.7(b)/(e) and
+`../implementer-rules.md` § *Pre-commit gate, live-workflow-path
+check*. Any deviation from this prefix causes the gate to refuse the
+commit. The cleanup commit in Step 6 below removes the staged subtree
+alongside the rest of `_workflow/`; the live tree carries the promoted
+content forward to the merge.
+
+**Step 5 — Commit the final artifacts.**
 
 By this point the `edit-design` skill has already written
 `design-final.md` (and `design-mechanics-final.md` if applicable) to
@@ -281,7 +336,7 @@ Stage **only** the top-level final artifacts in this commit
 `adr.md`). Do **not** stage anything under
 `docs/adr/<dir-name>/_workflow/` — the ephemeral
 `design-mutations.md` log and every other working file under
-`_workflow/` are removed wholesale by the cleanup commit in Step 5
+`_workflow/` are removed wholesale by the cleanup commit in Step 6
 below.
 
 Push immediately after committing:
@@ -290,7 +345,7 @@ Push immediately after committing:
 git push
 ```
 
-**Step 5 — Cleanup commit: remove the workflow scaffolding.**
+**Step 6 — Cleanup commit: remove the workflow scaffolding.**
 
 After the final-artifacts commit lands, remove the entire `_workflow/`
 subtree in a single second commit so only `design-final.md`,
@@ -309,26 +364,26 @@ The squash-merge folds this deletion together with the rest of the
 branch's history; on `develop`, the final state is the two (or three)
 durable artifacts plus the implemented code.
 
-**Step 6 — Run self-improvement reflection.**
+**Step 7 — Run self-improvement reflection.**
 
 Load `../self-improvement-reflection.md` on-demand and follow it.
 Phase 4 friction worth recording typically lives in the
 `design-final.md` / `adr.md` templates, the cleanup-commit
 mechanics, the Ephemeral identifier rule's interaction with
 durable artifacts, or the Phase 4 resume markers. Reflection runs
-before the user-visible "Phase 4 complete" message in Step 7. The
+before the user-visible "Phase 4 complete" message in Step 8. The
 protocol creates approved proposals as YouTrack issues under
 `YTDB` with the `dev-workflow` tag (or skips with a notice if the
 YouTrack MCP server is unreachable); reflection produces no
-commit. Then proceed to Step 7.
+commit. Then proceed to Step 8.
 
-**Step 7 — Inform the user.**
+**Step 8 — Inform the user.**
 
 Tell the user Phase 4 is complete and the branch is ready for review.
 The user manually flips the draft PR to "ready for review" when
 satisfied — Claude does **not** run `gh pr ready` automatically.
 
-If reflection created any YouTrack issues in Step 6, list the issue
+If reflection created any YouTrack issues in Step 7, list the issue
 ids in the "Phase 4 complete" message so the user has a quick path
 back to them — but no further action is required of the
 implementer; the issues live in YouTrack and are independent of the
