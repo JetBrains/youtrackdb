@@ -38,20 +38,23 @@ same Phase 1; its observable behavior is unchanged.
 
 The design has four moving parts:
 
-1. **Strategy** — the entry point. Idempotent. Runs **before** both
-   pre-existing YTDB strategies (`YTDBGraphStepStrategy`,
-   `YTDBGraphCountStrategy`) — `applyPrior()` advertises them so the
-   TinkerPop strategy framework guarantees this order. It still runs
-   **after** TinkerPop's structural folders (`IncidentToAdjacentStrategy`,
+1. **Strategy** — the entry point. Idempotent. Runs **before** all three
+   pre-existing YTDB half-measure strategies (`YTDBGraphStepStrategy`,
+   `YTDBGraphCountStrategy`, `YTDBGraphMatchStepStrategy`). Ordering is
+   established the canonical TinkerPop way: each half-measure strategy
+   lists `GremlinToMatchStrategy` in its own `applyPrior()` set, so
+   TinkerPop's topological sort runs us first. `GremlinToMatchStrategy`
+   itself declares `applyPrior() = {}` and `applyPost() = {}`. It still
+   runs **after** TinkerPop's structural folders (`IncidentToAdjacentStrategy`,
    `ConnectiveStrategy`, `LazyBarrierStrategy`) so the recognizers see
    the post-fold shapes the table below describes. Walks the step list,
    decides yes/no for the whole traversal, and on yes replaces the
    entire step list with `YTDBMatchPlanStep`. **The old half-measure
    strategies become a fallback path**: when the Gremlin-to-MATCH
    strategy declines, the original step list is preserved verbatim and
-   `YTDBGraphStepStrategy` / `YTDBGraphCountStrategy` see it next — they
-   keep delivering today's behavior for queries the new translator does
-   not yet cover. The new strategy is therefore additive: every recognized
+   `YTDBGraphStepStrategy` / `YTDBGraphCountStrategy` /
+   `YTDBGraphMatchStepStrategy` see it next — they keep delivering
+   today's behavior for queries the new translator does not yet cover. The new strategy is therefore additive: every recognized
    shape gains MATCH's planner; every unrecognized shape is at least as
    well-served as before.
 2. **Translator** — a `GremlinStepWalker` that iterates
@@ -640,10 +643,13 @@ last n then fold) — since both are terminators, this composition is
 traversal). Mid-stream `tail` (e.g. `g.V().tail(3).out()`) declines
 under D3 all-or-nothing.
 
-**Phase 1 composition rules.** At most one list-shaping step appears
-in a translated traversal, immediately after the prior terminator
-(vertex hop / projection / aggregate / group / union). Two list-
-shaping steps in sequence are accepted only when the composition
+**Phase 1 composition rules.** At most one **terminator** list-shaping
+step (`fold` / `tail`) appears in a translated traversal, immediately
+after the prior terminator (vertex hop / projection / aggregate /
+group / union). It may optionally be combined with post-processor
+list-shaping steps (`reverse` / `unfold`) which transform the
+terminator's output without producing a separate result stream. Two
+list-shaping steps in sequence are accepted only when the composition
 preserves single-terminator-with-post-processing semantics:
 `fold().unfold()` is a no-op (collect then expand) but is rejected
 because two terminators violate the single-boundary rule;
@@ -747,7 +753,7 @@ followed up with the suggestion to introduce `IS DEFINED` /
 **The operators already exist in YTDB SQL.** Auditing the codebase
 during PR #1038 review surfaced that `core/src/main/grammar/YouTrackDBSql.jjt`
 already has `IsDefinedCondition` / `IsNotDefinedCondition` productions
-(lines 2900-2913: `Expression() <IS> <DEFINED>` / `Expression() <IS> <NOT>
+(lines 2897-2913: `Expression() <IS> <DEFINED>` / `Expression() <IS> <NOT>
 <DEFINED>`), with matching AST classes
 `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLIsDefinedCondition.java`
 and `SQLIsNotDefinedCondition.java`. Their `evaluate(Identifiable, ctx)`
@@ -1496,13 +1502,18 @@ cannot collide with either front-end's namespace.
 
 **Collision policy: forbid the `$` prefix in user aliases.** We chose
 the strict variant over the "generate-then-rename-on-collision" variant
-because (a) the `$`-prefix space is already reserved by YTDB MATCH for
-engine-internal aliases (`$matched`, `$currentMatch`, …) so a Gremlin
-user who picks one is already on shaky ground, and (b) the strict rule
-is one cheap lexical check at walk-time, whereas the rename-on-collision
-variant requires the walker to track every user alias before minting any
-anonymous one, then re-rename downstream references when a collision is
-detected — additional state and a bigger surface for subtle bugs.
+because (a) the `$`-prefix space is YTDB MATCH's **convention** for
+engine-internal aliases (`$matched`, `$currentMatch`, …) and the
+translator's own `$g2m_anon_` family — the grammar's `<IDENTIFIER>`
+production actually accepts `$foo` as a regular identifier (jjt
+line 590: `IDENTIFIER : (<DOLLAR>|<LETTER>)(<PART_LETTER>)*`), so the
+restriction is policy enforced by the translator, not a lexical
+constraint enforced by the parser — and (b) the strict rule is one
+cheap lexical check at walk-time, whereas the rename-on-collision
+variant requires the walker to track every user alias before minting
+any anonymous one, then re-rename downstream references when a
+collision is detected — additional state and a bigger surface for
+subtle bugs.
 
 A pre-flight scan in the walker iterates every step's `Step.getLabels()`
 once before dispatching to recognizers and declines the entire traversal

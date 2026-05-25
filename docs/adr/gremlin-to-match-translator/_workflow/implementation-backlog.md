@@ -102,6 +102,25 @@
 >   configured `BoundaryOutputType` (initially `ELEMENT`). Drives the
 >   plan's `ExecutionStream`, pulls one `Result` per `next`, projects
 >   it to the configured output type, and emits a `Traverser`.
+> - Create **`GremlinPlanCache`** in
+>   `internal/core/gremlin/translator/strategy/` (D5). Mirrors
+>   `YqlExecutionPlanCache`'s structure: Guava `Cache<String,
+>   InternalExecutionPlan>` bounded by an LRU capacity from
+>   `GlobalConfiguration`, implements `MetadataUpdateListener` and
+>   invalidates on schema / index / function / sequence / storage
+>   updates (reusing the existing hook the SQL cache subscribes to),
+>   registered as a `SharedContext` resource (one accessor on
+>   `SharedContextEmbedded`). Cache key = deterministic string
+>   rendering of `MatchPlanInputs` (resolved parameter values are
+>   already inlined into the IR by `MatchLiteralBuilder.toLiteral`, so
+>   the rendered string captures the parameter discriminator
+>   automatically — same composite-key semantic the YQL cache
+>   enforces). `GremlinToMatchStrategy.applyTranslation` does the
+>   lookup before constructing `MatchExecutionPlanner`; on miss, it
+>   plans + puts; on hit, returns the cached plan. Disabling the cache
+>   is not an option — JetBrains client applications rely on cached
+>   plans, so shipping Phase 1 without it would cause a measurable
+>   regression (D5).
 >
 > **How**:
 > - `GremlinToMatchStrategy.apply(Traversal.Admin)` walks the entire
@@ -130,17 +149,20 @@
 >      negotiated output type for `.toList()` / `.iterate()` / etc.
 > - Register the strategy in
 >   `YTDBGraphImplAbstract.registerOptimizationStrategies` (insertion
->   order is informational; runtime order is fixed by `applyPrior()`
->   placing `GremlinToMatchStrategy` before the three YTDB half-measure
->   strategies — D4). The new strategy is the primary path; old
->   strategies are the fallback when this one declines.
+>   order is informational; runtime order is fixed by each of the three
+>   YTDB half-measure strategies listing `GremlinToMatchStrategy.class`
+>   in its own `applyPrior()` set — D4 — so TinkerPop's topological
+>   sort runs us before them). The new strategy is the primary path;
+>   old strategies are the fallback when this one declines.
 >
 > **Constraints**:
 > - **In-scope files**: `internal/core/sql/executor/match/`
 >   (`MatchPlanInputs` record), `MatchExecutionPlanner` (one additive
->   ctor), `internal/core/gremlin/translator/strategy/`,
+>   ctor), `internal/core/gremlin/translator/strategy/`
+>   (`GremlinToMatchStrategy` + `GremlinPlanCache`),
 >   `internal/core/gremlin/translator/step/`,
->   `YTDBGraphImplAbstract.registerOptimizationStrategies` (one line).
+>   `YTDBGraphImplAbstract.registerOptimizationStrategies` (one line),
+>   `SharedContextEmbedded` (one new accessor for `GremlinPlanCache`).
 > - **Out of scope**: every recognised step beyond the start step
 >   (Tracks 3-11 extend the recognised set).
 > - Strategy must be idempotent — re-applying to a traversal that
@@ -345,7 +367,11 @@ flowchart LR
 >     fields to a normal `field = listLit` translation.
 >   - `Contains.within` → `in(field, list)`; `Contains.without` →
 >     `notIn(field, list)`.
->   - `P.between(lo, hi)` → `between(field, lo, hi)`.
+>   - `P.between(lo, hi)` → `and(op(field, GTE, lo), op(field, LT, hi))`
+>     (half-open `[lo, hi)` per Gremlin's `P.between` semantics —
+>     **not** `MatchWhereBuilder.between(field, lo, hi)`, which is the
+>     closed-interval `[lo, hi]` factory and would over-match by one on
+>     the upper bound).
 >   - `P.inside(lo, hi)` → `and(op(field, GT, lo), op(field, LT, hi))`.
 >   - `P.outside(lo, hi)` → `or(op(field, LT, lo), op(field, GT, hi))`.
 >   - `Text.containing` (and `TextP.containing`) →
@@ -569,13 +595,24 @@ flowchart LR
 >
 > **How**:
 > - Step ordering (provisional):
->   1. `as`-label propagation — walker reads `Step.getLabels()` and
+>   1. **`$`-prefix pre-flight gate** — walker scans every step's
+>      `Step.getLabels()` once before dispatching to recognisers and
+>      declines the entire traversal if any user-supplied label starts
+>      with `$`. The `$g2m_anon_` family is reserved for translator-
+>      minted aliases, and YTDB MATCH's engine-internal aliases
+>      (`$matched`, `$currentMatch`, …) also live in the `$` namespace;
+>      declining defensively under D3 keeps user labels from silently
+>      colliding with either generator-minted or engine-reserved slots.
+>      The check is purely lexical (no graph access), runs before any
+>      recogniser-specific gate, and falls back to native — see
+>      design.md §"Anonymous alias generation".
+>   2. `as`-label propagation — walker reads `Step.getLabels()` and
 >      pushes the label to the most recent node via
 >      `MatchPatternBuilder.alias(...)`.
->   2. `DedupStep` (no labels) — set `info.distinct = true`.
->   3. `DedupStep(labels...)` — projection-then-distinct, with decline
+>   3. `DedupStep` (no labels) — set `info.distinct = true`.
+>   4. `DedupStep(labels...)` — projection-then-distinct, with decline
 >      semantics for labels not in the projection.
->   4. Parity tests vs SQL: labels survive through the boundary into
+>   5. Parity tests vs SQL: labels survive through the boundary into
 >      downstream `select`; dedup over (a) full row, (b) single label,
 >      (c) multiple labels; traversals containing `OptionalStep` decline.
 >
@@ -886,12 +923,14 @@ flowchart LR
 > - **Recogniser ordering rule**: the recogniser walks back from the
 >   terminal step; a list-shaping step may follow any other recognised
 >   terminator (vertex hop / projection / aggregate / group / union)
->   or sit alone at the end of the chain. At most one list-shaping
->   step per translated traversal. Two list-shapers in sequence are
->   accepted only when the composition preserves single-terminator-
->   with-post-processing semantics (`reverse + unfold` or
->   `unfold + reverse`); `fold + tail` declines (two terminators
->   violate the single-boundary rule).
+>   or sit alone at the end of the chain. At most one **terminator**
+>   list-shaping step (`fold` / `tail`) per translated traversal,
+>   optionally combined with post-processor list-shaping steps
+>   (`reverse` / `unfold`). Two list-shapers in sequence are accepted
+>   only when the composition preserves single-terminator-with-post-
+>   processing semantics (`reverse + unfold` or `unfold + reverse`);
+>   `fold + tail` declines (two terminators violate the single-
+>   boundary rule).
 >
 > **Constraints**:
 > - **In-scope files**: `GremlinStepWalker` (four new recognisers),
@@ -1007,9 +1046,11 @@ flowchart LR
 >   the SQL set); scenario catalogue (worktree document, do not commit
 >   per project conventions for design/plan docs); benchmark report
 >   (worktree-only).
-> - **Out of scope**: Phase 2 cache implementation (only ESCALATE if the
->   Gremlin-on / Gremlin-native delta forces it). Adding LDBC queries
->   that don't exist in the SQL suite (we mirror the existing 20 read
+> - **Out of scope**: cache tuning beyond Track 2's baseline (Track 2
+>   ships `GremlinPlanCache` per D5; Track 12 may surface that the
+>   cache key needs additional discriminators or that eviction policy
+>   needs tuning, in which case ESCALATE). Adding LDBC queries that
+>   don't exist in the SQL suite (we mirror the existing 20 read
 >   queries — IS1–IS7, IC1–IC13).
 > - Cucumber suite test count must not decrease (count after Phase 1 ≥
 >   count before Phase 1; PR title carries `[no-test-number-check]`
