@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -631,7 +632,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.put(f.op, "key", new RecordId(1, 1));
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
     assertEquals(0, delta.getNullDelta());
@@ -649,7 +650,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.put(f.op, null, new RecordId(1, 1));
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
     assertEquals(1, delta.getNullDelta());
@@ -669,7 +670,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.remove(f.op, "k");
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(-1, delta.getTotalDelta());
     assertEquals(0, delta.getNullDelta());
@@ -690,7 +691,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.put(f.op, "k", new RecordId(2, 1));
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
   }
@@ -710,7 +711,7 @@ public class BTreeEngineHistogramBuildTest {
 
     var deltas = f.op.getOrCreateIndexCountDeltas().getDeltas();
     assertFalse("No delta should be created when replacing a live entry",
-        deltas.containsKey(0));
+        deltas.containsKey(f.engine.getId()));
   }
 
   @Test
@@ -727,7 +728,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.remove(f.op, null);
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(-1, delta.getTotalDelta());
     assertEquals(-1, delta.getNullDelta());
@@ -745,7 +746,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.validatedPut(f.op, "key", new RecordId(1, 1), null);
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
     assertEquals(0, delta.getNullDelta());
@@ -766,7 +767,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.validatedPut(f.op, "k", new RecordId(2, 1), null);
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
   }
@@ -787,7 +788,7 @@ public class BTreeEngineHistogramBuildTest {
 
     var deltas = f.op.getOrCreateIndexCountDeltas().getDeltas();
     assertFalse("No delta should be created when replacing a live entry",
-        deltas.containsKey(0));
+        deltas.containsKey(f.engine.getId()));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -807,7 +808,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.put(f.op, null, new RecordId(1, 1));
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
     assertEquals(1, delta.getNullDelta());
@@ -826,7 +827,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.put(f.op, "key", new RecordId(1, 1));
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(1, delta.getTotalDelta());
     assertEquals(0, delta.getNullDelta());
@@ -847,7 +848,7 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.remove(f.op, null, rid);
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(-1, delta.getTotalDelta());
     assertEquals(-1, delta.getNullDelta());
@@ -868,14 +869,14 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.remove(f.op, "key", rid);
 
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(-1, delta.getTotalDelta());
     assertEquals(0, delta.getNullDelta());
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // clear() resets both counters
+  // clear() — pure-delta encoding (MV) and reset-to-zero (SV, until SV clear() is rewritten)
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
@@ -917,7 +918,7 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(3, f.engine.getNullCount(f.op));
     // The collapse is encoded as a negative delta on the atomic op; the
     // engine id of MultiValueFixture is 0.
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
     assertEquals(-10L, delta.getTotalDelta());
     assertEquals(-3L, delta.getNullDelta());
@@ -925,6 +926,91 @@ public class BTreeEngineHistogramBuildTest {
     // persistCountDelta owns that write at Hook A.
     verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+  }
+
+  /**
+   * Pins the zero-zero boundary of the snapshot delta and of the accumulator's
+   * sign-aligned magnitude assert: clear() on an engine whose in-memory
+   * counters were never seeded must record an additive (0, 0) delta on the
+   * holder and must not call setApproximateEntriesCount on either tree.
+   */
+  @Test
+  public void multiValue_clear_onEmptyEngine_accumulatesZeroDelta()
+      throws IOException {
+    var f = new MultiValueFixture();
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    assertEquals(0, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+  }
+
+  /**
+   * Pins the |nullDelta| == |totalDelta| boundary of the accumulator's
+   * sign-aligned magnitude assert: when every entry is a null key, the
+   * accumulated delta has equal magnitudes on both axes.
+   */
+  @Test
+  public void multiValue_clear_nullOnlyEngine_accumulatesEqualDeltas()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntriesCount(7);
+    f.engine.addToApproximateNullCount(7);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-7L, delta.getTotalDelta());
+    assertEquals(-7L, delta.getNullDelta());
+  }
+
+  /**
+   * Pins the nullDelta == 0 boundary of the accumulator's sign-aligned
+   * magnitude assert: when no entry is a null key, only the total delta is
+   * non-zero and the assert's one-zero clause covers the configuration.
+   */
+  @Test
+  public void multiValue_clear_nonNullOnlyEngine_accumulatesZeroNullDelta()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntriesCount(5);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-5L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+  }
+
+  /**
+   * Pins additive composition across the two accumulate overloads: two prior
+   * null-key put accumulations (short-form sign=+1, isNullKey=true) followed
+   * by a clear of a (10, 3)-seeded engine must leave the holder at
+   * (-10 + 2, -3 + 2) == (-8, -1).
+   */
+  @Test
+  public void multiValue_clear_composesWithPriorPutDeltas()
+      throws IOException {
+    var f = new MultiValueFixture();
+    IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
+    IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-8L, delta.getTotalDelta());
+    assertEquals(-1L, delta.getNullDelta());
   }
 
   // ═══════════════════════════════════════════════════════════════════════

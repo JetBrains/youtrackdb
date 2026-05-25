@@ -281,11 +281,17 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
-    // clearSVTree() is invoked first to acquire the per-BTree exclusive
-    // component lock transitively via tree.remove → executeInsideComponentOperation
-    // → acquireExclusiveLockTillOperationComplete. With the lock held for the
-    // remainder of this call, the in-memory counter snapshot reads below are
-    // race-free against any concurrent commit's apply hook on the same engine.
+    // Order is load-bearing for race-freedom on the clearIndex API path:
+    // when clearSVTree() enters doClearTree's while-loop body (the common case
+    // for any populated index), the per-tree exclusive lock is acquired
+    // transitively via tree.remove → executeInsideComponentOperation →
+    // acquireExclusiveLockTillOperationComplete and held for the remainder of
+    // this call. For genuinely empty indexes, no lock is taken; the snapshot
+    // reads then race against any concurrent commit's apply hook on the same
+    // engine, but currentTotal/currentNull are 0 in normal operation and the
+    // resulting (0, 0) delta is a no-op. The commit path independently holds
+    // the per-engine lock at AbstractStorage.lockIndexes before clear() runs,
+    // so this race is API-path-only.
     clearSVTree(atomicOperation);
     // Postcondition: doClearTree must remove every entry from both trees.
     assert svTree.firstKey(atomicOperation) == null
@@ -294,12 +300,12 @@ public final class BTreeMultiValueIndexEngine
     assert nullTree.firstKey(atomicOperation) == null
         : "doClearTree() left entries in nullTree of engine=" + name + " id=" + id
             + " treeSize=" + nullTree.size(atomicOperation);
-    // Snapshot the live in-memory counters under the lock acquired above.
-    // Both reads must happen AFTER clearSVTree() returns so the per-tree
-    // exclusive lock is held; reading before clearSVTree() would race against
-    // a concurrent commit's apply hook.
+    // Snapshot under the per-tree lock acquired by clearSVTree() above.
     final long currentTotal = approximateIndexEntriesCount.get();
     final long currentNull = approximateNullCount.get();
+    assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
+        : "clear() snapshot invariant violated on engine=" + name + " id=" + id
+            + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
     // Pure-delta encoding: record the collapse as Δ = -current on the atomic
