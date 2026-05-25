@@ -360,9 +360,28 @@ orchestrator MUST:
    - **Phase 4 cleanup exception**: when the resolved handoff is
      `handoff-phase4.md` AND `adr.md` is already committed, do NOT
      produce a separate resolution commit. The Phase 4 cleanup
-     commit (Step 5 of `create-final-design.md`) `git rm -r`s
+     commit (Step 6 of `create-final-design.md`) `git rm -r`s
      `_workflow/` and removes the handoff file, PAUSED marker host
      (the plan file), and MEMORY.md entry in the same commit.
+   - **Phase 4 promotion pause site** (workflow-modifying plans
+     only): Phase 4 is a resumable pause site between the
+     promote-staged-workflow commit and the final-artifacts commit
+     on workflow-modifying plans. The promote commit defined in
+     Step 4 of `prompts/create-final-design.md` lands ahead of the
+     final-artifacts commit and copies the staged subtree onto the
+     live tree; a pause window opens between the two. On resume,
+     the `[ -d "$STAGED_DIR/.claude" ]` guard in that same Step 4
+     handles re-entry idempotently per the *Aborted promotion* edge
+     case in `design.md` § *Edge cases / Gotchas*: when the next
+     session re-enters Phase 4 with the promotion already on disk,
+     `cp -r` runs again against the already-promoted live tree as a
+     no-op and the promotion commit may then be empty (which the
+     implementer detects and skips). For plans without the staged
+     subtree (the default — the directory-presence guard evaluates
+     false), the existing State D resume from `workflow.md`
+     § *Startup Protocol* covers the path; this pause site exists
+     only on workflow-modifying plans. The contract surface is Step
+     4 of `prompts/create-final-design.md`.
 5. **After all handoffs are resolved**, run the normal startup
    state-evaluation table (the State 0 / A / C / D resume) and
    continue.
