@@ -184,3 +184,7 @@ After Track 4 lands:
 - `BTreeSingleValueIndexEngine.buildInitialHistogram(AtomicOperation)` — rewritten lines 647–650 (mixed-mode).
 - `IndexAbstract.buildHistogramAfterFill` — unchanged caller.
 - Existing untouched: `IndexCountDelta.accumulateClearOrRecalibrate(AtomicOperation, int, long, long)` (Track 3, commit `5f7f882830`, `IndexCountDelta.java:111–125`).
+
+## Base commit
+
+1ebde1e462765720b99c1d6ec445b7a59132e972
