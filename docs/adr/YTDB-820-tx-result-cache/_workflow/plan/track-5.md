@@ -20,7 +20,7 @@ Existing relevant code:
 - `AggregateState` complete with `observe(result)` (called by tap), `applyMutation(rec, status, matchAfter)` (called by DeltaBuilder), `copy()` (called by DeltaBuilder at view ctor), `toResult()` (called by view.next).
 - `AggregateCacheTapStep extends AbstractExecutionStep` — side-tap step. `internalStart(ctx)` calls `prev.start(ctx)` (reading the public `prev` field from `AbstractExecutionStep`) to get upstream stream, then returns wrapping stream whose `next(ctx)` calls `entry.aggregateState.observe(result)` before forwarding unchanged.
 - Plan-rewrite splice in `DatabaseSessionEmbedded.query()` miss path: walk `plan.steps`, find `AggregateProjectionCalculationStep`, rewire its `prev` to a new `AggregateCacheTapStep` whose `prev` is the original upstream. Failure to find expected shape → entry shape = NONE (downgrade).
-- `DeltaBuilder.buildForAggregate(entry, recordOps, ctx) → AggregateState`: `entry.aggregateState.copy()` then iterate recordOps, class filter, WHERE eval, `deltaState.applyMutation(rec, status, match_after)`. Returns the delta-applied copy.
+- `DeltaBuilder.buildForAggregate(entry, tx, ctx) → AggregateState`: take a snapshot `new ArrayList<>(tx.recordOperations.values())` first (T1 fix — same hazard as buildForRecord: UDF in WHERE may save()), copy `entry.aggregateState`, then iterate the snapshot, class filter, WHERE eval, `deltaState.applyMutation(rec, status, match_after)`. Returns the delta-applied copy.
 - `CachedResultSetView` extended: for aggregate shape, carry `deltaAggregateState` instead of `TxDeltaCursor`. `next()` returns `deltaAggregateState.toResult()` once; `hasNext()` true exactly once.
 
 ## Plan of Work

@@ -274,6 +274,15 @@ flowchart LR
 
 **Architecture honesty pass (Mutation 12, post-review)**: D5-lazy Risks/Caveats and design.md § Overview → "Why lazy merge-on-read" + § Lazy merge-on-read TL;DR were rewritten to honestly acknowledge the perf trade-off after user feedback that the reviewer's "p = 0 in common read-mostly case" framing is incorrect for Hub workloads with any writes. Decision now framed as architecture-driven (not perf-driven): lazy does ~10-20× more raw work than eager in Hub-shaped tx (1-3 writes + many same-class reads), but in absolute terms sub-millisecond per request. Trade-off accepted explicitly in exchange for elimination of K1 dispatch / version counters / fail-fast `IllegalStateException` and honored "transparent cache" promise.
 
+**Tertiary-order pass (Mutation 15, post-re-re-review)**: a tertiary review surfaced 7 issues (T1-T7) — 1 blocker, 1 should-fix, 5 suggestions. All closed:
+- T1 (blocker — CME): `DeltaBuilder.buildFor*` now snapshots `tx.recordOperations.values()` to ArrayList before iterating, preventing CME when WHERE-eval UDF calls save(). Test T4q.
+- T2 (should-fix — nested begin): `mutationVersion = 0` reset gated on `txStartCounter == 0` (outermost begin only). Test T1f.
+- T3 (suggestion): TxDeltaCursor consistently receives unmodifiable wrappers on both first-build and reuse paths.
+- T4 (suggestion): `getMutationVersion()` declared public on concrete class, not on public interface.
+- T5 (suggestion): self-healing stale-on-arrival invariant documented.
+- T6 (suggestion): `clear()` owner-thread-only invariant documented (future cross-thread cleanup must null ref, not call clear()).
+- T7 (suggestion): `cacheCodeDepth` increment-first-then-check ordering tightened; test T7n.
+
 **Second-order pass (Mutation 14, post-re-review)**: a re-review after Mutation 13 surfaced 4 second-order issues (SO1, SO4, SO5, SO6) plus a cross-reference nit. All closed:
 - SO1 (delta-cursor memory unbounded): adopted Option C — shared immutable `(skipSet, injectList)` pair per entry, keyed by `FrontendTransactionImpl.mutationVersion` counter (incremented on every `addRecordOperation` including type-collapse cases). Hub case: 1 shared pair per entry. Tests T4o (sharing via ref equality), T4p (UPDATE→DELETE collapse version sensitivity).
 - SO4 (eager-drive exception safety): plan-drive inside try; `cache.put` only on success; throw leaves cache empty. Test T5l.

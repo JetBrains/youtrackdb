@@ -277,7 +277,7 @@ A static helper `ShapeClassifier.classify(SQLStatement) → CacheableShape` deci
 
 ### TxDeltaCursor — record/match shape
 
-`DeltaBuilder.buildForRecord(entry, recordOps, ctx)` iterates `tx.recordOperations.values()`. For each `RecordOperation`:
+`DeltaBuilder.buildForRecord(entry, tx, ctx)` first takes a **snapshot** of the recordOperations entries — `var snapshot = new ArrayList<>(tx.recordOperations.values())` — before iterating. The snapshot is required because `WHERE.matchesFilters` evaluations may invoke user-defined functions which can call `session.save(...)`, causing structural modification of `tx.recordOperations` mid-iteration (Java HashMap throws `ConcurrentModificationException` on detection; even safe modes would yield observably-inconsistent iteration). Records added by UDF-triggered mutations during the build are NOT visible in this delta — they will be visible to the NEXT view constructed after the build returns, when `mutationVersion` has advanced and a fresh delta is built (per § Cross-view delta sharing via mutationVersion). The snapshot is O(p) allocation amortized across all views at the same mutationVersion via Option C sharing. The build iterates the snapshot. For each `RecordOperation`:
 
 1. **Class filter** — if `op.record.getSchemaClass().getName() ∉ entry.effectiveFromClasses`, skip (O(1) hash-set contains; the closure is precomputed at entry construction per D11). Non-`Entity` records and entities with null schema class skip the entry.
 2. **WHERE evaluation** — `match_after = entry.whereClause.matchesFilters(op.record, ctx)`. For shapes with no WHERE clause, treat as `true`.
@@ -319,16 +319,20 @@ else:
     injectList = new ArrayList<>()
     iterate(tx.recordOperations) → populate skipSet, injectList per dispatch table
     sort(injectList, entry.orderBy)
-    // Promote to entry cache (overwriting any older version's cache)
+    // Promote to entry cache (overwriting any older version's cache) — use unmodifiable wrappers
     entry.cachedSkipSet = Collections.unmodifiableSet(skipSet)
     entry.cachedInjectList = Collections.unmodifiableList(injectList)
     entry.cachedDeltaVersion = v
-return new TxDeltaCursor(skipSet, injectList, injectPosition=0)
+// Both first-build and reuse paths hand the cursor the unmodifiable wrappers (T3 fix —
+// consistent immutability surface across both branches).
+return new TxDeltaCursor(entry.cachedSkipSet, entry.cachedInjectList, injectPosition=0)
 ```
 
 Each `TxDeltaCursor` holds its own `injectPosition` counter (the iteration cursor) — that's per-view mutable state. The underlying skipSet and injectList are immutable; sharing them is safe.
 
 **Garbage collection**: when a new view at a fresher `mutationVersion` triggers rebuild, `entry.cachedSkipSet` and `entry.cachedInjectList` point at the new pair. Older views still hold their TxDeltaCursor references to the OLD pair via their `deltaCursor` field — those older pairs stay live for as long as any view references them, then become unreachable and are GC'd. The entry only ever holds a strong ref to the **latest** pair, so it does not pin older versions.
+
+**Self-healing version mismatch** (T5 invariant): a UDF-triggered `save()` during `WHERE.matchesFilters` can bump `mutationVersion` after the build started but before it promotes its pair to `entry.cachedSkipSet`. The promote then writes a "stale-on-arrival" pair: the entry briefly holds a pair tagged at an older version than `tx.getMutationVersion()`. This is **self-healing**: any subsequent view at the current (higher) version sees the version mismatch and rebuilds, immediately overwriting the stale-on-arrival pair. Wasted memory is bounded by O(p) per such mismatch, freed on the next rebuild. No correctness hazard — view-A returns a correct delta for the snapshot it iterated; view-C rebuilds for the new state.
 
 **Memory footprint**: bounded by `Σᵢ pᵢ` where the sum is over the distinct mutationVersion values currently alive across all live views. For Hub typical (1 view alive at a time, modest p): O(p) per entry. Worst case (V live views at V distinct mutationVersions): O(V × p_max). Each entry's overhead is at most `2 × p × 48B` for the cached pair plus the per-view injectPosition cursor (one int).
 
@@ -534,6 +538,10 @@ The delta-cache pair is **shared across views** on the same entry built at the s
 | **`cache.clear()` (tx end)** | `close()` / `rollbackInternal()` via `clearUnfinishedChanges()` | **NOT enforced — may run from pool-shutdown thread** |
 
 The last row is the only cross-thread access. Cache inherits this from the existing tx model (same as `localCache.clear()` and `session.closeActiveQueries()`).
+
+### `clear()` is owner-thread-only (T6 invariant)
+
+`QueryResultCache.clear()` runs on the owning thread only — protected by `FrontendTransactionImpl.assertOnOwningThread` which gates every entry to `addRecordOperation`, `beginInternal`, and the public `clear()` path. Any future cross-thread cleanup mechanism MUST NOT call `clear()` directly (it would reset `cacheCodeDepth` to 0 mid-iteration on the owner thread, silently breaking the SO5 re-entrancy guard); it must instead null the `queryResultCache` reference on `FrontendTransactionImpl` and let GC reclaim, leaving no `cacheCodeDepth` state to corrupt.
 
 ### Pool-shutdown semantics (inherited)
 

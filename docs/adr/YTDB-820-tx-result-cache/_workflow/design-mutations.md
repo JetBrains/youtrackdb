@@ -475,3 +475,46 @@ D11's `**Full design**` link updated from `"Lazy merge-on-read" → Class filter
 **Cold-read** (bounded — § Class Design + § Cross-view delta sharing + § Stream-pull dispatch unification + § Memory bounds + plan/track-1.md skeleton + plan/track-4.md DeltaBuilder + plan/track-5.md step 6 + plan/track-7.md step 8): self-audited. The mutationVersion key handles both new-add and type-collapse cases (verified by tracing UPDATE-then-DELETE-on-same-RID scenario — version increments on every addRecordOperation regardless of new/existing RID). Eager-drive try/catch covered. cacheCodeDepth counter is correct for arbitrarily-nested cache-internal calls. nonCacheableKeys lifecycle now explicit in clear() contract.
 
 **Iterations**: 1 of 3 (PASS — closes 4 second-order issues from Mutation 13 + cross-ref nit; no NEW findings).
+
+## Mutation 15 — 2026-05-25 — content-edit (design.md + plan files)
+
+**Tertiary-order pass.** A re-review after Mutation 14 surfaced 7 tertiary-order issues (T1-T7) — 1 blocker (T1), 1 should-fix (T2), 5 suggestions (T3-T7). All closed.
+
+**T1 (BLOCKER) — ConcurrentModificationException in DeltaBuilder iteration**:
+- Root cause: `DeltaBuilder.buildForRecord` iterates `tx.recordOperations.values()` directly. WHERE evaluation may invoke a UDF that calls `session.save(...)`, which mutates `recordOperations` mid-iteration. Java HashMap throws CME on detection.
+- Fix: snapshot `new ArrayList<>(tx.recordOperations.values())` at start of build, iterate the snapshot. Records added by UDF-triggered mutations during build are NOT visible in this delta — they are visible to the NEXT view (mutationVersion has advanced).
+- Applied in `design.md § TxDeltaCursor` (line 282), `plan/track-4.md` step 4 (with explicit snapshot step), and `plan/track-5.md` `buildForAggregate` description (same hazard).
+- Test T4q added (regression).
+
+**T2 (should-fix) — mutationVersion reset must be gated on `txStartCounter == 0`**:
+- Root cause: track-1.md said "beginInternal resets mutationVersion = 0" without txStartCounter guard. Nested begin (`txStartCounter > 0`) would zero the version mid-tx, breaking Option C delta sharing.
+- Fix: gate both the queryResultCache.clear() AND the mutationVersion=0 reset on `txStartCounter == 0` (outermost begin only).
+- Applied in `plan/track-1.md` skeleton deliverables. Test T1f (nested-begin version preservation) added.
+
+**T3 (suggestion) — TxDeltaCursor receives raw vs wrapped refs inconsistently**:
+- Root cause: first-build path passed raw `HashSet`/`ArrayList` to TxDeltaCursor; reuse path passed `unmodifiableSet`/`unmodifiableList` wrappers. Latent footgun for future refactors.
+- Fix: both paths now return `new TxDeltaCursor(entry.cachedSkipSet, entry.cachedInjectList, 0)` — the wrapped (unmodifiable) refs are used consistently.
+- Applied in `design.md § Cross-view delta sharing via mutationVersion` pseudocode.
+
+**T4 (suggestion) — `getMutationVersion()` accessor visibility**:
+- Fix: documented as `public long getMutationVersion()` on `FrontendTransactionImpl` concrete class (not on the public `FrontendTransaction` interface). Consumers in `internal/core/tx/cache/*` cast via the existing `DatabaseSessionEmbedded.getTx()` pattern.
+- Applied in `plan/track-1.md`.
+
+**T5 (suggestion) — self-healing stale-on-arrival cached delta**:
+- Documentation only: explicit invariant in design.md that view-A may write a "stale-on-arrival" pair if a UDF bumps mutationVersion mid-build, and that any subsequent view's version check triggers a rebuild and overwrites — self-healing, no correctness hazard.
+- Applied in `design.md § Cross-view delta sharing via mutationVersion → Self-healing version mismatch`.
+
+**T6 (suggestion) — `clear()` is owner-thread-only invariant**:
+- Documentation only: explicit invariant that `QueryResultCache.clear()` runs on owning thread only (gated by `assertOnOwningThread` in callers). Future cross-thread cleanup mechanisms MUST null the `queryResultCache` reference instead of calling clear() — to avoid resetting `cacheCodeDepth` mid-iteration on the owner thread.
+- Applied in `design.md § Concurrency and lifecycle → "clear() is owner-thread-only"` new subsection.
+
+**T7 (suggestion) — `cacheCodeDepth` increment/check ordering**:
+- Root cause: prior wording "While `cacheCodeDepth > 0`, any re-entrant call short-circuits" was ambiguous about whether the check is pre-increment or post-increment.
+- Fix: tightened to "**increment FIRST, then check** — if post-increment value `> 1`, this call is re-entrant". Test T7n (aggregate eager-drive + UDF re-entrancy) added.
+- Applied in `plan/track-7.md` step 8.
+
+**Mechanical checks**: 0 blockers; 27 should-fix `dsc-ai-tell` em-dash density findings (+1 since Mutation 14, from new prose). Pre-existing house-style debt; deferred to Phase 4 sweep.
+
+**Cold-read** (bounded — § TxDeltaCursor / § Cross-view delta sharing / § "clear() is owner-thread-only" / plan/track-1.md skeleton / plan/track-4.md DeltaBuilder / plan/track-5.md buildForAggregate / plan/track-7.md step 8): self-audited. Snapshot-then-iterate pattern consistent across buildForRecord and buildForAggregate. mutationVersion reset gating cross-referenced with FrontendTransactionImpl.beginInternal:174 (which already gates `localCache.clear()` and storage tx start on `txStartCounter == 0`). cacheCodeDepth increment-then-check ordering documented unambiguously. T6 invariant about clear() does NOT contradict I6 (idempotent clear from cross-thread tx-end paths) because I6 covers the cross-thread `close() → clearUnfinishedChanges() → clear()` chain at tx-end, where cacheCodeDepth is already 0 (no in-flight cache code on the owner thread because the owner has exited). T6 covers a hypothetical FUTURE cross-thread cleanup mechanism that fires WHILE the owner is mid-iteration — that hypothetical path must not call clear().
+
+**Iterations**: 1 of 3 (PASS — closes T1-T7; no NEW findings).

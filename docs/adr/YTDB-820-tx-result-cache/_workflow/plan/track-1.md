@@ -20,8 +20,8 @@ Lay down the foundational pieces with no behavioral change: three `GlobalConfigu
 - `CacheableShape` enum.
 - `CacheKey` class skeleton (statement + params holder; equals/hashCode stubs).
 - `FrontendTransactionImpl.queryResultCache` field (nullable; lazy-allocated via `getQueryResultCache()`).
-- `FrontendTransactionImpl.mutationVersion: long` field (initialized to 0) + `getMutationVersion()` accessor. Incremented inside `addRecordOperation(record, status)` on every call — including when the call collapses an existing entry's type (e.g., UPDATED→DELETED on same RID; size unchanged but dispatch outcome differs). This is the version key for `DeltaBuilder`'s cross-view delta sharing (per design.md § Cross-view delta sharing via mutationVersion).
-- `beginInternal()` defensive `queryResultCache.clear()` if non-null. Resets `mutationVersion = 0`.
+- `FrontendTransactionImpl.mutationVersion: long` field (initialized to 0) + **public** `getMutationVersion() → long` accessor on the concrete class (T4 fix — consumers in `internal/core/tx/cache/*` cast `Transaction` to `FrontendTransactionImpl` via the existing `DatabaseSessionEmbedded.getTx()` pattern; the accessor is NOT exposed on the public `FrontendTransaction` interface — it is implementation detail of the delta-sharing optimization). Incremented inside `addRecordOperation(record, status)` on every call — including when the call collapses an existing entry's type (e.g., UPDATED→DELETED on same RID; size unchanged but dispatch outcome differs). This is the version key for `DeltaBuilder`'s cross-view delta sharing (per design.md § Cross-view delta sharing via mutationVersion).
+- `beginInternal()` defensive `queryResultCache.clear()` if non-null **AND** `mutationVersion = 0` reset — both gated on `txStartCounter == 0` (truly outermost begin only). On nested begin (`txStartCounter > 0`), neither reset nor clear (T2 fix — mutationVersion is per-outermost-transaction; nested begin/commit pairs do not affect the counter, otherwise nested-begin would zero the version mid-tx and break Option C's delta sharing).
 - `clearUnfinishedChanges()` calls `queryResultCache.clear()` if non-null.
 - Three knobs in `GlobalConfiguration`: `QUERY_TX_RESULT_CACHE_ENABLED` (Boolean, default false), `QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (Integer, default 200), `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` (Integer, default 10000). All hot-changeable per project convention.
 
@@ -36,6 +36,7 @@ Lay down the foundational pieces with no behavioral change: three `GlobalConfigu
    - I2: cache mutation paths run only on owning thread.
    - I6: `cache.clear()` idempotent (call twice, assert no exception); `CachedEntry.close()` idempotent.
    - I8: schema DDL during active tx throws; cache state unchanged.
+   - T1f (T2 fix — nested-begin version preservation): outer `beginInternal()` sets mutationVersion=0; outer save() bumps version=1; nested `beginInternal()` (txStartCounter 1→2) MUST NOT reset version; nested save() bumps to 2; nested commit (txStartCounter 2→1) does not reset; outer save bumps to 3. Asserts mutationVersion monotonic across nested boundaries.
 
 **Invariants to preserve.** No behavioral change with cache disabled. With cache enabled, no `query()` path reads or writes it yet (that comes in Track 2). Tx lifecycle (begin / commit / rollback / close) unchanged.
 
