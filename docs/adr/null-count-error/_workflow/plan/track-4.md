@@ -8,7 +8,7 @@ After this track, the in-memory recalibration-rollback divergence is structurall
 Convert `BTreeMultiValueIndexEngine.buildInitialHistogram()` and `BTreeSingleValueIndexEngine.buildInitialHistogram()` to mixed-mode encoding. Keep today's inline `setApproximateEntriesCount(op, target)` writes on the persisted EP pages, and route the in-memory `AtomicLong` writes through a new `IndexCountDelta.accumulateInMemRecalibration(op, id, totalDelta, nullDelta)` accumulator consumed by Hook B. After this track, the in-memory recalibration-rollback divergence is structurally impossible on the `buildHistogramAfterFill` path; the persisted-side drift-healing behavior already in production is preserved.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-05-25T13:37Z [ctx=safe] Review + decomposition complete
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -23,6 +23,9 @@ Convert `BTreeMultiValueIndexEngine.buildInitialHistogram()` and `BTreeSingleVal
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
+
+- [x] Technical: PASS at iteration 2 (6 findings, all VERIFIED)
+- [x] Adversarial: PASS at iteration 2 (8 findings, all VERIFIED)
 
 ## Context and Orientation
 
@@ -83,7 +86,7 @@ Four logical edits:
    btreeEngine.addToApproximateNullCount(
        delta.getNullDelta() + delta.getInMemAdjustNull());
    ```
-   Hook A's `persistCountDelta` reads `delta.getTotalDelta()` and `delta.getNullDelta()` only and is unchanged — the in-mem-only adjustments do not feed the persisted side. Unit tests cover the additive composition of per-put deltas with a recalibration delta in the same atomic operation, the rollback discard contract, and the in-mem-only contract (Hook A's `persistCountDelta` is NOT called for in-mem-only deltas).
+   Hook A's `persistCountDelta` reads `delta.getTotalDelta()` and `delta.getNullDelta()` only and is unchanged — the in-mem-only adjustments do not feed the persisted side. Trim the existing `accumulateClearOrRecalibrate` Javadoc at `IndexCountDelta.java:78–91` to drop the two `buildInitialHistogram` caller bullets and tighten the precondition justification at lines 99–103 to mention only `clear()` callers; both `buildInitialHistogram` paths route through the new `accumulateInMemRecalibration` method post-Track-4. Unit tests cover the additive composition of per-put deltas with a recalibration delta in the same atomic operation, the rollback discard contract, and the in-mem-only contract (Hook A's `persistCountDelta` is NOT called for in-mem-only deltas).
 
 2. **Rewrite `BTreeMultiValueIndexEngine.buildInitialHistogram` lines 650–653** to mixed-mode encoding. Keep lines 650 and 651 (the two `setApproximateEntriesCount` calls on `svTree` and `nullTree` — WAL-tracked, drift-healing). Replace lines 652 and 653 (the two `AtomicLong.set` calls) with a snapshot-invariant assert and the new in-mem-only accumulator call:
    ```java
@@ -131,6 +134,11 @@ Ordering constraint: this track depends on Track 2's Hook B, which consumes the 
 Invariants to preserve: the `approxTotal` read at MV:613 / SV:624, the `approxNull` read at MV:614, and the `exactNullCount = countNulls(atomicOperation)` scan at SV:625 still feed the histogram-bucket sizing in `IndexHistogramManager.buildHistogram`. The null-tree scan logic (MV lines 631–641) is unchanged. Hook A's `persistCountDelta` is not invoked for the recalibration deltas — the persisted side is fed by the inline `setApproximateEntriesCount` writes, not by Hook A on this path.
 
 ## Concrete Steps
+
+1. Add mixed-mode plumbing to `IndexCountDelta`: new `accumulateInMemRecalibration(AtomicOperation, int, long, long)` static method (no precondition), two new package-private fields `inMemAdjustTotal` / `inMemAdjustNull` with public getters, and Hook B sum update at `AbstractStorage.applyIndexCountDeltas` (method line 2496; engine-mutator calls lines 2529–2530). Trim the `accumulateClearOrRecalibrate` Javadoc at `IndexCountDelta.java:78–103` to drop the two `buildInitialHistogram` caller bullets and tighten the precondition justification to mention only `clear()` callers. Unit tests cover additive composition, rollback discard, and in-mem-only contract.  — risk: medium (multi-file logic spanning new SPI method, holder field additions, hook wiring; touches Track 2's `applyIndexCountDeltas` consumer)  [ ]
+2. Rewrite `BTreeMultiValueIndexEngine.buildInitialHistogram` lines 650–653 to mixed-mode encoding: keep the two `setApproximateEntriesCount` calls on `svTree` and `nullTree` (lines 650–651, WAL-tracked drift-healing), replace the two `AtomicLong.set` calls (lines 652–653) with a snapshot-invariant assert plus `IndexCountDelta.accumulateInMemRecalibration(op, id, targetTotal - currentTotal, exactNullCount - currentNull)`. Update the comment block at lines 643–649 to describe the mixed-mode design.  — risk: high (concurrency: changes the persisted-vs-in-mem semantics on the recalibration path; structurally-impossible-divergence claim depends on this rewrite landing correctly; under the bifurcated lock posture the in-mem advance happens post-commit under Track 2's Hook B)  [ ]
+3. Rewrite `BTreeSingleValueIndexEngine.buildInitialHistogram` lines 647–650 with the structurally identical change for the single-tree case: keep lines 647 (`exactTotal` local) and 648 (`sbTree.setApproximateEntriesCount` call), replace lines 649–650 (the two `AtomicLong.set` calls) with the same snapshot-invariant assert plus `accumulateInMemRecalibration` call. Update the parallel comment block at lines 639–646.  — risk: high (concurrency: same surface as Step 2 for the single-value engine; SV `persistCountDelta` already ignores `nullDelta` per Track 1's cross-track signal, so the in-mem-only accumulator is the sole `nullDelta` carrier on this path)  [ ]
+4. Add `IndexAbstractBuildHistogramRollbackTest` under `core/src/test/.../index/` and rewrite the existing positive in-mem assertions in `BTreeEngineHistogramBuildTest.java`. New test builds an index with known counters, wraps `executeInsideAtomicOperation` test-side to run `engine.buildInitialHistogram(op)` then re-throw `IOException` (caught as the rewrapped `StorageException` per `AtomicOperationsManager.java:147` / `:174`), and pins: (a) in-mem `AtomicLong`s retain pre-recalibration values after the throw, (b) the persisted EP page reverts via WAL on rollback, (c) on a separate successful run both sides land on the post-recalibration target, (d) Hook B's `setApplied()` latch is true on success / false on rollback. Javadoc scopes the assertions to count counters only; CHM cache divergence is out-of-scope. Migrate the in-mem-side `assertEquals(target, f.engine.getTotalCount(f.op))` assertions in `BTreeEngineHistogramBuildTest` to the holder-inspection pattern (`f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId())`); persisted-side `verify(...setApproximateEntriesCount(target))` Mockito assertions stay.  — risk: medium (test-infrastructure changes plus a new rollback regression test; touches 10+ assertion sites in BTreeEngineHistogramBuildTest; rollback recipe inherited from Track 3 with a fresh Mockito stub seam)  [ ]
 
 ## Episodes
 
