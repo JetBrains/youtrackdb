@@ -213,8 +213,9 @@ What changes:
 - **`YTDBGraphImplAbstract.registerOptimizationStrategies` (1-line change)** —
   `GremlinToMatchStrategy.instance()` added to the strategy list. Position
   in the addition order is informational; actual strategy execution order
-  is enforced by `applyPrior()` + `applyPost()` declarations on the new
-  strategy class itself (see D4 — Ordering mechanism).
+  is enforced by each of the three YTDB half-measure strategies listing
+  `GremlinToMatchStrategy.class` in its own `applyPrior()` set (see
+  D4 — Ordering mechanism).
 
 #### D1: Integration via `ProviderOptimizationStrategy`
 
@@ -273,15 +274,16 @@ What changes:
 - **Rationale**: simpler walker (one yes/no decision, no prefix-cut
   bookkeeping), fewer edge cases (no output-type negotiation across
   a mid-traversal boundary, no label propagation, no `path()`-interaction
-  subtleties), and the Phase 2 cache work is unaffected — the cache key
-  shape is the same. Native fallback is preserved at traversal granularity
+  subtleties), and orthogonal to the plan-cache work in D5 — the
+  cache key shape is unaffected by whether translation is all-or-nothing
+  or hybrid. Native fallback is preserved at traversal granularity
   rather than step granularity, which matches how operators reason about
   "this query did or did not benefit from MATCH". Phase 1's minimal scope
   is `g.V()` / `g.V(ids)` only; the hybrid mechanism only pays off if the
   recognized set is large enough that mid-traversal cuts produce useful
-  plans. Phase 2 will introduce the full caching and recognized-set
-  expansion — there is no value in growing the hybrid mechanism in Phase 1
-  only to retire or rework it later.
+  plans. Phase 2 may revisit hybrid translation once the recognized set
+  is broad enough — there is no value in growing the hybrid mechanism in
+  Phase 1 only to retire or rework it later.
 - **Risks/Caveats**: the recognized step set grows track by track; until
   it covers the LDBC-relevant shapes, most production traversals will
   decline. Track 12's perf baseline must measure against the recognized
@@ -326,11 +328,17 @@ What changes:
   traversal ends up with `YTDBGraphStep` after all strategies (proves
   fallback fires); (2) a recognised traversal ends up with exactly
   one `YTDBMatchPlanStep` (proves half-measures no-op'd cleanly).
-- **Ordering mechanism**: `applyPrior()` returns the three half-measure
-  strategies (they run **after** us). `applyPost()` returns the
-  TinkerPop structural folders the recognizer table depends on
+- **Ordering mechanism**: canonical TinkerPop pattern — each of the
+  three half-measure strategies (`YTDBGraphStepStrategy`,
+  `YTDBGraphCountStrategy`, `YTDBGraphMatchStepStrategy`) lists
+  `GremlinToMatchStrategy.class` in its own `applyPrior()` set, so
+  TinkerPop's topological sort runs us before them. Our strategy
+  declares `applyPrior() = {}` and `applyPost() = {}` — zero-config
+  on our side. The TinkerPop structural folders
   (`IncidentToAdjacentStrategy`, `ConnectiveStrategy`,
-  `LazyBarrierStrategy`).
+  `LazyBarrierStrategy`) already run before any provider strategy via
+  the Decoration → Optimization → Provider ordering, so they don't
+  need explicit declarations on either side.
 - **Implemented in**: Track 2.
 
 #### D5: Plan cache lands in Phase 1 keyed on (traversal-fingerprint × parameter values)
@@ -588,10 +596,10 @@ What changes:
 
 - **Strategy registration**: `YTDBGraphImplAbstract.registerOptimizationStrategies(Class)`,
   one new line adding `GremlinToMatchStrategy.instance()`. Insertion
-  order is informational — the runtime order is fixed by
-  `applyPrior()` / `applyPost()` declarations on the new strategy
-  itself, which place it before all three YTDB half-measure strategies
-  (see D4).
+  order is informational — the runtime order is fixed by each of the
+  three YTDB half-measure strategies listing `GremlinToMatchStrategy.class`
+  in its own `applyPrior()` set (see D4), so TinkerPop's topological
+  sort runs us before all three.
 - **Polymorphism flag**: Translator reads
   `YTDBStrategyUtil.isPolymorphic(traversal)` and conveys polymorphism into
   the IR (e.g. `SQLMatchFilter.className` for the polymorphic case is
