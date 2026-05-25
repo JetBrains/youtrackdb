@@ -524,9 +524,11 @@ of post-process flags (`unfoldOutput`, `reverseOutput`,
 `tailLimit: int?`) — distinct from `dropNullRows`, which is row-level
 filtering rather than re-shaping.
 
-Phase 1 ships all four output types — `ELEMENT` from Track 3 (vertex
-hops), `MAP` and `SINGLE_VALUE` from Track 7 (projections), and `SCALAR`
-plus `MAP` from Track 9 (aggregations). Each track pins the output type
+Phase 1 ships all five output types — `ELEMENT` from Track 3 (vertex
+hops), `MAP` and `SINGLE_VALUE` from Track 7 (projections), `SCALAR`
+plus `MAP` from Track 9 (aggregations), and `LIST` from Track 11
+(`fold` — see "List-shaping terminators"). Each track pins the output
+type
 for the terminal step it adds to the recognized set. Track 3 is the
 first track that wires a boundary step at all — so the temporal
 sequencing is "Track 3 lands `ELEMENT`; subsequent tracks add their
@@ -587,8 +589,8 @@ the same characteristic, so this matches semantics, not just shape.
 (`UnfoldStep.flatMap`): for each input traverser, if the carried
 value is `Iterator` → return it; `Iterable` → return `.iterator()`;
 `Map` → return `entrySet().iterator()`; array → return its element
-iterator; otherwise return `Collections.singletonList(value)
-.iterator()` (no-op). Translation: the recogniser sets
+iterator; otherwise return `IteratorUtils.of(value)` (single-element
+iterator — semantically a no-op). Translation: the recogniser sets
 `unfoldOutput = true` on the boundary step; `processNextStart`
 intercepts each upstream emission, calls a small `unfold(value)`
 helper that mirrors `UnfoldStep.flatMap`, and emits one traverser per
@@ -874,8 +876,9 @@ guarded by `col.size() == 1` AND `the other operand is not a
 Collection` — so it fires only for the **singleton-collection-vs-scalar**
 shape. Non-singleton collection literals (`[a, b]`, `[]`) fall through
 to `iLeft.equals(right)` which is Java `List.equals` — structural and
-order-sensitive, matching `COMPARABILITY.contentsComparable` on the
-TinkerPop side. Both engines agree on every non-singleton row above.
+order-sensitive, matching the structural list-equality `COMPARABILITY`
+uses internally for `Iterable` operands on the TinkerPop side. Both
+engines agree on every non-singleton row above.
 
 Recognizer rules that close the divergence:
 
@@ -899,8 +902,9 @@ Recognizer rules that close the divergence:
   - `coll.size() != 1` (empty literal or multi-element literal):
     translate normally to `field = listLiteral` / `field != listLiteral`.
     Both engines fall through to `iLeft.equals(right)` / Java
-    `List.equals` (YTDB) and `COMPARABILITY.contentsComparable` (TP),
-    which are both structural and order-sensitive — same result.
+    `List.equals` (YTDB) and the structural list-equality `COMPARABILITY`
+    uses internally for `Iterable` operands (TP) — both are structural
+    and order-sensitive, same result.
   - Phase 2 narrows the decline further with **schema-aware rewrite**
     when the field's `PropertyType` is statically known:
     - `STRING` / `INTEGER` / `LONG` / `DOUBLE` / ... (scalar types) +
