@@ -39,29 +39,32 @@ import org.junit.Test;
 public class BTreeEngineHistogramBuildTest {
 
   /**
-   * Concurrency-contract note shared by every SV clear() unit test below.
+   * Concurrency-contract note shared by every clear() unit test below for
+   * both the single-value and multi-value engines.
    *
-   * <p>The Mockito-based SingleValueFixture short-circuits doClearTree:
-   * sbTree.size() returns Mockito's primitive default 0L, so the
-   * iterate-and-remove while-loop body inside doClearTree() never executes,
-   * sbTree.remove → executeInsideComponentOperation →
+   * <p>Both Mockito-based fixtures (SingleValueFixture and MultiValueFixture)
+   * short-circuit the inner tree-clearing helper: the mock trees return
+   * Mockito's primitive default 0L from size(), so the iterate-and-remove
+   * while-loop body inside doClearTree() (SV) and clearSVTree() (MV) never
+   * executes. tree.remove → executeInsideComponentOperation →
    * acquireExclusiveLockTillOperationComplete is never reached, and the
    * per-tree exclusive lock that the production comment in
-   * BTreeSingleValueIndexEngine.clear() calls "load-bearing" is NOT acquired
-   * during these tests.
+   * BTreeSingleValueIndexEngine.clear() and BTreeMultiValueIndexEngine.clear()
+   * calls "load-bearing" is NOT acquired during these tests.
    *
    * <p>That makes these tests valid pins for the pure-delta accumulator
    * contract (negative delta recorded, in-memory AtomicLongs untouched,
    * persisted EP page not written directly) but they say nothing about the
    * lock-window race against a concurrent commit's apply hook on the same
-   * engine. That race is exercised by the planned commit-path rollback
-   * regression test (this track's next step) and is out of scope here.
+   * engine. That race is exercised by the commit-path rollback regression
+   * tests on both engines (BTreeMultiValueIndexEngineClearRollbackTest,
+   * BTreeSingleValueIndexEngineClearRollbackTest) and is out of scope here.
    */
-  private static final String SV_CLEAR_CONCURRENCY_CONTRACT_NOTE =
-      "Mockito fixture short-circuits doClearTree(); the per-tree exclusive"
-          + " lock claimed in the production comment is NOT acquired here."
-          + " The lock-window race is exercised by the planned commit-path"
-          + " rollback regression test, not by this unit test.";
+  private static final String CLEAR_CONCURRENCY_CONTRACT_NOTE =
+      "Mockito fixtures short-circuit doClearTree()/clearSVTree(); the"
+          + " per-tree exclusive lock claimed in the production comment is NOT"
+          + " acquired here. The lock-window race is exercised by the"
+          + " commit-path rollback regression tests, not by this unit test.";
 
   // ═══════════════════════════════════════════════════════════════════════
   // Single-value: buildInitialHistogram()
@@ -917,14 +920,14 @@ public class BTreeEngineHistogramBuildTest {
    * nullDelta because nulls live in the same tree as non-null keys), the
    * in-memory AtomicLongs via the apply hook before lock release.
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
   public void singleValue_clear_recordsNegativeDeltaWithoutInMemoryMutation()
       throws IOException {
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
@@ -959,14 +962,14 @@ public class BTreeEngineHistogramBuildTest {
    * (0, 0) delta on the holder and must not touch the persisted EP page via
    * either persisted-side mutator on the single tree.
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
   public void singleValue_clear_onEmptyEngine_accumulatesZeroDelta()
       throws IOException {
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
 
     f.engine.clear(f.storage, f.op);
@@ -988,14 +991,14 @@ public class BTreeEngineHistogramBuildTest {
    * sign-aligned magnitude assert on the single-value engine: when every entry
    * is a null key, the accumulated delta has equal magnitudes on both axes.
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
   public void singleValue_clear_nullOnlyEngine_accumulatesEqualDeltas()
       throws IOException {
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
     f.engine.addToApproximateEntriesCount(7);
     f.engine.addToApproximateNullCount(7);
@@ -1014,14 +1017,14 @@ public class BTreeEngineHistogramBuildTest {
    * only the total delta is non-zero and the assert's one-zero clause covers
    * the configuration.
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
   public void singleValue_clear_nonNullOnlyEngine_accumulatesZeroNullDelta()
       throws IOException {
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
     f.engine.addToApproximateEntriesCount(5);
 
@@ -1039,14 +1042,14 @@ public class BTreeEngineHistogramBuildTest {
    * sign=+1, isNullKey=true) followed by a clear of a (10, 3)-seeded engine
    * must leave the holder at (-10 + 2, -3 + 2) == (-8, -1).
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
   public void singleValue_clear_composesWithPriorPutDeltas()
       throws IOException {
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
     IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
     IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
@@ -1076,14 +1079,14 @@ public class BTreeEngineHistogramBuildTest {
    * nullDelta would fail this test even though the accumulator-only tests
    * above stay green.
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
   public void singleValue_clear_persistCountDeltaIgnoresNullDelta_butAccumulatorRecordsIt()
       throws IOException {
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
@@ -1126,7 +1129,7 @@ public class BTreeEngineHistogramBuildTest {
    * snapshot-invariant violation falls through silently to the accumulator,
    * which has its own runtime check.
    *
-   * <p>See {@link #SV_CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
@@ -1134,7 +1137,7 @@ public class BTreeEngineHistogramBuildTest {
   public void singleValue_clear_assertsSnapshotInvariant_currentNullExceedsTotal()
       throws IOException {
     assumeTrue(BTreeSingleValueIndexEngine.class.desiredAssertionStatus());
-    assertNotNull(SV_CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
     // Seed drift: null > total. The two AtomicLongs are independent at the
     // fixture level, so we set total=2 and null=5 directly via the public
@@ -1158,23 +1161,30 @@ public class BTreeEngineHistogramBuildTest {
     }
   }
 
+  /**
+   * Pure-delta contract for the multi-value engine's clear(): the snapshot
+   * read of the in-memory counters happens after clearSVTree() acquires the
+   * per-tree exclusive lock, the resulting -current delta is accumulated on
+   * the atomic op, and neither the in-memory AtomicLong counters nor the
+   * persisted EP pages are mutated inside clear() itself. Both sides advance
+   * later: the persisted EP pages via persistCountDelta before commitChanges,
+   * the in-memory AtomicLongs via the apply hook before lock release.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
+   */
   @Test
   public void multiValue_clear_recordsNegativeDeltaWithoutInMemoryMutation()
       throws IOException {
-    // Pure-delta contract for the multi-value engine's clear(): the snapshot
-    // read of the in-memory counters happens after clearSVTree() acquires the
-    // per-tree exclusive lock, the resulting -current delta is accumulated on
-    // the atomic op, and neither the in-memory AtomicLong counters nor the
-    // persisted EP pages are mutated inside clear() itself. Both sides advance
-    // later: the persisted EP pages via persistCountDelta before commitChanges,
-    // the in-memory AtomicLongs via the apply hook before lock release.
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new MultiValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
 
     f.engine.clear(f.storage, f.op);
 
-    // In-memory counters must NOT move inside clear() — they are advanced by
+    // In-memory counters must NOT move inside clear(); they are advanced by
     // the apply hook after commitChanges, so a rolled-back clear leaves them
     // intact.
     assertEquals(10, f.engine.getTotalCount(f.op));
@@ -1185,21 +1195,34 @@ public class BTreeEngineHistogramBuildTest {
     assertNotNull(delta);
     assertEquals(-10L, delta.getTotalDelta());
     assertEquals(-3L, delta.getNullDelta());
-    // The persisted EP pages must not be touched directly inside clear();
-    // persistCountDelta owns that write at Hook A.
+    // The persisted EP pages must not be touched directly inside clear() via
+    // either persisted-side mutator on the underlying trees. persistCountDelta
+    // owns the EP-page write at Hook A; setApproximateEntriesCount and the
+    // sibling addToApproximateEntriesCount both write the EP slot, so both are
+    // pinned negative here. A future regression that bypasses the delta holder
+    // by calling svTree.addToApproximateEntriesCount(op, -currentTotal)
+    // directly inside clear() would slip past a setApproximateEntriesCount-only
+    // check.
     verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
    * Pins the zero-zero boundary of the snapshot delta and of the accumulator's
    * sign-aligned magnitude assert: clear() on an engine whose in-memory
    * counters were never seeded must record an additive (0, 0) delta on the
-   * holder and must not call setApproximateEntriesCount on either tree.
+   * holder and must not touch either persisted-side mutator on either tree.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
    */
   @Test
   public void multiValue_clear_onEmptyEngine_accumulatesZeroDelta()
       throws IOException {
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new MultiValueFixture();
 
     f.engine.clear(f.storage, f.op);
@@ -1210,18 +1233,27 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(0L, delta.getNullDelta());
     assertEquals(0, f.engine.getTotalCount(f.op));
     assertEquals(0, f.engine.getNullCount(f.op));
+    // Both persisted-side mutators are pinned negative (see the longer note
+    // in multiValue_clear_recordsNegativeDeltaWithoutInMemoryMutation).
     verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
    * Pins the |nullDelta| == |totalDelta| boundary of the accumulator's
    * sign-aligned magnitude assert: when every entry is a null key, the
    * accumulated delta has equal magnitudes on both axes.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
    */
   @Test
   public void multiValue_clear_nullOnlyEngine_accumulatesEqualDeltas()
       throws IOException {
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new MultiValueFixture();
     f.engine.addToApproximateEntriesCount(7);
     f.engine.addToApproximateNullCount(7);
@@ -1232,16 +1264,25 @@ public class BTreeEngineHistogramBuildTest {
     assertNotNull(delta);
     assertEquals(-7L, delta.getTotalDelta());
     assertEquals(-7L, delta.getNullDelta());
+    // Both persisted-side mutators are pinned negative (see the longer note
+    // in multiValue_clear_recordsNegativeDeltaWithoutInMemoryMutation).
+    verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
    * Pins the nullDelta == 0 boundary of the accumulator's sign-aligned
    * magnitude assert: when no entry is a null key, only the total delta is
    * non-zero and the assert's one-zero clause covers the configuration.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
    */
   @Test
   public void multiValue_clear_nonNullOnlyEngine_accumulatesZeroNullDelta()
       throws IOException {
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new MultiValueFixture();
     f.engine.addToApproximateEntriesCount(5);
 
@@ -1251,6 +1292,10 @@ public class BTreeEngineHistogramBuildTest {
     assertNotNull(delta);
     assertEquals(-5L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Both persisted-side mutators are pinned negative (see the longer note
+    // in multiValue_clear_recordsNegativeDeltaWithoutInMemoryMutation).
+    verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
@@ -1258,10 +1303,15 @@ public class BTreeEngineHistogramBuildTest {
    * null-key put accumulations (short-form sign=+1, isNullKey=true) followed
    * by a clear of a (10, 3)-seeded engine must leave the holder at
    * (-10 + 2, -3 + 2) == (-8, -1).
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
    */
   @Test
   public void multiValue_clear_composesWithPriorPutDeltas()
       throws IOException {
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new MultiValueFixture();
     IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
     IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
@@ -1274,6 +1324,99 @@ public class BTreeEngineHistogramBuildTest {
     assertNotNull(delta);
     assertEquals(-8L, delta.getTotalDelta());
     assertEquals(-1L, delta.getNullDelta());
+    // Both persisted-side mutators are pinned negative (see the longer note
+    // in multiValue_clear_recordsNegativeDeltaWithoutInMemoryMutation).
+    verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+  }
+
+  /**
+   * Pins the multi-value persistCountDelta contract: clear() accumulates the
+   * full (-10, -3) delta on the holder, and a direct persistCountDelta call
+   * with that delta produces a two-tree split: nonNullDelta = totalDelta -
+   * nullDelta = -10 - (-3) = -7 to svTree, and nullDelta = -3 to nullTree.
+   * A future refactor that swaps the two trees or drops one of the writes
+   * would not be caught by the accumulator-only tests above.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
+   */
+  @Test
+  public void multiValue_clear_persistCountDeltaSplitsAcrossBothTrees()
+      throws IOException {
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-10L, delta.getTotalDelta());
+    assertEquals(-3L, delta.getNullDelta());
+
+    // Drive persistCountDelta with the recorded delta. The MV engine splits:
+    // nonNullDelta = totalDelta - nullDelta = -10 - (-3) = -7 to svTree;
+    // nullDelta = -3 to nullTree.
+    f.engine.persistCountDelta(f.op, delta.getTotalDelta(), delta.getNullDelta());
+
+    verify(f.svTree).addToApproximateEntriesCount(f.op, -7L);
+    verify(f.nullTree).addToApproximateEntriesCount(f.op, -3L);
+    // No setApproximateEntriesCount call on either tree — that mutator is the
+    // buildInitialHistogram path, not the delta path.
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+  }
+
+  /**
+   * Pins the snapshot-invariant assert message added in production at
+   * BTreeMultiValueIndexEngine.clear(): when the in-memory non-null counter
+   * (currentTotal) is smaller than the in-memory null counter (currentNull),
+   * the assert fires and the message carries the engine identity
+   * (engine=test-mv) plus the drifted payload (currentTotal=2 currentNull=5)
+   * so the CI stack trace points at the right engine immediately.
+   *
+   * <p>This is the failure-side counterpart to the five pass-side MV clear
+   * tests above. A future refactor that drops the engine name from the assert
+   * message would slip past those tests but fail this one.
+   *
+   * <p>The test is gated on assertion-status because the production check is
+   * a Java {@code assert} statement; in production runs with -ea off the
+   * snapshot-invariant violation falls through silently to the accumulator,
+   * which has its own runtime check.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits clearSVTree().
+   */
+  @Test
+  public void multiValue_clear_assertsSnapshotInvariant_currentNullExceedsTotal()
+      throws IOException {
+    assumeTrue(BTreeMultiValueIndexEngine.class.desiredAssertionStatus());
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    var f = new MultiValueFixture();
+    // Seed drift: null > total. The two AtomicLongs are independent at the
+    // fixture level, so set total=2 and null=5 directly via the public addTo
+    // helpers — currentNull (5) > currentTotal (2) violates the snapshot
+    // invariant.
+    f.engine.addToApproximateEntriesCount(2);
+    f.engine.addToApproximateNullCount(5);
+
+    try {
+      f.engine.clear(f.storage, f.op);
+      fail("expected AssertionError because currentNull > currentTotal");
+    } catch (AssertionError expected) {
+      var msg = expected.getMessage();
+      assertNotNull("assert must carry a message", msg);
+      assertTrue(
+          "assert message must carry engine identity, got: " + msg,
+          msg.contains("engine=test-mv"));
+      assertTrue(
+          "assert message must carry the drifted snapshot, got: " + msg,
+          msg.contains("currentTotal=2") && msg.contains("currentNull=5"));
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════

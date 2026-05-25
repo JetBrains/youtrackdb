@@ -286,12 +286,19 @@ public final class BTreeMultiValueIndexEngine
     // for any populated index), the per-tree exclusive lock is acquired
     // transitively via tree.remove → executeInsideComponentOperation →
     // acquireExclusiveLockTillOperationComplete and held for the remainder of
-    // this call. For genuinely empty indexes, no lock is taken; the snapshot
-    // reads then race against any concurrent commit's apply hook on the same
-    // engine, but currentTotal/currentNull are 0 in normal operation and the
-    // resulting (0, 0) delta is a no-op. The commit path independently holds
-    // the per-engine lock at AbstractStorage.lockIndexes before clear() runs,
-    // so this race is API-path-only.
+    // this call. For the API path on a genuinely empty index (both svTree
+    // and nullTree empty), neither per-tree lock is taken because size()==0
+    // skips the while-loop in doClearTree; the snapshot reads then race
+    // against any concurrent commit's apply hook on the same engine, but
+    // currentTotal/currentNull are 0 in normal operation and the resulting
+    // (0, 0) delta is a no-op. If only one of the two trees is empty, only
+    // the populated tree's lock is acquired transitively; the snapshot of
+    // the engine-level AtomicLongs can capture a concurrent put against the
+    // empty side before the snapshot read. The resulting in-memory counter
+    // divergence is bounded and self-healed by buildInitialHistogram
+    // recalibration on the next touch. The commit path independently holds
+    // the per-engine lock at AbstractStorage.lockIndexes before clear()
+    // runs, so this race is clearIndex API-path-only.
     clearSVTree(atomicOperation);
     // Postcondition: doClearTree must remove every entry from both trees.
     assert svTree.firstKey(atomicOperation) == null
@@ -309,15 +316,18 @@ public final class BTreeMultiValueIndexEngine
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
     // Pure-delta encoding: record the collapse as Δ = -current on the atomic
-    // op. The persist hook writes (-currentTotal, -currentNull) to both EP
-    // pages before commitChanges; the apply hook then advances the in-memory
-    // AtomicLong counters after commitChanges but before lock release. The
-    // persisted EP page is transiently out of sync with the now-empty tree
-    // until the persist hook runs. Any pre-existing drift between in-memory
-    // and persisted is intentionally not normalised here; eagerly zeroing the
-    // persisted side would re-introduce the in-atomic-op write that this
-    // encoding removes, and buildInitialHistogram() recalibration covers the
-    // rare residual case on next touch.
+    // op. The persist hook calls persistCountDelta, which splits the delta
+    // (nonNullDelta = totalDelta - nullDelta) and writes -currentNonNull to
+    // svTree's EP page and -currentNull to nullTree's EP page before
+    // commitChanges; the net intent is the full collapse. The apply hook
+    // then advances the in-memory AtomicLong counters after commitChanges
+    // but before lock release. The persisted EP pages are transiently out
+    // of sync with the now-empty trees until the persist hook runs. Any
+    // pre-existing drift between in-memory and persisted is intentionally
+    // not normalised here; eagerly zeroing the persisted side would
+    // re-introduce the in-atomic-op write that this encoding removes, and
+    // buildInitialHistogram() recalibration covers the rare residual case
+    // on next touch.
     IndexCountDelta.accumulateClearOrRecalibrate(
         atomicOperation, id, -currentTotal, -currentNull);
     var mgr = histogramManager;

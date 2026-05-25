@@ -24,41 +24,40 @@ import org.junit.Test;
  * (NOTUNIQUE) index engine, exercised through the main commit path. The
  * transaction is marked {@code cleared = true} via the public
  * {@code FrontendTransaction.addIndexEntry(... OPERATION.CLEAR ...)} API.
- * {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage}'s
- * {@code commitIndexes} method dispatches to {@code doClearIndex} when that
- * flag is set, under the per-engine exclusive lock acquired by
- * {@code lockIndexes}. A pushed {@link RecordSerializationOperation} throws a
- * wrapped {@link java.io.IOException} from inside the inner try of
- * {@code AbstractStorage.commit}'s commit phase, routing the failure through
- * the pre-{@code endTxCommit} catch at
+ * A pushed {@link RecordSerializationOperation} throws a wrapped
+ * {@link java.io.IOException} from inside {@code executeOperations}, which
+ * fires before {@code commitIndexes} would dispatch to {@code doClearIndex}.
+ * The throw routes through the pre-{@code endTxCommit} catch at
  * {@code AbstractStorage.java:2335} (whose clause catches
  * {@code IOException | RuntimeException | AssertionError}) and into rollback.
  *
- * <p>The contract pinned here: after the rolled-back commit, both the
- * in-memory ({@code approximateIndexEntriesCount}, {@code approximateNullCount})
- * and persisted ({@code svTree} entry-point page, {@code nullTree}
- * entry-point page) counter sides stay at the preparatory-commit values. The
- * persisted side is read by closing and reopening the database. The reopen's
- * {@code load()} recalibrates the in-memory counters from the persisted
- * entry-point pages, so post-restart equality with the pre-rollback reads
- * proves the persisted side matches the preparatory-commit values bit for
- * bit. Under today's pure-delta encoding the apply hook in
- * {@code endAtomicOperation} skips its apply step when the lifecycle gate
- * observes a non-null {@code error}, so the in-memory side never advances
- * past pre-clear; the persist hook similarly skips on rollback so the
- * persisted entry-point pages never receive the {@code -currentTotal} /
- * {@code -currentNull} delta.
+ * <p>The contract pinned here is the weaker shape that the failure-injection
+ * seam can actually verify: a rolled-back transaction tagged with
+ * {@code OPERATION.CLEAR} plus queued puts leaves the in-memory and
+ * persisted counter sides at their preparatory-commit values because the
+ * failure fires inside {@code executeOperations} (at
+ * {@code AbstractStorage:2331}) before {@code commitIndexes} (at
+ * {@code AbstractStorage:2333}) reaches the {@code if (changes.cleared)}
+ * branch. {@code engine.clear()} never runs, no delta is accumulated on the
+ * atomic op, and the consolidated-lifecycle hooks (apply and persist) have
+ * nothing to skip. The contract under test is the cleared-flag-plus-rollback
+ * survival path: even when the transaction is tagged for a clear, a
+ * pre-{@code commitIndexes} failure must not corrupt the engine counters.
+ * The persisted side is read by closing and reopening the database; the
+ * reopen's {@code load()} recalibrates the in-memory counters from the
+ * persisted entry-point pages, so post-restart equality with the pre-failure
+ * reads proves the persisted side matches the preparatory-commit values.
+ *
+ * <p>The complementary coverage where {@code engine.clear()} actually runs
+ * and is rolled back via the consolidated lifecycle apply gate
+ * ({@code currentError == null}) lives in {@code ClearIndexApiRollbackTest},
+ * which injects a throwing {@code IndexHistogramManager.resetOnClear} stub
+ * to trigger rollback from inside {@code clear()}.
  *
  * <p>Note on the failure-injection seam. Pushing a
  * {@link RecordSerializationOperation} throws before {@code commitIndexes}
- * runs. The push fires at {@code executeOperations} on the line that
- * precedes the {@code commitIndexes} call inside the same inner try, so the
- * engine's {@code clear} method never executes inside the failed
- * transaction. The contract under test is the cleared-flag-plus-rollback
- * survival path: even when the transaction is tagged for a clear, a
- * pre-{@code commitIndexes} failure must not corrupt the engine counters.
- * The API-path counterpart that exercises the apply hook gate after a
- * successful {@code clear} call lives in {@code ClearIndexApiRollbackTest}.
+ * runs, so the engine's {@code clear} method never executes inside the
+ * failed transaction.
  */
 public class BTreeMultiValueIndexEngineClearRollbackTest {
 
@@ -97,14 +96,20 @@ public class BTreeMultiValueIndexEngineClearRollbackTest {
    * null 1). The failing transaction (a) marks the index for clear via
    * {@code OPERATION.CLEAR}, (b) queues additional puts, and (c) pushes a
    * {@code RecordSerializationOperation} that throws a wrapped IOException
-   * to drive rollback. Post-rollback in-memory reads must report (4, 1); the
-   * close-and-reopen reads (which recalibrate from the persisted entry-point
-   * pages via {@code load()}) must also report (4, 1). A regression where
-   * the rollback path failed to skip the apply hook would advance the
-   * in-memory side past pre-clear; a regression where the persist hook ran
-   * on the rollback path would move the persisted side away from the
-   * preparatory-commit values, and the close-and-reopen assertion would
-   * catch that.
+   * to drive rollback.
+   *
+   * <p>The failure fires inside {@code executeOperations} before
+   * {@code commitIndexes} reaches the cleared-flag branch, so
+   * {@code engine.clear()} never runs. The test pins the survival contract:
+   * a rolled-back cleared-flag transaction must not corrupt the engine
+   * counters. Post-rollback in-memory reads must report (4, 1); the
+   * close-and-reopen reads (which recalibrate from the persisted
+   * entry-point pages via {@code load()}) must also report (4, 1). A
+   * regression where the cleared-flag branch ran any portion of the clear
+   * dispatch before the rollback path could trip the apply gate would show
+   * up as a drifted in-memory quad; a regression where the engine state
+   * itself was corrupted during {@code executeOperations} would show up
+   * after the close-and-reopen.
    */
   @Test
   public void multiValueCommitPathClearRollback_countersStayAtPreClearValues()

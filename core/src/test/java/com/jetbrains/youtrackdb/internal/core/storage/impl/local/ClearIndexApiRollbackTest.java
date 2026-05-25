@@ -43,10 +43,13 @@ import org.junit.Test;
  * <p>Failure-injection seam. The test reflectively replaces the target
  * engine's {@code histogramManager} field with a stub whose
  * {@code resetOnClear(AtomicOperation)} throws {@link IOException}. The
- * throw routes through {@code engine.clear()}'s inner
- * {@code try/catch (IOException)} wrap (SV at lines 277-280) or the MV
- * histogram block's inline {@code try/catch (IOException)} (MV at lines
- * 317-324), which wraps as {@code IndexException} and escapes the
+ * throw routes through {@code engine.clear()}'s IOException-to-IndexException
+ * wrap: on the multi-value engine this is the inline
+ * {@code try/catch (IOException)} wrapping the {@code mgr.resetOnClear}
+ * call inside {@code BTreeMultiValueIndexEngine.clear()}; on the
+ * single-value engine this is the method-level {@code try/catch (IOException)}
+ * wrap around the body of {@code BTreeSingleValueIndexEngine.clear()}. Both
+ * paths wrap as {@code IndexException} and escape the
  * {@code executeInsideAtomicOperation} lambda, triggering rollback. The
  * apply hook's {@code currentError == null} gate then skips apply, so both
  * counter sides retain pre-clear values.
@@ -184,6 +187,15 @@ public class ClearIndexApiRollbackTest {
    * field is {@code private volatile} on the engine implementation; the
    * test exercises a failure path that does not exist in the public API
    * surface, so reflection is the only available seam.
+   *
+   * <p>Implementation note: relies on {@code Field.set} / {@code Field.get}
+   * honouring the production field's {@code volatile} semantics. A future
+   * refactor that drops {@code volatile} on the field would leave the
+   * restore step in the test's {@code finally} block without a happens-
+   * before edge to the next test method's read on a different thread.
+   * The test body is single-threaded today, but the production field's
+   * volatile declaration is a load-bearing precondition for the swap-and-
+   * restore pair.
    *
    * @return the prior {@code histogramManager} so the caller can restore it
    *     in a finally block.
