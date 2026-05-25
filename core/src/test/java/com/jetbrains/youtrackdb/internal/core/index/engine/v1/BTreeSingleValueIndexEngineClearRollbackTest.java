@@ -33,17 +33,17 @@ import org.junit.Test;
  * A pushed {@link RecordSerializationOperation} throws a wrapped
  * {@link java.io.IOException} from inside {@code executeOperations}, which
  * fires before {@code commitIndexes} would dispatch to {@code doClearIndex}.
- * The throw routes through the pre-{@code endTxCommit} catch at
- * {@code AbstractStorage.java:2335} (whose clause catches
+ * The throw routes through the pre-{@code endTxCommit} catch in
+ * {@code AbstractStorage.commit} (whose clause covers
  * {@code IOException | RuntimeException | AssertionError}) and into rollback.
  *
  * <p>The contract pinned here is the weaker shape that the failure-injection
  * seam can actually verify: a rolled-back transaction tagged with
  * {@code OPERATION.CLEAR} plus queued puts leaves the in-memory and
  * persisted counter sides at their preparatory-commit values because the
- * failure fires inside {@code executeOperations} (at
- * {@code AbstractStorage:2331}) before {@code commitIndexes} (at
- * {@code AbstractStorage:2333}) reaches the {@code if (changes.cleared)}
+ * failure fires inside {@code executeOperations} (the body that runs the
+ * pushed {@code RecordSerializationOperation}) before {@code commitIndexes}
+ * reaches the {@code if (changes.cleared)}
  * branch. {@code engine.clear()} never runs, no delta is accumulated on the
  * atomic op, and the consolidated-lifecycle hooks (apply and persist) have
  * nothing to skip. The persisted side is read by closing and reopening the
