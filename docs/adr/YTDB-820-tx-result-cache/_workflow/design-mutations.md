@@ -518,3 +518,34 @@ D11's `**Full design**` link updated from `"Lazy merge-on-read" → Class filter
 **Cold-read** (bounded — § TxDeltaCursor / § Cross-view delta sharing / § "clear() is owner-thread-only" / plan/track-1.md skeleton / plan/track-4.md DeltaBuilder / plan/track-5.md buildForAggregate / plan/track-7.md step 8): self-audited. Snapshot-then-iterate pattern consistent across buildForRecord and buildForAggregate. mutationVersion reset gating cross-referenced with FrontendTransactionImpl.beginInternal:174 (which already gates `localCache.clear()` and storage tx start on `txStartCounter == 0`). cacheCodeDepth increment-then-check ordering documented unambiguously. T6 invariant about clear() does NOT contradict I6 (idempotent clear from cross-thread tx-end paths) because I6 covers the cross-thread `close() → clearUnfinishedChanges() → clear()` chain at tx-end, where cacheCodeDepth is already 0 (no in-flight cache code on the owner thread because the owner has exited). T6 covers a hypothetical FUTURE cross-thread cleanup mechanism that fires WHILE the owner is mid-iteration — that hypothetical path must not call clear().
 
 **Iterations**: 1 of 3 (PASS — closes T1-T7; no NEW findings).
+
+## Mutation 16 — 2026-05-25 — content-edit (design.md + track-1/4/7)
+
+**Architectural optimality pass.** A non-typical review (logical end-to-end + architectural optimality) confirmed the lazy design is architecturally sound and ready to ship for v1. Verdict: ship after 5 small tightening fixes. All 5 applied; 3 deferred items documented as v2 candidates.
+
+**Applied fixes**:
+
+- **A1 (was T7 split — simplified to renumber + thematic scope-doc)**: track-7.md had duplicate "step 8" numbering. The proper split into 7a (correctness) + 7b (memory/concurrency) was assessed but deferred — invasive (cross-ref updates across plan + tests). Pragmatic fix applied: renumbered the duplicate-8 to 8 (re-entrancy guard) and 9 (deterministic-ORDER-BY gate). Thematic boundary preserved by step ordering (correctness steps 1-5 + deterministic ORDER BY at 9 form the "correctness theme"; LRU+overflow+re-entrancy steps 6-8 form the "memory/concurrency theme"). Future v2 split candidate if execute-tracks review-boundary friction surfaces.
+
+- **A2 (cacheCodeDepth bracketing for aggregate eager-drive)**: track-7.md step 8 enumeration of cache-mutating code paths now explicitly includes "the aggregate eager-drive `plan.start(ctx).next(ctx)` between cache.lookup and cache.put on AGGREGATE_* miss". Otherwise UDFs invoked during upstream WHERE eval during populate would not see depth>0 and the re-entrancy guard would silently fail to bypass.
+
+- **A3 (cachedDeltaVersion sentinel)**: track-4.md DeltaBuilder algorithm now explicitly pins `entry.cachedDeltaVersion = -1L` at construction. Default 0L would collide with the first real `tx.mutationVersion=0` check, silently reusing a never-built pair. The `-1L` sentinel is distinguishable from any monotonically-non-negative mutationVersion.
+
+- **A4 (MATCH Etap A — project before sort)**: design.md § TxDeltaCursor procedural step ordering was ambiguous (step 5 said "sort", step 6 said "wrap then sort operates on projected tuples"). Tightened: step 5 is now "wrap via returnProjector" (MATCH Etap A only), step 6 is "sort". ORDER BY on projected columns (e.g., `ORDER BY double_age` where `double_age = u.age * 2`) requires projection before sort because the comparator cannot resolve projected references on raw records.
+
+- **A5 (mutationVersion at end of addRecordOperation)**: track-1.md mutationVersion description now explicitly says "incremented at the END of `addRecordOperation`, inside the success path, after the recordOperations.put completes". End-of-method timing ensures the counter reflects committed state — exceptions mid-method don't advance the version for failed mutations.
+
+**Deferred as v2 candidates** (architectural optimality review acknowledged but recommended deferring):
+
+- cachedRids is now diagnostic-only after the L1 stream-pull-skip-set unification. Could be removed from CachedEntry to save O(p) memory per entry. Defer to v2 cleanup pass — no correctness impact today.
+- DeltaBuilder.buildForRecord and buildForAggregate share snapshot + class filter + WHERE eval. A common helper `forEachRelevantOp` could extract this. Defer to v2 when MATCH Etap B forces a 3rd dispatch path.
+- AggregateEntry/RecordEntry subclasses of CachedEntry instead of nullable shape-specific fields. Defer to v2 — enum + nullable fields is acceptable for 2 effective shapes.
+- Track 7 → Track 7a + 7b split. Defer to v2 if execute-tracks review-boundary friction surfaces; for now, thematic step ordering preserves the boundary informally.
+
+**Architectural verdict** (cold-read summary from the review): lazy merge-on-read is the right choice for v1 given the consumer-facing-contract simplification, even though implementation complexity is comparable to eager. Option C (mutationVersion sharing) is justified (not premature optimization) — Hub's stable-mutationVersion phases mean 1 build amortizes 50-200 reads. L1/L2 stream-pull-skip-set unification is load-bearing and well-designed. No fundamental rework needed; Track 4 implementation can begin.
+
+**Mechanical checks**: 0 blockers; 27 should-fix `dsc-ai-tell` em-dash density (unchanged from Mutation 15 baseline). Pre-existing house-style debt; Phase 4 sweep.
+
+**Cold-read** (bounded — track-7.md step 8 expanded enumeration / track-4.md DeltaBuilder sentinel block / design.md § TxDeltaCursor steps 5-6 / track-1.md mutationVersion timing block): self-audited. The cacheCodeDepth enumeration now correctly brackets the entire cache-miss aggregate populate window (lookup → splice → eager-drive → cache.put). The cachedDeltaVersion sentinel of -1L cannot collide with any real mutationVersion (monotonically increasing from 0). The MATCH Etap A step reordering is procedurally consistent — populate path produces projected tuples (via MATCH planner's normal execution), delta path produces projected tuples (via returnProjector at step 5), both feed the sort at step 6. The end-of-method increment for mutationVersion is consistent with `txStartCounter == 0` reset semantics (T2 fix from Mutation 15) — both gates ensure version reflects only outermost-tx committed state.
+
+**Iterations**: 1 of 3 (PASS — closes 5 tightening fixes; 3 v2 candidates documented; no NEW findings).

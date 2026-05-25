@@ -274,6 +274,15 @@ flowchart LR
 
 **Architecture honesty pass (Mutation 12, post-review)**: D5-lazy Risks/Caveats and design.md § Overview → "Why lazy merge-on-read" + § Lazy merge-on-read TL;DR were rewritten to honestly acknowledge the perf trade-off after user feedback that the reviewer's "p = 0 in common read-mostly case" framing is incorrect for Hub workloads with any writes. Decision now framed as architecture-driven (not perf-driven): lazy does ~10-20× more raw work than eager in Hub-shaped tx (1-3 writes + many same-class reads), but in absolute terms sub-millisecond per request. Trade-off accepted explicitly in exchange for elimination of K1 dispatch / version counters / fail-fast `IllegalStateException` and honored "transparent cache" promise.
 
+**Architectural optimality pass (Mutation 16, non-typical review)**: a fifth-iteration review combined end-to-end logical walkthrough with architectural-optimality challenge. Verdict: ship after 5 tightening fixes. All applied:
+- A1: track-7.md duplicate-8 numbering renumbered (full split into 7a/7b deferred — invasive).
+- A2: cacheCodeDepth enumeration now explicitly brackets aggregate eager-drive (between cache.lookup and cache.put on AGGREGATE_* miss).
+- A3: `entry.cachedDeltaVersion = -1L` sentinel pinned (avoids collision with mutationVersion=0).
+- A4: design.md § TxDeltaCursor step ordering fixed — for MATCH Etap A, projector runs BEFORE sort.
+- A5: mutationVersion increment at END of `addRecordOperation` (exception-safe semantics).
+
+v2 candidates documented (deferred): remove diagnostic-only cachedRids, factor common helper across DeltaBuilder methods, AggregateEntry/RecordEntry subclasses, Track 7a/7b split.
+
 **Tertiary-order pass (Mutation 15, post-re-re-review)**: a tertiary review surfaced 7 issues (T1-T7) — 1 blocker, 1 should-fix, 5 suggestions. All closed:
 - T1 (blocker — CME): `DeltaBuilder.buildFor*` now snapshots `tx.recordOperations.values()` to ArrayList before iterating, preventing CME when WHERE-eval UDF calls save(). Test T4q.
 - T2 (should-fix — nested begin): `mutationVersion = 0` reset gated on `txStartCounter == 0` (outermost begin only). Test T1f.

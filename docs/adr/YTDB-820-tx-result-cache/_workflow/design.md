@@ -295,8 +295,8 @@ A static helper `ShapeClassifier.classify(SQLStatement) → CacheableShape` deci
 | DELETED | true  | *     | `skip_set.add(op.rid)` |
 | DELETED | false | *     | `skip_set.add(op.rid)` (suppress any later stream-pull) |
 
-5. **Sort `inject_list`** by `entry.orderBy` comparator (O(p log p)). For ORDER BY null, append in iteration order (no sort).
-6. **For MATCH Etap A** — wrap each `inject_list` record through `entry.returnProjector(rec, ctx)` to produce a single-binding tuple `Result` matching the original RETURN-clause shape. The sort then operates on projected tuples (ORDER BY on projection values is supported via the comparator).
+5. **For MATCH Etap A** (procedural step ordering before sort, per architectural review): wrap each raw record currently in `inject_list` through `entry.returnProjector(rec, ctx)` BEFORE sorting, producing a single-binding tuple `Result` matching the original RETURN-clause shape. After this step, `inject_list` contains projected `Result` tuples (not raw records). This ordering is required because ORDER BY may reference a projected column (`ORDER BY double_age` where `double_age = u.age * 2` is computed by the projector); the comparator cannot resolve such references on a raw record.
+6. **Sort `inject_list`** by `entry.orderBy` comparator (O(p log p)). For ORDER BY null, append in iteration order (no sort). For RECORD shape, the list at this point already contains `Result`-wrapped records (the populate path wraps each record in a `ResultInternal` during stream pull). For MATCH Etap A, the list contains projected tuples per step 5.
 7. Return `new TxDeltaCursor(skipSet, injectList)`.
 
 ### Cross-view delta sharing via mutationVersion
