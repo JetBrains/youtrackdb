@@ -228,21 +228,33 @@ for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
     fi
 done
 
-# Rewrite line 1 of every stamped artifact in place.
+# Rewrite line 1 of every stamped artifact in place. Use a portable
+# printf + tail pattern rather than `sed -i`, whose `-i` flag differs
+# between BSD (macOS) and GNU (Linux) — matching the no-`sed -i`
+# stance documented in `migrate-workflow/SKILL.md` Step 4.5's stamp
+# rewriter.
 for f in $STAMPED_FILES; do
-    sed -i "1s/.*/<!-- workflow-sha: $BASE_SHA -->/" "$f"
+    { printf '<!-- workflow-sha: %s -->\n' "$BASE_SHA"; tail -n +2 "$f"; } > "$f.tmp" \
+        && mv "$f.tmp" "$f"
 done
 
 # Diff-shape guard #1: every hunk in the unstaged diff against the
 # stamped artifacts must start with `@@ -1` (line-1 only). Any hunk
-# header that names a different starting line means sed rewrote more
-# than the stamp; abort.
+# header that names a different starting line means the rewriter
+# touched more than the stamp; abort.
 DIFF_BAD="$(git diff -U0 -- $STAMPED_FILES | grep -E '^@@' | grep -vE '^@@ -1[, ]' || true)"
 
-# Diff-shape guard #2: porcelain status must list only the stamped
-# artifacts. Any other modified path means the rewrite touched
-# something outside the planned set; abort.
-PORCELAIN_BAD="$(git status --porcelain -- . | awk '{print $2}' | LC_ALL=C sort -u \
+# Diff-shape guard #2: porcelain status, scoped to the active plan's
+# _workflow/ subtree, must list only the stamped artifacts. The narrow
+# scope matches the D12 dirty-check philosophy (`adr.md` D12: "the
+# whole-repo clean check is too strict — unrelated edits under `core/`
+# or `server/` have no bearing on the migration"); unrelated user
+# edits outside `$PLAN_DIR/_workflow/` must not abort the
+# normalization. Any path inside the active plan's `_workflow/` that
+# the rewrite did not touch (i.e., not in `$STAMPED_FILES`) signals a
+# walk that missed an artifact or a pre-existing dirty file the gate
+# refuses to swallow; abort.
+PORCELAIN_BAD="$(git status --porcelain -- "$PLAN_DIR/_workflow/" | awk '{print $2}' | LC_ALL=C sort -u \
     | comm -23 - <(printf '%s\n' $STAMPED_FILES | LC_ALL=C sort -u))"
 
 if [ -n "$DIFF_BAD" ] || [ -n "$PORCELAIN_BAD" ]; then
@@ -264,12 +276,13 @@ exit 0
 ```
 
 **Diff-shape guard rationale.** The two checks are complementary.
-Guard #1 catches a sed expression that rewrote line 1 plus stray
-trailing lines on the same file (e.g., a CRLF-stripped artifact where
-`1s/.*/.../` ate a trailing carriage return on every line). Guard #2
-catches a `STAMPED_FILES` set that silently expanded to include an
-artifact outside the active plan (e.g., a pathspec glob picking up a
-stray file). Either failure mode would land a malformed normalization
+Guard #1 catches a rewriter that touched more than line 1 (e.g., a
+printf format that emitted no newline, leaving the new stamp glued
+to the artifact's original first line). Guard #2 catches a dirty
+path inside the active plan's `_workflow/` that the walk did not
+record as stamped (e.g., a new artifact type the walk does not yet
+enumerate, or an in-tree edit inside the plan subtree outside the
+stamped set). Either failure mode would land a malformed normalization
 commit; the abort+restore path keeps the working tree at HEAD on
 mismatch and surfaces the failure to the user instead of papering over
 it. On `exit 1` (diff-shape mismatch), the gate halts the entire
@@ -281,10 +294,11 @@ the calling session's next startup step.
 
 **Restore-on-mismatch.** `git checkout -- $STAMPED_FILES` rewinds only
 the stamped artifacts because nothing else was touched; the working
-tree returns to the exact state Detection observed. If the rewrite
-left any path outside `$STAMPED_FILES` modified, guard #2 already
-fired and the abort message names the path so the user can clean it
-up manually — the gate refuses to guess at the recovery shape.
+tree returns to the exact state Detection observed. If any path
+inside the active plan's `_workflow/` but outside `$STAMPED_FILES`
+shows up dirty, guard #2 already fired and the abort message names
+the path so the user can clean it up manually; the gate refuses to
+guess at the recovery shape.
 
 **Commit shape.** One commit, subject `Normalize workflow-sha stamps
 to <short-BASE_SHA>`, body optional. The commit is independent of any
