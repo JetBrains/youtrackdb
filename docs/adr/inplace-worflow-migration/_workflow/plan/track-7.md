@@ -19,9 +19,11 @@ The in-place migration (Tracks 1–6) handles drift on feature plans whose execu
 - [x] 2026-05-25T06:29Z [ctx=info] Step 3 complete (commit dbcb0e0f3d86f014efd9ccc2601b26796a1a8dd1)
 - [x] 2026-05-25T06:36Z [ctx=info] Step 4 complete (commit 121fba1c217a82b42cb29168bfdbc6dec28aeb9f)
 - [x] 2026-05-25T06:43Z [ctx=info] Step 5 complete (commit 8bcaf5b21ff98672cbfdd733f6fd746cb3307adb)
+- [x] 2026-05-25T06:50Z [ctx=info] Step 6 complete (commit 3b57c6ddaa, Review fix on top of 3cd11df6f2)
 
 ## Surprises & Discoveries
 - 2026-05-25T06:19Z Step 1 fixed the canonical workflow-modifying marker sentence (`This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.`) and the Phase 4 promotion commit-message prefix (`Promote workflow changes from <plan-dir>/_workflow/staged-workflow`); Steps 2 and 4 must match both verbatim. See Episodes §Step 1.
+- 2026-05-25T06:50Z Step 6 surfaced a planner-side detection weakness: implementers can infer workflow-modifying from the content of the work rather than from the canonical marker sentence in `### Constraints`. The Step 2 *Path mapping for workflow-modifying plans* rule should spell out the Constraints-only signal more loudly so the implementer's read does not fall back to content-shape inference. Future workflow-modifying plans on develop will exercise the staging path; the strengthened wording belongs in a follow-up commit. See Episodes §Step 6.
 
 ## Decision Log
 
@@ -52,6 +54,8 @@ The in-place migration (Tracks 1–6) handles drift on feature plans whose execu
 - **Rationale**: A1 correctly observed that D14 rejects sibling-worktree on dogfood grounds but accepts the same dogfood loss in its own Risks/Caveats. The strengthened rationale does not change D14's choice — staging via subtree stays — but adds substantive non-dogfood grounds: Tracks 4a/4b deliberately retired the develop-worktree dependency from `/migrate-workflow` (the in-branch migration is the project's anti-worktree direction); the convention-spread cost is bounded (six in-scope files); a sibling-branch approach adds a second source of truth that merges into develop alongside the feature branch, creating a coordination surface every workflow-modifying plan would have to manage. The forward-applicable carve-out (Track 7 itself does not use the convention because no prior version existed during Tracks 1-6) is documented here rather than in D14 because it is a one-time observation about this branch, not a permanent rule. I6's precise wording lands in `conventions.md` §1.7 — "the only intra-branch authoring transition; rebase-merge from develop excluded by scope" — folding in A6's observation that the rebase edge case at `design.md`:375 is an out-of-scope event rather than a violation.
 - **Risks/Caveats**: The strengthened rationale lives in `track-7.md` `## Decision Log`, not in D14 in `implementation-plan.md`. A future reader of D14 alone would see only the original rationale; the track-scoped DL is a per-branch artifact that disappears at Phase 4 cleanup. Mitigation: Track 7's Phase 4 `design-final.md` records the strengthened rationale and carve-out so the durable artifacts carry them forward into `develop`.
 - **Implemented in**: Track 7 — recorded here; the I6 precise wording and the forward-applicable note land in Step 1 (conventions.md staging subsection).
+
+- 2026-05-25T06:50Z (scope-down) Step 6 fix commit `3b57c6ddaa` folds in the stale "Step 5 of `create-final-design.md`" cross-reference flip at `mid-phase-handoff.md`:363 — Track 7 Step 4 (commit `121fba1c`) renumbered the cleanup commit from Step 5 to Step 6 but Step 4's scope did not target `mid-phase-handoff.md`. The orphan reference would have been caught at Phase C track-level review; folding the fix into Step 6's already-open commit avoids a third commit on the same file. See Episodes §Step 6.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -106,7 +110,7 @@ Track 3's `workflow-drift-check.md` provides the pathspec site that the staged-s
 
 5. Add a defensive comment at the `.claude/workflow/workflow-drift-check.md` pathspec site (lines 117-122, alongside the existing trailing-slash defensive comment). The comment records that `.claude/workflow/ .claude/skills/` (verbatim with trailing slashes) deliberately excludes the staged subtree at `docs/adr/*/_workflow/staged-workflow/.claude/workflow/` and `.../staged-workflow/.claude/skills/`, and notes the symmetry with `migrate-workflow/SKILL.md`'s range computation (this drift-check file is the single canonical source for the exclusion). Bash and decision logic stay unchanged. — risk: low (default: pure comment addition; no behavior change in the drift gate; mirrors the existing defensive-comment pattern at the same site)  [x]  commit: 8bcaf5b21ff98672cbfdd733f6fd746cb3307adb
 
-6. Add a one-paragraph acknowledgment of the Phase 4 promotion pause site to `.claude/workflow/mid-phase-handoff.md` § Resume protocol. The paragraph names the promotion commit and the final-artifacts commit as the two boundaries of a resumable pause window on workflow-modifying plans (the `[ -d "$STAGED_DIR" ]` guard in `create-final-design.md` handles re-entry idempotently per `design.md`:378 aborted-promotion semantics); for plans without the staged subtree, the existing State D resume covers the path. Cites Step 4's promotion step as the contract surface. — risk: low (default: documentation addition to the resume protocol; no behavior change in the handoff mechanism; mirrors the first→second-caller boundary-condition audit lesson from Tracks 5/6)  [ ]
+6. Add a one-paragraph acknowledgment of the Phase 4 promotion pause site to `.claude/workflow/mid-phase-handoff.md` § Resume protocol. The paragraph names the promotion commit and the final-artifacts commit as the two boundaries of a resumable pause window on workflow-modifying plans (the `[ -d "$STAGED_DIR" ]` guard in `create-final-design.md` handles re-entry idempotently per `design.md`:378 aborted-promotion semantics); for plans without the staged subtree, the existing State D resume covers the path. Cites Step 4's promotion step as the contract surface. — risk: low (default: documentation addition to the resume protocol; no behavior change in the handoff mechanism; mirrors the first→second-caller boundary-condition audit lesson from Tracks 5/6)  [x]  commit: 3b57c6ddaa (Review fix on top of 3cd11df6f2)
 
 ## Episodes
 
@@ -160,6 +164,19 @@ Track 3's `workflow-drift-check.md` provides the pathspec site that the staged-s
 
 **Key files:**
 - `.claude/workflow/workflow-drift-check.md` (modified)
+
+### Step 6 — commit 3b57c6ddaa, 2026-05-25T06:50Z [ctx=info]
+**What was done:** Added a "Phase 4 promotion pause site" bullet to `.claude/workflow/mid-phase-handoff.md` § Resume protocol → § Per-handoff loop, alongside the existing "Phase 4 cleanup exception" block. The new bullet documents the pause window between the promote-staged-workflow commit and the final-artifacts commit on workflow-modifying plans, names the `[ -d "$STAGED_DIR/.claude" ]` guard in `prompts/create-final-design.md` § Step 4 as the idempotent re-entry mechanism, cites the *Aborted promotion* edge case in `design.md` § Edge cases / Gotchas, and notes that plans without the staged subtree fall through to the existing State D resume. Also flipped the pre-existing "Step 5 of create-final-design.md" cross-reference at line 363 to "Step 6" — Track 7 Step 4 (commit `121fba1c`) renumbered the cleanup commit in `create-final-design.md` from Step 5 to Step 6.
+
+**What was discovered:** The Step 6 implementer (commit `3cd11df6f2`) inferred the active plan as workflow-modifying from the substance of the work rather than from the canonical marker sentence in `### Constraints`, and routed the edit through the staged subtree (a 450-line new file under `_workflow/staged-workflow/.claude/workflow/mid-phase-handoff.md`). The branch is the forward-applicable carve-out per `conventions.md` §1.7(h) and DL4 — its `implementation-plan.md` does not carry the canonical marker — so live paths are the correct target. The Step 2 pre-commit gate's allow-clause is keyed off the canonical marker sentence in Constraints, not off the file-content signal the implementer used; a Step 2 follow-up could spell out the rule's reliance on Constraints more loudly in `implementer-rules.md` to keep future implementers from re-deriving the predicate.
+
+**What changed from the plan:** A second commit (`3b57c6ddaa`) landed as a `Review fix:` on top of `3cd11df6f2` to repair the misroute — move the new paragraph into the live file and `git rm -r` the orphaned staged subtree. The Step 6 episode points at the fix commit; the original misroute stays in branch history for the squash-merge to collapse. Folded in the stale "Step 5" cross-reference flip (the Phase 4 cleanup commit renumbered to Step 6 in Track 7 Step 4); this is a cross-track-impact carry from commit `121fba1c` that neither Step 4 (scope was workflow.md + create-final-design.md) nor Step 6 (scope was the new paragraph) originally targeted.
+
+**Key files:**
+- `.claude/workflow/mid-phase-handoff.md` (modified — added paragraph + cross-reference flip)
+- `docs/adr/inplace-worflow-migration/_workflow/staged-workflow/.claude/workflow/mid-phase-handoff.md` (deleted)
+
+**Critical context:** The new bullet's `[ -d "$STAGED_DIR/.claude" ]` guard wording is byte-identical with `prompts/create-final-design.md` § Step 4; future edits to either side require a coordinated change on the other. The Step 2 pre-commit gate did not catch the misroute because `git diff --cached -- .claude/workflow/ .claude/skills/` returns empty when the staged diff touches only `_workflow/staged-workflow/.claude/workflow/...` paths (different prefix; correct behavior). The misroute is a planner-side detection-rule weakness, not a gate-side bug.
 
 ## Validation and Acceptance
 
