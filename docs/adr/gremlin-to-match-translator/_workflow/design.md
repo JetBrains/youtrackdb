@@ -99,7 +99,7 @@ shape declines along with anything else unrecognized.
 | Edge traversal | `outE(L).inV()` / `inE(L).outV()` (adjacent) | folded by TinkerPop's `IncidentToAdjacentStrategy` to `out(L)` / `in(L)` before our strategy fires; recognizer sees the folded shape | Track 3 |
 | Edge traversal | `bothE(L).otherV()` (adjacent) | folded by `IncidentToAdjacentStrategy` to `both(L)` | Track 3 |
 | Edge filtering | `outE(L).has(filter)*.inV()` / `inE(L).has(filter)*.outV()` / `bothE(L).has(filter)*.otherV()` (one or more `has(...)` between the edge step and its paired vertex hop) | `EdgeStepRecogniser` peek-ahead collects every adjacent `HasStep` into the edge's filter slot via `SQLMatchPathItem.filter`; the edge gets a translator-minted anonymous alias (`$g2m_edge_N`). Predicates inside the `has(...)` chain follow the same translation table as node-side filters. | Track 3 |
-| Filtering | `has(key)` (presence) | `aliasFilters` `key IS NOT NULL` (record-layer absent property is treated as null — see "Predicate translation") | Track 4 |
+| Filtering | `has(key)` (presence) | `aliasFilters` `key IS NOT NULL` (query layer flattens record-layer absent into null via `Result.getProperty`'s null-on-absent contract — see "Predicate translation" caveat under `hasNot`) | Track 4 |
 | Filtering | `has(key, value)` | `aliasFilters` `key = value` | Track 4 |
 | Filtering | `has(key, predicate)` | `aliasFilters` predicate (per "Predicate translation" below) | Track 4 |
 | Filtering | `has(label, key, value)` | `aliasClasses[a] = label` + `aliasFilters` `key = value` | Track 4 |
@@ -534,6 +534,60 @@ histories. Reconstructing a `Path` in the boundary step would materialize
 records the user did not ask for; under D3 all-or-nothing any traversal
 containing `path()` is unrecognized and runs natively unmodified. Precise
 translation of `path()` is Phase 2 territory.
+
+**Track 7 commitment: absent vs null-valued properties in `MAP` /
+`SINGLE_VALUE` output.** Native TinkerPop's `Property` API does not
+permit null property values: `vertex.property(key)` returns
+`VertexProperty.empty()` both for absent properties and for properties
+whose record-layer value is null, so `valueMap(keys…)` /
+`elementMap(…)` / `values(key)` collapse the two cases by omitting the
+key (for `valueMap`/`elementMap`) or emitting no traverser (for
+`values`). YTDB MATCH projects `alias.key` through `Result.getProperty`,
+which by contract returns `null` for both absent and null-valued
+properties (see "Predicate translation" `hasNot` caveat for the record-
+layer distinction); the row therefore carries a `null` cell in both
+cases. Native and MATCH agree on the set of *which rows* are produced
+but can disagree on *what each row contains*:
+
+- `valueMap(keys…)` / `elementMap(…)`: native omits the key entirely
+  when the property is absent / null-valued; MATCH would emit the key
+  with value `null` unless the boundary step filters it. **Track 7
+  MUST omit null-valued entries** from the projected `Map<String,
+  Object>` so the boundary's `MAP` output matches TinkerPop's
+  `valueMap` / `elementMap` set membership exactly. Track 7's
+  regression-test suite MUST pin: (a) a vertex with property `foo`
+  set to null surfaces as a map without the `foo` key, and (b) a
+  vertex with `foo` absent surfaces the same way (both engines treat
+  them identically through this output path).
+- `values(key)` (single-key): native emits no traverser when the
+  property is absent or null; the `SINGLE_VALUE` output already
+  reuses the boundary's `dropNullRows = true` configuration for this
+  shape, so a `null` projected value is filtered before reaching the
+  consumer. Track 7 MUST set `dropNullRows = true` for `values(key)`
+  and pin the behavior in a regression test.
+- `select(label)` / `select(labels…).by("key")` /
+  `project(keys…).by("key")`: native `Scoping.getScopeValue` throws on
+  a missing key (drops the row via `EmptyTraverser`), but a present-
+  with-null binding is delivered to the consumer as the literal `null`.
+  Phase 1 only emits `select`/`project` against aliases the recogniser
+  binds during translation, so the "missing key" failure mode does
+  not arise — every selected label resolves to an alias that the
+  MATCH plan projects. Null-valued *property* by-modulators
+  (`by("foo")` against an absent / null-valued `foo`) follow the same
+  rule as `values(key)`: Track 7's `MAP` output omits the entry,
+  matching native's by-modulator semantics. The `optional`-induced
+  missing-label case is already deferred to Phase 2 (`OptionalStep`
+  declines under D3).
+
+The distinction matters even though `hasNot` ↔ `IS NULL` is correct in
+Phase 1: the equivalence holds at the *filter* layer where rows are
+kept or dropped, but the *projection* layer separately decides what
+each kept row exposes to the consumer. Without the Track 7 omission
+rule, a query like `g.V().has("name", "Alice").valueMap()` would emit
+`{name: "Alice", age: null}` from MATCH against a vertex with `age`
+absent, where native TinkerPop emits `{name: ["Alice"]}` (no `age`
+key). The omission rule closes the divergence; the regression tests
+ensure no future refactor reintroduces it.
 
 ## Predicate translation
 
@@ -1341,19 +1395,31 @@ case: a Gremlin consumer that calls `.tryNext()` expects `Optional.empty()`,
 while a translated traversal would hand it a traverser carrying `null`.
 
 The boundary step closes the gap with a single `dropNullRows` flag set
-by the Track 9 recognizer at translation time. The flag is a
-recognizer-side decision (`sum`/`min`/`max`/`mean` → `true`; `count`,
-`group`, `groupCount`, `ELEMENT`, `MAP` outputs → `false`), so the
-boundary step itself does not know aggregate names — it only knows
-"drop rows whose primary value is null". `processNextStart` loops
-over the stream, skipping a `Result` whose `boundaryAlias`-keyed value
-is `null` when `dropNullRows` is set, and returns the next non-null
-row (or signals exhaustion if the stream drains). For
-`BoundaryOutputType.ELEMENT` / `MAP`, `dropNullRows` is always
-`false` — MATCH null cells in the row remain null and reach the
-consumer through `valueMap` / `select` exactly as they would under
-native Gremlin. We verify in tests that empty-input behavior matches
-per-aggregate.
+by the recognizer at translation time. The flag is a recognizer-side
+decision per output type and terminal step:
+
+- `sum`/`min`/`max`/`mean` (Track 9 `SCALAR`) → `true`
+- `values(key)` single-key (Track 7 `SINGLE_VALUE`) → `true` (matches
+  native `values`, which emits no traverser for absent / null-valued
+  properties)
+- `count`, `group`, `groupCount`, `ELEMENT`, `MAP` → `false`
+
+The boundary step itself does not know aggregate names — it only knows
+"drop rows whose primary value is null". `processNextStart` loops over
+the stream, skipping a `Result` whose `boundaryAlias`-keyed value is
+`null` when `dropNullRows` is set, and returns the next non-null row
+(or signals exhaustion if the stream drains). `dropNullRows = false`
+for `MAP` does **not** mean MATCH null cells reach the consumer
+verbatim — `dropNullRows` is a *row-level* drop (skip the entire
+`Result`), while *value-level* null filtering (omitting null-valued
+entries from a projected map) happens inside Track 7's `MAP` /
+`SINGLE_VALUE` projection logic per the "Track 7 commitment" section
+above. The two layers compose: Track 9 aggregates emit one
+`Result` per row and use `dropNullRows` to drop empty-input rows;
+Track 7 projections emit one `Result` per matched row and use the
+value-level omission rule to make their `Map<String, Object>` payload
+match native `valueMap` / `elementMap` set membership. We verify in
+tests that both layers behave per-aggregate / per-projection.
 
 A single boolean is enough for Phase 1's four drop-on-null aggregates;
 if Phase 2 introduces custom aggregates with finer-grained empty-input
