@@ -742,61 +742,52 @@ wrapper-level evidence). lpld raised this on the PR #1038 review at
 line 95 ("`prop IS NULL` and `hasNot(prop)` are not equivalent");
 andrii0lomakin confirmed the team's "do not unify" position; lpld
 followed up with the suggestion to introduce `IS DEFINED` /
-`IS NOT DEFINED` operators. **Phase 1 adopts this suggestion** —
-the alternatives (decline `has` / `hasNot` entirely in Phase 1, or
-ship a known divergence) either lose first-class filtering or
-silently produce wrong results.
+`IS NOT DEFINED` operators.
 
-**Scope of the operator addition** (owned by Track 1, the shared
-MATCH IR builder track — it already covers grammar-adjacent shared
-infrastructure):
+**The operators already exist in YTDB SQL.** Auditing the codebase
+during PR #1038 review surfaced that `core/src/main/grammar/YouTrackDBSql.jjt`
+already has `IsDefinedCondition` / `IsNotDefinedCondition` productions
+(lines 2900-2913: `Expression() <IS> <DEFINED>` / `Expression() <IS> <NOT>
+<DEFINED>`), with matching AST classes
+`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLIsDefinedCondition.java`
+and `SQLIsNotDefinedCondition.java`. Their `evaluate(Identifiable, ctx)`
+and `evaluate(Result, ctx)` routes call `expression.isDefinedFor(...)` —
+the entity-presence primitive that distinguishes absent from
+null-valued at the record layer, exactly what Track 4 / Track 7 need.
+`isIndexAware` returns `false` (presence predicates can't use
+value-keyed indexes — already documented in the AST classes).
 
-1. **Grammar.** Add `IS DEFINED` / `IS NOT DEFINED` productions to
-   `core/src/main/grammar/YouTrackDBSql.jjt` in the same slot as the
-   existing `IS NULL` / `IS NOT NULL` productions. The parser
-   regenerates via `javacc-maven-plugin`; no manual edits to
-   generated parser files.
-2. **AST nodes.** `SQLIsDefinedCondition` and
-   `SQLIsNotDefinedCondition` extend `SQLBooleanExpression`, parallel
-   to `SQLIsNullCondition` / `SQLIsNotNullCondition`. Each carries a
-   single `SQLExpression` child (the property reference, typically
-   `alias.key`).
-3. **Evaluator.** Both classes implement `evaluate(Identifiable, ctx)`
-   and `evaluate(Result, ctx)` by walking the child expression to
-   identify the *root alias* and the *property name*, resolving the
-   alias to its bound `EntityImpl` from the command context, and
-   calling `EntityImpl.hasProperty(propertyName)` —
-   `IS DEFINED` returns the result, `IS NOT DEFINED` returns its
-   negation. The `hasProperty` accessor already exists
-   (`EntityImpl.java`) and is the same primitive Track 7 uses for
-   `valueMap` / `values` / `select.by` projection classification, so
-   the two tracks share the entity-presence check.
-4. **Index integration.** `IS DEFINED` / `IS NOT DEFINED` are
-   property-presence predicates, not value predicates — they cannot
-   use any of the value-keyed indexes. The `IndexFinder` integration
-   returns `Operation.None` for both operators (skip index lookup,
-   fall back to per-record scan). Track 1 documents this in the AST
-   classes' Javadoc so future index work doesn't accidentally try to
-   route through them.
-5. **Tests.** Track 1 ships:
-   - parser tests pinning the grammar productions (round-trip
-     `toString()` reproduces the original WHERE clause);
-   - evaluator unit tests with a fixture covering all four cases
-     (absent / null-valued / non-null-valued / non-existent alias);
-   - integration tests via existing SQL test harness against an
-     entity with each cell state.
-6. **GQL exposure.** Optional. `MatchWhereBuilder` (the Track 1
-   shared builder) exposes `isDefined(...)` / `isNotDefined(...)`
-   factory methods for the Gremlin translator. GQL's MATCH grammar
-   does not currently expose these — adding them to the GQL
-   user-facing syntax is **out of scope** for Phase 1 and gated by a
-   separate decision (GQL users can keep using `IS NULL` /
-   `IS NOT NULL` with the existing semantics).
+**Phase 1 adopts these existing operators.** No grammar edit, no new
+AST classes, no new evaluator — only `MatchWhereBuilder` factory
+methods wrapping the existing AST nodes for the Gremlin translator
+to call. The earlier design draft prescribed adding the operators
+from scratch; the audit shortcut shrinks Track 1's scope substantially.
 
-The operator addition is the **single planner-adjacent surface
-change** Phase 1 makes outside the additive `MatchPlanInputs` ctor.
-It does not modify `MatchExecutionPlanner` — only the grammar and
-the AST/evaluator layer below it.
+**Scope of the integration** (owned by Track 1, the shared MATCH IR
+builder track):
+
+1. **`MatchWhereBuilder.isDefined(String field)` factory** that
+   constructs an `SQLIsDefinedCondition`, wires the `SQLExpression`
+   child to point at `field` on the boundary alias, and returns it
+   as a `SQLBooleanExpression`. Parallel `isNotDefined(String field)`
+   wraps `SQLIsNotDefinedCondition`.
+2. **Builder-level unit tests** pinning round-trip behavior:
+   `builder.isDefined("foo")` renders to `"foo is defined"`,
+   `isNotDefined("foo")` renders to `"foo is not defined"`. The
+   existing parser and evaluator are already exercised by SQL-side
+   tests, so Track 1 does not need to re-test them — only the builder
+   wrappers.
+3. **GQL exposure unchanged.** GQL's MATCH grammar consumes the same
+   `YouTrackDBSql.jjt` parser as YTDB SQL, so the operators are
+   already reachable via raw SQL strings (and have been for as long
+   as the grammar productions existed). GQL refactor onto the shared
+   builder does not need to add `isDefined` / `isNotDefined` callers
+   unless a specific GQL feature requires them.
+
+The integration is **the only Track 1 surface change beyond the
+shared-builder package itself**. It does not modify
+`MatchExecutionPlanner`, the grammar, the AST layer, or any
+evaluator — only the builder package gains two new factory methods.
 
 ## Predicate translation
 
