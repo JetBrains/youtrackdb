@@ -6,6 +6,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -192,6 +193,14 @@ public class IndexAbstractBuildHistogramRollbackTest {
     assertThat(caught)
         .as("Caught throwable must be the AOM's StorageException wrap")
         .isInstanceOf(StorageException.class);
+    // BaseException.wrapException(new StorageException(...), e, ...) lands
+    // e as the cause. Pin identity here so a regression where the test
+    // scaffold throws a different IOException (a secondary failure during
+    // rollback, an injected error from a future seam) does not silently
+    // pass on the StorageException-instanceof check alone.
+    assertThat(caught.getCause())
+        .as("Cause chain must trace back to the simulated IOException")
+        .isSameAs(thrown);
 
     // The holder existed inside the lambda — the recalibration recorded an
     // in-mem-only adjustment on the holder before the throw. After the
@@ -362,6 +371,12 @@ public class IndexAbstractBuildHistogramRollbackTest {
     assertThat(caught)
         .as("Caught throwable must be the AOM's StorageException wrap")
         .isInstanceOf(StorageException.class);
+    // Pin the cause-chain identity so a regression where a secondary
+    // failure during rollback (or a future seam) throws a different
+    // IOException does not silently pass on the instance-of check alone.
+    assertThat(caught.getCause())
+        .as("Cause chain must trace back to the simulated IOException")
+        .isSameAs(thrown);
 
     assertNotNull(
         "holder must have been created inside the lambda",
@@ -457,156 +472,276 @@ public class IndexAbstractBuildHistogramRollbackTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Crash recovery: WAL replay re-applies the persisted-side absolute writes
+  // Round-trip via persisted EP page: forced close + reopen on a fresh
+  // database. NOT a true WAL-replay test — see Javadoc below.
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Crash-recovery WAL-replay: drive a successful {@code
-   * buildInitialHistogram} commit, force the database closed before any
-   * checkpoint can flush the dirty pages, then reopen. WAL replay must
-   * re-apply the two persisted-side absolute writes (svTree EP and nullTree
-   * EP) so the post-replay load() reads the recalibrated target.
+   * After a successful {@code buildInitialHistogram} commit, force-close the
+   * database and reopen on a fresh per-test name. The post-restart {@code
+   * load()} reseeds the in-mem counters from the persisted entry-point pages,
+   * and the post-restart reads must match the recalibrated target on both
+   * trees (svTree EP and nullTree EP).
    *
-   * <p>The MV engine is chosen because it exercises the two-tree write
-   * pattern; a regression where WAL replay reordered or dropped one of the
-   * writes would surface as a drifted post-restart counter pair.
+   * <p>NOT a true crash-recovery / WAL-replay test. {@code forceDatabase-
+   * Close} routes through {@code storage.shutdown() -> doShutdown()}, which
+   * calls {@code flushAllData()} unconditionally before close. The dirty
+   * pages (including the recalibrated EP-page writes) flush gracefully to
+   * disk on shutdown, and the next open finds clean storage; {@code recover-
+   * IfNeeded()} is gated on {@code isDirty()} and skips {@code restore-
+   * FromWAL()} on a clean-shutdown reopen. The post-restart assertions
+   * therefore pass because the absolute writes are already on disk via the
+   * graceful flush, not because WAL replay re-applied them. A true WAL-
+   * replay test would route through the {@code WalTestUtils.withWal-
+   * Protection} pattern (used by {@code LocalPaginatedStorageRestoreFrom-
+   * WALAndAddAdditionalRecords}) to copy the storage files while still in
+   * dirty state, then open the copy. Adding that variant is a deferred
+   * follow-up under the same {@code dev-workflow} tag.
+   *
+   * <p>The MV engine is chosen here because it exercises the two-tree write
+   * pattern; a regression that lost one of the two absolute writes on the
+   * pre-close flush would surface as a drifted post-restart counter pair.
    */
   @Test
-  public void crashRecovery_walReplayLandsRecalibratedTarget() throws Exception {
+  public void forcedCloseReopen_mv_persistedEpPagesCarryRecalibratedTarget()
+      throws Exception {
     var crashDbName = "crash_buildhist_" + UUID.randomUUID();
     youTrackDB.create(crashDbName, DatabaseType.DISK,
         "admin", DbTestBase.ADMIN_PASSWORD, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(
-            crashDbName, "admin", DbTestBase.ADMIN_PASSWORD);
-
+    // The outer try/finally wraps from immediately after create() so the
+    // drop() runs even if open() throws. A leaked storage on a UUID-stamped
+    // name does not collide cross-test, but it persists for the JVM
+    // lifetime and adds noise to surefire post-suite cleanup.
     try {
-      crashSession.createClassIfNotExist("CrashBh");
-      var cls = crashSession.getClass("CrashBh");
-      cls.createProperty("tag", PropertyType.STRING);
-      cls.createIndex("CrashBh.tag", SchemaClass.INDEX_TYPE.NOTUNIQUE, "tag");
-      var indexName = "CrashBh.tag";
-
-      crashSession.begin();
-      for (int i = 0; i < 5; i++) {
-        crashSession.newEntity("CrashBh").setProperty("tag", "tag_" + i);
-      }
-      crashSession.newEntity("CrashBh");
-      crashSession.commit();
-
-      var engine = getBTreeIndexEngine(crashSession, indexName);
-      // Drive divergence and run a successful buildInitialHistogram. Target
-      // after recalibration is (6, 1).
-      engine.addToApproximateEntriesCount(25);
-      engine.addToApproximateNullCount(5);
-
-      crashSession.getStorage().getAtomicOperationsManager()
-          .executeInsideAtomicOperation(engine::buildInitialHistogram);
-
-      // Simulate non-graceful shutdown: no flush, no checkpoint. The WAL
-      // record for the two setApproximateEntriesCount calls survives.
-      crashSession.activateOnCurrentThread();
-      youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-      // Reopen — WAL replay re-applies the persisted writes.
-      crashSession =
+      var crashSession =
           (DatabaseSessionEmbedded) youTrackDB.open(
               crashDbName, "admin", DbTestBase.ADMIN_PASSWORD);
+      try {
+        crashSession.createClassIfNotExist("CrashBh");
+        var cls = crashSession.getClass("CrashBh");
+        cls.createProperty("tag", PropertyType.STRING);
+        cls.createIndex("CrashBh.tag", SchemaClass.INDEX_TYPE.NOTUNIQUE, "tag");
+        var indexName = "CrashBh.tag";
 
-      var enginePost = getBTreeIndexEngine(crashSession, indexName);
-      long[] postReplay = readCountsViaEngine(crashSession, enginePost);
-      assertEquals(
-          "Persisted total count must equal the recalibrated target after WAL replay",
-          6L, postReplay[0]);
-      assertEquals(
-          "Persisted null count must equal the recalibrated target after WAL replay",
-          1L, postReplay[1]);
-    } finally {
-      if (!crashSession.isClosed()) {
-        crashSession.close();
+        crashSession.begin();
+        for (int i = 0; i < 5; i++) {
+          crashSession.newEntity("CrashBh").setProperty("tag", "tag_" + i);
+        }
+        crashSession.newEntity("CrashBh");
+        crashSession.commit();
+
+        var engine = getBTreeIndexEngine(crashSession, indexName);
+        // Drive divergence and run a successful buildInitialHistogram.
+        // Target after recalibration is (6, 1).
+        engine.addToApproximateEntriesCount(25);
+        engine.addToApproximateNullCount(5);
+
+        crashSession.getStorage().getAtomicOperationsManager()
+            .executeInsideAtomicOperation(engine::buildInitialHistogram);
+
+        // forceDatabaseClose routes through storage.shutdown() -> doShutdown(),
+        // which flushes all dirty pages before close (see class Javadoc on
+        // why this is not a true WAL-replay test). After close,
+        // forceDatabaseClose invalidates the existing session reference, so
+        // an explicit crashSession.close() before reopen is redundant; the
+        // post-block isClosed() check handles a future change to that
+        // contract.
+        crashSession.activateOnCurrentThread();
+        youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+        crashSession =
+            (DatabaseSessionEmbedded) youTrackDB.open(
+                crashDbName, "admin", DbTestBase.ADMIN_PASSWORD);
+
+        var enginePost = getBTreeIndexEngine(crashSession, indexName);
+        long[] postReplay = readCountsViaEngine(crashSession, enginePost);
+        assertEquals(
+            "Persisted svTree EP must carry the recalibrated total after reopen",
+            6L, postReplay[0]);
+        assertEquals(
+            "Persisted nullTree EP must carry the recalibrated null after reopen",
+            1L, postReplay[1]);
+      } finally {
+        if (crashSession != null && !crashSession.isClosed()) {
+          crashSession.close();
+        }
       }
+    } finally {
       youTrackDB.drop(crashDbName);
     }
   }
 
   /**
-   * Reload-via-{@code load()} convergence: simulates a crash after a
-   * successful {@code buildInitialHistogram} commit. After the crash and
-   * reopen, the in-memory {@code AtomicLong} counters are reseeded by
-   * {@code load()} from the persisted entry-point pages. The persisted side
-   * already landed at the recalibrated target inside the committed
-   * transaction, so the post-restart in-mem read must equal that target
-   * regardless of whether the original Hook B's in-mem apply ever ran on
-   * the pre-crash JVM.
+   * After a successful {@code buildInitialHistogram} commit, force-close and
+   * reopen on a fresh per-test database. The post-restart in-mem read must
+   * match the recalibrated target because {@code load()} reseeds the
+   * in-memory {@code AtomicLong}s from the persisted entry-point page. A
+   * regression where the in-mem apply was the sole source of truth (and
+   * the persisted side did not land the absolute target) would surface
+   * here as a stale post-restart counter pair.
    *
-   * <p>The crash here is approximated by {@code forceDatabaseClose}: the JVM
-   * state — including the in-mem {@code AtomicLong} values that Hook B
-   * mutated — is discarded on the close, and the reopen rebuilds the in-mem
-   * counters from the persisted EP page. A regression where the in-mem
-   * apply was the sole source of truth (and the persisted side did not
-   * land the absolute target) would surface here as a stale post-restart
-   * counter pair.
+   * <p>NOT a true crash-recovery / WAL-replay test. See
+   * {@link #forcedCloseReopen_mv_persistedEpPagesCarryRecalibratedTarget}
+   * for the {@code forceDatabaseClose} flush-then-close contract and the
+   * deferred follow-up for a real {@code WalTestUtils.withWalProtection}
+   * variant.
    */
   @Test
-  public void reloadViaLoad_inMemReseededFromPersistedTarget() throws Exception {
+  public void forcedCloseReopen_sv_inMemReseededFromPersistedTarget()
+      throws Exception {
     var crashDbName = "reload_buildhist_" + UUID.randomUUID();
     youTrackDB.create(crashDbName, DatabaseType.DISK,
         "admin", DbTestBase.ADMIN_PASSWORD, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(
-            crashDbName, "admin", DbTestBase.ADMIN_PASSWORD);
-
     try {
-      crashSession.createClassIfNotExist("ReloadBh");
-      var cls = crashSession.getClass("ReloadBh");
-      cls.createProperty("name", PropertyType.STRING);
-      cls.createIndex("ReloadBh.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
-      var indexName = "ReloadBh.name";
-
-      crashSession.begin();
-      for (int i = 0; i < 7; i++) {
-        crashSession.newEntity("ReloadBh").setProperty("name", "entry_" + i);
-      }
-      crashSession.commit();
-
-      var engine = getBTreeIndexEngine(crashSession, indexName);
-      engine.addToApproximateEntriesCount(12);
-      engine.addToApproximateNullCount(3);
-
-      crashSession.getStorage().getAtomicOperationsManager()
-          .executeInsideAtomicOperation(engine::buildInitialHistogram);
-
-      // The in-mem counters on the live engine reflect the post-Hook-B
-      // apply (7, 0). Force-close discards the JVM state including these
-      // AtomicLongs.
-      long[] preCrash = readCountsViaEngine(crashSession, engine);
-      assertEquals("In-mem total after apply", 7L, preCrash[0]);
-      assertEquals("In-mem null after apply", 0L, preCrash[1]);
-
-      crashSession.activateOnCurrentThread();
-      youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-      crashSession =
+      var crashSession =
           (DatabaseSessionEmbedded) youTrackDB.open(
               crashDbName, "admin", DbTestBase.ADMIN_PASSWORD);
+      try {
+        crashSession.createClassIfNotExist("ReloadBh");
+        var cls = crashSession.getClass("ReloadBh");
+        cls.createProperty("name", PropertyType.STRING);
+        cls.createIndex("ReloadBh.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+        var indexName = "ReloadBh.name";
 
-      // load() seeds the in-mem AtomicLongs from the persisted EP page.
-      // The persisted side landed at the recalibrated target inside the
-      // committed transaction, so the reseed must produce (7, 0).
-      var enginePost = getBTreeIndexEngine(crashSession, indexName);
-      long[] postReload = readCountsViaEngine(crashSession, enginePost);
-      assertEquals(
-          "In-mem total reseeded by load() must equal the recalibrated target",
-          7L, postReload[0]);
-      assertEquals(
-          "In-mem null reseeded by load() must equal the recalibrated target",
-          0L, postReload[1]);
-    } finally {
-      if (!crashSession.isClosed()) {
-        crashSession.close();
+        crashSession.begin();
+        for (int i = 0; i < 7; i++) {
+          crashSession.newEntity("ReloadBh").setProperty("name", "entry_" + i);
+        }
+        crashSession.commit();
+
+        var engine = getBTreeIndexEngine(crashSession, indexName);
+        engine.addToApproximateEntriesCount(12);
+        engine.addToApproximateNullCount(3);
+
+        crashSession.getStorage().getAtomicOperationsManager()
+            .executeInsideAtomicOperation(engine::buildInitialHistogram);
+
+        // The in-mem counters on the live engine reflect the post-Hook-B
+        // apply (7, 0). The forced close that follows drops the live JVM
+        // state, so the reopen must rebuild from the persisted EP page.
+        long[] preCrash = readCountsViaEngine(crashSession, engine);
+        assertEquals("In-mem total after apply", 7L, preCrash[0]);
+        assertEquals("In-mem null after apply", 0L, preCrash[1]);
+
+        // forceDatabaseClose invalidates the existing session reference, so
+        // an explicit crashSession.close() before reopen is redundant; the
+        // post-block isClosed() check handles a future change to that
+        // contract.
+        crashSession.activateOnCurrentThread();
+        youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+        crashSession =
+            (DatabaseSessionEmbedded) youTrackDB.open(
+                crashDbName, "admin", DbTestBase.ADMIN_PASSWORD);
+
+        // load() seeds the in-mem AtomicLongs from the persisted EP page.
+        // The persisted side landed at the recalibrated target inside the
+        // committed transaction, so the reseed must produce (7, 0).
+        var enginePost = getBTreeIndexEngine(crashSession, indexName);
+        long[] postReload = readCountsViaEngine(crashSession, enginePost);
+        assertEquals(
+            "In-mem total reseeded by load() must equal the recalibrated target",
+            7L, postReload[0]);
+        assertEquals(
+            "In-mem null reseeded by load() must equal the recalibrated target",
+            0L, postReload[1]);
+      } finally {
+        if (crashSession != null && !crashSession.isClosed()) {
+          crashSession.close();
+        }
       }
+    } finally {
       youTrackDB.drop(crashDbName);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Escape behavior of the new -ea snapshot-invariant assert
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Pin the current production escape behaviour of the new {@code -ea}
+   * snapshot-invariant assert added in {@code buildInitialHistogram}. When
+   * the assert fires under {@code -ea}, {@code AtomicOperationsManager.execute-
+   * InsideAtomicOperation} rewraps the {@link AssertionError} as a
+   * {@link StorageException} (a {@link RuntimeException} via {@code
+   * BaseException}). The {@code IndexAbstract.buildHistogramAfterFill} catch
+   * is {@code IOException}-only, so the rewrapped {@code StorageException}
+   * escapes it. This violates the catch's documented contract ("Histogram
+   * build failure must not fail the index rebuild"), but the catch widening
+   * is out of scope for the buildInitialHistogram mixed-mode work and is
+   * deferred to a follow-up issue under the {@code dev-workflow} tag that
+   * also carries the deferred multi-thread real-tree contention test
+   * covering both {@code clear()} and {@code buildInitialHistogram} on
+   * both engines.
+   *
+   * <p>This test makes the escape observable so the next maintainer sees it
+   * and chooses deliberately. The test exercises the engine-level assert
+   * path directly via the AOM (the same shape as the per-engine rollback
+   * tests above), not the full {@code buildHistogramAfterFill} retry loop,
+   * because no production seam drives the retry loop from outside {@code
+   * IndexAbstract}; the assert violation, the AOM rewrap, and the
+   * post-rewrap throwable type are all observable from this seam, which is
+   * the load-bearing chain of evidence the deferred follow-up needs.
+   *
+   * <p>Gated on {@code -ea} for the engine class: in production runs with
+   * assertions off the snapshot-invariant violation falls through silently
+   * to the no-precondition accumulator and no escape happens.
+   */
+  @Test
+  public void buildInitialHistogram_assertViolation_escapesIOExceptionCatch()
+      throws Exception {
+    assumeTrue(BTreeSingleValueIndexEngine.class.desiredAssertionStatus());
+
+    db.createClassIfNotExist("SvBhEscape");
+    var cls = db.getClass("SvBhEscape");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("SvBhEscape.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+    var indexName = "SvBhEscape.name";
+
+    db.begin();
+    for (int i = 0; i < 3; i++) {
+      db.newEntity("SvBhEscape").setProperty("name", "entry_" + i);
+    }
+    db.commit();
+
+    var engine = getBTreeIndexEngine(db, indexName);
+
+    // Seed drift that violates the snapshot invariant currentNull <=
+    // currentTotal. The persisted EP page reads (3, 0); we bump the in-mem
+    // null counter past the in-mem total so the snapshot read inside
+    // buildInitialHistogram trips the new -ea assert.
+    engine.addToApproximateEntriesCount(-2);
+    engine.addToApproximateNullCount(5);
+
+    Throwable caught = null;
+    try {
+      db.getStorage().getAtomicOperationsManager()
+          .executeInsideAtomicOperation(engine::buildInitialHistogram);
+    } catch (Throwable t) {
+      caught = t;
+    }
+
+    assertNotNull("assert violation must surface a throwable", caught);
+    // The AOM wraps the AssertionError as a StorageException. The
+    // StorageException is a RuntimeException via BaseException, so it
+    // escapes any IOException-only catch above it on the call stack.
+    assertThat(caught)
+        .as("AOM must rewrap the AssertionError as a StorageException")
+        .isInstanceOf(StorageException.class);
+    Throwable cause = caught.getCause();
+    assertNotNull("StorageException wrap must carry the original error as cause", cause);
+    assertThat(cause)
+        .as("Cause chain must trace back to the snapshot-invariant AssertionError")
+        .isInstanceOf(AssertionError.class);
+
+    // The escape contract: this throwable is NOT an IOException, so an
+    // IOException-only catch (the production shape at IndexAbstract.build-
+    // HistogramAfterFill) would not catch it. A future maintainer who
+    // widens the catch must update this test to match.
+    assertFalse(
+        "StorageException must not be an IOException; this is the escape under test",
+        caught instanceof IOException);
   }
 
   // ═══════════════════════════════════════════════════════════════════════

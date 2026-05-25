@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -115,8 +116,16 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: buildInitialHistogram must not mutate the in-mem
+    // AtomicLongs inline. The advance is gated on Hook B, which the
+    // Mockito fixture does not drive. Pre-state was (7, 2).
+    assertEquals("in-mem total stays at pre-state", 7L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 2L, f.engine.getNullCount(f.op));
     // Count must be persisted to the B-tree entry point page at the exact total
     verify(f.sbTree).setApproximateEntriesCount(f.op, 4L);
+    // Precision pin: exactly one absolute write per recalibration; a regression
+    // that issued a stale debug call alongside the target write would surface here.
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(any(), anyLong());
   }
 
   @Test
@@ -187,7 +196,12 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (10, 2) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 10L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 2L, f.engine.getNullCount(f.op));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 3L);
+    // Precision pin: exactly one absolute write per recalibration.
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(any(), anyLong());
   }
 
   /**
@@ -238,6 +252,9 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (20, 5) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 20L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 5L, f.engine.getNullCount(f.op));
     verify(f.svTree).setApproximateEntriesCount(f.op, 3L);
     verify(f.nullTree).setApproximateEntriesCount(f.op, 2L);
   }
@@ -284,6 +301,9 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (5, 1) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 5L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 1L, f.engine.getNullCount(f.op));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 1L);
   }
 
@@ -335,6 +355,9 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (10, 3) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 10L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 3L, f.engine.getNullCount(f.op));
     verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.nullTree).setApproximateEntriesCount(f.op, 3L);
   }
@@ -431,7 +454,12 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (5, 0) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 5L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 0L, f.engine.getNullCount(f.op));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 3L);
+    // Precision pin: exactly one absolute write per recalibration.
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(any(), anyLong());
   }
 
   /**
@@ -480,6 +508,9 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (3, 0) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 3L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 0L, f.engine.getNullCount(f.op));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 2L);
   }
 
@@ -521,6 +552,10 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(0L, delta.getInMemAdjustNull());
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (0, 0) untouched inline; the zero-delta
+    // recalibration still does not mutate the AtomicLongs.
+    assertEquals("in-mem total stays at pre-state", 0L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 0L, f.engine.getNullCount(f.op));
     // Persisted side still writes the absolute target inline; the WAL-tracked
     // call lands at 0 because that is the exact post-rebuild count.
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
@@ -570,6 +605,9 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (3, 0) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 3L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 0L, f.engine.getNullCount(f.op));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
   }
 
@@ -618,6 +656,10 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators stay zero on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (4, 1) untouched inline; the zero-delta
+    // recalibration still does not mutate the AtomicLongs.
+    assertEquals("in-mem total stays at pre-state", 4L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 1L, f.engine.getNullCount(f.op));
     // Persisted side still writes the absolute target inline at 4.
     verify(f.sbTree).setApproximateEntriesCount(f.op, 4L);
   }
@@ -678,6 +720,10 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(1L, delta.getInMemAdjustNull());
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (100, 0) untouched inline; the sign-opposed
+    // recalibration delta is recorded on the holder, not on the AtomicLongs.
+    assertEquals("in-mem total stays at pre-state", 100L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 0L, f.engine.getNullCount(f.op));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 21L);
   }
 
@@ -827,10 +873,16 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (7, 2) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 7L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 2L, f.engine.getNullCount(f.op));
     // Non-null count persisted to svTree entry point page
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
     // Null count persisted to nullTree entry point page
     verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
+    // Precision pin: exactly one absolute write per tree per recalibration.
+    verify(f.svTree, times(1)).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, times(1)).setApproximateEntriesCount(any(), anyLong());
   }
 
   @Test
@@ -901,9 +953,15 @@ public class BTreeEngineHistogramBuildTest {
     // The per-put accumulators must remain untouched on the build path.
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (3, 0) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 3L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 0L, f.engine.getNullCount(f.op));
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
     // Pin the null-tree absolute write at zero (empty null tree).
     verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
+    // Precision pin: exactly one absolute write per tree per recalibration.
+    verify(f.svTree, times(1)).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, times(1)).setApproximateEntriesCount(any(), anyLong());
   }
 
   @Test
@@ -958,6 +1016,9 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(-7L, delta.getInMemAdjustNull());
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    // Negative pin: pre-state (10, 8) untouched inline; Hook B applies later.
+    assertEquals("in-mem total stays at pre-state", 10L, f.engine.getTotalCount(f.op));
+    assertEquals("in-mem null stays at pre-state", 8L, f.engine.getNullCount(f.op));
     // Both persisted-side absolute writes land regardless of drift shape.
     verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);

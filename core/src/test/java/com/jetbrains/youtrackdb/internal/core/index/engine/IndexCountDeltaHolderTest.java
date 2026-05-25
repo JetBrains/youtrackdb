@@ -8,6 +8,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -596,36 +598,42 @@ public class IndexCountDeltaHolderTest {
   }
 
   /**
-   * Rollback discard contract: the recalibration delta lives on the holder,
-   * which lives on the AtomicOperation. On rollback the AtomicOperation is
-   * dropped, which discards the holder and every accumulated delta with it.
-   * This test pins the containment property at the holder boundary — the
-   * holder exposes the in-mem-only fields via getDeltas() only; no external
-   * counter is mutated by the accumulator itself, so dropping the holder is
-   * sufficient to drop the recalibration delta.
+   * Holder-only mutation contract: the recalibration accumulator records its
+   * delta on the holder exclusively and issues no other call back into the
+   * AtomicOperation. Mockito's {@code verifyNoMoreInteractions} catches a
+   * regression where the accumulator mutated engine-side state directly. A
+   * direct engine-side mutation would survive rollback, because rollback
+   * drops only the holder along with the AtomicOperation; anything written
+   * outside the holder would persist.
+   *
+   * <p>The companion containment property (a fresh holder starts at all-zero
+   * in-mem fields, so dropping the existing holder drops the recalibration
+   * delta) is pinned by {@link #inMemAdjustFields_defaultToZero}.
    */
   @Test
-  public void accumulateInMemRecalibration_rolledBackHolderDiscardsDelta() {
+  public void accumulateInMemRecalibration_mutatesOnlyTheHolder() {
     var holder = new IndexCountDeltaHolder();
     var atomicOp = mock(AtomicOperation.class);
     when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
 
     IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, 50L, 12L);
-    // The values are recorded only on the holder, accessible via getDeltas().
-    var map = holder.getDeltas();
-    assertEquals(1, map.size());
-    var delta = map.get(7);
+
+    // The accumulator's only contract with the AtomicOperation is the
+    // holder-lookup call. Any other interaction would imply an engine-side
+    // side effect that survives rollback (rollback drops the holder, but a
+    // mutation issued directly on the AtomicOperation would survive).
+    verify(atomicOp).getOrCreateIndexCountDeltas();
+    verifyNoMoreInteractions(atomicOp);
+
+    // The recalibration values land on the in-mem-only fields; the persisted
+    // pair (totalDelta/nullDelta) stays at zero so a regression that routed
+    // the recalibration delta into Hook A's persisted-side feed would fail
+    // here.
+    var delta = holder.getDeltas().get(7);
     assertEquals(50L, delta.getInMemAdjustTotal());
     assertEquals(12L, delta.getInMemAdjustNull());
-
-    // Simulating rollback: drop the holder. A fresh holder, as the next
-    // AtomicOperation would carry, starts at all-zeros.
-    var freshHolder = new IndexCountDeltaHolder();
-    var freshMap = freshHolder.getDeltas();
-    assertEquals(0, freshMap.size());
-    var freshDelta = freshHolder.getOrCreate(7);
-    assertEquals(0L, freshDelta.getInMemAdjustTotal());
-    assertEquals(0L, freshDelta.getInMemAdjustNull());
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
   }
 
   /**

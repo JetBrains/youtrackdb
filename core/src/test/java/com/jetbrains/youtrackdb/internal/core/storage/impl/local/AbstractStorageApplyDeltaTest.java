@@ -25,11 +25,17 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
 import org.junit.Test;
 
 /**
@@ -215,5 +221,87 @@ public class AbstractStorageApplyDeltaTest {
         expected != null);
     assertTrue("Latch must be set even though the loop threw",
         holder.isApplied());
+  }
+
+  /**
+   * Pins the per-engine sum that Hook B applies to the in-memory {@code
+   * AtomicLong} counters. When the same {@code (atomicOp, engineId)} pair
+   * carries both per-put activity ({@code totalDelta} / {@code nullDelta} via
+   * the short and long-form accumulators) and an in-mem-only recalibration
+   * ({@code inMemAdjustTotal} / {@code inMemAdjustNull} via {@code
+   * accumulateInMemRecalibration}), {@link AbstractStorage#applyIndexCountDeltas}
+   * must call the engine mutators with the SUM, not either operand alone.
+   *
+   * <p>Worked arithmetic: per-put accumulation records {@code totalDelta=+7}
+   * (5 non-null + 2 null) and {@code nullDelta=+2}; a recalibration call
+   * records {@code inMemAdjustTotal=-3} and {@code inMemAdjustNull=-1}.
+   * Hook B's expected output is {@code addToApproximateEntriesCount(+4)} and
+   * {@code addToApproximateNullCount(+1)}, i.e. the per-axis sums. A
+   * regression that wrote either operand alone, or swapped the total/null
+   * axis (axis-pairing regression), would fail one of the four pins below.
+   *
+   * <p>Setup detail: the production code reads {@code indexEngines.get(id)}
+   * inside the per-engine loop. {@link AbstractStorage#applyIndexCountDeltas}
+   * was reached through the {@code doCallRealMethod()} seam in the other
+   * tests in this class, but those tests carried no entries (or a single
+   * entry that intentionally NPE'd on the null field). Here we reflectively
+   * install a real {@link ArrayList} containing a {@link BTreeIndexEngine}
+   * mock at index 7 so the loop body runs to completion against the engine.
+   */
+  @Test
+  public void applyIndexCountDeltasSumsPerPutAndInMemAdjustOnSameEngine()
+      throws Exception {
+    var storage = mock(AbstractStorage.class);
+    doCallRealMethod().when(storage).applyIndexCountDeltas(any(AtomicOperation.class));
+
+    // Install a real indexEngines list with a BTreeIndexEngine mock at index 7
+    // so the per-engine loop body resolves the engine and calls the mutators.
+    Field indexEnginesField = AbstractStorage.class.getDeclaredField("indexEngines");
+    indexEnginesField.setAccessible(true);
+    var engines = new ArrayList<Object>();
+    for (int i = 0; i < 7; i++) {
+      engines.add(null);
+    }
+    var btreeEngine = mock(BTreeIndexEngine.class);
+    engines.add(btreeEngine);
+    indexEnginesField.set(storage, engines);
+
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+    when(atomicOp.getIndexCountDeltas()).thenReturn(holder);
+
+    // Record per-put activity: 5 non-null puts then 2 null puts. Net
+    // totalDelta=+7, nullDelta=+2 on engine 7.
+    for (int i = 0; i < 5; i++) {
+      IndexCountDelta.accumulate(atomicOp, 7, +1, false);
+    }
+    for (int i = 0; i < 2; i++) {
+      IndexCountDelta.accumulate(atomicOp, 7, +1, true);
+    }
+    // Record an in-mem-only recalibration. Net inMemAdjustTotal=-3,
+    // inMemAdjustNull=-1 on the same engine.
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, -3L, -1L);
+
+    // Sanity: the holder carries both pairs separately before Hook B applies.
+    var row = holder.getDeltas().get(7);
+    assertTrue("totalDelta must equal the per-put net (+7)", row.getTotalDelta() == 7L);
+    assertTrue("nullDelta must equal the per-put net (+2)", row.getNullDelta() == 2L);
+    assertTrue("inMemAdjustTotal must equal the recal delta (-3)",
+        row.getInMemAdjustTotal() == -3L);
+    assertTrue("inMemAdjustNull must equal the recal delta (-1)",
+        row.getInMemAdjustNull() == -1L);
+
+    storage.applyIndexCountDeltas(atomicOp);
+
+    // The two mutators must receive the per-axis sum. The total axis sums
+    // totalDelta (+7) + inMemAdjustTotal (-3) = +4; the null axis sums
+    // nullDelta (+2) + inMemAdjustNull (-1) = +1. verifyNoMoreInteractions
+    // pins axis-pairing: a regression that crossed wires (writing the null
+    // sum to the entries mutator, or vice versa) would land here as an
+    // unverified call.
+    verify(btreeEngine).addToApproximateEntriesCount(4L);
+    verify(btreeEngine).addToApproximateNullCount(1L);
+    verifyNoMoreInteractions(btreeEngine);
   }
 }
