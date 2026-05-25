@@ -233,7 +233,7 @@ What changes:
   `(Pattern, aliasClasses, aliasFilters)` ctor + external
   `SelectExecutionPlanner.handleProjectionsBlock` — rejected: planner
   already calls `handleProjectionsBlock` internally
-  (`MatchExecutionPlanner.java:624`) so a second external call would
+  (`MatchExecutionPlanner.java:623`) so a second external call would
   double-append projection / order / limit steps. (b) Existing
   `(SQLMatchStatement)` ctor — semantic mismatch (not parsing SQL) and
   the AST class is JJTree-generated, awkward to construct manually.
@@ -279,13 +279,16 @@ What changes:
   decline. Track 12's perf baseline must measure against the recognized
   set as it stands at end of Phase 1, not against the full LDBC suite.
 - **Implemented in**: Track 2 (size-1 gate enforces all-or-nothing for
-  the minimal recognized set), Tracks 3-10 (extend the recognized set;
-  walker classifies each step as recognized/unrecognized and declines the
-  whole traversal on the first unrecognized step). Track 11 is retired
-  (`[~]`) — boundary refinement is subsumed: output-type negotiation
-  merges into Tracks 7/8/9 where the relevant terminal steps are
-  introduced; cross-boundary label propagation and `path()` interaction
-  are no-ops under all-or-nothing.
+  the minimal recognized set), Tracks 3-11 (extend the recognized set;
+  walker classifies each step as recognized/unrecognized and declines
+  the whole traversal on the first unrecognized step). Track 11 owns
+  the list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) —
+  originally retired as "Hybrid boundary refinement" because output-
+  type negotiation merged into Tracks 7/8/9, reopened after PR #1038
+  review to bring fold/unfold/reverse/tail into Phase 1. Cross-
+  boundary label propagation and `path()` interaction remain no-ops
+  under all-or-nothing — `path()` stays unrecognized in Phase 1, so
+  any traversal containing it declines whole.
 
 #### D4: Strategy ordering — `GremlinToMatchStrategy` runs first; YTDB half-measure strategies are the fallback path
 
@@ -1140,22 +1143,52 @@ What changes:
   > type compatibility check + fallback test.
   > **Depends on:** Track 9.
 
-- [~] Track 11: Hybrid boundary refinement — output type negotiation, label propagation
-  > Hardens the boundary step against edge cases that earlier tracks
-  > deferred.
+- [ ] Track 11: List-shaping terminators — `fold`, `unfold`, `reverse`, `tail`
+  > Adds the four TinkerPop list-shaping steps as recognised terminators
+  > in Phase 1 (see design.md "List-shaping terminators (Track 11)" for
+  > the full specification, including TP semantics, boundary-step
+  > integration, and composition rules). Originally retired as "Hybrid
+  > boundary refinement" because output-type negotiation merged into
+  > Tracks 7/8/9; reopened after PR #1038 review (lpld line=147)
+  > pushed for Phase 1 support of fold/unfold/reverse/tail.
   >
-  > **Skipped:** Subsumed by D3 all-or-nothing translation. The
-  > boundary step is a pure terminator — output type is determined by
-  > the (fully-recognized) terminal step, and there is no
-  > cross-boundary label reference because no native step crosses the
-  > boundary. The output-type negotiation table merges into Tracks
-  > 7/8/9 where the relevant terminal steps are introduced (each track
-  > pins the boundary output type for its own terminal). Cross-boundary
-  > label propagation and `path()` interaction are no-ops under
-  > all-or-nothing — `path()` is unrecognized in Phase 1, so any
-  > traversal that contains it declines whole and runs natively. Track
-  > deferred to Phase 2 if a hybrid path() / cross-boundary label
-  > strategy ever returns.
+  > Adds:
+  > - **New `BoundaryOutputType.LIST`** for `fold()`. The boundary step
+  >   pulls every upstream `Result`, projects each per the upstream
+  >   output-type logic, appends to an internal `ArrayList`, and on
+  >   stream exhaustion emits one traverser carrying the list. Empty
+  >   input yields a traverser with an empty list (TP `FoldStep` empty-
+  >   input rule, distinct from `sum`/`min`/`mean`'s "no traverser").
+  > - **Post-processor flags** on the boundary step: `unfoldOutput: bool`
+  >   (flat-map each emitted traverser's value per TP `UnfoldStep`),
+  >   `reverseOutput: bool` (per-traverser value transform per TP
+  >   `ReverseStep` — `String`-reverse, `Iterable`/`Iterator`/array →
+  >   `asList` + `Collections.reverse`, else unchanged), `tailLimit: int?`
+  >   (bounded `ArrayDeque<E>` ring buffer of the last `n` rows in
+  >   arrival order).
+  > - **Recogniser ordering**: a list-shaping step is accepted only as
+  >   the **last** step of the traversal. The recogniser walks back from
+  >   the terminator; a list-shaping step may follow any other
+  >   recognised terminator (vertex hop / projection / aggregate /
+  >   group / union). Mid-traversal use declines under D3 all-or-
+  >   nothing.
+  > - **Composition rules**: at most one list-shaping step per
+  >   translated traversal. `reverse().unfold()` and `unfold().reverse()`
+  >   accepted as post-processor chains (recogniser sets both flags);
+  >   `fold().tail(3)` declines (two terminators violate the single-
+  >   boundary rule).
+  >
+  > **Scope:** ~4 steps covering: (1) `FoldStepRecogniser` +
+  > `BoundaryOutputType.LIST` boundary path + empty-input behavior;
+  > (2) `UnfoldStepRecogniser` + `unfoldOutput` flag + `unfold(value)`
+  > helper mirroring `UnfoldStep.flatMap`; (3) `ReverseStepRecogniser`
+  > + `reverseOutput` flag + `reverse(value)` helper mirroring
+  > `ReverseStep.map`; (4) `TailGlobalStepRecogniser` + `tailLimit`
+  > flag + `n=0` / `n<0` edge cases + composition tests (`reverse +
+  > unfold`, `fold + tail` decline, etc.).
+  > **Depends on:** Tracks 7 (MAP / SINGLE_VALUE output for unfold to
+  > flat-map over), 9 (SCALAR / MAP aggregate output for fold to
+  > materialize).
 
 - [ ] Track 12: Cucumber green + perf baseline
   > Final hardening and measurement.
@@ -1213,8 +1246,8 @@ What changes:
   > **Scope:** ~4 steps covering full Cucumber re-run + fix, scenario
   > catalogue, Gremlin LDBC benchmark suite + on/off harness, baseline
   > report.
-  > **Depends on:** Track 10 (Track 11 retired as `[~]` under D3
-  > all-or-nothing).
+  > **Depends on:** Tracks 10 and 11 (full Phase 1 recognised set must
+  > be in place before Cucumber re-run + benchmark baseline).
 
 ## Final Artifacts
 
