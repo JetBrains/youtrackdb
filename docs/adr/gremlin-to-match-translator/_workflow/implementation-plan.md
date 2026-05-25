@@ -702,17 +702,23 @@ What changes:
 
 - [ ] Track 4: Filtering + predicates
   > Extends Track 3's predicate adapter skeleton with the remaining
-  > `P` variants and adds four `has*` step handlers (`HasStep`,
-  > `YTDBHasLabelStep`, `HasIdStep`, `HasNotStep`) plus `Text`/`TextP`
-  > predicate translations. Uses Track 1's `MatchWhereBuilder.isDefined`
-  > / `isNotDefined` factories for `has(key)` / `hasNot(key)` presence
-  > semantics (D-IS-DEFINED).
+  > `P` variants and adds `HasStep` / `YTDBHasLabelStep` / `HasIdStep`
+  > recognisers plus `Text`/`TextP` predicate translations. The bare
+  > presence forms `has(key)` / `hasNot(key)` do NOT land on `HasStep`
+  > (TP encodes them as `TraversalFilterStep(__.values(key))` and
+  > `NotStep(__.values(key))` respectively) — `has(key)` recognition
+  > extends `TraversalFilterStepRecogniser` with a Case A mirror of the
+  > existing `NotFilterStepRecogniser` Case A. Both emit
+  > `IS DEFINED` / `IS NOT DEFINED` via Track 1's `MatchWhereBuilder`
+  > factories (D-IS-DEFINED).
   > **Scope:** ~6 steps covering predicate adapter (remaining `P`
-  > variants beyond Track 3's skeleton), four `has*` recognisers,
-  > predicate-equivalence + NULL/Collection-eq regression tests.
+  > variants beyond Track 3's skeleton), `HasStep` / `HasLabelStep` /
+  > `HasIdStep` recognisers, `TraversalFilterStepRecogniser` Case A
+  > (presence-form `has(key)`), predicate-equivalence + NULL/Collection-eq
+  > regression tests.
   > **Depends on:** Track 3 (predicate adapter skeleton) and Track 1
-  > (`isDefined` / `isNotDefined` factories — `HasNotStep` is the
-  > gating step).
+  > (`isDefined` / `isNotDefined` factories — `TraversalFilterStep` and
+  > `NotFilter` presence cases gate on them).
 
 - [ ] Track 5: Logical filters — `and`, `or`, `not`, `where`
   > Implements TinkerPop's logical filter steps with sub-traversals by
