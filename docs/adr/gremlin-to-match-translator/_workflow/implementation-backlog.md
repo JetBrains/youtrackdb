@@ -397,7 +397,12 @@ flowchart LR
 >
 > **How**:
 > - Step ordering (provisional):
->   1. `GremlinPredicateAdapter` skeleton + every `P` variant.
+>   1. `GremlinPredicateAdapter` — remaining `P` variants beyond
+>      Track 3's skeleton (`Text`/`TextP`, additional composite forms);
+>      Track 3 already covers `Compare.eq/neq/gt/gte/lt/lte`,
+>      `Contains.within/without`, and `P.between` because
+>      `EdgeStepRecogniser` needs them for edge-side `has(...)`
+>      translation.
 >   2. `HasStep` handler.
 >   3. `HasLabelStep` / `YTDBHasLabelStep` handler with polymorphism.
 >   4. `HasIdStep` (single-ID via `aliasRids`, multi-ID via
