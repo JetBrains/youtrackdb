@@ -200,20 +200,20 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.buildInitialHistogram(f.op);
 
     // Counters recalibrated: exactTotal = 3 (scanned) + 2 (exactNull) = 5.
-    // Under mixed-mode encoding the in-mem AtomicLong advances post-commit
-    // via Hook B (AbstractStorage.applyIndexCountDeltas), not inline inside
-    // buildInitialHistogram. The unit-test fixture stops at
-    // engine.buildInitialHistogram(op) without simulating the AtomicOperation
-    // lifecycle, so getTotalCount()/getNullCount() still read the pre-
-    // recalibration approximate values. The persisted-side mock verifications
-    // below carry the recalibration assertion in this test; the in-mem-side
-    // assertions migrate to a holder-inspection pattern
-    // (op.getOrCreateIndexCountDeltas().getDeltas().get(engineId).
-    // getInMemAdjustTotal()/.getInMemAdjustNull()) in a follow-on edit.
-    // TODO: migrate to holder inspection — see IndexCountDelta.
-    // accumulateInMemRecalibration.
-    // assertEquals(5, f.engine.getTotalCount(f.op));
-    // assertEquals(2, f.engine.getNullCount(f.op));
+    // In-mem-side recalibration is now post-commit via Hook B (see
+    // IndexCountDelta.accumulateInMemRecalibration); the holder records the
+    // delta during the atomic op and Hook B applies it after commitChanges.
+    // The Mockito fixture does not drive the AOM lifecycle, so we inspect
+    // the recorded delta directly. Pre-state was (20, 5); target is (5, 2);
+    // expected deltas are (-15, -3).
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull("recalibration must register a per-engine delta", delta);
+    assertEquals(-15L, delta.getInMemAdjustTotal());
+    assertEquals(-3L, delta.getInMemAdjustNull());
+    // The per-put accumulators must remain untouched on the build path.
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
     verify(f.svTree).setApproximateEntriesCount(f.op, 3L);
     verify(f.nullTree).setApproximateEntriesCount(f.op, 2L);
   }
@@ -285,14 +285,20 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.buildInitialHistogram(f.op);
 
     // Counters recalibrated: exactTotal = 0 (scanned) + 3 (exactNull) = 3.
-    // In-mem-side assertions disabled — under mixed-mode encoding the
-    // AtomicLong advances post-commit through Hook B, not inline. See the
-    // matching note in multiValue_buildInitialHistogram_approxDiverged_
-    // recalibrates for the holder-inspection-pattern migration target.
-    // TODO: migrate to holder inspection — see IndexCountDelta.
-    // accumulateInMemRecalibration.
-    // assertEquals(3, f.engine.getTotalCount(f.op));
-    // assertEquals(3, f.engine.getNullCount(f.op));
+    // In-mem-side recalibration is now post-commit via Hook B (see
+    // IndexCountDelta.accumulateInMemRecalibration); the holder records the
+    // delta during the atomic op and Hook B applies it after commitChanges.
+    // The Mockito fixture does not drive the AOM lifecycle, so we inspect
+    // the recorded delta directly. Pre-state was (10, 3); target is (3, 3);
+    // expected deltas are (-7, 0).
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull("recalibration must register a per-engine delta", delta);
+    assertEquals(-7L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+    // The per-put accumulators must remain untouched on the build path.
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
     verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.nullTree).setApproximateEntriesCount(f.op, 3L);
   }
@@ -526,9 +532,12 @@ public class BTreeEngineHistogramBuildTest {
   public void multiValue_buildInitialHistogram_delegatesToManager()
       throws IOException {
     // Given a multi-value engine with 2 sv entries and 1 null entry.
+    // Pre-state is diverged from the scan target so the recorded recalibration
+    // delta is non-zero — a delta of (0, 0) would let a sign-flip or argument-
+    // swap regression in accumulateInMemRecalibration slip through unnoticed.
     var f = new MultiValueFixture();
-    f.engine.addToApproximateEntriesCount(3);
-    f.engine.addToApproximateNullCount(1);
+    f.engine.addToApproximateEntriesCount(7);
+    f.engine.addToApproximateNullCount(2);
     var firstKey = new CompositeKey("a", new RecordId(2, 1), 0L);
     when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.svTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
@@ -547,12 +556,20 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.buildInitialHistogram(f.op);
 
-    // approxTotal = 3, approxNull = 1
+    // Delegation pin: approxTotal=7, approxNull=2 (pre-state read before scan).
     verify(f.manager).buildHistogram(
-        eq(f.op), any(), eq(3L), eq(1L), eq(1));
-    // Counters must be recalibrated from the exact scan
-    assertEquals(3, f.engine.getTotalCount(f.op));
-    assertEquals(1, f.engine.getNullCount(f.op));
+        eq(f.op), any(), eq(7L), eq(2L), eq(1));
+    // Recalibration is post-commit via Hook B. targetTotal = 2 + 1 = 3,
+    // currentTotal = 7 → inMemAdjustTotal = -4; exactNullCount = 1,
+    // currentNull = 2 → inMemAdjustNull = -1.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull("recalibration must register a per-engine delta", delta);
+    assertEquals(-4L, delta.getInMemAdjustTotal());
+    assertEquals(-1L, delta.getInMemAdjustNull());
+    // The per-put accumulators must remain untouched on the build path.
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
     // Non-null count persisted to svTree entry point page
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
     // Null count persisted to nullTree entry point page
@@ -613,13 +630,23 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.buildInitialHistogram(f.op);
 
     // Counters: 2 non-null live + 0 null = 2 total.
-    // In-mem-side assertion disabled — under mixed-mode encoding the
-    // AtomicLong advances post-commit through Hook B, not inline. The
-    // persisted-side mock verification below carries the assertion.
-    // TODO: migrate to holder inspection — see IndexCountDelta.
-    // accumulateInMemRecalibration.
-    // assertEquals(2, f.engine.getTotalCount(f.op));
+    // In-mem-side recalibration is now post-commit via Hook B (see
+    // IndexCountDelta.accumulateInMemRecalibration); the holder records the
+    // delta during the atomic op and Hook B applies it after commitChanges.
+    // The Mockito fixture does not drive the AOM lifecycle, so we inspect
+    // the recorded delta directly. Pre-state was (3, 0); target is (2, 0);
+    // expected deltas are (-1, 0).
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull("recalibration must register a per-engine delta", delta);
+    assertEquals(-1L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+    // The per-put accumulators must remain untouched on the build path.
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
+    // Pin the null-tree absolute write at zero (empty null tree).
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
   }
 
   @Test

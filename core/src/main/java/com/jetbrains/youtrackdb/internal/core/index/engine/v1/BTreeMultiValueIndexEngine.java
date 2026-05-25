@@ -652,20 +652,30 @@ public final class BTreeMultiValueIndexEngine
     // In-mem side: the AtomicLong counters do NOT move inline. The snapshot
     // delta (target - currentInMem) is recorded on the AtomicOperation via
     // IndexCountDelta.accumulateInMemRecalibration and applied by Hook B
-    // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds
-    // and before the per-index lock releases. On rollback the holder is
-    // dropped and the in-mem counters stay at their pre-recalibration value,
-    // so the persisted-side WAL revert and the in-mem-side no-op stay in
-    // step — the structural divergence that produced the underflow cascade
-    // is unreachable on this path.
+    // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds.
+    // On the only production path that reaches this method
+    // (IndexAbstract.buildHistogramAfterFill via executeInsideAtomicOperation),
+    // no per-index lock is held during Hook B's apply; concurrent commits on
+    // the same engine compose via AtomicLong.addAndGet's additive semantics.
+    // On rollback the holder is dropped and the in-mem counters stay at
+    // their pre-recalibration value, so the persisted-side WAL revert and
+    // the in-mem-side no-op stay in step. The structural divergence that
+    // produced the underflow cascade is unreachable on this path.
+    //
+    // Scope: the structural-impossibility claim covers only the count
+    // counters (approximateIndexEntriesCount, approximateNullCount). The
+    // IndexHistogramManager.cache snapshots installed by the preceding
+    // mgr.buildHistogram call are NOT reverted on rollback (a heap-only
+    // cache rebuilt on next storage open; out-of-scope follow-up).
     svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
     nullTree.setApproximateEntriesCount(atomicOperation, exactNullCount);
     long currentTotal = approximateIndexEntriesCount.get();
     long currentNull = approximateNullCount.get();
     long targetTotal = scannedNonNull + exactNullCount;
     assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
-        : name + "[" + id + "]: snapshot invariant violated:"
-            + " currentTotal=" + currentTotal + " currentNull=" + currentNull;
+        : "buildInitialHistogram() snapshot invariant violated on engine="
+            + name + " id=" + id
+            + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
     IndexCountDelta.accumulateInMemRecalibration(
         atomicOperation, id, targetTotal - currentTotal, exactNullCount - currentNull);
   }
