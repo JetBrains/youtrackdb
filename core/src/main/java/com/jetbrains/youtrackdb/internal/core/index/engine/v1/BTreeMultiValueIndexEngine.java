@@ -640,17 +640,34 @@ public final class BTreeMultiValueIndexEngine
       }
     }
 
-    // Recalibrate from exact counts — persist first so that if setApproximateEntriesCount
-    // throws, the in-memory counters remain at their prior (approximate) values.
+    // Recalibrate from exact counts using mixed-mode encoding.
     //
-    // Note: if the enclosing atomic operation rolls back after this point, WAL reverts
-    // the persisted page but the in-memory counters keep the new values. This temporary
-    // divergence is acceptable because counters are approximate by design and the next
-    // buildInitialHistogram() or load() will recalibrate them.
+    // Persisted side: the two setApproximateEntriesCount calls below are
+    // WAL-tracked through the AOM lifecycle. They write the absolute target
+    // value (not a delta), so on every successful recalibration the persisted
+    // EP page lands at the exact count regardless of the pre-rebuild
+    // persisted value — pre-existing in-mem-vs-persisted drift heals here.
+    // On rollback the WAL reverts these writes.
+    //
+    // In-mem side: the AtomicLong counters do NOT move inline. The snapshot
+    // delta (target - currentInMem) is recorded on the AtomicOperation via
+    // IndexCountDelta.accumulateInMemRecalibration and applied by Hook B
+    // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds
+    // and before the per-index lock releases. On rollback the holder is
+    // dropped and the in-mem counters stay at their pre-recalibration value,
+    // so the persisted-side WAL revert and the in-mem-side no-op stay in
+    // step — the structural divergence that produced the underflow cascade
+    // is unreachable on this path.
     svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
     nullTree.setApproximateEntriesCount(atomicOperation, exactNullCount);
-    approximateNullCount.set(exactNullCount);
-    approximateIndexEntriesCount.set(scannedNonNull + exactNullCount);
+    long currentTotal = approximateIndexEntriesCount.get();
+    long currentNull = approximateNullCount.get();
+    long targetTotal = scannedNonNull + exactNullCount;
+    assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
+        : name + "[" + id + "]: snapshot invariant violated:"
+            + " currentTotal=" + currentTotal + " currentNull=" + currentNull;
+    IndexCountDelta.accumulateInMemRecalibration(
+        atomicOperation, id, targetTotal - currentTotal, exactNullCount - currentNull);
   }
 
   @Override
