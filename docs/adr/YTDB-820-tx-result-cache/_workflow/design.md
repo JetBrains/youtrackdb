@@ -34,18 +34,18 @@ classDiagram
         +getQueryResultCache() QueryResultCache
     }
     class QueryResultCache {
-        -entries: LinkedHashMap~CacheKey, CachedEntry~  [accessOrder=true, LRU]
+        -entries: LinkedHashMap~CacheKey, CachedEntry~
         -maxEntries: int
         -maxRecordsPerEntry: int
         +lookup(key) CachedEntry
         +put(key, entry) void
         +invalidateAll() void
         +invalidateOnMutation(record, status) void
-        +clear() void  [idempotent]
+        +clear() void
     }
     class CacheKey {
         -statement: SQLStatement
-        -params: Map~String, Object~
+        -params: Map~Object, Object~
         +equals(o) boolean
         +hashCode() int
     }
@@ -61,9 +61,9 @@ classDiagram
         -whereClause: SQLWhereClause
         -orderBy: SQLOrderBy
         -wipedByMutation: boolean
-        -version: long  [bumped on every K1 RECORD/MATCH_TUPLE merge]
+        -version: long
         +sizeHint() int
-        +close() void  [idempotent]
+        +close() void
     }
     class AggregateState {
         -kind: MergeKind
@@ -73,7 +73,7 @@ classDiagram
         -extremumRid: RID
         -contributingRids: Set~RID~
         -contributingValues: Map~RID, Number~
-        +observe(result) void  [called by AggregateCacheTapStep on each upstream record]
+        +observe(result) void
         +applyMutation(rec, status, matchAfter) void
         +toResult() Result
     }
@@ -91,11 +91,11 @@ classDiagram
     class CachedResultSetView {
         -entry: CachedEntry
         -position: int
-        -expectedEntryVersion: long  [captured at construction; compared on next()]
+        -expectedEntryVersion: long
         -session: DatabaseSessionEmbedded
         +hasNext() boolean
-        +next() Result  [throws IllegalStateException if entry.version != expectedEntryVersion]
-        +close() void  [idempotent]
+        +next() Result
+        +close() void
     }
     class DatabaseSessionEmbedded {
         +query(sql, args) ResultSet
@@ -153,10 +153,10 @@ sequenceDiagram
             else stream still has rows
                 View->>Stream: next()
                 Stream-->>View: Result r
-                View->>View: results.add(r); position++
+                View->>View: results.add(r), position++
                 View-->>App: r
             else stream exhausted
-                View->>View: entry.exhausted=true; stream.close()
+                View->>View: entry.exhausted=true, stream.close()
                 View-->>App: NoSuchElementException
             end
         end
@@ -192,7 +192,7 @@ sequenceDiagram
 
 The parser is already on the hot path — `SQLEngine.parse()` runs on every `query()` call (DatabaseSessionEmbedded:632), and the result is itself cached by the existing `STATEMENT_CACHE_SIZE` knob. The result cache lookup happens after parsing but before execution-plan creation; the AST is the input we already have.
 
-Parameter normalization: `Object[]` form is converted to a `LinkedHashMap<Integer, Object>` keyed by positional index, `Map` form is wrapped read-only. Equality is `Objects.equals` deep; arrays go through `Arrays.deepEquals`. Records and identifiables compare by RID (their existing equals contract).
+Parameter normalization: `Object[]` form is converted to a `LinkedHashMap<Integer, Object>` keyed by positional index; the named `Map<String, Object>` form is wrapped read-only. The stored type is `Map<Object, Object>` — the same union the existing `SQLStatement.execute(...)` API carries (`SQLStatement.java:62/66/83/89`), because positional params use `Integer` keys and named params use `String` keys. Equality is `Objects.equals` deep; arrays go through `Arrays.deepEquals`. Records and identifiables compare by RID (their existing equals contract).
 
 ### Edge cases / Gotchas
 - `SQLStatement.equals()` is the same one that backs `STATEMENT_CACHE_SIZE` AST cache, so the cache-key behavior matches existing precedent.
