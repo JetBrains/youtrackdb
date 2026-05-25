@@ -1,100 +1,78 @@
-# Track 7: SKIP support in K1 RECORD — prefix-cap merge
+# Track 7: Hardening — non-determinism, DML invalidation, memory bound
 
 ## Purpose / Big Picture
-After this track, paginated `SELECT … SKIP n LIMIT m` queries within `n + m <= maxRecordsPerEntry` benefit from K1 RECORD merge — the same path that already handles plain `LIMIT m` shapes. UI list views in Hub that page through results within the same tx see cache hits for every page beyond the first, with mid-page insert/update/delete mutations re-spliced rather than wiping the entry.
 
-R-C extension to Track 4's K1 RECORD: relax the `no SKIP` gate in `SharpMergePredicate.classify`, change the cached shape from "visible window of size LIMIT" to "full prefix of size `SKIP + LIMIT`", and shift the view's read offset by SKIP.
+BLUF: After this track, the cache is production-safe: non-deterministic queries bypass, `TRUNCATE CLASS` invalidates all, memory caps enforced, deterministic-ORDER-BY admission gate active, schema-DDL canary assert in place.
 
-## Progress
-- [ ] Review + decomposition
-- [ ] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
-
-## Surprises & Discoveries
-
-## Decision Log
-
-## Outcomes & Retrospective
+Production-readiness for correctness: AST denylist for non-deterministic functions/variables, `NOCACHE` hint extension, full-wipe on `SQLTruncateClassStatement` via `cache.invalidateAll()`, LRU enforcement at `maxEntries`, per-entry overflow handling at `maxRecordsPerEntry`, deterministic-ORDER-BY admission gate using `NonDeterministicQueryDetector` on each `SQLOrderByItem.modifier`. Java assert in the cache hook that fires if schema DDL reaches it (D3 canary).
 
 ## Context and Orientation
 
-`SharpMergePredicate.classify` (Track 4) currently returns `NONE` whenever `SQLSelectStatement.skip != null`. The rationale documented in Track 4's edge cases: "Sharp-merge doesn't know whether a CREATED record was in the skipped prefix or the returned tail."
+**Codebase state at track start.** After Tracks 1-6: all shapes (RECORD, AGGREGATE, MATCH Etap A) work with delta build. This track adds the safety nets and operator-facing knobs.
 
-Fix: cache the **full prefix** of size `n + m` (where `n = SKIP`, `m = LIMIT`), not just the visible window. A CREATED record that splices into the prefix at position `< n` becomes invisible to the view (correctly — it's now in the skipped region). A DELETED record at position `< n` shifts later records up, including potentially moving a record into the visible window.
+Existing relevant code:
+- `SQLSelectStatement.noCache: Boolean` — already parses; semantics extended here.
+- `SQLTruncateClassStatement` — bulk-bypass target.
+- `SQLOrderByItem.modifier: SQLModifier` — chain target for deterministic check.
+- Grammar source: `core/src/main/grammar/YouTrackDBSql.jjt:3726-3729` — ORDER BY production. Do not edit generated parser at `core/.../sql/parser/`.
+- `LinkedHashMap.removeEldestEntry(Map.Entry)` — LRU eviction hook target.
 
-`maxRecordsPerEntry` is the bound on the prefix size. When `n + m > maxRecordsPerEntry`, classify still returns `NONE` (K0 wipe fallback) — pathological deep pagination (`SKIP 1000000 LIMIT 10`) doesn't fit and can't benefit.
-
-Changes touching three files:
-
-1. `SharpMergePredicate.java` — gate change: `if (stmt.skip != null && (skip + limit) > maxRecordsPerEntry) return NONE; otherwise admit`.
-2. `CachedEntry.java` — when `entry.skip > 0`, the `results` list represents the full prefix. Add a `skip: int` field on the entry; on splice/re-clip, the target size is `skip + limit`, not `limit`.
-3. `CachedResultSetView.java` — `position` is the consumer's position within the **visible window**. When reading from `entry.results`, read at index `entry.skip + position`. When pulling from the live stream during initial population, the first `skip` records are still appended to the prefix list but not surfaced to the consumer.
-
-Polymorphism gate and per-mutation dispatch logic are unchanged — they operate on the prefix list the same way they operate on a LIMIT-only list. Only the post-mutation re-clip target shifts from `limit` to `skip + limit`.
-
-Concrete deliverables:
-- `SharpMergePredicate.classify` — SKIP gate with cap.
-- `CachedEntry` — new `skip: int` field (default 0 for non-SKIP queries), captured at entry creation.
-- `CachedResultSetView` — offset-aware indexing into `entry.results`.
-- `QueryResultCache.invalidateOnMutation` (RECORD branch) — re-clip target is `entry.skip + entry.limit` instead of `entry.limit` when `entry.skip > 0`.
-- Tests covering SKIP queries within cap (CREATED mid-prefix → invisible; CREATED in window → visible; DELETED at position `< skip` shifts window; deep pagination above cap → K0 wipe).
+**Concrete deliverables.**
+- `NonDeterministicQueryDetector.contains(SQLStatement) → boolean` — denylist AST walker for `sysdate`, zero-arg `date()`, `uuid`, `random`, `eval`, `currentTimeMillis`, `nanoTime` and context vars `$now`, `$current`, `$thread`, `$parent`, `$depth`.
+- `NonDeterministicQueryDetector.contains(SQLOrderByItem) → boolean` — same walker scoped to a single ORDER BY item's modifier chain.
+- Cache lookup gate — `DatabaseSessionEmbedded.query()` checks: idempotent + SELECT/MATCH type + `!NonDeterministicQueryDetector.contains(stmt)` + `!stmt.noCache`. Fail any → bypass cache (no lookup, no put).
+- DML invalidation hook in `DatabaseSessionEmbedded.executeInternal()` — for `SQLTruncateClassStatement`, call `cache.invalidateAll()` before delegation to underlying handler.
+- Schema-DDL canary `assert` (D3 risk mitigation) — in the cache hook, after parsing: `assert !(stmt instanceof SQLCreateClassStatement || …) || !tx.isActive()` with msg "Schema DDL reached cache hook mid-tx — I8 violation".
+- LRU eviction — `QueryResultCache.entries` constructed as `LinkedHashMap` with `accessOrder=true`. Override `removeEldestEntry` to evict + close oldest when `size() > maxEntries`. Snapshot copy for iteration safety (`new ArrayList<>(entries.values())` before per-entry handlers in `clear()` / `invalidateAll()`).
+- Per-entry overflow — when `entry.results.size() == maxRecordsPerEntry`, set `entry.overflow = true`; the view continues to deliver stream results to its caller but stops appending to `entry.results`. Subsequent `query()` of the same key misses (cache treats overflow entries as not-replayable) and starts fresh.
+- Deterministic-ORDER-BY admission — `ShapeClassifier.classify` (extended) rejects (returns NONE) any RECORD-shape query whose ORDER BY items contain a non-deterministic modifier chain. Plain identifiers admitted unconditionally.
 
 ## Plan of Work
 
-1. Extend `SharpMergePredicate.classify` for SKIP. Add the gate: if `stmt instanceof SQLSelectStatement sel && sel.skip != null`, evaluate `sel.skip.getValue() + (sel.limit != null ? sel.limit.getValue() : Integer.MAX_VALUE)`; if the sum exceeds `GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` (read at classify time, not entry creation — the knob is hot-changeable but the value is snapshotted on classify), return `NONE`; otherwise continue with the existing `RECORD` checks. If `sel.limit == null` and `sel.skip != null`, return `NONE` (unbounded prefix, can't be capped).
+1. `NonDeterministicQueryDetector` — implement AST walker with explicit denylist. Helper `isNonDeterministicFunction(SQLFunctionCall)` checks function name + arity (for `date()`-vs-`date(arg)` discrimination).
+2. Wire `noCache` semantic extension — already a parsed Boolean; `containsNonDeterministicReference(stmt)` includes the check.
+3. Cache lookup gate in `DatabaseSessionEmbedded.query(...)` — unify with Track 2's type check.
+4. DML invalidation hook — `executeInternal` branch for `SQLTruncateClassStatement` calls `cache.invalidateAll()`. Other DML (`SQLInsertStatement`, `SQLUpdateStatement`, `SQLDeleteStatement`) flows through `addRecordOperation` per row; cache picks up via delta build on next query.
+5. Schema-DDL canary assert — in cache hook, after parsing, before lookup: `assert !(stmt instanceof <schema-DDL types>) || !isInTx() : "I8 violation"`. Picks up `SQLCreateClassStatement`, `SQLDropClassStatement`, `SQLAlterClassStatement`, `SQLCreatePropertyStatement`, `SQLDropPropertyStatement`, `SQLAlterPropertyStatement`, `SQLCreateIndexStatement`, `SQLDropIndexStatement`.
+6. LRU eviction — `QueryResultCache.entries` as `LinkedHashMap<>(maxEntries + 1, 0.75f, true)`. Override `removeEldestEntry` to evict + close. Snapshot copy in `clear()` / `invalidateAll()`.
+7. Per-entry overflow — flag, stop-appending logic in view-driven population path, cache.lookup treats overflow entries as miss (re-populate fresh).
+8. Deterministic-ORDER-BY gate in `ShapeClassifier` — for each `SQLOrderByItem`, if `modifier` chain contains non-deterministic reference, return NONE.
+9. Test matrix (T7 set):
+   - T7a: `SELECT sysdate() FROM …` bypasses cache; no entry created.
+   - T7b: `SELECT FROM … WHERE created > sysdate() - 86400000` bypasses (sysdate in WHERE).
+   - T7c: `SELECT FROM Foo NOCACHE` bypasses.
+   - T7d: `SELECT random() FROM Foo` bypasses.
+   - T7e: `ORDER BY lower(name)` — admitted (`lower` is deterministic).
+   - T7f: `ORDER BY random()` — classify NONE.
+   - T7g: `TRUNCATE CLASS Foo` — `cache.invalidateAll()` fires; cache.size==0.
+   - T7h: `INSERT INTO Foo VALUES (...)` does NOT call `invalidateAll`; cache state intact (mutation flows via addRecordOperation; next query picks up via delta).
+   - T7i: LRU cap — populate 201 distinct keys with `maxEntries=200`; assert eldest evicted, stream closed.
+   - T7j: Per-entry overflow — query returning 10001 records with `maxRecordsPerEntry=10000`; entry marks overflow; next `query()` of same key misses.
+   - T7k (I5): aggregate test — any non-deterministic query never creates an entry.
+   - T7l: schema-DDL canary — invoke `CREATE CLASS X` via session; assertion in cache hook does not fire because the upstream `SchemaShared.saveInternal` throws first.
 
-2. Capture SKIP metadata on entry creation. In `DatabaseSessionEmbedded.query()` miss path (Track 2), when classify returns `RECORD`, read `sel.skip` and `sel.limit` and pass them into the `CachedEntry` constructor. Default both to 0 / `Integer.MAX_VALUE` for non-SKIP/non-LIMIT queries.
-
-3. Adjust `CachedResultSetView`. On `next()`: if reading from `entry.results`, return `entry.results.get(entry.skip + position++)`; check the visible window bound `position < entry.limit`. On falling through to the live stream: first prime the prefix by pulling `entry.skip` records into `entry.results` without surfacing them to the consumer, then continue normal append-on-pull semantics.
-
-4. Adjust `QueryResultCache.invalidateOnMutation` RECORD branch. The re-clip target becomes `entry.skip + entry.limit` when `entry.skip > 0`. CREATED splices into the prefix; UPDATED/DELETED operate on the prefix. No change to comparator or polymorphism gate.
-
-5. Tests covering SKIP K1 paths:
-   - (a) `SELECT FROM User WHERE active=true ORDER BY name SKIP 10 LIMIT 10`: pre-populate 25 users matching, query — first execution returns users 10-19; second execution from cache returns the same. Then INSERT a user that sorts at position 5 — the view's next read returns users 9-18 (user that was at position 9 is now visible at position 0).
-   - (b) Same shape, DELETE a user at position 15 — view returns users 10-19 with one record shifted up.
-   - (c) Same shape, INSERT a user that sorts at position 50 (outside prefix `0..19`) — entry's prefix unaffected, view still returns 10-19.
-   - (d) `SELECT FROM User ORDER BY name SKIP 100000 LIMIT 10` (above cap): classify returns NONE; first mutation wipes the entry; second query is a miss.
-   - (e) `SELECT FROM User ORDER BY name SKIP 5` (no LIMIT): classify returns NONE — unbounded prefix can't be capped.
-   - (f) Re-clip after mutation cascade: 5 CREATEDs that all sort into the prefix → prefix stays at size `skip + limit` (re-clipped); the records pushed beyond `skip + limit` are dropped from cache.
-
-## Concrete Steps
-
-## Episodes
-
-## Validation and Acceptance
-
-- K1 SKIP merge correctness: for `SELECT FROM Class WHERE … ORDER BY … SKIP n LIMIT m` with `n + m <= maxRecordsPerEntry`, the cached visible window after one or more in-tx mutations matches what a fresh re-execution against the current state would return.
-- Mutations on records at prefix positions `< skip`: shift the visible window correctly.
-- Mutations on records at positions `[skip, skip+limit)`: respect the in-window update / delete / insert semantics.
-- Mutations on records that would land at positions `>= skip + limit`: prefix re-clip drops them; the visible window is unaffected.
-- Cap fallback: queries with `skip + limit > maxRecordsPerEntry` classify as NONE; first matching mutation wipes the entry.
-- Unbounded prefix (`SKIP n` without `LIMIT`): classify returns NONE.
-- Invariant I4 — post-merge entry observes the same WHERE / ORDER BY / SKIP / LIMIT contract as a fresh execution.
-
-## Idempotence and Recovery
-
-## Artifacts and Notes
+**Invariants to preserve.** I5: non-deterministic / NOCACHE queries never cached. I8: schema DDL upstream guard works (canary should never fire under normal operation). Memory bound: `maxEntries × maxRecordsPerEntry` Result references ceiling.
 
 ## Interfaces and Dependencies
 
-**In scope:**
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/SharpMergePredicate.java` — relax SKIP gate (cap-checked).
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CachedEntry.java` — `skip: int`, `limit: int` fields (or `prefixLimit = skip + limit`); constructor takes them.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CachedResultSetView.java` — offset-aware indexing during read; prefix-prime during initial stream pull.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/QueryResultCache.java` — `invalidateOnMutation` RECORD branch re-clip target.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` — entry-construction site reads `sel.skip` + `sel.limit`, passes to constructor.
-- Tests under `core/src/test/java/com/jetbrains/youtrackdb/internal/core/tx/`.
+**In-scope files.**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/NonDeterministicQueryDetector.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/QueryResultCache.java` (LRU eviction)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/CachedEntry.java` (overflow flag)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/CachedResultSetView.java` (overflow handling in stream-pull)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/ShapeClassifier.java` (deterministic-ORDER-BY admission)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (lookup gate, DML invalidation hook, schema-DDL assert)
 
-**Out of scope:**
-- MATCH per-tuple merge — Track 8.
-- LET-based unions / unbounded SKIP (no LIMIT) / SKIP above cap — remain K0.
-- Knob hot-change behavior mid-tx (entry's snapshotted cap stays consistent for its lifetime; new entries see the new value).
+**Out-of-scope files.**
+- `SQLFunction` SPI — no `isDeterministic` flag added; denylist is centralized.
+- Generated parser at `core/.../sql/parser/*` — never edited (project convention).
 
-**Inter-track dependencies:**
-- Depends on Track 4 (uses RECORD discriminator, `OrderByComparator`, `addRecordOperation` hook).
-- Depends on Track 6 (Track 6's JMH baseline serves as the "before SKIP" measurement; this track adds a SKIP-specific JMH scenario).
+**Inter-track dependencies.**
+- Depends on: Tracks 1, 2, 3, 4 (skeleton + read path + pause/resume + delta).
+- Unblocks: Track 8 (observability + JMH).
 
-**Library / function signatures introduced:**
-- `CachedEntry(int skip, int limit, ...)` constructor extension (or `CachedEntry.withPrefix(int skip, int limit)` builder).
-- `int CachedResultSetView.visibleIndex(int position)` helper — returns `entry.skip + position`.
+**Library / function signatures.**
+- `NonDeterministicQueryDetector.contains(SQLStatement) → boolean`.
+- `NonDeterministicQueryDetector.contains(SQLOrderByItem) → boolean`.
+- `QueryResultCache.entries`: `LinkedHashMap<CacheKey, CachedEntry>` with accessOrder + LRU eviction override.
+- `CachedEntry.overflow: boolean`.

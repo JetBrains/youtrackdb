@@ -306,3 +306,68 @@ No sections added, removed, renamed, or moved. No class-diagram class added or r
 - (pre-existing, NOT addressed in this mutation): 14 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — pre-existing house-style debt, deferred to Phase 4 global sweep per recommendation in `implementation-plan.md` Plan Review note.
 
 **Iterations**: 1 of 3 (PASS — addresses all three Gemini findings; no NEW findings introduced)
+
+## Mutation 11 — 2026-05-25 — structural-rewrite (design.md + implementation-plan.md + plan/track-*.md)
+
+**Pivot mutation.** Wholesale architectural shift from **eager K1 sharp-merge** to **lazy merge-on-read** per reviewer @andrii0lomakin's PR #1077 review comment on `design.md` line 215 (the prior "Dirty-merge policy" section's K1 dispatch). All files in `_workflow/` rewritten to reflect the new architecture. The two earlier Gemini-flagged mechanical fixes from Mutation 10 (K0 `exhausted` flag, MergeKind enum, MATCH Non-Goal Etap-A vs Etap-B split) are subsumed by the rewrite — the constructs they referenced (K0 wipe, `MergeKind`-as-strategy enum) no longer exist under lazy.
+
+**Architectural diff summary**:
+
+- **Cache entries are now immutable from populate time.** `entry.results` is append-only via stream pull during initial population; never reordered, never removed.
+- **No `invalidateOnMutation` hook on `addRecordOperation`.** Per-record mutations only grow `tx.recordOperations`; the cache itself never reacts.
+- **Per-view `TxDeltaCursor`** (skip-set + sorted inject-list) built once at view construction by `DeltaBuilder.buildForRecord(entry, recordOps, ctx)`. Immutable for view lifetime.
+- **`AggregateState` delta replay** at view construction via `DeltaBuilder.buildForAggregate(...)`: copies the entry's immutable aggregate state and replays `applyMutation` over relevant tx-mutations.
+- **`view.next()` is sorted-merge** between cache cursor and delta cursor (record/match shape) or a direct read of `deltaAggregateState.toResult()` (aggregate shape).
+- **Fail-fast `IllegalStateException` removed.** Live views are immune to mid-iteration mutations — they snapshot the delta at construction. Matches `OrderByStep` blocking-materializer contract.
+- **MATCH Etap A folds into RECORD shape** with `returnProjector` closure built at entry construction. No per-tuple `reverseIndex`, no `contributingRids` per-tuple. Multi-alias / cross-join / edges classify as NONE (Etap B v2-deferred).
+
+**Decision Record changes**:
+
+- **D5 replaced** with D5-lazy: "Lazy merge-on-read via snapshot TxDeltaCursor at view construction". Supersedes the eager K1/K0 hybrid.
+- **D8 replaced** with D8-lazy: "MATCH Etap A as RECORD-shape composition with returnProjector; Etap B v2-deferred". Supersedes per-tuple reverseIndex design.
+- **D9 revised**: "Deterministic ORDER BY admission" — same gate, rationale shifted (admission for cache lookup, not K1 splice).
+- **D10 replaced** with D10-lazy: "SKIP support in lazy delta with prefix cap" — same prefix mechanism, integrated into RECORD delta build.
+- **D15 NEW**: "TxDeltaCursor snapshot at view construction; not refreshed mid-iteration". Captures the OrderByStep-contract-alignment decision; foundational for the lazy architecture.
+- D1, D2, D3, D4, D6, D7, D11, D12, D13, D14 carry over unchanged or with minor wording updates.
+
+**Invariant changes**:
+
+- **I7 replaced**: from "Live CachedResultSetView fails fast on K1 merge of its underlying entry" (eager) to "View's TxDeltaCursor (or deltaAggregateState) is immutable post-construction; recordOperations growth doesn't affect live views" (lazy). Number preserved for cross-reference stability.
+- **I4 revised**: from "Post-merge CachedEntry observes WHERE/ORDER BY/LIMIT contract" to "View output equals fresh-execution result composed with tx-delta-applied snapshot". Same contract, expressed in lazy terms.
+- I1, I2, I3, I5, I6, I8 unchanged.
+
+**Component Map changes**:
+
+- **Removed**: `SharpMergePredicate` (replaced by `ShapeClassifier`), `MergeKind`-as-strategy enum semantics (replaced by `CacheableShape` discriminator with same value set minus `MATCH_TUPLE`), `OrderByComparator`-as-K1-splice-component (still used, but at delta-build sort time, not mutation-time splice).
+- **Added**: `TxDeltaCursor` (immutable per-view delta snapshot), `DeltaBuilder` (stateless utility producing the snapshot), `AggregateCacheTapStep` (unchanged in role; explicit in the diagram).
+
+**Track decomposition changes**:
+
+- Track 1 (Skeleton) — unchanged in scope. Adds `TxDeltaCursor` skeleton.
+- Track 2 (Read path) — unchanged in scope. View carries empty deltaCursor placeholder (Track 4 fills the build logic).
+- Track 3 (Pause/resume) — unchanged.
+- **Track 4 rewritten** — was "K1 record + K1 aggregate + K0 fallback" (~7 steps + complex dispatch). Now "Lazy delta core + RECORD shape" (~6 steps): `ShapeClassifier`, `DeltaBuilder.buildForRecord`, sorted-merge `view.next()`. SKIP support folded in (was Track 7).
+- **Track 5 reshaped** — was "Hardening (non-determinism, DML invalidation, memory bound, expression ORDER BY)" (~5-6 steps). Now "Aggregate delta — AGGREGATE_* shapes" (~5 steps): extends ShapeClassifier, `DeltaBuilder.buildForAggregate`, `AggregateCacheTapStep` splice, view aggregate-shape branch. Hardening moves to Track 7.
+- **Track 6 drastically reduced** — was "Observability — QueryCacheMetrics + JMH" (~3-4 steps). Now "MATCH Etap A delta — single-alias as RECORD-shape composition" (~4 steps): ShapeClassifier MATCH rules, `returnProjector` builder, DeltaBuilder integration.
+- **Track 7 reshaped** — was "SKIP support in K1 RECORD — prefix-cap merge" (~3-4 steps; folded into new Track 4). Now "Hardening" (~5 steps): NonDeterministicQueryDetector, DML invalidation, LRU, per-entry overflow, deterministic-ORDER-BY admission, schema-DDL canary assert.
+- **Track 8 reshaped** — was "MATCH per-tuple merge — MergeKind.MATCH_TUPLE" (~5-6 steps; replaced by Track 6 in lazy). Now "Observability + JMH + Hub replay" (~4 steps): QueryCacheMetrics, benchmarks, D13 Hub-replay gate.
+
+**Test scenario changes**:
+
+- Tests for fail-fast `IllegalStateException` (T4 in eager design) → removed. Replaced by Track 4 test T4i (I7): mid-iteration mutation does NOT appear in current view; fresh `query()` DOES see it.
+- Per-tuple `reverseIndex` consistency tests (Track 8 in eager) → removed. MATCH Etap A correctness now covered by RECORD-shape tests + projected-tuple equivalence test (T6g).
+- Aggregate `applyMutation` per-call invocation tests (Track 4 in eager) → preserved in shape, moved to Track 5 (test T5a-i). Same transition matrix; different driver.
+
+**Files touched by Mutation 11**:
+
+- `design.md` — complete rewrite. Sections: Overview (with "Why lazy" subsection added), Class Design (new classes, dropped per-tuple structures), Workflow (new sequence diagram showing view-ctor delta build), Cache key composition (unchanged), Pause/resume mechanics (unchanged with mid-iteration-mutation gotcha rewritten), Lazy merge-on-read (new section replacing "Dirty-merge policy" and "Aggregate sharp-merge" and "MATCH per-tuple sharp-merge"), Cache invalidation (lighter — no per-record path), Non-determinism handling (unchanged), Memory bounds (unchanged), Concurrency and lifecycle (lighter — I7 conceptually replaced), Invariants (I4/I7 reworded), Open questions (Etap B + per-RID-WHERE memoization).
+- `implementation-plan.md` — complete rewrite. Goals + Constraints updated. Component Map reflects new classes. D1-D14 + D15 + I1-I8 reflect the changes documented above. Tracks 1-8 redecomposed.
+- `plan/track-1.md` through `plan/track-8.md` — all rewritten to reflect the new track scope per the decomposition above.
+
+**Mechanical checks** (target=design, scope=whole-doc; mutation kind=structural-rewrite): Will run as a follow-up validation step after this mutation entry lands. Pre-existing baseline (14 should-fix `dsc-ai-tell` findings from Mutation 10) is expected to change substantially — the rewritten prose has different em-dash density and TL;DR shape than the eager version.
+
+**Cold-read** (scope: whole-doc on design.md per structural-rewrite mutation-kind rules): pending. The structural rewrite warrants a fresh whole-doc cold-read against the new lazy architecture.
+
+**Findings**: pending cold-read.
+
+**Iterations**: 1 of 3 — pivot applied. Subsequent iterations (if cold-read surfaces blockers) will be tracked as Mutation 12+.

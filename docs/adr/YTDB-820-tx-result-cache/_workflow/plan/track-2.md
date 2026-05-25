@@ -1,100 +1,66 @@
-# Track 2: Read path — cache key, lookup, population, `CachedResultSetView`
+# Track 2: Read path — cache key, lookup, population, CachedResultSetView
 
 ## Purpose / Big Picture
-After this track, an enabled cache turns the second-and-later `query()` calls with the same parsed AST + parameters into in-memory replays of the first call's results — within one consumer's lifetime, without pause/resume across queries yet.
 
-Wire the cache into `DatabaseSessionEmbedded.query()` and the idempotent branch of `executeInternal()`. Build the cache key from the parsed AST + normalized parameters; on miss, execute normally and wrap the result in a `CachedResultSetView` that incrementally populates the entry as the consumer iterates; on hit, return a view over the existing entry. No dirty-merge, no resume from paused stream across queries yet — only the populate-and-replay path. The track fully delivers the "happy path" cache hit for simple repeat-query scenarios.
+BLUF: After this track, repeated `query()` calls for the same SELECT/MATCH within a single tx return cached results without re-executing storage. Delta logic is a no-op placeholder (Track 4 fills it).
 
-## Progress
-- [ ] Review + decomposition
-- [ ] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
-
-## Surprises & Discoveries
-
-## Decision Log
-
-## Outcomes & Retrospective
+Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH branch. Build the cache key from parsed AST + normalized parameters (with D12 identity fast-path); on miss, execute normally and wrap the result in a `CachedResultSetView` that incrementally populates the entry as the consumer iterates; on hit, return a view over the existing entry with an empty `TxDeltaCursor`. No delta logic yet — only populate-and-replay path within one consumer's lifetime.
 
 ## Context and Orientation
 
-The three `query()` overloads at `DatabaseSessionEmbedded.java:617`, `:648`, `:652` all parse + check `isIdempotent()` + execute. They converge on `statement.execute(...)` + `queryStartedLifecycle(original)`. The cache lookup must happen after parse (so we have the AST) and pass a **narrower** type check than `isIdempotent()`: only `SQLSelectStatement` and `SQLMatchStatement` get cached (per D3 — `SQLProfileStatement`, `SQLExplainStatement`, idempotent `SQLIfStatement` are also `isIdempotent()==true` but cache-wrong because their results contain plan/timing metadata or branch on context). The existing `query()` rejection of non-idempotent statements still happens at the `isIdempotent()` gate at line 633/673.
+**Codebase state at track start.** After Track 1, the cache skeleton exists. Existing relevant code:
+- `DatabaseSessionEmbedded.query(...)` overloads — three forms (no-args, `Object[] args`, `Map args`). All go through `SQLEngine.parse()` then `statement.execute(...)`.
+- `DatabaseSessionEmbedded.executeInternal(...)` — at line 740 (`else` block), line 742 (the idempotent return statement).
+- `SQLStatement.execute(...)` — `Map<Object, Object>` form at lines 62/66/83/89.
+- `SQLEngine.parse()` — backed by `STATEMENT_CACHE` (LRU by SQL text); same text reissue returns the **same `SQLStatement` instance** — enables D12 identity fast-path.
 
-`executeInternal()` at line 702 branches at line 733 on `statement.isIdempotent()`: the true branch wraps in `queryStartedLifecycle`; the false branch fetches all into `InternalResultSet`, closes the source, and wraps in `LocalResultSetLifecycleDecorator`. The true branch is the same shape as `query()` — same cache wiring applies. The false branch (DML inside `execute`) calls `cache.invalidateAll()` instead (deferred to Track 5).
-
-`SQLStatement.equals()` is already structural (`SQLSelectStatement:380`). Parameter normalization: when caller passes `Object[]`, we convert to a positional `LinkedHashMap<Integer,Object>`; when caller passes `Map`, we wrap it (read-only view) plus defensive-copy when storing in the key. The `CacheKey` record holds both and computes `hashCode` once.
-
-`CachedResultSetView` is a `ResultSet` implementation. It needs:
-- `hasNext()` — return true if either `position < entry.results.size()` or `!entry.exhausted` (Track 3 will make the second clause actually pull; this track just always materializes synchronously during the first consumer's iteration).
-- `next()` — return `entry.results.get(position++)`. When `position == entry.results.size()` and `!entry.exhausted`, pull one from the underlying stream and append (Track 3 generalizes this to "pull from cached stream for subsequent queries"; this track just keeps the underlying stream private to the first consumer).
-- `close()` — for now (Track 2), close = mark this view closed but DO NOT close `entry.stream` (it might be needed by future views in Track 3). Mark the entry exhausted if we hit the end.
-- `getExecutionPlan()`, lifecycle listener support — delegate to existing infra where applicable.
-
-Where the AST metadata for sharp-merge gets captured: when constructing `CachedEntry` in `query()`-miss path, we extract raw `fromClasses` (from `SQLSelectStatement.target`) and expand to `effectiveFromClasses` (subclass closure per D11), plus `whereClause`, `orderBy`. Track 4 uses these; Track 2 just records them.
-
-Concrete deliverables:
-- New `CacheKey` record (or class) — `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CacheKey.java`.
-- New `CachedResultSetView` class — same package.
-- Filled-in methods on `QueryResultCache`: `lookup(CacheKey)`, `put(CacheKey, CachedEntry)`.
-- Filled-in `CachedEntry` constructor + `add(Result)` method.
-- Modified `DatabaseSessionEmbedded.query()` × 3 overloads + `executeInternal` idempotent branch (4 sites — keep DRY via a private helper).
-- Tests: hit on second query, miss on first, cache disabled = no behavioral change, non-idempotent bypass.
+**Concrete deliverables.**
+- `CacheKey` complete: `statement`, `params: Map<Object, Object>`, `equals(o)` with D12 identity fast-path before deep equals, defensive-copied parameter map.
+- `CachedResultSetView` complete: sorted-merge skeleton in `next()` with **empty** `TxDeltaCursor` (always picks from cache cursor in this track). Increments `position`; pulls from `entry.stream` and appends to `entry.results` + `entry.cachedRids` when the cached list is exhausted (Track 3 wires the actual stream pause).
+- `DatabaseSessionEmbedded.query(...)` lookup logic in all three overloads:
+  - Parse AST.
+  - Idempotent + cacheable type gate (SQLSelectStatement or SQLMatchStatement).
+  - Build `CacheKey`.
+  - Cache lookup.
+  - On miss: execute normally, build `CachedEntry`, `cache.put`, return `CachedResultSetView`.
+  - On hit: return new `CachedResultSetView` over existing entry (empty deltaCursor placeholder).
 
 ## Plan of Work
 
-1. Define `CacheKey` — record holding `SQLStatement stmt` and `Map<Object,Object> params`. `equals` and `hashCode` are auto-generated for record; we hand-implement to control parameter-map equality (deep equals for arrays, RID equals for identifiables). Static factory `CacheKey.of(SQLStatement, Object[] args)` and `CacheKey.of(SQLStatement, Map args)` that handle parameter normalization. Defensive copy on the static-factory side so caller mutation can't corrupt the key.
-2. Promote `QueryResultCache` internal map from `Map<Object, CachedEntry>` to `Map<CacheKey, CachedEntry>`. Implement `lookup(CacheKey)` and `put(CacheKey, CachedEntry)`. The LRU policy lives in the underlying `LinkedHashMap` (access-order, with `removeEldestEntry` evicting at `maxEntries`). Eviction calls `entry.close()` so any streams Track 3 adds are cleaned up.
-3. Implement `CachedResultSetView` — see Context above. Two pull-modes: (a) cached read (`position < entry.results.size()`), (b) stream read + append (`position == size && !exhausted`). Lifecycle: close view = mark this view closed; do NOT close entry stream (deferred to Track 3 for cross-query resume). Implement `BasicResultSet`/`ResultSet` contract including `forEachRemaining`, `tryAdvance`, `getExecutionPlan` (delegate to `entry.plan`).
-4. Wire cache into `query()` overloads. Extract a private helper `executeOrCacheLookup(SQLStatement, Map paramsNormalized, Object[] argsRaw)` returning a `ResultSet`. The helper does: cache enabled? → cacheable-type? (`stmt instanceof SQLSelectStatement || stmt instanceof SQLMatchStatement`) → parse params → CacheKey → lookup → if hit, return new `CachedResultSetView(entry, this)`; if miss, run real `statement.execute(...)`, allocate new `CachedEntry` with the live stream + AST metadata, `cache.put(key, entry)`, return `new CachedResultSetView(entry, this)`. Statements that are idempotent but not cacheable-type fall through to the existing `statement.execute(...)` + `queryStartedLifecycle` path. Call this helper from all three `query()` overloads (lines 617, 648, 652) — replace direct `statement.execute(...)` with the helper. Same helper invoked from `executeInternal` idempotent branch (the `else` block starting at line 740; the idempotent return is at line 742) — note that this branch already handles a parsed statement parameter, so the helper signature accommodates that.
-5. Behavioral tests. Cases: (a) cache disabled → identical behavior to current (no entries created, results identical); (b) cache enabled, single query → entry created, view returns expected results; (c) cache enabled, query A then query A again with same params → second call returns from cache (verified by storage spy: storage hit count = 1, not 2); (d) cache enabled, query A then query A with different params → both miss, two entries; (e) non-idempotent inside `query()` still throws (existing behavior preserved); (f) `executeInternal` non-idempotent path still works (no caching there, but no breakage); (g) `MATCH` query is cacheable (since it returns `isIdempotent()==true`).
+1. Complete `CacheKey` with `equals(o)`: identity fast-path (`this.statement == other.statement`), then deep `SQLStatement.equals` + `Map.equals` on params. Defensive-copy params at constructor time. Hashcode caches lazily.
+2. Implement `CachedResultSetView.next()` sorted-merge skeleton with empty delta. Initially: read from `entry.results[position]`, increment position; if past `results.size()` and `!entry.exhausted`, pull from `entry.stream` (Track 3 wires this fully — for now stub returns null/throws).
+3. Hook `DatabaseSessionEmbedded.query(...)` overloads: parse → gate check → lookup → miss/hit branches. Both branches construct a fresh `CachedResultSetView` with empty deltaCursor (Track 4 replaces with real builder).
+4. `executeInternal(...)` non-idempotent branch — no cache work yet (Track 7 handles invalidation).
+5. Regression spy: optional debug flag `youtrackdb.query.txResultCache.verifyHits` that re-executes the query on each hit and compares result sets. Disabled by default; documented for the D13 Hub-replay scenario.
+6. Tests (T2 set):
+   - T2a: second `query()` with same SQL returns same results as first.
+   - T2b: D12 identity fast-path — verify `CacheKey.equals` short-circuits on `==`; verify deep-equals path activates after `STATEMENT_CACHE` eviction.
+   - T2c: non-SELECT/non-MATCH (e.g., `SQLProfileStatement`) bypasses cache.
+   - T2d: mutable parameter list passed to `query()` then mutated post-call → next `query()` with new state still hits the right key (defensive copy works).
+   - T2e: AST node equals coverage — per-node tests for every cacheable AST construct (target / projection / where / orderBy / unwind / skip / limit / fetchPlan / parallel / noCache).
 
-Ordering: 1 and 3 can run in parallel-ish (separate files). 2 depends on 1. 4 depends on 1, 2, 3. 5 depends on everything.
-
-## Concrete Steps
-
-## Episodes
-
-## Validation and Acceptance
-
-- Two consecutive `query("SELECT FROM Class WHERE id=?", 42)` calls in one transaction hit storage exactly once. Verified by storage-level spy or by record-load counter.
-- `query("SELECT...")` then `query("SELECT...")` with different parameters create two cache entries, both hit storage.
-- Cache disabled (default) produces identical results to today's code, with no cache state mutated.
-- Returned `ResultSet`s behave identically per the `BasicResultSet`/`ResultSet` contract (forEach, stream, hasNext/next, close, getExecutionPlan).
-- A `MATCH` query is cached. An `INSERT` via `execute()` is not cached and (after Track 5) wipes the cache.
-- `PROFILE SELECT ...`, `EXPLAIN SELECT ...`, and `IF (cond) { SELECT ... }` are NOT cached — verified by storage-spy counter on repeat issue (storage hit count = N, not 1) and by `cache.size() == 0` for these statement types.
-- `SQLSelectStatement` with `noCache==TRUE` bypasses both lookup and put (Track 5 finalizes detection — Track 2 just needs to leave the hook in place).
-- Tests assert `cache.size()` matches expected entry count across the scenarios.
-
-## Idempotence and Recovery
-
-## Artifacts and Notes
+**Invariants to preserve.** Caching disabled = zero behavioral change. With caching enabled, view output equivalence to fresh execution holds when no intra-tx mutations occur (mutations are Track 4's domain). View `next()` MUST handle empty deltaCursor gracefully (no NPE).
 
 ## Interfaces and Dependencies
 
-**In scope:**
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CacheKey.java` (NEW).
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CachedResultSetView.java` (NEW).
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/QueryResultCache.java` — flesh out `lookup`, `put`, LRU map type.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/CachedEntry.java` — constructor + `add(Result)`.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` — `query()` × 3 overloads, `executeInternal()` idempotent branch.
-- Test classes under `core/src/test/java/com/jetbrains/youtrackdb/internal/core/tx/`.
+**In-scope files.**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/CacheKey.java` (complete)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/CachedResultSetView.java` (new, skeleton sorted-merge)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (lookup hooks in `query()` overloads)
 
-**Out of scope:**
-- Cross-query pause/resume of streams — Track 3.
-- Dirty-merge — Track 4.
-- Non-determinism detection / DML invalidation / memory bounds enforcement — Track 5 (the LRU map is in place but only entry-count bound is wired here; per-record cap is Track 5).
-- `NOCACHE` hint extension semantics — Track 5 (Track 2 just leaves the gate hook so Track 5 can wire it).
+**Out-of-scope files.**
+- `ShapeClassifier` — Track 4 introduces (this track puts `shape = NONE_PLACEHOLDER` or skips classify entirely).
+- `DeltaBuilder` — Track 4 introduces (this track uses empty `TxDeltaCursor`).
+- `executeInternal()` non-idempotent invalidation — Track 7.
+- Stream pause/resume — Track 3.
+- AST classify rules for SKIP / SELECT shape / aggregates — Track 4 + Track 5.
 
-**Inter-track dependencies:**
-- Depends on Track 1 (cache field + lifecycle hooks).
-- Track 3 extends the `CachedResultSetView` and `CachedEntry` types built here.
-- Track 4 uses the AST metadata Track 2 captures into the entry.
-- Track 5 invalidation hooks call `cache.invalidateAll()` which this track wires as a no-op-shaped stub if not already.
+**Inter-track dependencies.**
+- Depends on: Track 1 (skeleton types).
+- Unblocks: Tracks 3, 4 (read path must exist before stream-hold and delta-build).
 
-**Library / function signatures introduced:**
-- `CacheKey.of(SQLStatement, Object[]) → CacheKey`, `CacheKey.of(SQLStatement, Map) → CacheKey`.
-- `CachedEntry.add(Result)` — appends to results list, respecting per-entry cap (cap enforcement deferred to Track 5).
-- `QueryResultCache.lookup(CacheKey) → @Nullable CachedEntry`.
-- `QueryResultCache.put(CacheKey, CachedEntry) → void`.
-- `CachedResultSetView(CachedEntry, DatabaseSessionEmbedded)` constructor.
+**Library / function signatures.**
+- `CacheKey(SQLStatement, Map<Object,Object>) → defensive-copied Map`.
+- `CacheKey.equals(Object)` — `==` fast-path then deep walk.
+- `CachedResultSetView(CachedEntry, TxDeltaCursor, DatabaseSessionEmbedded)`.
+- `DatabaseSessionEmbedded.query(...)` returns `ResultSet` (unchanged signature; new internal branching).
