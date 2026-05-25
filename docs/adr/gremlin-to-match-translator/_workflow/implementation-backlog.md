@@ -146,8 +146,31 @@
 > - Implement `GremlinPredicateAdapter` translating TinkerPop `P<T>`
 >   instances into `SQLBooleanExpression` subtrees via
 >   `MatchWhereBuilder`:
->   - `Compare.eq` → `op(field, EQ, lit)`; `neq` → `NE`; `gt`, `gte`,
->     `lt`, `lte` → corresponding operator.
+>   - `Compare.eq` with non-null scalar literal → `op(field, EQ, lit)`;
+>     `neq` → `NE`; `gt`, `gte`, `lt`, `lte` → corresponding operator.
+>     **`P.eq(null)`** → `MatchWhereBuilder.isNull(field)` (existing
+>     `IS NULL` operator — three-valued check matches TP `Compare.eq`
+>     semantics when the field value is null); **`P.neq(null)`** →
+>     `MatchWhereBuilder.isNotNull(field)`. Without this rewrite,
+>     `field = null` and `field != null` route through
+>     `QueryOperatorEquals.equals(..., null, ...)` which returns FALSE
+>     for both branches — diverging from TP in exactly one subcase per
+>     predicate (rows with `field = null`). See design.md "NULL and
+>     collection comparison semantics" for the truth-table verification.
+>   - **`P.eq(Collection)` / `P.neq(Collection)` — narrow decline by
+>     collection size**: `coll.size() == 1` declines under D3 (`QueryOperatorEquals.equals`
+>     at `core/.../sql/operator/QueryOperatorEquals.java:63-69` auto-
+>     unboxes the singleton against a scalar operand, but TP's
+>     `Compare.eq` via `GremlinValueComparator.COMPARABILITY` keeps the
+>     structural type mismatch — translating to `op(field, EQ, listLit)`
+>     would over-match against the native pipeline). `coll.size() != 1`
+>     (empty or multi-element) translates normally to `op(field, EQ,
+>     listLit)` / `op(field, NE, listLit)` — both engines fall through
+>     to Java `List.equals` and agree. **Phase 2 path** (D-?, not in
+>     this track): schema-aware rewrite — when the field's
+>     `PropertyType` is statically known, route scalar-typed fields
+>     with `eq([a])` to a literal `false` filter and collection-typed
+>     fields to a normal `field = listLit` translation.
 >   - `Contains.within` → `in(field, list)`; `Contains.without` →
 >     `notIn(field, list)`.
 >   - `P.between(lo, hi)` → `between(field, lo, hi)`.
@@ -223,6 +246,19 @@
 >   place after this track; no new duplicated copies introduced.
 > - Result sets must match equivalent SQL `MATCH` with explicit `WHERE`
 >   clauses identically.
+> - **Regression-test pin (NULL and singleton-collection semantics —
+>   from design.md "NULL and collection comparison semantics" truth
+>   table)**: tests MUST cover four divergent rows: (a) `P.eq(null)`
+>   against a null-valued property — assert translated MATCH returns
+>   the same multiset as native; (b) `P.neq(null)` against a null-
+>   valued property — same; (c) `P.eq([a])` (size-1 literal) against a
+>   scalar property equal to `a` — assert the recogniser declines and
+>   Phase 1 falls back to native; (d) `P.neq([a])` (size-1 literal)
+>   against a scalar property equal to `a` — same. Plus non-divergent
+>   sanity cases: `P.eq([a, b])` (size-2 literal) against a list-typed
+>   property equal to `[a, b]` — translation path, not decline; `P.eq([])`
+>   (empty literal) against any property — translation path, not
+>   decline.
 >
 > **Interactions**:
 > - Depends on Track 3 (recognition walker + edge-traversal handlers
@@ -405,7 +441,8 @@
 > - Pin the boundary step output type per the traversal's terminal step:
 >   `Map` for `select` / `project` / `valueMap` / `elementMap`, value
 >   type for `values(singleKey)`, full record for no-projection
->   traversals. (This subsumes part of the retired Track 11.)
+>   traversals. (Each track pins its own terminal's output type;
+>   Track 11 adds `LIST` for `fold`.)
 > - **Distinguish absent vs null-valued properties at the projection
 >   layer** (design.md "Track 7 commitment"). YTDB's TP wrapper exposes
 >   the two states differently (null-valued surfaces as
@@ -533,8 +570,7 @@
 >   - **`GroupStep.by(key)`** — `GROUP BY currentAlias.key` + accumulator.
 >   - **`GroupCountStep`** — `GROUP BY` + `RETURN count(*)`.
 > - Pin the boundary output type to the aggregate result type (scalar
->   for count/sum/min/max/mean; `Map` for group/groupCount). (This
->   subsumes part of the retired Track 11.)
+>   for count/sum/min/max/mean; `Map` for group/groupCount).
 >
 > **How**:
 > - Step ordering (provisional):
@@ -607,8 +643,98 @@
 > **Interactions**:
 > - Depends on Track 9 (children may be aggregating sub-traversals; the
 >   type-check needs the aggregate output types pinned by Track 9).
-> - Enables Track 12 (Cucumber + LDBC measurement runs against the full
->   recognized set including union).
+> - Enables Track 11 (list-shaping terminators) and Track 12 (Cucumber
+>   + LDBC measurement runs against the full recognized set including
+>   union).
+
+---
+
+## Track 11: List-shaping terminators — `fold`, `unfold`, `reverse`, `tail`
+
+> **What**:
+> - Add the four TinkerPop list-shaping steps as recognised
+>   **terminators** under D3 all-or-nothing: `FoldStep`, `UnfoldStep`,
+>   `ReverseStep`, `TailGlobalStep`. Mid-traversal use declines (only
+>   the terminal step may be list-shaping).
+> - `FoldStepRecogniser` — sets `outputType = BoundaryOutputType.LIST`
+>   on the boundary step. Empty input yields a single traverser with
+>   an empty list (TP `FoldStep` empty-input semantics, distinct from
+>   `sum`/`min`/`mean`'s "no traverser").
+> - `UnfoldStepRecogniser` — sets `unfoldOutput = true`. Boundary
+>   `processNextStart` intercepts each upstream emission, calls
+>   `unfold(value)` helper mirroring TP `UnfoldStep.flatMap`
+>   (`Iterator` → use as-is; `Iterable` → `.iterator()`; `Map` →
+>   `entrySet().iterator()`; array → element iterator; otherwise →
+>   `IteratorUtils.of(value)` single-element iterator), and emits one
+>   traverser per returned element.
+> - `ReverseStepRecogniser` — sets `reverseOutput = true`. Boundary
+>   applies `reverse(value)` helper mirroring TP 3.7+ `ReverseStep.map`
+>   semantics (`String` → `new StringBuilder(s).reverse().toString()`;
+>   `Iterable`/`Iterator`/array → `IteratorUtils.asList(o)` +
+>   `Collections.reverse(list)`; else unchanged) to the projected
+>   value before emitting the traverser. NOT stream-order reverse.
+> - `TailGlobalStepRecogniser` — sets `tailLimit = n`. Boundary
+>   drains the entire upstream stream into a bounded `ArrayDeque<E>`
+>   of capacity `n` (`pollFirst` on overflow), then emits the deque's
+>   contents in arrival order on stream exhaustion. `n = 0` emits
+>   nothing; `n < 0` declines (matches TP's `IllegalArgumentException`
+>   contract — decline rather than throw to preserve native fallback).
+> - **Boundary step config**: three post-processor flags
+>   (`unfoldOutput: bool`, `reverseOutput: bool`, `tailLimit: int?`)
+>   distinct from `dropNullRows` (which is row-level filtering, not
+>   re-shaping). The boundary step composes them in **declared order**.
+>
+> **How**:
+> - Step ordering (provisional):
+>   1. `FoldStepRecogniser` + `BoundaryOutputType.LIST` boundary path
+>      + empty-input behavior tests.
+>   2. `UnfoldStepRecogniser` + `unfoldOutput` flag + `unfold(value)`
+>      helper + dispatch tests covering all five TP cases
+>      (Iterator/Iterable/Map/array/other).
+>   3. `ReverseStepRecogniser` + `reverseOutput` flag + `reverse(value)`
+>      helper + dispatch tests (String/Iterable/Iterator/array/other +
+>      explicit null pass-through).
+>   4. `TailGlobalStepRecogniser` + `tailLimit` flag + edge cases
+>      (`n=0`, `n<0` decline, `n` larger than stream size).
+>   5. Composition tests: `reverse().unfold()`, `unfold().reverse()`
+>      (both accepted as post-processor chains); `fold().tail(3)`,
+>      `fold().unfold().has(...)` (decline — multiple terminators or
+>      mid-traversal use).
+> - **Recogniser ordering rule**: the recogniser walks back from the
+>   terminal step; a list-shaping step may follow any other recognised
+>   terminator (vertex hop / projection / aggregate / group / union)
+>   or sit alone at the end of the chain. At most one list-shaping
+>   step per translated traversal. Two list-shapers in sequence are
+>   accepted only when the composition preserves single-terminator-
+>   with-post-processing semantics (`reverse + unfold` or
+>   `unfold + reverse`); `fold + tail` declines (two terminators
+>   violate the single-boundary rule).
+>
+> **Constraints**:
+> - **In-scope files**: `GremlinStepWalker` (four new recognisers),
+>   `YTDBMatchPlanStep` (new `BoundaryOutputType.LIST` enum value +
+>   post-processor flags + helper invocation in `processNextStart`),
+>   strategy / translator integration glue.
+> - **Out of scope**: mid-traversal list-shaping (Phase 2 — see
+>   design.md Out-of-scope "Mid-traversal list-shaping" row), stream-
+>   order reverse (TP's `reverse` operates on the value inside the
+>   current traverser, not on stream order — see design.md "List-
+>   shaping terminators" for the bytecode-verified semantics).
+> - List-shapers do NOT introduce new `BoundaryOutputType` values
+>   other than `LIST` (for `fold`). `unfold`, `reverse`, and `tail`
+>   re-use the upstream output type and only set their post-processor
+>   flags.
+>
+> **Interactions**:
+> - Depends on Track 7 (MAP / SINGLE_VALUE output type for `unfold` to
+>   flat-map over; `valueMap` and `values` are the natural upstreams
+>   for `unfold`).
+> - Depends on Track 9 (SCALAR / MAP aggregate output type for `fold`
+>   to materialize; the natural `fold` upstream is a non-aggregated
+>   element / property stream, but `g.V().out().fold()` is the most
+>   common shape).
+> - Enables Track 12 (Cucumber + LDBC measurement runs against the
+>   full Phase 1 recognised set including list-shaping terminators).
 
 ---
 
@@ -710,7 +836,8 @@
 >   existing dump artifact), so per-fork dataset preparation is shared.
 >
 > **Interactions**:
-> - Depends on Track 10 (the recognized set must be complete; Track 11
->   is retired as `[~]` under D3 all-or-nothing).
+> - Depends on Tracks 10 and 11 (the full Phase 1 recognised set must
+>   be in place — Track 10 lands union, Track 11 lands the list-shaping
+>   terminators — before Cucumber re-run + benchmark baseline).
 > - Enables nothing downstream — this is the final hardening track for
 >   Phase 1.
