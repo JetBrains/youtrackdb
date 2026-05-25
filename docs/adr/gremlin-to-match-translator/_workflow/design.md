@@ -140,6 +140,10 @@ shape declines along with anything else unrecognized.
 | Aggregation | `group().by(<key>).by(<recognized value-side by-shape>)` | second `by(...)` is the value-side accumulator — `__.count()` → `count(*)`, `__.fold()` → `list($currentMatch)`, `__.values(k).count()` → `count(currentAlias.k)`; anything else declines | Track 9 |
 | Aggregation | `groupCount()` | `GROUP BY` + `count(*)` (shorthand for `group().by(...).by(__.count())`) | Track 9 |
 | Union | `union(traversal...)` (children agree on output type) | one `SelectExecutionPlan` per child, concatenated by `MultiPlanMatchStep` | Track 10 |
+| List shaping | `fold()` (terminator) | materialize entire result stream into a single `List<E>`; boundary output type `LIST` (see "List-shaping terminators") | Track 11 |
+| List shaping | `unfold()` (terminator after a list-projecting step) | per-`Result` flat-map: if the boundary's projected value is `Iterator`/`Iterable`/`Map`/array, emit one traverser per element; else emit the value unchanged (TP `UnfoldStep.flatMap` semantics) | Track 11 |
+| List shaping | `reverse()` (terminator) | per-traverser value transform: `String` → `StringBuilder.reverse().toString()`; `Iterable`/`Iterator`/array → `IteratorUtils.asList` + `Collections.reverse`; else unchanged (TP 3.8 `ReverseStep.map` semantics — NOT stream-order reverse) | Track 11 |
+| Pagination | `tail(n)` (terminator) | bounded ring buffer in boundary step: drains the entire input stream keeping the last `n` rows in arrival order, then emits them in arrival order (matches TP `TailGlobalStep` — distinct from `ORDER BY ... LIMIT`, which uses value order) | Track 11 |
 
 **Always-transparent steps** that TinkerPop's optimization phase injects
 between recognized steps without changing semantics — currently
@@ -507,6 +511,18 @@ input list). The translator pins this on construction via a
 | `values(key)` single-key (Track 7)     | `SINGLE_VALUE`       | property value |
 | `count` / `sum` / `min` / `max` / `mean` (Track 9) | `SCALAR`     | aggregate value |
 | `group` / `groupCount` (Track 9)       | `MAP`                | aggregated `Map<K, V>` |
+| `fold` (Track 11)                      | `LIST`               | single traverser carrying `List<E>` materialized from the entire result stream |
+
+`unfold`, `reverse`, and `tail` (Track 11) do **not** introduce new
+`BoundaryOutputType` values — they post-process whatever upstream
+output type the boundary already carries. `unfold` flat-maps each
+emitted traverser's projected value; `reverse` per-traverser-transforms
+the projected value; `tail` ring-buffers the upstream stream and
+re-emits the last `n` rows. Each post-processor is recogniser-pinned
+at translation time and the boundary step selects it via a small set
+of post-process flags (`unfoldOutput`, `reverseOutput`,
+`tailLimit: int?`) — distinct from `dropNullRows`, which is row-level
+filtering rather than re-shaping.
 
 Phase 1 ships all four output types — `ELEMENT` from Track 3 (vertex
 hops), `MAP` and `SINGLE_VALUE` from Track 7 (projections), and `SCALAR`
@@ -534,6 +550,109 @@ histories. Reconstructing a `Path` in the boundary step would materialize
 records the user did not ask for; under D3 all-or-nothing any traversal
 containing `path()` is unrecognized and runs natively unmodified. Precise
 translation of `path()` is Phase 2 territory.
+
+## List-shaping terminators (Track 11)
+
+`fold`, `unfold`, `reverse`, and `tail` are list-shaping terminators
+that the boundary step handles directly. They are accepted only when
+they appear as the **last** step of the traversal — mid-traversal use
+(e.g. `g.V().fold().unfold().has(...)`) declines under D3 all-or-
+nothing because the boundary step is the only step in a translated
+traversal. The recogniser walks back from the terminator: a list-
+shaping step may follow any other recognised terminator (vertex hop,
+projection, aggregate, group) or sit on its own at the end of the
+chain. The recogniser pins both the upstream boundary configuration
+(output type + dropNullRows + Track 7 value-level omission rule) and
+the post-process flags introduced by the list-shaping step.
+
+**`fold()` — `BoundaryOutputType.LIST`.** TinkerPop semantics
+(`FoldStep`): drain the upstream stream, collect every traverser's
+value into a `List<E>`, emit a single traverser carrying that list.
+Translation: the recogniser sets `outputType = LIST` on the boundary
+step; `processNextStart` pulls all upstream `Result` rows, projects
+each one through the existing per-output-type logic (vertex /
+property / map), appends to an internal `ArrayList`, and on stream
+exhaustion emits one traverser carrying the list. Empty input yields
+a single traverser carrying an empty list — matching `FoldStep`'s
+empty-input behavior (NOT TP's modern `sum`/`min`/`mean` "no
+traverser" rule; `fold` always emits exactly one traverser, even on
+empty input). The `dropNullRows` flag composes naturally: a `fold`
+applied after an aggregate with `dropNullRows = true` first drops
+null cells (per Track 9 aggregate semantics), then folds the
+remaining values; if all aggregates drop the row, the fold emits an
+empty list. Streaming → batch is intentional: TinkerPop's `fold` has
+the same characteristic, so this matches semantics, not just shape.
+
+**`unfold()` — flat-map post-processor.** TinkerPop semantics
+(`UnfoldStep.flatMap`): for each input traverser, if the carried
+value is `Iterator` → return it; `Iterable` → return `.iterator()`;
+`Map` → return `entrySet().iterator()`; array → return its element
+iterator; otherwise return `Collections.singletonList(value)
+.iterator()` (no-op). Translation: the recogniser sets
+`unfoldOutput = true` on the boundary step; `processNextStart`
+intercepts each upstream emission, calls a small `unfold(value)`
+helper that mirrors `UnfoldStep.flatMap`, and emits one traverser per
+returned element. The upstream output type is preserved (the boundary
+still carries `ELEMENT` / `MAP` / `SINGLE_VALUE` / `LIST`); `unfold`
+only expands per-emission cardinality. Common Phase 1 use case:
+`g.V().values("phones").unfold()` against a multi-valued `phones`
+property — the `SINGLE_VALUE` projection emits a `List<String>` per
+vertex; `unfold` expands each list into one traverser per phone
+number.
+
+**`reverse()` — per-traverser value transform.** TinkerPop semantics
+(`ReverseStep.map` in TP 3.7+): operates on the value inside the
+**current traverser**, NOT on stream order. `String` → reversed
+string via `new StringBuilder(s).reverse().toString()`;
+`Iterable` / `Iterator` / array → `IteratorUtils.asList(o)` then
+`Collections.reverse(list)`, return list; otherwise unchanged.
+Translation: the recogniser sets `reverseOutput = true` on the
+boundary step; `processNextStart` applies a `reverse(value)` helper
+mirroring `ReverseStep.map` to the projected value before emitting
+the traverser. Stream order is untouched. Common Phase 1 use:
+`g.V().values("name").reverse()` (reverse each name string).
+`reverse` composes with `unfold`: applying `reverse` after `unfold`
+reverses each unfolded value (probably a no-op for scalar values);
+applying `unfold` after `reverse` unfolds the reversed list. The
+recogniser preserves the declared order — there is no automatic
+re-ordering.
+
+**`tail(n)` — bounded ring buffer.** TinkerPop semantics
+(`TailGlobalStep`): keep the **last `n`** traversers in arrival order,
+drop the rest. Distinct from `ORDER BY … LIMIT`: tail uses arrival
+order, not value order, so a `tail(3)` on a stream where the last
+three rows arrived "X", "Y", "Z" emits exactly those three in that
+order — independent of how X/Y/Z compare under any sort key.
+Translation: the recogniser sets `tailLimit = n` on the boundary
+step; `processNextStart` drains the entire upstream stream into a
+bounded `ArrayDeque<E>` of capacity `n` (`pollFirst` on overflow),
+then emits the deque's contents in `pollFirst` order on stream
+exhaustion. Streaming → batch is unavoidable: `tail` cannot know the
+last `n` rows without seeing all of them. `n = 0` emits nothing
+(matches TP); `n < 0` declines (matches TP's
+`IllegalArgumentException` contract — under D3 we decline rather
+than throw to preserve the native fallback). `tail` composes with
+`fold` only if `tail` is upstream of `fold` (semantic order: keep
+last n then fold) — since both are terminators, this composition is
+**not** expressible in Phase 1 (only one terminator per translated
+traversal). Mid-stream `tail` (e.g. `g.V().tail(3).out()`) declines
+under D3 all-or-nothing.
+
+**Phase 1 composition rules.** At most one list-shaping step appears
+in a translated traversal, immediately after the prior terminator
+(vertex hop / projection / aggregate / group / union). Two list-
+shaping steps in sequence are accepted only when the composition
+preserves single-terminator-with-post-processing semantics:
+`fold().unfold()` is a no-op (collect then expand) but is rejected
+because two terminators violate the single-boundary rule;
+`reverse().unfold()` and `unfold().reverse()` are accepted as
+post-processor chains and the recogniser sets both flags. The
+boundary step applies post-processors in **declared order**: tail →
+fold/unfold/reverse in their original order. There is no automatic
+re-ordering; the recogniser fails the composition if the declared
+order cannot be reproduced (e.g. `fold().tail(3)` would require a
+two-phase boundary which Phase 1 does not implement — Phase 1
+declines this shape).
 
 **Track 7 commitment: absent vs null-valued properties in `MAP` /
 `SINGLE_VALUE` output.** Native TinkerPop's `Property` API does not
@@ -1651,9 +1770,8 @@ requires execution-model changes, or warrants a dedicated design effort.
 | User-facing edge alias | `outE(L).as("e").inV()` (or any explicit `as(label)` on an edge step) | Phase 1 mints anonymous edge aliases (`$g2m_edge_N`) internally for `outE(L).has(...).inV()` shapes, but user-supplied edge labels need propagation into `WalkerContext.userLabelToAlias` with an edge-vs-node disambiguator | Extend the label-propagation helper (Track 6) with an edge-side branch |
 | Edge property extraction | `outE(L).values("date")`, `outE(L).valueMap()`, `outE(L).elementMap()`, `outE(L).has(...).values(...)` and analogues (any property-extraction step that follows an `outE`/`inE`/`bothE` without a closing vertex hop first) | The boundary step would have to project edge properties (not vertex properties), and `GremlinProjectionAssembler` would need to know "current alias is an edge, route property access through the edge alias slot" — both depend on the edge-as-terminator infrastructure above | Lands together with the edge-returning-terminals fix in Phase 2; once `EDGE` output type and edge-alias-aware projection exist, `values`/`valueMap`/`elementMap` recognisers extend naturally |
 | Multi-label edges | `out("a", "b")` | `MatchPatternBuilder.addEdge` accepts a single edge-label string; an edge-label `IN [...]` filter slot doesn't exist yet | Variadic `SQLMethodCall.params` retrofit on the shared builder |
-| Collection / list ops | `fold`, `unfold`, `reverse` | TinkerPop list-shaping steps that materialize / re-shape the traverser stream; MATCH has no in-pipeline list operator that mirrors them precisely, and `fold` interacts with aggregator semantics differently | Phase 2 audit of the whole TinkerPop step list will decide whether `fold` becomes a boundary-step variant, whether `unfold` is implementable on top of `collect(*)` output, and whether `reverse` is even reachable via MATCH |
+| Mid-traversal list-shaping | `fold().unfold().has(...)` and any `fold` / `unfold` / `reverse` / `tail` step not appearing as the terminal step | These steps are accepted only as terminators (see "List-shaping terminators" — Track 11) because the boundary step is the only step in a translated traversal under D3 all-or-nothing; a list-shape step mid-traversal would have to hand its output back to a native step, which D3 explicitly disallows | Phase 2 path: relax D3 to a per-step recognise-or-decline gate that lets recognised list-shapers slot in mid-chain, with the boundary step splitting into prefix/suffix sub-plans |
 | Case-sensitive string predicates | `TextP.startingWith` / `endingWith` / `notStartingWith` / `notEndingWith` / `regex` / `notRegex` (and the equivalent `Text.*` legacy forms) | `SQLLikeOperator` is case-insensitive (`QueryHelper.like` lowercases both operands) so it would return a different multiset from TinkerPop's case-sensitive `startingWith` / `endingWith`; `SQLMatchesCondition` uses `Pattern.matches()` (whole-string) where TinkerPop uses `find()` (partial). Phase 1 declines and lets the native pipeline handle it correctly. | Phase 2: add a case-sensitive prefix/suffix operator (or expose a case-sensitivity flag on LIKE) and a `find`-semantic regex operator on the YTDB side |
-| Tail | `tail(n)` | Order-dependent — Gremlin's `tail` keeps the last N traversers in arrival order, which is not what `ORDER BY ... LIMIT` produces; needs either a `Tail` execution step on the MATCH side or a buffer in the boundary step | Simple add: model as a bounded ring buffer in the boundary step, fed by `ELEMENT` / `MAP` output |
 | Singleton-collection equality | `P.eq([a])` / `P.neq([a])` (size-1 collection literal) when the field's `PropertyType` is not in the schema | `QueryOperatorEquals.equals` auto-unboxes a singleton `Collection` against a scalar (`QueryOperatorEquals.java:63-69`), diverging from TinkerPop's structural-equality semantics under `COMPARABILITY`. Phase 1 declines for the size-1 case because the field cardinality cannot be inferred at translation time in schema-less / mixed-mode classes. Multi-element and empty collection literals (`size != 1`) translate normally — they bypass the unbox branch. | Phase 2: schema-aware rewrite — when the field's `PropertyType` is statically known, route scalar-typed fields with `eq([a])` to the constant `false` filter and collection-typed fields with `eq([a])` to a normal `field = listLit` translation. Schema-less remains declined. The infrastructure required (per-property `PropertyType` lookup at translation time) is shared with other Phase 2 type-aware optimizations (typed index lookup, RID-range narrowing for collection-typed properties), so it lands as part of that work, not as a one-off. |
 
 **Type-keyed recognizer dispatch ships in Phase 1** (see "Recogniser
