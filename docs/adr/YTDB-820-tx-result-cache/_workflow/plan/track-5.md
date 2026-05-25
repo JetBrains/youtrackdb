@@ -12,13 +12,13 @@ Extend `ShapeClassifier` to return `AGGREGATE_COUNT`/`SUM`/`AVG`/`MIN`/`MAX` for
 
 Existing relevant code:
 - `AggregateProjectionCalculationStep.java:121-137` — blocking aggregation loop: `prev.start(ctx)` then `while lastRs.hasNext: aggregate(lastRs.next, ctx, ...)`. Splice target for `AggregateCacheTapStep`.
-- `AbstractExecutionStep` — base class for execution steps; provides `getPrev()` link traversal.
-- `InternalExecutionPlan.steps` — list of execution steps; walked to find the aggregate step for splice.
+- `AbstractExecutionStep` — base class for execution steps; provides public `prev` field (`AbstractExecutionStep.java:66`) for upstream-link traversal.
+- `SelectExecutionPlan.steps` — concrete `List<ExecutionStepInternal>` field (`SelectExecutionPlan.java:54`); the cache-miss path obtains the plan via `statement.createExecutionPlan(ctx, false)` (rather than `statement.execute(...)`, which immediately wraps the plan in a `LocalResultSet`), downcasts to `SelectExecutionPlan`, mutates the `prev` link of the target step, then runs the plan to produce the result stream. `InternalExecutionPlan.getSteps()` returns `List<ExecutionStep>` (read-only API); writable access requires the concrete type.
 
 **Concrete deliverables.**
 - `ShapeClassifier.classify` extended: single-aggregate-projection SELECT returns one of `AGGREGATE_COUNT/SUM/AVG/MIN/MAX`. Multi-aggregate, expression-aggregate (`SUM(a+b)`), aggregate-in-where, GROUP BY, HAVING, `COUNT DISTINCT`, `MEDIAN`/`MODE`/`PERCENTILE` → NONE.
 - `AggregateState` complete with `observe(result)` (called by tap), `applyMutation(rec, status, matchAfter)` (called by DeltaBuilder), `copy()` (called by DeltaBuilder at view ctor), `toResult()` (called by view.next).
-- `AggregateCacheTapStep extends AbstractExecutionStep` — side-tap step. `internalStart(ctx)` calls `getPrev().start(ctx)` to get upstream stream, then returns wrapping stream whose `next(ctx)` calls `entry.aggregateState.observe(result)` before forwarding unchanged.
+- `AggregateCacheTapStep extends AbstractExecutionStep` — side-tap step. `internalStart(ctx)` calls `prev.start(ctx)` (reading the public `prev` field from `AbstractExecutionStep`) to get upstream stream, then returns wrapping stream whose `next(ctx)` calls `entry.aggregateState.observe(result)` before forwarding unchanged.
 - Plan-rewrite splice in `DatabaseSessionEmbedded.query()` miss path: walk `plan.steps`, find `AggregateProjectionCalculationStep`, rewire its `prev` to a new `AggregateCacheTapStep` whose `prev` is the original upstream. Failure to find expected shape → entry shape = NONE (downgrade).
 - `DeltaBuilder.buildForAggregate(entry, recordOps, ctx) → AggregateState`: `entry.aggregateState.copy()` then iterate recordOps, class filter, WHERE eval, `deltaState.applyMutation(rec, status, match_after)`. Returns the delta-applied copy.
 - `CachedResultSetView` extended: for aggregate shape, carry `deltaAggregateState` instead of `TxDeltaCursor`. `next()` returns `deltaAggregateState.toResult()` once; `hasNext()` true exactly once.

@@ -12,7 +12,9 @@ Disabled by default behind `youtrackdb.query.txResultCache.enabled`. Two more kn
 
 ### Why lazy merge-on-read
 
-The earlier eager K1 sharp-merge design mutated `entry.results` in place on every `addRecordOperation` and required live `CachedResultSetView`s to fail-fast with `IllegalStateException` when a mutation invalidated the position counter. Lazy merge-on-read eliminates that contract: cached entries are frozen snapshots of storage at populate time, and the tx-delta is reconciled per query at view-construction. Per-mutation work drops to O(0); per-query delta build is O(N) where N is total tx mutations (O(p) with a per-class index, deferred to v2); per-`next()` stays O(1) when delta is empty and O(log p) otherwise. Hub workload (read-many, mutate-few) keeps p small. The contract is "every view sees a coherent snapshot from query-call moment", matching the existing `OrderByStep` blocking-materializer guarantee — caching no longer introduces a fail-fast path consumers must handle.
+The earlier eager K1 sharp-merge design mutated `entry.results` in place on every `addRecordOperation` and required live `CachedResultSetView`s to fail-fast with `IllegalStateException` when a mutation invalidated the position counter. Lazy merge-on-read eliminates that contract: cached entries are frozen snapshots of storage at populate time, and the tx-delta is reconciled per query at view-construction. The contract is "every view sees a coherent snapshot from query-call moment", matching the existing `OrderByStep` blocking-materializer guarantee — caching no longer introduces a fail-fast path consumers must handle.
+
+**The choice is not perf-driven; it is architecture-driven.** Honest cost accounting: per-mutation work drops to O(0); per-query delta build is O(N) where N is total tx mutations (O(p) with a per-class index, deferred to v2); per-`next()` stays O(1) when the delta is empty for this query's class and O(log p) otherwise. The "delta empty" condition holds only when no tx-mutation has happened on a class in this query's `effectiveFromClasses`. In Hub-shaped workloads (1-3 writes followed by 50-200 reads on the same classes — the DNQ "save then query" pattern), once the first write lands every subsequent same-class read pays the delta-build cost while eager would have amortized that cost over the writes. **For these workloads lazy has measurably higher total work than eager** — estimated 10-20× more raw operations, but in absolute terms sub-millisecond per request, noise-floor against Hub's hundreds-of-milliseconds HTTP response time. We accept this perf hit explicitly as the price of architectural simplification: no K1 dispatch, no `entry.version`, no `expectedEntryVersion`, no fail-fast `IllegalStateException`, and the "transparent cache invisible behind ResultSet API" promise honored. D13 Hub-replay (Track 8) measures the actual cost; if measurements show a >5% request-latency regression, the per-class indexing optimization (deferred to v2) activates as a hardening response rather than v2 work.
 
 ### Known v1 limitations (deferred to v2 / hardening)
 
@@ -256,7 +258,7 @@ Critically — unlike the eager design — `entry.results` is only ever appended
 
 ## Lazy merge-on-read
 
-**TL;DR.** Every `CachedResultSetView` is constructed with a frozen snapshot of the tx's mutations relevant to the entry's `effectiveFromClasses`. The snapshot — a `TxDeltaCursor` (for record/match shape) or a copy of `AggregateState` with delta replayed (for aggregate shape) — is built once at view construction by `DeltaBuilder` and never refreshed mid-iteration. The cache itself is immutable from populate time. All "what does this query return given the cache + current tx state" logic lives in the delta-build step.
+**TL;DR.** Every `CachedResultSetView` is constructed with a frozen snapshot of the tx's mutations relevant to the entry's `effectiveFromClasses`. The snapshot — a `TxDeltaCursor` (for record/match shape) or a copy of `AggregateState` with delta replayed (for aggregate shape) — is built once at view construction by `DeltaBuilder` and never refreshed mid-iteration. The cache itself is immutable from populate time. All "what does this query return given the cache + current tx state" logic lives in the delta-build step. **Cost shape:** the delta-build pays O(N) tx-mutation scan + O(p log p) sort per query; per-`next()` is O(1) when the delta is empty (true only in pure read-only tx segments with no writes on this query's classes) and O(log p) once any same-class write has landed. In Hub workloads this means per-read cost is measurably higher than eager would pay — the trade-off is accepted in exchange for the architectural simplification documented in § Overview → "Why lazy merge-on-read".
 
 ### Per-shape classify
 
@@ -325,9 +327,9 @@ For `AGGREGATE_*`, the cached entry carries an immutable `AggregateState` popula
 
 Entry-population for `AGGREGATE_*` shapes requires per-RID material to seed `contributingValues` and `contributingRids`. The collapsed `ResultSet` carries only the scalar — no per-RID data to derive from.
 
-`AggregateCacheTapStep extends AbstractExecutionStep` is spliced into the plan chain immediately upstream of `AggregateProjectionCalculationStep` (`AggregateProjectionCalculationStep.java:121-137` shows the blocking aggregation loop: `prev.start(ctx)` → `while lastRs.hasNext: aggregate(lastRs.next, ctx, ...)`). The tap step's `internalStart(ctx)` calls `getPrev().start(ctx)` to obtain the upstream `ExecutionStream`, then returns a wrapping `ExecutionStream` whose `next(ctx)` invokes `entry.aggregateState.observe(result)` before forwarding the unchanged `Result` to the consumer. `observe(result)` reads `result.getRecord().getIdentity()` for the RID and the projection-target property via the prebuilt extractor; for `COUNT(*)` it only adds to `contributingRids`. The tap is transparent to the downstream aggregate step.
+`AggregateCacheTapStep extends AbstractExecutionStep` is spliced into the plan chain immediately upstream of `AggregateProjectionCalculationStep` (`AggregateProjectionCalculationStep.java:121-137` shows the blocking aggregation loop: `prev.start(ctx)` → `while lastRs.hasNext: aggregate(lastRs.next, ctx, ...)`). The tap step's `internalStart(ctx)` calls `prev.start(ctx)` (`prev` is the public field on `AbstractExecutionStep:66`) to obtain the upstream `ExecutionStream`, then returns a wrapping `ExecutionStream` whose `next(ctx)` invokes `entry.aggregateState.observe(result)` before forwarding the unchanged `Result` to the consumer. `observe(result)` reads `result.getRecord().getIdentity()` for the RID and the projection-target property via the prebuilt extractor; for `COUNT(*)` it only adds to `contributingRids`. The tap is transparent to the downstream aggregate step.
 
-**Splice point.** Post-construction plan rewrite — `DatabaseSessionEmbedded.query()` miss path obtains the constructed `InternalExecutionPlan` from `statement.execute(...)`, walks its `steps` list, finds the `AggregateProjectionCalculationStep`, and rewires its `prev` link to a new `AggregateCacheTapStep` whose own `prev` is the original upstream. Local to cache code; no planner changes. Failure to find the expected step downgrades the entry to `shape=NONE`. Track 5 owns this wiring.
+**Splice point.** Post-construction plan rewrite — `DatabaseSessionEmbedded.query()` miss path builds the plan via `statement.createExecutionPlan(ctx, false)` (instead of `statement.execute(...)`, which immediately wraps the plan in a `LocalResultSet` and loses direct access), downcasts to `SelectExecutionPlan` to walk its `steps` list, finds the `AggregateProjectionCalculationStep`, and rewires its `prev` link to a new `AggregateCacheTapStep` whose own `prev` is the original upstream. The cache then drives the plan to produce its own `ExecutionStream`. Local to cache code; no planner changes. Failure to find the expected step downgrades the entry to `shape=NONE`. Track 5 owns this wiring.
 
 ### MATCH Etap A — RECORD-shape composition
 
@@ -398,6 +400,23 @@ There's no `isDeterministic()` predicate on `SQLFunction` today (only `aggregate
 ### Deterministic ORDER BY admission
 
 D9 originally framed this as "modifier-chain ORDER BY in K1 RECORD gated on determinism". Under lazy the rationale changes: the ORDER BY comparator runs at **delta-build time** to sort the `inject_list`, not at K1-splice time. So the admission gate isn't "can K1 splice safely use this comparator" — it's "is the comparator deterministic enough to give consistent results across the entry's lifetime". Same gate (`NonDeterministicQueryDetector` reports each ORDER BY item as deterministic or not), different rationale.
+
+### MATCH NOCACHE asymmetry
+
+The grammar at `YouTrackDBSql.jjt:1245` (MATCH production) does not accept `NOCACHE` — the token is parsed only by the two SELECT productions at lines 1206 and 1237. This pre-existing limitation predates the cache work; the `SQLSelectStatement.noCache` field is dead code today (no current YTDB consumer reads it) and the cache becomes its first consumer.
+
+This design preserves the asymmetry deliberately, not as oversight. MATCH's non-determinism surface is structurally narrower than SELECT's:
+
+- No arbitrary projections — RETURN clause is alias-bound expressions only.
+- No `LET` clause — `LET`-based unionall and `$variable` references not parseable.
+- No `GROUP BY`/`HAVING` — aggregation patterns not in scope.
+- Constrained pattern WHEREs — cross-alias-state references (`$current`, `$matched`) already excluded by classify and return NONE.
+
+The remaining MATCH non-determinism surface is **fully covered** by `NonDeterministicQueryDetector`'s built-in denylist (`sysdate`, `random`, `uuid`, `eval`, zero-arg `date()`, `currentTimeMillis`, `nanoTime`, plus context vars `$now`, `$current`, `$thread`, `$parent`, `$depth`). User-defined Java functions in MATCH pattern WHEREs are trusted as deterministic by default — same trust contract as SELECT, but with materially lower exposure given typical MATCH usage patterns are graph traversal over storage-resident state.
+
+SELECT retains `NOCACHE` for its broader use cases the denylist does not cover: free-form projection debug queries (`SELECT sysdate(), random() FROM ...` style), `LET`-based opt-out where the LET expression embeds a custom function, and user-defined-function escape valves where the user knows their UDF is non-deterministic but the detector cannot see it.
+
+Extending `NOCACHE` to MATCH is a v2 candidate. Decision gate is the D13 Hub-replay measurement (Track 8): if the replay surfaces non-trivial custom-function-in-MATCH usage that the denylist cannot cover, v2 adds the token to the MATCH production. The grammar change is small (~one line in `.jjt` plus generated parser regen); the runtime field already wires through `NonDeterministicQueryDetector` once the field exists on `SQLMatchStatement`.
 
 ### Edge cases / Gotchas
 - **`date(literal)` and `date(field)` are deterministic** — only zero-arg `date()` returns current-time. The denylist entry for `date` checks arity.

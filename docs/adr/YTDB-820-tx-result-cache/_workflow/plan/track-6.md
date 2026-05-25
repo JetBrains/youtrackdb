@@ -11,9 +11,9 @@ Extend `ShapeClassifier` to return RECORD for single-alias MATCH that meets the 
 **Codebase state at track start.** After Tracks 4-5: RECORD and AGGREGATE delta work for SELECT. This track lifts MATCH single-alias into the RECORD path.
 
 Existing relevant code:
-- `SQLMatchStatement` — `matchExpressions: List<SQLMatchExpression>` and `returnItems: List<SQLProjectionItem>`.
+- `SQLMatchStatement` — `matchExpressions: List<SQLMatchExpression>` and `returnItems: List<SQLExpression>`.
 - Each `SQLMatchExpression` has `origin: SQLMatchFilter` (the start node) and `items: List<SQLMatchPathItem>` (the edges). Etap A condition: `items.isEmpty()` AND `matchExpressions.size() == 1`.
-- `SQLMatchFilter` (origin node) has `alias`, `clazz` (class name), `filter: SQLWhereClause`.
+- `SQLMatchFilter` (origin node) exposes accessors `getAlias()` / `getClassName(CommandContext)` / `getFilter()` over an internal `items: List<SQLMatchFilterItem>` (the parser breaks one `{as:u, class:X, where: …}` block into one or more items). For Etap A's no-edges single-binding case there is exactly one item; the accessors iterate items and return the first non-null match.
 - `MatchPrefetchStep` + `PREFETCHED_MATCH_ALIAS_PREFIX` — Etap B primitive (NOT used in v1, but referenced as v2 mechanism).
 
 **Concrete deliverables.**
@@ -25,7 +25,7 @@ Existing relevant code:
 ## Plan of Work
 
 1. `ShapeClassifier.classify(SQLMatchStatement)` — Etap A condition check. Reject patterns with multi-alias, edges, cross-alias-state WHERE references (`$current`, `$matched`, `${otherAlias}.…`), LET, UNWIND, subqueries in pattern WHEREs.
-2. `returnProjector` builder — given `returnItems: List<SQLProjectionItem>` and the alias name, build a closure that takes a record and produces the projection. Reuse existing projection-eval machinery (`SQLProjectionItem.execute(...)`).
+2. `returnProjector` builder — given `returnItems: List<SQLExpression>` and the alias name, build a closure that takes a record and produces the projection. Reuse existing expression-eval machinery (`SQLExpression.execute(...)` against the alias-bound `Result`).
 3. `DeltaBuilder.buildForRecord` integration — flag on entry indicates "use returnProjector" path; defaults to identity for SELECT-flavored entries.
 4. `OrderByComparator` for MATCH — projected tuples can have ORDER BY on either record properties (`ORDER BY u.name`) or projection aliases (`ORDER BY name`). Build comparator that resolves to the appropriate value in the projected `Result`.
 5. Test matrix (T6 set):
@@ -57,6 +57,6 @@ Existing relevant code:
 - Unblocks: Track 7 (hardening covers MATCH bypass paths and NONE-shape behavior).
 
 **Library / function signatures.**
-- `MatchReturnProjector.build(List<SQLProjectionItem>, String alias) → Function<RecordAbstract, Result>`.
+- `MatchReturnProjector.build(List<SQLExpression>, String alias) → Function<RecordAbstract, Result>`.
 - `ShapeClassifier.isMatchEtapA(SQLMatchStatement) → boolean` (helper).
 - `CachedEntry.returnProjector` field — `@Nullable Function<RecordAbstract, Result>`.

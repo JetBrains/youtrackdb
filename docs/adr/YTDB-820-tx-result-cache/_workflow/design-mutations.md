@@ -371,3 +371,23 @@ No sections added, removed, renamed, or moved. No class-diagram class added or r
 **Findings**: pending cold-read.
 
 **Iterations**: 1 of 3 — pivot applied. Subsequent iterations (if cold-read surfaces blockers) will be tracked as Mutation 12+.
+
+## Mutation 12 — 2026-05-25 — content-edit (design.md + implementation-plan.md)
+
+**Architecture honesty pass.** User feedback after `/review-plan` exposed a weakness in the lazy design's perf framing: the reviewer's claim "p = 0 in the common read-mostly case, so the common path stays O(1)" is incorrect for Hub-shaped workloads. `p = 0` requires no tx-mutation on any class in the query's `effectiveFromClasses` — true only for pure read-only segments. Hub's typical DNQ pattern (save entity then query same class) has `p > 0` for every same-class read after the first write, meaning lazy pays delta-build cost on each such read while eager would have amortized that cost over the writes.
+
+This mutation rewrites three locations to reflect the honest cost framing:
+
+1. **design.md § Overview → "Why lazy merge-on-read"** — added paragraph stating "the choice is not perf-driven; it is architecture-driven", explicit ~10-20× more raw operations than eager for Hub workloads (sub-millisecond absolute magnitude), and v2 per-class index activation gate (>5% request-latency regression at D13).
+2. **design.md § Lazy merge-on-read TL;DR** — added cost-shape sentence explaining `p = 0` true only in pure read-only tx segments, and cross-reference to Overview rationale.
+3. **implementation-plan.md D5-lazy Rationale + Risks/Caveats** — Rationale opens with "choice is architecture-driven, not perf-driven"; Risks/Caveats lists the 10-20× total work delta explicitly with Hub-pattern context and the D13 hardening gate.
+
+No D-record added or removed. No invariant changed. No class-diagram change. No new section. The change is **truthful framing** of existing technical content — important because the design's defensibility depends on stating the actual trade-off, not selling an optimistic perf story that does not hold in the target workload.
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=content-edit): 0 blockers; 23 should-fix `dsc-ai-tell` em-dash density findings (+4 from Mutation 11 baseline). Pre-existing house-style debt category; deferred to Phase 4 global sweep.
+
+**Cold-read** (scope=bounded — § Overview "Why lazy merge-on-read", § Lazy merge-on-read TL;DR, D5-lazy Rationale + Risks/Caveats): self-audited. The new prose is internally consistent with: (a) the pre-existing Cost trade-off section in implementation-plan.md, (b) the D13 Hub-replay gate in Track 8, (c) the per-class index v2 deferral noted in Non-Goals, and (d) the "transparent cache invisible behind ResultSet API" promise restated in § Overview. No cross-reference broken.
+
+**Findings**: pre-existing 23 should-fix dsc-ai-tell — not addressed in this mutation; deferred to Phase 4 sweep.
+
+**Iterations**: 1 of 3 (PASS — closes architecture honesty gap; no NEW findings introduced beyond the pre-existing house-style category).

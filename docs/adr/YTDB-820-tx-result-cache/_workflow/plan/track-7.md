@@ -14,7 +14,7 @@ Existing relevant code:
 - `SQLSelectStatement.noCache: Boolean` — already parses; semantics extended here.
 - `SQLTruncateClassStatement` — bulk-bypass target.
 - `SQLOrderByItem.modifier: SQLModifier` — chain target for deterministic check.
-- Grammar source: `core/src/main/grammar/YouTrackDBSql.jjt:3726-3729` — ORDER BY production. Do not edit generated parser at `core/.../sql/parser/`.
+- Grammar source: `core/src/main/grammar/YouTrackDBSql.jjt:3053` — `SQLOrderBy OrderBy()` production. Do not edit generated parser at `core/.../sql/parser/`.
 - `LinkedHashMap.removeEldestEntry(Map.Entry)` — LRU eviction hook target.
 
 **Concrete deliverables.**

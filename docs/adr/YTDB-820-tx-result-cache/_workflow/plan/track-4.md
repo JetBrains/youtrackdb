@@ -58,7 +58,7 @@ Existing relevant code:
    - T4i (I7): mid-iteration mutation — assert current view does NOT see new mutation; fresh `query()` DOES see it.
    - T4j (D11 polymorphism): SELECT FROM Person sees Employee subclass mutations via effectiveFromClasses closure.
 
-**Invariants to preserve.** I4: view output equivalent to fresh execution against (cache + delta) snapshot. I7: view's deltaCursor immutable post-construction. I11: cached entry never mutated.
+**Invariants to preserve.** I4: view output equivalent to fresh execution against (cache + delta) snapshot. I7: view's deltaCursor immutable post-construction, and the cached `entry.results` / `entry.cachedRids` are append-only during stream pull, never mutated by tx state.
 
 ## Interfaces and Dependencies
 

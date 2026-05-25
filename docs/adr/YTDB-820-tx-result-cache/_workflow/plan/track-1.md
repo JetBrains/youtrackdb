@@ -41,7 +41,7 @@ Lay down the foundational pieces with no behavioral change: three `GlobalConfigu
 ## Interfaces and Dependencies
 
 **In-scope files.**
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/config/GlobalConfiguration.java` (knob entries)
+- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` (knob entries — note `api/config`, not `internal/core/config`; this is public API surface)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransactionImpl.java` (field + lifecycle hooks)
 - New files under `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/cache/` (or similar package): `QueryResultCache.java`, `CachedEntry.java`, `CacheKey.java`, `CacheableShape.java`, `TxDeltaCursor.java`
 

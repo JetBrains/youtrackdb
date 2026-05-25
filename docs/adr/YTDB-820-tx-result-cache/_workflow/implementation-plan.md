@@ -97,8 +97,8 @@ flowchart LR
 #### D5-lazy: Lazy merge-on-read via snapshot `TxDeltaCursor` at view construction
 
 - **Alternatives considered**: K0 wipe-on-mutation baseline (kills cache after first save for Hub workload); eager K1 sharp-merge (mutates `entry.results` in place per mutation + fail-fast `IllegalStateException` on live views — supersedes prior D5 from the eager design); lazy merge-on-read (chosen, per @andrii0lomakin review on PR #1077).
-- **Rationale**: Cache entry is immutable from populate time. Each `query()` (hit or miss) builds a per-view `TxDeltaCursor` (record/match shape) or `AggregateState` copy (aggregate shape) from a snapshot of `tx.recordOperations` at view-construction. `view.next()` is a sorted-merge between the immutable cache list and the frozen delta cursor. Eliminates `entry.version`, `expectedEntryVersion`, fail-fast `IllegalStateException`, K1 sharp-merge dispatch in `invalidateOnMutation`. Per-mutation work drops to O(0); per-query delta-build is O(N) on tx-mutation count (O(p) with v2 per-class index); per-`next()` stays O(1) when delta empty, O(log p) otherwise. Aligns with `OrderByStep` blocking-materializer contract — caching no longer introduces a fail-fast path consumers must handle. Same `WHERE.matchesFilters`, `ORDER BY` comparator, and `AggregateState.applyMutation` primitives as eager — driver changed, algorithms identical.
-- **Risks/Caveats**: per-query `recordOperations` scan is O(N) without per-class index — acceptable for Hub workload (read-heavy, small N), v2 optimization candidate. WHERE re-evaluation per query per delta record amortizes worse than eager — measured under D13. UPDATED records lose their pre-mutation state, so ORDER-BY repositioning always uses skip+inject (no "key didn't change" optimization possible).
+- **Rationale**: choice is **architecture-driven, not perf-driven**. Cache entry is immutable from populate time. Each `query()` (hit or miss) builds a per-view `TxDeltaCursor` (record/match shape) or `AggregateState` copy (aggregate shape) from a snapshot of `tx.recordOperations` at view-construction. `view.next()` is a sorted-merge between the immutable cache list and the frozen delta cursor. Eliminates `entry.version`, `expectedEntryVersion`, fail-fast `IllegalStateException`, K1 sharp-merge dispatch in `invalidateOnMutation`. Aligns with `OrderByStep` blocking-materializer contract — caching no longer introduces a fail-fast path consumers must handle. Honors the "transparent cache invisible behind ResultSet API" promise from the design Overview. Same `WHERE.matchesFilters`, `ORDER BY` comparator, and `AggregateState.applyMutation` primitives as eager — driver changed, algorithms identical.
+- **Risks/Caveats**: **lazy has measurably higher total work than eager in read-mostly transactions with any writes**. Per-mutation work drops to O(0), but per-query delta-build is O(N) on tx-mutation count (O(p) with v2 per-class index), and per-`next()` is O(log p) when delta is non-empty for this query's class. The "delta empty" common-case condition (`p = 0`) holds only when no tx-mutation has happened on a class in this query's `effectiveFromClasses` — true for pure read-only segments, false in Hub's typical DNQ "save then query same class" pattern (1-3 writes followed by 50-200 same-class reads). For Hub-shaped workloads lazy does ~10-20× more raw operations than eager; absolute magnitude is sub-millisecond per request (noise-floor against hundreds-of-ms HTTP response time). The perf hit is **accepted explicitly** in exchange for the architectural and behavioral wins above. WHERE re-evaluation per query per delta record amortizes worse than eager — measured under D13. UPDATED records lose their pre-mutation state, so ORDER-BY repositioning always uses skip+inject (no "key didn't change" optimization possible). If D13 Hub-replay shows >5% request-latency regression vs eager, the v2 per-class index activates as a hardening response rather than v2 work.
 - **Implemented in**: Track 4 (RECORD shape), Track 5 (AGGREGATE shapes), Track 6 (MATCH Etap A).
 - **Full design**: design.md §"Lazy merge-on-read"
 
@@ -211,6 +211,7 @@ flowchart LR
 - LET-based unions (`SELECT EXPAND($u) LET ..., $u = unionall($a, $b)`) — NONE in v1.
 - Per-entry per-RID WHERE-evaluation memoization — v2 optimization, gated on D13 measurement of WHERE re-evaluation cost.
 - Per-class indexing of `recordOperations` for O(p) delta-build (vs O(N)) — v2 optimization, gated on D13.
+- **`NOCACHE` hint extension to MATCH** — the grammar accepts it only on SELECT (`YouTrackDBSql.jjt:1245` MATCH production lacks the token); MATCH's narrower non-determinism surface is fully covered by `NonDeterministicQueryDetector`'s built-in denylist. v2 candidate gated on D13 measurement. See design.md §"Non-determinism handling" → MATCH NOCACHE asymmetry for the full rationale.
 
 ## Checklist
 
@@ -229,17 +230,17 @@ flowchart LR
   > **Depends on:** Track 2
 
 - [ ] Track 4: Lazy delta core + RECORD shape
-  > Implement `ShapeClassifier.classify(stmt) → CacheableShape` returning RECORD for cacheable simple SELECT shapes (including SKIP within cap) and NONE otherwise. Implement `DeltaBuilder.buildForRecord(entry, recordOps, ctx) → TxDeltaCursor`: iterate `tx.recordOperations`, class-filter by `effectiveFromClasses`, dispatch on `(op.type, cached, match_after)` to build skip-set + sorted inject-list. Implement `CachedResultSetView.next()` sorted-merge between cache cursor and `TxDeltaCursor`. Wire delta build into `DatabaseSessionEmbedded.query()` at view construction (both miss and hit paths). Polymorphism gate via `effectiveFromClasses` per D11. LIMIT clipping at iteration. SKIP support folds into the prefix-shape RECORD with view-level windowing.
+  > Implement `ShapeClassifier` RECORD/NONE classify, `DeltaBuilder.buildForRecord` (class-filtered single-pass over `recordOperations` producing skip-set + sorted inject-list), and `CachedResultSetView` sorted-merge. SKIP/LIMIT, polymorphism (D11), and the dispatch table for `(op.type, cached, match_after)` all fold into the RECORD path. Detail in `plan/track-4.md`.
   > **Scope:** ~6 steps covering `ShapeClassifier` RECORD/NONE, `DeltaBuilder.buildForRecord`, `TxDeltaCursor` sorted-merge in `CachedResultSetView.next()`, polymorphism + SKIP/LIMIT integration, full test matrix (CREATED/UPDATED/DELETED × cached/not × match_after × ORDER BY × SKIP).
   > **Depends on:** Tracks 2, 3
 
 - [ ] Track 5: Aggregate delta — AGGREGATE_* shapes
-  > Extend `ShapeClassifier` to return AGGREGATE_COUNT/SUM/AVG/MIN/MAX for single-aggregate SELECT shapes. Add `AggregateCacheTapStep` and splice into the execution plan upstream of `AggregateProjectionCalculationStep` during cache-miss execution; `entry.aggregateState.observe(rec)` populates `contributingRids`, `contributingValues`, `currentScalar`. Implement `DeltaBuilder.buildForAggregate(entry, recordOps, ctx) → AggregateState`: copy entry's aggregate state and replay `applyMutation` over relevant tx-mutations. Extend `CachedResultSetView` to carry the per-view `deltaAggregateState` and return `deltaState.toResult()` directly. Test transition matrix for all five aggregate flavors.
+  > Extend `ShapeClassifier` to AGGREGATE_COUNT/SUM/AVG/MIN/MAX, splice `AggregateCacheTapStep` upstream of `AggregateProjectionCalculationStep` to populate `AggregateState`, and reuse the `DeltaBuilder` pattern for copy-and-replay of `applyMutation` at view construction. Detail in `plan/track-5.md`.
   > **Scope:** ~5 steps covering `AggregateState` with `copy`/`applyMutation`, `AggregateCacheTapStep`, plan-rewrite splice, `DeltaBuilder.buildForAggregate`, aggregate-shape view, full test matrix (COUNT/SUM/AVG/MIN/MAX × CREATED/UPDATED/DELETED × transition cases × MIN/MAX recompute).
   > **Depends on:** Track 4
 
 - [ ] Track 6: MATCH Etap A delta — single-alias as RECORD-shape composition
-  > Extend `ShapeClassifier` to return RECORD for single-alias MATCH `MATCH {as:u, class:X WHERE …} RETURN <projection of u>` (`matchExpressions.size() == 1 && matchExpressions[0].items.isEmpty()` and no cross-alias-state references in pattern WHERE). Build `returnProjector: Function<RecordAbstract, Result>` from the RETURN clause at entry construction. Delta-build follows the RECORD path; the projector wraps each inject-list record into a single-binding tuple before sort. Multi-alias / cross-join / pattern-with-edges classify as NONE.
+  > Extend `ShapeClassifier` to classify single-alias MATCH (Etap A) as RECORD with a `returnProjector` built from the RETURN clause at entry construction. Multi-alias / pattern-with-edges classify as NONE. Detail in `plan/track-6.md`.
   > **Scope:** ~4 steps covering MATCH classify rules, `returnProjector` builder, MATCH-specific test matrix (DELETE/UPDATE/CREATE × single-alias/multi-alias-NONE/pattern-with-edges-NONE), Etap-B-explicit-non-goal documentation.
   > **Depends on:** Track 4
 
@@ -249,12 +250,32 @@ flowchart LR
   > **Depends on:** Tracks 1, 2, 3, 4
 
 - [ ] Track 8: Observability + JMH — `QueryCacheMetrics` + benchmark + Hub replay
-  > Operator-facing observability: new `QueryCacheMetrics` class with hit/miss/delta-build-cost/eviction counters held by `QueryResultCache`, accessible from `FrontendTransactionImpl`. JMH microbenchmark for cache-hit, cache-miss, delta-build-with-N-mutations, and aggregate-replay paths against the cache-disabled baseline. Integration tests assert counter increments. Hub replay scenario (D13 gate) replays an anonymized DNQ-emission sample and asserts ≥70% cacheable-coverage + view-output equivalence vs fresh-execution at mutation sites.
+  > Add `QueryCacheMetrics` (hit/miss/eviction/delta-build counters), JMH cache-vs-baseline benchmarks, and the D13 Hub-replay validation gate (≥70% cacheable-coverage + view-output equivalence). Detail in `plan/track-8.md`.
   > **Scope:** ~4 steps covering `QueryCacheMetrics` class + accessor, counter increments at cache callsites, JMH scenarios (hit/miss/delta-build/aggregate-replay), Hub replay test + D13 pass criteria, integration counter assertions.
   > **Depends on:** Tracks 5, 6, 7
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — pending after lazy pivot rewrite
+- [x] Plan review (consistency + structural) — passed iteration 1 after lazy pivot rewrite (Mutation 11)
+
+**Consistency review (CR1-CR9)**:
+- CR1 (blocker, mechanical): grammar source citation `YouTrackDBSql.jjt:3726-3729` was TruncateClassStatement — fixed to `:3053 SQLOrderBy OrderBy()` in track-7.md.
+- CR2 (mechanical): `getPrev()` does not exist on `AbstractExecutionStep` (public `prev` field at line 66) — fixed in design.md § Aggregate side-tap and plan/track-5.md.
+- CR3 (mechanical): phantom invariant `I11` reference in track-4.md — replaced with I7 framing.
+- CR4 (design-decision, accepted ścieżka A): MATCH grammar has never carried `NOCACHE` (pre-existing limitation `YouTrackDBSql.jjt:1245`); preserved deliberately and documented as Non-Goal with full rationale in design.md § Non-determinism handling → MATCH NOCACHE asymmetry. v2 candidate gated on D13.
+- CR5 (mechanical): `SQLMatchStatement.returnItems` is `List<SQLExpression>`, not `List<SQLProjectionItem>` — fixed in plan/track-6.md.
+- CR6 (mechanical): `SQLMatchFilter` has no direct `clazz` field; uses accessor `getClassName(ctx)` over internal items list — fixed in plan/track-6.md.
+- CR7 (mechanical): `GlobalConfiguration` path corrected from `internal/core/config/` to `api/config/` in plan/track-1.md.
+- CR8 (mechanical): `steps` field is on concrete `SelectExecutionPlan:54`, not `InternalExecutionPlan` interface — fixed in plan/track-5.md.
+- CR9 (mechanical, regression of CR8 fix): `statement.execute(...)` returns `ResultSet` (LocalResultSet), not the plan; cache miss path must call `statement.createExecutionPlan(ctx, false)` instead — fixed in design.md § Aggregate side-tap and plan/track-5.md.
+
+**Structural review (S1-S5)**:
+- S1-S4 (mechanical): Track 4/5/6/8 intro paragraphs in plan-file checklist were 4-8 sentences each, exceeding 1-3 sentence cap — compressed to 1-3 sentences ending with "Detail in `plan/track-N.md`".
+- S5 (mechanical): NOCACHE-for-MATCH Non-Goal bullet was ~12-sentence essay — compressed to one-paragraph cross-reference with full rationale moved to design.md § Non-determinism handling → MATCH NOCACHE asymmetry.
+
+**Architecture honesty pass (Mutation 12, post-review)**: D5-lazy Risks/Caveats and design.md § Overview → "Why lazy merge-on-read" + § Lazy merge-on-read TL;DR were rewritten to honestly acknowledge the perf trade-off after user feedback that the reviewer's "p = 0 in common read-mostly case" framing is incorrect for Hub workloads with any writes. Decision now framed as architecture-driven (not perf-driven): lazy does ~10-20× more raw work than eager in Hub-shaped tx (1-3 writes + many same-class reads), but in absolute terms sub-millisecond per request. Trade-off accepted explicitly in exchange for elimination of K1 dispatch / version counters / fail-fast `IllegalStateException` and honored "transparent cache" promise.
+
+**Pre-existing structural debt observed (deferred)**:
+- 23 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — pre-existing house-style debt, +4 from this revision (Mutation 11+12 prose adds em-dashes). Deferred to Phase 4 global sweep per `house-style.md § Em-dash discipline`.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
