@@ -41,6 +41,15 @@ this shared layer in the same Phase 1 with no behavior change.
   the `(Pattern, aliasClasses, aliasFilters)` constructor introduced for non-SQL
   front-ends — is consumed as-is. Any planner change found necessary must
   escalate (track-level discussion).
+- **YTDB SQL grammar gets one additive edit** (Track 1, D-IS-DEFINED):
+  the `IS DEFINED` / `IS NOT DEFINED` productions are added alongside
+  the existing `IS NULL` / `IS NOT NULL` ones in
+  `core/src/main/grammar/YouTrackDBSql.jjt`. The parser regenerates
+  via `javacc-maven-plugin`; no other grammar changes are in scope.
+  Existing GQL / SQL queries are unaffected (purely additive new
+  tokens). Required by Track 4 (`has`/`hasNot` filter mapping) and
+  Track 7 (projection presence classification) for TP-equivalent
+  semantics on null-valued properties.
 - **GQL refactor is behavior-preserving.** All existing GQL tests must pass
   unchanged after `GqlMatchStatement` is migrated onto the shared builders.
 - **`polymorphicQuery` config is honored.** Translator reads
@@ -177,8 +186,11 @@ What changes:
     keeps using the no-edge-filter form unchanged), `build()` returning
     `(Pattern, aliasClasses, aliasFilters, edgeFilters)`.
   - `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
-    `containsText`, `and`, `or`, `not` returning `SQLBooleanExpression`;
-    `wrap()` to a `SQLWhereClause`. (No `startsWith` / `endsWith`
+    `containsText`, `isDefined`, `isNotDefined`, `and`, `or`, `not`
+    returning `SQLBooleanExpression`; `wrap()` to a `SQLWhereClause`.
+    (`isDefined` / `isNotDefined` wrap the new
+    `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST nodes
+    landed in Track 1 — see D-IS-DEFINED. No `startsWith` / `endsWith`
     factories — those TinkerPop predicates decline under D3; see
     design.md § Predicate translation.)
   - `MatchLiteralBuilder` — `toLiteral(Object) → SQLExpression`, extracted
@@ -528,6 +540,55 @@ What changes:
 - **Implemented in**: Track 3 (`EdgeStepRecogniser` is the first
   multi-step recogniser; walker refactor lands with it).
 
+#### D-IS-DEFINED: Add YTDB SQL `IS DEFINED` / `IS NOT DEFINED` operators in Track 1
+
+- **Alternatives considered**: (a) Map `has(key) → IS NOT NULL` and
+  `hasNot(key) → IS NULL` (the original design) — rejected after PR
+  #1038 review (lpld line=95, andrii0lomakin confirming the team's
+  "do not unify absent vs null" stance): YTDB's TP wrapper exposes
+  null-valued properties as `Property.isPresent() == true`
+  (`YTDBElementImpl.readFromEntity` returns a non-empty `YTDBProperty`
+  carrying `value=null`, since `EntityImpl.getPropertyAndChooseReturnValue`
+  at lines 488-497 only returns `null` for *absent* entries, not for
+  `entry.value == null`). `IS NULL` would over-match such properties
+  where TP `hasNot` would not. (b) Decline `has(key)` / `hasNot(key)`
+  in Phase 1 — rejected: presence filtering is one of the most-used
+  Gremlin filter shapes; losing it would shrink the recognised set
+  significantly. (c) Accept the divergence as a known issue — rejected:
+  the divergence is silent (no error, just wrong result multisets on
+  data with null-valued properties), exactly the failure mode the D3
+  all-or-nothing rule is designed to prevent. (d) Add the two new
+  YTDB SQL operators (chosen) — lpld's suggestion in the same review
+  thread.
+- **Rationale**: `IS DEFINED` / `IS NOT DEFINED` are entity-presence
+  predicates that ask `EntityImpl.hasProperty(key)` directly, bypassing
+  the value-flattening that `IS NULL` / `IS NOT NULL` inherit from
+  `Result.getProperty`'s null-on-absent contract. The two operators
+  give the Gremlin translator the exact semantics TP's `has` / `hasNot`
+  requires, with zero hidden divergence. The same presence check
+  underpins Track 7's `valueMap` / `values` / `select.by` projection
+  classification (see design.md "Track 7 commitment"), so the helper
+  is shared between Tracks 1 (operator) and 7 (projection) — no
+  duplicate code path. Index integration returns `Operation.None`
+  (presence predicates can't use value-keyed indexes), so the planner
+  side is a no-op.
+- **Risks/Caveats**: The operator addition modifies
+  `core/src/main/grammar/YouTrackDBSql.jjt` (the only Phase 1 grammar
+  edit). The parser regenerates automatically via the existing
+  `javacc-maven-plugin` configuration — no manual edits to generated
+  files. GQL's user-facing MATCH grammar does **not** expose these
+  operators in Phase 1; the addition is internal-facing (`MatchWhereBuilder`
+  factories for the Gremlin translator). Exposing them in GQL syntax
+  is a separate decision out of scope here. Risk that index work
+  in Phase 2+ accidentally tries to route these through value-keyed
+  indexes — Javadoc on both AST classes documents the `Operation.None`
+  decision to deter that.
+- **Implemented in**: Track 1 (grammar + AST + evaluator + tests +
+  `MatchWhereBuilder.isDefined`/`isNotDefined` factories). Consumed
+  in Track 4 (`has` / `hasNot` filter mapping) and Track 7 (projection
+  presence classification — same `hasProperty` primitive, no
+  additional SQL surface needed there).
+
 ### Invariants
 
 - `MatchExecutionPlanner` existing public method signatures are unchanged
@@ -616,15 +677,31 @@ What changes:
 
 ## Checklist
 
-- [ ] Track 1: Shared MATCH IR builders + GQL adoption
+- [ ] Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` operators
   > Establishes the foundation that the rest of Phase 1 builds on. Creates a
   > new package `internal/core/sql/executor/match/builder/` with three
   > classes — `MatchLiteralBuilder`, `MatchWhereBuilder`, `MatchPatternBuilder` —
   > and refactors `GqlMatchStatement` onto them so GQL today and the upcoming
   > Gremlin translator share one MATCH IR construction surface.
   >
-  > **Scope:** ~4 steps covering the three builder classes, the GQL
-  > refactor, and golden-string regression tests over `prettyPrint(0,2)`.
+  > **Also adds two new YTDB SQL operators** (D-IS-DEFINED): `IS DEFINED`
+  > and `IS NOT DEFINED` — entity-presence predicates, distinct from
+  > `IS NULL` / `IS NOT NULL` (which check the projected value). Track 4
+  > and Track 7 depend on these for the correct `has`/`hasNot` filter
+  > mapping and the `valueMap`/`values` projection presence classification
+  > (see design.md "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED`
+  > operators" and "Track 7 commitment"). Grammar edit in
+  > `core/src/main/grammar/YouTrackDBSql.jjt`, two new AST classes
+  > (`SQLIsDefinedCondition`, `SQLIsNotDefinedCondition`) with evaluator
+  > backed by `EntityImpl.hasProperty(key)`. `IndexFinder` integration
+  > returns `Operation.None` (presence predicates can't use value-keyed
+  > indexes). `MatchWhereBuilder` exposes `isDefined(...)` /
+  > `isNotDefined(...)` factories.
+  >
+  > **Scope:** ~6 steps covering the three builder classes, the GQL
+  > refactor, golden-string regression tests over `prettyPrint(0,2)`,
+  > the grammar + AST + evaluator for the new operators, and parser /
+  > evaluator / integration tests for them.
 
 - [ ] Track 2: Strategy skeleton + boundary step + minimal `g.V()`/`g.V(ids)` translation
   > Wires the new strategy into the optimization chain and establishes the
@@ -842,9 +919,14 @@ What changes:
   >   class-load time; the multi-ID `hasId` site becomes the third
   >   call site for that helper — lift the cached field into a shared
   >   helper in `match.builder/` rather than duplicating it again.
-  > - `HasStep` with `hasNot(key)` — translates to `field IS NULL` /
-  >   `NOT exists(field)` via `MatchWhereBuilder.not(op(field, EQ, ...))`
-  >   or a dedicated null-check helper.
+  > - `HasStep` with `hasNot(key)` — translates to `field IS NOT DEFINED`
+  >   via `MatchWhereBuilder.isNotDefined(field)` using the new operator
+  >   landed in Track 1 (see plan D-IS-DEFINED and design.md "Phase 1
+  >   dependency: `IS DEFINED` / `IS NOT DEFINED` operators"). Symmetric:
+  >   `has(key)` → `MatchWhereBuilder.isDefined(field)` (`field IS DEFINED`).
+  >   **Not** `IS NULL` / `IS NOT NULL` — those over-match against
+  >   properties stored with literal `null` value, which TP `hasNot`
+  >   would not match.
   >
   > Verification: parameterized tests covering each predicate; equivalence
   > vs SQL `MATCH` with explicit `WHERE`. Tests for combinations
