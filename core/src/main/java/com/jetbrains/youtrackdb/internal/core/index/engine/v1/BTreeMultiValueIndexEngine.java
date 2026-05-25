@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
@@ -280,6 +281,11 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
+    // clearSVTree() is invoked first to acquire the per-BTree exclusive
+    // component lock transitively via tree.remove → executeInsideComponentOperation
+    // → acquireExclusiveLockTillOperationComplete. With the lock held for the
+    // remainder of this call, the in-memory counter snapshot reads below are
+    // race-free against any concurrent commit's apply hook on the same engine.
     clearSVTree(atomicOperation);
     // Postcondition: doClearTree must remove every entry from both trees.
     assert svTree.firstKey(atomicOperation) == null
@@ -288,28 +294,26 @@ public final class BTreeMultiValueIndexEngine
     assert nullTree.firstKey(atomicOperation) == null
         : "doClearTree() left entries in nullTree of engine=" + name + " id=" + id
             + " treeSize=" + nullTree.size(atomicOperation);
-    // Reset persisted counts on entry point pages after clearing tree data.
-    // persistIndexCountDeltas adds only deltas from replayed entries after
-    // the clear, yielding the correct final count.
-    svTree.setApproximateEntriesCount(atomicOperation, 0);
-    nullTree.setApproximateEntriesCount(atomicOperation, 0);
+    // Snapshot the live in-memory counters under the lock acquired above.
+    // Both reads must happen AFTER clearSVTree() returns so the per-tree
+    // exclusive lock is held; reading before clearSVTree() would race against
+    // a concurrent commit's apply hook.
+    final long currentTotal = approximateIndexEntriesCount.get();
+    final long currentNull = approximateNullCount.get();
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
-    // In-memory counters are set eagerly inside the atomic operation. If the
-    // enclosing transaction rolls back:
-    // 1. WAL reverts the persisted page to pre-clear count (e.g., 1000)
-    // 2. In-memory counters stay at 0
-    // 3. Next commit's persistCountDelta adds delta (e.g., +5) to reverted
-    //    page → 1005
-    // 4. applyIndexCountDeltas adds delta to in-memory 0 → 5
-    // 5. On restart, load() reads 1005, diverging from the 5 the live
-    //    instance has
-    //
-    // Self-healing: buildInitialHistogram() recalibrates both from an exact
-    // scan. This divergence is tolerable because counters are approximate and
-    // rollback of clear() is an extremely rare edge case.
-    approximateIndexEntriesCount.set(0);
-    approximateNullCount.set(0);
+    // Pure-delta encoding: record the collapse as Δ = -current on the atomic
+    // op. The persist hook writes (-currentTotal, -currentNull) to both EP
+    // pages before commitChanges; the apply hook then advances the in-memory
+    // AtomicLong counters after commitChanges but before lock release. The
+    // persisted EP page is transiently out of sync with the now-empty tree
+    // until the persist hook runs. Any pre-existing drift between in-memory
+    // and persisted is intentionally not normalised here; eagerly zeroing the
+    // persisted side would re-introduce the in-atomic-op write that this
+    // encoding removes, and buildInitialHistogram() recalibration covers the
+    // rare residual case on next touch.
+    IndexCountDelta.accumulateClearOrRecalibrate(
+        atomicOperation, id, -currentTotal, -currentNull);
     var mgr = histogramManager;
     if (mgr != null) {
       // Local try-catch needed: unlike BTreeSingleValueIndexEngine.clear(),

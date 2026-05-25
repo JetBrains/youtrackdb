@@ -895,19 +895,36 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   @Test
-  public void multiValue_clear_resetsBothCountersToZero() throws IOException {
-    // clear() must reset both counters to 0 for multi-value engine.
+  public void multiValue_clear_recordsNegativeDeltaWithoutInMemoryMutation()
+      throws IOException {
+    // Pure-delta contract for the multi-value engine's clear(): the snapshot
+    // read of the in-memory counters happens after clearSVTree() acquires the
+    // per-tree exclusive lock, the resulting -current delta is accumulated on
+    // the atomic op, and neither the in-memory AtomicLong counters nor the
+    // persisted EP pages are mutated inside clear() itself. Both sides advance
+    // later: the persisted EP pages via persistCountDelta before commitChanges,
+    // the in-memory AtomicLongs via the apply hook before lock release.
     var f = new MultiValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
 
     f.engine.clear(f.storage, f.op);
 
-    assertEquals(0, f.engine.getTotalCount(f.op));
-    assertEquals(0, f.engine.getNullCount(f.op));
-    // Persisted counts on both entry point pages must also be reset
-    verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
-    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
+    // In-memory counters must NOT move inside clear() — they are advanced by
+    // the apply hook after commitChanges, so a rolled-back clear leaves them
+    // intact.
+    assertEquals(10, f.engine.getTotalCount(f.op));
+    assertEquals(3, f.engine.getNullCount(f.op));
+    // The collapse is encoded as a negative delta on the atomic op; the
+    // engine id of MultiValueFixture is 0.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    assertNotNull(delta);
+    assertEquals(-10L, delta.getTotalDelta());
+    assertEquals(-3L, delta.getNullDelta());
+    // The persisted EP pages must not be touched directly inside clear();
+    // persistCountDelta owns that write at Hook A.
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
   }
 
   // ═══════════════════════════════════════════════════════════════════════
