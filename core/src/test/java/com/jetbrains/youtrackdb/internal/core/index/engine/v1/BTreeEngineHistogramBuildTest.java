@@ -487,6 +487,13 @@ public class BTreeEngineHistogramBuildTest {
    * When the B-tree is completely empty (firstKey returns null),
    * rawKeyStreamForHistogram returns Stream.empty(). This exercises the
    * early-return branch at the top of the method.
+   *
+   * <p>The pre-state is also (0, 0), so the recorded recalibration delta is
+   * (0, 0). The test pins the holder row's existence (any path through
+   * accumulateInMemRecalibration creates the row even when both deltas are
+   * zero) and the zero values themselves; that combination guards against a
+   * regression where the recalibration call was skipped entirely and the
+   * holder row never materialised.
    */
   @Test
   public void singleValue_buildInitialHistogram_completelyEmptyTree()
@@ -502,8 +509,21 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.buildInitialHistogram(f.op);
 
     verify(f.manager).buildHistogram(eq(f.op), any(), eq(0L), eq(0L), eq(1));
-    assertEquals(0, f.engine.getTotalCount(f.op));
-    assertEquals(0, f.engine.getNullCount(f.op));
+    // Holder-inspection pattern: the recalibration call is the only mutator
+    // of inMemAdjust* on this path, so a (0, 0) row materialises even when
+    // both deltas are zero. The per-put accumulators must stay at zero.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull(
+        "recalibration must register a per-engine delta row even when zero",
+        delta);
+    assertEquals(0L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    // Persisted side still writes the absolute target inline; the WAL-tracked
+    // call lands at 0 because that is the exact post-rebuild count.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
   }
 
   /**
@@ -551,6 +571,166 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+  }
+
+  /**
+   * Pins the zero-delta no-op holder-row contract on the single-value engine.
+   * When the in-memory snapshot already matches the scan target (no drift),
+   * buildInitialHistogram still routes through accumulateInMemRecalibration
+   * with (0, 0), and the holder row materialises with both inMem fields at
+   * zero. A future refactor that elides the recalibration call when the
+   * delta is zero would slip past the divergent-pre-state pins above but
+   * fail this one.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_zeroDelta_recordsNoOpHolderRow()
+      throws IOException {
+    // Given: pre-state matches the scan target exactly, so the recorded
+    // recalibration delta is (0, 0). Pre-state (4, 1) matches the scan
+    // (3 non-null + 1 null = 4 total, 1 null).
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(4);
+    f.engine.addToApproximateNullCount(1);
+    var nullRid = new RecordId(1, 1);
+    when(f.sbTree.getVisible(any(), any(), any())).thenReturn(nullRid);
+    var firstKey = new CompositeKey(null, 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey(null, 0L), nullRid),
+            new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
+            new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2)),
+            new RawPair<>(new CompositeKey("c", 0L), new RecordId(2, 3))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(3L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // Holder row must materialise with (0, 0) on both inMem axes.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull(
+        "recalibration must register a per-engine delta row even when zero",
+        delta);
+    assertEquals(0L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+    // The per-put accumulators stay zero on the build path.
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    // Persisted side still writes the absolute target inline at 4.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 4L);
+  }
+
+  /**
+   * Sign-opposed counter-example pin on the single-value engine. Pre-state
+   * has more in-mem null than scan-exact null while the in-mem total is
+   * higher than the scan total, so totalDelta and nullDelta carry opposite
+   * signs. accumulateInMemRecalibration has no precondition (unlike
+   * accumulateClearOrRecalibrate) and must accept this shape; a regression
+   * that routed the recalibration through the long-form clear accumulator
+   * would trip the sign-alignment assert and fail this test.
+   *
+   * <p>SV-specific worked arithmetic: the SV {@code countNulls} returns at
+   * most 1 (a unique index holds at most one null key). The sign-opposed
+   * shape is driven by an over-counted in-mem total against the same scan.
+   * Pre-state (100, 0): total=100 (drift), null=0. The snapshot invariant
+   * {@code currentNull <= currentTotal} holds. Scanned: 20 non-null, 1
+   * null. exactTotal = 21. totalDelta = -79; nullDelta = +1. The signs
+   * oppose; {@code accumulateClearOrRecalibrate} would fail its
+   * sign-alignment clause, while {@code accumulateInMemRecalibration}
+   * accepts the shape without complaint.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_signOpposedDeltas_recordedWithoutPrecondition()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(100);
+    var nullRid = new RecordId(1, 1);
+    when(f.sbTree.getVisible(any(), any(), any())).thenReturn(nullRid);
+    var firstKey = new CompositeKey(null, 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> {
+          var entries = new java.util.ArrayList<RawPair<Object, RID>>();
+          entries.add(new RawPair<>(new CompositeKey(null, 0L), nullRid));
+          for (int i = 0; i < 20; i++) {
+            entries.add(new RawPair<>(
+                new CompositeKey("k" + i, 0L), new RecordId(2, i + 1)));
+          }
+          return entries.stream();
+        });
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(20L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // exactTotal = 20 + 1 = 21. Pre-state (100, 0). totalDelta = -79,
+    // nullDelta = +1. Both recorded verbatim through the no-precondition
+    // accumulator path.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull(
+        "recalibration must register a per-engine delta row for sign-opposed deltas",
+        delta);
+    assertEquals(-79L, delta.getInMemAdjustTotal());
+    assertEquals(1L, delta.getInMemAdjustNull());
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 21L);
+  }
+
+  /**
+   * Pins the snapshot-invariant assert message on the single-value engine's
+   * buildInitialHistogram path. When the in-memory non-null counter
+   * (currentTotal) is smaller than the in-memory null counter (currentNull),
+   * the assert fires and the message carries the engine identity
+   * (engine=test-sv) plus the drifted payload (currentTotal=2 currentNull=5).
+   * Mirrors the existing clear() counterpart; a refactor that drops the
+   * engine name from the buildInitialHistogram assert message would slip
+   * past the clear-side test but fail this one.
+   *
+   * <p>The test is gated on assertion-status because the production check is
+   * a Java {@code assert} statement; in production runs with -ea off the
+   * snapshot-invariant violation falls through silently to the accumulator,
+   * which has no precondition and would accept the drifted snapshot.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_assertsSnapshotInvariant_currentNullExceedsTotal()
+      throws IOException {
+    assumeTrue(BTreeSingleValueIndexEngine.class.desiredAssertionStatus());
+    var f = new SingleValueFixture();
+    // Seed drift: null > total. Set total=2 and null=5 directly via the
+    // public addTo helpers; currentNull (5) > currentTotal (2) violates the
+    // snapshot invariant captured at the recalibration site.
+    f.engine.addToApproximateEntriesCount(2);
+    f.engine.addToApproximateNullCount(5);
+    var nullRid = new RecordId(1, 1);
+    when(f.sbTree.getVisible(any(), any(), any())).thenReturn(nullRid);
+    var firstKey = new CompositeKey(null, 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey(null, 0L), nullRid),
+            new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(1L);
+
+    try {
+      f.engine.buildInitialHistogram(f.op);
+      fail("expected AssertionError because currentNull > currentTotal");
+    } catch (AssertionError expected) {
+      var msg = expected.getMessage();
+      assertNotNull("assert must carry a message", msg);
+      assertTrue(
+          "assert message must carry engine identity, got: " + msg,
+          msg.contains("engine=test-sv"));
+      assertTrue(
+          "assert message must carry the drifted snapshot, got: " + msg,
+          msg.contains("currentTotal=2") && msg.contains("currentNull=5"));
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -738,6 +918,104 @@ public class BTreeEngineHistogramBuildTest {
 
     // Then no interaction with trees
     verify(f.svTree, never()).size(any());
+  }
+
+  /**
+   * MV one-tree-empty drift shape pin. Drifted pre-state where the in-mem
+   * null counter exceeds the actual null-tree visible count, the svTree is
+   * empty, and the snapshot invariant {@code currentNull <= currentTotal}
+   * holds at the read site. Pre-state (10, 8): total=10 (over-counted),
+   * null=8 (over-counted). The svTree scan returns zero rows; the null-tree
+   * scan returns 1. exactTotal = 0 + 1 = 1. totalDelta = -9; nullDelta = -7.
+   * Pins that the null-only drift is healed through the in-mem accumulator
+   * even when the svTree contributes nothing, and that both persisted-side
+   * absolute writes still happen.
+   */
+  @Test
+  public void multiValue_buildInitialHistogram_oneTreeEmpty_driftShapePin()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateNullCount(8);
+    // svTree is completely empty — firstKey returns null by default.
+    // Null tree has exactly 1 visible entry.
+    var nullFirstKey = new CompositeKey(new RecordId(3, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey(new RecordId(3, 1), 0L), new RecordId(3, 1))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(0L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // Pre-state (10, 8); target (1, 1); deltas (-9, -7).
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas()
+        .get(f.engine.getId());
+    assertNotNull("recalibration must register a per-engine delta", delta);
+    assertEquals(-9L, delta.getInMemAdjustTotal());
+    assertEquals(-7L, delta.getInMemAdjustNull());
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    // Both persisted-side absolute writes land regardless of drift shape.
+    verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
+  }
+
+  /**
+   * Pins the snapshot-invariant assert message on the multi-value engine's
+   * buildInitialHistogram path. When the in-memory non-null counter
+   * (currentTotal) is smaller than the in-memory null counter (currentNull),
+   * the assert fires and the message carries the engine identity
+   * (engine=test-mv) plus the drifted payload (currentTotal=2 currentNull=5).
+   * Mirrors the existing clear() counterpart; a refactor that drops the
+   * engine name from the buildInitialHistogram assert message would slip
+   * past the clear-side test but fail this one.
+   *
+   * <p>The test is gated on assertion-status because the production check is
+   * a Java {@code assert} statement; in production runs with -ea off the
+   * snapshot-invariant violation falls through silently to the accumulator,
+   * which has no precondition and would accept the drifted snapshot.
+   */
+  @Test
+  public void multiValue_buildInitialHistogram_assertsSnapshotInvariant_currentNullExceedsTotal()
+      throws IOException {
+    assumeTrue(BTreeMultiValueIndexEngine.class.desiredAssertionStatus());
+    var f = new MultiValueFixture();
+    // Seed drift: null > total. The two AtomicLongs are independent at the
+    // fixture level, so set total=2 and null=5 directly via the public addTo
+    // helpers; currentNull (5) > currentTotal (2) violates the snapshot
+    // invariant captured at the recalibration site.
+    f.engine.addToApproximateEntriesCount(2);
+    f.engine.addToApproximateNullCount(5);
+    // The MV body scans the svTree first, then the null tree. The assert
+    // fires after both scans complete and the in-mem counters are read.
+    var firstKey = new CompositeKey("a", new RecordId(2, 1), 0L);
+    when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.svTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey("a", new RecordId(2, 1), 0L),
+                new RecordId(2, 1))));
+    // Null tree is empty (firstKey returns null by default), so the
+    // exactNullCount path short-circuits to zero.
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(1L);
+
+    try {
+      f.engine.buildInitialHistogram(f.op);
+      fail("expected AssertionError because currentNull > currentTotal");
+    } catch (AssertionError expected) {
+      var msg = expected.getMessage();
+      assertNotNull("assert must carry a message", msg);
+      assertTrue(
+          "assert message must carry engine identity, got: " + msg,
+          msg.contains("engine=test-mv"));
+      assertTrue(
+          "assert message must carry the drifted snapshot, got: " + msg,
+          msg.contains("currentTotal=2") && msg.contains("currentNull=5"));
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
