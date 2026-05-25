@@ -25,7 +25,8 @@ during Phase 3 execution.
 | **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See [`implementer-rules.md`](implementer-rules.md). |
 | **Track file** | `plan/track-N.md` — the per-track ExecPlan working file. Created during Phase 1 alongside `implementation-plan.md` with the four Phase 1 track-level sections populated (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) plus any track-level Mermaid diagram; the remaining sections are filled by Phase A → C. See `conventions-execution.md` §2.1 *Track file content* for the full 14-section ExecPlan shape and the workflow-specific `## Base commit` sibling. Lives under `_workflow/plan/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
 | **Mid-phase handoff** | An on-disk file `_workflow/handoff-*.md` written when a session pauses with un-derivable mid-phase state (research notes, verbatim re-present text, partial reviews). Distinct from the implementer-return "handoff" — see [`mid-phase-handoff.md`](mid-phase-handoff.md) for the protocol. Resolved and deleted on resume; otherwise removed by the Phase 4 cleanup commit. |
-| **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the current `develop` workflow format (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected in turn 1 of `/execute-tracks` by the gate at [`workflow-drift-check.md`](workflow-drift-check.md); the migration itself is owned by the `/migrate-workflow` skill. |
+| **Workflow-SHA stamp** | The HTML comment `<!-- workflow-sha: <40-char SHA> -->` written on line 1 of each `_workflow/**` artifact, recording the workflow-format commit reachable from HEAD at the moment of artifact creation. Drift detection and migration replay both read it; the H1 title starts on line 2. Full rule, canonical parser idioms, range definition, and unstamped-artifact protocol live in §1.6. |
+| **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the workflow format encoded in commits reachable from HEAD (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks` by the gate at [`workflow-drift-check.md`](workflow-drift-check.md); the migration itself is owned by the `/migrate-workflow` skill. |
 
 ---
 
@@ -100,11 +101,21 @@ At Phase 4, after `design-final.md` and `adr.md` are committed, the entire
 durable artifacts survive the squash-merge into `develop`. See
 `workflow.md` § Final Artifacts for the cleanup procedure.
 
+Every ephemeral `_workflow/**` artifact in the listing above (`implementation-plan.md`,
+`design.md`, optional `design-mechanics.md`, and each `plan/track-*.md`)
+carries a line-1 workflow-SHA stamp recording the workflow-format commit
+reachable from HEAD at creation time. The stamp format, canonical parser
+idioms, SHA computation rule, stamp range definition, unstamped-artifact
+protocol, and the positive list of stamped artifact types (plus the Phase 4
+final-artifact and `design-mutations.md` exclusions) live in [§1.6](#16-workflow-sha-stamps-on-_workflow-artifacts);
+the §1.1 glossary row "Workflow-SHA stamp" gives the one-line definition.
+
 The on-disk shape of `_workflow/**` may shift between sessions when
 workflow-format commits land on `develop` while the branch runs. The
-turn-1 gate at [`workflow-drift-check.md`](workflow-drift-check.md) detects
-such drift at every `/execute-tracks` startup and routes the user through
-the `/migrate-workflow` skill to realign.
+session-start gate at [`workflow-drift-check.md`](workflow-drift-check.md)
+detects such drift at every `/create-plan` (D9) and `/execute-tracks`
+startup and routes the user through the `/migrate-workflow` skill to
+realign.
 
 ### Plan file content (`implementation-plan.md`)
 
@@ -408,3 +419,536 @@ scale. Other extensions stay silent.
 The four Tier-B section names are stable headings after YTDB-836; a
 future rename in `house-style.md` requires updating every pointer in
 the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
+
+---
+
+## 1.6 Workflow-SHA stamps on `_workflow/**` artifacts
+
+Every ephemeral `_workflow/**` artifact carries a line-1
+`<!-- workflow-sha: <40-char SHA> -->` stamp. The stamp records the
+workflow-format commit the artifact was written against; the drift
+check and the per-branch migration both resolve their reference point
+from this stamp. This section is the single source of truth for the
+format, the canonical parser idioms, the SHA computation rule at
+creation, the stamp range, the unstamped-artifact protocol, the
+non-rule against silent auto-computed defaults, the positive
+enumeration of stamped artifact types, the active-plan scope, and the
+shared Phase 1 walk bash block. Every downstream writer (skill
+template, drift check, migration, validator) resolves to this section
+rather than restating the rule locally.
+
+### (a) Format definition and writer-side position contract
+
+The stamp is `<!-- workflow-sha: <40-char SHA> -->` on line 1; the H1
+title is on line 2. Any tool or skill that edits a stamped artifact
+MUST preserve the stamp's line-1 position. `edit-design` mutations
+(`section-add`, `section-move`, `structural-rewrite`, `content-edit`,
+and every other shape) treat line 1 as immutable. The
+position-preservation rule is the runtime complement to I4 (the
+structural invariant that every stamped artifact begins with the stamp
+at line 1); together they keep the stamp parseable by the canonical
+regex in (a1) after any mutation sequence.
+
+### (a1) Canonical parser idioms
+
+Two regex forms, both quoted byte-for-byte by Tracks 3, 4a, and 4b:
+
+- Value extraction (drift check, range derivation):
+  ```bash
+  head -1 file.md | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$'
+  ```
+  The `workflow-sha:` anchor rejects 40-hex sequences in H1 titles
+  like `# Backport of <SHA>: <description>` (verified by reproduction
+  during Phase A adversarial review).
+- Presence check (lockstep advance, validators):
+  ```bash
+  head -1 file.md | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'
+  ```
+
+Explicitly NOT canonical: `head -1 | grep -oE '[0-9a-f]{40}'` without
+the `workflow-sha:` anchor returns false positives on any H1 that
+happens to contain a 40-hex run.
+
+### (b) SHA computation at artifact-creation time
+
+Writers compute the stamp value from a path-scoped log over the
+workflow tooling itself:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
+```
+
+When the path-scoped log returns the empty string (no commit in HEAD's
+ancestry has touched `.claude/workflow/` or `.claude/skills/`), the
+writer falls back to `git rev-parse HEAD`. Every downstream writer
+(create-plan, edit-design phase1-creation, edit-design length-trigger,
+migration final-batch) copies the paired idiom above verbatim so the
+fallback behaves identically across writer sites. In every repo where
+workflow tooling exists in any reachable commit, the fallback never
+fires; documenting it keeps the rule portable to fresh repos and to
+repos where workflow paths have been moved. Both commands returning
+empty is a precondition violation (a repo with no HEAD commits) — the
+skill halts rather than writes a malformed stamp.
+
+### (c) Stamp range definition
+
+The drift / migration range is `BASE_SHA..HEAD`, where `BASE_SHA` is
+the oldest stamp reachable from HEAD via a pairwise `git merge-base`
+fold across the set of stamps gathered by the Phase 1 walk in (h).
+HEAD is the upper bound because the branch is a self-contained capsule
+(workflow-format commits enter only via explicit rebase or merge of
+`develop`; see plan D10).
+
+A fatal `git merge-base` failure (a stamp pointing at a `git
+gc`-pruned commit, or two stamps with no reachable common ancestor in
+the local repo) routes to the unstamped-artifact bootstrap prompt in
+(d). The pairwise fold may surface multiple failures across one
+session — each failing `git merge-base` call contributes its
+participating stamps to the affected set. Every stamp in that set is
+treated as unstamped for the rest of the session, and the bootstrap
+prompt in (d) covers the full set in a single user prompt (matching
+the batch semantics for genuinely-unstamped artifacts). The recovery
+path keeps the gate usable when stamps drift onto commits the local
+repo no longer has.
+
+### (d) Unstamped-artifact protocol
+
+When any artifact in the active plan's `_workflow/` is unstamped, the
+drift check signals drift unconditionally (no fold, no range
+computation). The migration prompts the user once for a base SHA
+covering the unstamped set and validates the input:
+
+```bash
+git rev-parse --verify "$SHA^{commit}" && git merge-base --is-ancestor "$SHA" HEAD
+```
+
+The `^{commit}` peel rejects tag and ref names; only commit SHAs pass.
+Short prefixes are accepted as input, but the writer canonicalizes the
+value to the 40-char form via the `rev-parse` stdout before storing it
+in any stamp file (the stamp regex `[0-9a-f]{40}` rejects shorter
+values on subsequent parse).
+
+On validation failure (either subcommand returns non-zero), the
+migration re-prompts the user with the failure cause. After three
+failed attempts the migration halts with an error and the user
+`/clear`s the session to abandon the migration. The bounded retry
+count keeps a typo recoverable without trapping the session in an
+unbounded loop.
+
+The prompt records the user's best guess; the per-commit replay loop's
+halt-on-ambiguity is a partial safety net, not a guarantee. A too-old
+SHA silently bloats the replay range; a too-new SHA silently skips
+needed migrations. Both failure modes are documented here so debug
+sessions have a starting point.
+
+### (e) Non-rule: no silent auto-computed default
+
+No auto-computed reference (fork-point with `develop`, HEAD itself,
+`git merge-base origin/develop HEAD`, or any other variant) is a
+silent default for unstamped artifacts. Under rebase any such
+reference shifts forward, marking unstamped artifacts as
+already-current and silently skipping the migration; the gate's "no
+drift" report would then mask data loss the user cannot detect. The
+rationale lives in plan D8; the rule is restated here because the
+non-rule is as load-bearing as the positive rules above.
+
+### (f) Stamped artifact types and exclusions
+
+Positive enumeration of stamped artifacts:
+
+- `_workflow/implementation-plan.md`
+- `_workflow/design.md`
+- `_workflow/design-mechanics.md` (when the length trigger has fired and the file exists)
+- Every `_workflow/plan/track-*.md`
+
+Explicitly NOT stamped:
+
+- Phase 4 final artifacts (`design-final.md`, `design-mechanics-final.md`, `adr.md`). These survive
+  the merge into `develop` where per-branch migration never applies,
+  so a stamp would be both stale on first commit and meaningless once
+  the branch is squashed.
+- `_workflow/design-mutations.md`. The file is an append-only log
+  whose stamp would always equal `design.md`'s; the append-only
+  contract makes the file replay-immune by construction.
+
+### (g) Active-plan scope
+
+Both the drift check and the migration operate on the plan dir the
+caller resolved at startup: `/create-plan <dir>`, `/execute-tracks
+<dir>`, or `/migrate-workflow`'s zero / one / many ladder over
+`docs/adr/*/_workflow/`. See §1.2 *Plan File Structure* (the
+`<dir-name>` default to current git branch name) for the resolution
+rule.
+
+Cross-plan folding is out of scope (plan D13): each plan migrates
+independently, and folding across plans would over-include older
+commits the active plan was always synced past. This scope rests on
+the one-plan-per-branch project convention, not a correctness
+invariant; a future change allowing multiple plans per branch would
+force a rethink of this section.
+
+### (h) Phase 1 walk bash block
+
+The shared enumerate-and-classify block is the durable single source
+for the Phase 1 walk. Tracks 3 and 4a copy this block byte-for-byte so
+the coordinated-edit cost on a future format change stays bounded to
+the writer sites enumerated in `## Interfaces and Dependencies` of
+each track. The block survives Phase 4 (`design.md` is removed in the
+cleanup commit; `conventions.md` is not):
+
+```bash
+PLAN_DIR="docs/adr/<dir-name>"
+STAMPED_SHAS=""
+UNSTAMPED_FILES=""
+# design-mechanics.md is optional; absent until the length trigger fires.
+# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+# yet present on disk, so missing files do not abort the walk.
+for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+              "$PLAN_DIR/_workflow/design.md" \
+              "$PLAN_DIR/_workflow/design-mechanics.md" \
+              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+    if [ -n "$SHA" ]; then
+        STAMPED_SHAS="$STAMPED_SHAS $SHA"
+    else
+        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+    fi
+done
+```
+
+The `<dir-name>` placeholder is the active plan dir resolved per (g)
+above. Downstream writers replace it at invocation time; the literal
+form lands here so the block stays copy-paste-ready.
+
+When both `STAMPED_SHAS` and `UNSTAMPED_FILES` are empty after the
+walk, the active plan has no stampable artifacts on disk (for example,
+a freshly-created `_workflow/` directory that holds only a transient
+`handoff-*.md`). Callers treat this as a no-op: the drift check exits
+successfully with no drift to report, and the migration skill refuses
+with `no artifacts to migrate`. The empty-input case is distinct from
+the all-stamped case (`STAMPED_SHAS` non-empty, `UNSTAMPED_FILES`
+empty) and from the partially-stamped case (`UNSTAMPED_FILES`
+non-empty, which routes to the bootstrap prompt in (d) regardless of
+`STAMPED_SHAS` content).
+
+The walk's glob set deliberately omits `$PLAN_DIR/_workflow/staged-workflow/`
+on workflow-modifying plans (see §1.7 below). The staged subtree mirrors
+live `.claude/workflow/**` and `.claude/skills/**` paths under a
+plan-scoped prefix; those files are not `_workflow/**` artifacts in the
+stamping sense and do not carry workflow-SHA stamps. Adding the staged
+prefix to the walk would produce spurious `UNSTAMPED_FILES` entries on
+every workflow-modifying plan and route them through the bootstrap
+prompt in (d), which is the wrong recovery path for an authoring buffer
+that Phase 4 promotes into the live tree.
+
+## 1.7 Staging for workflow-modifying branches
+
+Workflow-modifying branches accumulate every edit to `.claude/workflow/**`
+and `.claude/skills/**` under a plan-scoped staging subtree during
+execution, and a single Phase 4 promotion commit copies the staged
+content into the live paths just before final artifacts land. The live
+workflow files in the branch's checkout stay at develop's state for the
+duration of Phase B and Phase C, so plan citations resolve against a
+stable surface, reviewers see one consistent rule body, and the drift
+gate at the next session start does not flag the branch's own authoring
+as drift on itself.
+
+This section is the single source of truth for the staged-subtree path
+layout, the canonical workflow-modifying marker spelling, the detection
+rule split between the implementer enforcement gate and the Phase 4
+promotion guard, the implementer write-routing rule, the reads-precedence
+rule, the copy-then-edit-on-first-touch rule, the rebase-precedes-promotion
+rule, and the precise wording of the staging invariant. Every downstream
+writer resolves to this section rather than restating any clause
+locally: the `implementer-rules.md` path-mapping rule, the
+`step-implementation.md` prompt-template reference, `workflow.md`
+§ Final Artifacts, the Phase 4 prompt at `prompts/create-final-design.md`,
+the `workflow-drift-check.md` pathspec defensive comment, and the
+`mid-phase-handoff.md` § Resume protocol acknowledgment.
+
+### (a) Staged-subtree path layout
+
+The staged subtree lives under the active plan's `_workflow/` tree at a
+fixed two-level prefix:
+
+```
+docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/...
+docs/adr/<dir-name>/_workflow/staged-workflow/.claude/skills/...
+```
+
+Each staged file mirrors its live counterpart's relative path under the
+`.claude/` prefix byte-for-byte. A staged copy of
+`.claude/workflow/implementer-rules.md` lives at
+`docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/implementer-rules.md`;
+a staged copy of `.claude/skills/edit-design/SKILL.md` lives at
+`docs/adr/<dir-name>/_workflow/staged-workflow/.claude/skills/edit-design/SKILL.md`.
+No other prefixes participate: workflow files outside `.claude/workflow/`
+and `.claude/skills/` are not stageable under this convention; the
+staging path layout does not extend to files this convention does not
+govern.
+
+The `<dir-name>` placeholder is the active plan's directory resolved
+per §1.6 (g) *Active-plan scope*. (This placeholder is the same one
+§1.6(g) defines; the restatement here is a cross-anchor for §1.7
+readers.) The staged subtree is plain filesystem
+state under the existing `_workflow/` tree, which the Phase 4 cleanup
+commit removes in one sweep alongside the rest of `_workflow/`; the
+post-merge `develop` history carries only the live promoted files plus
+`design-final.md` and `adr.md`.
+
+### (b) Canonical workflow-modifying marker
+
+A plan declares itself workflow-modifying through a fixed sentence in
+the `### Constraints` section of `implementation-plan.md`:
+
+```
+This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
+```
+
+The literal match is case-sensitive and includes the terminal period;
+the gate's allow-clause does not accept matches that drop trailing
+punctuation.
+
+The sentence appears as a standalone bullet or paragraph inside
+`### Constraints`. The exact wording is the single string every
+downstream consumer matches against — `implementer-rules.md`'s
+enforcement gate, the Phase 4 prompt, and any future reviewer
+checklist all key off this literal sentence rather than re-deriving
+the predicate from the plan's body. Two planners writing the same
+sentence two different ways is the failure mode this canonical spelling
+prevents.
+
+Plans that touch `.claude/workflow/**` or `.claude/skills/**` but
+omit the marker forfeit the staging mechanism: the implementer
+enforcement gate stays inactive, writes land on live paths, and the
+drift gate flags the branch's own authoring. Planners who recognise
+their plan as workflow-modifying are responsible for adding the marker
+before Phase A review; reviewers verify the marker's presence on any
+plan whose Plan-of-Work references `.claude/workflow/**` or
+`.claude/skills/**` paths.
+
+### (c) Detection rule — two signals, two consumers
+
+The convention runs on two independent detection signals, each serving
+a distinct consumer:
+
+- **Constraints declaration** drives the implementer enforcement gate.
+  Per-spawn, the implementer reads `implementation-plan.md`'s
+  `### Constraints` section and checks for the marker sentence in
+  (b). When the marker is present, the path-mapping rule in (e) and
+  the pre-commit gate in `implementer-rules.md` activate; when the
+  marker is absent, the implementer writes to live paths normally.
+  This signal works from the first step of execution, before any
+  staged content exists.
+- **`.claude/` subdirectory presence under
+  `<dir-name>/_workflow/staged-workflow/`** drives the Phase 4
+  promotion guard. The Phase 4 prompt at
+  `prompts/create-final-design.md` checks for the `.claude/`
+  subdirectory at that specific level (a partially-stripped or empty
+  `staged-workflow/` shell does not trigger promotion) and skips the
+  promotion commit when the subdirectory is absent. This signal
+  answers the operationally distinct question "is there staged content
+  to promote into the live tree" rather than "is the implementer
+  enforcement gate active."
+
+The two signals serve distinct purposes by construction. Constraints
+declaring workflow-modifying without any staged content is the legitimate
+shape of a dry-run plan or an abandoned-work plan: the gate stays
+active throughout execution; Phase 4 produces a no-op promotion that
+the directory-presence guard skips silently; Phase 4's two-commit shape
+(final-artifacts + cleanup) remains intact. The inverse case, staged
+content without a Constraints declaration, is unreachable when the
+implementer enforcement gate works as designed, because an undeclared
+plan has no gate to route writes into the staged subtree.
+
+### (d) Reads precedence — staged copy authoritative when present
+
+During execution of a workflow-modifying plan, the implementer's read
+side resolves every `.claude/workflow/**` and `.claude/skills/**` path
+through a staging-aware check:
+
+```
+if a staged copy exists, read staged; else read live.
+```
+
+The check fires on every read. For a file with no staged copy, the
+implementer reads the live path unchanged. For a file the current plan
+or a prior step in the same track has already staged, the implementer
+reads the staged copy, so a step that authors rule X in
+`staged-workflow/.claude/workflow/conventions.md` is visible to every
+subsequent step that cites or extends rule X in the same plan.
+
+The reads-precedence rule resolves the multi-step authoring case that
+a "reads always hit live" rule would break: step N adds rule X to
+staged `conventions.md`; step N+M cites rule X. Without staged-first
+reads, step N+M either reads stale content before its own write or
+cannot cite the rule it just authored. The chosen rule keeps step N+M
+working against current state.
+
+Consumers outside the implementer keep reading live paths unchanged:
+the drift gate, the plan-slim renderer, sibling-track plan citations,
+and reviewers loading a workflow file from the worktree. None of those
+consumers has a staged copy to read; the precedence rule applies to
+the implementer's per-spawn read site only.
+
+### (e) Write routing and copy-then-edit on first touch
+
+When the workflow-modifying marker is present, the implementer routes
+every write whose target path begins with `.claude/workflow/` or
+`.claude/skills/` to the corresponding staged path under
+`<dir-name>/_workflow/staged-workflow/`. The routing covers every
+write surface (`Edit`, `Write`, `steroid_apply_patch`,
+`steroid_execute_code` file writes, and `Bash` redirections) by
+rewriting the target path before the tool call lands.
+
+**Copy-then-edit on first touch.** When the implementer's first write
+to a given live path under `.claude/workflow/**` or `.claude/skills/**`
+finds no staged copy at the mapped staged path, the implementer first
+copies the live file to the staged path verbatim, then applies the
+edit to the staged copy. Subsequent writes to the same file in the
+same plan edit the staged copy directly. The copy-then-edit step
+preserves develop's state as the staged copy's baseline so the eventual
+Phase 4 `cp -r` overwrites the live tree with a coherent target rather
+than an empty-file shape that loses every part of the original the
+plan did not explicitly rewrite.
+
+**Promotion is additive only.** The Phase 4 `cp -r` lays the staged
+subtree over the live tree, which covers additions and modifications
+but does not propagate deletions. A plan that needs to retire a live
+`.claude/workflow/**` or `.claude/skills/**` file cannot route the
+deletion through staging; the workaround is to land the deletion in a
+separate commit on a non-workflow-modifying branch, or to apply it as
+a Phase 4 hand-edit immediately after the promotion commit lands.
+Staged-only-new files (files that exist in the staged subtree but not
+in the live tree) are added silently by `cp -r`; no warning is
+emitted, and the contract is silent-additive.
+
+The pre-commit gate in `implementer-rules.md` enforces the write
+routing at commit time: any commit on a workflow-modifying plan whose
+staged diff contains live `.claude/workflow/**` or `.claude/skills/**`
+matches outside the Phase 4 promotion commit is refused. Authoring
+discipline at write time keeps the gate quiet; the gate exists to
+catch the bypass shapes (an absolute live path passed to a tool, a
+`Bash` redirection that the implementer forgot to rewrite).
+
+### (f) Rebase-precedes-promotion
+
+A workflow-modifying branch that has not rebased onto the current
+`develop` HEAD must do so before Phase 4 promotion runs. The Phase 4
+prompt's pre-promotion divergence sanity check computes
+`$(git merge-base origin/develop HEAD)..origin/develop` on the live
+`.claude/workflow` and `.claude/skills` paths after a `git fetch origin
+develop`; a non-empty diff halts with a manual-reconciliation
+instruction. The rebase is the manual-reconciliation path: rebasing
+onto current `origin/develop` brings the branch's working tree up to a
+state where `origin/develop` no longer carries workflow commits the
+branch has not absorbed, so the only live workflow content remaining
+for Phase 4 to write is the staged subtree's authoring against that
+current base.
+
+Promotion before rebase risks `cp -r` overwriting a live file that
+moved forward on `develop` after the staging copy was taken, silently
+losing the develop-side change. The pre-promotion check shifts the
+recovery from a post-promotion forensic diff to a pre-promotion halt
+that the branch resolves by rebasing.
+
+### (g) The I6 invariant
+
+The staging convention rests on one invariant that holds across every
+workflow-modifying plan from the first staged write to Phase 4
+promotion:
+
+> Promotion at Phase 4 is the only intra-branch authoring transition;
+> rebase-merge from develop excluded by scope.
+
+The wording is precise. "Intra-branch authoring transition" names the
+single moment at which the branch's own authoring of `.claude/workflow/**`
+or `.claude/skills/**` content moves from the staged subtree into the
+live tree. Phase 4's promotion commit is that moment; no other commit
+on the branch carries live-path writes when the convention is
+followed. "Rebase-merge from develop excluded by scope" carves out
+the rebase case: when the branch rebases onto current `develop`,
+`develop`'s commits enter the branch carrying live-path changes those
+commits already authored, which is not the branch's own authoring and
+falls outside this invariant's scope. The drift-check pathspec exists
+specifically to handle the rebase case; this invariant governs the
+staging case.
+
+### (h) Forward-applicable to future workflow-modifying branches
+
+The convention applies forward only. The plan that introduces this
+section is itself workflow-modifying but does not stage its own edits,
+because no prior version of the convention existed during the
+execution of its earlier work; every earlier track of that plan wrote
+to live `.claude/workflow/**` paths under the existing in-place model,
+and the track that lands this section plus the supporting rules does
+so through the same in-place model. The first workflow-modifying
+branch that opens a plan after this section reaches `develop` is the
+first branch that exercises the staging path end-to-end.
+
+The forward-applicable carve-out is a one-time observation about the
+plan that introduces the convention. It is not a permanent rule; every
+workflow-modifying branch that opens after this section lands is bound
+by the full convention.
+
+### (i) Worked example — on-disk shape
+
+A workflow-modifying plan extending `.claude/workflow/X.md` ends Phase B
+with the following shape on disk (other artifacts elided):
+
+```
+.claude/
+  workflow/
+    X.md                          # develop's state, unchanged
+docs/
+  adr/
+    <dir-name>/
+      _workflow/
+        implementation-plan.md    # Constraints declares workflow-modifying
+        plan/
+          track-1.md
+        staged-workflow/
+          .claude/
+            workflow/
+              X.md                # branch's authored content
+```
+
+The live `.claude/workflow/X.md` stays at develop's state for the
+duration of Phase B and Phase C; every read of `X.md` from the
+implementer hits the staged copy per (d); every write to `X.md`
+routes to the staged copy per (e). At Phase 4 promotion, the
+promote-staged-workflow commit copies
+`staged-workflow/.claude/workflow/X.md` over the live
+`.claude/workflow/X.md`; the subsequent cleanup commit removes the
+entire `_workflow/` tree (the staged subtree included). After merge
+to `develop`, the history carries the live promoted `X.md` plus the
+durable artifacts (`design-final.md`, `adr.md`) and nothing else from
+this branch's staging machinery.
+
+### (j) Aborted-promotion resume semantics
+
+Phase 4 on a workflow-modifying plan opens a pause window between the
+promote-staged-workflow commit (Step 4 of
+`prompts/create-final-design.md`) and the subsequent final-artifacts
+commit (Step 5). If the session ends inside that window (manual
+interruption, context exhaustion, host loss), the next session
+re-enters Phase 4 from the top.
+
+On re-entry, the staged subtree is still on disk (cleanup runs in
+Step 6, not Step 4), so the `[ -d "$STAGED_DIR/.claude" ]` guard
+evaluates true and the bash re-enters the guarded block. The
+corrected divergence check per (f) compares against `origin/develop`
+forward of the merge-base, which is neutral on the branch's own
+promote commit; the check passes without false-positive on a clean
+resume. The `cp -r` re-copies identical content over the already-
+promoted live tree; `git add` produces an empty index for the
+already-committed paths; the `git diff --cached --quiet || git
+commit` short-circuit in the Step 4 bash means the no-op resume
+produces no second promote commit, and `git push` is a no-op when
+nothing changed locally.
+
+For plans without the staged subtree, the directory-presence guard
+evaluates false and the existing State D resume from `workflow.md`
+§ *Startup Protocol* covers the path; this sub-anchor governs
+workflow-modifying plans only.

@@ -9,6 +9,8 @@ Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 > **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
 
+> **Stamp discipline.** Every `_workflow/**` artifact this SKILL creates carries a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation. Direct-mutation kinds applied later by `edit-design` (`content-edit`, `section-add`, `section-remove`, `section-rename`, `section-move`, `structural-rewrite`, `mechanics-edit`, `design-sync`) leave the stamp untouched and preserve its line-1 position; only artifact creation, migration replay, and no-drift normalization write the stamp. The format definition, parser idioms, and the paired SHA-computation idiom this SKILL copies into its planning-transition step are anchored in [conventions.md §1.6](../../workflow/conventions.md). Read that section for the single source of truth.
+
 **Step 1 — Read workflow documents.**
 
 Read these in order before doing anything else (do NOT ask the user anything yet):
@@ -25,6 +27,61 @@ the user asks to create the plan (Step 4). Load them on demand at that point.
 `docs/adr/<dir-name>/_workflow/`; resolve the placeholder once before
 running any command that uses it. If `"$ARGUMENTS"` is non-empty, use
 it. Otherwise, default to `$(git branch --show-current)`.
+
+**Step 1.5 — Workflow drift check (mandatory, before any other on-disk work).**
+
+**Ordering:** this step depends on the `<dir-name>` resolver above being complete and Step 1b's `mkdir` not yet having run — see the trailing paragraph below for the gate's Skip-#1 rationale.
+
+Invoke the drift gate defined in
+[`.claude/workflow/workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
+The gate is shared with `/execute-tracks`; its intro names both callers
+and its body is caller-symmetric, so this step is a thin orchestration
+handoff rather than a re-statement of the bash. Run the gate's
+§ Detection (Phase 1 walk plus Phase 2 fold or unstamped
+short-circuit) against the resolved `<dir-name>` from the previous
+block (the gate's `PLAN_DIR=docs/adr/<resolved-dir-name>` bash line is
+where the value lands in shell scope), and follow its § Skip
+conditions, § No-drift normalization, and § Resolutions flow verbatim.
+
+The three-resolution prompt fires only when drift surfaces and no
+skip condition matched. The user picks one:
+
+- **Migrate now** — print `Run /migrate-workflow from this worktree,
+  then re-invoke /create-plan afterward.` (the single instruction
+  line per `workflow-drift-check.md` § Migrate now, with the
+  `/create-plan` re-invocation hint appended), then end the session.
+  Exit immediately; no on-disk work has run yet (Step 1b's `mkdir`,
+  Step 2's aim prompt, and Step 5's commit and push are all
+  downstream of Step 1.5).
+- **Defer** — continue this session. Record the deferred-drift count
+  via the TaskCreate todo described in `workflow-drift-check.md`
+  § Defer; Step 5's deferred-drift recital reads that todo and prints
+  the same line shape `workflow.md § What to do before ending a
+  session` uses for `/execute-tracks`. If TaskCreate is unavailable
+  in this session, hold the `<count>` and `<short-stamp-base-SHA>`
+  (or the unstamped variant flag) in in-context memory instead,
+  matching the gate file's § Defer paragraph.
+- **Suppress** — continue this session with no recital at session
+  end.
+
+No-drift (with or without the gate's normalization commit), Defer,
+and Suppress all proceed to Step 1a without further user prompt.
+Ordering: Step 1.5 runs after the `<dir-name>` resolver (so
+`PLAN_DIR=docs/adr/<dir-name>` can be derived inside the gate's bash)
+and before Step 1b's `mkdir` (so the gate's Skip-#1 check
+`[ -d "$PLAN_DIR/_workflow" ]` reads the pre-creation state on fresh
+`/create-plan` invocations).
+
+**Interaction with Step 1a's handoff scan.** Step 1.5 fires before
+Step 1a. On a `/create-plan` resume where `handoff-*.md` exists in
+`$PLAN_DIR/_workflow/`, the drift gate fires before the handoff
+loader notices. No failure mode loses the handoff: on Migrate now the
+handoff file persists on disk (it is already committed) and the next
+`/create-plan` invocation's Step 1a picks it up after the drift gate
+clears; on Defer or Suppress, Step 1a's handoff resume runs after
+Step 1.5 in the same session. Per-session TaskCreate todos do not
+survive `/clear`, so a paused Session A's Defer state is not carried
+into Session B — Session B's Step 1.5 re-evaluates drift independently.
 
 **Step 1a — Handoff check (mandatory, before any other on-disk work).**
 Run:
@@ -162,6 +219,38 @@ Help the user develop the plan:
 
 Do NOT implement anything. Only research and plan.
 
+**Compute the workflow-SHA stamp once before writing the templates.**
+Run the paired test-and-fallback idiom from
+[`conventions.md` §1.6(b)](../../workflow/conventions.md) verbatim;
+every artifact created in this `/create-plan` session reuses the
+single `$WORKFLOW_SHA` value, so artifacts seeded together share a
+stamp by construction:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
+```
+
+Substitute the **resolved** value (not the literal `$WORKFLOW_SHA`
+token) into the line-1 stamp comment of each of the three fenced
+templates that follow. `Write` does not perform shell expansion. If
+you emit `$WORKFLOW_SHA` verbatim, the artifact's stamp is malformed
+and the drift check will route to migration on the next gate run.
+The fallback to `git rev-parse HEAD` covers fresh repos and repos
+where workflow paths have been moved; in every other case the
+path-scoped log already returns a usable SHA.
+
+The dual-seed `design-mechanics.md` case (when the planner seeds
+both `design.md` and `design-mechanics.md` together) does NOT get a
+fourth fenced template in this Step. The dual-seed write routes
+through `edit-design phase1-creation` with `target=both`, which
+carries an idempotency-guarded stamp directive that stamps the file
+when it has not already been stamped. Keeping the dual-seed write on
+the existing `edit-design` route avoids duplicating a near-identical
+template here; the idempotency guard covers both the
+`/create-plan`-driven dual seed and a direct `edit-design
+phase1-creation` invocation outside `/create-plan`.
+
 Write the implementation plan to
 `docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one track
 file per planned track at
@@ -180,7 +269,11 @@ plan keeps `/execute-tracks` startup context small (see
 under `_workflow/` and `conventions-execution.md` §2.1 for the
 track-file shape and section lifecycle).
 
+Before writing this template, substitute the resolved 40-character
+SHA into the `$WORKFLOW_SHA` placeholder on line 1.
+
 ```
+<!-- workflow-sha: $WORKFLOW_SHA -->
 # <Feature Name>
 
 ## Design Document
@@ -247,7 +340,11 @@ self-sufficient (the lifecycle source is durable; the design-doc
 copy is ephemeral and removed in the Phase 4 cleanup commit, so it
 cannot be a durable pointer target).
 
+Before writing this template, substitute the resolved 40-character
+SHA into the `$WORKFLOW_SHA` placeholder on line 1.
+
 ````markdown
+<!-- workflow-sha: $WORKFLOW_SHA -->
 # Track N: <title>
 
 ## Purpose / Big Picture
@@ -336,9 +433,12 @@ and is omitted from the Phase 1 skeleton. Full lifecycle for every
 section above is tabulated in `conventions-execution.md` §2.1.
 
 Write the design document to
-`docs/adr/<dir-name>/_workflow/design.md` using this structure:
+`docs/adr/<dir-name>/_workflow/design.md` using this structure.
+Before writing this template, substitute the resolved 40-character
+SHA into the `$WORKFLOW_SHA` placeholder on line 1.
 
 ```
+<!-- workflow-sha: $WORKFLOW_SHA -->
 # <Feature Name> — Design
 
 ## Overview
@@ -376,16 +476,35 @@ teammates as a draft PR:
    git push -u origin <branch>
    ```
    (Use `git push` on subsequent pushes once upstream is set.)
-3. Ask the user **once**, before opening the PR:
+3. **Deferred-drift recital (silent no-op when nothing was deferred).**
+   If Step 1.5's Defer resolution created the TaskCreate todo titled
+   `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>`
+   (or the unstamped variant `Deferred workflow drift: unstamped
+   artifacts in active plan, see /migrate-workflow`) earlier in this
+   session, read the todo title and recite it verbatim, followed by
+   an instruction to run `/migrate-workflow` from this worktree to
+   pick up the deferred work. Scan session TaskCreate todos for any
+   title matching the prefix `Deferred workflow drift:` — there is at
+   most one per session because Step 1.5 fires at most once. If
+   TaskCreate was unavailable at Step 1.5 and the two fields are held
+   in in-context memory instead, recite the same line shape from
+   memory. If no TaskCreate todo can be located and no
+   in-context-memory fallback was recorded at Step 1.5 (i.e., no
+   Defer resolution fired this session), skip this sub-step silently
+   rather than fabricate a recital. The recital fires before the
+   draft PR is opened so the user sees the residue in the same
+   session; it mirrors the recital `workflow.md § What to do before
+   ending a session` runs for `/execute-tracks`.
+4. Ask the user **once**, before opening the PR:
    *"Provide an issue prefix for the PR title (e.g. `YTDB-123`)?
    Leave blank to skip."*
    Branch names in this project often do not encode the issue
    prefix; the user tracks it in the PR title instead.
-4. Compose the PR title:
+5. Compose the PR title:
    - With a prefix `<P>`: `[<P>] <feature title>` — e.g.
      `[YTDB-123] Index histogram for selective range scans`
    - Without a prefix: `<feature title>`
-5. Compose the PR body from the plan: `## Motivation` (the plan's
+6. Compose the PR body from the plan: `## Motivation` (the plan's
    Goals + Constraints, distilled into prose — apply the Ephemeral
    identifier rule from `conventions-execution.md` §2.3 to the body
    since PR titles and descriptions are durable), `## Plan` (one
@@ -393,7 +512,7 @@ teammates as a draft PR:
    `## Status` line stating *"Draft — workflow scaffolding under
    `docs/adr/<dir-name>/_workflow/` will be removed in the Phase 4
    cleanup commit before merge."*
-6. Open the PR in **draft** mode using `gh`:
+7. Open the PR in **draft** mode using `gh`:
    ```bash
    gh pr create --draft --base develop \
        --title "<title built above>" \

@@ -10,6 +10,8 @@ discipline** defined in `.claude/workflow/design-document-rules.md`. The skill
 bundles `(apply edit → auto-review → bounded iterate → present)` into one
 atomic action so the structural rules are self-enforcing.
 
+> **Stamp discipline.** `design.md` and `design-mechanics.md` carry a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation only: by this skill on the `phase1-creation` and `length-trigger-crossing` kinds, or by `/create-plan`'s planning-transition step when it seeds `design.md` directly. Every other mutation kind (`content-edit`, `section-add`, `section-remove`, `section-rename`, `section-move`, `structural-rewrite`, `mechanics-edit`, `design-sync`) leaves the stamp untouched and preserves its line-1 position; only creation, migration replay, and no-drift normalization write the stamp. The prepend is performed via `Edit`/`Write` against the now-existing file, not a shell redirect. `design-mutations.md` is deliberately excluded from stamping (see the review-log append step for the rationale). Phase 4 final artifacts (`design-final.md`, `design-mechanics-final.md`) are not stamped either; they survive the merge into `develop` where per-branch migration never applies. Format definition, parser idioms, and the paired SHA-computation idiom that the `phase1-creation` and `length-trigger-crossing` kinds copy verbatim are anchored in [conventions.md §1.6](../../workflow/conventions.md). Read that section for the single source of truth.
+
 **You MUST use this skill — not raw `Edit`/`Write` — for every modification to
 `design.md` / `design-mechanics.md` and for every Phase 4 creation of
 `design-final.md` / `design-mechanics-final.md`.** That includes initial
@@ -133,14 +135,122 @@ files from the start. A design that doesn't need mechanics on day 1
 crosses into one later via `length-trigger-crossing`, not by retroactively
 re-running `phase1-creation`.
 
+**Stamp the seeded file(s) with an idempotency guard.** Apply this
+directive **after** the initial `Write` lands the seeded content on
+disk; the presence check then runs against the just-written file. A
+missing file is treated identically to an unstamped file.
+`phase1-creation` is the canonical writer for `design.md` (and
+`design-mechanics.md` when `target=both`), but `/create-plan`'s
+planning-transition step also writes `design.md` directly from its own
+template with the stamp already in place. Both invocation paths
+converge here, so the directive below must stamp an unstamped file and
+skip the prepend on an already-stamped one.
+
+For each path the kind touches (`design_path`; `design_mechanics_path`
+as well when `target=both`), run the presence check from
+[`conventions.md` §1.6(a1)](../../workflow/conventions.md):
+
+```bash
+head -1 <path> | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'
+```
+
+A zero exit code means the file is already stamped — skip the prepend
+for that path (this is the post-`/create-plan` case, where
+`design.md`'s line 1 already carries the stamp written by the
+planning-transition step's template, or the `target=both` case where
+`/create-plan` seeded the dual files and both files already carry the
+stamp). A non-zero exit code means the file is unstamped — compute
+`$WORKFLOW_SHA` via the §1.6(b) paired idiom and prepend
+`<!-- workflow-sha: $WORKFLOW_SHA -->` (followed by a newline) above the
+H1, then re-read the file to satisfy the next `Edit` precondition:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
+```
+
+Compute `$WORKFLOW_SHA` at most once per invocation — when both paths
+need a stamp (a direct `phase1-creation` invocation outside
+`/create-plan` with `target=both`), reuse the same value so the two
+sibling files start life with matching stamps. The guard is symmetric
+across `design_path` and `design_mechanics_path`: a same-invocation
+run where `/create-plan` pre-stamped one file and the other was added
+after (an edge case the guard tolerates by design) is handled by the
+per-path presence check.
+
+Cross-session `target=both` may produce non-matching stamps on
+`design.md` and `design-mechanics.md` when the `phase1-creation`
+invocation lands in a later session than `/create-plan`'s preamble.
+The drift gate's no-drift normalization collapses the divergence on
+the next clean gate run, and the per-branch migration reunifies the
+stamps end-of-migration.
+
 For `phase4-creation`: same as `phase1-creation` but the file paths are
 `design-final.md` and (optional) `design-mechanics-final.md`, and the
-content reflects what was *actually built* — not the planned design. The
+content reflects what was *actually built* (not the planned design). The
 caller (`prompts/create-final-design.md`) is expected to have run the
 PSI-backed verification tables before invoking the skill, so each diagram
 element traces to a real code location. Do **not** pass `--plan-path` /
-`--plan-dir` (the cross-file ref check is naturally skipped — see the
-table above).
+`--plan-dir` (the cross-file ref check is naturally skipped; see the
+table above). **Skip the idempotency-guarded stamp directive above.**
+Phase 4 final artifacts are not stamped: see the Stamp-discipline
+blockquote at the top of this file and `conventions.md` §1.6(f).
+
+For `length-trigger-crossing`: split a single-file `design.md` that has
+grown past the ~2,000-line / ~50,000-token threshold into the canonical
+pair. Caller-supplied `design_mechanics_path` carries the absolute path
+of the new sibling file; `target=both`. Move every long-form mechanism
+walk-through, full state-machine table, exhaustive worked example, and
+file:line citation out of `design.md` and into the freshly-created
+`design-mechanics.md`. Keep Overview, Core Concepts, every section's
+TL;DR + mechanism overview + edge cases + references footer in
+`design.md`; keep diagrams in `design.md` and duplicate any diagram into
+`design-mechanics.md` only when the mechanics-side prose needs the same
+visual context. Every section name in `design-mechanics.md` matches the
+corresponding section name in `design.md` byte-for-byte so that each
+section's `Mechanics: design-mechanics.md §"<exact same section name>"`
+link resolves and the plan / track-file `**Full design**` references
+land in either file by name. See
+[`design-document-rules.md` § Length-triggered split into
+`design-mechanics.md`](../../workflow/design-document-rules.md) for the
+canonical split rule.
+
+Stamp the freshly-created `design-mechanics.md` before continuing.
+The file is unstamped at creation, so the per-path presence check from
+[`conventions.md` §1.6(a1)](../../workflow/conventions.md) will always
+return non-zero on this path — but applying the guard keeps the
+directive symmetric with the `phase1-creation` paragraph above and
+tolerates a re-invocation against an already-split pair:
+
+```bash
+head -1 <design_mechanics_path> | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'
+```
+
+A non-zero exit code (the expected case) means the file is unstamped —
+compute `$WORKFLOW_SHA` via the §1.6(b) paired idiom and prepend
+`<!-- workflow-sha: $WORKFLOW_SHA -->` (followed by a newline) above the
+H1 in `design-mechanics.md`, then re-read the file to satisfy the next
+`Edit` precondition:
+
+```bash
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+[ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
+```
+
+The `$WORKFLOW_SHA` value is computed at trigger time, not at the
+original `phase1-creation` moment, so the new `design-mechanics.md`'s
+stamp can differ from its `design.md` sibling's stamp by however many
+workflow-format commits landed between the two creation events. The
+asymmetry is expected — the no-drift normalization in the drift gate
+collapses the divergence on the next clean gate run, and the
+per-branch migration reunifies the stamps when it next runs end-to-end.
+`design.md` already carries a stamp from its earlier creation; leave
+that stamp byte-for-byte intact (the move of mechanism content from
+`design.md` is a `content-edit`-shaped mutation against line 1's
+position-preservation contract from §1.6(a)). The intra-invocation
+SHA reuse rule from the `phase1-creation` paragraph does not apply
+here: only `design_mechanics_path` is stamped, and `design.md`'s
+line-1 stamp is preserved byte-for-byte under §1.6(a).
 
 For `design-sync`: see Step 1.5 below — sync has a distillation sub-step
 before the apply.
@@ -342,6 +452,18 @@ the top-level `<dir>/`.
   under `_workflow/`, preserving the full mutation history of the
   design and ensuring the Phase 4 cleanup commit removes the
   entire log along with everything else under `_workflow/`.
+
+**`design-mutations.md` is not stamped.** Unlike `design.md` and
+`design-mechanics.md`, the review log carries no line-1
+`workflow-sha` comment — neither at creation nor on later appends.
+The log is append-only by contract: a workflow-format commit that
+rewrites entries on disk would violate the contract, so the log
+is replay-immune by construction and a stamp would be dead weight
+on its surface. `conventions.md` §1.6(f) lists the file as an
+explicit exclusion alongside the Phase 4 final artifacts; the
+drift check and the migration both scope to the stamped set in
+§1.6(f) and skip this file by enumeration. Do not add a stamp
+here out of mistaken uniformity with the design files.
 
 Append to the resolved path (create the `_workflow/` directory and
 file if they don't exist). Format per

@@ -416,15 +416,15 @@ work when context consumption is at `warning` level or above.
 - **Report deferred workflow drift.** If the Workflow Drift Check
   (see `workflow-drift-check.md`) recorded a Defer resolution in
   this session, read the `Deferred workflow drift: <count> commits
-  since <short-fork-SHA>` TaskCreate todo (or, if TaskCreate was
-  unavailable, the same two fields held in in-context conversation
-  memory) and recite the title verbatim, followed by an instruction
-  to switch to a `develop` worktree (e.g., `cd ../develop`) and run
-  `/migrate-workflow <branch>` there. The todo carries only the count
-  and the short fork SHA — no subject lines; the user can re-run the
-  detection bash for full context. Suppress and Migrate now leave no
-  residue; the marker lives in conversation memory (or the todo, if
-  one was created) and is discarded when the session ends.
+  since <short-stamp-base-SHA>` TaskCreate todo (or, if TaskCreate
+  was unavailable, the same two fields held in in-context
+  conversation memory) and recite the title verbatim, followed by an
+  instruction to run `/migrate-workflow` from this worktree. The
+  todo carries only the count and the short stamp-base SHA — no
+  subject lines; the user can re-run § Detection's Phase 1 walk plus
+  the Phase 2 `git log` for full context. Suppress and Migrate now
+  leave no residue; the marker lives in conversation memory (or the
+  todo, if one was created) and is discarded when the session ends.
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -504,32 +504,54 @@ Completion.
 
 ## Final Artifacts (Phase 4)
 
+Phase 4 lands two commits on non-workflow-modifying plans and three
+commits on workflow-modifying plans; the extra commit promotes the
+staged subtree onto the live tree before the final-artifacts commit.
 After all tracks are complete, a separate session produces
 `design-final.md` and `adr.md` — the two artifacts that survive
-merge into `develop`. Phase 4 lands exactly two commits on the
-branch:
+merge into `develop`.
 
-1. **Final-artifacts commit.** Stage `design-final.md`,
+The directory-presence guard is `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/`
+per [`conventions.md`](conventions.md) §1.7(c) *Detection rule*: when
+the staged subtree exists, the promotion commit fires; when it is
+absent (the default), Phase 4 keeps the two-commit shape. The promotion
+bash itself, the divergence sanity check, and the exact commit
+message prefix live in `prompts/create-final-design.md` § Step 4.
+
+1. **Promote-staged-workflow commit** (workflow-modifying plans only).
+   When `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/` exists,
+   copy the staged subtree onto the live `.claude/workflow/` and
+   `.claude/skills/` paths, then commit with the message prefix
+   `Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
+   per `conventions.md` §1.7(e) and the implementer-rules
+   live-workflow-path gate's allow-clause. The Phase 4 prompt at
+   `prompts/create-final-design.md` § Step 4 carries the full bash,
+   the directory-presence guard, and the pre-promotion divergence
+   check that halts when the branch has diverged from `develop` per
+   `conventions.md` §1.7(f) *Rebase-precedes-promotion*. When the
+   guard fails, the step is a silent no-op and Phase 4 stays in the
+   two-commit shape.
+2. **Final-artifacts commit.** Stage `design-final.md`,
    `design-mechanics-final.md` (if applicable), and `adr.md`; commit
    with the message defined in `prompts/create-final-design.md`
-   § Step 4; push.
-2. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
+   § Step 5; push.
+3. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
    (plan, design.md, design-mechanics.md, track files,
-   design-mutations log). Commit with a message such
-   as `Remove workflow scaffolding`. Push.
+   design-mutations log, and the staged subtree if present). Commit
+   with a message such as `Remove workflow scaffolding`. Push.
 
-The end-of-session self-improvement reflection runs after both
-commits land — it creates any approved proposals as YouTrack issues
-under `YTDB` with the `dev-workflow` tag and produces **no commit**
-on the branch (the YouTrack sink replaces the retired local
+The end-of-session self-improvement reflection runs after the final
+Phase 4 commit lands — it creates any approved proposals as YouTrack
+issues under `YTDB` with the `dev-workflow` tag and produces **no
+commit** on the branch (the YouTrack sink replaces the retired local
 `workflow-issues/` buffer). See
 [`self-improvement-reflection.md`](self-improvement-reflection.md).
 
-After both commits are pushed and reflection has run, **inform the
-user that Phase 4 is complete and stop**. If reflection created any
-YouTrack issues, list their ids in the completion message. The user
-manually flips the draft PR to "ready for review" when satisfied —
+After every Phase 4 commit is pushed and reflection has run, **inform
+the user that Phase 4 is complete and stop**. If reflection created
+any YouTrack issues, list their ids in the completion message. The
+user manually flips the draft PR to "ready for review" when satisfied —
 Claude does not run `gh pr ready`.
 
 Tracked in the `## Final Artifacts` section of
@@ -576,4 +598,4 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
 - **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
 - **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the pre-commit gate regex are usually enough)
-- **`self-improvement-reflection.md`** — mandatory final step at the end of every `/execute-tracks` session (State 0, Phase A, Phase B, Phase C, Phase 4). Reflects on workflow-process friction encountered in the session and creates approved proposals as YouTrack issues under `YTDB` with the `dev-workflow` tag (or skips with a notice when the YouTrack MCP server is unreachable). Produces no commit. Loaded on-demand at end-of-session by every phase doc.
+- **`self-improvement-reflection.md`** — mandatory final step at the end of every session run by a calling skill that opts into reflection (`/execute-tracks` today; `/migrate-workflow` from this work forward). Phase identifiers depend on session-type (see `self-improvement-reflection.md` §Inputs). Reflects on workflow-process friction encountered in the session and creates approved proposals as YouTrack issues under `YTDB` with the `dev-workflow` tag (or skips with a notice when the YouTrack MCP server is unreachable). Produces no commit. Loaded on-demand at end-of-session by every phase doc.

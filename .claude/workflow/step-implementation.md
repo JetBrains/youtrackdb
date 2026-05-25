@@ -283,6 +283,24 @@ The rulebook defines what you do, the three early-return cases
 your output must end with. Do not modify the track file or the plan —
 those are the orchestrator's responsibility.
 
+When the active plan's `### Constraints` section carries the canonical
+workflow-modifying marker sentence defined in `conventions.md` §1.7(b),
+the rulebook adds two staging-specific routes you apply on every write
+to `.claude/workflow/**` or `.claude/skills/**`. Both routes live in the
+rulebook already — the **Path mapping for workflow-modifying plans**
+bullet under §"What the implementer does (sub-steps 1–3, expanded)"
+Sub-step 1 routes writes to
+`docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/...`, and the
+**Pre-commit gate, live-workflow-path check** alongside the
+ephemeral-identifier gate refuses live-path commits outside the Phase 4
+promotion commit. Reads of `.claude/workflow/**` or `.claude/skills/**`
+follow the precedence rule in `conventions.md` §1.7(d): the staged copy
+is authoritative when present, otherwise read the live file. No extra
+spawn input carries the marker — you detect it by reading the
+`### Constraints` section of the active plan, which you already load
+for strategic context. On plans without the marker, the staging rule
+does not apply and you write to live paths normally.
+
 ## Stable inputs (static)
 
 repo_root: {repo_root}
