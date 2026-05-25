@@ -5,7 +5,7 @@ argument-hint: "[branch-name]"
 user-invocable: true
 ---
 
-Auto-detection runs in `/execute-tracks` startup via [`workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
+Auto-detection runs in `/create-plan` Step 1.5 and `/execute-tracks` startup via [`workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
 
 The skill runs inside the branch's own worktree. The branch is a self-contained capsule: workflow-format commits enter its view only when the user explicitly rebases or merges `develop`, so the migration's commit range is derived from per-artifact stamps and HEAD (see `conventions.md` §1.6), never from a develop-relative fork point. The skill applies each format-relevant commit's edits to the corresponding artifact files under the active plan's `_workflow/`.
 

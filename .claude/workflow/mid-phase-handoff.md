@@ -91,9 +91,12 @@ mid-Phase-0 pause before `/create-plan`'s own Step 1b has run.
 
 ## Detection at session start
 
-Both `/create-plan` and `/execute-tracks` MUST run this check at the
-top of their startup protocol, after the Branch Divergence Check
-(workflow.md startup step 5) but BEFORE any state evaluation:
+Both `/create-plan` and `/execute-tracks` MUST run this check early
+in their startup protocol, before any state evaluation. For
+`/execute-tracks`, the check runs at Startup Protocol step 4, after
+the Branch Divergence Check (step 3) and the Workflow Drift Check
+(step 3a). For `/create-plan`, the check runs at Step 1a, after
+Step 1.5's Workflow Drift Check:
 
 ```bash
 ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null

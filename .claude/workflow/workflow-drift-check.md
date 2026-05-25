@@ -1,8 +1,8 @@
 # Workflow Drift Check
 
-Runs at session start for two callers: `/execute-tracks` (turn 1,
-immediately after the Branch Divergence Check at workflow.md §
-Startup Protocol step 3 and before the handoff scan at step 4) and
+Runs early in the startup sequence for two callers: `/execute-tracks`
+(turn 1, immediately after the Branch Divergence Check at workflow.md
+§ Startup Protocol step 3 and before the handoff scan at step 4) and
 `/create-plan` (between Step 1's workflow-docs read and Step 1a's
 handoff scan). Undetected drift surfaces later as confused reviewers
 in Phase C, missing required sections during track completion, or
@@ -398,12 +398,18 @@ surface: `/execute-tracks` exits before `workflow.md § What to do
 before ending a session` (the only Startup-Protocol-side early exit
 for that caller); `/create-plan` exits before Step 5's commit and
 push (the Migrate-now branch cuts the session short of the recital
-added in Step 5 of `/create-plan`). No phase work has run in either
-caller, so there are no episodes to commit, no unpushed-commit
-residue beyond what the Branch Divergence Check may have produced
+added in Step 5 of `/create-plan`). The calling SKILL appends a
+caller-specific re-invocation instruction to the single-line message
+above — `/execute-tracks` re-invokes `/execute-tracks`, `/create-plan`
+re-invokes `/create-plan`. No phase work has run in either caller,
+so there are no episodes to commit, no unpushed-commit residue
+beyond what the Branch Divergence Check may have produced
 (`/execute-tracks` only — `/create-plan` has no such check), and
 self-improvement reflection has nothing to record. The session-end
-output is the single instruction line above.
+output is the single instruction line above. For `/create-plan`,
+Step 1.5 fires before Step 2's aim prompt and before Step 1b's
+`mkdir`, so the "no phase work" claim holds unconditionally: no
+research, no plan files, no draft PR.
 
 ### Defer
 
@@ -420,13 +426,14 @@ recover subject lines (the variables `$PLAN_DIR`, `$STAMPED_SHAS`,
 and `$BASE_SHA` come from those phases). The session-end recital
 reads the todo title verbatim from the per-caller recital surface:
 `/execute-tracks` reads it at `workflow.md § What to do before
-ending a session`; `/create-plan` reads it at the recital added in
-Step 5 of `/create-plan` (the recital fires before Step 5 opens the
-draft PR so the user sees the residue in the same session). If
-TaskCreate is unavailable, hold the same two fields in in-context
-memory and recite the same line shape from whichever recital surface
-the calling session uses; the todo is preferred because in-context
-memory is unreliable across long sessions.
+ending a session`; `/create-plan` reads it at the recital in
+`/create-plan` SKILL.md Step 5 (the commit-push-and-PR step; the
+recital fires before Step 5 opens the draft PR so the user sees the
+residue in the same session). If TaskCreate is unavailable, hold the
+same two fields in in-context memory and recite the same line shape
+from whichever recital surface the calling session uses; the todo is
+preferred because in-context memory is unreliable across long
+sessions.
 
 When the deferred drift came from the unstamped short-circuit (the
 § Resolutions § Unstamped short-circuit rendering paragraph above),
@@ -465,8 +472,9 @@ The user's choice applies for the remainder of the session; no
 re-check is required in the normal startup flow. After Migrate now,
 the session ends. After Defer or Suppress, startup continues to the
 calling session's next startup step (the handoff scan in both
-callers) and proceeds against the unchanged on-disk shape of
-`_workflow/**`.
+callers — for `/execute-tracks` this is Startup Protocol step 4; for
+`/create-plan` this is Step 1a) and proceeds against the unchanged
+on-disk shape of `_workflow/**`.
 
 **Remote-authoritative re-entry — forward-looking note
 (`/execute-tracks` only).** The Branch Divergence Check exists only

@@ -160,6 +160,7 @@ After Track 6 lands:
 - Migrate-now's session-end framing in `workflow-drift-check.md` reads correctly for both callers — `/execute-tracks` exits before `workflow.md § What to do before ending a session`, `/create-plan` exits before Step 5's commit/push.
 - Defer-from-`/create-plan` produces an in-session recital before Step 5 opens the draft PR; the recital reads the same `Deferred workflow drift: <count> commits since <short-stamp-base-SHA>` TaskCreate todo `workflow.md § What to do before ending a session` reads from `/execute-tracks`.
 - § After the choice in `workflow-drift-check.md` reads correctly from either caller.
+- On a `/create-plan` resume where `handoff-*.md` exists in `$PLAN_DIR/_workflow/`, Step 1.5 fires before Step 1a; Migrate-now leaves the handoff file on disk for the next invocation, Defer/Suppress proceed to Step 1a's handoff resume in the same session.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
