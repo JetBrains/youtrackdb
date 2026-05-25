@@ -2526,8 +2526,19 @@ public abstract class AbstractStorage
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
-          btreeEngine.addToApproximateEntriesCount(delta.getTotalDelta());
-          btreeEngine.addToApproximateNullCount(delta.getNullDelta());
+          // Sum the per-put delta and the in-mem-only recalibration adjustment.
+          // The two accumulators land at the same point on the in-mem side so
+          // a recalibration and per-put activity in the same atomic operation
+          // compose into a single addAndGet on each counter. The persisted
+          // EP-page side is fed only by getTotalDelta()/getNullDelta() via
+          // Hook A (persistCountDelta); the inMemAdjust* fields are NOT
+          // persisted because buildInitialHistogram already lands its
+          // persisted-side write inline via setApproximateEntriesCount(op,
+          // target), which is WAL-tracked and reverts on rollback.
+          btreeEngine.addToApproximateEntriesCount(
+              delta.getTotalDelta() + delta.getInMemAdjustTotal());
+          btreeEngine.addToApproximateNullCount(
+              delta.getNullDelta() + delta.getInMemAdjustNull());
         }
       }
     }

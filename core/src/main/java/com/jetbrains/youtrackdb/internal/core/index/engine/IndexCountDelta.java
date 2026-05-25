@@ -39,12 +39,40 @@ public final class IndexCountDelta {
   /** Net change to the null-key entry count. */
   long nullDelta;
 
+  /**
+   * In-mem-only adjustment to the total entry count, accumulated by
+   * {@link #accumulateInMemRecalibration(AtomicOperation, int, long, long)}.
+   * Read by {@code AbstractStorage.applyIndexCountDeltas} (Hook B) and
+   * summed with {@link #totalDelta} when calling the engine's
+   * {@code addToApproximateEntriesCount} mutator. NOT read by Hook A's
+   * {@code persistCountDelta}: the persisted EP-page side is fed by the
+   * inline {@code setApproximateEntriesCount(op, target)} writes in
+   * {@code buildInitialHistogram}, which are WAL-tracked and revert on
+   * rollback.
+   */
+  long inMemAdjustTotal;
+
+  /**
+   * In-mem-only adjustment to the null-key entry count. See
+   * {@link #inMemAdjustTotal} for the contract; this field carries the
+   * recalibration delta for the null counter.
+   */
+  long inMemAdjustNull;
+
   public long getTotalDelta() {
     return totalDelta;
   }
 
   public long getNullDelta() {
     return nullDelta;
+  }
+
+  public long getInMemAdjustTotal() {
+    return inMemAdjustTotal;
+  }
+
+  public long getInMemAdjustNull() {
+    return inMemAdjustNull;
   }
 
   /**
@@ -75,20 +103,20 @@ public final class IndexCountDelta {
    * int, boolean)}, so a per-put accumulation and a clear/recalibrate
    * accumulation issued in the same atomic operation compose algebraically.
    *
-   * <p>The four production callers, all operating at engine scope rather than
-   * per-key, are:
+   * <p>The two production callers, both operating at engine scope (not
+   * per-key), are:
    *
    * <ul>
    *   <li>{@code BTreeMultiValueIndexEngine.clear}: passes
    *       {@code (-currentTotal, -currentNull)} to collapse both counters.
    *   <li>{@code BTreeSingleValueIndexEngine.clear}: same shape for the
    *       single-tree case.
-   *   <li>{@code BTreeMultiValueIndexEngine.buildInitialHistogram}: passes
-   *       {@code (target - current)} to recalibrate against an observed
-   *       absolute target.
-   *   <li>{@code BTreeSingleValueIndexEngine.buildInitialHistogram}: same
-   *       shape for the single-tree case.
    * </ul>
+   *
+   * <p>Recalibration callers ({@code buildInitialHistogram} on both engines)
+   * route through {@link #accumulateInMemRecalibration(AtomicOperation, int,
+   * long, long)} instead, because recalibration deltas are arbitrarily signed
+   * by drift nature and would trip this method's sign-alignment precondition.
    *
    * <p><strong>Do not call from per-put or per-remove paths.</strong> Those
    * sites use {@link #accumulate(AtomicOperation, int, int, boolean)} with
@@ -98,9 +126,10 @@ public final class IndexCountDelta {
    *
    * <p>Precondition (runtime assert): {@code |nullDelta| <= |totalDelta|} and
    * the two deltas are sign-aligned (either is zero, or both share the same
-   * sign). The four callers above all satisfy this: {@code currentNull <=
-   * currentTotal} holds structurally, and recalibration targets advance both
-   * counters in the same direction.
+   * sign). Both {@code clear()} callers satisfy this: they pass
+   * {@code (-currentTotal, -currentNull)} where {@code currentNull <=
+   * currentTotal} holds structurally on a well-formed engine, and both deltas
+   * share the same (negative) sign.
    *
    * @param atomicOperation current transaction
    * @param engineId stable engine identifier (key in the delta map)
@@ -122,5 +151,47 @@ public final class IndexCountDelta {
     var delta = atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(engineId);
     delta.totalDelta += totalDelta;
     delta.nullDelta += nullDelta;
+  }
+
+  /**
+   * Accumulates an in-mem-only recalibration delta on the transaction's delta
+   * holder. The delta advances {@link #inMemAdjustTotal} and
+   * {@link #inMemAdjustNull}, which Hook B's
+   * {@code AbstractStorage.applyIndexCountDeltas} sums with
+   * {@link #totalDelta} / {@link #nullDelta} when calling the engine's
+   * {@code addToApproximate*Count} mutators. Hook A's
+   * {@code persistCountDelta} does NOT read these fields: the persisted
+   * EP-page side is fed by the inline {@code setApproximateEntriesCount(op,
+   * target)} writes in {@code buildInitialHistogram}, which are WAL-tracked
+   * and revert on rollback.
+   *
+   * <p>The two production callers are {@code
+   * BTreeMultiValueIndexEngine.buildInitialHistogram} and {@code
+   * BTreeSingleValueIndexEngine.buildInitialHistogram}. Both pass
+   * {@code (targetTotal - currentInMemTotal, exactNullCount -
+   * currentInMemNull)}.
+   *
+   * <p><strong>No precondition.</strong> Unlike
+   * {@link #accumulateClearOrRecalibrate(AtomicOperation, int, long, long)},
+   * this method accepts arbitrarily-signed and arbitrarily-skewed deltas
+   * because organic in-mem drift between {@code approximateIndexEntriesCount}
+   * and {@code approximateNullCount} (from underflow-clamp events, or any
+   * pre-existing in-mem skew) can produce sign-opposed deltas where the
+   * null-magnitude exceeds the total-magnitude. A magnitude or
+   * sign-alignment assert here would spuriously trip on legitimate
+   * recalibration arithmetic.
+   *
+   * @param atomicOperation current transaction
+   * @param engineId stable engine identifier (key in the delta map)
+   * @param totalDelta signed in-mem-only change to total-entry count;
+   *     arbitrary magnitude and sign
+   * @param nullDelta signed in-mem-only change to null-entry count;
+   *     arbitrary magnitude and sign
+   */
+  public static void accumulateInMemRecalibration(
+      AtomicOperation atomicOperation, int engineId, long totalDelta, long nullDelta) {
+    var delta = atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(engineId);
+    delta.inMemAdjustTotal += totalDelta;
+    delta.inMemAdjustNull += nullDelta;
   }
 }

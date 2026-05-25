@@ -474,4 +474,171 @@ public class IndexCountDeltaHolderTest {
         error2.getMessage().contains("totalDelta=-10")
             && error2.getMessage().contains("nullDelta=3"));
   }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // IndexCountDelta.accumulateInMemRecalibration() static method tests
+  // ════════════════════════════════════════════════════════════════════════
+
+  /**
+   * No-precondition contract: the recalibration accumulator accepts
+   * sign-opposed deltas where the null-magnitude exceeds the total-magnitude.
+   * The combination (currentTotal=100, currentNull=10, scannedNonNull=80,
+   * exactNullCount=15) produces totalDelta=-5 and nullDelta=+5 from a
+   * buildInitialHistogram recalibration; the same shape would trip
+   * accumulateClearOrRecalibrate's sign-alignment+magnitude precondition,
+   * which is why recalibration callers route through this method instead.
+   */
+  @Test
+  public void accumulateInMemRecalibration_signOpposedDeltas_acceptedNoAssert() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, -5L, 5L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(-5L, delta.getInMemAdjustTotal());
+    assertEquals(5L, delta.getInMemAdjustNull());
+  }
+
+  /**
+   * No-precondition contract: null-magnitude can exceed total-magnitude
+   * without tripping an assert. Worked case where currentTotal under-counts
+   * but currentNull over-counts (an organic drift shape) produces
+   * totalDelta=+1 and nullDelta=-3.
+   */
+  @Test
+  public void accumulateInMemRecalibration_nullMagnitudeExceedsTotal_acceptedNoAssert() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, 1L, -3L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(1L, delta.getInMemAdjustTotal());
+    assertEquals(-3L, delta.getInMemAdjustNull());
+  }
+
+  /**
+   * Additive composition: per-put accumulation, a clear/recalibrate long-form
+   * accumulation, and an in-mem-only recalibration in the same atomic
+   * operation land on separate field pairs. The per-put and clear-or-recal
+   * deltas advance totalDelta/nullDelta; the recalibration delta advances
+   * inMemAdjustTotal/inMemAdjustNull. Hook B sums the two pairs at apply
+   * time; this test pins the in-holder separation so a regression that
+   * mis-routes the in-mem-only delta into the persisted fields surfaces
+   * immediately.
+   */
+  @Test
+  public void accumulateInMemRecalibration_inMemOnlyFieldsIndependentFromPersistedFields() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    // Per-put activity feeds totalDelta/nullDelta.
+    IndexCountDelta.accumulate(atomicOp, 7, +1, false);
+    IndexCountDelta.accumulate(atomicOp, 7, +1, true);
+    // A clear/recalibrate long-form also feeds totalDelta/nullDelta.
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, 8L, 3L);
+    // An in-mem-only recalibration feeds inMemAdjustTotal/inMemAdjustNull only.
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, 100L, 25L);
+
+    var delta = holder.getOrCreate(7);
+    // Persisted fields: +1+1+8 = 10 on total; +1+3 = 4 on null.
+    assertEquals(10L, delta.getTotalDelta());
+    assertEquals(4L, delta.getNullDelta());
+    // In-mem-only fields: untouched by the per-put and long-form callers.
+    assertEquals(100L, delta.getInMemAdjustTotal());
+    assertEquals(25L, delta.getInMemAdjustNull());
+  }
+
+  /**
+   * Additive composition across repeated recalibrations: two successive
+   * accumulateInMemRecalibration calls on the same (atomicOp, engineId)
+   * sum the in-mem-only fields. Mirrors the algebraic property of the
+   * other long-form overload.
+   */
+  @Test
+  public void accumulateInMemRecalibration_repeatedCalls_sumInMemFields() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, 20L, 5L);
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, -3L, -2L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(17L, delta.getInMemAdjustTotal());
+    assertEquals(3L, delta.getInMemAdjustNull());
+  }
+
+  /**
+   * Per-engine isolation: in-mem-only recalibration deltas stay bucketed
+   * by engine id and do not bleed across engines, matching the contract of
+   * the other accumulator overloads.
+   */
+  @Test
+  public void accumulateInMemRecalibration_perEngineIsolation() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 1, -7L, -2L);
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 2, 5L, 1L);
+
+    var delta1 = holder.getOrCreate(1);
+    var delta2 = holder.getOrCreate(2);
+    assertEquals(-7L, delta1.getInMemAdjustTotal());
+    assertEquals(-2L, delta1.getInMemAdjustNull());
+    assertEquals(5L, delta2.getInMemAdjustTotal());
+    assertEquals(1L, delta2.getInMemAdjustNull());
+  }
+
+  /**
+   * Rollback discard contract: the recalibration delta lives on the holder,
+   * which lives on the AtomicOperation. On rollback the AtomicOperation is
+   * dropped, which discards the holder and every accumulated delta with it.
+   * This test pins the containment property at the holder boundary — the
+   * holder exposes the in-mem-only fields via getDeltas() only; no external
+   * counter is mutated by the accumulator itself, so dropping the holder is
+   * sufficient to drop the recalibration delta.
+   */
+  @Test
+  public void accumulateInMemRecalibration_rolledBackHolderDiscardsDelta() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateInMemRecalibration(atomicOp, 7, 50L, 12L);
+    // The values are recorded only on the holder, accessible via getDeltas().
+    var map = holder.getDeltas();
+    assertEquals(1, map.size());
+    var delta = map.get(7);
+    assertEquals(50L, delta.getInMemAdjustTotal());
+    assertEquals(12L, delta.getInMemAdjustNull());
+
+    // Simulating rollback: drop the holder. A fresh holder, as the next
+    // AtomicOperation would carry, starts at all-zeros.
+    var freshHolder = new IndexCountDeltaHolder();
+    var freshMap = freshHolder.getDeltas();
+    assertEquals(0, freshMap.size());
+    var freshDelta = freshHolder.getOrCreate(7);
+    assertEquals(0L, freshDelta.getInMemAdjustTotal());
+    assertEquals(0L, freshDelta.getInMemAdjustNull());
+  }
+
+  /**
+   * Default values: a freshly-created IndexCountDelta has zero in-mem-only
+   * fields. Pins the invariant that getOrCreate followed by no accumulator
+   * call leaves Hook B's sum (totalDelta + inMemAdjustTotal) unchanged from
+   * its pre-Track-4 behavior of using totalDelta alone.
+   */
+  @Test
+  public void inMemAdjustFields_defaultToZero() {
+    var holder = new IndexCountDeltaHolder();
+    var delta = holder.getOrCreate(7);
+    assertEquals(0L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+  }
 }
