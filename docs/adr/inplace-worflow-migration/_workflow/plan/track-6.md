@@ -10,8 +10,8 @@ Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-05-24T19:50Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-24T20:00Z [ctx=info] Step 1 complete (commit 6bc6bf762b)
@@ -21,6 +21,7 @@ Add a session-start invocation of the SHA-aware drift gate (rewritten in Track 3
 - [x] 2026-05-24T20:20Z [ctx=info] Step 5 complete (commit 8bb259dc00)
 - [x] 2026-05-24T20:20Z [ctx=info] Step implementation complete (5/5 steps)
 - [x] 2026-05-25T03:02Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-25T03:11Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 
