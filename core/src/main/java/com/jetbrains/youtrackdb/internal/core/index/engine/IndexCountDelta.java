@@ -66,4 +66,61 @@ public final class IndexCountDelta {
       delta.nullDelta += sign;
     }
   }
+
+  /**
+   * Accumulates an arbitrary-magnitude signed delta on the transaction's delta
+   * holder. Semantics are <strong>additive</strong>: both fields advance by
+   * {@code += totalDelta} and {@code += nullDelta}. The shape mirrors the
+   * {@code += sign} accumulation in {@link #accumulate(AtomicOperation, int,
+   * int, boolean)}, so a per-put accumulation and a clear/recalibrate
+   * accumulation issued in the same atomic operation compose algebraically.
+   *
+   * <p>The four production callers, all operating at engine scope rather than
+   * per-key, are:
+   *
+   * <ul>
+   *   <li>{@code BTreeMultiValueIndexEngine.clear}: passes
+   *       {@code (-currentTotal, -currentNull)} to collapse both counters.
+   *   <li>{@code BTreeSingleValueIndexEngine.clear}: same shape for the
+   *       single-tree case.
+   *   <li>{@code BTreeMultiValueIndexEngine.buildInitialHistogram}: passes
+   *       {@code (target - current)} to recalibrate against an observed
+   *       absolute target.
+   *   <li>{@code BTreeSingleValueIndexEngine.buildInitialHistogram}: same
+   *       shape for the single-tree case.
+   * </ul>
+   *
+   * <p><strong>Do not call from per-put or per-remove paths.</strong> Those
+   * sites use {@link #accumulate(AtomicOperation, int, int, boolean)} with
+   * the {@code sign + isNullKey} form. The long-form overload here carries
+   * no per-key null-fraction arithmetic and would mis-encode the null count
+   * on misuse.
+   *
+   * <p>Precondition (runtime assert): {@code |nullDelta| <= |totalDelta|} and
+   * the two deltas are sign-aligned (either is zero, or both share the same
+   * sign). The four callers above all satisfy this: {@code currentNull <=
+   * currentTotal} holds structurally, and recalibration targets advance both
+   * counters in the same direction.
+   *
+   * @param atomicOperation current transaction
+   * @param engineId stable engine identifier (key in the delta map)
+   * @param totalDelta signed change to total-entry count; arbitrary magnitude
+   * @param nullDelta signed change to null-entry count; arbitrary magnitude,
+   *     with magnitude no greater than {@code totalDelta} and same sign
+   */
+  public static void accumulateClearOrRecalibrate(
+      AtomicOperation atomicOperation, int engineId, long totalDelta, long nullDelta) {
+    assert Math.abs(nullDelta) <= Math.abs(totalDelta)
+        && (totalDelta == 0
+            || nullDelta == 0
+            || Long.signum(totalDelta) == Long.signum(nullDelta))
+        : "accumulateClearOrRecalibrate requires sign-aligned deltas with"
+            + " |nullDelta| <= |totalDelta|; got totalDelta="
+            + totalDelta
+            + " nullDelta="
+            + nullDelta;
+    var delta = atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(engineId);
+    delta.totalDelta += totalDelta;
+    delta.nullDelta += nullDelta;
+  }
 }

@@ -305,4 +305,173 @@ public class IndexCountDeltaHolderTest {
     assertFalse("Persisted latch must stay false when only applied is set",
         holder2.isPersisted());
   }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // IndexCountDelta.accumulateClearOrRecalibrate() static method tests
+  // ════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Band 1 (zero/zero): a no-op clear of an empty engine accumulates
+   * (0, 0) and leaves the holder's deltas at zero. The assert
+   * precondition (|nullDelta| <= |totalDelta|, sign-aligned) holds
+   * trivially.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_zeroZero_isNoOp() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, 0L, 0L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+  }
+
+  /**
+   * Band 2 (both negative, sign-aligned): clear() on an engine with 100
+   * total entries and 25 null entries passes (-100, -25). |nullDelta|
+   * = 25 <= 100 = |totalDelta|; both share the negative sign.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_bothNegativeAligned_appliesDelta() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, -100L, -25L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(-100L, delta.getTotalDelta());
+    assertEquals(-25L, delta.getNullDelta());
+  }
+
+  /**
+   * Band 3 (both positive, sign-aligned): buildInitialHistogram
+   * recalibration where the observed target exceeds the current
+   * in-memory counters passes (+50, +10).
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_bothPositiveAligned_appliesDelta() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, 50L, 10L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(50L, delta.getTotalDelta());
+    assertEquals(10L, delta.getNullDelta());
+  }
+
+  /**
+   * Band 4 (one zero, one non-zero): SV engine clear() of a tree
+   * holding only non-null entries passes (-50, 0). The sign-alignment
+   * clause exempts zero values, so (any, 0) and (0, any) are both
+   * legal and apply cleanly.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_oneZeroOneNonZero_appliesDelta() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, -50L, 0L);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(-50L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+  }
+
+  /**
+   * Additive composition: two successive accumulateClearOrRecalibrate
+   * calls on the same (atomicOp, engineId) sum the deltas. This is the
+   * algebraic property the Javadoc promises so a clear and a
+   * post-clear set of puts compose inside one transaction.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_repeatedCalls_sumDeltas() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    // Pre-existing put activity recorded via the short-form accumulator.
+    IndexCountDelta.accumulate(atomicOp, 7, +1, false);
+    IndexCountDelta.accumulate(atomicOp, 7, +1, true);
+    // Then the engine-scope clear collapses the tree.
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, -2L, -1L);
+    // And further puts after the clear continue accumulating.
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, 10L, 3L);
+
+    var delta = holder.getOrCreate(7);
+    // (+1 +1) + (-2) + (+10) = 10 on total; (+1) + (-1) + (+3) = 3 on null.
+    assertEquals(10L, delta.getTotalDelta());
+    assertEquals(3L, delta.getNullDelta());
+  }
+
+  /**
+   * Per-engine isolation: deltas accumulated through the long-form
+   * overload stay bucketed by engine id and do not bleed across engines.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_perEngineIsolation() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 1, -7L, -2L);
+    IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 2, 5L, 1L);
+
+    var delta1 = holder.getOrCreate(1);
+    var delta2 = holder.getOrCreate(2);
+    assertEquals(-7L, delta1.getTotalDelta());
+    assertEquals(-2L, delta1.getNullDelta());
+    assertEquals(5L, delta2.getTotalDelta());
+    assertEquals(1L, delta2.getNullDelta());
+  }
+
+  /**
+   * Assert trigger: |nullDelta| > |totalDelta| violates the magnitude
+   * precondition. Without the assert, a structurally impossible delta
+   * (more nulls than total entries) would silently corrupt the
+   * null-fraction arithmetic on apply.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_nullMagnitudeExceedsTotal_throwsAssertionError() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    var error = assertThrows(AssertionError.class,
+        () -> IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, -5L, -10L));
+    assertTrue("Message must mention totalDelta and nullDelta",
+        error.getMessage().contains("totalDelta=-5")
+            && error.getMessage().contains("nullDelta=-10"));
+  }
+
+  /**
+   * Assert trigger: opposed signs (positive total, negative null or
+   * vice versa) violate the sign-alignment precondition. The four
+   * production callers never produce opposed-sign deltas; an opposed
+   * sign at runtime means the caller computed the delta incorrectly.
+   */
+  @Test
+  public void accumulateClearOrRecalibrate_opposedSigns_throwsAssertionError() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    var error1 = assertThrows(AssertionError.class,
+        () -> IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, 10L, -3L));
+    assertTrue("Positive total + negative null must trip the assert",
+        error1.getMessage().contains("totalDelta=10")
+            && error1.getMessage().contains("nullDelta=-3"));
+
+    var error2 = assertThrows(AssertionError.class,
+        () -> IndexCountDelta.accumulateClearOrRecalibrate(atomicOp, 7, -10L, 3L));
+    assertTrue("Negative total + positive null must trip the assert",
+        error2.getMessage().contains("totalDelta=-10")
+            && error2.getMessage().contains("nullDelta=3"));
+  }
 }
