@@ -260,8 +260,7 @@ public final class BTreeSingleValueIndexEngine
       // "doClearTree left entries" from "entries appeared later."
       assert sbTree.firstKey(atomicOperation) == null
           : "doClearTree() left entries in engine=" + name + " id=" + id
-              + " treeSize=" + sbTree.size(atomicOperation)
-              + " approximateCount=" + approximateIndexEntriesCount.get();
+              + " treeSize=" + sbTree.size(atomicOperation);
       // Snapshot under the per-tree lock acquired by doClearTree() above.
       final long currentTotal = approximateIndexEntriesCount.get();
       final long currentNull = approximateNullCount.get();
@@ -276,12 +275,14 @@ public final class BTreeSingleValueIndexEngine
       // non-nulls in one tree (the persisted side moves by totalDelta alone,
       // which is the correct full-tree collapse). The apply hook then advances
       // both in-memory AtomicLong counters after commitChanges but before lock
-      // release. The persisted EP page is transiently out of sync with the
-      // now-empty tree until the persist hook runs. Any pre-existing drift
-      // between in-memory and persisted is intentionally not normalised here;
-      // eagerly zeroing the persisted side would re-introduce the in-atomic-op
-      // write that this encoding removes, and buildInitialHistogram()
-      // recalibration covers the rare residual case on next touch.
+      // release.
+      //
+      // The persisted EP page is transiently out of sync with the now-empty
+      // tree until the persist hook runs. Any pre-existing drift between
+      // in-memory and persisted is intentionally not normalised here; eagerly
+      // zeroing the persisted side would re-introduce the in-atomic-op write
+      // that this encoding removes, and buildInitialHistogram() recalibration
+      // covers the rare residual case on next touch.
       IndexCountDelta.accumulateClearOrRecalibrate(
           atomicOperation, id, -currentTotal, -currentNull);
       var mgr = histogramManager;
