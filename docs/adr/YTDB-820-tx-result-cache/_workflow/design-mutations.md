@@ -690,3 +690,62 @@ Fix: introduce `IdempotentExecutionStream` wrapper class. Cache wraps every stre
 - (pre-existing, NOT addressed): 27+ should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — Phase 4 sweep.
 
 **Iterations**: 1 of 3 (PASS — corrections-pass over Mutation 17; no NEW correctness findings introduced).
+
+## Mutation 19 — 2026-05-25 — structural-rewrite (design.md + implementation-plan.md + plan/track-{2,6}.md)
+
+**Coverage-expansion pass after user review.** User asked: (1) are any v2-deferred items worth promoting now? (2) MATCH multi-alias scope — was Etap B in the eager design, how much benchmark workload would it cover? Honest analysis showed two items deserve v1 promotion: canonical CacheKey stripping SKIP (paginated workloads share entries), and partial MATCH Etap B (DELETED + UPDATED for multi-alias MATCH via reverseIndex; CREATED tombstones the entry). Eager design had multi-alias MATCH (`MergeKind.MATCH_TUPLE`) for DELETED + UPDATED; the lazy pivot dropped it as a side-effect of architectural simplification rather than an intentional cost-benefit call. Restoring coverage reuses the eager-era bookkeeping at modest cost.
+
+### D16 new: Canonical CacheKey strips SKIP
+
+`CacheKey.equals` and `hashCode` ignore `SQLSelectStatement.skip` (and `SQLMatchStatement.skip`) so paginated queries — `SELECT FROM Issue ORDER BY priority SKIP 0 LIMIT 20`, `SKIP 20`, `SKIP 40`, ... — share ONE cache entry. The view applies SKIP at iteration time (over-fetch mechanism from D10-lazy already removes SKIP from the plan, so the entry has no SKIP-specific data baked in; stripping from the key is the natural completion). LIMIT is NOT stripped because doing so introduces a silent-short-list hazard: a no-LIMIT query meeting a LIMIT-bounded over-fetched entry whose stream didn't exhaust would return cap rows when the user wanted all. Stripping both LIMIT and SKIP is v2-deferred with entry.exhausted tracking at lookup.
+
+Files touched:
+- `design.md § Cache key composition` — TL;DR rewritten to note SKIP-stripping; new subsection § Canonical key for SKIP (D16) describing the equals/hashCode field-by-field walk, the LIMIT-not-stripped rationale, and the trade-off.
+- `implementation-plan.md` — new D16 D-record after D15 with full alternatives / rationale / risks-caveats / implementation-pointer; Non-Goals entry about canonical-CacheKey-stripping-both reworded to reflect "v1 strips SKIP only".
+- `plan/track-2.md` — Concrete deliverables note custom equals + hashCode stripping SKIP; Plan-of-Work step 1 expanded with the field-by-field walk specification for SQLSelectStatement and SQLMatchStatement; new tests T2f (paginated workload share), T2g (different LIMIT not canonical), T2h (MATCH SKIP stripping); library signatures section updated.
+
+### D8-lazy rewrite: Partial Etap B promoted to v1
+
+`MATCH_TUPLE_MULTI` is a new `CacheableShape` enum value for multi-alias MATCH (pattern with edges OR cross-join with multiple top-level match-expressions). Classify gates: every pattern node has `class:`, no LET / UNWIND, no cross-alias-state in pattern WHEREs, no subqueries in pattern WHEREs, `n + m <= maxRecordsPerEntry`.
+
+`CachedEntry` for MATCH_TUPLE_MULTI carries:
+- `aliasClasses: Map<String, Set<String>>` — per-alias subclass closure (D11 symmetry)
+- `aliasWheres: Map<String, SQLWhereClause>` — per-alias WHERE
+- `contributingRids: Map<Integer, Set<RID>>` — per-tuple-index, set of RIDs across all alias bindings
+- `reverseIndex: Map<RID, Set<Integer>>` — inverse: per-RID, set of tuple-indices that reference it
+- `tombstoned: boolean` — set at delta-build pre-scan when a CREATED hits a class in `effectiveFromClasses`; forces evict + miss at lookup
+
+`DeltaBuilder.buildForMatchMulti(entry, recordOps, ctx)` is a new method returning `MatchMultiDelta` or TOMBSTONE sentinel. Two-pass algorithm:
+1. Pre-scan for CREATED on a class in `effectiveFromClasses` — if found, tombstone + TOMBSTONE return.
+2. Iterate ops for DELETED + UPDATED. DELETED: `reverseIndex.get(rid)` → affected tuples → `tupleSkipSet.addAll`; also `ridSkipSet.add(rid)`. UPDATED: for each affected tuple, find binding aliases (via aliasClasses), re-evaluate each `aliasWheres[alias].matchesFilters(post-update record, ctx)`; if any alias's WHERE fails, drop the tuple via `tupleSkipSet.add(tupleIndex)`. Also add to `ridSkipSet` to suppress stream-pull-append re-emission.
+
+`MatchMultiDelta` is a new immutable per-view delta type: `tupleSkipSet: Set<Integer>` (cache-cursor skip by tuple-index) + `ridSkipSet: Set<RID>` (stream-pull-append skip when ANY alias's RID is in this set, drop the tuple). No injectList — partial Etap B does not discover new tuples on CREATED (separate ADR for that work).
+
+`QueryResultCache.lookup` for MATCH_TUPLE_MULTI invokes the DeltaBuilder; on TOMBSTONE: evict + return null (miss); else cache the `MatchMultiDelta` per Option C sharing.
+
+`CachedResultSetView` MATCH_TUPLE_MULTI branch: iterate `entry.results`, skip tuples whose index is in `tupleSkipSet`, on stream-pull check `ridSkipSet` against each alias binding's RID (drop tuple if any in set), populate `reverseIndex` + `contributingRids` for newly appended tuples.
+
+**What's covered (in v1)**: every DELETED + UPDATED scenario for multi-alias MATCH. Issue↔Project, User↔Team, Comment↔Issue traversal patterns — common in Hub. Hub's "save then list refresh" pattern with multi-alias MATCH now cache-hits instead of full re-execute.
+
+**What's deferred to separate ADR**: CREATED-discovery via constrained pattern walk (MatchPrefetchStep + PREFETCHED_MATCH_ALIAS_PREFIX) + edge-CREATED dispatch hook. Partial Etap B handles CREATED by tombstoning the entry — restores eager-design parity (eager wiped on CREATED multi-alias too).
+
+Files touched:
+- `design.md` — Per-shape classify list expanded with MATCH_TUPLE_MULTI bullet; NONE bullet refined; new § MATCH multi-alias (partial Etap B in v1) section between § MATCH Etap A and § Over-fetch for backfill describing the entry fields, population walker, DeltaBuilder.buildForMatchMulti algorithm with pseudocode, view iteration, tombstone handling, coverage scope, and v1-rationale anchor; class diagram extended with new fields on CachedEntry, new MATCH_TUPLE_MULTI enum value, new MatchMultiDelta class, new buildForMatchMulti method on DeltaBuilder, new matchMultiDelta field on CachedResultSetView; class-diagram dependencies updated.
+- `implementation-plan.md` — D8-lazy rewritten end-to-end with Etap A + partial Etap B + separate-ADR Etap B framing; Component Map bullets for CachedEntry / CacheableShape / TxDeltaCursor / DeltaBuilder / CachedResultSetView extended with MATCH_TUPLE_MULTI-related fields; new MatchMultiDelta bullet added between TxDeltaCursor and DeltaBuilder; Track 6 description expanded from ~4 steps to ~10 steps with the partial Etap B scope.
+- `plan/track-6.md` — full rewrite. Purpose / Big Picture covers both Etap A and partial Etap B; Context and Orientation lists the new entry fields and new files; Concrete deliverables split into Etap A (4 items, retained) and partial Etap B (7 items, new); Plan of Work step 1-4 unchanged (Etap A), step 5-9 new (MATCH_TUPLE_MULTI classify, DeltaBuilder.buildForMatchMulti algorithm with pseudocode pre-scan + tupleSkipSet/ridSkipSet build, lookup tombstone handling, view MATCH_TUPLE_MULTI branch, reverseIndex population in stream-pull-append); test matrix expanded from 8 tests (T6a-h) to 16 tests (T6a-p) covering classify pass / classify NONE (classless / subquery), partial Etap B DELETED, UPDATED-still-passes, UPDATED-fails, CREATED tombstone, multi-alias-same-class self-loop, cross-join CREATED tombstone, stream-pull-append RID skip, Option C delta sharing.
+
+### Cross-references
+
+- **D8-lazy + D10-lazy + D11 + D16 interaction**: MATCH_TUPLE_MULTI uses `effectiveFromClasses` (D11 closure) for the tombstone pre-scan and class-filter; uses the same over-fetch mechanism (D10-lazy) for SKIP/LIMIT bounded queries (rewrite SkipStep + LimitStep when in cap); is canonical-keyed under D16's SKIP-stripping equals so paginated multi-alias MATCH queries share entries.
+- **I7 contract**: extended to cover MATCH_TUPLE_MULTI — view's `matchMultiDelta` (tupleSkipSet + ridSkipSet) is immutable post-construction; subsequent mutations don't affect the current view. Fresh `query()` constructs a new view with a fresh delta or hits the tombstone re-execution path.
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=structural-rewrite): pending validation. Pre-existing 27+ should-fix `dsc-ai-tell` em-dash density findings carried forward + likely additions from the new Etap B + canonical-key prose. Deferred to Phase 4 sweep.
+
+**Cold-read** (scope=bounded — § Cache key composition + § Canonical key for SKIP, § Per-shape classify, § MATCH multi-alias (partial Etap B in v1), § Class Design diagram, D8-lazy, D16, Component Map MATCH_TUPLE_MULTI entries, plan/track-2.md custom equals + T2f-h, plan/track-6.md full track): self-audited. CacheKey SKIP-stripping is internally consistent across design.md / implementation-plan.md / track-2.md (omitted field list matches in all three loci; T2f/T2g/T2h cover the three relevant scenarios). MATCH_TUPLE_MULTI design is consistent across design.md (§ MATCH multi-alias documents the algorithm in prose), implementation-plan.md (D8-lazy explains the rationale + risks; Component Map bullets describe the data structures), and plan/track-6.md (Plan of Work has executable pseudocode for buildForMatchMulti; test matrix covers the dispatch table cells). Class diagram updates align with prose: new shape value, new fields on CachedEntry, new MatchMultiDelta class, new buildForMatchMulti method, new field on view. Tombstone semantics correctly described as "evict + miss + force re-execute" in all loci; the Option C delta sharing for MATCH_TUPLE_MULTI mirrors the RECORD-shape pattern.
+
+**Findings**:
+- D16 canonical CacheKey added (paginated workload share).
+- Partial MATCH Etap B restored (DELETED + UPDATED for multi-alias via reverseIndex; CREATED tombstones).
+- (pre-existing, NOT addressed): 27+ should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — Phase 4 sweep.
+
+**Iterations**: 1 of 3 (PASS — coverage-expansion structural rewrite; no NEW correctness findings introduced).

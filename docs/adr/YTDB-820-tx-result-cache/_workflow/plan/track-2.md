@@ -15,7 +15,7 @@ Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH br
 - `SQLEngine.parse()` — backed by `STATEMENT_CACHE` (LRU by SQL text); same text reissue returns the **same `SQLStatement` instance** — enables D12 identity fast-path.
 
 **Concrete deliverables.**
-- `CacheKey` complete: `statement`, `params: Map<Object, Object>`, `equals(o)` with D12 identity fast-path before deep equals, defensive-copied parameter map.
+- `CacheKey` complete: `statement`, `params: Map<Object, Object>`, **custom `equals(o)` and `hashCode()` that strip SKIP from the comparison** (D16) with D12 identity fast-path before the structural walk, defensive-copied parameter map.
 - `CachedResultSetView` complete: sorted-merge skeleton in `next()` with **empty** `TxDeltaCursor` (always picks from cache cursor in this track). Increments `position`; pulls from `entry.stream` and appends to `entry.results` + `entry.cachedRids` when the cached list is exhausted (Track 3 wires the actual stream pause).
 - `DatabaseSessionEmbedded.query(...)` lookup logic in all three overloads:
   - Parse AST.
@@ -27,7 +27,12 @@ Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH br
 
 ## Plan of Work
 
-1. Complete `CacheKey` with `equals(o)`: identity fast-path (`this.statement == other.statement`), then deep `SQLStatement.equals` + `Map.equals` on params. Defensive-copy params at constructor time. Hashcode caches lazily.
+1. Complete `CacheKey` with `equals(o)` (D16 — SKIP-stripping):
+   - **Identity fast-path** (D12): `if (this.statement == other.statement && Objects.equals(this.params, other.params)) return true;`. Catches identical-text repeats served by `STATEMENT_CACHE`.
+   - **Structural fall-through (skip-stripping)**: if the fast-path missed, compare via a field-by-field walk that excludes the `skip` field. For `SQLSelectStatement`: compare `target`, `projection`, `whereClause`, `groupBy`, `orderBy`, `unwind`, `limit`, `fetchPlan`, `letClause`, `timeout`, `parallel`, `noCache` via `Objects.equals` on each. **Omit `skip`**. For `SQLMatchStatement`: compare `matchExpressions`, `returnItems`, `limit`, `orderBy`, `groupBy` (whichever the type has) via `Objects.equals`. **Omit `skip`**. Different statement classes → false.
+   - Then compare `params` (deep, with `Arrays.deepEquals` for array-valued entries and RID equality for identifiables).
+   - `hashCode()` symmetric — hash every above-listed field except `skip`, plus the params map. Cache lazily.
+   - Defensive-copy params at constructor time.
 2. Implement `CachedResultSetView.next()` sorted-merge skeleton with empty delta. Initially: read from `entry.results[position]`, increment position; if past `results.size()` and `!entry.exhausted`, pull from `entry.stream` (Track 3 wires this fully — for now stub returns null/throws).
 3. Hook `DatabaseSessionEmbedded.query(...)` overloads: parse → gate check → lookup → miss/hit branches. Both branches construct a fresh `CachedResultSetView` with empty deltaCursor (Track 4 replaces with real builder).
 4. `executeInternal(...)` non-idempotent branch — no cache work yet (Track 7 handles invalidation).
@@ -37,7 +42,10 @@ Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH br
    - T2b: D12 identity fast-path — verify `CacheKey.equals` short-circuits on `==`; verify deep-equals path activates after `STATEMENT_CACHE` eviction.
    - T2c: non-SELECT/non-MATCH (e.g., `SQLProfileStatement`) bypasses cache.
    - T2d: mutable parameter list passed to `query()` then mutated post-call → next `query()` with new state still hits the right key (defensive copy works).
-   - T2e: AST node equals coverage — per-node tests for every cacheable AST construct (target / projection / where / orderBy / unwind / skip / limit / fetchPlan / parallel / noCache).
+   - T2e: AST node equals coverage — per-node tests for every cacheable AST construct (target / projection / where / orderBy / unwind / limit / fetchPlan / parallel / noCache). NOTE: skip is intentionally NOT in this list — see T2f.
+   - **T2f (D16 — canonical key for SKIP)**: `SELECT FROM Foo ORDER BY x SKIP 0 LIMIT 20` and `SELECT FROM Foo ORDER BY x SKIP 20 LIMIT 20` produce CacheKey instances with `key1.equals(key2) == true` and `key1.hashCode() == key2.hashCode()`. After first query: `cache.size() == 1`. Second query: cache hit on the SAME entry. View constructed from the second query applies skip=20 at iteration and returns records [20, 40) from the cached over-fetched prefix.
+   - **T2g (D16 — different LIMIT NOT canonical)**: `SELECT FROM Foo LIMIT 10` and `SELECT FROM Foo LIMIT 100` produce distinct keys (different LIMIT). Two cache entries. Verify `cache.size() == 2` after both queries.
+   - **T2h (D16 — MATCH SKIP stripped symmetrically)**: equivalent test for `MATCH … RETURN u SKIP 0 LIMIT 10` and `MATCH … RETURN u SKIP 10 LIMIT 10` — same canonical key, shared entry.
 
 **Invariants to preserve.** Caching disabled = zero behavioral change. With caching enabled, view output equivalence to fresh execution holds when no intra-tx mutations occur (mutations are Track 4's domain). View `next()` MUST handle empty deltaCursor gracefully (no NPE).
 
@@ -61,6 +69,7 @@ Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH br
 
 **Library / function signatures.**
 - `CacheKey(SQLStatement, Map<Object,Object>) → defensive-copied Map`.
-- `CacheKey.equals(Object)` — `==` fast-path then deep walk.
+- `CacheKey.equals(Object)` — D12 `==` fast-path; on miss, structural field-by-field walk that omits `skip` (D16). For SQLSelectStatement: target/projection/whereClause/groupBy/orderBy/unwind/limit/fetchPlan/letClause/timeout/parallel/noCache. For SQLMatchStatement: matchExpressions/returnItems/limit/orderBy/groupBy. SKIP excluded in both.
+- `CacheKey.hashCode()` — symmetric: hashes the same fields that `equals` compares; SKIP excluded.
 - `CachedResultSetView(CachedEntry, TxDeltaCursor, DatabaseSessionEmbedded)`.
 - `DatabaseSessionEmbedded.query(...)` returns `ResultSet` (unchanged signature; new internal branching).

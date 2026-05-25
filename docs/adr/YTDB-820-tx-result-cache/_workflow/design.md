@@ -77,6 +77,11 @@ classDiagram
         -skip: int
         -limit: int
         -returnProjector: Function
+        -aliasClasses: Map
+        -aliasWheres: Map
+        -contributingRids: Map
+        -reverseIndex: Map
+        -tombstoned: boolean
         -cachedSkipSet: Set
         -cachedInjectList: List
         -cachedDeltaVersion: long
@@ -91,6 +96,7 @@ classDiagram
         AGGREGATE_AVG
         AGGREGATE_MIN
         AGGREGATE_MAX
+        MATCH_TUPLE_MULTI
         NONE
     }
     class AggregateState {
@@ -114,10 +120,17 @@ classDiagram
         +pop() Result
         +shouldSkip(rid) boolean
     }
+    class MatchMultiDelta {
+        -tupleSkipSet: Set
+        -ridSkipSet: Set
+        +shouldSkipTuple(idx) boolean
+        +shouldSkipRid(rid) boolean
+    }
     class DeltaBuilder {
         <<utility>>
         +buildForRecord(entry, recordOps, ctx) TxDeltaCursor
         +buildForAggregate(entry, recordOps, ctx) AggregateState
+        +buildForMatchMulti(entry, recordOps, ctx) MatchMultiDelta
     }
     class CachedResultSetView {
         -entry: CachedEntry
@@ -127,6 +140,7 @@ classDiagram
         -limit: int
         -deltaCursor: TxDeltaCursor
         -deltaAggregateState: AggregateState
+        -matchMultiDelta: MatchMultiDelta
         -session: DatabaseSessionEmbedded
         +hasNext() boolean
         +next() Result
@@ -152,14 +166,16 @@ classDiagram
     CachedResultSetView --> CachedEntry
     CachedResultSetView o-- "0..1" TxDeltaCursor
     CachedResultSetView o-- "0..1" AggregateState : delta
+    CachedResultSetView o-- "0..1" MatchMultiDelta
     DeltaBuilder ..> TxDeltaCursor : builds
     DeltaBuilder ..> AggregateState : builds
+    DeltaBuilder ..> MatchMultiDelta : builds
     DatabaseSessionEmbedded ..> QueryResultCache : reads/writes
     DatabaseSessionEmbedded ..> CachedResultSetView : returns
     DatabaseSessionEmbedded ..> DeltaBuilder : invokes at view ctor
 ```
 
-**TL;DR.** Three new classes carry the design: `QueryResultCache` (the LRU bounded map on the transaction), `CachedEntry` (one cache slot — frozen results, paused stream, AST metadata), and `TxDeltaCursor` (the per-view delta snapshot — skip-set + sorted inject-list, built once at view construction). `CachedResultSetView` is the consumer-facing `ResultSet` wrapper that does a sorted-merge between cached and delta. `DeltaBuilder` is a stateless utility that iterates `recordOperations` once at view-construction to populate the cursor (record shape) or to apply mutations against a copy of `entry.aggregateState` (aggregate shape). Everything else is hooks on existing types: `FrontendTransactionImpl` owns the cache and clears it; `DatabaseSessionEmbedded.query()` builds views; `addRecordOperation` is **not** hooked by the cache — recordOperations growth is what tx already records, and views snapshot it on construction.
+**TL;DR.** Four delta-related classes carry the design: `QueryResultCache` (the LRU bounded map on the transaction), `CachedEntry` (one cache slot — frozen results, paused stream, AST metadata), `TxDeltaCursor` (per-view delta snapshot for RECORD / MATCH-Etap-A shape — skip-set + sorted inject-list), and `MatchMultiDelta` (per-view delta snapshot for MATCH_TUPLE_MULTI shape — tuple-index skip-set + RID skip-set). `CachedResultSetView` is the consumer-facing `ResultSet` wrapper that does a sorted-merge (RECORD) or per-tuple skip-iteration (MATCH_TUPLE_MULTI). `DeltaBuilder` is a stateless utility that iterates `recordOperations` once at view-construction to produce the appropriate delta shape. Everything else is hooks on existing types: `FrontendTransactionImpl` owns the cache and clears it; `DatabaseSessionEmbedded.query()` builds views; `addRecordOperation` is **not** hooked by the cache — recordOperations growth is what tx already records, and views snapshot it on construction.
 
 ### References
 - Invariants: I1 (cache cleared on every tx-end path), I2 (cache only touched by owning thread), I7 (view's deltaCursor is immutable post-construction)
@@ -238,20 +254,39 @@ sequenceDiagram
 
 ## Cache key composition
 
-**TL;DR.** Key = `(SQLStatement, normalizedParams)`. `SQLStatement.equals()` is already structural over target/projection/whereClause/groupBy/orderBy/unwind/skip/limit/fetchPlan/letClause/timeout/parallel/noCache (see SQLSelectStatement:380), so the parsed AST hashed against a normalized parameter map gives semantically-equivalent queries the same key automatically. Whitespace, alias renaming, formatting differences all map to the same slot.
+**TL;DR.** Key = `(SQLStatement, normalizedParams)` with a **SKIP-stripping equals** so paginated queries share one cache entry across pages. `SQLStatement.equals()` is already structural over target/projection/whereClause/groupBy/orderBy/unwind/skip/limit/fetchPlan/letClause/timeout/parallel/noCache (see SQLSelectStatement:380), giving whitespace/alias-invariant keys for free, but `CacheKey.equals` deliberately diverges by skipping the `skip` field comparison — see § Canonical key for SKIP below.
 
 The parser is already on the hot path — `SQLEngine.parse()` runs on every `query()` call (DatabaseSessionEmbedded:632), and the result is itself cached by the existing `STATEMENT_CACHE_SIZE` knob. The result cache lookup happens after parsing but before execution-plan creation; the AST is the input we already have.
 
 Parameter normalization: `Object[]` form is converted to a `LinkedHashMap<Integer, Object>` keyed by positional index; the named `Map<String, Object>` form is wrapped read-only. The stored type is `Map<Object, Object>` — the same union the existing `SQLStatement.execute(...)` API carries (`SQLStatement.java:62/66/83/89`), because positional params use `Integer` keys and named params use `String` keys. Equality is `Objects.equals` deep; arrays go through `Arrays.deepEquals`. Records and identifiables compare by RID (their existing equals contract).
 
+### Canonical key for SKIP (D16)
+
+`CacheKey.equals(other)` and `CacheKey.hashCode()` compare and hash every field that `SQLStatement.equals` covers **except `skip`**. The view receives the original `skip` from the parsed statement and applies it at iteration time (per § Over-fetch for backfill). Two queries identical except in SKIP — for example, `SELECT FROM Issue ORDER BY priority SKIP 0 LIMIT 20` and `SELECT FROM Issue ORDER BY priority SKIP 20 LIMIT 20` — therefore share ONE cache entry: built once on first miss with the plan rewritten to `SkipStep=0, LimitStep=maxRecordsPerEntry`, holding up to `maxRecordsPerEntry` records, and read by view A at position [0, 20) and view B at position [20, 40).
+
+**Why LIMIT is NOT stripped.** Stripping LIMIT too would let a no-LIMIT query share an entry built with `LIMIT m`-bounded over-fetch. If storage has more than `maxRecordsPerEntry` matching records, the over-fetched entry caps at `maxRecordsPerEntry` (entry.exhausted=false). A subsequent no-LIMIT query against the same canonical key would return the cached `maxRecordsPerEntry` records — but the user wanted ALL matching records. Silent short-list. Different LIMIT values therefore create distinct cache entries; only SKIP is canonical-key-stripped.
+
+**Implementation outline**. `CacheKey.equals(Object o)`:
+1. Identity fast-path (D12): if `this.stmt == other.stmt && Objects.equals(params, other.params)`, return true (same parsed instance from STATEMENT_CACHE).
+2. Otherwise, check classes match (both SQLSelectStatement or both SQLMatchStatement).
+3. Field-by-field structural compare excluding `skip`:
+   - For SQLSelectStatement: compare target, projection, whereClause, groupBy, orderBy, unwind, limit, fetchPlan, letClause, timeout, parallel, noCache. Omit skip.
+   - For SQLMatchStatement: compare matchExpressions, returnItems, limit (if MATCH has one), orderBy, groupBy. Omit skip.
+4. Compare params.
+
+`hashCode()` excludes `skip` symmetrically.
+
+**Trade-off**. Different `LIMIT` values in otherwise-identical queries still create distinct entries. For Hub UIs with consistent per-list page size (issues list always uses LIMIT 20, comments list always uses LIMIT 50), this is full hit-share within each list view. For mixed-LIMIT workloads (rare), some entry duplication remains. A canonical key stripping LIMIT too would require tracking entry.exhausted at lookup time and falling back to miss when a no-LIMIT query meets a capped entry — added complexity that v1 defers to v2.
+
 ### Edge cases / Gotchas
-- `SQLStatement.equals()` is the same one that backs `STATEMENT_CACHE_SIZE` AST cache, so the cache-key behavior matches existing precedent.
+- `SQLStatement.equals()` is the same one that backs `STATEMENT_CACHE_SIZE` AST cache; `CacheKey.equals` diverges only in stripping skip.
 - Parameters containing mutable objects (e.g., a `List` the caller reuses) are a footgun — if the caller mutates the list after `query()` returns, our key becomes stale. Document and defensive-copy the parameter map at lookup time. Cost is one shallow copy per query call.
 - Two parameter maps differing only in iteration order on `HashMap` would collide on equals (good — they're semantically the same parameter set).
-- D12 AST identity fast-path: `STATEMENT_CACHE` returns the same `SQLStatement` instance for identical-text queries, so `CacheKey.equals` short-circuits on `stmt == other.stmt` before the deep AST walk.
+- D12 AST identity fast-path: `STATEMENT_CACHE` returns the same `SQLStatement` instance for identical-text queries, so `CacheKey.equals` short-circuits on `stmt == other.stmt` before the field-by-field walk. The fast-path requires identical text including SKIP; `STATEMENT_CACHE` keys by text, so `SKIP 0` and `SKIP 20` are different STATEMENT_CACHE entries and yield different SQLStatement instances. The identity fast-path won't fire across SKIP variants; the deep equals path (which strips SKIP) does.
+- MATCH grammar accepts SKIP at the statement level (after RETURN). Symmetric handling.
 
 ### References
-- D-records: D2, D12
+- D-records: D2, D12, D16 (canonical key for SKIP)
 
 ## Pause/resume mechanics
 
@@ -281,7 +316,8 @@ A static helper `ShapeClassifier.classify(SQLStatement) → CacheableShape` deci
 
 - **RECORD** — simple SELECT shape (`SELECT [projection] FROM Class [WHERE simple-predicate] [ORDER BY columns | deterministic-modifier-chain] [SKIP n] [LIMIT m]`), no GROUP BY, no aggregates, no LET, no subqueries, no LET-based unionall. `LIMIT` cacheability gate: `LIMIT m` with `m <= maxRecordsPerEntry` (or no LIMIT) is cacheable; `m > maxRecordsPerEntry` → NONE (the cache cannot fit the user's requested rowcount; truncating the plan to the cap would silently shorten the user's result). `SKIP` analogous: `SKIP n LIMIT m` with `n + m <= maxRecordsPerEntry` is cacheable; above the cap → NONE. The over-fetch mechanism (§ Over-fetch for backfill) provides backfill within the cap. Also: single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <projection of u>` (Etap A) classifies as RECORD with a stored `returnProjector` that constructs single-binding tuples from a record.
 - **AGGREGATE_***  — single-aggregate SELECT shape (`SELECT <COUNT(*)|SUM(prop)|AVG(prop)|MIN(prop)|MAX(prop)> FROM Class [WHERE simple-predicate]`), no GROUP BY, no HAVING, no expression in aggregate argument.
-- **NONE** — anything else: GROUP BY, HAVING, expression-aggregates, MEDIAN/MODE/PERCENTILE/COUNT DISTINCT, subqueries in WHERE/target, LET clauses, expression-ORDER BY containing non-deterministic functions, `LIMIT > maxRecordsPerEntry`, `SKIP + LIMIT > maxRecordsPerEntry`, multi-alias MATCH (Etap B deferred to separate ADR), MATCH patterns with cross-alias-state WHEREs (`$current`, `$matched`). NONE entries are **non-cacheable** — `cache.put` skips them; the query falls through to direct execution. There is no "wipe on first mutation" path under lazy.
+- **MATCH_TUPLE_MULTI** — multi-alias MATCH (more than one pattern node, or any pattern node with edges, or cross-join MATCH with multiple top-level match-expressions). Every pattern node carries a `class:` annotation; no LET / UNWIND in scope; no cross-alias-state references in pattern WHEREs (`$current`, `$matched`, `$parent`, `$depth`, `${otherAlias}.X`); no subqueries in pattern WHEREs. SKIP / LIMIT bounded by the same `n + m <= maxRecordsPerEntry` cap as RECORD. Cacheable in v1 with partial-Etap-B delta build (DELETED + UPDATED hit cache via reverseIndex; CREATED on a pattern class tombstones the entry — see § MATCH multi-alias (partial Etap B in v1) below). Full constrained-pattern-walk discovery of new tuples on CREATED is deferred to a separate ADR.
+- **NONE** — anything else: GROUP BY, HAVING, expression-aggregates, MEDIAN/MODE/PERCENTILE/COUNT DISTINCT, subqueries in WHERE/target, LET clauses, expression-ORDER BY containing non-deterministic functions, `LIMIT > maxRecordsPerEntry`, `SKIP + LIMIT > maxRecordsPerEntry`, MATCH patterns with any pattern node lacking `class:` (defeats polymorphism gate), MATCH patterns with cross-alias-state WHEREs (`$current`, `$matched`), MATCH patterns with subqueries in pattern WHEREs, MATCH patterns with LET / UNWIND. NONE entries are **non-cacheable** — `cache.put` skips them; the query falls through to direct execution. There is no "wipe on first mutation" path under lazy.
 
 ### TxDeltaCursor — record/match shape
 
@@ -458,6 +494,82 @@ Single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <project
 - `returnProjector: Function<RecordAbstract, Result>` — a closure built at entry construction from the MATCH `RETURN` clause that takes a single record and produces a `Result` shaped like the original execution's output (e.g., `RETURN u, u.name` produces `Result{u: rec, name: rec.name}`).
 
 Delta-build for MATCH Etap A is the RECORD path with the `returnProjector` applied to each inject-list entry. Equivalence vs fresh re-execution validated by a Track 6 step-g test that runs the same MATCH twice (cache miss then hit + delta) and asserts result-set equality across CREATED/UPDATED/DELETED scenarios.
+
+### MATCH multi-alias (partial Etap B in v1)
+
+Multi-alias MATCH (more than one pattern node, or any pattern node with edges, or cross-join with multiple top-level match-expressions) classifies as `MATCH_TUPLE_MULTI` when the classify gates hold (every node has `class:`, no LET/UNWIND, no cross-alias-state references in pattern WHEREs, no subqueries in pattern WHEREs, `n + m <= maxRecordsPerEntry`). Entries carry per-tuple bookkeeping that mirrors the eager design's `MATCH_TUPLE` but is consumed by a lazy DeltaBuilder rather than per-mutation invalidation:
+
+- `effectiveFromClasses = ⋃ aliasClasses.values()` (union of every alias's subclass closure)
+- `aliasClasses: Map<String, Set<String>>` — per-alias class set with subclass closure via `SchemaClass.getAllSubclasses()` (D11 symmetry)
+- `aliasWheres: Map<String, SQLWhereClause>` — per-alias pattern-node WHERE clause
+- `contributingRids: Map<Integer, Set<RID>>` — per-tuple-index, the set of RIDs across all alias bindings in that tuple. Populated during stream-pull as each `Result` is appended to `entry.results`.
+- `reverseIndex: Map<RID, Set<Integer>>` — inverse lookup; for each RID, the set of tuple-indices that reference it. Populated incrementally alongside `contributingRids`.
+- `tombstoned: boolean` — set true at delta-build when any CREATED mutation hits a class in `effectiveFromClasses`. A tombstoned entry is removed from the cache at lookup time and forces re-execution.
+
+**Population**. `CachedResultSetView` pulls each `Result` from `entry.stream` and appends to `entry.results`. For each alias `a` in `aliasClasses.keySet()`, the view reads `r.getProperty(a)` (the alias-bound record), extracts its RID, and updates `contributingRids[currentTupleIndex].add(rid)` plus `reverseIndex.computeIfAbsent(rid, _ -> new HashSet<>()).add(currentTupleIndex)`. Adds ~one HashSet lookup per alias per tuple to stream-pull cost; bounded by entry size × alias count.
+
+**DeltaBuilder.buildForMatchMulti(entry, tx, ctx)**. Two-pass algorithm with tombstone short-circuit:
+
+```
+1. Snapshot recordOps:
+   snapshot = new ArrayList<>(tx.recordOperations.values())
+
+2. Tombstone-trigger pre-scan:
+   for op in snapshot:
+     if op.type == CREATED:
+       cls = op.record's schema class name (Entity-guarded; non-Entity skips this op)
+       if cls in entry.effectiveFromClasses:
+         entry.tombstoned = true
+         return TOMBSTONE  // signal lookup to evict + miss
+
+3. Build per-tuple skip set + per-RID skip set:
+   tupleSkipSet = new HashSet<Integer>()
+   ridSkipSet = new HashSet<RID>()
+   for op in snapshot:
+     class-filter via effectiveFromClasses; skip if no match
+     rid = op.record.rid
+     affectedTuples = reverseIndex.get(rid)  // may be empty
+     if op.type == DELETED:
+       tupleSkipSet.addAll(affectedTuples)
+       ridSkipSet.add(rid)
+     elif op.type == UPDATED:
+       for tupleIndex in affectedTuples:
+         // find which alias(es) bind this rid in this tuple
+         for alias in aliasClasses.keySet():
+           if rid binds to alias in tuple[tupleIndex]:
+             if !aliasWheres[alias].matchesFilters(op.record, ctx):
+               tupleSkipSet.add(tupleIndex)
+               break  // one failing alias is enough to drop the tuple
+       ridSkipSet.add(rid)  // also suppress stream-pull-append re-emission of this RID
+       // ridSkipSet on UPDATED guards against the stream emitting a tuple containing
+       // this rid where storage hasn't yet seen the in-tx update — the WHERE check
+       // would pass on stale storage state but fail on post-update state, and the
+       // tuple wouldn't exist in fresh re-execution.
+
+4. Return MatchMultiDelta(tupleSkipSet, ridSkipSet).
+```
+
+**View iteration**. View carries the immutable `MatchMultiDelta`. `view.next()`:
+- Skip cached tuples whose index is in `tupleSkipSet`.
+- Materialize from stream when cache is exhausted; for each pulled `Result`, before appending: for each alias's bound RID, check `ridSkipSet`. If ANY alias's binding is in `ridSkipSet`, drop the tuple (don't append, pull next). Otherwise append, populate `reverseIndex` and `contributingRids` for the new tuple index, return.
+- SKIP and LIMIT applied at view-level via the same `emitted` counter as RECORD shape.
+
+**Tombstone handling**. At cache lookup time, `cache.lookup(key)`:
+- Find entry. If shape is `MATCH_TUPLE_MULTI`, invoke `DeltaBuilder.buildForMatchMulti`.
+- If builder returns TOMBSTONE: `entries.remove(key)`, return null (miss). Caller falls through to `statement.execute(...)`. Next subsequent lookup re-populates the entry from scratch.
+- Else: cache the `MatchMultiDelta` on the entry (Option C sharing via `mutationVersion`) and return the entry.
+
+Tombstone is single-shot per mutationVersion increment. A second CREATED in the same mutationVersion-window is idempotent (entry already tombstoned). Once the entry is removed and re-populated, the next CREATED triggers a new tombstone on the new entry.
+
+**What this covers**:
+- `MATCH {as:i, class:Issue}.out('project'){as:p, class:Project} RETURN i, p` with `tx.save(updated_issue)` — UPDATED. Re-eval pattern's WHERE for the `i` alias; if the issue still matches the pattern node's WHERE, the tuple stays; otherwise the tuple is dropped.
+- `MATCH {as:i, class:Issue}.out('project'){as:p, class:Project} RETURN i, p` with `tx.delete(some_issue)` — DELETED. All tuples containing that issue's RID are dropped via reverseIndex lookup.
+
+**What this does NOT cover** (deferred to separate ADR):
+- `MATCH {as:i, class:Issue}.out('project'){as:p, class:Project} RETURN i, p` with `tx.save(new Issue)` — CREATED. The cache cannot discover what new tuples should emerge (would require constrained pattern walk on the new issue starting from each alias position). Entry is tombstoned; next query re-executes fresh.
+- Edge-CREATED dispatch (creating a new edge between existing vertices can introduce new tuples in a multi-alias pattern). Edge records also flow through `addRecordOperation`; the tombstone trigger covers them if the edge class is in `effectiveFromClasses` (which it will be for any pattern that references that edge class explicitly).
+
+**Why partial Etap B is the right v1 scope**. The eager design's `MergeKind.MATCH_TUPLE` already covered DELETED + UPDATED for multi-alias MATCH (with K0 wipe on CREATED). The lazy pivot dropped multi-alias MATCH coverage entirely as a side effect of architectural simplification — that was not an intentional cost-benefit decision. Restoring DELETED + UPDATED coverage reuses the eager design's bookkeeping (reverseIndex, aliasClasses, aliasWheres) in the lazy framework at modest implementation cost. The truly hard part (constrained-pattern-walk discovery for CREATED) stays in a dedicated ADR because it requires net-new infrastructure (`MatchPrefetchStep` integration, edge-CREATED dispatch hook).
 
 ### Over-fetch for backfill (SKIP and LIMIT handling)
 
