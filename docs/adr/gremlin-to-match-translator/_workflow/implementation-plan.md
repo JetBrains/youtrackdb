@@ -688,7 +688,6 @@ What changes:
   > pairing, non-adjacent edge filtering, walker refactor, multi-label
   > edges, anonymous-alias generation, correctness tests.
   > **Depends on:** Track 2.
-  > **Depends on:** Track 2.
 
 - [ ] Track 4: Filtering + predicates
   > Extends Track 3's predicate adapter skeleton with the remaining
