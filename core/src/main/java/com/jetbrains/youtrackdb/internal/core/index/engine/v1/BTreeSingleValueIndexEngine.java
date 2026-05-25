@@ -636,18 +636,49 @@ public final class BTreeSingleValueIndexEngine
           mgr.getKeyFieldCount());
     }
 
-    // Recalibrate from exact count — persist first so that if setApproximateEntriesCount
-    // throws, the in-memory counters remain at their prior (approximate) values rather
-    // than diverging from the rolled-back persisted state.
+    // Recalibrate from exact counts using mixed-mode encoding.
     //
-    // Note: if the enclosing atomic operation rolls back after this point, WAL reverts
-    // the persisted page but the in-memory counters keep the new values. This temporary
-    // divergence is acceptable because counters are approximate by design and the next
-    // buildInitialHistogram() or load() will recalibrate them.
+    // Persisted side: the sbTree.setApproximateEntriesCount call below is
+    // WAL-tracked through the AOM lifecycle. It writes the absolute target
+    // value (not a delta), so on every successful recalibration the persisted
+    // EP page lands at the exact count regardless of the pre-rebuild
+    // persisted value — pre-existing in-mem-vs-persisted drift heals here.
+    // On rollback the WAL reverts this write.
+    //
+    // In-mem side: the AtomicLong counters do NOT move inline. The snapshot
+    // delta (target - currentInMem) is recorded on the AtomicOperation via
+    // IndexCountDelta.accumulateInMemRecalibration and applied by Hook B
+    // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds.
+    // On the only production path that reaches this method
+    // (IndexAbstract.buildHistogramAfterFill via executeInsideAtomicOperation),
+    // no per-index lock is held during Hook B's apply; concurrent commits on
+    // the same engine compose via AtomicLong.addAndGet's additive semantics.
+    // On rollback the holder is dropped and the in-mem counters stay at
+    // their pre-recalibration value, so the persisted-side WAL revert and
+    // the in-mem-side no-op stay in step. The structural divergence that
+    // produced the underflow cascade is unreachable on this path.
+    //
+    // Scope: the structural-impossibility claim covers only the count
+    // counters (approximateIndexEntriesCount, approximateNullCount). The
+    // IndexHistogramManager.cache snapshots installed by the preceding
+    // mgr.buildHistogram call are NOT reverted on rollback (a heap-only
+    // cache rebuilt on next storage open; out-of-scope follow-up).
+    //
+    // SV-specific note: persistCountDelta ignores nullDelta on this engine
+    // (the single tree stores nulls and non-nulls together; the persisted
+    // side moves by totalDelta alone). The in-mem-only accumulator below
+    // is therefore the sole carrier of the null-counter recalibration on
+    // this path.
     long exactTotal = scannedNonNull + exactNullCount;
     sbTree.setApproximateEntriesCount(atomicOperation, exactTotal);
-    approximateIndexEntriesCount.set(exactTotal);
-    approximateNullCount.set(exactNullCount);
+    long currentTotal = approximateIndexEntriesCount.get();
+    long currentNull = approximateNullCount.get();
+    assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
+        : "buildInitialHistogram() snapshot invariant violated on engine="
+            + name + " id=" + id
+            + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
+    IndexCountDelta.accumulateInMemRecalibration(
+        atomicOperation, id, exactTotal - currentTotal, exactNullCount - currentNull);
   }
 
   @Override
