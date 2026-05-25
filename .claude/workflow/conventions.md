@@ -598,7 +598,7 @@ each track. The block survives Phase 4 (`design.md` is removed in the
 cleanup commit; `conventions.md` is not):
 
 ```bash
-PLAN_DIR="docs/adr/<resolved-dir-name>"
+PLAN_DIR="docs/adr/<dir-name>"
 STAMPED_SHAS=""
 UNSTAMPED_FILES=""
 # design-mechanics.md is optional; absent until the length trigger fires.
@@ -617,9 +617,9 @@ for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
 done
 ```
 
-The `<resolved-dir-name>` placeholder is the active plan dir resolved
-per (g) above. Downstream writers replace it at invocation time; the
-literal form lands here so the block stays copy-paste-ready.
+The `<dir-name>` placeholder is the active plan dir resolved per (g)
+above. Downstream writers replace it at invocation time; the literal
+form lands here so the block stays copy-paste-ready.
 
 When both `STAMPED_SHAS` and `UNSTAMPED_FILES` are empty after the
 walk, the active plan has no stampable artifacts on disk (for example,
@@ -640,7 +640,7 @@ stamping sense and do not carry workflow-SHA stamps. Adding the staged
 prefix to the walk would produce spurious `UNSTAMPED_FILES` entries on
 every workflow-modifying plan and route them through the bootstrap
 prompt in (d), which is the wrong recovery path for an authoring buffer
-that gets promoted into the live tree at Phase 4.
+that Phase 4 promotes into the live tree.
 
 ## 1.7 Staging for workflow-modifying branches
 
@@ -673,23 +673,25 @@ The staged subtree lives under the active plan's `_workflow/` tree at a
 fixed two-level prefix:
 
 ```
-docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/workflow/...
-docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/skills/...
+docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/...
+docs/adr/<dir-name>/_workflow/staged-workflow/.claude/skills/...
 ```
 
 Each staged file mirrors its live counterpart's relative path under the
 `.claude/` prefix byte-for-byte. A staged copy of
 `.claude/workflow/implementer-rules.md` lives at
-`docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/workflow/implementer-rules.md`;
+`docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/implementer-rules.md`;
 a staged copy of `.claude/skills/edit-design/SKILL.md` lives at
-`docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/skills/edit-design/SKILL.md`.
+`docs/adr/<dir-name>/_workflow/staged-workflow/.claude/skills/edit-design/SKILL.md`.
 No other prefixes participate: workflow files outside `.claude/workflow/`
 and `.claude/skills/` are not stageable under this convention; the
 staging path layout does not extend to files this convention does not
 govern.
 
-The `<plan-dir>` placeholder is the active plan's directory resolved
-per §1.6 (g) *Active-plan scope*. The staged subtree is plain filesystem
+The `<dir-name>` placeholder is the active plan's directory resolved
+per §1.6 (g) *Active-plan scope*. (This placeholder is the same one
+§1.6(g) defines; the restatement here is a cross-anchor for §1.7
+readers.) The staged subtree is plain filesystem
 state under the existing `_workflow/` tree, which the Phase 4 cleanup
 commit removes in one sweep alongside the rest of `_workflow/`; the
 post-merge `develop` history carries only the live promoted files plus
@@ -703,6 +705,10 @@ the `### Constraints` section of `implementation-plan.md`:
 ```
 This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
 ```
+
+The literal match is case-sensitive and includes the terminal period;
+the gate's allow-clause does not accept matches that drop trailing
+punctuation.
 
 The sentence appears as a standalone bullet or paragraph inside
 `### Constraints`. The exact wording is the single string every
@@ -733,15 +739,18 @@ a distinct consumer:
   (b). When the marker is present, the path-mapping rule in (e) and
   the pre-commit gate in `implementer-rules.md` activate; when the
   marker is absent, the implementer writes to live paths normally.
-  This signal works from the very first step of execution, before any
+  This signal works from the first step of execution, before any
   staged content exists.
-- **`<plan-dir>/_workflow/staged-workflow/` directory presence** drives
-  the Phase 4 promotion guard. The Phase 4 prompt at
-  `prompts/create-final-design.md` checks for the directory and skips
-  the promotion commit when it is absent. This signal answers the
-  operationally distinct question "is there staged content to promote
-  into the live tree" rather than "is the implementer enforcement
-  gate active."
+- **`.claude/` subdirectory presence under
+  `<dir-name>/_workflow/staged-workflow/`** drives the Phase 4
+  promotion guard. The Phase 4 prompt at
+  `prompts/create-final-design.md` checks for the `.claude/`
+  subdirectory at that specific level (a partially-stripped or empty
+  `staged-workflow/` shell does not trigger promotion) and skips the
+  promotion commit when the subdirectory is absent. This signal
+  answers the operationally distinct question "is there staged content
+  to promote into the live tree" rather than "is the implementer
+  enforcement gate active."
 
 The two signals serve distinct purposes by construction. Constraints
 declaring workflow-modifying without any staged content is the legitimate
@@ -788,7 +797,7 @@ the implementer's per-spawn read site only.
 When the workflow-modifying marker is present, the implementer routes
 every write whose target path begins with `.claude/workflow/` or
 `.claude/skills/` to the corresponding staged path under
-`<plan-dir>/_workflow/staged-workflow/`. The routing covers every
+`<dir-name>/_workflow/staged-workflow/`. The routing covers every
 write surface (`Edit`, `Write`, `steroid_apply_patch`,
 `steroid_execute_code` file writes, and `Bash` redirections) by
 rewriting the target path before the tool call lands.
@@ -803,6 +812,17 @@ preserves develop's state as the staged copy's baseline so the eventual
 Phase 4 `cp -r` overwrites the live tree with a coherent target rather
 than an empty-file shape that loses every part of the original the
 plan did not explicitly rewrite.
+
+**Promotion is additive only.** The Phase 4 `cp -r` lays the staged
+subtree over the live tree, which covers additions and modifications
+but does not propagate deletions. A plan that needs to retire a live
+`.claude/workflow/**` or `.claude/skills/**` file cannot route the
+deletion through staging; the workaround is to land the deletion in a
+separate commit on a non-workflow-modifying branch, or to apply it as
+a Phase 4 hand-edit immediately after the promotion commit lands.
+Staged-only-new files (files that exist in the staged subtree but not
+in the live tree) are added silently by `cp -r`; no warning is
+emitted, and the contract is silent-additive.
 
 The pre-commit gate in `implementer-rules.md` enforces the write
 routing at commit time: any commit on a workflow-modifying plan whose
@@ -883,7 +903,7 @@ with the following shape on disk (other artifacts elided):
     X.md                          # develop's state, unchanged
 docs/
   adr/
-    <plan-dir>/
+    <dir-name>/
       _workflow/
         implementation-plan.md    # Constraints declares workflow-modifying
         plan/
@@ -911,8 +931,8 @@ this branch's staging machinery.
 Phase 4 on a workflow-modifying plan opens a pause window between the
 promote-staged-workflow commit (Step 4 of
 `prompts/create-final-design.md`) and the subsequent final-artifacts
-commit (Step 5). If the session ends inside that window — manual
-interruption, context exhaustion, host loss — the next session
+commit (Step 5). If the session ends inside that window (manual
+interruption, context exhaustion, host loss), the next session
 re-enters Phase 4 from the top.
 
 On re-entry, the staged subtree is still on disk (cleanup runs in

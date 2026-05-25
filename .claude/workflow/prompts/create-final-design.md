@@ -263,13 +263,15 @@ Rules:
 **Step 4 — Promote staged workflow changes (workflow-modifying plans only).**
 
 Workflow-modifying plans accumulate every `.claude/workflow/**` and
-`.claude/skills/**` edit under `<plan-dir>/_workflow/staged-workflow/`
+`.claude/skills/**` edit under `<dir-name>/_workflow/staged-workflow/`
 throughout Phase B and Phase C per
 [`../conventions.md`](../conventions.md) §1.7; this step copies the
 staged subtree onto the live tree in one commit before the
-final-artifacts commit. Non-workflow-modifying plans have no staged
-subtree on disk and the step is a silent no-op for them — Phase 4
-stays in its two-commit shape.
+final-artifacts commit. The promotion is additive only per
+`../conventions.md` §1.7(e); plans that need to delete live workflow
+files land the deletion outside staging. Non-workflow-modifying plans
+have no staged subtree on disk and the step is a silent no-op for them
+— Phase 4 stays in its two-commit shape.
 
 The directory-presence guard checks for the `.claude/` subdirectory
 under the staged path rather than the bare staged directory: a

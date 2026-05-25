@@ -216,13 +216,13 @@ rules:
   When the marker is present, route every write whose target path
   begins with `.claude/workflow/` or `.claude/skills/` to the
   corresponding staged path under
-  `docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/...` —
-  byte-for-byte mirror of the live relative path under the `.claude/`
-  prefix. A write to `.claude/workflow/X.md` rewrites to
-  `docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/workflow/X.md`.
-  The rewrite covers every write surface — `Edit`, `Write`,
+  `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/...`. Staged
+  paths mirror the live relative path under the `.claude/` prefix
+  byte-for-byte. A write to `.claude/workflow/X.md` rewrites to
+  `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/X.md`.
+  The rewrite covers every write surface (`Edit`, `Write`,
   `steroid_apply_patch`, `steroid_execute_code` file writes, and `Bash`
-  redirections — per `conventions.md` §1.7(e). On first touch of a
+  redirections) per `conventions.md` §1.7(e). On first touch of a
   live file with no staged copy, copy the live file to the staged path
   verbatim, then apply the edit to the staged copy; subsequent writes
   to the same file edit the staged copy directly. The copy-then-edit
