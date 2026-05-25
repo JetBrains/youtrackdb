@@ -582,26 +582,102 @@ operators:
 | `Compare.lte` | `SQLLeOperator` |
 
 **NULL and collection comparison semantics.** TinkerPop and YTDB diverge
-on a few corner cases that the recognizer must intercept:
+on a few corner cases that the recognizer must intercept. The truth
+table below was verified against `gremlin-core-3.8.1` (which routes
+`Compare.eq` through `GremlinValueComparator.COMPARABILITY.equals` —
+classifies operands by `Type` priority enum so `Number` and `List` are
+incomparable) and against
+`core/.../sql/operator/QueryOperatorEquals.java` (lines 63-69 auto-unbox
+a singleton collection against a scalar; lines 71-73 short-circuit
+`null` operands to `false`). `SQLNeOperator` is defined as
+`!QueryOperatorEquals.equals(...)`, which inverts the null result and
+keeps the singleton-unbox path.
 
-- `P.eq(null)` / `P.neq(null)`: TinkerPop returns `false` for both when
-  the field value is `null` (per `Compare.eq(null, null)` returning
-  `false` — `null` is not equal to anything, including itself). YTDB's
-  `SQLEqualsOperator` against a `null` literal evaluates to `null` per
-  three-valued SQL logic, which the planner treats as filter-false. The
-  result-set effect is identical (the row is filtered out), but the
-  `P.neq(null)` case differs: TinkerPop returns `true` when the field
-  is non-null; YTDB returns `null` (filter-false). The recognizer
-  rewrites `P.neq(null)` to `field IS NOT NULL` and `P.eq(null)` to
-  `field IS NULL` so the result matches Gremlin's boolean view.
-- `P.eq([a])` against a scalar field: TinkerPop's `Compare.eq` is
-  reference / structural equality on the predicate's argument; a
-  singleton collection compares unequal to its element (a Java `List`
-  with one entry is not `.equals` to the entry). YTDB applies the same
-  rule. No special handling needed.
-- `Contains.within([a])` over a scalar field: collapses to `field = a`
-  via `SQLInCondition` (single-element list); the recognizer does not
-  optimize this — the planner handles it.
+| Predicate | Field value | TinkerPop | YTDB raw | Diverges? |
+|---|---|---|---|---|
+| `P.eq(null)` | `null` | TRUE | FALSE | **yes** — TP keeps, YTDB drops |
+| `P.eq(null)` | non-null | FALSE | FALSE | no |
+| `P.neq(null)` | `null` | FALSE | TRUE | **yes** — TP drops, YTDB keeps |
+| `P.neq(null)` | non-null | TRUE | TRUE | no |
+| `P.eq([a])` (size 1) | scalar `a` | FALSE (type mismatch) | TRUE (singleton unboxed) | **yes** |
+| `P.eq([a])` (size 1) | list `[a]` | TRUE | TRUE | no |
+| `P.eq([a, b])` (size ≥2) | any | structural | structural | no |
+| `P.eq([])` (size 0) | any | typically FALSE | typically FALSE | no |
+| `P.neq([a])` (size 1) | scalar `a` | TRUE | FALSE | **yes** |
+| `Contains.within([a])` | scalar `a` | TRUE | TRUE | no |
+
+The auto-unbox branch in `QueryOperatorEquals.equals` (lines 63-69) is
+guarded by `col.size() == 1` AND `the other operand is not a
+Collection` — so it fires only for the **singleton-collection-vs-scalar**
+shape. Non-singleton collection literals (`[a, b]`, `[]`) fall through
+to `iLeft.equals(right)` which is Java `List.equals` — structural and
+order-sensitive, matching `COMPARABILITY.contentsComparable` on the
+TinkerPop side. Both engines agree on every non-singleton row above.
+
+Recognizer rules that close the divergence:
+
+- **`P.eq(null)` / `P.neq(null)`**: rewrite to `field IS NULL` /
+  `field IS NOT NULL`. The `IS NULL` predicate is a three-valued check
+  that returns the boolean Gremlin expects: TRUE when the field is null
+  (for `eq`) or non-null (for `neq`), FALSE otherwise. Without the
+  rewrite, `field = null` and `field != null` would route through
+  `QueryOperatorEquals.equals(..., null, ...)` which returns FALSE for
+  both branches, producing the wrong boolean in exactly one subcase per
+  predicate (rows with `field = null`).
+- **`P.eq(Collection)` / `P.neq(Collection)`** — **narrow decline by
+  collection size** (Phase 1):
+  - `coll.size() == 1` (singleton literal): **decline under D3
+    all-or-nothing**. This is the only configuration where the auto-
+    unbox in `QueryOperatorEquals.java:63-69` fires, and we cannot
+    distinguish at translation time whether the field will be scalar
+    or collection-typed at runtime (schema-less / mixed-mode classes
+    can hold either). Native TinkerPop evaluates the predicate
+    against the in-memory traverser and gets the right answer.
+  - `coll.size() != 1` (empty literal or multi-element literal):
+    translate normally to `field = listLiteral` / `field != listLiteral`.
+    Both engines fall through to `iLeft.equals(right)` / Java
+    `List.equals` (YTDB) and `COMPARABILITY.contentsComparable` (TP),
+    which are both structural and order-sensitive — same result.
+  - Phase 2 narrows the decline further with **schema-aware rewrite**
+    when the field's `PropertyType` is statically known:
+    - `STRING` / `INTEGER` / `LONG` / `DOUBLE` / ... (scalar types) +
+      `P.eq([a])` → emit literal `false` (TP returns FALSE for
+      scalar-vs-list, so the predicate is a known-false filter).
+    - `STRING` / scalar + `P.neq([a])` → emit literal `true`.
+    - `EMBEDDEDLIST` / `LINKLIST` / `EMBEDDEDSET` / `LINKSET` (collection
+      types) + `P.eq([a])` → emit `field = listLiteral` (both engines
+      structural, no unbox).
+    - Schema-less (no `PropertyType` on the property) → fall back to
+      Phase 1 decline.
+    The schema-aware rewrite hooks the same path Phase 2 will need
+    for other type-aware optimizations (typed index lookup, RID
+    range narrowing for collection-typed properties), so it lands
+    naturally with that work — not as a one-off.
+  This rule applies whether the value comes from `P.eq(coll)` directly
+  or from a one-element argument list — the BiPredicate is still
+  `Compare.eq`.
+- **`Contains.within(coll)` / `Contains.without(coll)`**: keep the
+  current translation to `SQLInCondition` / `SQLNotInCondition`.
+  `Contains.within.test(a, [a])` checks membership (`a in [a]` →
+  TRUE), and YTDB's `SQLInCondition` also tests membership — same
+  semantics, no auto-unbox path involved. Single-element collection
+  arguments are handled correctly without rewrite.
+
+A Phase 1 regression-test pin in Track 4 (Cucumber feature or unit
+test on the recogniser) MUST cover:
+- `eq(null)` and `neq(null)` against a null-valued property — assert
+  the translated MATCH returns the same multiset as native.
+- `eq([a])` and `neq([a])` (size-1 literal) against a scalar property
+  equal to `a` — assert the recogniser declines and Phase 1 falls back
+  to native.
+- `eq([a, b])` (size-2 literal) against a list-typed property equal to
+  `[a, b]` — assert the translated MATCH returns the same multiset
+  (translation path, not decline).
+- `eq([])` (empty literal) against any property — assert the translated
+  MATCH returns the same multiset (translation path, not decline).
+
+Phase 2 adds schema-aware rewrite tests for the typed-property
+configurations once the schema-aware rewrite path lands.
 
 **Contains predicates**: `Contains.within` → `SQLInCondition` with the
 `SQLCollection` populated from the predicate's value (which is always a
@@ -1512,6 +1588,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Collection / list ops | `fold`, `unfold`, `reverse` | TinkerPop list-shaping steps that materialize / re-shape the traverser stream; MATCH has no in-pipeline list operator that mirrors them precisely, and `fold` interacts with aggregator semantics differently | Phase 2 audit of the whole TinkerPop step list will decide whether `fold` becomes a boundary-step variant, whether `unfold` is implementable on top of `collect(*)` output, and whether `reverse` is even reachable via MATCH |
 | Case-sensitive string predicates | `TextP.startingWith` / `endingWith` / `notStartingWith` / `notEndingWith` / `regex` / `notRegex` (and the equivalent `Text.*` legacy forms) | `SQLLikeOperator` is case-insensitive (`QueryHelper.like` lowercases both operands) so it would return a different multiset from TinkerPop's case-sensitive `startingWith` / `endingWith`; `SQLMatchesCondition` uses `Pattern.matches()` (whole-string) where TinkerPop uses `find()` (partial). Phase 1 declines and lets the native pipeline handle it correctly. | Phase 2: add a case-sensitive prefix/suffix operator (or expose a case-sensitivity flag on LIKE) and a `find`-semantic regex operator on the YTDB side |
 | Tail | `tail(n)` | Order-dependent — Gremlin's `tail` keeps the last N traversers in arrival order, which is not what `ORDER BY ... LIMIT` produces; needs either a `Tail` execution step on the MATCH side or a buffer in the boundary step | Simple add: model as a bounded ring buffer in the boundary step, fed by `ELEMENT` / `MAP` output |
+| Singleton-collection equality | `P.eq([a])` / `P.neq([a])` (size-1 collection literal) when the field's `PropertyType` is not in the schema | `QueryOperatorEquals.equals` auto-unboxes a singleton `Collection` against a scalar (`QueryOperatorEquals.java:63-69`), diverging from TinkerPop's structural-equality semantics under `COMPARABILITY`. Phase 1 declines for the size-1 case because the field cardinality cannot be inferred at translation time in schema-less / mixed-mode classes. Multi-element and empty collection literals (`size != 1`) translate normally — they bypass the unbox branch. | Phase 2: schema-aware rewrite — when the field's `PropertyType` is statically known, route scalar-typed fields with `eq([a])` to the constant `false` filter and collection-typed fields with `eq([a])` to a normal `field = listLit` translation. Schema-less remains declined. The infrastructure required (per-property `PropertyType` lookup at translation time) is shared with other Phase 2 type-aware optimizations (typed index lookup, RID-range narrowing for collection-typed properties), so it lands as part of that work, not as a one-off. |
 
 **Type-keyed recognizer dispatch ships in Phase 1** (see "Recogniser
 dispatch" in Class Design). No follow-up migration is queued for
