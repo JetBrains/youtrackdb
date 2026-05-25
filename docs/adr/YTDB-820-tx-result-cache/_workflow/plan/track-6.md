@@ -25,7 +25,7 @@ Existing relevant code:
 ## Plan of Work
 
 1. `ShapeClassifier.classify(SQLMatchStatement)` — Etap A condition check. Reject patterns with multi-alias, edges, cross-alias-state WHERE references (`$current`, `$matched`, `${otherAlias}.…`), LET, UNWIND, subqueries in pattern WHEREs.
-2. `returnProjector` builder — given `returnItems: List<SQLExpression>` and the alias name, build a closure that takes a record and produces the projection. Reuse existing expression-eval machinery (`SQLExpression.execute(...)` against the alias-bound `Result`).
+2. `returnProjector` builder — given `returnItems: List<SQLExpression>` and the alias name, build a closure that, on each invocation `(rec, ctx)`: (a) constructs a `ResultInternal` binding the record under the alias name (e.g., `Result{alias → rec}`); (b) sets `ctx.setVariable(alias, boundResult)` so that `SQLExpression.execute` resolves `alias.field` references correctly; (c) iterates `returnItems` and calls `expr.execute(boundResult, ctx)` for each, accumulating the (alias, value) pairs into the output Result. Without step (b) the binding is missing and `u.someProp + 1` would fail to resolve `u`. Restrict Etap A admission in `ShapeClassifier` to projections that the existing `SQLExpression.execute` infrastructure can handle against a single alias-bound Result; any expression referencing `$matched`, `$current`, or another alias falls back to NONE.
 3. `DeltaBuilder.buildForRecord` integration — flag on entry indicates "use returnProjector" path; defaults to identity for SELECT-flavored entries.
 4. `OrderByComparator` for MATCH — projected tuples can have ORDER BY on either record properties (`ORDER BY u.name`) or projection aliases (`ORDER BY name`). Build comparator that resolves to the appropriate value in the projected `Result`.
 5. Test matrix (T6 set):
@@ -36,6 +36,7 @@ Existing relevant code:
    - T6e: Pattern with edges — classify NONE.
    - T6f: Cross-alias WHERE (`WHERE name = $matched.u.name`) — classify NONE.
    - T6g (I4 for MATCH): cache-then-mutate scenario equivalent to fresh re-execution.
+   - T6h (L5 ctx-binding): MATCH `{as:u, class:User WHERE active=true} RETURN u.name, u.age * 2 AS double_age` — Etap A delta CREATE produces a Result with correct `u.name` AND correct `double_age` from the projector closure. Verifies the alias-binding step in `returnProjector` works for computed expressions, not just plain `RETURN u`.
 
 **Invariants to preserve.** I4 for MATCH Etap A: view output equivalent to fresh MATCH execution. Multi-alias non-coverage: classify returns NONE for shapes outside Etap A.
 

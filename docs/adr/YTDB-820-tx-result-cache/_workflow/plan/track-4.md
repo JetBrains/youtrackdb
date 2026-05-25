@@ -28,11 +28,12 @@ Existing relevant code:
   - Iterate `recordOps.values()`.
   - For each: class filter (`effectiveFromClasses.contains(record.getSchemaClass().getName())` + Entity-shape guard), WHERE eval, cache-membership check.
   - Dispatch table (from design.md § Lazy merge-on-read → TxDeltaCursor):
-    - CREATED + match_after=true → inject_list.add
-    - UPDATED + cached=true + match_after=true → skip_set.add + inject_list.add
-    - UPDATED + cached=true + match_after=false → skip_set.add
-    - UPDATED + cached=false + match_after=true → inject_list.add
-    - DELETED + cached=true → skip_set.add
+    - CREATED + match_after=true → inject_list.add (CREATED RIDs are temp; cached_at_build irrelevant)
+    - CREATED + match_after=false → no-op
+    - UPDATED + match_after=true → skip_set.add + inject_list.add (skip_set guards both cached prefix AND later stream pull)
+    - UPDATED + match_after=false → skip_set.add (suppress any cache OR stream emission)
+    - DELETED → skip_set.add (suppress any cache OR stream emission, regardless of cached_at_build)
+  - Note: cached_at_build (entry.cachedRids.contains) is read for diagnostic / metrics purposes; it does NOT branch the dispatch, since the lazy stream-pull may still produce mutated RIDs from storage. The skip_set unifies cache-prefix and stream-pull filtering.
   - Sort inject_list by `OrderByComparator`. For no ORDER BY: append in iteration order.
   - Return `new TxDeltaCursor(skipSet, injectList)`.
 - `CachedResultSetView.next()` sorted-merge logic (see design.md § Lazy merge-on-read → view.next pseudocode). LIMIT clip enforced via returned-count counter; SKIP applied via initial position offset (`position = skip` at view construction for SKIP entries).
@@ -44,7 +45,7 @@ Existing relevant code:
 2. `OrderByComparator` — wrap `SQLOrderBy` for use at sort time. Plain identifier and modifier-chain support (deterministic gate refined in Track 7).
 3. Entry construction extension — capture `effectiveFromClasses` via D11 closure, `whereClause`, `orderBy`, `skip`, `limit`. Populate `cachedRids` during stream pull.
 4. `DeltaBuilder.buildForRecord` — single pass over `recordOps`, class filter, WHERE eval, dispatch, sort. Use `entry.cachedRids` for cache-membership check.
-5. `CachedResultSetView.next()` sorted-merge — replace Track 2's empty-delta logic. SKIP/LIMIT enforced at iteration.
+5. `CachedResultSetView.next()` sorted-merge — replace Track 2's empty-delta logic. SKIP/LIMIT enforced at iteration. Stream-pull-append path consults `deltaCursor.shouldSkip(rid)` for each pulled Result BEFORE appending to `entry.results`; skipped Results are dropped and the loop pulls the next one.
 6. Wire into `DatabaseSessionEmbedded.query()` — build delta on both miss (after entry populate) and hit paths.
 7. Test matrix (T4 set):
    - T4a: CREATE matching WHERE — appears in view via inject; ORDER BY position correct.
@@ -57,6 +58,10 @@ Existing relevant code:
    - T4h: SKIP + LIMIT exceeding maxRecordsPerEntry — classify returns NONE; query bypasses cache.
    - T4i (I7): mid-iteration mutation — assert current view does NOT see new mutation; fresh `query()` DOES see it.
    - T4j (D11 polymorphism): SELECT FROM Person sees Employee subclass mutations via effectiveFromClasses closure.
+   - T4k (L1 regression): partial-populated entry + UPDATED on un-pulled storage record — second view does NOT emit the record twice (once from delta inject, once from stream-pull). Stream-pull-skip-set filter drops the storage emission; only the inject_list emission reaches the consumer.
+   - T4l (L2 regression): partial-populated entry + UPDATED on un-pulled storage record where ORDER-BY key changed — second view emits the record EXACTLY ONCE at the post-update ORDER-BY position (from inject_list), not at the pre-update storage position.
+   - T4m (L12 regression): partial-populated entry + DELETED on un-pulled storage record — second view does NOT emit the deleted record when the stream reaches it.
+   - T4n (L10 empty-SKIP edge case): `SELECT FROM Foo SKIP 100 LIMIT 10` against empty class with 5 mid-tx CREATEs — view returns empty (the CREATEs don't push the count past SKIP, matching fresh-execution semantics).
 
 **Invariants to preserve.** I4: view output equivalent to fresh execution against (cache + delta) snapshot. I7: view's deltaCursor immutable post-construction, and the cached `entry.results` / `entry.cachedRids` are append-only during stream pull, never mutated by tx state.
 

@@ -24,7 +24,7 @@ Existing relevant code:
 - DML invalidation hook in `DatabaseSessionEmbedded.executeInternal()` — for `SQLTruncateClassStatement`, call `cache.invalidateAll()` before delegation to underlying handler.
 - Schema-DDL canary `assert` (D3 risk mitigation) — in the cache hook, after parsing: `assert !(stmt instanceof SQLCreateClassStatement || …) || !tx.isActive()` with msg "Schema DDL reached cache hook mid-tx — I8 violation".
 - LRU eviction — `QueryResultCache.entries` constructed as `LinkedHashMap` with `accessOrder=true`. Override `removeEldestEntry` to evict + close oldest when `size() > maxEntries`. Snapshot copy for iteration safety (`new ArrayList<>(entries.values())` before per-entry handlers in `clear()` / `invalidateAll()`).
-- Per-entry overflow — when `entry.results.size() == maxRecordsPerEntry`, set `entry.overflow = true`; the view continues to deliver stream results to its caller but stops appending to `entry.results`. Subsequent `query()` of the same key misses (cache treats overflow entries as not-replayable) and starts fresh.
+- Per-entry overflow (L7 fix) — when `entry.results.size() == maxRecordsPerEntry`, the view continues to deliver stream results to its caller but stops appending to `entry.results`. The entry is **removed from `entries` map atomically** with the overflow detection, and the key is added to a per-tx `nonCacheableKeys: Set<CacheKey>` on `QueryResultCache`. Subsequent `lookup(key)` short-circuits if `nonCacheableKeys.contains(key)`, skipping cache entirely (no LRU touch, no eviction churn from repeated re-populate-then-overflow cycles).
 - Deterministic-ORDER-BY admission — `ShapeClassifier.classify` (extended) rejects (returns NONE) any RECORD-shape query whose ORDER BY items contain a non-deterministic modifier chain. Plain identifiers admitted unconditionally.
 
 ## Plan of Work
@@ -35,7 +35,8 @@ Existing relevant code:
 4. DML invalidation hook — `executeInternal` branch for `SQLTruncateClassStatement` calls `cache.invalidateAll()`. Other DML (`SQLInsertStatement`, `SQLUpdateStatement`, `SQLDeleteStatement`) flows through `addRecordOperation` per row; cache picks up via delta build on next query.
 5. Schema-DDL canary assert — in cache hook, after parsing, before lookup: `assert !(stmt instanceof <schema-DDL types>) || !isInTx() : "I8 violation"`. Picks up `SQLCreateClassStatement`, `SQLDropClassStatement`, `SQLAlterClassStatement`, `SQLCreatePropertyStatement`, `SQLDropPropertyStatement`, `SQLAlterPropertyStatement`, `SQLCreateIndexStatement`, `SQLDropIndexStatement`.
 6. LRU eviction — `QueryResultCache.entries` as `LinkedHashMap<>(maxEntries + 1, 0.75f, true)`. Override `removeEldestEntry` to evict + close. Snapshot copy in `clear()` / `invalidateAll()`.
-7. Per-entry overflow — flag, stop-appending logic in view-driven population path, cache.lookup treats overflow entries as miss (re-populate fresh).
+7. Per-entry overflow — when stream-pull-append would exceed `maxRecordsPerEntry`: stop appending, remove entry from `entries` map, add key to `nonCacheableKeys`. Subsequent `lookup(key)` checks `nonCacheableKeys` first and short-circuits to "skip cache" if present. The currently-iterating view continues delivering uncached results to its consumer (it holds a direct stream reference).
+8. **Re-entrancy guard (L9 fix)**: `QueryResultCache` tracks an `inFlightLookup: boolean` flag (per-tx, single-threaded). On entry to `lookup` / `put` the flag is checked: if already `true`, the nested call short-circuits to "skip cache" mode (no put, no LRU touch, no eviction). Prevents the scenario where a user-defined function inside a WHERE evaluation re-enters `session.query()` and the nested call's LRU touch closes an outer view's paused stream.
 8. Deterministic-ORDER-BY gate in `ShapeClassifier` — for each `SQLOrderByItem`, if `modifier` chain contains non-deterministic reference, return NONE.
 9. Test matrix (T7 set):
    - T7a: `SELECT sysdate() FROM …` bypasses cache; no entry created.
@@ -47,7 +48,8 @@ Existing relevant code:
    - T7g: `TRUNCATE CLASS Foo` — `cache.invalidateAll()` fires; cache.size==0.
    - T7h: `INSERT INTO Foo VALUES (...)` does NOT call `invalidateAll`; cache state intact (mutation flows via addRecordOperation; next query picks up via delta).
    - T7i: LRU cap — populate 201 distinct keys with `maxEntries=200`; assert eldest evicted, stream closed.
-   - T7j: Per-entry overflow — query returning 10001 records with `maxRecordsPerEntry=10000`; entry marks overflow; next `query()` of same key misses.
+   - T7j (L7 overflow + nonCacheable): query returning 10001 records with `maxRecordsPerEntry=10000`; entry is removed from cache at the overflow boundary; subsequent `query()` of the same key short-circuits via `nonCacheableKeys` (no second populate, no LRU eviction churn).
+   - T7m (L9 re-entrancy): register a UDF that calls `session.query("SELECT FROM Other")` inside `MyFn.score(rec)`; outer query `SELECT FROM Item WHERE MyFn.score(this) > 0.5`; verify the nested lookup short-circuits (no LRU touch, no put), the outer view continues iterating without its paused stream being closed by inner LRU eviction.
    - T7k (I5): aggregate test — any non-deterministic query never creates an entry.
    - T7l: schema-DDL canary — invoke `CREATE CLASS X` via session; assertion in cache hook does not fire because the upstream `SchemaShared.saveInternal` throws first.
 

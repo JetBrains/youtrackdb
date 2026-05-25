@@ -391,3 +391,46 @@ No D-record added or removed. No invariant changed. No class-diagram change. No 
 **Findings**: pre-existing 23 should-fix dsc-ai-tell — not addressed in this mutation; deferred to Phase 4 sweep.
 
 **Iterations**: 1 of 3 (PASS — closes architecture honesty gap; no NEW findings introduced beyond the pre-existing house-style category).
+
+## Mutation 13 — 2026-05-25 — content-edit (design.md + plan files)
+
+**Logical correctness pass.** A deep logical review (third pass after consistency + structural) surfaced 12 findings (L1-L12), of which L1, L2, L4, L9, L12 were correctness blockers / near-blockers, all sharing a common root cause: the design conflated "rows already pulled into `entry.results`" with "the cache's view of storage" — the dispatch table assumed the former, but the lazy stream-pull semantics from Track 3 made the latter the actual contract. Stream-pulled records emerging after view construction could (a) duplicate delta-injected rows, (b) emit pre-update state when post-update state was authoritative, (c) emit DELETED records, (d) collide with re-entrant UDF queries.
+
+**Stream-pull dispatch unification (L1+L2+L4+L12 joint fix)**:
+- `design.md § Lazy merge-on-read → TxDeltaCursor`: dispatch table rewritten so UPDATED and DELETED ALWAYS add the RID to `skip_set` regardless of `cached_at_build`. The `cached_at_build` value is now diagnostic-only (used for metrics, not branching).
+- `design.md` adds new subsection § "Stream-pull dispatch unification" documenting that `deltaCursor.shouldSkip(rid)` is consulted twice — at cache-cursor advance AND at stream-pull-append. The stream-pull-append path drops Results whose RID is in `skip_set` and pulls the next one instead.
+- `plan/track-4.md`: dispatch-table block updated to match design.md. Step 5 amended to make `deltaCursor.shouldSkip(rid)` filter explicit at stream-pull-append time. Tests T4k (L1 regression), T4l (L2 regression), T4m (L12 regression), T4n (L10 empty-SKIP edge case) added.
+
+**MIN/MAX empty-set semantics (L3)**:
+- `plan/track-5.md` step 2: explicit handling for `contributingValues.isEmpty()` post-recompute — `extremumRid = null`, `currentScalar = null` for MIN/MAX/AVG; `currentScalar = 0` for SUM; `count = 0` for COUNT. `toResult()` emits SQL `NULL` when `currentScalar == null` per SQL standard.
+- Test T5j added.
+
+**MATCH `returnProjector` alias-binding (L5)**:
+- `plan/track-6.md` step 2: projector closure now explicitly constructs `ResultInternal{alias → rec}` and calls `ctx.setVariable(alias, boundResult)` before iterating `returnItems` and calling `SQLExpression.execute`. Without the binding, `u.someProp` references would fail to resolve. Etap A admission gate restricted accordingly.
+- Test T6h added (`RETURN u.name, u.age * 2 AS double_age`).
+
+**Aggregate splice failure fallback (L6) + eager aggregate drive (L8)**:
+- `design.md § Aggregate side-tap → Splice point`: documented fallback path — on splice failure, close the partial plan, increment `spliceFailures` metric, fall back via `statement.execute(...)` to obtain a standard `LocalResultSet`, return that directly without caching.
+- `design.md § Aggregate side-tap → "Eager drive on cache-put"` (new): aggregate cache-miss drives `plan.start(ctx).next(ctx)` eagerly to force the aggregate step's blocking drain and the tap's full observation. Prevents partial-aggregateState hazard if consumer aborts before first `.next()`.
+- `plan/track-5.md` steps 5 + 6 rewritten to match; tests T5h (fallback), T5k (eager-drive) added.
+
+**Overflow + re-entrancy hardening (L7 + L9)**:
+- `design.md § Memory bounds → Edge cases`: overflow now removes entry from `entries` map AND adds key to per-tx `nonCacheableKeys: Set<CacheKey>` to prevent LRU churn from repeated re-populate-then-overflow cycles.
+- `design.md § Memory bounds → Edge cases` (re-entrancy paragraph): re-entrant UDF query() bypasses cache via `inFlightLookup` flag — no put, no LRU touch.
+- `plan/track-7.md` step 7 + new step 8: implementation + tests T7j (overflow), T7m (re-entrancy) added.
+- `implementation-plan.md` Component Map `QueryResultCache` bullet updated to include `nonCacheableKeys` set and `inFlightLookup` flag.
+
+**I7 wording tightening (L11)**:
+- `design.md § Invariants I7`: scope clarified — I7 freezes the SET of RIDs emitted by the view and their relative order, NOT property-level snapshot isolation. The stream-pull-skip-set unification (L1+L2 fix) ensures set+order correctness under property-level live binding.
+- `implementation-plan.md I7` matches.
+
+**SKIP empty edge case (L10)**:
+- Test T4n added documenting that SKIP-past-end with mid-tx CREATEs returns empty, matching fresh-execution semantics.
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=content-edit): 0 blockers. 26 should-fix `dsc-ai-tell` em-dash density findings (+3 from Mutation 12 baseline — new prose adds em-dashes). Pre-existing house-style debt; deferred to Phase 4 sweep.
+
+**Cold-read** (bounded — § Lazy merge-on-read TL;DR + § TxDeltaCursor dispatch + § Stream-pull dispatch unification + § Aggregate side-tap + § Memory bounds Edge cases + I7): self-audited. Stream-pull dispatch unification is internally consistent — the new dispatch table's skip_set semantics propagate correctly to the view.next() merge loop (which already calls `deltaCursor.shouldSkip` on cache_head before reading) AND to the new stream-pull-append filter. The view.next() pseudocode block correctly invokes `stream_pull_one()` (which embeds the skip-set filter) when both cursors are exhausted. Aggregate eager-drive is consistent with the L8 fix recommendation.
+
+**Findings**: pre-existing 26 should-fix dsc-ai-tell — deferred to Phase 4 sweep.
+
+**Iterations**: 1 of 3 (PASS — addresses L1-L12 jointly; no NEW logical findings introduced beyond pre-existing house-style category).

@@ -274,23 +274,46 @@ A static helper `ShapeClassifier.classify(SQLStatement) → CacheableShape` deci
 
 1. **Class filter** — if `op.record.getSchemaClass().getName() ∉ entry.effectiveFromClasses`, skip (O(1) hash-set contains; the closure is precomputed at entry construction per D11). Non-`Entity` records and entities with null schema class skip the entry.
 2. **WHERE evaluation** — `match_after = entry.whereClause.matchesFilters(op.record, ctx)`. For shapes with no WHERE clause, treat as `true`.
-3. **Cache-membership check** — `cached = entry.cachedRids.contains(op.rid)`. `cachedRids` is a `Set<RID>` materialized at entry populate time (alongside `entry.results`).
-4. **Dispatch on `(op.type, cached, match_after)`**:
+3. **Cache-membership check** — `cached_at_build = entry.cachedRids.contains(op.rid)`. `cachedRids` is a `Set<RID>` populated incrementally as the stream pulls records into `entry.results`; at view-construction time it reflects only the prefix the stream has pulled so far, NOT the full storage result set. The lazy stream-pull semantics from Track 3 mean `cached_at_build=false` does NOT imply "this record is not in the result" — it can mean "this record exists in storage but the stream hasn't reached it yet". See § Stream-pull dispatch unification below for how this gap is closed.
+4. **Dispatch on `(op.type, cached_at_build, match_after)`**:
 
-| op.type | cached | match_after | Action |
+| op.type | cached_at_build | match_after | Action |
 |---|---|---|---|
-| CREATED | * | true  | `inject_list.add(op.record)` |
-| CREATED | * | false | no-op (defensive: never expected — newly-created RIDs aren't in cache) |
-| UPDATED | true  | true  | `skip_set.add(op.rid); inject_list.add(op.record)` |
+| CREATED | *     | true  | `inject_list.add(op.record)` (CREATED RIDs are temp; cached_at_build is irrelevant) |
+| CREATED | *     | false | no-op |
+| UPDATED | true  | true  | `skip_set.add(op.rid); inject_list.add(op.record)` (re-position in case ORDER BY key changed) |
 | UPDATED | true  | false | `skip_set.add(op.rid)` |
-| UPDATED | false | true  | `inject_list.add(op.record)` |
-| UPDATED | false | false | no-op |
+| UPDATED | false | true  | `skip_set.add(op.rid); inject_list.add(op.record)` (skip_set guards against stream pulling pre-update state later — see § Stream-pull dispatch unification) |
+| UPDATED | false | false | `skip_set.add(op.rid)` (suppress any later stream-pull of this RID) |
 | DELETED | true  | *     | `skip_set.add(op.rid)` |
-| DELETED | false | *     | no-op |
+| DELETED | false | *     | `skip_set.add(op.rid)` (suppress any later stream-pull) |
 
 5. **Sort `inject_list`** by `entry.orderBy` comparator (O(p log p)). For ORDER BY null, append in iteration order (no sort).
 6. **For MATCH Etap A** — wrap each `inject_list` record through `entry.returnProjector(rec, ctx)` to produce a single-binding tuple `Result` matching the original RETURN-clause shape. The sort then operates on projected tuples (ORDER BY on projection values is supported via the comparator).
 7. Return `new TxDeltaCursor(skipSet, injectList)`.
+
+### Stream-pull dispatch unification
+
+**The skip_set is consulted twice**, not once: at every cache-cursor advance (the standard merge) AND at every stream-pull-append. The latter closes the gap created by lazy stream-pulling: a tx-mutated RID that lives in storage beyond the cached prefix would otherwise emerge from the stream pull with stale state (or duplicate the delta's inject_list emission). Per the dispatch table above, every tx-mutation regardless of `cached_at_build` value adds the RID to `skip_set` for UPDATED and DELETED cases. CREATED RIDs are temporary and storage never emits them.
+
+The stream-pull-append path becomes:
+
+```
+stream_pull_one():
+  while !entry.exhausted:
+    r = entry.stream.next(entry.ctx)
+    rid = r.getRecord().getIdentity()
+    if deltaCursor.shouldSkip(rid):
+      // stale storage emission of a tx-mutated record; drop it
+      continue
+    entry.results.add(r); entry.cachedRids.add(rid)
+    return r
+  return null  // exhausted
+```
+
+This unifies the dispatch: any RID in `skip_set` is suppressed from BOTH the cache cursor (already in `entry.results`) and the stream cursor (will be appended). The inject_list is the sole source of truth for the post-tx-mutation state of any mutated record.
+
+**Cost**: one hash-set lookup per stream-pull. Bounded by `entry.results.size()` lookups per full iteration; negligible.
 
 The view's `next()` then performs sorted-merge:
 
@@ -303,8 +326,9 @@ view.next():
     delta_head = deltaCursor.peek()  // null if exhausted
 
     if cache_head == null && delta_head == null:
-      if !entry.exhausted: pull from entry.stream and re-loop
-      else: throw NoSuchElementException
+      r = stream_pull_one()  // skip-set-filtered append
+      if r == null: throw NoSuchElementException
+      re-loop  // cache_head is now r
 
     if cache_head == null: return deltaCursor.pop()
     if delta_head == null: position++; return cache_head
@@ -314,6 +338,10 @@ view.next():
 ```
 
 LIMIT clipping is enforced by the consumer-visible count: the view exits after returning LIMIT results regardless of source.
+
+### View output semantics under lazy population (clarifies I7)
+
+The deltaCursor is immutable post-construction. The cache entry's `results` list and `cachedRids` set ARE mutated by stream-pull-append during view iteration (this is how lazy population works). What I7 guarantees is that **the deltaCursor's skipSet and injectList — and therefore the set of records the view emits and their relative order — is fixed at view construction**. Stream-pulled records that are NOT in the skipSet are appended; this affects subsequent views constructed against the same entry, but never the current view's emission set or order. The cached `Result` instances wrap record references; if the underlying record's properties are mutated mid-iteration via `save()`, both the cache-cursor read and any later stream-pull-append observe the post-mutation values — this is the standard YTDB record-reference semantics, not snapshot isolation at the property level.
 
 ### Aggregate delta — AGGREGATE_* shapes
 
@@ -329,7 +357,11 @@ Entry-population for `AGGREGATE_*` shapes requires per-RID material to seed `con
 
 `AggregateCacheTapStep extends AbstractExecutionStep` is spliced into the plan chain immediately upstream of `AggregateProjectionCalculationStep` (`AggregateProjectionCalculationStep.java:121-137` shows the blocking aggregation loop: `prev.start(ctx)` → `while lastRs.hasNext: aggregate(lastRs.next, ctx, ...)`). The tap step's `internalStart(ctx)` calls `prev.start(ctx)` (`prev` is the public field on `AbstractExecutionStep:66`) to obtain the upstream `ExecutionStream`, then returns a wrapping `ExecutionStream` whose `next(ctx)` invokes `entry.aggregateState.observe(result)` before forwarding the unchanged `Result` to the consumer. `observe(result)` reads `result.getRecord().getIdentity()` for the RID and the projection-target property via the prebuilt extractor; for `COUNT(*)` it only adds to `contributingRids`. The tap is transparent to the downstream aggregate step.
 
-**Splice point.** Post-construction plan rewrite — `DatabaseSessionEmbedded.query()` miss path builds the plan via `statement.createExecutionPlan(ctx, false)` (instead of `statement.execute(...)`, which immediately wraps the plan in a `LocalResultSet` and loses direct access), downcasts to `SelectExecutionPlan` to walk its `steps` list, finds the `AggregateProjectionCalculationStep`, and rewires its `prev` link to a new `AggregateCacheTapStep` whose own `prev` is the original upstream. The cache then drives the plan to produce its own `ExecutionStream`. Local to cache code; no planner changes. Failure to find the expected step downgrades the entry to `shape=NONE`. Track 5 owns this wiring.
+**Splice point.** Post-construction plan rewrite — `DatabaseSessionEmbedded.query()` miss path builds the plan via `statement.createExecutionPlan(ctx, false)` (instead of `statement.execute(...)`, which immediately wraps the plan in a `LocalResultSet` and loses direct access), downcasts to `SelectExecutionPlan` to walk its `steps` list, finds the `AggregateProjectionCalculationStep`, and rewires its `prev` link to a new `AggregateCacheTapStep` whose own `prev` is the original upstream. The cache then drives the plan via `plan.start(ctx).next(ctx)` — a single call that forces the aggregate step's blocking drain (which in turn drives the tap to observe every upstream record). The captured single-row aggregate Result is held on the entry alongside the now-fully-populated `aggregateState`. Local to cache code; no planner changes.
+
+**Splice failure fallback.** If the planner emits an unexpected shape (no `AggregateProjectionCalculationStep` found after walking `SelectExecutionPlan.steps`, or the cast to `SelectExecutionPlan` fails), the cache code: (1) closes the constructed plan (best-effort), (2) increments `QueryCacheMetrics.spliceFailures`, (3) falls back by calling `statement.execute(session, args)` to obtain a standard `LocalResultSet`, (4) returns that `LocalResultSet` directly to the consumer (no cache entry, no view wrapping). A warning is logged identifying the unexpected step types so the planner-versioning issue is surfaced. Track 5 owns this wiring.
+
+**Eager drive on cache-put**. Unlike the RECORD/MATCH shapes (which use lazy stream-pull), aggregate cache-miss MUST fully drive the plan before returning the view. The reason: the tap observes records only when the aggregate step pulls them. If the consumer aborts before calling `.next()`, the tap never fires and `aggregateState` is partially populated — a subsequent view reading the entry would return wrong numbers. Eager drive forces full population at cache-put time; the cost is identical to executing the query uncached (the consumer would wait for the aggregate row anyway).
 
 ### MATCH Etap A — RECORD-shape composition
 
@@ -438,7 +470,8 @@ Together, worst-case per-tx memory is bounded at `maxEntries × maxRecordsPerEnt
 Each view also allocates a `TxDeltaCursor` whose size is bounded by the per-tx mutation count `p` on relevant classes — typically small (Hub is read-mostly).
 
 ### Edge cases / Gotchas
-- **Backpressure on overflow.** When an entry crosses `maxRecordsPerEntry`, the consumer iterates normally — they just don't get cached. Other consumers calling `query()` for the same key get a miss and start fresh. This is correct but wasteful for a query that's actually re-issued — surface a logging metric so operations can tune.
+- **Backpressure on overflow.** When an entry crosses `maxRecordsPerEntry`, the consumer iterates normally — they just don't get cached. The overflow entry is **removed from `entries` atomically** with overflow detection, and the cache key is added to per-tx `nonCacheableKeys: Set<CacheKey>`. Subsequent `lookup(key)` short-circuits via this set, skipping cache entirely. This prevents the LRU-churn pathology where every query() of an oversize-shape repopulates and re-evicts (defeating the cache for that key AND evicting other useful entries via LRU promotion).
+- **Re-entrant query() under WHERE evaluation.** A user-defined Java function in a WHERE clause may call `session.query(...)` synchronously (same thread, same tx). To prevent the nested call from corrupting the outer iteration via LRU eviction, `QueryResultCache` tracks an `inFlightLookup` flag; re-entrant lookups short-circuit to "skip cache" mode (no put, no LRU touch). The nested query() returns a fresh uncached `LocalResultSet` to its UDF caller; the outer iteration's paused stream is unaffected.
 - **Eviction during iteration.** A view holding an entry that gets LRU-evicted — the view's local cached list is still valid (it's referenced from the view, not the cache), but the entry's stream is closed by eviction. View continues to operate over its frozen list and reports exhaustion when the list runs out. Acceptable: behavior degrades to "I got the prefix that was cached at eviction time" rather than blowing up.
 - **Default values are conservative.** Hub may need higher `maxEntries` (DNQ generates ~1000 distinct query shapes per request in pathological cases) — knobs are hot-changeable.
 
@@ -509,7 +542,7 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 - **I4 — View output equals fresh-execution result composed with tx-delta-applied snapshot.** For each shape (RECORD, AGGREGATE_*, MATCH Etap A), a view constructed at moment T over recordOperations snapshot returns the same result as a fresh uncached execution at moment T against the same storage + tx state — honoring WHERE / ORDER BY / LIMIT. Test: cache a SELECT with various tx-mutation patterns; verify view output matches fresh-execution output across CREATED/UPDATED/DELETED mid-tx scenarios.
 - **I5 — Cache only stores results of idempotent, deterministic statements.** Test: query with `sysdate()`, `random()`, and `noCache` hint; assert no entry is created.
 - **I6 — Tx-end `clear()` is idempotent and safe under cross-thread invocation.** `QueryResultCache.clear()`, `CachedEntry.close()`, and `ExecutionStream.close()` are all idempotent — a second invocation is a no-op, not an exception. Required because pool shutdown can invoke `close() → cache.clear()` from a thread different than the one running `view.next()`, and because `closeActiveQueries()` (line 973) and `cache.clear()` (line 993) may both reach the same stream. Test: call `cache.clear()` twice, assert no exception + `size()==0` both times; call `ExecutionStream.close(ctx)` twice on a populated stream, assert no exception.
-- **I7 — View's `TxDeltaCursor` (or `deltaAggregateState`) is immutable post-construction.** The snapshot is built once at view construction by `DeltaBuilder` from the recordOperations state at that moment. Subsequent `recordOperations` growth — appending new mutations from any thread, including the owning thread mid-iteration — does NOT affect any live view's delta or output. Matches the existing `OrderByStep` blocking-materializer contract. Test: cache a SELECT, start iterating the view, mutate a matching record mid-iteration, assert view output is unchanged (does not include the new mutation); then issue a fresh `query()` and assert the new view DOES include the mutation.
+- **I7 — View's `TxDeltaCursor` (or `deltaAggregateState`) is immutable post-construction.** The snapshot is built once at view construction by `DeltaBuilder` from the `recordOperations` state at that moment. Subsequent `recordOperations` growth — appending new mutations on the owning thread mid-iteration — does NOT affect any live view's delta or output. Matches the existing `OrderByStep` blocking-materializer contract. **Scope of "frozen"**: I7 guarantees the deltaCursor's `skipSet` and `injectList` (and `deltaAggregateState` for aggregate shapes) — i.e., the set of records the view emits and their relative order — is fixed at view construction. It does NOT guarantee snapshot isolation at the record-property level: cached `Result` instances wrap record references, and mid-iteration `save()` on a record mutates its properties in place; both the cache-cursor read and any stream-pulled record observe the post-mutation values. This is the standard YTDB record-reference semantics; the L1/L2 stream-pull-skip-set unification ensures the SET and ORDER of emitted records is still correct under this property-level live-binding. Test: cache a SELECT, start iterating the view, mutate a matching record mid-iteration, assert the SET of RIDs returned by the view is unchanged from its pre-mutation construction (does not include the new mutation if it was a CREATE; does not skip if it was a DELETE); then issue a fresh `query()` and assert the new view DOES reflect the mutation in both set and order.
 - **I8 — Schema is immutable for the lifetime of a transaction (ENFORCED upstream).** `SchemaShared.saveInternal` throws `SchemaException("Cannot change the schema while a transaction is active...")` at `SchemaShared.java:820-823` for every CREATE/DROP/ALTER CLASS|PROPERTY operation. `IndexManagerEmbedded` throws `IllegalStateException("Cannot create/drop an index inside a transaction")` at lines 307 (create) and 459 (drop). Therefore `effectiveFromClasses` and every other AST-derived metadata on `CachedEntry` is stable from `beginInternal` through the matching tx-end path; no recomputation is needed after entry construction. Test: with an active tx, invoke `CREATE CLASS X EXTENDS Person` via SQL DDL and `schemaClass.setSuperClasses(...)` via the programmatic API; assert both throw, the cache state is unchanged.
 
 ### References

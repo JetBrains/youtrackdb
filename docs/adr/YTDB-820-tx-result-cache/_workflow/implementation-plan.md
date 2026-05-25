@@ -50,7 +50,7 @@ flowchart LR
 
 - **`DatabaseSessionEmbedded`** (modified) — `query()` overloads gain a cache lookup before `statement.execute()`; on hit or miss, after entry is populated (or already present), `DeltaBuilder` builds a `TxDeltaCursor` (or `AggregateState` copy) from current `recordOperations`, and the result is wrapped in a `CachedResultSetView`. `executeInternal()` calls `cache.invalidateAll()` for `SQLTruncateClassStatement`.
 - **`FrontendTransactionImpl`** (modified) — owns a lazily-allocated `QueryResultCache`. Defensive clear in `beginInternal()`. Final clear in `clearUnfinishedChanges()`. **No `invalidateOnMutation` hook on `addRecordOperation`** — under lazy, mutations only grow `recordOperations`; the cache does not react.
-- **`QueryResultCache` (new)** — LRU-bounded map keyed by `CacheKey`, value `CachedEntry`. Public API: `lookup`, `put`, `invalidateAll`, `clear`.
+- **`QueryResultCache` (new)** — LRU-bounded map keyed by `CacheKey`, value `CachedEntry`. Also holds `nonCacheableKeys: Set<CacheKey>` (short-circuits lookup after overflow per L7 fix) and a per-tx `inFlightLookup: boolean` flag (re-entrancy guard per L9 fix; nested `lookup` / `put` calls from UDFs in WHERE evaluation bypass the cache). Public API: `lookup`, `put`, `invalidateAll`, `clear`.
 - **`CachedEntry` (new)** — one cache slot: `List<Result>` (immutable in content from populate time), `Set<RID> cachedRids` (for delta cache-membership checks), paused `ExecutionStream`, exhaustion flag, AST metadata (`effectiveFromClasses`, `whereClause`, `orderBy`, `returnProjector`) for delta build. `aggregateState` for AGGREGATE_* shapes.
 - **`CachedResultSetView` (new)** — `ResultSet` implementation backed by a `CachedEntry` + a per-view `TxDeltaCursor` (or per-view `deltaAggregateState`). Owns its own `position`; falls through to `entry.stream` when local position outruns cached list. Performs sorted-merge between cache and delta-cursor in `next()`.
 - **`CacheKey` (new)** — record holding `(SQLStatement, normalizedParams)`; key type for `QueryResultCache`. Reuses `SQLStatement.equals()` / `hashCode()` for structural equality (with D12 identity fast-path) and a defensive-copied normalized parameter map (`Map<Object, Object>` to hold the positional-Integer + named-String union).
@@ -184,7 +184,7 @@ flowchart LR
 - **I4** — View output equals fresh-execution result composed with tx-delta-applied snapshot: WHERE / ORDER BY / LIMIT honored against (cached + tx-delta). Test: T4 (RECORD), T5 (AGGREGATE), T6 (MATCH Etap A).
 - **I5** — Non-deterministic queries (denylist hit or `NOCACHE` hint) never produce a cache entry and never hit a cache entry. Test: T7.
 - **I6** — Tx-end `clear()` is idempotent and safe under cross-thread invocation. `QueryResultCache.clear()`, `CachedEntry.close()`, and `ExecutionStream.close()` are all idempotent. Tests: T1, T3.
-- **I7** — View's `TxDeltaCursor` (or `deltaAggregateState`) is immutable post-construction. `recordOperations` growth — appending new mutations from any thread, including the owning thread mid-iteration — does NOT affect any live view's delta or output. Matches `OrderByStep` blocking-materializer contract. Test: T4 (mid-iteration mutation does not appear in current view; fresh view sees it).
+- **I7** — View's `TxDeltaCursor` (or `deltaAggregateState`) is immutable post-construction. Guarantees the SET of RIDs emitted by the view and their relative order, NOT property-level snapshot isolation (cached `Result` wraps a record reference; mid-tx `save()` mutates the reference in place — both cache-cursor and stream-pull observe post-mutation property values). Stream-pull-append consults `deltaCursor.shouldSkip` so set+order remain correct under property mutation. Matches `OrderByStep` blocking-materializer contract. Test: T4i (mid-iteration mutation does not change the emitted RID set of the current view; fresh view's set reflects the mutation).
 - **I8** — Schema is immutable for the lifetime of a transaction (ENFORCED upstream). `SchemaShared.saveInternal` (`SchemaShared.java:820-823`) throws `SchemaException` on every CREATE/DROP/ALTER CLASS|PROPERTY mid-tx; `IndexManagerEmbedded` (lines 307, 459) throws on index DDL mid-tx. `effectiveFromClasses` and other AST-derived metadata therefore do not require recomputation. Test: T1.
 
 ### Integration Points
@@ -274,8 +274,18 @@ flowchart LR
 
 **Architecture honesty pass (Mutation 12, post-review)**: D5-lazy Risks/Caveats and design.md § Overview → "Why lazy merge-on-read" + § Lazy merge-on-read TL;DR were rewritten to honestly acknowledge the perf trade-off after user feedback that the reviewer's "p = 0 in common read-mostly case" framing is incorrect for Hub workloads with any writes. Decision now framed as architecture-driven (not perf-driven): lazy does ~10-20× more raw work than eager in Hub-shaped tx (1-3 writes + many same-class reads), but in absolute terms sub-millisecond per request. Trade-off accepted explicitly in exchange for elimination of K1 dispatch / version counters / fail-fast `IllegalStateException` and honored "transparent cache" promise.
 
+**Logical correctness pass (Mutation 13, post-review)**: a deep logical review (third pass after consistency + structural) surfaced 12 findings (L1-L12), with L1+L2+L4+L12 sharing a common root cause — the design conflated "rows already pulled into entry.results" with "the cache's view of storage" under lazy stream-pull. Fix: stream-pull-append path now consults `deltaCursor.shouldSkip(rid)` just as the cache cursor does; the dispatch table's UPDATED/DELETED branches always add the RID to skip_set regardless of `cached_at_build`. Other findings closed:
+- L3 (MIN/MAX empty-set semantics): explicit null/0 handling per SQL standard.
+- L5 (MATCH returnProjector alias-binding): ctx.setVariable before SQLExpression.execute.
+- L6 (splice failure fallback): re-route through statement.execute(...) on unexpected planner shape.
+- L7 (overflow LRU churn): remove entry from map + per-tx nonCacheableKeys set.
+- L8 (aggregate partial-populate hazard): eager drive plan on cache-put.
+- L9 (re-entrant UDF query): inFlightLookup flag, nested calls bypass cache.
+- L10 (SKIP empty-window): documented as matching fresh-execution behavior.
+- L11 (I7 wording): tightened to specify set+order frozen, not property-level snapshot.
+
 **Pre-existing structural debt observed (deferred)**:
-- 23 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — pre-existing house-style debt, +4 from this revision (Mutation 11+12 prose adds em-dashes). Deferred to Phase 4 global sweep per `house-style.md § Em-dash discipline`.
+- 26 should-fix `dsc-ai-tell` em-dash density / fragmented-header findings — pre-existing house-style debt, +7 since Mutation 10 baseline (Mutation 11+12+13 prose adds em-dashes). Deferred to Phase 4 global sweep per `house-style.md § Em-dash discipline`.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
