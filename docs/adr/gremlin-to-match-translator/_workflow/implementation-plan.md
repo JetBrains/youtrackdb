@@ -41,15 +41,13 @@ this shared layer in the same Phase 1 with no behavior change.
   the `(Pattern, aliasClasses, aliasFilters)` constructor introduced for non-SQL
   front-ends — is consumed as-is. Any planner change found necessary must
   escalate (track-level discussion).
-- **YTDB SQL grammar gets one additive edit** (Track 1, D-IS-DEFINED):
-  the `IS DEFINED` / `IS NOT DEFINED` productions are added alongside
-  the existing `IS NULL` / `IS NOT NULL` ones in
-  `core/src/main/grammar/YouTrackDBSql.jjt`. The parser regenerates
-  via `javacc-maven-plugin`; no other grammar changes are in scope.
-  Existing GQL / SQL queries are unaffected (purely additive new
-  tokens). Required by Track 4 (`has`/`hasNot` filter mapping) and
-  Track 7 (projection presence classification) for TP-equivalent
-  semantics on null-valued properties.
+- **YTDB SQL grammar is not modified.** `IS DEFINED` / `IS NOT DEFINED`
+  productions already exist in `core/src/main/grammar/YouTrackDBSql.jjt`
+  (lines 2900-2913, `IsDefinedCondition` / `IsNotDefinedCondition`),
+  with matching AST classes `SQLIsDefinedCondition` /
+  `SQLIsNotDefinedCondition`. Track 1 (D-IS-DEFINED) only adds two
+  `MatchWhereBuilder` factory methods wrapping those nodes — no
+  grammar / parser / evaluator changes.
 - **GQL refactor is behavior-preserving.** All existing GQL tests must pass
   unchanged after `GqlMatchStatement` is migrated onto the shared builders.
 - **`polymorphicQuery` config is honored.** Translator reads
@@ -112,10 +110,8 @@ flowchart LR
     subgraph SHARED["Shared MATCH IR builders (NEW)"]
         direction TB
         MPB[MatchPatternBuilder]
-        MWB[MatchWhereBuilder<br/>+ isDefined / isNotDefined factories]
+        MWB[MatchWhereBuilder<br/>+ isDefined / isNotDefined factories<br/>wrap pre-existing AST nodes]
         MLB[MatchLiteralBuilder]
-        ISDEF[SQLIsDefinedCondition<br/>SQLIsNotDefinedCondition<br/>NEW AST nodes, Track 1]
-        MWB --> ISDEF
     end
     PASM --> MPB
     PASM --> MWB
@@ -126,11 +122,11 @@ flowchart LR
         direction TB
         MEP[MatchExecutionPlanner<br/>Pattern, aliasClasses, aliasFilters ctor]
         SEP[SelectExecutionPlanner<br/>handleProjectionsBlock]
-        GRAMMAR[YouTrackDBSql.jjt<br/>+ IS DEFINED / IS NOT DEFINED productions<br/>Track 1, additive]
+        ISDEF[SQLIsDefinedCondition<br/>SQLIsNotDefinedCondition<br/>pre-existing AST nodes]
     end
     MPB --> MEP
     PROJ --> SEP
-    ISDEF -.parsed from.-> GRAMMAR
+    MWB --> ISDEF
 
     BOUND[YTDBMatchPlanStep<br/>boundary step, NEW]
     MEP --> BOUND
@@ -192,11 +188,11 @@ What changes:
   - `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
     `containsText`, `isDefined`, `isNotDefined`, `and`, `or`, `not`
     returning `SQLBooleanExpression`; `wrap()` to a `SQLWhereClause`.
-    (`isDefined` / `isNotDefined` wrap the new
+    (`isDefined` / `isNotDefined` wrap the **pre-existing**
     `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST nodes
-    landed in Track 1 — see D-IS-DEFINED. No `startsWith` / `endsWith`
-    factories — those TinkerPop predicates decline under D3; see
-    design.md § Predicate translation.)
+    already in `core/.../sql/parser/` — see D-IS-DEFINED. No `startsWith`
+    / `endsWith` factories — those TinkerPop predicates decline under
+    D3; see design.md § Predicate translation.)
   - `MatchLiteralBuilder` — `toLiteral(Object) → SQLExpression`, extracted
     verbatim from `GqlMatchStatement.toLiteral`.
 - **`YTDBMatchPlanStep` (new,
@@ -505,7 +501,7 @@ What changes:
 - **Implemented in**: Track 3 (`EdgeStepRecogniser` is the first
   multi-step recogniser; walker refactor lands with it).
 
-#### D-IS-DEFINED: Add YTDB SQL `IS DEFINED` / `IS NOT DEFINED` operators in Track 1
+#### D-IS-DEFINED: Wire YTDB SQL `IS DEFINED` / `IS NOT DEFINED` operators into the shared builder
 
 - **Alternatives considered**: (a) Map `has(key) → IS NOT NULL` and
   `hasNot(key) → IS NULL` (original design) — rejected after PR #1038
@@ -516,26 +512,39 @@ What changes:
   `has(key)` / `hasNot(key)` in Phase 1 — rejected: presence filtering
   is too common to lose. (c) Accept the divergence — rejected: silent
   wrong-results on null-valued properties is exactly the failure mode
-  D3 all-or-nothing exists to prevent. (d) Add the two new YTDB SQL
-  operators (chosen) — lpld's suggestion in the same thread.
-- **Rationale**: `IS DEFINED` / `IS NOT DEFINED` ask
-  `EntityImpl.hasProperty(key)` directly, bypassing the value-flattening
-  `IS NULL` inherits from `Result.getProperty`'s null-on-absent
-  contract. Same primitive underpins Track 7's projection presence
-  classifier (design.md "Track 7 commitment"). Index integration
-  returns `Operation.None` (presence predicates can't use value-keyed
-  indexes). **Full design + wrapper-level evidence**: see design.md
-  § "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators".
-- **Risks/Caveats**: One additive grammar edit
-  (`core/src/main/grammar/YouTrackDBSql.jjt`); parser regenerates via
-  `javacc-maven-plugin`. GQL user-facing syntax stays unchanged
-  (internal-facing only). Risk that Phase 2+ index work routes these
-  through value-keyed indexes — mitigated by Javadoc on both AST
-  classes pinning the `Operation.None` decision.
-- **Implemented in**: Track 1 (grammar + AST + evaluator + tests +
-  `MatchWhereBuilder.isDefined`/`isNotDefined` factories). Consumed
-  in Track 4 (filter mapping) and Track 7 (projection presence —
-  same `hasProperty` primitive, no additional SQL surface there).
+  D3 all-or-nothing exists to prevent. (d) Add new YTDB SQL operators
+  from scratch (earlier draft) — superseded once the audit showed they
+  already exist (see Rationale). (e) Wire the existing operators into
+  the shared builder (chosen).
+- **Rationale**: `IS DEFINED` / `IS NOT DEFINED` already live in
+  `core/src/main/grammar/YouTrackDBSql.jjt` (`IsDefinedCondition` /
+  `IsNotDefinedCondition` productions, `Expression() <IS> <DEFINED>` /
+  `Expression() <IS> <NOT> <DEFINED>`), with matching AST classes
+  `SQLIsDefinedCondition` and `SQLIsNotDefinedCondition` in
+  `core/.../sql/parser/`. Their evaluators call
+  `expression.isDefinedFor(...)` — the entity-presence primitive that
+  distinguishes absent from null-valued at the record layer, exactly
+  what Track 4 / Track 7 need. `isIndexAware` returns `false` (presence
+  predicates can't use value-keyed indexes). The PR #1038 review
+  thread settles on these operators because they're already correct;
+  Phase 1 only needs to expose them through `MatchWhereBuilder`.
+  **Full audit + wrapper-level evidence**: see design.md § "Phase 1
+  dependency: `IS DEFINED` / `IS NOT DEFINED` operators".
+- **Risks/Caveats**: **No grammar edit, no new AST classes, no new
+  evaluator** — only two `MatchWhereBuilder` factory methods wrapping
+  pre-existing AST nodes. The Phase 2+ index-work risk from the
+  earlier draft (accidentally routing presence predicates through
+  value-keyed indexes) is already mitigated by the AST classes'
+  `isIndexAware()` returning `false`. No coordination needed with
+  GQL — the operators have always been reachable via raw SQL strings,
+  and exposing the builder factories does not change that.
+- **Implemented in**: Track 1 — two `MatchWhereBuilder` factory
+  methods (`isDefined` / `isNotDefined`) plus their unit tests
+  (~20 lines of code, no parser regeneration). Consumed in Track 4
+  (filter mapping for `has(key)` / `hasNot(key)`) and Track 7
+  (projection presence classifier reuses the same
+  `expression.isDefinedFor(...)` primitive directly, not through SQL
+  operators).
 
 ### Invariants
 
@@ -602,21 +611,21 @@ What changes:
   `MatchPatternBuilder`, `MatchWhereBuilder`, `MatchLiteralBuilder`.
   Consumed by both the new translator and refactored
   `GqlMatchStatement`. `MatchWhereBuilder` exposes `isDefined` /
-  `isNotDefined` factories for Track 1's new YTDB SQL operators
+  `isNotDefined` factories wrapping the pre-existing
+  `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST nodes
   (D-IS-DEFINED).
-- **Entity-presence primitive**: `EntityImpl.hasProperty(key)` is the
-  single shared accessor for "is this property defined on the
-  record". Track 1's `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition`
-  evaluators call it from the filter layer; Track 7's projection
-  classifier calls it for `valueMap` / `values` / `select.by` to
-  distinguish absent from null-valued. Same primitive, two consumers
-  — no duplicate code path.
-- **YTDB SQL grammar**: `core/src/main/grammar/YouTrackDBSql.jjt`
-  receives one additive edit in Track 1 — `IS DEFINED` /
-  `IS NOT DEFINED` productions added alongside the existing
-  `IS NULL` / `IS NOT NULL` ones. The parser regenerates via
-  `javacc-maven-plugin`; no manual edits to generated files. Existing
-  GQL / SQL queries are unaffected (new tokens only).
+- **Entity-presence primitive**: `expression.isDefinedFor(...)` (on
+  `SQLExpression`) is the canonical accessor for "is this property
+  defined on the record". The pre-existing `SQLIsDefinedCondition` /
+  `SQLIsNotDefinedCondition` evaluators call it; Track 7's projection
+  classifier calls the same primitive directly via
+  `EntityImpl.hasProperty(key)` for `valueMap` / `values` /
+  `select.by`. Same primitive, two consumers — no duplicate code path.
+- **YTDB SQL grammar**: `core/src/main/grammar/YouTrackDBSql.jjt` is
+  **not modified**. `IS DEFINED` / `IS NOT DEFINED` productions
+  (`IsDefinedCondition` / `IsNotDefinedCondition` at lines 2900-2913)
+  and their AST classes already exist; Track 1 only adds builder
+  factories on top of them.
 - **Cucumber feature suite**: `core` module's `YTDBGraphFeatureTest` and
   `embedded` module's `EmbeddedGraphFeatureTest` exercise the strategy
   end-to-end with no test changes. Strategy is registered through
@@ -638,12 +647,11 @@ What changes:
 - **Optional sub-traversal (`optional(traversal)`)** — Gremlin and MATCH
   disagree on the empty-sub-traversal case (Gremlin drops the row,
   MATCH null-fills the alias). Phase 2 owns the alignment design.
-- **GQL user-facing `IS DEFINED` / `IS NOT DEFINED` syntax** — Track 1
-  adds the operators to the YTDB SQL grammar and AST (D-IS-DEFINED),
-  but does **not** expose them in GQL's user-facing MATCH WHERE
-  surface. GQL users continue to write `IS NULL` / `IS NOT NULL` with
-  the existing semantics. Exposing the new operators in GQL syntax is
-  a separate decision out of scope for this PR.
+- **Net-new SQL operators or grammar productions** — none. `IS DEFINED`
+  / `IS NOT DEFINED` already exist in YTDB SQL grammar and AST
+  (D-IS-DEFINED); Track 1 only wires them into `MatchWhereBuilder`.
+  GQL users reach the same operators through raw SQL strings — that
+  surface is unchanged.
 - **Mid-traversal list-shaping** — `fold` / `unfold` / `reverse` /
   `tail` are accepted only as the **terminal** step under D3
   all-or-nothing. Mid-chain use (e.g. `g.V().fold().unfold().has(...)`)
@@ -658,14 +666,17 @@ What changes:
 
 ## Checklist
 
-- [ ] Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` operators
+- [ ] Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` builder factories
   > Foundation track: creates the shared `match/builder/` package
-  > consumed by both GQL and the upcoming Gremlin translator, and adds
-  > two new YTDB SQL operators `IS DEFINED` / `IS NOT DEFINED`
-  > (D-IS-DEFINED) that Tracks 4 and 7 need for correct presence
-  > semantics.
-  > **Scope:** ~8 steps covering three builder classes, GQL refactor,
-  > grammar + AST + evaluator for the new operators, regression tests.
+  > consumed by both GQL and the upcoming Gremlin translator. Also
+  > exposes `MatchWhereBuilder.isDefined` / `isNotDefined` factories
+  > wrapping the pre-existing `SQLIsDefinedCondition` /
+  > `SQLIsNotDefinedCondition` AST nodes — the operators are already
+  > in YTDB SQL grammar (D-IS-DEFINED), so this is wiring only, no
+  > grammar / parser / evaluator changes.
+  > **Scope:** ~5 steps covering three builder classes, GQL refactor,
+  > two `isDefined` / `isNotDefined` builder factories with unit
+  > tests, golden-string regression tests.
 
 - [ ] Track 2: Strategy skeleton + boundary step + minimal `g.V()`/`g.V(ids)` translation
   > Wires `GremlinToMatchStrategy` into the optimization chain and

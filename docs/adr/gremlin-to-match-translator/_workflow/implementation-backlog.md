@@ -1,6 +1,6 @@
 # Gremlin-to-MATCH Translator — Track Details
 
-## Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` operators
+## Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` builder factories
 
 > **What**:
 > - Create a new package `internal/core/sql/executor/match/builder/` with
@@ -10,13 +10,12 @@
 >   Java-value → `SQLExpression` conversion).
 > - Refactor `GqlMatchStatement` onto the shared builders. Public API
 >   unchanged; existing GQL tests must pass 1:1.
-> - **Add two new YTDB SQL operators** `IS DEFINED` / `IS NOT DEFINED`
->   (D-IS-DEFINED). Entity-presence predicates, distinct from
->   `IS NULL` / `IS NOT NULL` (which check the projected value). The
->   evaluators call `EntityImpl.hasProperty(key)` directly — the same
->   primitive Track 7 uses for the projection presence classifier.
->   `MatchWhereBuilder` exposes `isDefined(...)` / `isNotDefined(...)`
->   factories.
+> - **Expose `MatchWhereBuilder.isDefined` / `isNotDefined` factory
+>   methods** wrapping the pre-existing `SQLIsDefinedCondition` /
+>   `SQLIsNotDefinedCondition` AST nodes (already in YTDB SQL grammar at
+>   `core/src/main/grammar/YouTrackDBSql.jjt:2900-2913` and AST package
+>   `core/.../sql/parser/`). Entity-presence predicates distinct from
+>   `IS NULL` / `IS NOT NULL` — see D-IS-DEFINED.
 >
 > **How**:
 > - Step ordering (provisional):
@@ -28,41 +27,36 @@
 >      `(Pattern, aliasClasses, aliasFilters, edgeFilters)`.
 >   3. `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
 >      `containsText`, `and`, `or`, `not` returning `SQLBooleanExpression`;
->      `wrap()` to a `SQLWhereClause`.
->   4. Grammar edit: add `IS DEFINED` / `IS NOT DEFINED` productions to
->      `core/src/main/grammar/YouTrackDBSql.jjt` in the same slot as the
->      existing `IS NULL` / `IS NOT NULL` productions. Parser regenerates
->      via `javacc-maven-plugin`; no manual edits to generated files.
->   5. AST + evaluator: `SQLIsDefinedCondition` and
->      `SQLIsNotDefinedCondition` extend `SQLBooleanExpression` parallel
->      to `SQLIsNullCondition` / `SQLIsNotNullCondition`. Evaluators walk
->      the child expression to identify the root alias + property name,
->      resolve the alias to its bound `EntityImpl`, and call
->      `EntityImpl.hasProperty(name)`. `IndexFinder` integration returns
->      `Operation.None` (presence predicates can't use value-keyed
->      indexes).
->   6. `MatchWhereBuilder.isDefined(...)` / `isNotDefined(...)` factory
->      methods exposing the new AST nodes to the Gremlin translator.
->   7. `GqlMatchStatement` refactor onto the shared builders — inline IR
->      construction replaced by builder calls.
->   8. Golden-string regression tests over `prettyPrint(0,2)` for
->      representative queries (single-node anonymous, multi-property AND
->      filter, multi-filter map) plus parser tests for the new operators
->      and evaluator unit tests covering all four cases (absent /
->      null-valued / non-null-valued / non-existent alias).
+>      `wrap()` to a `SQLWhereClause`. **Plus** `isDefined(String field)`
+>      / `isNotDefined(String field)` — each constructs the matching
+>      `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST node,
+>      wires its `expression` child to point at `field`, and returns it
+>      as a `SQLBooleanExpression`. ~10 lines of code per factory.
+>   4. Builder-level unit tests for the new factories: round-trip
+>      assertions that `builder.isDefined("foo")` renders to
+>      `"foo is defined"` and `isNotDefined("foo")` renders to
+>      `"foo is not defined"`. Parser + evaluator are already exercised
+>      by SQL-side tests; Track 1 only tests the wrapper.
+>   5. `GqlMatchStatement` refactor onto the shared builders — inline IR
+>      construction replaced by builder calls. Golden-string regression
+>      tests over `prettyPrint(0,2)` for representative queries
+>      (single-node anonymous, multi-property AND filter, multi-filter
+>      map).
 >
 > **Constraints**:
 > - **In-scope files**: `internal/core/sql/executor/match/builder/`
->   (new package), `GqlMatchStatement` (refactor),
->   `core/src/main/grammar/YouTrackDBSql.jjt` (additive grammar edit
->   only — `IS DEFINED` / `IS NOT DEFINED` productions), new
->   `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST classes.
-> - **Out of scope**: GQL user-facing `IS DEFINED` syntax exposure (the
->   addition is internal-facing only; GQL users continue using
->   `IS NULL` / `IS NOT NULL` with existing semantics). Any change to
->   `MatchExecutionPlanner` (lands in Track 2 via additive `MatchPlanInputs`
->   ctor only). Index integration for the new operators beyond
->   `Operation.None`.
+>   (new package — three builders + tests), `GqlMatchStatement`
+>   (refactor).
+> - **Out of scope**:
+>   - Any change to YTDB SQL grammar, AST classes, or evaluators —
+>     `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` and their
+>     `<IS> <DEFINED>` / `<IS> <NOT> <DEFINED>` productions already
+>     exist in the codebase; Track 1 only adds the builder wrappers.
+>   - Any change to `MatchExecutionPlanner` — that lands in Track 2 via
+>     the additive `MatchPlanInputs` ctor (D2).
+>   - GQL user-facing exposure of `IS DEFINED` — already reachable
+>     through raw SQL strings since the grammar productions have always
+>     been part of YTDB SQL.
 > - Behavior-preserving GQL refactor: all existing GQL tests pass
 >   unchanged. "Byte-identical" `prettyPrint(0,2)` not required —
 >   semantically equivalent (same step types in the same order, same
@@ -74,9 +68,10 @@
 > - Enables every other track via the shared builder package.
 > - Track 4 consumes `MatchWhereBuilder.isDefined` / `isNotDefined`
 >   factories for the `has(key)` / `hasNot(key)` filter mapping.
-> - Track 7 calls `EntityImpl.hasProperty(key)` directly (same primitive
->   the new operators use under the hood) for the `valueMap` / `values` /
->   `select.by` projection presence classifier.
+> - Track 7 calls `expression.isDefinedFor(...)` directly (the same
+>   primitive the AST evaluators use under the hood) for the
+>   `valueMap` / `values` / `select.by` projection presence classifier
+>   — no SQL surface needed there.
 
 ---
 
