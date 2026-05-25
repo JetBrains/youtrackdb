@@ -631,3 +631,275 @@ the all-stamped case (`STAMPED_SHAS` non-empty, `UNSTAMPED_FILES`
 empty) and from the partially-stamped case (`UNSTAMPED_FILES`
 non-empty, which routes to the bootstrap prompt in (d) regardless of
 `STAMPED_SHAS` content).
+
+The walk's glob set deliberately omits `$PLAN_DIR/_workflow/staged-workflow/`
+on workflow-modifying plans (see §1.7 below). The staged subtree mirrors
+live `.claude/workflow/**` and `.claude/skills/**` paths under a
+plan-scoped prefix; those files are not `_workflow/**` artifacts in the
+stamping sense and do not carry workflow-SHA stamps. Adding the staged
+prefix to the walk would produce spurious `UNSTAMPED_FILES` entries on
+every workflow-modifying plan and route them through the bootstrap
+prompt in (d), which is the wrong recovery path for an authoring buffer
+that gets promoted into the live tree at Phase 4.
+
+## 1.7 Staging for workflow-modifying branches
+
+Workflow-modifying branches accumulate every edit to `.claude/workflow/**`
+and `.claude/skills/**` under a plan-scoped staging subtree during
+execution, and a single Phase 4 promotion commit copies the staged
+content into the live paths just before final artifacts land. The live
+workflow files in the branch's checkout stay at develop's state for the
+duration of Phase B and Phase C, so plan citations resolve against a
+stable surface, reviewers see one consistent rule body, and the drift
+gate at the next session start does not flag the branch's own authoring
+as drift on itself.
+
+This section is the single source of truth for the staged-subtree path
+layout, the canonical workflow-modifying marker spelling, the detection
+rule split between the implementer enforcement gate and the Phase 4
+promotion guard, the implementer write-routing rule, the reads-precedence
+rule, the copy-then-edit-on-first-touch rule, the rebase-precedes-promotion
+rule, and the precise wording of the staging invariant. Every downstream
+writer resolves to this section rather than restating any clause
+locally: the `implementer-rules.md` path-mapping rule, the
+`step-implementation.md` prompt-template reference, `workflow.md`
+§ Final Artifacts, the Phase 4 prompt at `prompts/create-final-design.md`,
+the `workflow-drift-check.md` pathspec defensive comment, and the
+`mid-phase-handoff.md` § Resume protocol acknowledgment.
+
+### (a) Staged-subtree path layout
+
+The staged subtree lives under the active plan's `_workflow/` tree at a
+fixed two-level prefix:
+
+```
+docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/workflow/...
+docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/skills/...
+```
+
+Each staged file mirrors its live counterpart's relative path under the
+`.claude/` prefix byte-for-byte. A staged copy of
+`.claude/workflow/implementer-rules.md` lives at
+`docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/workflow/implementer-rules.md`;
+a staged copy of `.claude/skills/edit-design/SKILL.md` lives at
+`docs/adr/<plan-dir>/_workflow/staged-workflow/.claude/skills/edit-design/SKILL.md`.
+No other prefixes participate: workflow files outside `.claude/workflow/`
+and `.claude/skills/` are not stageable under this convention; the
+staging path layout does not extend to files this convention does not
+govern.
+
+The `<plan-dir>` placeholder is the active plan's directory resolved
+per §1.6 (g) *Active-plan scope*. The staged subtree is plain filesystem
+state under the existing `_workflow/` tree, which the Phase 4 cleanup
+commit removes in one sweep alongside the rest of `_workflow/`; the
+post-merge `develop` history carries only the live promoted files plus
+`design-final.md` and `adr.md`.
+
+### (b) Canonical workflow-modifying marker
+
+A plan declares itself workflow-modifying through a fixed sentence in
+the `### Constraints` section of `implementation-plan.md`:
+
+```
+This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
+```
+
+The sentence appears as a standalone bullet or paragraph inside
+`### Constraints`. The exact wording is the single string every
+downstream consumer matches against — `implementer-rules.md`'s
+enforcement gate, the Phase 4 prompt, and any future reviewer
+checklist all key off this literal sentence rather than re-deriving
+the predicate from the plan's body. Two planners writing the same
+sentence two different ways is the failure mode this canonical spelling
+prevents.
+
+Plans that touch `.claude/workflow/**` or `.claude/skills/**` but
+omit the marker forfeit the staging mechanism: the implementer
+enforcement gate stays inactive, writes land on live paths, and the
+drift gate flags the branch's own authoring. Planners who recognise
+their plan as workflow-modifying are responsible for adding the marker
+before Phase A review; reviewers verify the marker's presence on any
+plan whose Plan-of-Work references `.claude/workflow/**` or
+`.claude/skills/**` paths.
+
+### (c) Detection rule — two signals, two consumers
+
+The convention runs on two independent detection signals, each serving
+a distinct consumer:
+
+- **Constraints declaration** drives the implementer enforcement gate.
+  Per-spawn, the implementer reads `implementation-plan.md`'s
+  `### Constraints` section and checks for the marker sentence in
+  (b). When the marker is present, the path-mapping rule in (e) and
+  the pre-commit gate in `implementer-rules.md` activate; when the
+  marker is absent, the implementer writes to live paths normally.
+  This signal works from the very first step of execution, before any
+  staged content exists.
+- **`<plan-dir>/_workflow/staged-workflow/` directory presence** drives
+  the Phase 4 promotion guard. The Phase 4 prompt at
+  `prompts/create-final-design.md` checks for the directory and skips
+  the promotion commit when it is absent. This signal answers the
+  operationally distinct question "is there staged content to promote
+  into the live tree" rather than "is the implementer enforcement
+  gate active."
+
+The two signals serve distinct purposes by construction. Constraints
+declaring workflow-modifying without any staged content is the legitimate
+shape of a dry-run plan or an abandoned-work plan: the gate stays
+active throughout execution; Phase 4 produces a no-op promotion that
+the directory-presence guard skips silently; Phase 4's two-commit shape
+(final-artifacts + cleanup) remains intact. The inverse case, staged
+content without a Constraints declaration, is unreachable when the
+implementer enforcement gate works as designed, because an undeclared
+plan has no gate to route writes into the staged subtree.
+
+### (d) Reads precedence — staged copy authoritative when present
+
+During execution of a workflow-modifying plan, the implementer's read
+side resolves every `.claude/workflow/**` and `.claude/skills/**` path
+through a staging-aware check:
+
+```
+if a staged copy exists, read staged; else read live.
+```
+
+The check fires on every read. For a file with no staged copy, the
+implementer reads the live path unchanged. For a file the current plan
+or a prior step in the same track has already staged, the implementer
+reads the staged copy, so a step that authors rule X in
+`staged-workflow/.claude/workflow/conventions.md` is visible to every
+subsequent step that cites or extends rule X in the same plan.
+
+The reads-precedence rule resolves the multi-step authoring case that
+a "reads always hit live" rule would break: step N adds rule X to
+staged `conventions.md`; step N+M cites rule X. Without staged-first
+reads, step N+M either reads stale content before its own write or
+cannot cite the rule it just authored. The chosen rule keeps step N+M
+working against current state.
+
+Consumers outside the implementer keep reading live paths unchanged:
+the drift gate, the plan-slim renderer, sibling-track plan citations,
+and reviewers loading a workflow file from the worktree. None of those
+consumers has a staged copy to read; the precedence rule applies to
+the implementer's per-spawn read site only.
+
+### (e) Write routing and copy-then-edit on first touch
+
+When the workflow-modifying marker is present, the implementer routes
+every write whose target path begins with `.claude/workflow/` or
+`.claude/skills/` to the corresponding staged path under
+`<plan-dir>/_workflow/staged-workflow/`. The routing covers every
+write surface (`Edit`, `Write`, `steroid_apply_patch`,
+`steroid_execute_code` file writes, and `Bash` redirections) by
+rewriting the target path before the tool call lands.
+
+**Copy-then-edit on first touch.** When the implementer's first write
+to a given live path under `.claude/workflow/**` or `.claude/skills/**`
+finds no staged copy at the mapped staged path, the implementer first
+copies the live file to the staged path verbatim, then applies the
+edit to the staged copy. Subsequent writes to the same file in the
+same plan edit the staged copy directly. The copy-then-edit step
+preserves develop's state as the staged copy's baseline so the eventual
+Phase 4 `cp -r` overwrites the live tree with a coherent target rather
+than an empty-file shape that loses every part of the original the
+plan did not explicitly rewrite.
+
+The pre-commit gate in `implementer-rules.md` enforces the write
+routing at commit time: any commit on a workflow-modifying plan whose
+staged diff contains live `.claude/workflow/**` or `.claude/skills/**`
+matches outside the Phase 4 promotion commit is refused. Authoring
+discipline at write time keeps the gate quiet; the gate exists to
+catch the bypass shapes (an absolute live path passed to a tool, a
+`Bash` redirection that the implementer forgot to rewrite).
+
+### (f) Rebase-precedes-promotion
+
+A workflow-modifying branch that has not rebased onto the current
+`develop` HEAD must do so before Phase 4 promotion runs. The Phase 4
+prompt's pre-promotion divergence sanity check computes
+`$(git merge-base develop HEAD)..HEAD` on the live `.claude/workflow`
+and `.claude/skills` paths; a non-empty diff halts with a
+manual-reconciliation instruction. The rebase is the
+manual-reconciliation path: rebasing onto current `develop` brings the
+branch's working tree up to a state where the only live workflow
+content is what Phase 4 is about to promote, and the staged subtree
+holds the branch's own authoring against that current base.
+
+Promotion before rebase risks `cp -r` overwriting a live file that
+moved forward on `develop` after the staging copy was taken, silently
+losing the develop-side change. The pre-promotion check shifts the
+recovery from a post-promotion forensic diff to a pre-promotion halt
+that the branch resolves by rebasing.
+
+### (g) The I6 invariant
+
+The staging convention rests on one invariant that holds across every
+workflow-modifying plan from the first staged write to Phase 4
+promotion:
+
+> Promotion at Phase 4 is the only intra-branch authoring transition;
+> rebase-merge from develop excluded by scope.
+
+The wording is precise. "Intra-branch authoring transition" names the
+single moment at which the branch's own authoring of `.claude/workflow/**`
+or `.claude/skills/**` content moves from the staged subtree into the
+live tree. Phase 4's promotion commit is that moment; no other commit
+on the branch carries live-path writes when the convention is
+followed. "Rebase-merge from develop excluded by scope" carves out
+the rebase case: when the branch rebases onto current `develop`,
+`develop`'s commits enter the branch carrying live-path changes those
+commits already authored, which is not the branch's own authoring and
+falls outside this invariant's scope. The drift-check pathspec exists
+specifically to handle the rebase case; this invariant governs the
+staging case.
+
+### (h) Forward-applicable to future workflow-modifying branches
+
+The convention applies forward only. The plan that introduces this
+section is itself workflow-modifying but does not stage its own edits,
+because no prior version of the convention existed during the
+execution of its earlier work; every earlier track of that plan wrote
+to live `.claude/workflow/**` paths under the existing in-place model,
+and the track that lands this section plus the supporting rules does
+so through the same in-place model. The first workflow-modifying
+branch that opens a plan after this section reaches `develop` is the
+first branch that exercises the staging path end-to-end.
+
+The forward-applicable carve-out is a one-time observation about the
+plan that introduces the convention. It is not a permanent rule; every
+workflow-modifying branch that opens after this section lands is bound
+by the full convention.
+
+### (i) Worked example — on-disk shape
+
+A workflow-modifying plan extending `.claude/workflow/X.md` ends Phase B
+with the following shape on disk (other artifacts elided):
+
+```
+.claude/
+  workflow/
+    X.md                          # develop's state, unchanged
+docs/
+  adr/
+    <plan-dir>/
+      _workflow/
+        implementation-plan.md    # Constraints declares workflow-modifying
+        plan/
+          track-1.md
+        staged-workflow/
+          .claude/
+            workflow/
+              X.md                # branch's authored content
+```
+
+The live `.claude/workflow/X.md` stays at develop's state for the
+duration of Phase B and Phase C; every read of `X.md` from the
+implementer hits the staged copy per (d); every write to `X.md`
+routes to the staged copy per (e). At Phase 4 promotion, the
+promote-staged-workflow commit copies
+`staged-workflow/.claude/workflow/X.md` over the live
+`.claude/workflow/X.md`; the subsequent cleanup commit removes the
+entire `_workflow/` tree (the staged subtree included). After merge
+to `develop`, the history carries the live promoted `X.md` plus the
+durable artifacts (`design-final.md`, `adr.md`) and nothing else from
+this branch's staging machinery.
