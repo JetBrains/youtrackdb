@@ -1371,26 +1371,25 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // clear() — pure-delta encoding (MV and SV)
+  // clear() — mixed-mode encoding (MV and SV)
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Pure-delta contract for the single-value engine's clear(): the snapshot
+   * Mixed-mode contract for the single-value engine's clear(): the snapshot
    * read of the in-memory counters happens after doClearTree() acquires the
-   * per-tree exclusive lock, the resulting -current delta is accumulated on
-   * the atomic op, and neither the in-memory AtomicLong counters nor the
-   * persisted EP page is mutated inside clear() itself. Both sides advance
-   * later: the persisted EP page via persistCountDelta before commitChanges
-   * (totalDelta only; the single-value engine intentionally ignores
-   * nullDelta because nulls live in the same tree as non-null keys), the
-   * in-memory AtomicLongs via the apply hook before lock release.
+   * per-tree exclusive lock; the persisted side gets one inline absolute zero
+   * write on the single tree, WAL-tracked through the AOM lifecycle; the
+   * in-memory side gets an inMemAdjust delta on the atomic op consumed by
+   * Hook B's applyIndexCountDeltas post-commit. The in-memory AtomicLong
+   * counters do NOT move inside clear() itself — they advance later in the
+   * apply hook, before lock release.
    *
    * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
-  public void singleValue_clear_recordsNegativeDeltaWithoutInMemoryMutation()
+  public void singleValue_clear_recordsNegativeInMemAdjustWithoutInMemoryMutation()
       throws IOException {
     assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
@@ -1399,40 +1398,45 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.clear(f.storage, f.op);
 
-    // In-memory counters must NOT move inside clear() — they are advanced by
+    // In-memory counters must NOT move inside clear(); they are advanced by
     // the apply hook after commitChanges, so a rolled-back clear leaves them
     // intact.
     assertEquals(10, f.engine.getTotalCount(f.op));
     assertEquals(3, f.engine.getNullCount(f.op));
-    // The collapse is encoded as a negative delta on the atomic op.
+    // The collapse is encoded as a negative in-mem-only delta on the atomic
+    // op (Hook A's persistCountDelta is a no-op for this seam — the persisted
+    // side is fed by the inline setApproximateEntriesCount write below).
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
-    assertEquals(-10L, delta.getTotalDelta());
-    assertEquals(-3L, delta.getNullDelta());
-    // The persisted EP page must not be touched directly inside clear() via
-    // either persisted-side mutator on CellBTreeSingleValue. persistCountDelta
-    // owns the EP-page write at Hook A; setApproximateEntriesCount and the
-    // sibling addToApproximateEntriesCount both write the EP slot, so both
-    // are pinned negative here. A future regression that bypasses the delta
-    // holder by calling sbTree.addToApproximateEntriesCount(op, -currentTotal)
-    // inside clear() would slip past a setApproximateEntriesCount-only check.
-    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    assertEquals(-10L, delta.getInMemAdjustTotal());
+    assertEquals(-3L, delta.getInMemAdjustNull());
+    // The persisted side is fed by one inline absolute zero write on the
+    // single tree. The sibling addToApproximateEntriesCount mutator is the
+    // delta path and must stay untouched on the clear() seam — a future
+    // regression that bypassed the inMemAdjust accumulator by calling
+    // sbTree.addToApproximateEntriesCount(op, -currentTotal) directly inside
+    // clear() would land both the delta-path and the absolute-path writes,
+    // which the assertion below would catch.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
-   * Pins the zero-zero boundary of the snapshot delta and of the accumulator's
-   * sign-aligned magnitude assert on the single-value engine: clear() on an
-   * engine whose in-memory counters were never seeded must record an additive
-   * (0, 0) delta on the holder and must not touch the persisted EP page via
-   * either persisted-side mutator on the single tree.
+   * Pins the zero-zero boundary on the in-memory-side delta and the
+   * unconditional persisted-side absolute write: clear() on an engine whose
+   * in-memory counters were never seeded records (0, 0) on the inMemAdjust
+   * axes and still fires the single-tree setApproximateEntriesCount(op, 0)
+   * write — the persisted-side absolute write is unconditional under the
+   * mixed-mode encoding.
    *
    * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
-  public void singleValue_clear_onEmptyEngine_accumulatesZeroDelta()
+  public void singleValue_clear_onEmptyEngine_recordsZeroInMemAdjustAndAbsoluteWrite()
       throws IOException {
     assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
@@ -1443,25 +1447,31 @@ public class BTreeEngineHistogramBuildTest {
     assertNotNull(delta);
     assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    assertEquals(0L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
     assertEquals(0, f.engine.getTotalCount(f.op));
     assertEquals(0, f.engine.getNullCount(f.op));
-    // Both persisted-side mutators are pinned negative (see the longer note
-    // in singleValue_clear_recordsNegativeDeltaWithoutInMemoryMutation).
-    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+    // The persisted-side setApproximateEntriesCount write is unconditional
+    // under mixed-mode (zero seed still drives the heal-the-drift contract);
+    // the sibling addToApproximateEntriesCount delta-path mutator stays
+    // untouched.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
-   * Pins the |nullDelta| == |totalDelta| boundary of the accumulator's
-   * sign-aligned magnitude assert on the single-value engine: when every entry
-   * is a null key, the accumulated delta has equal magnitudes on both axes.
+   * Pins the |inMemAdjustNull| == |inMemAdjustTotal| configuration on the
+   * single-value engine: when every entry is a null key, the in-mem-side
+   * delta has equal magnitudes on both axes (the accumulateInMemRecalibration
+   * method imposes no precondition, but the snapshot invariant
+   * currentNull <= currentTotal still holds).
    *
    * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
-  public void singleValue_clear_nullOnlyEngine_accumulatesEqualDeltas()
+  public void singleValue_clear_nullOnlyEngine_recordsEqualInMemAdjustOnBothAxes()
       throws IOException {
     assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
@@ -1472,22 +1482,32 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
-    assertEquals(-7L, delta.getTotalDelta());
-    assertEquals(-7L, delta.getNullDelta());
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    assertEquals(-7L, delta.getInMemAdjustTotal());
+    assertEquals(-7L, delta.getInMemAdjustNull());
+    // In-mem AtomicLongs must NOT move inside clear(); Hook B advances them
+    // post-commit.
+    assertEquals(7, f.engine.getTotalCount(f.op));
+    assertEquals(7, f.engine.getNullCount(f.op));
+    // The persisted-side absolute zero write is unconditional under
+    // mixed-mode; the sibling delta-path mutator stays untouched on the
+    // clear() seam.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
-   * Pins the nullDelta == 0 boundary of the accumulator's sign-aligned
-   * magnitude assert on the single-value engine: when no entry is a null key,
-   * only the total delta is non-zero and the assert's one-zero clause covers
-   * the configuration.
+   * Pins the inMemAdjustNull == 0 configuration on the single-value engine:
+   * when no entry is a null key, only the total-axis in-mem-side delta is
+   * non-zero.
    *
    * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
-  public void singleValue_clear_nonNullOnlyEngine_accumulatesZeroNullDelta()
+  public void singleValue_clear_nonNullOnlyEngine_recordsZeroInMemAdjustNull()
       throws IOException {
     assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
@@ -1497,22 +1517,34 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
-    assertEquals(-5L, delta.getTotalDelta());
+    assertEquals(0L, delta.getTotalDelta());
     assertEquals(0L, delta.getNullDelta());
+    assertEquals(-5L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+    // In-mem AtomicLongs must NOT move inside clear(); Hook B advances them
+    // post-commit.
+    assertEquals(5, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
+    // The persisted-side absolute zero write is unconditional under
+    // mixed-mode regardless of null/non-null distribution.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
-   * Pins additive composition across the two accumulate overloads on the
-   * single-value engine: two prior null-key put accumulations (short-form
-   * sign=+1, isNullKey=true) followed by a clear of a (10, 3)-seeded engine
-   * must leave the holder at (-10 + 2, -3 + 2) == (-8, -1).
+   * Pins axis isolation across the two accumulator surfaces on the
+   * single-value engine: prior null-key put accumulations (short-form
+   * sign=+1, isNullKey=true) advance only the totalDelta / nullDelta axes; a
+   * subsequent clear() of a (10, 3)-seeded engine advances only the
+   * inMemAdjust axes. The two axis pairs are independent on the holder and
+   * Hook B sums them at apply time.
    *
    * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
    * exclusive lock cited in the production comment is NOT acquired during
    * this test because the Mockito fixture short-circuits doClearTree().
    */
   @Test
-  public void singleValue_clear_composesWithPriorPutDeltas()
+  public void singleValue_clear_keepsPriorPutDeltasOnTheirOwnAxis()
       throws IOException {
     assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
@@ -1525,55 +1557,53 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
     assertNotNull(delta);
-    assertEquals(-8L, delta.getTotalDelta());
-    assertEquals(-1L, delta.getNullDelta());
+    // Prior put deltas stay on the totalDelta / nullDelta axis.
+    assertEquals(+2L, delta.getTotalDelta());
+    assertEquals(+2L, delta.getNullDelta());
+    // The clear() collapse lands on the inMemAdjust axis only.
+    assertEquals(-10L, delta.getInMemAdjustTotal());
+    assertEquals(-3L, delta.getInMemAdjustNull());
+    // In-mem AtomicLongs must NOT move inside clear(); Hook B advances them
+    // post-commit. IndexCountDelta.accumulate above touches the holder
+    // only, so the engine-level counters see the seeded values (10, 3).
+    assertEquals(10, f.engine.getTotalCount(f.op));
+    assertEquals(3, f.engine.getNullCount(f.op));
+    // The persisted-side absolute zero write is unconditional under
+    // mixed-mode.
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    // The sibling delta-path mutator stays untouched on the clear() seam
+    // under mixed-mode.
+    verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
   }
 
   /**
-   * Pins the single-value-specific persistCountDelta contract: clear()
-   * accumulates a non-zero nullDelta on the holder when the engine had any
-   * null entries, but persistCountDelta deliberately discards nullDelta on
-   * apply because the SV engine stores nulls and non-nulls in the same tree.
-   *
-   * <p>The test drives both halves of the contract: clear() records the full
-   * (-10, -3) delta on the accumulator, and a direct persistCountDelta call
-   * with that delta produces exactly one persisted-side write —
-   * addToApproximateEntriesCount(op, -10) on the single tree — and no
-   * sibling "null-tree" write (the SV engine has no separate null tree). A
-   * future refactor that accidentally makes persistCountDelta honour
-   * nullDelta would fail this test even though the accumulator-only tests
-   * above stay green.
-   *
-   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree
-   * exclusive lock cited in the production comment is NOT acquired during
-   * this test because the Mockito fixture short-circuits doClearTree().
+   * Pins the single-value persistCountDelta one-tree-only mechanics directly:
+   * a (-10, -3) delta on the persist-side holder fields produces exactly one
+   * persisted-side write — addToApproximateEntriesCount(op, -10) on the
+   * single tree — and nullDelta is silently dropped because the SV engine
+   * holds nulls and non-nulls in the same tree. clear() under the mixed-mode
+   * encoding no longer feeds these fields (the persisted side runs via
+   * inline setApproximateEntriesCount); persistCountDelta remains the
+   * delta-path for put/remove deltas, and the one-tree-only mechanics still
+   * matter for that path. A future refactor that accidentally honoured
+   * nullDelta or added a sibling-tree write would fail this test.
    */
   @Test
-  public void singleValue_clear_persistCountDeltaIgnoresNullDelta_butAccumulatorRecordsIt()
+  public void singleValue_persistCountDelta_dropsNullDeltaOnSingleTree()
       throws IOException {
-    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
     var f = new SingleValueFixture();
-    f.engine.addToApproximateEntriesCount(10);
-    f.engine.addToApproximateNullCount(3);
 
-    f.engine.clear(f.storage, f.op);
-
-    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
-    assertNotNull(delta);
-    assertEquals(-10L, delta.getTotalDelta());
-    assertEquals(-3L, delta.getNullDelta());
-
-    // Drive persistCountDelta with the recorded (totalDelta, nullDelta) and
-    // verify the SV engine's persisted-side write pattern. Per the SV
-    // engine's persistCountDelta implementation, only totalDelta is written
-    // to sbTree.addToApproximateEntriesCount and nullDelta is silently
-    // dropped (the single tree holds both null and non-null entries).
-    f.engine.persistCountDelta(
-        f.op, delta.getTotalDelta(), delta.getNullDelta());
+    // Drive persistCountDelta directly with the same (-10, -3) shape clear()
+    // produced under the prior pure-delta encoding. The SV engine writes
+    // only totalDelta to sbTree.addToApproximateEntriesCount and silently
+    // drops nullDelta (the single tree holds both null and non-null
+    // entries).
+    f.engine.persistCountDelta(f.op, -10L, -3L);
 
     verify(f.sbTree).addToApproximateEntriesCount(f.op, -10L);
-    // No other persisted-side mutation on the single tree (setApproximate-
-    // EntriesCount is the buildInitialHistogram path, not the delta path).
+    // No setApproximateEntriesCount call from persistCountDelta — that
+    // mutator is the buildInitialHistogram / clear() inline path, not the
+    // delta path.
     verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
   }
 

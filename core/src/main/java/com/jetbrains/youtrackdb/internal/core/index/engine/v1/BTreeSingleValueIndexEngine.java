@@ -268,22 +268,56 @@ public final class BTreeSingleValueIndexEngine
           : "clear() snapshot invariant violated on engine=" + name + " id=" + id
               + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
       indexesSnapshot.clear();
-      // Pure-delta encoding: record the collapse as Δ = -current on the atomic
-      // op. The persist hook writes totalDelta=-currentTotal to the single
-      // tree's EP page before commitChanges; persistCountDelta deliberately
-      // ignores nullDelta because the single-value engine stores nulls and
-      // non-nulls in one tree (the persisted side moves by totalDelta alone,
-      // which is the correct full-tree collapse). The apply hook then advances
-      // both in-memory AtomicLong counters after commitChanges but before lock
-      // release.
+      // Mixed-mode encoding (replaces the prior pure-delta encoding that wrote
+      // totalDelta=-currentTotal through persistCountDelta and silently dropped
+      // nullDelta because the single-value engine stores nulls and non-nulls
+      // in the same tree).
+      // Persisted side: one inline absolute write on the single tree,
+      // WAL-tracked through the AOM lifecycle, reverts on rollback, and lands
+      // at zero regardless of any pre-existing in-mem-vs-persisted drift.
+      // Heals the drift window the pure-delta encoding accepted as an open
+      // regression: addToApproximateEntriesCount(-currentInMem) on the
+      // persisted side would land the EP below zero whenever in-mem had
+      // drifted above persisted (e.g. from a reportAndClampUnderflow event on
+      // a prior commit).
       //
-      // The persisted EP page is transiently out of sync with the now-empty
-      // tree until the persist hook runs. Any pre-existing drift between
-      // in-memory and persisted is intentionally not normalised here; eagerly
-      // zeroing the persisted side would re-introduce the in-atomic-op write
-      // that this encoding removes, and buildInitialHistogram() recalibration
-      // covers the rare residual case on next touch.
-      IndexCountDelta.accumulateClearOrRecalibrate(
+      // No new checked-exception exposure on this rewrite:
+      // setApproximateEntriesCount declares no checked exception. The body of
+      // CellBTreeSingleValueV3.setApproximateEntriesCount routes the EP page
+      // write through executeInsideComponentOperation, which catches the
+      // underlying IOException and rewraps it as a
+      // CommonStorageComponentException (unchecked). The setApproximate-
+      // EntriesCount call therefore sits inside the existing method-level try
+      // purely for code locality; a runtime failure escapes as an unchecked
+      // exception, triggers atomic-op rollback at the surrounding
+      // executeInsideAtomicOperation boundary, and is handled at the
+      // clearIndex API surface. The method-level catch below remains
+      // load-bearing for mgr.resetOnClear, which is now the only IOException
+      // source on this body.
+      sbTree.setApproximateEntriesCount(atomicOperation, 0L);
+      // In-mem side: route the collapse through the mixed-mode accumulator
+      // shared with buildInitialHistogram(). The delta (-currentTotal,
+      // -currentNull) advances inMemAdjustTotal / inMemAdjustNull on the
+      // holder; Hook B's applyIndexCountDeltas sums
+      // getTotalDelta() + getInMemAdjustTotal() (and the null mirror)
+      // post-commit before calling the engine mutators. On rollback the
+      // holder is dropped and the in-mem AtomicLongs stay at their
+      // pre-clear() values; on success they advance to zero post-commit,
+      // matching the persisted side. The new accumulator is the sole carrier
+      // of the null-counter delta on this engine — Hook A's persistCountDelta
+      // still ignores nullDelta for SV, but Hook A is a no-op for this seam
+      // because clear() no longer writes to getTotalDelta()/getNullDelta().
+      //
+      // Race posture vs the prior pure-delta encoding. Mixed-mode narrows the
+      // snapshot-read race the lock-window comment block above documents: the
+      // persisted side is now an absolute zero write (immune to a wrong
+      // (currentTotal, currentNull) snapshot); only the in-mem side keeps the
+      // race window. The consequence is bounded the same way the prior
+      // encoding documented: the in-mem-side delta is additively composable,
+      // so concurrent recalibrations on the same engine compose via
+      // AtomicLong.addAndGet, and any residual drift self-heals on the next
+      // buildInitialHistogram() recalibration.
+      IndexCountDelta.accumulateInMemRecalibration(
           atomicOperation, id, -currentTotal, -currentNull);
       var mgr = histogramManager;
       if (mgr != null) {
