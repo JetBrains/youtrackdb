@@ -327,14 +327,18 @@ public final class BTreeMultiValueIndexEngine
     // commit).
     //
     // No new try/catch on this rewrite: setApproximateEntriesCount declares
-    // no checked exception. BTree.setApproximateEntriesCount wraps the EP
-    // page write in executeInsideComponentOperation, which absorbs the
-    // underlying IOException internally, so the MV clear() signature does
-    // not gain "throws IOException". The histogram-reset try/catch below
-    // still covers mgr.resetOnClear, which is the only IOException source
+    // no checked exception. BTree.setApproximateEntriesCount routes the EP
+    // page write through executeInsideComponentOperation, which catches the
+    // underlying IOException and rewraps it as a
+    // CommonStorageComponentException (unchecked). The MV clear() signature
+    // therefore does not gain "throws IOException"; a runtime failure
+    // escapes as an unchecked exception, triggers atomic-op rollback at the
+    // surrounding executeInsideAtomicOperation boundary, and is handled at
+    // the clearIndex API surface. The histogram-reset try/catch below still
+    // covers mgr.resetOnClear, which is the only IOException source
     // remaining on this body.
-    svTree.setApproximateEntriesCount(atomicOperation, 0);
-    nullTree.setApproximateEntriesCount(atomicOperation, 0);
+    svTree.setApproximateEntriesCount(atomicOperation, 0L);
+    nullTree.setApproximateEntriesCount(atomicOperation, 0L);
     // In-mem side: route the collapse through the mixed-mode accumulator
     // shared with buildInitialHistogram(). The delta (-currentTotal,
     // -currentNull) advances inMemAdjustTotal / inMemAdjustNull on the

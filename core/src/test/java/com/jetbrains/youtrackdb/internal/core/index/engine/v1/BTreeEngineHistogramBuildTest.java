@@ -1741,6 +1741,14 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(0L, delta.getNullDelta());
     assertEquals(-7L, delta.getInMemAdjustTotal());
     assertEquals(-7L, delta.getInMemAdjustNull());
+    // In-mem AtomicLongs must NOT move inside clear(); Hook B advances them
+    // post-commit.
+    assertEquals(7, f.engine.getTotalCount(f.op));
+    assertEquals(7, f.engine.getNullCount(f.op));
+    // Per-tree persisted-side absolute zero writes are unconditional under
+    // mixed-mode.
+    verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
     // The sibling addToApproximateEntriesCount delta-path mutator stays
     // untouched on the clear() seam under mixed-mode (the persisted side is
     // fed by setApproximateEntriesCount, not addToApproximateEntriesCount).
@@ -1771,6 +1779,14 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(0L, delta.getNullDelta());
     assertEquals(-5L, delta.getInMemAdjustTotal());
     assertEquals(0L, delta.getInMemAdjustNull());
+    // In-mem AtomicLongs must NOT move inside clear(); Hook B advances them
+    // post-commit.
+    assertEquals(5, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
+    // Per-tree persisted-side absolute zero writes are unconditional under
+    // mixed-mode regardless of null/non-null distribution.
+    verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
     // The sibling addToApproximateEntriesCount delta-path mutator stays
     // untouched on the clear() seam under mixed-mode.
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
@@ -1808,6 +1824,15 @@ public class BTreeEngineHistogramBuildTest {
     // The clear() collapse lands on the inMemAdjust axis only.
     assertEquals(-10L, delta.getInMemAdjustTotal());
     assertEquals(-3L, delta.getInMemAdjustNull());
+    // In-mem AtomicLongs must NOT move inside clear(); Hook B advances them
+    // post-commit. IndexCountDelta.accumulate above touches the holder
+    // only, so the engine-level counters see the seeded values (10, 3).
+    assertEquals(10, f.engine.getTotalCount(f.op));
+    assertEquals(3, f.engine.getNullCount(f.op));
+    // Per-tree persisted-side absolute zero writes are unconditional under
+    // mixed-mode.
+    verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
     // The sibling addToApproximateEntriesCount delta-path mutator stays
     // untouched on the clear() seam under mixed-mode.
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
