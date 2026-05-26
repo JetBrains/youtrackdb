@@ -5,20 +5,20 @@
 
 Today, `.claude/workflow/` carries a coherent body of conventions but never names the design philosophy those conventions encode. Phase 0 (research) accumulates user-agent conversation that evaporates into chat context. The single-shot summary at `create-plan` Step 4 is the only thing Phase 1 sees, so research drift across `/compact` or partial pauses at the context-warning threshold silently lose information. Phase 1 design iteration captures mechanics in `design-mutations.md` but no rationale; design review fires once per mutation via `edit-design`'s cold-read sub-agent and never against the dimensions the design needs most — reference-accuracy against the codebase, devil's-advocate counter-arguments, optional domain checks (crash-safety / concurrency / performance for content; workflow-changes for design touching `.claude/workflow/**` or `.claude/skills/**`). And Phase 1 itself authors `design.md` last, after Architecture Notes and the track checklist, so the design back-fills decisions the plan already crystallized around.
 
-This design closes those gaps with one philosophy artifact pair, one durable rationale file, a Phase 1 split into 1a/1b, and a richer per-mutation review fan-out:
+This design closes those gaps with one philosophy artifact pair, one durable rationale file, a Phase 1 split into 1a/1b, and a richer per-batch review fan-out:
 
 - A lean `### Design philosophy` subsection inside `.claude/workflow/conventions.md` naming seven principles in one sentence each, plus a new load-on-demand `.claude/workflow/design-philosophy.md` carrying the paragraph-length explanations, the workflow-mapping table, the six failure modes, and the external citations (YTDB-842).
 - A new `_workflow/decision-log.md` durable file carrying the verbatim user aim, Phase 0 decisions / findings / open questions, Phase 1a / 1b rationale entries, gate-verdict entries (PASS / accepted-open-risks), the Phase 1a → 1b transition signal, and ESCALATE entries from 1b back to 1a (YTDB-965 plus the Phase 1 extension).
-- A Phase 1 split into Phase 1a (design-first authoring under per-mutation review fan-out) and Phase 1b (plan derivation in a fresh session), with the ESCALATE back-edge from 1b to 1a when plan derivation hits a fundamental contradiction (YTDB-975).
-- A per-mutation review fan-out integrated into `edit-design` Step 4: cold-read (existing) plus two new mandatory reviewers (feasibility-review for PSI-backed reference accuracy; adversarial-design-review for devil's-advocate counter-arguments) plus optional content-triggered domain reviewers (crash-safety / concurrency / performance for storage / locking / hot-path content; workflow-changes for content touching `.claude/workflow/**` or `.claude/skills/**`). Workflow-changes triggers four sibling reviewers mirroring the existing code-side `.claude/agents/review-workflow-*` set at design-doc scope: consistency, context-budget, instruction-completeness, prompt-design. Every `edit-design` mutation triggers the fan-out; `phase1-creation` is not special. Reviewers write raw certificate-shape output to per-reviewer files under `_workflow/design-reviews/cycle-N-iter-M/`. An aggregator sub-agent consolidates them and returns a structured findings object to the orchestrator. Decision-shaped findings batch at user checkpoints between autonomous mechanical-fix chains.
+- A Phase 1 split into Phase 1a (design-first authoring under per-batch review fan-out) and Phase 1b (plan derivation in a fresh session), with the ESCALATE back-edge from 1b to 1a when plan derivation hits a fundamental contradiction (YTDB-975).
+- A per-batch review fan-out integrated into `edit-design` Step 4 (fan-out fires once at batch end; mechanical checks stay per-mutation): cold-read (existing) plus two new mandatory reviewers (feasibility-review for PSI-backed reference accuracy; adversarial-design-review for devil's-advocate counter-arguments) plus optional content-triggered domain reviewers (crash-safety / concurrency / performance for storage / locking / hot-path content; workflow-changes for content touching `.claude/workflow/**` or `.claude/skills/**`). Workflow-changes triggers four sibling reviewers mirroring the existing code-side `.claude/agents/review-workflow-*` set at design-doc scope: consistency, context-budget, instruction-completeness, prompt-design. A batch is a contiguous sequence of user-driven `edit-design` mutations applied without an intervening fan-out: `phase1-creation` is a batch-of-1, a single mid-conversation request is a batch-of-1, an "apply batch" from a user-review checkpoint is a batch-of-K coordinated mutations across K sections. Each mutation in the batch runs per-mutation mechanical checks (Step 3, cheap Bash script); after the last mutation lands, Step 4 fan-out fires once over the cumulative diff. Reviewers write raw certificate-shape output to per-reviewer files under `_workflow/design-reviews/cycle-N-iter-M/`. An aggregator sub-agent consolidates them and returns a structured findings object to the orchestrator. Decision-shaped findings batch at user checkpoints between autonomous mechanical-fix chains (the autonomous chain still fans out per fix; its convergence signal is fan-out PASS, bounded by `iteration_budget=3`).
 
-These changes ship together because they share the same workflow files (`planning.md`, `research.md`, `create-plan/SKILL.md`, `workflow.md`, `implementation-review.md`, `edit-design/SKILL.md`, the new `_workflow/` directory layout in `conventions.md` §1.2, and a new sub-section in `conventions.md §1.4` defining the sub-agent prompt-by-reference spawn protocol all spawns use). The intellectual coupling is real: Principle 7 (Lean documents, load on demand) justifies the philosophy split's two-file shape AND motivates the prompt-by-reference protocol; YTDB-975 explicitly depends on YTDB-842 so its philosophy citations resolve; the decision-log shape depends on the Phase 1a / 1b split being known; the per-mutation review fan-out depends on the aggregator wiring + prompt-by-reference protocol landing in the same PR. Splitting into separate PRs would re-do `conventions.md`, `planning.md`, `research.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` edits two or three times.
+These changes ship together because they share the same workflow files (`planning.md`, `research.md`, `create-plan/SKILL.md`, `workflow.md`, `implementation-review.md`, `edit-design/SKILL.md`, the new `_workflow/` directory layout in `conventions.md` §1.2, and a new sub-section in `conventions.md §1.4` defining the sub-agent prompt-by-reference spawn protocol all spawns use). The intellectual coupling is real: Principle 7 (Lean documents, load on demand) justifies the philosophy split's two-file shape AND motivates the prompt-by-reference protocol; YTDB-975 explicitly depends on YTDB-842 so its philosophy citations resolve; the decision-log shape depends on the Phase 1a / 1b split being known; the per-batch review fan-out depends on the aggregator wiring + prompt-by-reference protocol landing in the same PR. Splitting into separate PRs would re-do `conventions.md`, `planning.md`, `research.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` edits two or three times.
 
-Phase 1a exits on a user signal recorded as a Plan-time Decisions entry; Phase 1b auto-resumes by reading that entry from `decision-log.md`. ESCALATE from Phase 1b is a Plan-time Decisions entry too. The new artifact set is: `decision-log.md` (knowledge: rationale, gate verdicts, transition signals), `design-mutations.md` (mechanics, unchanged), and `_workflow/design-reviews/cycle-N-iter-M/` (raw reviewer output, per-reviewer file). No separate `feasibility-review.md`; gate verdicts live in `decision-log.md` per the one-concern-per-file rule. The orchestrator never loads reviewer prompt bodies into its context; sub-agents read their prompts on entry per the new spawn protocol (savings ~10-20x in orchestrator context per mutation, depending on which optional domain triggers fire).
+Phase 1a exits on a user signal recorded as a Plan-time Decisions entry; Phase 1b auto-resumes by reading that entry from `decision-log.md`. ESCALATE from Phase 1b is a Plan-time Decisions entry too. The new artifact set is: `decision-log.md` (knowledge: rationale, gate verdicts, transition signals), `design-mutations.md` (mechanics, unchanged), and `_workflow/design-reviews/cycle-N-iter-M/` (raw reviewer output, per-reviewer file). No separate `feasibility-review.md`; gate verdicts live in `decision-log.md` per the one-concern-per-file rule. The orchestrator never loads reviewer prompt bodies into its context; sub-agents read their prompts on entry per the new spawn protocol (savings ~10-20x in orchestrator context per fan-out, depending on which optional domain triggers fire; per-batch firing adds a further K-fold cut at user checkpoints because the cumulative diff of K coordinated mutations is reviewed as one fan-out, not K).
 
 No `design-mechanics.md` companion — this is a small design under the length trigger; the single-file default applies.
 
-The rest of this document is structured as: Core Concepts → Class Design → Workflow → ten topic sections (design philosophy with lean subsection plus detailed-doc split, decision-log file shape, initial-request write contract, write triggers, Phase 0 → Phase 1a transition mechanics, per-mutation design review fan-out, design-doc review directory shape, Phase 1a design-iteration rationale, Phase 1b plan derivation and ESCALATE back-edge, cross-reference tier mapping).
+The rest of this document is structured as: Core Concepts → Class Design → Workflow → the following topic sections, in order (design philosophy with lean subsection plus detailed-doc split, decision-log file shape, initial-request write contract, write triggers, Phase 0 → Phase 1a transition mechanics, design review fan-out, design-doc review directory shape, Phase 1a design-iteration rationale, Phase 1b plan derivation and ESCALATE back-edge, cross-reference tier mapping).
 
 ## Core Concepts
 
@@ -26,7 +26,7 @@ This design introduces fourteen load-bearing ideas. Each is named and used witho
 
 **Design philosophy.** A lean `### Design philosophy` subsection inside `.claude/workflow/conventions.md` (always-loaded) naming seven principles in one sentence each, plus a new load-on-demand `.claude/workflow/design-philosophy.md` carrying paragraph-length explanations, the workflow-mapping table, the six failure modes, and the external citations. The lean subsection points at the detailed doc (two-step). Names what the conventions already do so future "optimizations" pay a visible cost. Replaces the unnamed status quo. → §"Design philosophy".
 
-**decision-log.md.** A new `docs/adr/<dir-name>/_workflow/decision-log.md` file capturing the verbatim user aim, continuous-log entries for decisions / findings / open questions across Phase 0 (research), Phase 1a (design iteration), and Phase 1b (plan derivation), gate-verdict entries (per-mutation aggregator's PASS / NEEDS REVISION summary plus accepted-open-risks blocks), the Phase 1a → 1b transition signal, and ESCALATE entries from Phase 1b. Replaces single-shot Phase 0 → Phase 1 summarization AND absorbs the role the discarded `feasibility-review.md` was going to play. → §"Decision-log file shape".
+**decision-log.md.** A new `docs/adr/<dir-name>/_workflow/decision-log.md` file capturing the verbatim user aim, continuous-log entries for decisions / findings / open questions across Phase 0 (research), Phase 1a (design iteration), and Phase 1b (plan derivation), gate-verdict entries (per-batch aggregator's PASS / NEEDS REVISION summary plus accepted-open-risks blocks), the Phase 1a → 1b transition signal, and ESCALATE entries from Phase 1b. Replaces single-shot Phase 0 → Phase 1 summarization AND absorbs the role the discarded `feasibility-review.md` was going to play. → §"Decision-log file shape".
 
 **Initial request anchor.** A one-shot `## Initial request` section at the top of `decision-log.md` carrying the user's verbatim aim from `create-plan` Step 2. Plan-at-start (no timestamp / ctx field), distinguishing it from continuous-log entries that follow. Phase 1 reads this as the authoritative aim, replacing any "ask the user for the aim again" step. → §"Initial-request write contract".
 
@@ -36,15 +36,15 @@ This design introduces fourteen load-bearing ideas. Each is named and used witho
 
 **Phase 1a design-iteration rationale entry.** When the user articulates a *why* alongside a `design.md` mutation in Phase 1a, `edit-design` Step 7 appends a Plan-time Decisions entry to `decision-log.md` carrying the rationale and the alternatives rejected. The mechanical record stays in `design-mutations.md` (unchanged). One file per concern. → §"Phase 1a design-iteration rationale".
 
-**Per-mutation design review fan-out.** Integrated into `edit-design` Step 4. Every mutation against `design.md` triggers parallel review sub-agents: cold-read (existing) + feasibility-review (new, PSI-backed reference accuracy, finding ID prefix FD) + adversarial-design-review (new, devil's-advocate counter-arguments, finding ID prefix AD) + content-triggered domain reviewers (crash-safety / concurrency / performance / workflow-changes). Each reviewer writes its certificate-shape output to a per-reviewer file under `_workflow/design-reviews/cycle-N-iter-M/`. An aggregator sub-agent consolidates outputs and returns a structured findings object to the orchestrator. Mechanical findings drive autonomous chained mutations within `edit-design`'s `iteration_budget`; decision-shaped findings queue for the next user-review checkpoint. → §"Per-mutation design review fan-out".
+**Per-batch design review fan-out.** Integrated into `edit-design` Step 4 with batch-end timing. A batch is a contiguous sequence of user-driven `edit-design` mutations applied without an intervening fan-out: `phase1-creation` is a batch-of-1, a single mid-conversation request is a batch-of-1, an "apply batch" from a user-review checkpoint is a batch-of-K coordinated mutations across K sections. Each mutation in the batch runs per-mutation mechanical checks; after the last mutation lands, Step 4 fires one fan-out over the cumulative diff: cold-read (existing) + feasibility-review (new, PSI-backed reference accuracy, finding ID prefix FD) + adversarial-design-review (new, devil's-advocate counter-arguments, finding ID prefix AD) + content-triggered domain reviewers (crash-safety / concurrency / performance / workflow-changes). Each reviewer writes its certificate-shape output to a per-reviewer file under `_workflow/design-reviews/cycle-N-iter-M/`. An aggregator sub-agent consolidates outputs and returns a structured findings object to the orchestrator. Mechanical findings drive autonomous chained mutations within `edit-design`'s `iteration_budget` (each chained fix is its own single-mutation batch, re-firing the fan-out at the next iter-M); decision-shaped findings queue for the next user-review checkpoint. Replaces a per-mutation fan-out shape that would have spawned K-fold reviewers per checkpoint round. → §"Design review fan-out".
 
-**Design-doc-scoped reviewer prompts.** Six new prompts under `.claude/workflow/prompts/`: `feasibility-review.md` (FD), `adversarial-design-review.md` (AD), `crash-safety-design.md` (CS), `concurrency-design.md` (CC), `performance-design.md` (PF), and a four-sibling set for workflow-changes (`workflow-consistency-design.md`, `workflow-context-budget-design.md`, `workflow-instruction-completeness-design.md`, `workflow-prompt-design-design.md`, finding ID prefixes WCC / WCB / WCI / WCP). Crash-safety / concurrency / performance design prompts are scoped to design prose, not the code-diff inputs of `.claude/agents/review-crash-safety.md` and siblings. Workflow-changes design prompts are scoped siblings of the existing `.claude/agents/review-workflow-*` set, citing the code-side files for the dimensional taxonomy. → §"Per-mutation design review fan-out".
+**Design-doc-scoped reviewer prompts.** Six new prompts under `.claude/workflow/prompts/`: `feasibility-review.md` (FD), `adversarial-design-review.md` (AD), `crash-safety-design.md` (CS), `concurrency-design.md` (CC), `performance-design.md` (PF), and a four-sibling set for workflow-changes (`workflow-consistency-design.md`, `workflow-context-budget-design.md`, `workflow-instruction-completeness-design.md`, `workflow-prompt-design-design.md`, finding ID prefixes WCC / WCB / WCI / WCP). Crash-safety / concurrency / performance design prompts are scoped to design prose, not the code-diff inputs of `.claude/agents/review-crash-safety.md` and siblings. Workflow-changes design prompts are scoped siblings of the existing `.claude/agents/review-workflow-*` set, citing the code-side files for the dimensional taxonomy. → §"Design review fan-out".
 
-**Aggregator sub-agent.** A sub-agent that runs at the end of every `edit-design` Step 4 fan-out. Reads each per-reviewer file under the current `cycle-N-iter-M/` directory, classifies findings by severity and decision-shape, dedupes cross-reviewer overlap, and returns a small structured object to the orchestrator (~50 lines vs the ~1000+ lines of raw reviewer prose). Writes a one-line summary entry to `decision-log.md` (gate-verdict shape) and an optional `cycle-N-iter-M/summary.md` for human-readable audit. → §"Per-mutation design review fan-out".
+**Aggregator sub-agent.** A sub-agent that runs once per batch at the end of every `edit-design` Step 4 fan-out (not per mutation). Reads each per-reviewer file under the current `cycle-N-iter-M/` directory, classifies findings by severity and decision-shape, dedupes cross-reviewer overlap, and returns a small structured object to the orchestrator (~50 lines vs the ~1000+ lines of raw reviewer prose). Writes a one-line summary entry to `decision-log.md` (gate-verdict shape) and an optional `cycle-N-iter-M/summary.md` for human-readable audit. Appends a batch fan-out entry to `design-mutations.md` referencing the constituent mutation numbers. → §"Design review fan-out".
 
-**User-review checkpoint.** A user-driven pause between autonomous mechanical-fix chains. Surfaces queued decision-shaped findings, recent autonomous mutations for optional revert, and an open slot for fresh user observations. User signals "apply batch" → orchestrator builds a coordinated set of `edit-design` mutations grouped by target section. The gate stays autonomous within an iteration; user interaction happens at iteration boundaries only. → §"Per-mutation design review fan-out".
+**User-review checkpoint.** A user-driven pause between autonomous mechanical-fix chains. Surfaces queued decision-shaped findings, recent autonomous mutations for optional revert, and an open slot for fresh user observations. User signals "apply batch" → orchestrator applies the coordinated set of `edit-design` mutations sequentially (mechanical checks per mutation, no fan-out per mutation), then runs the Step 4 fan-out once over the cumulative diff at batch end. The gate stays autonomous within an iteration; user interaction happens at iteration boundaries only. → §"Design review fan-out".
 
-**Sub-agent prompt-by-reference spawn protocol.** A new `conventions.md §1.4` sub-section: every sub-agent spawn passes the prompt file as a path reference plus a small inputs block; the sub-agent reads the prompt on entry. Applies to all spawns in the workflow: design-doc reviewers, plan / track reviewers, code reviewers, the aggregator, and a future wrapped-`edit-design` sub-agent. Saves ~10-20x orchestrator context per mutation fan-out. → §"Per-mutation design review fan-out".
+**Sub-agent prompt-by-reference spawn protocol.** A new `conventions.md §1.4` sub-section: every sub-agent spawn passes the prompt file as a path reference plus a small inputs block; the sub-agent reads the prompt on entry. Applies to all spawns in the workflow: design-doc reviewers, plan / track reviewers, code reviewers, the aggregator, and a future wrapped-`edit-design` sub-agent. Saves ~10-20x orchestrator context per fan-out; per-batch firing collapses K-fold cost (K coordinated mutations per checkpoint round) into a single fan-out. → §"Design review fan-out".
 
 **Phase 1b plan derivation.** A separate session that auto-resumes from validated `design.md` and writes the strategic plan: Architecture Notes, Decision Records (seeded from `decision-log.md ## Plan-time Decisions`), the track checklist, and per-track `plan/track-N.md` files. Detects the resume condition by scanning `decision-log.md ## Plan-time Decisions` for the most recent entry tagged `(Phase 1a → 1b)` and verifying that `implementation-plan.md` does not yet exist. → §"Phase 1b plan derivation and ESCALATE back-edge".
 
@@ -119,23 +119,25 @@ classDiagram
         +consistency (WCC), context-budget (WCB), instruction-completeness (WCI), prompt-design (WCP)
     }
     class aggregator_subagent_prompt_md {
+        +Runs once per batch, not per mutation
         +Reads per-reviewer files under cycle-N-iter-M/
         +Classifies by severity and decision-shape
         +Returns structured findings object to orchestrator
         +Writes one-line summary entry to decision-log.md
+        +Appends batch fan-out entry to design-mutations.md referencing constituent mutation numbers
     }
     class create_plan_skill {
         +Phase 0: Step 1b creates decision-log.md; Steps 2-3 write triggers
         +Phase 0 to 1a: Step 4 reads decision-log.md and confirms aim
-        +Phase 1a: per-mutation review fan-out via edit-design; user-checkpoint loop until user signals 1a to 1b transition
+        +Phase 1a: per-batch review fan-out via edit-design; user-checkpoint loop until user signals 1a to 1b transition
         +Phase 1b (fresh session): auto-resumes by reading decision-log.md for Phase 1a to 1b entry; derives Architecture Notes + tracks + plan files
         +Phase 1b ESCALATE: writes ESCALATE entry to decision-log.md, ends session
     }
     class edit_design_skill {
-        +Step 4 expanded: reviewer fan-out (cold-read + feasibility + adversarial + triggered domains)
-        +Step 4 sub-step: aggregator sub-agent consolidates findings
-        +Step 5: iterate on mechanical findings; decision-shaped findings escape to orchestrator
-        +Step 7 appends design-mutations.md entry (always)
+        +Step 4 expanded: per-batch reviewer fan-out at end of batch (cold-read + feasibility + adversarial + triggered domains)
+        +Step 4 sub-step: aggregator sub-agent consolidates findings (runs once per batch)
+        +Step 6 iterate on mechanical findings within iteration_budget (per-fix fan-out in the autonomous chain stays unchanged)
+        +Step 7 appends design-mutations.md entry per mutation; in-batch mutations carry cold-read DEFERRED and batch fan-out lands as a separate entry
         +Step 7 appends decision-log.md entry on articulated rationale (Phase 1a only)
         +All sub-agent spawns use prompt-by-reference protocol
     }
@@ -157,7 +159,7 @@ classDiagram
     }
     class implementation_review_md {
         +Phase 2 narrowed to plan-internal + plan-vs-design alignment
-        +Design-side consistency folds into Phase 1a per-mutation fan-out
+        +Design-side consistency folds into Phase 1a per-batch fan-out
     }
     class workflow_md {
         +Phases listed with 1a and 1b sub-phases
@@ -179,8 +181,8 @@ classDiagram
     edit_design_skill ..> aggregator_subagent_prompt_md : spawns aggregator
     aggregator_subagent_prompt_md ..> design_reviews_dir : reads per-reviewer files
     aggregator_subagent_prompt_md ..> decision_log_md : writes gate-verdict summary entry
-    edit_design_skill ..> feasibility_review_prompt_md : spawns (every mutation, prompt-by-reference)
-    edit_design_skill ..> adversarial_design_review_prompt_md : spawns (every mutation, prompt-by-reference)
+    edit_design_skill ..> feasibility_review_prompt_md : spawns (every batch end, prompt-by-reference)
+    edit_design_skill ..> adversarial_design_review_prompt_md : spawns (every batch end, prompt-by-reference)
     edit_design_skill ..> crash_safety_design_prompt_md : spawns when content-triggered
     edit_design_skill ..> concurrency_design_prompt_md : spawns when content-triggered
     edit_design_skill ..> performance_design_prompt_md : spawns when content-triggered
@@ -199,13 +201,13 @@ classDiagram
 
 Three durable artifacts own three complementary roles: knowledge (`decision_log_md`: rationale, alternatives, open questions, gate verdicts, transition signals, ESCALATE entries), mechanics (`design_mutations_md`: mutation kind, mechanical-check verdict, counter state, unchanged from today), and reviewer raw output (`design_reviews_dir`: per-cycle, per-iter directories containing one file per spawned reviewer plus an optional aggregator summary). One always-loaded surface (the lean `### Design philosophy` subsection inside `conventions_md`) plus one new always-loaded sub-section (`§1.4` spawn protocol) names the principles and protocols every session relies on; one new load-on-demand artifact (`design_philosophy_md`) carries the paragraph-length explanations, the workflow-mapping table, the failure modes, and the external citations.
 
-Eight new prompt files at `.claude/workflow/prompts/` define the per-mutation fan-out's sub-agent behavior: two mandatory (`feasibility_review_prompt_md`, `adversarial_design_review_prompt_md`), three content-triggered domain (`crash_safety_design_prompt_md`, `concurrency_design_prompt_md`, `performance_design_prompt_md`), four sibling workflow-changes prompts (workflow-consistency-design / workflow-context-budget-design / workflow-instruction-completeness-design / workflow-prompt-design-design — collapsed into one node in the diagram for readability), and one aggregator (`aggregator_subagent_prompt_md`). All produce certificate-shape output per Principle 6; all spawn via the prompt-by-reference protocol so their bodies never load into the orchestrator. The workflow-changes set cites the existing code-side `.claude/agents/review-workflow-*` files as the source of the dimensional taxonomy; the design-doc prompts adapt criteria for prose-input rather than code-diff input.
+Eight new prompt files at `.claude/workflow/prompts/` define the per-batch fan-out's sub-agent behavior: two mandatory (`feasibility_review_prompt_md`, `adversarial_design_review_prompt_md`), three content-triggered domain (`crash_safety_design_prompt_md`, `concurrency_design_prompt_md`, `performance_design_prompt_md`), four sibling workflow-changes prompts (workflow-consistency-design / workflow-context-budget-design / workflow-instruction-completeness-design / workflow-prompt-design-design — collapsed into one node in the diagram for readability), and one aggregator (`aggregator_subagent_prompt_md`). All produce certificate-shape output per Principle 6; all spawn via the prompt-by-reference protocol so their bodies never load into the orchestrator. The workflow-changes set cites the existing code-side `.claude/agents/review-workflow-*` files as the source of the dimensional taxonomy; the design-doc prompts adapt criteria for prose-input rather than code-diff input.
 
-Two SKILLs (`create_plan_skill`, `edit_design_skill`) own the writes. `create_plan_skill` writes to `decision_log_md` across Phase 0 and reads it for the Phase 1b auto-resume signal; `edit_design_skill` spawns the per-mutation fan-out, writes to `design_mutations_md` on every invocation, writes Phase 1a rationale entries to `decision_log_md`, and (via the aggregator) writes per-mutation gate-verdict summary entries to `decision_log_md`. Five workflow documents (`research_md`, `planning_md`, `mid_phase_handoff_md`, `implementation_review_md`, `workflow_md`) wire the new artifacts into existing phase boundaries on their read or coordination side. Five documents (`planning_md`, `design_document_rules_md`, `conventions_execution_md`, `mid_phase_handoff_md`, `research_md`) point at the lean `conventions_md § Design philosophy` subsection (two-step); the lean subsection itself points at `design_philosophy_md` so the deeper material stays load-on-demand. One additional document (`conventions_execution_md`) gains a one-line cross-reference to the new `conventions_md §1.4` spawn protocol.
+Two SKILLs (`create_plan_skill`, `edit_design_skill`) own the writes. `create_plan_skill` writes to `decision_log_md` across Phase 0 and reads it for the Phase 1b auto-resume signal; `edit_design_skill` spawns the per-batch fan-out, writes to `design_mutations_md` on every invocation, writes Phase 1a rationale entries to `decision_log_md`, and (via the aggregator) writes per-batch gate-verdict summary entries to `decision_log_md`. Five workflow documents (`research_md`, `planning_md`, `mid_phase_handoff_md`, `implementation_review_md`, `workflow_md`) wire the new artifacts into existing phase boundaries on their read or coordination side. Five documents (`planning_md`, `design_document_rules_md`, `conventions_execution_md`, `mid_phase_handoff_md`, `research_md`) point at the lean `conventions_md § Design philosophy` subsection (two-step); the lean subsection itself points at `design_philosophy_md` so the deeper material stays load-on-demand. One additional document (`conventions_execution_md`) gains a one-line cross-reference to the new `conventions_md §1.4` spawn protocol.
 
 ## Workflow
 
-Three runtime flows matter: the Phase 0 → Phase 1a transition (when the agent leaves research mode and starts authoring `design.md`), the Phase 1a per-mutation design review fan-out (the agreed YTDB-965 extension to `edit-design`), and the Phase 1a → Phase 1b transition (user-driven) with the optional ESCALATE back-edge from Phase 1b (the YTDB-975 reorder).
+Three runtime flows matter: the Phase 0 → Phase 1a transition (when the agent leaves research mode and starts authoring `design.md`), the Phase 1a per-batch design review fan-out (the agreed YTDB-965 extension to `edit-design`), and the Phase 1a → Phase 1b transition (user-driven) with the optional ESCALATE back-edge from Phase 1b (the YTDB-975 reorder).
 
 ### Phase 0 → Phase 1a transition
 
@@ -247,11 +249,12 @@ sequenceDiagram
 
 The log is the durable artifact across `/clear`, `/compact`, and any Phase 0 pause: a future session re-entering `/create-plan` reads the verbatim `## Initial request` plus every prior decision without re-deriving them from chat memory. The mid-phase-handoff file for Phase 0 keeps its research-shaped body for the in-flight tier (What I was investigating, Already ruled out, Most promising lead, Raw notes / partial findings, Resume notes); its `## Open questions` section becomes a pointer to `decision-log.md ## Plan-time Open Questions` so the same item never lives in two places. The two files own complementary tiers: durable commitments in the log, in-flight investigation state in the handoff.
 
-### Phase 1a design-iteration rationale capture (per-mutation fan-out)
+### Phase 1a per-batch fan-out (with rationale capture)
 
 ```mermaid
 sequenceDiagram
     participant User
+    participant Orch as Orchestrator (create-plan)
     participant ED as edit-design SKILL
     participant Design as design.md
     participant Mut as design-mutations.md
@@ -259,47 +262,45 @@ sequenceDiagram
     participant ReviewsDir as design-reviews/cycle-N-iter-M/
     participant Agg as Aggregator sub-agent
     participant Log as decision-log.md
-    participant Orch as Orchestrator (create-plan)
 
-    User->>ED: request mutation (phase1-creation, content-edit, section-add, ...)
-    ED->>Design: Step 1 apply edit (Edit/Write)
-    ED->>ED: Step 3 mechanical checks (Bash script)
+    User->>Orch: batch (one or more user-driven mutations — apply batch, phase1-creation, mid-conversation request)
+    loop for each mutation in the batch
+        Orch->>ED: request mutation
+        ED->>Design: Step 1 apply edit (Edit/Write)
+        ED->>ED: Step 3 mechanical checks (Bash script)
+        ED->>Mut: Step 7 append per-mutation entry (cold-read=DEFERRED for in-batch)
+        alt user articulated a why
+            ED->>Log: Step 7 append Plan-time Decisions entry (rationale + alternatives) for THIS mutation
+        end
+        ED-->>Orch: return diff
+    end
+    Note over Orch: after the last mutation in the batch — fire Step 4 fan-out once over the cumulative diff
     par cold-read (existing)
-        ED->>Reviewers: spawn cold-read (prompt-by-reference)
+        Orch->>Reviewers: spawn cold-read (prompt-by-reference)
     and feasibility-review
-        ED->>Reviewers: spawn feasibility-review (FD)
+        Orch->>Reviewers: spawn feasibility-review (FD)
     and adversarial-design-review
-        ED->>Reviewers: spawn adversarial-design-review (AD)
-    and content-triggered crash-safety
-        ED->>Reviewers: spawn crash-safety-design (CS) when triggered
-    and content-triggered concurrency
-        ED->>Reviewers: spawn concurrency-design (CC) when triggered
-    and content-triggered performance
-        ED->>Reviewers: spawn performance-design (PF) when triggered
-    and content-triggered workflow-changes
-        ED->>Reviewers: spawn 4 workflow-changes-* siblings when triggered (WCC, WCB, WCI, WCP)
+        Orch->>Reviewers: spawn adversarial-design-review (AD)
+    and content-triggered domain reviewers
+        Orch->>Reviewers: spawn crash-safety / concurrency / performance / workflow-changes-* siblings when triggered
     end
     Reviewers->>ReviewsDir: each writes raw certificate-shape output to its file
-    ED->>Agg: spawn aggregator (prompt-by-reference)
+    Orch->>Agg: spawn aggregator (prompt-by-reference)
     Agg->>ReviewsDir: read per-reviewer files
-    Agg->>Log: write one-line gate-verdict summary entry (Plan-time Decisions)
-    Agg-->>ED: return structured findings object
-    ED->>ED: Step 6 iterate on mechanical findings within iteration_budget
+    Agg->>Log: write one-line gate-verdict summary entry (Plan-time Decisions, batch-end)
+    Agg->>Mut: append batch fan-out entry (cycle-N-iter-1) referencing constituent mutation numbers
+    Agg-->>Orch: return structured findings object
+    Orch->>ED: Step 6 iterate on mechanical findings within iteration_budget
     alt iteration_budget remaining + new mechanical findings
-        ED->>Design: autonomous edit-design mutation (mechanical fix)
-        Note over ED,Design: chain re-triggers fan-out (next iter-M)
+        ED->>Design: autonomous mechanical-fix mutation (its own single-mutation batch)
+        Note over ED,Design: per-fix re-fan-out at next iter-M; chain bounded by iteration_budget
     else iteration_budget exhausted OR decision-shaped findings outstanding OR PASS
-        ED->>Mut: Step 7 append mutation entry (always)
-        alt user articulated a why
-            ED->>Log: Step 7 append Plan-time Decisions entry (rationale + alternatives)
-        end
-        ED-->>Orch: return diff + queued decision-shaped findings
         alt decision-shaped findings queued OR user wants to add observations
-            Orch->>User: User-review checkpoint (batch surfaces queued findings + recent autonomous mutations for optional revert + slot for fresh observations)
-            User->>Orch: decisions + observations + optional reverts
-            Orch->>ED: batch-apply mutations (next round opens with user-driven mutation)
+            Orch->>User: User-review checkpoint (queued findings + recent autonomous mutations for optional revert + slot for fresh observations)
+            User->>Orch: decisions + observations + optional reverts (next batch)
+            Orch->>ED: loop back — apply next batch sequentially (mechanical per mutation; ONE fan-out at batch end)
         else PASS clean (no decision-shaped findings)
-            Orch-->>User: present diff + log entry; await next user input
+            Orch-->>User: present cumulative diff + log entries; await next user input
         end
     end
 ```
@@ -308,7 +309,7 @@ Two log files never duplicate content. `design-mutations.md` carries operational
 
 Reviewer raw output is the third tier: per-reviewer files in `_workflow/design-reviews/cycle-N-iter-M/` give Phase 4 ADR aggregation and any future audit query the full certificate trace. The aggregator's structured object is what the orchestrator acts on; the orchestrator never reads raw reviewer prose.
 
-The fan-out fires on every `edit-design` mutation. `phase1-creation` is not special — it's the first mutation in a Phase 1a session and triggers the same reviewers any later mutation would. The autonomous mechanical-fix chain inside `edit-design`'s `iteration_budget` may produce multiple sequential mutations (each one re-triggering the fan-out at the next iter-M); the chain converges when reviewers return PASS or the budget is exhausted. Decision-shaped findings always pause the chain and surface at the next user-review checkpoint.
+The fan-out fires once per `edit-design` batch — after the last mutation in the batch lands, over the cumulative diff. A batch is a contiguous sequence of user-driven mutations applied without an intervening fan-out: `phase1-creation` is a batch-of-1, a single mid-conversation request is a batch-of-1, an "apply batch" from a user-review checkpoint is a batch-of-K coordinated mutations across K sections. Within the batch each mutation runs Step 3 mechanical checks (cheap, per-mutation; catches shape issues immediately) and Step 7 appends its own `design-mutations.md` entry with `cold-read=DEFERRED`. After the last mutation lands, the orchestrator fires the parallel fan-out; the aggregator appends a batch fan-out entry to `design-mutations.md` referencing the constituent mutation numbers and writes a one-line gate-verdict entry to `decision-log.md`. The autonomous mechanical-fix chain that follows is bounded by `edit-design`'s `iteration_budget` (default 3); each autonomous fix is its own single-mutation batch and re-triggers the fan-out at the next iter-M. The chain converges when reviewers return PASS or the budget is exhausted. Decision-shaped findings always pause the chain and surface at the next user-review checkpoint.
 
 ### Phase 1a → Phase 1b transition (with ESCALATE)
 
@@ -320,7 +321,7 @@ sequenceDiagram
     participant Log as decision-log.md
     participant Plan as implementation-plan.md
 
-    Note over User,CP: Phase 1a: per-mutation fan-out has iterated to a state the user is satisfied with (prior diagram)
+    Note over User,CP: Phase 1a: per-batch fan-out has iterated to a state the user is satisfied with (prior diagram)
 
     User->>CP: signal "ready for Phase 1b" (any phrasing conveying intent)
     CP->>Log: append Plan-time Decisions entry tagged (Phase 1a → 1b) with user's intent line
@@ -342,7 +343,7 @@ sequenceDiagram
         end
     else most recent entry is (Phase 1b ESCALATE)
         Note over CP,Design: Phase 1a re-entry with ESCALATE note
-        CP->>User: surface ESCALATE note; enter Phase 1a; user issues edit-design mutation addressing the contradiction; per-mutation fan-out runs as usual
+        CP->>User: surface ESCALATE note; enter Phase 1a; user issues edit-design batch addressing the contradiction; per-batch fan-out runs as usual
     else neither found
         CP->>User: ask the user explicitly which phase to enter
     end
@@ -462,7 +463,7 @@ Architecture Notes to fill. Format:
 Lifecycle:
 
 - **Created.** `create-plan` Step 1b (idempotent — safe to re-run on resume); created alongside the `_workflow/plan/` directory.
-- **Written by.** `create-plan` Steps 2 / 3 (Phase 0 research); `edit-design` Step 7 (Phase 1a rationale capture); `create-plan` Phase 1b plan-derivation writes when the planner articulates rationale during plan authoring; the aggregator sub-agent writes per-mutation gate-verdict summary entries during Phase 1a; `create-plan` writes the `(Phase 1a → 1b)` transition entry at user signal and the `(Phase 1b ESCALATE)` entry when plan derivation hits a fundamental contradiction.
+- **Written by.** `create-plan` Steps 2 / 3 (Phase 0 research); `edit-design` Step 7 (Phase 1a rationale capture); `create-plan` Phase 1b plan-derivation writes when the planner articulates rationale during plan authoring; the aggregator sub-agent writes per-batch gate-verdict summary entries during Phase 1a; `create-plan` writes the `(Phase 1a → 1b)` transition entry at user signal and the `(Phase 1b ESCALATE)` entry when plan derivation hits a fundamental contradiction.
 - **Read by.** `create-plan` Step 4 (Phase 0 → Phase 1a aim-confirmation handshake); `create-plan` Phase 1b session start (full end-to-end read, seeds Decision Records and Architecture Notes); `implementation-review.md` (Phase 2 optional cross-reference); `prompts/create-final-design.md` (Phase 4 ADR aggregation).
 - **Removed.** Phase 4 cleanup commit, alongside the rest of `_workflow/**`.
 
@@ -538,7 +539,7 @@ The transition replaces today's single-shot summarization ("summarize the key re
 
 The handshake itself works as follows. The agent surfaces the current state of §Initial request for the user to confirm: *"Confirming the aim before planning: <verbatim §Initial request content>. OK as-is, or refinements needed?"* The user acks or refines; refinement turns at this confirmation point are LLM-heuristic-free (the user is explicitly editing the aim, so the agent treats the response as a refinement append by default, with timestamp). This confirmation catches in-Phase-0 misclassifications of refinement-vs-exploration that may have routed content to the wrong place during research. The Phase 0 double-write rule's asymmetric safety net protects against one classification error only (refinement misread as exploration); the explicit Step 4 confirmation closes the gap on the reverse error.
 
-After the ack, the session enters Phase 1a: `design.md` authoring via `edit-design`. The first `edit-design` invocation is `phase1-creation`; it triggers the per-mutation review fan-out like any other mutation (see §"Per-mutation design review fan-out"). The decision-log is left in place; Phase 1a continues to append rationale entries via `edit-design` Step 7 and per-mutation gate-verdict summaries via the aggregator (see §"Phase 1a design-iteration rationale"); Phase 1b later reads the file end-to-end to seed plan content and detect the auto-resume signal (see §"Phase 1b plan derivation and ESCALATE back-edge").
+After the ack, the session enters Phase 1a: `design.md` authoring via `edit-design`. The first `edit-design` invocation is `phase1-creation` (a batch-of-1); it triggers the per-batch review fan-out like any other batch (see §"Design review fan-out"). The decision-log is left in place; Phase 1a continues to append rationale entries via `edit-design` Step 7 and per-batch gate-verdict summaries via the aggregator (see §"Phase 1a design-iteration rationale"); Phase 1b later reads the file end-to-end to seed plan content and detect the auto-resume signal (see §"Phase 1b plan derivation and ESCALATE back-edge").
 
 ### Edge cases / Gotchas
 
@@ -550,30 +551,30 @@ After the ack, the session enters Phase 1a: `design.md` authoring via `edit-desi
 
 - §"Decision-log file shape" — per-section format the read consumes.
 - §"Write triggers" — what landed in each section during Phase 0.
-- §"Per-mutation design review fan-out" — what runs on every mutation against `design.md`, starting with `phase1-creation`.
+- §"Design review fan-out" — what runs at the end of every batch against `design.md`, starting with the `phase1-creation` batch.
 - §"Phase 1b plan derivation and ESCALATE back-edge" — where the log-to-plan mapping runs.
 
-## Per-mutation design review fan-out
+## Design review fan-out
 
-**TL;DR.** Every `edit-design` mutation against `design.md` triggers a review fan-out at Step 4: cold-read (existing) plus feasibility-review (new, PSI-backed reference accuracy, finding ID FD) plus adversarial-design-review (new, devil's-advocate counter-arguments, finding ID AD) plus optional content-triggered domain reviewers (crash-safety / concurrency / performance / workflow-changes — the last triggers four sibling reviewers mirroring `.claude/agents/review-workflow-*` at design-doc scope). Reviewers run in parallel; each writes its certificate-shape output to `_workflow/design-reviews/cycle-N-iter-M/<reviewer>.md`. An aggregator sub-agent consolidates outputs and returns a structured findings object to the orchestrator. Mechanical findings drive autonomous chained mutations within `edit-design`'s `iteration_budget` (default 3). Decision-shaped findings escape upward into the user-checkpoint batch queue. All spawns use the prompt-by-reference protocol from `conventions.md §1.4` so the orchestrator never loads reviewer prompt bodies into its context.
+**TL;DR.** Every `edit-design` batch against `design.md` triggers a review fan-out at Step 4 after the last mutation in the batch lands. A batch is a contiguous sequence of user-driven `edit-design` mutations applied without an intervening fan-out: `phase1-creation` is a batch-of-1, a single mid-conversation request is a batch-of-1, an "apply batch" from a user-review checkpoint is a batch-of-K coordinated mutations across K sections. The fan-out spawns cold-read (existing) plus feasibility-review (new, PSI-backed reference accuracy, finding ID FD) plus adversarial-design-review (new, devil's-advocate counter-arguments, finding ID AD) plus optional content-triggered domain reviewers (crash-safety / concurrency / performance / workflow-changes — the last triggers four sibling reviewers mirroring `.claude/agents/review-workflow-*` at design-doc scope). Reviewers run in parallel over the cumulative batch diff; each writes its certificate-shape output to `_workflow/design-reviews/cycle-N-iter-M/<reviewer>.md`. An aggregator sub-agent consolidates outputs and returns a structured findings object to the orchestrator. Mechanical findings drive autonomous chained mutations within `edit-design`'s `iteration_budget` (default 3; each autonomous fix is its own single-mutation batch and re-fires the fan-out at the next iter-M). Decision-shaped findings escape upward into the user-checkpoint batch queue. All spawns use the prompt-by-reference protocol from `conventions.md §1.4` so the orchestrator never loads reviewer prompt bodies into its context.
 
-The fan-out is the structural answer to the Phase 1 review gap: today `design.md` is reviewed only by `edit-design`'s single cold-read sub-agent (comprehension only) and the mechanical-check script (structural shape only). Reference accuracy against the codebase, adversarial counter-arguments, domain-specific concerns (storage durability, concurrency races, hot-path cost, workflow-changes consistency-budget-completeness-prompt-design) — none are checked. Adding these as parallel reviewer slots on every mutation catches feasibility, adversarial, and domain-specific issues at the time the mutation is made, not after the plan is already committed.
+The fan-out is the structural answer to the Phase 1 review gap: today `design.md` is reviewed only by `edit-design`'s single cold-read sub-agent (comprehension only) and the mechanical-check script (structural shape only). Reference accuracy against the codebase, adversarial counter-arguments, domain-specific concerns (storage durability, concurrency races, hot-path cost, workflow-changes consistency-budget-completeness-prompt-design) — none are checked. Adding these as parallel reviewer slots at the end of every batch catches feasibility, adversarial, and domain-specific issues at the time the user-articulated batch lands, not after the plan is already committed. Per-batch (rather than per-mutation) timing collapses what would otherwise be a K-fold cost at user checkpoints (K = number of coordinated mutations) into a single fan-out, while still firing per-mutation in the autonomous mechanical-fix chain where each fix's fan-out is the convergence signal.
 
 ### Integration into edit-design Step 4
 
-`edit-design/SKILL.md` Step 4 today spawns one cold-read sub-agent. After this PR, Step 4 becomes a parallel fan-out:
+`edit-design/SKILL.md` Step 4 today spawns one cold-read sub-agent per mutation. After this PR, Step 4 becomes a per-batch parallel fan-out owned by the orchestrator. Within a batch:
 
-1. Spawn the mandatory set: cold-read (existing), feasibility-review (new), adversarial-design-review (new).
-2. Scan the mutation diff for content triggers (see § Domain-triggered reviewers below). Spawn each triggered reviewer.
-3. Wait for all reviewers to complete (writes to `_workflow/design-reviews/cycle-N-iter-M/<reviewer>.md`).
-4. Spawn the aggregator sub-agent. Aggregator reads all per-reviewer files, classifies findings by severity and decision-shape, dedupes cross-reviewer overlap, writes a one-line gate-verdict summary entry to `decision-log.md`, and returns a structured findings object to `edit-design`.
-5. `edit-design` Step 5 merges the aggregator's findings with the mechanical-check script's findings. Step 6 iterates on mechanical findings within `iteration_budget`; decision-shaped findings escape upward to the orchestrator.
+1. For each mutation in the batch, `edit-design` runs Steps 1–3 (apply edit; cold-read scope is computed but cold-read does not spawn yet) and Step 7 (append the per-mutation entry to `design-mutations.md` with `cold-read=DEFERRED`; append the optional Plan-time Decisions rationale entry on articulated *why*). The mutation returns to the orchestrator.
+2. The orchestrator collects mutations until the batch ends (user signals "that's the batch", `phase1-creation` completes, the single mid-conversation request returns, or the autonomous mechanical-fix chain produces its one fix). The cumulative diff is the batch diff.
+3. After the last mutation lands, the orchestrator fires the parallel fan-out: spawn the mandatory set (cold-read + feasibility-review + adversarial-design-review), scan the cumulative batch diff for content triggers (see § Domain-triggered reviewers below) and spawn each triggered reviewer, wait for all reviewers to complete (writes to `_workflow/design-reviews/cycle-N-iter-M/<reviewer>.md`).
+4. Spawn the aggregator sub-agent. The aggregator reads all per-reviewer files, classifies findings by severity and decision-shape, dedupes cross-reviewer overlap, writes a one-line gate-verdict summary entry to `decision-log.md`, appends a batch fan-out entry to `design-mutations.md` referencing the constituent mutation numbers (so the per-mutation log entries' `cold-read=DEFERRED` resolves to the batch verdict), and returns a structured findings object to the orchestrator.
+5. The orchestrator merges the aggregator's findings with the cumulative mechanical-check findings (Step 5). Step 6 iterates on mechanical findings within `iteration_budget` (default 3); each autonomous mechanical fix is its own single-mutation batch and re-fires the fan-out at the next iter-M. Decision-shaped findings escape upward to surface at the next user-review checkpoint.
 
-`edit-design`'s existing mechanical-check script (Step 3), cold-read prompt (`prompts/design-review.md`), iteration budget, and review-log append (Step 7) are unchanged in shape. The fan-out is an expansion of Step 4's reviewer slot count.
+`edit-design`'s existing mechanical-check script (Step 3), cold-read prompt (`prompts/design-review.md`), iteration budget, and review-log append (Step 7) are unchanged in shape — per-mutation mechanical checks still fire (Step 3) and per-mutation log entries still land (Step 7). The fan-out shifts from per-mutation to per-batch and moves under the orchestrator's control; only Step 4's trigger timing changes.
 
 ### Mandatory reviewer slots
 
-Two new slots fire on every mutation alongside the existing cold-read:
+Two new slots fire at the end of every batch alongside the existing cold-read:
 
 - **feasibility-review** (`.claude/workflow/prompts/feasibility-review.md`). Reads `design.md` and verifies reference-accuracy against the codebase via PSI find-usages / find-implementations / call-hierarchy (mcp-steroid required when reachable; grep fallback carries the explicit caveat per `conventions.md §1.4`). Each claim in `design.md` becomes a premise; the reviewer traverses via PSI; the conclusion is a finding when premise and traversal disagree. Finding ID prefix `FD`. Certificate-shape output: Part 1 (Certificates) names every premise + traversal mechanism + verdict; Part 2 (Findings) emits one finding per disagreeing certificate entry.
 - **adversarial-design-review** (`.claude/workflow/prompts/adversarial-design-review.md`). Devil's-advocate pass on `design.md` scoped to design content: hidden assumptions, missing failure modes, under-specified edges, sections where the author convinced themselves but a fresh reader cannot, alternatives not even listed. Targets explicitly distinct from the track-level `prompts/adversarial-review.md`, which is scoped to Phase A track structure (Decision Records / Invariants / Integration Points / Non-Goals). Finding ID prefix `AD`. Same certificate-shape output as feasibility-review (premise = the assumption or alternative; traversal = construct a concrete counter-scenario; conclusion = finding when the design fails the challenge).
@@ -582,7 +583,7 @@ The existing cold-read continues to cover comprehension and house-style complian
 
 ### Domain-triggered reviewers
 
-At Step 4 trigger time, the orchestrator scans the mutation diff (and the changed section's full body for `bounded` scope mutations, or the whole design for `whole-doc` scope) for content keywords. Each match adds the corresponding reviewer to the parallel fan-out:
+At Step 4 trigger time (end of batch), the orchestrator scans the cumulative batch diff (and the changed sections' full bodies for `bounded` scope mutations, or the whole design for `whole-doc` scope) for content keywords. Each match adds the corresponding reviewer to the parallel fan-out:
 
 | Domain | Content triggers | Prompt file | Finding ID prefix |
 |---|---|---|---|
@@ -608,26 +609,27 @@ Domain reviewers stay separate (not collapsed into one mega-prompt) for the same
 
 ### Aggregator sub-agent
 
-A new sub-agent at `.claude/workflow/prompts/aggregator.md` runs at the end of every Step 4 fan-out:
+A new sub-agent at `.claude/workflow/prompts/aggregator.md` runs once per batch at the end of every Step 4 fan-out:
 
 1. Read each per-reviewer file under the current `cycle-N-iter-M/` directory.
 2. Parse each reviewer's certificate-shape output into a structured (finding-id, severity, source-reviewer, summary, file-line-citation, suggested-fix, decision-shaped-flag) tuple.
 3. Dedupe cross-reviewer overlap: if reviewer A and reviewer B both flagged the same site with the same shape rule, drop the second.
 4. Apply the decision-shaped triage (see § Decision-shaped finding criterion below) to set the `decision_shaped: bool` flag per finding.
-5. Write a one-line gate-verdict summary entry to `decision-log.md ## Plan-time Decisions` tagged `(Phase 1a gate-verdict)`. The entry summarizes: aggregate verdict (PASS / NEEDS REVISION), per-reviewer verdict counts, finding count by severity, and a path reference to the iter-M directory. Optionally write a human-readable `cycle-N-iter-M/summary.md` mirroring the structured object for audit.
-6. Return the structured findings object to `edit-design`.
+5. Write a one-line gate-verdict summary entry to `decision-log.md ## Plan-time Decisions` tagged `(Phase 1a gate-verdict)`. The entry summarizes: aggregate verdict (PASS / NEEDS REVISION), per-reviewer verdict counts, finding count by severity, the constituent mutation numbers covered by this batch, and a path reference to the iter-M directory. Optionally write a human-readable `cycle-N-iter-M/summary.md` mirroring the structured object for audit.
+6. Append a batch fan-out entry to `design-mutations.md` (header form `## Batch fan-out N — <ISO> — cycle-N-iter-M`) listing the constituent mutation numbers and carrying the cold-read verdict that the in-batch per-mutation entries have as `DEFERRED`.
+7. Return the structured findings object to the orchestrator.
 
 The aggregator's prompt is small (~80 lines): the dimensional taxonomy is owned by the individual reviewer prompts; the aggregator's job is mechanical consolidation. Its prompt also spawns via the prompt-by-reference protocol.
 
 ### Cycle and iteration semantics
 
-A **cycle** spans a user-driven mutation through its autonomous follow-up chain to the next pause (PASS, decision-shaped findings outstanding, or `iteration_budget` exhausted):
+A **cycle** spans a user-driven batch through its autonomous follow-up chain to the next pause (PASS, decision-shaped findings outstanding, or `iteration_budget` exhausted):
 
-- `cycle-1` starts when the user issues the first design mutation (typically `phase1-creation`).
-- `iter-1` is the initial fan-out on the user's mutation.
-- `iter-2` is the fan-out on the first autonomous mechanical fix, if any.
-- `iter-M` increments per autonomous mutation in the same chain.
-- `cycle-N+1` starts at the next user-driven mutation (after a checkpoint, after a clean PASS, or after the user signals "ready for Phase 1b" exits the loop).
+- `cycle-1` starts when the user issues the first batch (typically `phase1-creation`, a batch-of-1).
+- `iter-1` is the fan-out at the end of the user's batch (after the last mutation in the batch lands).
+- `iter-2` is the fan-out at the end of the first autonomous mechanical fix (a single-mutation batch), if any.
+- `iter-M` increments per autonomous mutation in the same convergence chain.
+- `cycle-N+1` starts at the next user-driven batch (after a checkpoint, after a clean PASS, or after the user signals "ready for Phase 1b" exits the loop).
 
 The default `iteration_budget` for autonomous chaining is 3 (matching today's `edit-design` default). When the budget is exhausted with mechanical findings still open, the next user-review checkpoint surfaces the remaining findings; the user can opt to record an `accepted-open-risks` Plan-time Decisions entry (per the max-iters halt path below) or refine the design manually before the next batch.
 
@@ -656,7 +658,7 @@ Between iterations (or after an autonomous chain converges with decision-shaped 
 >
 > Add your own observations here, or signal "apply batch" to proceed.
 
-User responds with decisions, observations, and optional reverts. The orchestrator builds a coordinated set of `edit-design` mutations: observations and decisions group by target section so two observations on `§ A` fold into one mutation rather than two. Each mutation in the batch re-triggers the fan-out at the next `cycle-N+1-iter-1`.
+User responds with decisions, observations, and optional reverts. The orchestrator builds a coordinated set of `edit-design` mutations: observations and decisions group by target section so two observations on `§ A` fold into one mutation rather than two. The orchestrator applies the K coordinated mutations sequentially — each mutation runs Step 3 mechanical checks per mutation (cheap, catches shape issues immediately before subsequent mutations build on bad ground), Step 7 appends a per-mutation `design-mutations.md` entry with `cold-read=DEFERRED`, and any articulated rationale lands as its own Plan-time Decisions entry. After the last mutation in the batch lands, the orchestrator fires a single Step 4 fan-out over the cumulative diff (`cycle-N+1-iter-1`). The autonomous mechanical-fix chain that follows iterates per fix (each fix is its own single-mutation batch with its own end-of-batch fan-out at the next iter-M), bounded by `iteration_budget`.
 
 User signals "ready for Phase 1b" instead of "apply batch" to exit Phase 1a. The orchestrator writes a Plan-time Decisions entry tagged `(Phase 1a → 1b)` and ends the session.
 
@@ -671,7 +673,7 @@ Both paths leave a durable audit trail in `decision-log.md`. There is no automat
 
 ### Spawn protocol
 
-Every reviewer spawn (including the aggregator) uses the prompt-by-reference protocol defined in `conventions.md §1.4.X` (added by this PR). The orchestrator's spawn body references the prompt file path plus a small inputs block; the sub-agent reads the prompt on entry. Per-reviewer inputs land inline for small cases or in `cycle-N-iter-M/<reviewer>-inputs.md` for large cases (cumulative findings to re-verify, multi-page context). The orchestrator never carries reviewer prompt bodies in its context — savings estimated at ~10x per mutation with mandatory-only fan-out, ~20x when domain triggers fire.
+Every reviewer spawn (including the aggregator) uses the prompt-by-reference protocol defined in `conventions.md §1.4.X` (added by this PR). The orchestrator's spawn body references the prompt file path plus a small inputs block; the sub-agent reads the prompt on entry. Per-reviewer inputs land inline for small cases or in `cycle-N-iter-M/<reviewer>-inputs.md` for large cases (cumulative findings to re-verify, multi-page context). The orchestrator never carries reviewer prompt bodies in its context — savings estimated at ~10x per fan-out with mandatory-only spawns, ~20x when domain triggers fire. Per-batch firing adds a further K-fold cut at user checkpoints: a K=3 batch with workflow-changes triggers would have spawned ~24 reviewer sub-agents under per-mutation timing (3 mutations × ~8 reviewers each); per-batch collapses that to ~8 spawns for the same review coverage, because the cumulative diff is the natural unit of review when the user has articulated the batch as one coherent set of intent.
 
 ### Edge cases / Gotchas
 
@@ -680,8 +682,8 @@ Every reviewer spawn (including the aggregator) uses the prompt-by-reference pro
 - **Domain-trigger false positive.** Brief incidental mention of a trigger keyword (e.g., a passing reference to "WAL" in a non-crash-safety context) fires the corresponding reviewer. The reviewer either returns PASS (cost = one extra spawn) or surfaces a finding the user can drop with a one-line override in the next checkpoint. The auto-detection rule favors over-inclusion: false positive costs one spawn; false negative costs the discipline the trigger was meant to enforce.
 - **Single reviewer disagreement.** The aggregator's PASS verdict requires every spawned reviewer to PASS (mandatory + triggered). One PASS + one NEEDS REVISION still routes findings to the orchestrator; the next iteration's fan-out re-runs the failing reviewer.
 - **Mid-fan-out context pressure.** When the orchestrator's context approaches `warning` mid-iteration, the standard `mid-phase-handoff.md` protocol writes a `handoff-phase1a-fanout.md` capturing the current cycle / iter and the reviewers already spawned. Resume reads the in-flight per-reviewer files and continues without re-spawning already-completed reviewers. The aggregator can run incrementally if some reviewers finish before others (its read of `cycle-N-iter-M/*.md` picks up whatever's on disk).
-- **`design-review.md` cold-read remains separate.** The fan-out adds reviewers; it does not replace the existing per-mutation cold-read. Cold-read runs in parallel with the new mandatory and triggered reviewers; the aggregator consolidates all of them.
-- **Phase 1b ESCALATE re-enters via Phase 1a.** When Phase 1b's ESCALATE back-edge fires, the next `/create-plan` invocation reads the ESCALATE Plan-time Decisions entry and routes the session into Phase 1a. The user works through an `edit-design` mutation addressing the contradiction; the fan-out runs as on any other mutation; subsequent user-checkpoint surfaces let the user signal "ready for Phase 1b" again when satisfied.
+- **`design-review.md` cold-read remains separate.** The fan-out adds reviewers; it does not replace the existing cold-read sub-agent. Cold-read still runs (now per batch alongside the new mandatory and triggered reviewers, not per mutation); the aggregator consolidates all of them.
+- **Phase 1b ESCALATE re-enters via Phase 1a.** When Phase 1b's ESCALATE back-edge fires, the next `/create-plan` invocation reads the ESCALATE Plan-time Decisions entry and routes the session into Phase 1a. The user works through an `edit-design` batch addressing the contradiction (typically a batch-of-1); the fan-out runs as on any other batch; subsequent user-checkpoint surfaces let the user signal "ready for Phase 1b" again when satisfied.
 
 ### References
 
@@ -695,7 +697,7 @@ Every reviewer spawn (including the aggregator) uses the prompt-by-reference pro
 - `.claude/workflow/prompts/aggregator.md` — aggregator prompt written by this PR.
 - `.claude/agents/review-{crash-safety,bugs-concurrency,performance,workflow-consistency,workflow-context-budget,workflow-instruction-completeness,workflow-prompt-design}.md` — code-side sources cited by the design-doc-scoped prompts for dimensional taxonomy.
 - `.claude/workflow/prompts/adversarial-review.md` — existing Phase A track-level adversarial prompt; left unchanged.
-- `.claude/workflow/prompts/design-review.md` — existing per-mutation cold-read; runs in parallel with the new reviewers.
+- `.claude/workflow/prompts/design-review.md` — existing cold-read sub-agent (now per batch); runs in parallel with the new reviewers.
 - `.claude/workflow/review-iteration.md` — iteration protocol; finding-ID prefixes added by this PR (FD, AD, CS, CC, PF, WCC, WCB, WCI, WCP).
 - `.claude/workflow/conventions.md §1.4.X` — sub-agent prompt-by-reference spawn protocol added by this PR.
 - `.claude/workflow/workflow.md § Session Boundary Rules` — the contract Phase 1a / 1b mirrors.
@@ -756,7 +758,7 @@ These are out of scope for this PR (the migration of those phases to the per-rev
 
 ### References
 
-- §"Per-mutation design review fan-out" — what writes to the directory.
+- §"Design review fan-out" — what writes to the directory.
 - `conventions.md §1.6(f)` — stamp exclusions (updated by this PR to include `design-reviews/**`).
 
 ## Phase 1a design-iteration rationale
@@ -765,7 +767,7 @@ These are out of scope for this PR (the migration of those phases to the per-rev
 
 The two-file split has a real cost: every Phase 1a rationale entry duplicates a timestamp with its sibling `design-mutations.md` entry, and Phase 4 aggregation walks both streams. The split is justified because the readers differ. `design-mutations.md`'s sync auto-suggestion and periodic whole-doc counter scan that file for mechanics state alone; `decision-log.md`'s Phase 4 ADR aggregation walks rationale alone. Mixing the two concerns in one file would force every reader to filter for its half. Separation pays for itself by keeping each reader's scan over a homogeneous file.
 
-The integration point is `edit-design/SKILL.md` Step 7 (review log append), which fires after the Step 4 fan-out + Step 6 iteration converge on the current mutation. The fan-out is upstream of this rationale-capture trigger; whether the mutation went through autonomous chained fixes or PASSed cleanly on the first iter doesn't affect whether the user articulated a *why* worth capturing in `decision-log.md`. After appending the per-mutation entry to `design-mutations.md`, the skill checks whether the user's mutation request carried an articulated *why* — a user message naming the rationale, or an explicit phrase like "because", "in order to", "to avoid", "to satisfy constraint X". When it did, the skill also appends a Plan-time Decisions entry to `decision-log.md` using the standard write-trigger format (ISO timestamp + `[ctx=<level>]` + decision line + `**Why:**` + `**Alternatives rejected:**`) plus the `(Phase 1a)` body annotation per §"Decision-log file shape".
+The integration point is `edit-design/SKILL.md` Step 7 (review log append), which fires per mutation immediately after Step 3 mechanical checks complete. For an in-batch user mutation Step 7 lands ahead of the batch's Step 4 fan-out; for an autonomous mechanical-fix mutation Step 7 lands inside the same single-mutation batch as its own fan-out at the next iter-M. Rationale capture is independent of fan-out timing: whether the mutation later triggers an autonomous chained fix or PASSes cleanly on the first iter doesn't affect whether the user articulated a *why* worth capturing in `decision-log.md`. After appending the per-mutation entry to `design-mutations.md` (with `cold-read=DEFERRED` for in-batch mutations until the batch fan-out resolves the field), the skill checks whether the user's mutation request carried an articulated *why*: a user message naming the rationale, or an explicit phrase like "because", "in order to", "to avoid", "to satisfy constraint X". When it did, the skill also appends a Plan-time Decisions entry to `decision-log.md` using the standard write-trigger format (ISO timestamp + `[ctx=<level>]` + decision line + `**Why:**` + `**Alternatives rejected:**`) plus the `(Phase 1a)` body annotation per §"Decision-log file shape".
 
 Mechanical-only mutations (typo fixes, formatting cleanups, a section rename with no design implication) produce no Plan-time Decisions entry. The mutation entry in `design-mutations.md` is sufficient.
 
@@ -789,7 +791,7 @@ The skill does not infer rationale from diff content. A diff that visually expre
 
 **TL;DR.** A separate `/create-plan` session auto-resumes from a validated `design.md` and writes the strategic document: Architecture Notes, Decision Records (seeded from `decision-log.md ## Plan-time Decisions`), the track checklist, and one `plan/track-N.md` per declared track. The resume detector scans `decision-log.md ## Plan-time Decisions` for the most recent entry tagged `(Phase 1a → 1b)` (signaled by the user during Phase 1a) and verifies that `implementation-plan.md` does not yet exist. When the session hits a fundamental contradiction (missing primitive in the design, circular track dependency, step that cannot fit under ~5–7 steps without splitting a design-level construct), the agent writes a `(Phase 1b ESCALATE)`-tagged entry to `decision-log.md`, prints an explicit user-facing message, and ends the session.
 
-The split into a separate session is the structural answer to working-memory pressure that Phase 1a design iteration accumulates. By the time `edit-design` has run many mutations plus the per-mutation fan-out has run its reviewers many times, the session's context carries design-iteration reasoning that would bias plan derivation. A fresh Phase 1b session forces the planner to re-derive plan structure from the durable artifacts (`design.md`, `decision-log.md`) rather than from chat-buffer memory. This mirrors the A/B/C session-boundary contract: durable files cross; chat context does not.
+The split into a separate session is the structural answer to working-memory pressure that Phase 1a design iteration accumulates. By the time `edit-design` has run many mutations plus the per-batch fan-out has run its reviewers many times, the session's context carries design-iteration reasoning that would bias plan derivation. A fresh Phase 1b session forces the planner to re-derive plan structure from the durable artifacts (`design.md`, `decision-log.md`) rather than from chat-buffer memory. This mirrors the A/B/C session-boundary contract: durable files cross; chat context does not.
 
 ### Auto-resume detection
 
@@ -801,7 +803,7 @@ The split into a separate session is the structural answer to working-memory pre
 - `(Phase 1a → 1b)` + `implementation-plan.md` already exists → **resume Phase 1b mid-derivation** (the session was paused mid-derivation; pick up from where the partial plan content left off). Resume detection reads the plan file to identify the last written track and continues from there.
 - Malformed log → ask the user explicitly which phase to enter.
 
-The detector walks `## Plan-time Decisions` rather than a separate audit file because every phase-transition event the workflow needs to detect lives there: Phase 1a → 1b transition, Phase 1b ESCALATE, Phase 1a accepted-open-risks, per-mutation gate-verdict summaries. One file owns the workflow's transition log; one read at session start serves both auto-resume detection and rationale-seeding.
+The detector walks `## Plan-time Decisions` rather than a separate audit file because every phase-transition event the workflow needs to detect lives there: Phase 1a → 1b transition, Phase 1b ESCALATE, Phase 1a accepted-open-risks, per-batch gate-verdict summaries. One file owns the workflow's transition log; one read at session start serves both auto-resume detection and rationale-seeding.
 
 ### Plan-derivation mapping from decision-log.md
 
@@ -837,12 +839,12 @@ The session ends; no partial plan files land on disk. On the next `/create-plan`
 - **Partial plan files on ESCALATE.** The planner does not write half a plan and bail. ESCALATE detection happens before any `implementation-plan.md` content lands. If the contradiction surfaces after some `plan/track-N.md` files have been written, the planner deletes them as part of the ESCALATE write so the worktree is clean for the Phase 1a re-entry.
 - **User-driven ESCALATE.** The user can request "rethink the design" or "go back to Phase 1a" at any point during Phase 1b; the planner treats this as an ESCALATE signal, captures the user's stated reason in the entry, and ends the session.
 - **Auto-resume false negative.** If the most recent `## Plan-time Decisions` entry is malformed or its tag is unrecognized, the detector falls back to asking the user explicitly: *"`decision-log.md` cannot be parsed; should I treat this as Phase 1a or Phase 1b?"* The user picks; the session continues accordingly.
-- **Phase 1b on a pre-YTDB-975 design.** A design authored before YTDB-975 lands (an in-flight branch without the per-mutation fan-out) has no `(Phase 1a → 1b)` entry. The auto-resume detector treats this as the pre-YTDB-975 path: Phase 1b runs without a fan-out-validated design, and Phase 2 review covers the gap. New branches authored after YTDB-975 always carry the transition entry.
+- **Phase 1b on a pre-YTDB-975 design.** A design authored before YTDB-975 lands (an in-flight branch without the per-batch fan-out) has no `(Phase 1a → 1b)` entry. The auto-resume detector treats this as the pre-YTDB-975 path: Phase 1b runs without a fan-out-validated design, and Phase 2 review covers the gap. New branches authored after YTDB-975 always carry the transition entry.
 
 ### References
 
 - YTDB-975 — acceptance criteria for the Phase 1 split and ESCALATE back-edge.
-- §"Per-mutation design review fan-out" — what runs during Phase 1a before the user signals transition.
+- §"Design review fan-out" — what runs during Phase 1a before the user signals transition.
 - §"Decision-log file shape" — the file Phase 1b reads end-to-end.
 - `.claude/workflow/workflow.md § Session Boundary Rules` — the A/B/C contract Phase 1a → 1b mirrors.
 
