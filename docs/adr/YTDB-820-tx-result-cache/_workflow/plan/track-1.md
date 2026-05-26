@@ -4,13 +4,13 @@
 
 BLUF: After this track, the cache exists, is allocated lazily when enabled, and is correctly wiped on every tx-end path — but no `query()` reads or writes it yet.
 
-Lay down the foundational pieces with no behavioral change: three `GlobalConfiguration` knobs, new `QueryResultCache`, `CachedEntry`, `TxDeltaCursor` types (skeletons or no-op), `queryResultCache` field on `FrontendTransactionImpl`, and the begin/clear lifecycle hooks.
+Lay down the foundational pieces with no behavioral change: five `GlobalConfiguration` knobs, new `QueryResultCache`, `CachedEntry`, `TxDeltaCursor` types (skeletons or no-op), `queryResultCache` field on `FrontendTransactionImpl`, and the begin/clear lifecycle hooks.
 
 ## Context and Orientation
 
 **Codebase state at track start.** Existing relevant code:
 - `FrontendTransactionImpl.java` — owns the `recordOperations: HashMap<RecordIdInternal, RecordOperation>` (line 83), `assertOnOwningThread` guard (line 133), `beginInternal` (line 164), `clearUnfinishedChanges` (called from `clear()` → `close()` / `rollbackInternal()`).
-- `GlobalConfiguration` — registry for the three new knobs (`youtrackdb.query.txResultCache.*`).
+- `GlobalConfiguration` — registry for the five new knobs (`youtrackdb.query.txResultCache.*`).
 - `localCache.clear()` at line 182 is the model for the defensive clear in `beginInternal`.
 
 **Concrete deliverables.**
@@ -23,11 +23,11 @@ Lay down the foundational pieces with no behavioral change: three `GlobalConfigu
 - `FrontendTransactionImpl.mutationVersion: long` field (initialized to 0) + **public** `getMutationVersion() → long` accessor on the concrete class (T4 fix — consumers in `internal/core/tx/cache/*` cast `Transaction` to `FrontendTransactionImpl` via the existing `DatabaseSessionEmbedded.getTx()` pattern; the accessor is NOT exposed on the public `FrontendTransaction` interface — it is implementation detail of the delta-sharing optimization). Incremented at the **END** of `addRecordOperation(record, status)` (inside the success path, after the recordOperations.put completes) — including when the call collapses an existing entry's type (e.g., UPDATED→DELETED on same RID; size unchanged but dispatch outcome differs). End-of-method timing ensures the counter reflects committed state — if an exception fires mid-method between the put and a later step, the version is NOT advanced for the failed mutation. This is the version key for `DeltaBuilder`'s cross-view delta sharing (per design.md § Cross-view delta sharing via mutationVersion).
 - `beginInternal()` defensive `queryResultCache.clear()` if non-null **AND** `mutationVersion = 0` reset — both gated on `txStartCounter == 0` (truly outermost begin only). On nested begin (`txStartCounter > 0`), neither reset nor clear (T2 fix — mutationVersion is per-outermost-transaction; nested begin/commit pairs do not affect the counter, otherwise nested-begin would zero the version mid-tx and break Option C's delta sharing).
 - `clearUnfinishedChanges()` calls `queryResultCache.clear()` if non-null.
-- Three knobs in `GlobalConfiguration`: `QUERY_TX_RESULT_CACHE_ENABLED` (Boolean, default false), `QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (Integer, default 200), `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` (Integer, default 10000). All hot-changeable per project convention.
+- Five knobs in `GlobalConfiguration`: `QUERY_TX_RESULT_CACHE_ENABLED` (Boolean, default false), `QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (Integer, default 200), `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` (Integer, default 10000), `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY_FOR_BLOCKING_SORT` (Integer, default 500 — D17), `QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD` (Integer, default 3 — D18; after N K0_NONE invalidations in a tx the key joins `nonCacheableKeys`). All hot-changeable per project convention.
 
 ## Plan of Work
 
-1. Add three knobs to `GlobalConfiguration` with conservative defaults. Disabled by default → zero behavioral change for existing deployments.
+1. Add five knobs to `GlobalConfiguration` with conservative defaults. Disabled by default → zero behavioral change for existing deployments.
 2. Skeleton classes in order: `CacheableShape` enum → `CacheKey` record → `TxDeltaCursor` → `CachedEntry` → `QueryResultCache`. Each with method stubs (no logic yet beyond null-guards and idempotent close).
 3. Wire `queryResultCache` field onto `FrontendTransactionImpl`: nullable, lazily allocated by `getQueryResultCache()` only when `QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean()` is true. Same pattern as other tx-scoped fields.
 4. Hook lifecycle: `beginInternal()` calls defensive clear; `clearUnfinishedChanges()` calls final clear. Both null-guard.
