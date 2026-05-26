@@ -54,14 +54,14 @@ This design introduces fourteen load-bearing ideas. Each is named and used witho
 
 ## Class Design
 
-The design touches no Java classes; the "classes" here are workflow artifacts (files) and the SKILLs that read or write them. The diagram below shows the new artifacts plus the existing files this PR modifies, with arrows for reads (`..>`) and writes.
+The design touches no Java classes; the "classes" here are workflow artifacts (files / directories) and the SKILLs that read or write them. The diagram below shows the new artifacts plus the existing files this PR modifies, with arrows for reads (`..>`) and writes.
 
 ```mermaid
 classDiagram
     class conventions_md {
         +Lean Design philosophy subsection (names + one-sentence summaries)
-        +Section 1.2 dir layout entries for decision-log.md and feasibility-review.md
-        +Section 1.6 stamps + Phase 1 walk include feasibility-review.md
+        +Section 1.2 dir layout entries for decision-log.md and design-reviews/
+        +Section 1.4 sub-agent prompt-by-reference spawn protocol
     }
     class design_philosophy_md {
         +Per-principle paragraph explanations
@@ -71,7 +71,7 @@ classDiagram
     }
     class decision_log_md {
         +Initial request (one-shot)
-        +Plan-time Decisions (append-only)
+        +Plan-time Decisions (append-only; includes gate-verdict entries, Phase 1a to 1b transition, Phase 1b ESCALATE)
         +Plan-time Surprises (append-only)
         +Plan-time Open Questions (append-only)
     }
@@ -80,34 +80,64 @@ classDiagram
         +Periodic whole-doc counter source
         +Working-mode counter source
     }
-    class feasibility_review_log_md {
-        +Per-gate-cycle entries (Phase 1a)
-        +Sub-agent verdicts (feasibility + adversarial-design + optional domain)
-        +Per-iter gate-check verdicts on iter-2/3
-        +Accepted-open-risks block (user-recorded)
-        +Gate verdict line (PASS / PASS with accepted open risks / ESCALATE)
+    class design_reviews_dir {
+        +Per-cycle, per-iter directories
+        +Per-reviewer files written by reviewer sub-agents
+        +Optional per-reviewer-inputs.md for large inputs
+        +Optional per-cycle-iter summary.md from aggregator
     }
     class feasibility_review_prompt_md {
-        +New Phase 1a prompt under .claude/workflow/prompts/
+        +Phase 1a mandatory prompt
         +PSI-verified reference-accuracy checks against design.md
-        +Certificate-shape output per Principle 6; finding ID prefix FD
+        +Certificate-shape output per Principle 6
+        +Finding ID prefix FD
     }
-    class adversarial_design_review_md {
-        +New Phase 1a prompt under .claude/workflow/prompts/
+    class adversarial_design_review_prompt_md {
+        +Phase 1a mandatory prompt
         +Devil's-advocate pass against design content
         +Distinct from track-level prompts/adversarial-review.md
-        +Certificate-shape output per Principle 6; finding ID prefix AD
+        +Finding ID prefix AD
+    }
+    class crash_safety_design_prompt_md {
+        +Design-doc-scoped variant of .claude/agents/review-crash-safety.md
+        +Content-triggered (WAL, persistence, recovery, atomic, fsync, crash, durability)
+        +Finding ID prefix CS
+    }
+    class concurrency_design_prompt_md {
+        +Design-doc-scoped variant of .claude/agents/review-bugs-concurrency.md
+        +Content-triggered (locks, atomics, barriers, synchronized, lock-free, volatile)
+        +Finding ID prefix CC
+    }
+    class performance_design_prompt_md {
+        +Design-doc-scoped variant of .claude/agents/review-performance.md
+        +Content-triggered (hot-path, allocation, I/O, direct-memory, cache, latency)
+        +Finding ID prefix PF
+    }
+    class workflow_changes_design_prompts {
+        +Four sibling prompts mirroring code-side review-workflow-* set
+        +Content-triggered (.claude/workflow/, .claude/skills/, .claude/agents/, prompts/, SKILL.md, phase/track/sub-agent)
+        +consistency (WCC), context-budget (WCB), instruction-completeness (WCI), prompt-design (WCP)
+    }
+    class aggregator_subagent_prompt_md {
+        +Reads per-reviewer files under cycle-N-iter-M/
+        +Classifies by severity and decision-shape
+        +Returns structured findings object to orchestrator
+        +Writes one-line summary entry to decision-log.md
     }
     class create_plan_skill {
         +Phase 0: Step 1b creates decision-log.md; Steps 2-3 write triggers
         +Phase 0 to 1a: Step 4 reads decision-log.md and confirms aim
-        +Phase 1a: authors design.md via edit-design phase1-creation; gate auto-fires; loop runs per review-iteration.md (max 3 iters); writes feasibility-review.md
-        +Phase 1b (fresh session): auto-resumes from gate PASS; derives Architecture Notes + tracks + plan files
-        +Phase 1b ESCALATE: writes ESCALATE entry to feasibility-review.md, ends session
+        +Phase 1a: per-mutation review fan-out via edit-design; user-checkpoint loop until user signals 1a to 1b transition
+        +Phase 1b (fresh session): auto-resumes by reading decision-log.md for Phase 1a to 1b entry; derives Architecture Notes + tracks + plan files
+        +Phase 1b ESCALATE: writes ESCALATE entry to decision-log.md, ends session
     }
     class edit_design_skill {
+        +Step 4 expanded: reviewer fan-out (cold-read + feasibility + adversarial + triggered domains)
+        +Step 4 sub-step: aggregator sub-agent consolidates findings
+        +Step 5: iterate on mechanical findings; decision-shaped findings escape to orchestrator
         +Step 7 appends design-mutations.md entry (always)
         +Step 7 appends decision-log.md entry on articulated rationale (Phase 1a only)
+        +All sub-agent spawns use prompt-by-reference protocol
     }
     class research_md {
         +Write triggers section (new)
@@ -127,7 +157,7 @@ classDiagram
     }
     class implementation_review_md {
         +Phase 2 narrowed to plan-internal + plan-vs-design alignment
-        +Design-side consistency folds into Phase 1a
+        +Design-side consistency folds into Phase 1a per-mutation fan-out
     }
     class workflow_md {
         +Phases listed with 1a and 1b sub-phases
@@ -135,6 +165,7 @@ classDiagram
     }
     class conventions_execution_md {
         +Cross-ref to philosophy subsection
+        +Cross-ref to conventions.md 1.4 spawn protocol
     }
     class design_document_rules_md {
         +Cross-ref to philosophy subsection
@@ -142,11 +173,19 @@ classDiagram
 
     conventions_md ..> design_philosophy_md : detailed-doc ref
     create_plan_skill ..> decision_log_md : writes (Phase 0)
-    edit_design_skill ..> decision_log_md : writes (Phase 1a rationale)
+    edit_design_skill ..> decision_log_md : writes (Phase 1a rationale + gate verdicts)
     edit_design_skill ..> design_mutations_md : writes (mechanics)
-    create_plan_skill ..> feasibility_review_prompt_md : invokes (auto-fire after phase1-creation)
-    create_plan_skill ..> adversarial_design_review_md : invokes (auto-fire after phase1-creation)
-    create_plan_skill ..> feasibility_review_log_md : writes cycle log (sub-agent verdicts + findings, FD / AD prefixed) + reads Phase 1b auto-resume
+    edit_design_skill ..> design_reviews_dir : spawns reviewers that write per-reviewer files
+    edit_design_skill ..> aggregator_subagent_prompt_md : spawns aggregator
+    aggregator_subagent_prompt_md ..> design_reviews_dir : reads per-reviewer files
+    aggregator_subagent_prompt_md ..> decision_log_md : writes gate-verdict summary entry
+    edit_design_skill ..> feasibility_review_prompt_md : spawns (every mutation, prompt-by-reference)
+    edit_design_skill ..> adversarial_design_review_prompt_md : spawns (every mutation, prompt-by-reference)
+    edit_design_skill ..> crash_safety_design_prompt_md : spawns when content-triggered
+    edit_design_skill ..> concurrency_design_prompt_md : spawns when content-triggered
+    edit_design_skill ..> performance_design_prompt_md : spawns when content-triggered
+    edit_design_skill ..> workflow_changes_design_prompts : spawns when content-triggered (four siblings in parallel)
+    create_plan_skill ..> decision_log_md : reads (Phase 1b auto-resume signal)
     create_plan_skill ..> research_md : reads
     create_plan_skill ..> planning_md : reads (Phase 1b)
     research_md ..> conventions_md : philosophy ref
@@ -154,11 +193,15 @@ classDiagram
     mid_phase_handoff_md ..> conventions_md : philosophy ref
     implementation_review_md ..> decision_log_md : reads (Phase 2)
     workflow_md ..> create_plan_skill : phase listing
-    conventions_execution_md ..> conventions_md : philosophy ref
+    conventions_execution_md ..> conventions_md : philosophy ref + spawn-protocol ref
     design_document_rules_md ..> conventions_md : philosophy ref
 ```
 
-Three durable file artifacts (`decision_log_md`, `design_mutations_md`, `feasibility_review_log_md`) own three complementary roles: knowledge (rationale, alternatives, open questions), mechanics (mutation kind, mechanical-check verdict, counter state), and feasibility verdicts (per-cycle sub-agent results, per-iter gate-check verdicts on iter-2/3, the user's `accepted-open-risks` block, the gate-PASS line that Phase 1b reads as its auto-resume signal). One new always-loaded surface (the lean `### Design philosophy` subsection inside `conventions_md`) names the principles; one new load-on-demand artifact (`design_philosophy_md`) carries the paragraph-length explanations, the workflow-mapping table, the failure modes, and the external citations. Two new prompt files at `.claude/workflow/prompts/` (`feasibility_review_prompt_md` and `adversarial_design_review_md`) define the Phase 1a gate's sub-agent behavior; both produce certificate-shape output per Principle 6, both plug into `.claude/workflow/review-iteration.md`'s iteration protocol with new finding ID prefixes `FD` and `AD`. Two SKILLs (`create_plan_skill`, `edit_design_skill`) write to `decision_log_md` in their owning sub-phase; `create_plan_skill` also writes to and reads from `feasibility_review_log_md` across the Phase 1a / 1b boundary; `edit_design_skill` additionally writes to `design_mutations_md` on every invocation. Five workflow documents (`research_md`, `planning_md`, `mid_phase_handoff_md`, `implementation_review_md`, `workflow_md`) wire the new artifacts into existing phase boundaries on their read or coordination side. Five documents (`planning_md`, `design_document_rules_md`, `conventions_execution_md`, `mid_phase_handoff_md`, `research_md`) point at the lean `conventions_md § Design philosophy` subsection (two-step); the lean subsection itself points at `design_philosophy_md` so the deeper material stays load-on-demand.
+Three durable artifacts own three complementary roles: knowledge (`decision_log_md`: rationale, alternatives, open questions, gate verdicts, transition signals, ESCALATE entries), mechanics (`design_mutations_md`: mutation kind, mechanical-check verdict, counter state, unchanged from today), and reviewer raw output (`design_reviews_dir`: per-cycle, per-iter directories containing one file per spawned reviewer plus an optional aggregator summary). One always-loaded surface (the lean `### Design philosophy` subsection inside `conventions_md`) plus one new always-loaded sub-section (`§1.4` spawn protocol) names the principles and protocols every session relies on; one new load-on-demand artifact (`design_philosophy_md`) carries the paragraph-length explanations, the workflow-mapping table, the failure modes, and the external citations.
+
+Eight new prompt files at `.claude/workflow/prompts/` define the per-mutation fan-out's sub-agent behavior: two mandatory (`feasibility_review_prompt_md`, `adversarial_design_review_prompt_md`), three content-triggered domain (`crash_safety_design_prompt_md`, `concurrency_design_prompt_md`, `performance_design_prompt_md`), four sibling workflow-changes prompts (workflow-consistency-design / workflow-context-budget-design / workflow-instruction-completeness-design / workflow-prompt-design-design — collapsed into one node in the diagram for readability), and one aggregator (`aggregator_subagent_prompt_md`). All produce certificate-shape output per Principle 6; all spawn via the prompt-by-reference protocol so their bodies never load into the orchestrator. The workflow-changes set cites the existing code-side `.claude/agents/review-workflow-*` files as the source of the dimensional taxonomy; the design-doc prompts adapt criteria for prose-input rather than code-diff input.
+
+Two SKILLs (`create_plan_skill`, `edit_design_skill`) own the writes. `create_plan_skill` writes to `decision_log_md` across Phase 0 and reads it for the Phase 1b auto-resume signal; `edit_design_skill` spawns the per-mutation fan-out, writes to `design_mutations_md` on every invocation, writes Phase 1a rationale entries to `decision_log_md`, and (via the aggregator) writes per-mutation gate-verdict summary entries to `decision_log_md`. Five workflow documents (`research_md`, `planning_md`, `mid_phase_handoff_md`, `implementation_review_md`, `workflow_md`) wire the new artifacts into existing phase boundaries on their read or coordination side. Five documents (`planning_md`, `design_document_rules_md`, `conventions_execution_md`, `mid_phase_handoff_md`, `research_md`) point at the lean `conventions_md § Design philosophy` subsection (two-step); the lean subsection itself points at `design_philosophy_md` so the deeper material stays load-on-demand. One additional document (`conventions_execution_md`) gains a one-line cross-reference to the new `conventions_md §1.4` spawn protocol.
 
 ## Workflow
 
