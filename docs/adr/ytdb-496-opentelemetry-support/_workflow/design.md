@@ -6,17 +6,23 @@ This design adds a new optional Maven module `youtrackdb-opentelemetry` that tur
 
 This design assumes familiarity with the existing `QueryMetricsListener` and `TransactionMetricsListener` firing sites in `YTDBQueryMetricsStep` and `FrontendTransactionImpl`, and with the `YTDBTransaction` open / commit / rollback lifecycle. The audience is contributors maintaining the metrics and transaction subsystems in `core`.
 
-Today YTDB has an internal `QueryMetricsListener` SPI that fires only on Gremlin traversal close, plus a `TransactionMetricsListener` that fires on write-transaction commit, but the listeners are per-transaction and the project ships no OTel binding. Native SQL queries (the path used for `db.command(...)`, MATCH, and DDL) currently fire neither listener. The design closes that gap with four load-bearing additions: a global listener registry in `core` so an OTel listener registered once at startup auto-applies to every subsequent transaction; two new default-no-op methods on `TransactionMetricsListener` (`transactionStarted`, `transactionRolledBack`) so the OTel module can emit a TX-lifetime parent span covering queries and commit as children; a new listener fire site in a private helper `executeStatementWithMetrics(SQLStatement, String, Object)` called from both `DatabaseSessionEmbedded.query()` (line 617) and `executeInternal()` (line 702) so every SQL statement type (SELECT, INSERT, UPDATE, DELETE, MATCH, DDL), read-only `db.query(...)` included, flows through the same listener API; and a pair of static-utility classifiers in `core` (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`), called directly from their respective fire sites, that extract `db.operation.name` and `db.collection.name` so spans carry sem-conv v1.33.0 attributes. A thread-local `GremlinSqlSuppression` flag activated by `YTDBGraphQuery.execute` and `YTDBGraphQuery.explain` (the Gremlin-to-SQL bridge that runs each per-step SQL query, or its `EXPLAIN`-prefixed form, via `session.query()`) keeps the SQL helper silent during Gremlin-driven SQL so one traversal emits exactly one span.
+Today YTDB has an internal `QueryMetricsListener` SPI that fires only on Gremlin traversal close, plus a `TransactionMetricsListener` that fires on write-transaction commit, but the listeners are per-transaction and the project ships no OTel binding. Native SQL queries (the path used for `db.command(...)`, MATCH, and DDL) currently fire neither listener. The design closes that gap with three load-bearing additions: a global listener registry in `core` so an OTel listener registered once at startup auto-applies to every subsequent transaction; a new listener fire site in a private helper `executeStatementWithMetrics(SQLStatement, String, Object)` called from both `DatabaseSessionEmbedded.query()` (line 617) and `executeInternal()` (line 702) so every SQL statement type (SELECT, INSERT, UPDATE, DELETE, MATCH, DDL), read-only `db.query(...)` included, flows through the same listener API; and a pair of static-utility classifiers in `core` (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`), called directly from their respective fire sites, that extract `db.operation.name` and `db.collection.name` so spans carry sem-conv v1.33.0 attributes. A thread-local `GremlinSqlSuppression` flag activated by `YTDBGraphQuery.execute` and `YTDBGraphQuery.explain` (the Gremlin-to-SQL bridge that runs each per-step SQL query, or its `EXPLAIN`-prefixed form, via `session.query()`) keeps the SQL helper silent during Gremlin-driven SQL so one traversal emits exactly one span.
 
-Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), `FrontendTransactionImpl.beginInternal()` and `rollbackInternal()` fire the new TX lifecycle calls (covering both Gremlin and native-SQL paths through one chokepoint), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-Throwable union `Exception | LinkageError | AssertionError` to cover the OTel-specific failure modes (misconfigured SDK, missing exporter classes, assertion failures) without masking `VirtualMachineError` or `ThreadDeath`, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method) and adds three new accessors on `FrontendTransaction` — `getDefaultQueryMonitoringMode(): QueryMonitoringMode` exposing the per-TX fallback used by commit/rollback and by queries with no tag-rule match, `resolveQueryMonitoringMode(Optional<String> tag): QueryMonitoringMode` delegating to the process-global `QueryMonitoringModeResolver` for per-query mode selection from the query tag, and `iterateAllQueryListeners(): Iterable<QueryMetricsListener>` exposing the merged global-snapshot + per-TX-list view — and `GlobalConfiguration` gains five `OPENTELEMETRY_*` entries that drive the server-mode SDK init plus the tag-rule table.
+The TX listener side stays narrow on purpose: only `writeTransactionCommitted` and `writeTransactionFailed` fire, both for write transactions only, and the OTel implementation emits a standalone commit span with no YTDB-side TX-lifetime wrapper. Read-only transactions emit nothing on the TX listener and therefore no commit-side span. This matches the existing YTDB read-only-TX semantics (the TX listener never fires on a read-only close) and keeps mostly-read workloads from paying alloc-and-emit cost per query for an empty container span.
+
+On the query side, a configurable slow-query threshold gates span emission inside `OTelQueryMetricsListener.queryFinished` so a host running heavy read traffic drops fast successful queries before any tracer allocation. The global default is `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=100` and `0` disables the gate (emit everything). Per-tag overrides go through `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` — same format as the per-tag mode rules, resolved through a parallel `SlowQueryThresholdResolver` consuming `TagRule<Long>` on the same sealed interface. Errors bypass the gate because trace viewers are the primary investigation surface for failures; a 1 ms failing query still emits a span carrying `error.type` and the sanitized query text.
+
+`YTDBTransaction` exposes a builder-style API for listener wiring: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)` are separate fluent methods. The new `withTrackingId(String)` stores an explicit tracking ID on the transaction; `FrontendTransaction.getTrackingId(): String` returns that explicit value when set, else falls back to `String.valueOf(getId())` so the internal-ID source stays the default.
+
+Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-Throwable union `Exception | LinkageError | AssertionError` to cover the OTel-specific failure modes (misconfigured SDK, missing exporter classes, assertion failures) without masking `VirtualMachineError` or `ThreadDeath`, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method) and adds three new accessors on `FrontendTransaction` — `getDefaultQueryMonitoringMode(): QueryMonitoringMode` exposing the per-TX fallback used by commit and by queries with no tag-rule match, `resolveQueryMonitoringMode(Optional<String> tag): QueryMonitoringMode` delegating to the process-global `QueryMonitoringModeResolver` for per-query mode selection from the query tag, and `iterateAllQueryListeners(): Iterable<QueryMetricsListener>` exposing the merged global-snapshot + per-TX-list view — and `GlobalConfiguration` gains five `OPENTELEMETRY_*` entries that drive the server-mode SDK init plus the tag-rule table.
 
 In embedded mode the SDK resolution chain has three steps in priority order: host-provided via `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, then `GlobalOpenTelemetry.get()` if the host configured the global, then a YTDB-built SDK auto-configured from `OPENTELEMETRY_*` config when neither of the first two yielded a real instance. The flag is never inert; ownership is tracked so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process; an `OpenTelemetrySdk` built from the same config entries wires through a `ServerLifecycleListener`-based plugin.
 
-The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, transaction-lifetime span semantics, Gremlin bytecode classification, SQL execution layer hook, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
+The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
 
 ## Core Concepts
 
-This design introduces seven load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
+This design introduces eight load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
 
 **Span.** An OpenTelemetry record covering one unit of work with a start timestamp, an end timestamp, a name, a kind (CLIENT / SERVER / INTERNAL / PRODUCER / CONSUMER), a status (OK / ERROR), and arbitrary key/value attributes. Replaces "nothing in YTDB" (no prior telemetry primitive). → §"Sem-conv attribute mapping" and §"Class Design".
 
@@ -24,13 +30,15 @@ This design introduces seven load-bearing ideas. Each is named and used without 
 
 **Listener registry (global).** A pair of `CopyOnWriteArrayList`s of `QueryMetricsListener` and `TransactionMetricsListener` instances held in a process-global `GlobalListenerRegistry` in `core` and exposed via static methods on `YourTracks` (the existing `final` utility class). Snapshotted by `FrontendTransactionImpl.beginInternal()` into per-TX fields before `txStartCounter` increments, so both Gremlin and native-SQL transactions share one fire path. Replaces "per-TX `withQueryListener` only", which made the config flag inert. → §"Listener registration and ordering".
 
-**TX-lifetime span.** The INTERNAL span the OTel TX listener opens on `transactionStarted` and closes on commit / failed-commit / rollback. Acts as the parent of every query span and the commit span emitted between begin and close. Replaces "no transaction-scoped grouping in the trace viewer". → §"Transaction-lifetime span semantics".
-
 **Sem-conv v1.33.0.** OpenTelemetry's stable semantic conventions for database client spans, dictating attribute names (`db.system.name`, `db.query.text`, etc.), their requirement levels (Required / Conditionally Required / Recommended / Opt-In), and the span-name fallback chain. Replaces "no vendor-neutral attribute schema". → §"Sem-conv attribute mapping".
 
-**Query tagging and per-tag mode resolution.** An enum `QueryMonitoringMode` (co-located with `QueryMetricsListener` / `TransactionMetricsListener` in `internal/common/profiler/monitoring/`) selects timing precision per query: `LIGHTWEIGHT` reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()` for sub-millisecond precision at the cost of two syscalls per measurement. **Each query resolves its mode independently from its tag** through a process-global `QueryMonitoringModeResolver`: rules configured at startup via `OPENTELEMETRY_QUERY_MODE_TAG_RULES` map tag matchers (exact / prefix / regex) to modes, first-wins; when no rule matches, the resolver falls back to the per-TX default set via `YTDBTransaction.withQueryMonitoringMode(...)`; when no per-TX default is set, the fallback is `LIGHTWEIGHT`. Tag sources: Gremlin via `g.with(YTDBQueryConfigParam.querySummary, "X")` and SQL via the parser hint `/*+ TAG=X */` populating `SQLStatement.getQueryTag(): Optional<String>`. Two queries in the same transaction with different tags can use different modes; commit and rollback fire sites have no query tag and therefore use the TX default. Replaces "always-EXACT timing" implied by the original design and the per-TX-snapshot scheme from earlier iterations of this design. → §"Query tagging and per-tag rule resolution", §"SQL execution layer hook", and §"Gremlin bytecode classification".
+**Query tagging and per-tag mode resolution.** An enum `QueryMonitoringMode` (co-located with `QueryMetricsListener` / `TransactionMetricsListener` in `internal/common/profiler/monitoring/`) selects timing precision per query: `LIGHTWEIGHT` reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()` for sub-millisecond precision at the cost of two syscalls per measurement. **Each query resolves its mode independently from its tag** through a process-global `QueryMonitoringModeResolver`: rules configured at startup via `OPENTELEMETRY_QUERY_MODE_TAG_RULES` map tag matchers (exact / prefix / regex) to modes, first-wins; when no rule matches, the resolver falls back to the per-TX default set via `YTDBTransaction.withQueryMonitoringMode(...)`; when no per-TX default is set, the fallback is `LIGHTWEIGHT`. Tag sources: Gremlin via `g.with(YTDBQueryConfigParam.querySummary, "X")` and SQL via the parser hint `/*+ TAG=X */` populating `SQLStatement.getQueryTag(): Optional<String>`. Two queries in the same transaction with different tags can use different modes; the commit fire site has no query tag and therefore uses the TX default. Replaces "always-EXACT timing" implied by the original design and the per-TX-snapshot scheme from earlier iterations of this design. → §"Query tagging and per-tag rule resolution", §"SQL execution layer hook", and §"Gremlin bytecode classification".
 
 **Query source classification.** Two static-helper classifiers in `core` extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Called directly from the existing fire sites: `YTDBQueryMetricsStep` for Gremlin, and the `DatabaseSessionEmbedded.executeStatementWithMetrics` helper for SQL (invoked from both `query()` and `executeInternal()`). No SPI or ServiceLoader; the call sites parse before invoking, so the classifiers piggyback on parsing that runs anyway. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
+
+**Slow-query threshold (per-tag).** A wall-clock duration in milliseconds resolved per-query from the same query tag that drives mode selection. Global default `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=100`; per-tag overrides via `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` go through a process-global `SlowQueryThresholdResolver` consuming `TagRule<Long>` on the same sealed interface that powers mode resolution. When the resolved threshold is greater than zero, `OTelQueryMetricsListener.queryFinished` returns early before any span allocation if `executionTimeNanos < thresholdNanos` and the query did not throw. Errors always emit regardless. The global default is read at OTel listener construction time; tag-rule resolution is per-query, so a long-running session can hit different thresholds for different tags. Replaces "all-or-nothing emission gated only on listener presence", which over-emitted on mostly-read workloads. → §"Slow-query threshold gating".
+
+**Explicit transaction tracking ID.** A host-provided string identifier passed to a transaction via `YTDBTransaction.withTrackingId(String)`. When set, `FrontendTransaction.getTrackingId(): String` returns the explicit value; when unset, the accessor falls back to `String.valueOf(getId())` so the existing internal-ID source remains the default. Both `QueryDetails.getTransactionTrackingId()` and `TransactionDetails.getTransactionTrackingId()` read through this accessor, so explicit IDs surface in OTel span attributes (`youtrackdb.transaction.tracking_id`) and in custom listener implementations alike. Replaces the earlier "internal ID only" model where hosts had no way to attach a stable identifier from their own dispatch layer. → §"Class Design" and §"Listener registration and ordering".
 
 ## Class Design
 
@@ -42,10 +50,8 @@ classDiagram
     }
     class TransactionMetricsListener {
         <<interface>>
-        +transactionStarted(TransactionDetails) void
         +writeTransactionCommitted(TransactionDetails, long, long) void
         +writeTransactionFailed(TransactionDetails, long, long, Exception) void
-        +transactionRolledBack(TransactionDetails) void
     }
     class QueryDetails["QueryMetricsListener.QueryDetails"] {
         <<interface>>
@@ -55,6 +61,7 @@ classDiagram
         +getOperationName() Optional~String~
         +getCollectionName() Optional~String~
         +getDatabaseName() Optional~String~
+        +getErrorType() Optional~String~
     }
     class TransactionDetails["TransactionMetricsListener.TransactionDetails"] {
         <<interface>>
@@ -64,18 +71,14 @@ classDiagram
     class OTelQueryMetricsListener {
         -Tracer tracer
         -SpanKind clientKind
-        -OTelTransactionMetricsListener txListener
+        -long defaultThresholdNanos
         +queryFinished(QueryDetails, long, long) void
     }
     class OTelTransactionMetricsListener {
         -Tracer tracer
         -SpanKind clientKind
-        -ThreadLocal~Context~ activeTxContext
-        +transactionStarted(TransactionDetails) void
         +writeTransactionCommitted(TransactionDetails, long, long) void
         +writeTransactionFailed(TransactionDetails, long, long, Exception) void
-        +transactionRolledBack(TransactionDetails) void
-        ~activeTxContext() Context
     }
     class YouTrackDBOpenTelemetry {
         -OpenTelemetry openTelemetry
@@ -109,6 +112,12 @@ classDiagram
         +resolve(Optional~String~ tag, QueryMonitoringMode txDefault) QueryMonitoringMode
         +global() QueryMonitoringModeResolver$
     }
+    class SlowQueryThresholdResolver {
+        -List~TagRule~ rules
+        -ConcurrentHashMap~String,Long~ cache
+        +resolve(Optional~String~ tag, long defaultNanos) long
+        +global() SlowQueryThresholdResolver$
+    }
     class TagRule {
         <<sealed interface>>
         +matches(String tag) boolean
@@ -130,7 +139,15 @@ classDiagram
         <<interface>>
         +getDefaultQueryMonitoringMode() QueryMonitoringMode
         +resolveQueryMonitoringMode(Optional~String~ tag) QueryMonitoringMode
+        +resolveSlowQueryThresholdNanos(Optional~String~ tag) long
+        +getTrackingId() String
         +iterateAllQueryListeners() Iterable~QueryMetricsListener~
+    }
+    class YTDBTransaction {
+        +withQueryMonitoringMode(QueryMonitoringMode mode) YTDBTransaction
+        +withTrackingId(String trackingId) YTDBTransaction
+        +withQueryListener(QueryMetricsListener listener) YTDBTransaction
+        +withTransactionListener(TransactionMetricsListener listener) YTDBTransaction
     }
     class SQLStatement {
         +getQueryTag() Optional~String~
@@ -146,35 +163,39 @@ classDiagram
     OTelQueryMetricsListener --> YouTrackDBOpenTelemetry : tracer()
     OTelTransactionMetricsListener --> YouTrackDBOpenTelemetry : tracer()
     OTelQueryMetricsListener --> QueryDetails : reads operation / collection / namespace
-    OTelQueryMetricsListener --> OTelTransactionMetricsListener : txListener field (calls activeTxContext())
     GremlinBytecodeClassifier --> Classification : returns
     SqlSyntaxClassifier --> Classification : returns
     TagRule <|.. TagRuleExact
     TagRule <|.. TagRulePrefix
     TagRule <|.. TagRuleRegex
     QueryMonitoringModeResolver --> TagRule : holds list of
+    SlowQueryThresholdResolver --> TagRule : holds list of
     FrontendTransaction --> QueryMonitoringModeResolver : resolveQueryMonitoringMode delegates to global()
+    FrontendTransaction --> SlowQueryThresholdResolver : resolveSlowQueryThresholdNanos delegates to global()
+    YTDBTransaction --> FrontendTransaction : fluent builder stores tracking-id and mode on
     OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry(.., ownedByYtdb=true) / shutdown
 ```
 
-The diagram covers the production classes the design introduces. Three interfaces in `core` are extended: `TransactionMetricsListener` and `QueryDetails` gain default methods; `QueryMetricsListener` itself stays unchanged but is consumed by a new impl; `FrontendTransaction` gains `getDefaultQueryMonitoringMode()` (renamed from the earlier `getQueryMonitoringMode()`), `resolveQueryMonitoringMode(Optional<String> tag)`, and `iterateAllQueryListeners()`. `SQLStatement` gains a default-empty `getQueryTag(): Optional<String>` accessor populated by the parser when a `/*+ TAG=X */` hint precedes the statement. Two new static-utility classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and one value record (`Classification`) land in `core` next to the existing parsing infrastructure — Gremlin's classifier piggybacks on the bytecode walk `YTDBQueryMetricsStep.produceScript()` already performs, and the SQL classifier dispatches on the `SQLStatement` AST that both `DatabaseSessionEmbedded.query()` and `executeInternal()` already produce via `SQLEngine.parse(...)` before delegating to the `executeStatementWithMetrics` helper. The classifiers are pure functions, called directly from the existing fire sites; no SPI, no ServiceLoader. A process-global `QueryMonitoringModeResolver` (also in `core/.../profiler/monitoring/`) walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES` and caches resolved `(tag → mode)` pairs in a `ConcurrentHashMap` for cheap repeat lookups; the sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic so a future per-tag slow-query threshold resolver can reuse it. Five classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
+The diagram covers the production classes the design introduces. Three interfaces in `core` are extended: `TransactionMetricsListener` and `QueryDetails` gain default methods; `QueryMetricsListener` itself stays unchanged but is consumed by a new impl; `FrontendTransaction` gains `getDefaultQueryMonitoringMode()` (renamed from the earlier `getQueryMonitoringMode()`), `resolveQueryMonitoringMode(Optional<String> tag)`, `resolveSlowQueryThresholdNanos(Optional<String> tag)`, `getTrackingId(): String` (returns the explicit ID set via `YTDBTransaction.withTrackingId(...)` when present, else `String.valueOf(getId())`), and `iterateAllQueryListeners()`. `YTDBTransaction` gains four builder-style methods: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)`. Each returns `this` so they chain. `SQLStatement` gains a default-empty `getQueryTag(): Optional<String>` accessor populated by the parser when a `/*+ TAG=X */` hint precedes the statement. Two new static-utility classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and one value record (`Classification`) land in `core` next to the existing parsing infrastructure. Gremlin's classifier piggybacks on the bytecode walk `YTDBQueryMetricsStep.produceScript()` already performs, and the SQL classifier dispatches on the `SQLStatement` AST that both `DatabaseSessionEmbedded.query()` and `executeInternal()` already produce via `SQLEngine.parse(...)` before delegating to the `executeStatementWithMetrics` helper. The classifiers are pure functions, called directly from the existing fire sites; no SPI, no ServiceLoader. Two process-global resolvers (both in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`, and `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; both cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so both resolvers share the matcher hierarchy. Five classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
 
-Both OTel listeners take a `SpanKind clientKind` constructor argument that selects between CLIENT and INTERNAL for the query span and the commit child span. INTERNAL is used when YTDB runs in-process with the host (embedded), CLIENT when YTDB runs as a standalone server process and the host is a network client. The TX-lifetime span is always INTERNAL because it is a logical container, not a call. `YouTrackDBOpenTelemetry` resolves `clientKind` from how the SDK was wired: the `OpenTelemetryServerPlugin` invokes the package-private 3-arg variant `setOpenTelemetry(otel, ownedByYtdb=true, serverMode=true)` so CLIENT propagates to both listeners; every embedded entry point (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) defaults `serverMode=false` so INTERNAL applies. The two flags carry separate concerns: `ownedByYtdb` controls whether `shutdown()` closes the SDK; `serverMode` controls the CLIENT/INTERNAL split on emitted spans. See §"Sem-conv attribute mapping" for the sem-conv rule that drives this choice.
+Both OTel listeners take a `SpanKind clientKind` constructor argument that selects between CLIENT and INTERNAL for the query span and the standalone commit span. INTERNAL is used when YTDB runs in-process with the host (embedded), CLIENT when YTDB runs as a standalone server process and the host is a network client. `YouTrackDBOpenTelemetry` resolves `clientKind` from how the SDK was wired: the `OpenTelemetryServerPlugin` invokes the package-private 3-arg variant `setOpenTelemetry(otel, ownedByYtdb=true, serverMode=true)` so CLIENT propagates to both listeners; every embedded entry point (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) defaults `serverMode=false` so INTERNAL applies. The two flags carry separate concerns: `ownedByYtdb` controls whether `shutdown()` closes the SDK; `serverMode` controls the CLIENT/INTERNAL split on emitted spans. See §"Sem-conv attribute mapping" for the sem-conv rule that drives this choice.
 
 The producer copies each `Classification(operationName, collectionName)` value into the `QueryDetails` accessors before the listener fires. A small `GremlinSqlSuppression` utility (thread-local re-entrant counter, also in `core`) is consulted by the SQL helper before firing the listener and is activated by `YTDBGraphQuery.execute` and `YTDBGraphQuery.explain` for the duration of Gremlin-driven SQL (the second site covers any caller of `YTDBGraphQuery.explain`, including the test-driven `YTDBGraphQuery.usedIndexes` path at line 37, which delegates to `this.explain(session)` at line 38). The diagram omits it as a utility that participates only through static method calls, with no class relationship to model.
 
-The `ThreadLocal<Context>` field on `OTelTransactionMetricsListener` is **instance-scoped** — each TX listener carries its own ThreadLocal so two `YouTrackDBOpenTelemetry` facades coexisting in the same JVM (e.g., a test that builds a fresh SDK per test method) cannot leak state between each other. The query listener finds the TX listener through an explicit reference passed in at construction: `YouTrackDBOpenTelemetry` builds both listeners together and injects the TX listener into the query listener via `new OTelQueryMetricsListener(tracer, clientKind, txListener)`. The query listener reads the active TX context by calling `txListener.activeTxContext()` (instance method, package-private accessor returning `Context`). Using a ThreadLocal (rather than `Context.makeCurrent()`) avoids leaking the context across listener boundaries; using an explicit instance reference (rather than a static accessor) eliminates process-global state and lets multiple OTel facades coexist. No `@AfterEach` cleanup is needed for cross-test isolation because each test instantiates its own facade and discards it; the per-instance ThreadLocal dies with the listener.
+`OTelQueryMetricsListener` and `OTelTransactionMetricsListener` are independent — the query listener takes its parent context from `Context.current()` at fire time (the host's active span, when wrapped), not from any TX-side state. The two listeners are wired alongside each other by `YouTrackDBOpenTelemetry` but share no fields or callbacks. Multiple OTel facades coexisting in the same JVM (test fixtures spinning up a fresh SDK per test method) are independent for the same reason.
+
+`OTelQueryMetricsListener` takes a third constructor argument `long defaultThresholdNanos`, populated by `YouTrackDBOpenTelemetry` from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `100`, read once at SDK init, multiplied to nanoseconds). At each fire the listener calls `SlowQueryThresholdResolver.global().resolve(querySummary, defaultThresholdNanos)` to compute the effective threshold for this query — a matching tag rule overrides the default, an unset tag or unmatched tag falls back to the default. When the resolved value is greater than zero, the listener returns early on successful queries whose `executionTimeNanos` falls under the threshold, skipping all span allocation. Errors bypass the gate through `QueryDetails.getErrorType()`, populated by both fire sites from the caught exception's class FQN (see §"Slow-query threshold gating" for the gate pseudocode and the error-bypass contract).
 
 Class Design is a structural reference section; edge cases for each component live in the mechanism sections this section points to.
 
 ### References
-- D-records: D1, D2, D3, D5, D8, D9
+- D-records: D1, D2, D5, D8, D9
 - Invariants: Span kind by role
 - Mechanics: none (single-file design)
 
 ## Workflow
 
-The three diagrams below show, in order, a query span attaching to the host's active span, a TX-lifetime span containing query and commit children with the ThreadLocal-carried parent context, and the server-mode SDK boot/shutdown sequence driven by `ServerLifecycleListener` callbacks. Each diagram captures the synchronous-on-calling-thread property the design relies on for `Context.current()` to resolve to the host's span; the cross-section §"Context propagation in embedded" carries the prose argument.
+The three diagrams below show, in order, a query span attaching to the host's active span, a standalone commit span emitted for a write transaction, and the server-mode SDK boot/shutdown sequence driven by `ServerLifecycleListener` callbacks. The first two capture the synchronous-on-calling-thread property the design relies on for `Context.current()` to resolve to the host's span; the cross-section §"Context propagation in embedded" carries the prose argument.
 
 ### Query span lifecycle in embedded
 
@@ -207,37 +228,22 @@ The flow shows that the host code's active span becomes the parent of the YTDB q
 
 The SQL path is symmetric. A private helper `executeStatementWithMetrics(SQLStatement, String, Object)` in `DatabaseSessionEmbedded`, called from both `query()` and `executeInternal()`, plays the role of `YTDBQueryMetricsStep` as the listener fire site, and `SqlSyntaxClassifier` replaces `GremlinBytecodeClassifier` for the accessor population. Span name construction, attribute mapping, and parent-context resolution are identical from the listener's point of view, because the listener reads `QueryDetails` accessors that have already been populated by whichever classifier ran. See §"SQL execution layer hook" for the SQL-side anatomy.
 
-### Transaction lifecycle with full hierarchy
+### Commit span emission for write transactions
 
 ```mermaid
 sequenceDiagram
     participant Host as Host code
     participant TX as FrontendTransactionImpl
     participant OTL as OTelTransactionMetricsListener
-    participant OQL as OTelQueryMetricsListener
     participant TR as OTel Tracer
 
-    Host->>TX: tx.begin() (via Gremlin) or session.begin() (native SQL)
-    TX->>OTL: transactionStarted(details)
-    OTL->>TR: spanBuilder("tx <trackingId>").setSpanKind(INTERNAL).startSpan()
-    OTL->>OTL: store Context.current().with(txSpan) in ThreadLocal
-    Host->>TX: g.V()...toList()  [query 1]
-    TX->>OQL: queryFinished(details, ms, ns)
-    OQL->>OTL: activeTxContext()
-    OTL-->>OQL: ctxWithTxSpan
-    OQL->>TR: spanBuilder("SELECT X").setParent(ctxWithTxSpan).startSpan(...)
-    TR-->>OQL: span (child of txSpan)
-    Host->>TX: tx.commit()
-    TX->>OTL: writeTransactionCommitted(details, ms, ns)
-    OTL->>TR: spanBuilder("commit").setSpanKind(clientKind).setParent(ctxWithTxSpan).startSpan(ms)
-    OTL->>TR: span.end(ms + ns/1e6)
-    OTL->>TR: txSpan.setStatus(OK).end()
-    OTL->>OTL: ThreadLocal.remove()
+    Host->>TX: tx.commit() (write tx)
+    TX->>OTL: writeTransactionCommitted(details, commitMs, commitNs)
+    OTL->>TR: spanBuilder("commit <trackingId>").setSpanKind(clientKind).setParent(Context.current()).startSpan(commitMs)
+    OTL->>TR: span.end(commitMs + commitNs/1e6)
 ```
 
-The participant box represents `FrontendTransactionImpl` because the listener fires happen inside `beginInternal()` / `rollbackInternal()` / `notifyMetricsListener()`. `YTDBTransaction.doOpen()` / `doRollback()` delegate to those methods, so the Gremlin path and the native-SQL path (`db.command(...)` flows that bypass the Gremlin `YTDBTransaction` wrapper but still reach `FrontendTransactionImpl` via `session.begin()`) share the same fire site.
-
-The TX listener stores the context-carrying-TX-span in a `ThreadLocal<Context>` (not via `Context.makeCurrent()`) because the listener callback returns before any user code runs; `makeCurrent()` would leak into surrounding host code. The query listener consults the ThreadLocal directly via a package-private accessor when both listeners are registered together.
+`writeTransactionCommitted` fires only for write transactions per existing YTDB semantics. A read-only transaction's implicit close path emits nothing on the TX listener and therefore no commit span. The participant box represents `FrontendTransactionImpl` because the listener fire happens inside `notifyMetricsListener()` on the committing thread, and `YTDBTransaction.commit()` delegates to it through the Gremlin and native-SQL paths alike. The commit span takes its parent from `Context.current()` (host span if the host wrapped the commit, root otherwise); no YTDB-internal TX wrapper span is created. `writeTransactionFailed` follows the same shape with `error.type` populated and span status set to ERROR.
 
 ### Server-mode SDK lifecycle
 
@@ -271,7 +277,7 @@ The plugin is ServiceLoader-discovered. When the new module is not on the classp
 Workflow is a sequence-diagram reference section; per-mechanism edge cases live in the sections each diagram points to.
 
 ### References
-- D-records: D1, D2, D3, D4, D10
+- D-records: D1, D2, D4, D10
 - Mechanics: none
 
 ## Sem-conv attribute mapping
@@ -289,13 +295,13 @@ The full mapping per attribute:
 | `db.query.text` | Recommended | `QueryDetails.getQuery()` | already sanitized: Gremlin via `ValueAnonymizingTypeTranslator`, SQL via `SqlSanitizer` |
 | `db.query.summary` | Recommended | `QueryDetails.getQuerySummary()` if set, else `"{operation} {collection}"` if both present | client-provided summary wins |
 | `db.response.status_code` | Conditionally Required | YTDB error code if available | currently no canonical YTDB error-code field; omitted in YTDB-496 |
-| `error.type` | Conditionally Required (on failure) | exception class FQN | set on TX span at `writeTransactionFailed`, on query span when `statement.execute(...)` throws |
+| `error.type` | Conditionally Required (on failure) | exception class FQN | set on the standalone commit span at `writeTransactionFailed`, on the query span when `statement.execute(...)` throws; also exposed via `QueryDetails.getErrorType()` so the slow-query threshold gate (§"Slow-query threshold gating") can bypass on error |
 | `server.address` / `server.port` | Recommended | from server config in server mode | embedded mode omits |
 | `db.response.returned_rows` | Opt-In | omitted in YTDB-496 | requires counting traversal / result-set results |
 
 Span name fallback examples. Gremlin: a query labeled with `g.with(YTDBQueryConfigParam.querySummary, "findActiveUsers")...` produces `findActiveUsers`. An unlabeled `g.V().hasLabel("User").has("active", true).toList()` produces `SELECT User`. SQL: `db.command("SELECT FROM User WHERE active = true")` produces `SELECT User`. `db.command("MATCH {class:User, as:u}-knows->{class:User, as:f} RETURN u, f")` produces `MATCH User`. A shape that defies classification (Gremlin `g.V().union(...).path()` or SQL `SELECT FROM (SELECT FROM ...)`) produces `youtrackdb`.
 
-Span kinds per role follow sem-conv v1.33.0 §"Span kind", which mandates CLIENT for over-network DB calls and INTERNAL for in-process and in-memory database libraries. YTDB satisfies both definitions in different deployments, so the kind is mode-aware: in embedded mode the query span and the commit child span are INTERNAL (YTDB runs in-process with the host); in server mode they are CLIENT (YTDB runs as a separate process the host reaches over the network). The TX-lifetime span is INTERNAL in both modes because it is a logical container, not a call. No SERVER / PRODUCER / CONSUMER spans are emitted by YTDB. Track 6a's listener tests (`OTelGremlinQueryTest`, `OTelSqlQueryTest`, `OTelTransactionMetricsListenerTest`) parametrize over `clientKind` so each test exercises both INTERNAL (embedded default) and CLIENT (server-plugin path), asserting the positive cases on `SpanData.getKind()` and the negative case (no SERVER / PRODUCER / CONSUMER spans) against the in-memory exporter.
+Span kinds per role follow sem-conv v1.33.0 §"Span kind", which mandates CLIENT for over-network DB calls and INTERNAL for in-process and in-memory database libraries. YTDB satisfies both definitions in different deployments, so the kind is mode-aware: in embedded mode the query span and the standalone commit span are INTERNAL (YTDB runs in-process with the host); in server mode they are CLIENT (YTDB runs as a separate process the host reaches over the network). No SERVER / PRODUCER / CONSUMER spans are emitted by YTDB, and no YTDB-side INTERNAL wrapper span parents the query or commit spans — both attach directly to `Context.current()`. Track 6a's listener tests (`OTelGremlinQueryTest`, `OTelSqlQueryTest`, `OTelTransactionMetricsListenerTest`) parametrize over `clientKind` so each test exercises both INTERNAL (embedded default) and CLIENT (server-plugin path), asserting the positive cases on `SpanData.getKind()` and the negative case (no SERVER / PRODUCER / CONSUMER spans) against the in-memory exporter.
 
 ### Edge cases / Gotchas
 
@@ -318,7 +324,7 @@ The mapping inside `OTelQueryMetricsListener.queryFinished(...)`:
 Span span = tracer.spanBuilder(name)
     .setSpanKind(CLIENT)
     .setStartTimestamp(startedAtMillis, TimeUnit.MILLISECONDS)
-    .setParent(parentContext)  // host context or TX context from ThreadLocal
+    .setParent(Context.current())  // host context if host wrapped, otherwise root
     .startSpan();
 // set sem-conv attributes (db.system.name, db.query.text, ...)
 span.end(startedAtMillis + executionTimeNanos / 1_000_000L, TimeUnit.MILLISECONDS);
@@ -328,7 +334,7 @@ Both values come from the same clock pair the fire site captured for the resolve
 
 Implicit `now()` would be wrong here. The listener callback fires *after* the operation completes, so `tracer.spanBuilder(...).startSpan()` without an explicit timestamp would record callback-entry time as the span start — losing the relationship between the span and the actual query timing. Passing `setStartTimestamp(...)` and `span.end(endTs)` makes the span match the measured operation.
 
-The TX-lifetime span uses implicit `now()` for `startSpan()` because `transactionStarted` fires *at* the moment of begin, with no measured start to backdate. The commit-child span inside the TX is built the same way as a query span, with `commitAtMillis` / `commitTimeNanos` from `writeTransactionCommitted` filling the timestamp slots.
+The standalone commit span for write transactions is built the same way as a query span, with `commitAtMillis` / `commitTimeNanos` from `writeTransactionCommitted` (or `writeTransactionFailed` on the error path) filling the timestamp slots. Read-only transactions do not invoke this listener (existing YTDB semantics, preserved), so no commit span is emitted for them.
 
 ### Edge cases / Gotchas
 
@@ -359,40 +365,10 @@ Explicit propagation is not exposed in this design. A host that needs to fan out
 
 - A host that never opens an outer span sees the YTDB span as the trace root, with a synthetic `traceId`. This is correct OTel behavior.
 - Mid-transaction context changes (host pushes a span between two queries) are observed: subsequent queries attach to the newer span. This is OTel's contract.
-- The TX-lifetime span (see §"Transaction-lifetime span semantics") uses a `ThreadLocal` to carry its context to subsequent query spans rather than calling `Context.makeCurrent()`. The ThreadLocal is scoped to the TX listener instance and cleared on every TX termination path, guaranteeing no cross-transaction leakage.
+- The standalone commit span for write transactions attaches to whatever `Context.current()` resolves to at the moment `writeTransactionCommitted` fires — typically the host's TX-wrapping span, otherwise the trace root. There is no YTDB-side wrapper span to bind queries and the commit together; that grouping is a host responsibility through an outer span if needed.
 
 ### References
 - D-records: D4
-- Invariants: TX span boundedness
-- Mechanics: none
-
-## Transaction-lifetime span semantics
-
-**TL;DR.** Every transaction gets one INTERNAL span covering `begin → close`. Successful write transactions add a CLIENT commit span as a child, overlapping the tail of the TX span. Failed commits set the TX span to ERROR with `error.type` populated. User rollbacks close the TX span with OK status and no commit child. Read-only transactions emit a TX span with query children and no commit child.
-
-Lifecycle states the TX span moves through:
-
-| Trigger | Action |
-|---|---|
-| `TransactionMetricsListener.transactionStarted` | Open INTERNAL span (always INTERNAL — logical container), store `(span, contextWithSpan)` in `ThreadLocal` |
-| `writeTransactionCommitted` | Open child commit span with kind = `clientKind` (INTERNAL embedded, CLIENT server) at `commitAtMillis`, end at `commitAtMillis + commitTimeNanos/1e6`; end TX span with OK; clear ThreadLocal |
-| `writeTransactionFailed` | End TX span with ERROR, `error.type=<cause class FQN>`, `db.response.status_code` if available; no commit span emitted; clear ThreadLocal |
-| `transactionRolledBack` | End TX span with OK (rollback is not a failure); no commit span emitted; clear ThreadLocal |
-| read-only close | Fires `transactionRolledBack` per existing YTDB semantics; same behavior as above |
-
-The ThreadLocal is the carrier for context propagation to query spans inside the transaction. It holds the OTel `Context` that has the TX span set as current, but the listener does not call `Context.makeCurrent()` because that would leak the context outside YTDB. The ThreadLocal is an **instance** field on `OTelTransactionMetricsListener`, exposed via a package-private accessor `activeTxContext(): Context`. The query listener holds an explicit reference to its paired TX listener (injected by `YouTrackDBOpenTelemetry` at construction time) and calls `txListener.activeTxContext()` to read the current context. Each `YouTrackDBOpenTelemetry` facade builds its own pair of listeners, so multiple facades — including test fixtures that spin up a fresh SDK per test — never share state.
-
-The TX span name uses the `transactionTrackingId` from `TransactionDetails`: `"tx <trackingId>"`. The tracking ID is either client-supplied via `withTrackingId(...)` or YTDB-generated from the internal transaction ID.
-
-### Edge cases / Gotchas
-
-- Nested transactions: per existing YTDB semantics, `TransactionMetricsListener` does not fire for nested (reentrant) inner commits. Only the outermost transaction emits a TX span.
-- A listener exception during `transactionStarted` **before** the `ThreadLocal.set(...)` call (e.g., during `tracer.spanBuilder(...).startSpan()`) leaves the ThreadLocal unset; subsequent query spans attach to `Context.current()` (host's context), losing the TX-as-parent relationship. The test suite confirms the transaction completes correctly in this case, and the operator sees orphan query spans, which is the expected fail-safe behavior. The complementary case (an exception **after** the set) is covered in § "Exception isolation contract" Edge cases: the ThreadLocal stays set and is cleared by the eventual `writeTransactionCommitted` / `writeTransactionFailed` / `transactionRolledBack` path.
-- An OTel SDK shutdown mid-transaction causes the `end()` call to silently drop the span. Acceptable; recovery requires a host-side reconfiguration.
-
-### References
-- D-records: D3, D5
-- Invariants: TX span boundedness, Span kind by role
 - Mechanics: none
 
 ## Gremlin bytecode classification
@@ -411,7 +387,7 @@ Classification rules:
 | step chain ending with `drop()` | `DELETE` | first `hasLabel(X)` argument before the drop, else `Optional.empty()` |
 | anything else | `Optional.empty()` | `Optional.empty()` |
 
-Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility (`Classification classify(Bytecode)`). `YTDBQueryMetricsStep.close()` calls it directly when building the inline `QueryDetails` and stashes the returned `Classification` in two `Optional<String>` fields read back by `QueryDetails.getOperationName()` / `getCollectionName()`. When no listener consults those accessors the work is paid (the call is unconditional inside the fire site), but the cost is one bytecode walk reusing the same instruction-list traversal pattern as the existing `produceScript()` sanitization, measured in microseconds and dominated by the listener call itself.
+Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility (`Classification classify(Bytecode)`). `YTDBQueryMetricsStep.close()` calls it directly when building the inline `QueryDetails` and stashes the returned `Classification` in two `Optional<String>` fields read back by `QueryDetails.getOperationName()` / `getCollectionName()`. The same `QueryDetails` instance also carries the `errorType` slot populated from any exception caught around the traversal-close path (the `step.next()` / `step.hasNext()` flow), so the slow-query threshold gate in `OTelQueryMetricsListener` can bypass on error. When no listener consults those accessors the work is paid (the call is unconditional inside the fire site), but the cost is one bytecode walk reusing the same instruction-list traversal pattern as the existing `produceScript()` sanitization, measured in microseconds and dominated by the listener call itself.
 
 Timing capture in `YTDBQueryMetricsStep.close()` follows the per-query mode resolution mechanism described in §"Query tagging and per-tag rule resolution": the step reads the query tag from `traversal.getConfig(YTDBQueryConfigParam.querySummary)` and calls `currentTx.resolveQueryMonitoringMode(tag)` to pick the clock source for this traversal. Two Gremlin traversals in the same transaction with different tags can therefore record at different precisions; the suppressed inner SQL queries spawned by the traversal share the parent Gremlin span and emit no telemetry of their own (see §"SQL execution layer hook" for the `GremlinSqlSuppression` mechanism). Since only the outer Gremlin step reads the clock, precision uniformity within the traversal is automatic.
 
@@ -496,7 +472,7 @@ SQL path (DatabaseSessionEmbedded.executeStatementWithMetrics):
     else (EXACT):   System.nanoTime reads
 ```
 
-Commit and rollback fire sites have no query in flight; they use `currentTx.getDefaultQueryMonitoringMode()` directly.
+The commit fire site has no query in flight; it uses `currentTx.getDefaultQueryMonitoringMode()` directly.
 
 ### Edge cases / Gotchas
 
@@ -536,19 +512,22 @@ Hook anatomy in the `executeStatementWithMetrics` helper (both callers pass an a
    else (EXACT):
      startMillis = System.currentTimeMillis()
      startNanos  = System.nanoTime()                    // two syscalls
-4. Run statement.execute(this, args, true) inside the existing try/catch
+4. Run statement.execute(this, args, true) inside the existing try/catch; capture any thrown exception as caughtError
 5. elapsedNanos = (mode == LIGHTWEIGHT)
                     ? ticker.approximateNanoTime() - startNanos
                     : System.nanoTime() - startNanos
-6. Build QueryDetails (rawSql, args, statement, trackingId), fire listeners.queryFinished(...)
-   wrapped in try/catch (Exception | LinkageError | AssertionError) so listener exceptions don't break the query
+6. Build QueryDetails (rawSql, args, statement, trackingId, errorType from caughtError.getClass().getName() when present),
+   fire listeners.queryFinished(...) wrapped in try/catch (Exception | LinkageError | AssertionError) so listener
+   exceptions don't break the query. If caughtError is non-null, rethrow it after the fire so the call site behaves
+   as before. QueryDetails.getErrorType() drives the slow-query threshold bypass in OTelQueryMetricsListener
+   (see §"Slow-query threshold gating").
 ```
 
 Both call sites do the parsing themselves before calling the helper. `query()` (line 617) parses, asserts `isIdempotent()`, then calls the helper. `executeInternal()` (line 702) uses the pre-parsed statement if its caller supplied one and otherwise calls `SQLEngine.parse(...)`, then calls the helper. The raw SQL text passed to the helper comes from `stringStatement` when non-null, else from `statement.getOriginalStatement()`. The helper itself never parses.
 
 The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(rawSql)` (from the OTel module) on first access; `getOperationName()` and `getCollectionName()` call `SqlSyntaxClassifier.classify(statement)` (a static utility in `core`) on first access. Hosts that don't read these accessors pay no sanitization or classification cost — the parsed `SQLStatement` is already available because `SQLEngine.parse(...)` runs unconditionally to execute the query.
 
-Timing capture follows the per-query mode resolution model from §"Query tagging and per-tag rule resolution". The helper reads the tag from `statement.getQueryTag()` (populated by the SQL parser when a `/*+ TAG=X */` hint precedes the statement; `Optional.empty()` otherwise), then calls `currentTx.resolveQueryMonitoringMode(tag)` to pick the clock source. `LIGHTWEIGHT` reads from `GranularTicker` at 10 ms granularity, with no syscall on the hot path. `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()`, paying two syscalls per query for sub-millisecond precision. Commit and rollback fire sites in `FrontendTransactionImpl.doCommit` and `notifyMetricsListener` have no per-statement tag context and read directly from `currentTx.getDefaultQueryMonitoringMode()`, so the commit clock pair matches whatever default the host set on the transaction (the same value the SQL hook falls back to when no tag rule matches). Different statements within one transaction can therefore record at different precisions while the commit timer remains aligned with the TX default; both fire sites in one query (Gremlin step at `YTDBQueryMetricsStep.close()` and SQL helper) resolve from the same tag and reach the same mode, satisfying the per-query Timing-mode uniformity invariant.
+Timing capture follows the per-query mode resolution model from §"Query tagging and per-tag rule resolution". The helper reads the tag from `statement.getQueryTag()` (populated by the SQL parser when a `/*+ TAG=X */` hint precedes the statement; `Optional.empty()` otherwise), then calls `currentTx.resolveQueryMonitoringMode(tag)` to pick the clock source. `LIGHTWEIGHT` reads from `GranularTicker` at 10 ms granularity, with no syscall on the hot path. `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()`, paying two syscalls per query for sub-millisecond precision. The commit fire site in `FrontendTransactionImpl.notifyMetricsListener` has no per-statement tag context and reads directly from `currentTx.getDefaultQueryMonitoringMode()`, so the commit clock pair matches whatever default the host set on the transaction (the same value the SQL hook falls back to when no tag rule matches). Different statements within one transaction can therefore record at different precisions while the commit timer remains aligned with the TX default; both fire sites in one query (Gremlin step at `YTDBQueryMetricsStep.close()` and SQL helper) resolve from the same tag and reach the same mode, satisfying the per-query Timing-mode uniformity invariant.
 
 The Gremlin path does not double-fire. Gremlin traversals route through `session.query()`, which would otherwise re-enter the helper, but `YTDBGraphQuery.execute(...)` and `YTDBGraphQuery.explain(...)` each activate a thread-local `GremlinSqlSuppression` token (re-entrant counter, auto-closeable) for the duration of the underlying `transaction.query(...)` call (an `EXPLAIN`-prefixed query in the explain case). The helper checks `GremlinSqlSuppression.isActive()` at step 2 and short-circuits before any timer read or listener fire, so a Gremlin traversal emits exactly one span (the Gremlin one at `YTDBQueryMetricsStep.close()`) and no SQL children. This preserves the OTel sem-conv alignment of one user-facing operation to one span and prevents leaking the Gremlin-to-SQL translation as observable trace noise.
 
@@ -583,7 +562,72 @@ The `SqlSanitizer` runs a conservative regex pass over the raw SQL: replaces sin
 
 ### References
 - D-records: D8, D9, D15
-- Invariants: TX span boundedness, Listener exception isolation, Timing-mode uniformity (per-query — both fire sites in one query resolve to the same mode from the same tag), Gremlin span uniqueness (one Gremlin traversal emits one span; no SQL children)
+- Invariants: Listener exception isolation, Timing-mode uniformity (per-query — both fire sites in one query resolve to the same mode from the same tag), Gremlin span uniqueness (one Gremlin traversal emits one span; no SQL children)
+- Mechanics: none
+
+## Slow-query threshold gating
+
+**TL;DR.** A per-query duration threshold inside `OTelQueryMetricsListener` drops spans for fast successful queries before any allocation. Global default `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=100` emits queries slower than 100 ms; `0` disables the gate (emit everything); per-tag overrides through `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` resolve against a process-global `SlowQueryThresholdResolver` consuming `TagRule<Long>` on the same sealed interface that powers mode resolution. Errors bypass the gate so failure investigations stay visible in trace viewers regardless of duration.
+
+Configuration entries:
+
+- `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `100`) — global default wall-clock minimum duration in milliseconds. `0` disables the gate (emit all queries that reach the listener). Positive values gate emission on `executionTimeNanos < threshold` for successful queries.
+- `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` (default empty) — per-tag overrides, same format as `OPENTELEMETRY_QUERY_MODE_TAG_RULES`. Comma-separated, first-wins, with `tag=ms` for exact match, `prefix:X=ms` for prefix match, `regex:X=ms` for regex match. Example: `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findActiveUsers=50,prefix:batch-=1000,regex:^report-.*$=500`. A tag whose rule matches uses that millisecond value; an unset or unmatched tag falls back to the global default.
+
+The resolver and its rule type reuse the same machinery as `QueryMonitoringModeResolver` — only the `T` parameter on `TagRule<T>` differs (`Long` instead of `QueryMonitoringMode`):
+
+```java
+public final class SlowQueryThresholdResolver {
+    private final List<TagRule<Long>> rules;           // immutable, compiled once at startup
+    private final ConcurrentHashMap<String, Long> cache;
+
+    public long resolve(Optional<String> tag, long defaultNanos) {
+        if (tag.isEmpty()) return defaultNanos;
+        return cache.computeIfAbsent(tag.get(), t -> resolveUncached(t, defaultNanos));
+    }
+    // resolveUncached walks rules in order, first-wins; values stored as nanoseconds.
+
+    public static SlowQueryThresholdResolver global() { ... }
+}
+```
+
+The gate sits inside `OTelQueryMetricsListener.queryFinished`, not in the YTDB fire site. Three reasons: (1) other listeners registered alongside the OTel one (custom host implementations) may have their own gating policy and must continue to see every event; (2) the gate is OTel-specific configuration and lives in the OTel module rather than `core`; (3) `QueryDetails` already carries the inputs the gate needs — `executionTimeNanos` arrives as a method parameter, error state arrives through `QueryDetails.getErrorType()`, and the query tag arrives through `QueryDetails.getQuerySummary()` (same source the OTel sem-conv mapping already reads).
+
+Pseudo-implementation at the top of `queryFinished`:
+
+```java
+@Override
+public void queryFinished(QueryDetails details, long startedAtMillis, long executionTimeNanos) {
+  boolean isError = details.getErrorType().isPresent();
+  if (!isError) {
+    long thresholdNanos = SlowQueryThresholdResolver.global()
+        .resolve(Optional.ofNullable(details.getQuerySummary()), defaultThresholdNanos);
+    if (thresholdNanos > 0 && executionTimeNanos < thresholdNanos) {
+      return;  // fast successful query — skip span allocation
+    }
+  }
+  // existing span construction (sem-conv attributes, parent context, span.end)
+}
+```
+
+`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added in Track 1. Both fire sites populate it from the caught exception when `statement.execute(...)` (SQL) or the traversal close (Gremlin) throws — the same exception that drives the `error.type` attribute on the emitted span. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
+
+The standalone commit span is not threshold-gated in this design. Commit duration is operationally interesting at every length (fast commits show throughput, slow commits show lock or fsync contention), and the per-TX volume of commit spans is bounded by transaction count rather than query count. If commit-span volume becomes a problem in practice, a follow-up adds `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` against the same shape — single global value plus optional per-tag rules, error bypass, gate inside the listener.
+
+### Edge cases / Gotchas
+
+- Default `100` reflects a typical operator threshold for a "slow query worth investigating"; queries faster than that are noise in most trace viewers. Hosts that want to emit every query set `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=0`; tests that need every span to surface flip the value explicitly.
+- A query whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
+- The gate evaluates before any work the listener would otherwise do — no `tracer.spanBuilder(...)`, no attribute reads from `QueryDetails` beyond `getErrorType()` and `getQuerySummary()` (both cheap, lazy in the impl). Gated-out queries pay only the resolver lookup (`ConcurrentHashMap.computeIfAbsent` once per distinct tag, O(1) on cache hit) and the listener return.
+- Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) grows the `ConcurrentHashMap` without bound. Same caveat as for `QueryMonitoringModeResolver`; documented as host responsibility, no LRU bound in YTDB-496 because typical workloads have dozens of tags.
+- A tag that matches no rule resolves to the global default. The cache still records the resolution so future identical tags skip the rule walk.
+- Conflicting rules (two rules match the same tag): first-wins by insertion order. Operators order rules from most-specific to most-general. Duplicate exact rules: the first one wins; subsequent rules log WARN at startup and are dropped.
+- The global default is captured at OTel listener construction time and stored in the `defaultThresholdNanos` final field. Mid-process changes to the global default require an SDK rebuild (host calls `YouTrackDBOpenTelemetry.setOpenTelemetry(...)` again, or the server restarts). The tag-rule list is also compiled once at startup; mid-process rule changes are not supported in YTDB-496 (same constraint as for mode rules).
+- Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own threshold semantics can call `SlowQueryThresholdResolver.global()` themselves, or implement their own gating logic entirely.
+
+### References
+- D-records: D16 (slow-query threshold inside OTel listener, error bypass, per-tag rules via `TagRule<Long>`)
+- Invariants: Listener exception isolation (the gate sits inside the try/catch wrapper at the fire site, so an exception in the threshold comparison cannot unwind the transaction)
 - Mechanics: none
 
 ## SDK lifecycle: embedded vs server
@@ -654,20 +698,16 @@ public static void unregisterGlobalTransactionListener(TransactionMetricsListene
 
 ### References
 - D-records: D1
-- Invariants: TX span boundedness
 - Mechanics: none
 
 ## Exception isolation contract
 
-**TL;DR.** Every listener callback fires inside a try/catch in the YTDB firing site. A throw from any listener (a bug, a misconfigured OTel SDK, an OOM in span allocation) is logged at WARN and swallowed, so the transaction lifecycle continues. The protection extends to the two new methods `transactionStarted` and `transactionRolledBack` introduced in Track 1.
+**TL;DR.** Every listener callback fires inside a try/catch in the YTDB firing site. A throw from any listener (a bug, a misconfigured OTel SDK, an OOM in span allocation) is logged at WARN and swallowed, so the transaction lifecycle continues.
 
-Current isolation sites:
+Isolation sites:
 - `YTDBQueryMetricsStep.close()` wraps `listener.queryFinished(...)` in `try { ... } catch (Exception e) { ... }` today (line 148). Track 1 widens the catch to `catch (Exception | LinkageError | AssertionError t)` and changes the call to iterate the per-TX listener snapshot.
 - `FrontendTransactionImpl.notifyMetricsListener()` (line 712) wraps the commit success and failure paths in `try { ... } catch (Exception e) { ... }` today (line 730). Track 1 widens to the same multi-catch union and iterates the snapshot.
-
-New isolation sites in this design (all in `FrontendTransactionImpl` so the existing private wrapper shape is reused without a hoist):
-- `FrontendTransactionImpl.beginInternal()` wraps the loop calling `listener.transactionStarted(...)` per registered listener.
-- `FrontendTransactionImpl.rollbackInternal()` wraps the loop calling `listener.transactionRolledBack(...)` per registered listener, gated by `txStartCounter == 0` so nested rollbacks don't double-fire.
+- `DatabaseSessionEmbedded.executeStatementWithMetrics` wraps the `listener.queryFinished(...)` call for native SQL fires in the same multi-catch union.
 
 The wrapper catches the union `Exception | LinkageError | AssertionError` (Track 1 widens both existing wrappers from `Exception` to this narrower-than-Throwable set), because the OTel-typical failure modes would otherwise unwind the transaction: a misconfigured SDK throwing `IllegalStateException`, missing exporter classes throwing `NoClassDefFoundError` (a `LinkageError`), or assertion failures in custom listener implementations. The union deliberately excludes `VirtualMachineError`, so a true `OutOfMemoryError` or `StackOverflowError` still propagates per JLS guidance. The JVM is dying anyway in that case, and silencing the fatal condition would mask the problem. `ThreadDeath` is also outside the union. The log entry uses the listener class name to point the operator at the responsible component.
 
@@ -676,7 +716,6 @@ When one listener in the snapshot throws, subsequent listeners in the iteration 
 ### Edge cases / Gotchas
 
 - A listener that throws on every call generates one log line per call. At LDBC benchmark loads (~10k qps) this is a log flood. Acceptable in YTDB-496; if it becomes operationally painful, a follow-up adds rate limiting on the log.
-- The TX span's ThreadLocal is set inside the try/catch wrapper. If `transactionStarted` throws **after** the `ThreadLocal.set(...)` call (e.g., during a subsequent attribute-set call on the span), the ThreadLocal remains set for the duration of the transaction. The `clear` paths in `writeTransactionCommitted` / `writeTransactionFailed` / `transactionRolledBack` run inside their own try/catch and clear the ThreadLocal in a `finally`, so eventual cleanup happens regardless of where the exception fired. The complementary "before set" case is in § "Transaction-lifetime span semantics" Edge cases.
 - An exception in `OpenTelemetrySdk.close()` during server shutdown is logged but not propagated; the server shutdown completes regardless.
 
 ### References
