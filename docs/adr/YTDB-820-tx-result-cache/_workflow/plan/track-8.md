@@ -65,7 +65,7 @@ Existing relevant code:
 - `jmh-ldbc/` — separate LDBC benchmark, not reused directly.
 
 **Inter-track dependencies.**
-- Depends on: Tracks 5, 6, 7 (full cache functionality available).
+- Depends on: Tracks 5, 6b, 7 (full cache functionality available; 6b transitively pulls in 6a).
 - Unblocks: Phase 4 (final artifacts) — D13 pass is the merge gate.
 
 **Library / function signatures.**

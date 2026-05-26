@@ -93,7 +93,7 @@ Existing relevant code:
 
 **Out-of-scope files.**
 - `AggregateCacheTapStep`, `AggregateState` — Track 5.
-- `returnProjector` for MATCH — Track 6.
+- `returnProjector` for MATCH — Track 6a.
 - `NonDeterministicQueryDetector` ORDER-BY admission gate — Track 7 finalizes; this track stubs.
 
 **Inter-track dependencies.**

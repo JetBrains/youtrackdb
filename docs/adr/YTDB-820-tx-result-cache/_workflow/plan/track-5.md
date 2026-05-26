@@ -38,7 +38,7 @@ Existing relevant code:
 6. **Eager aggregate drive (L8 fix + SO4 exception-safety)**: on cache-miss for AGGREGATE_* shape, the post-splice path drives the plan to completion BEFORE wrapping in `CachedResultSetView`. Sequence: build `entry`, splice the tap, call `plan.start(ctx).next(ctx)` **inside a try block**; on successful drain, the entry's aggregateState is fully populated and immutable, the resulting aggregate Result is buffered, and `cache.put(key, entry)` happens AFTER drain success. On throw (storage IO exception, type coercion error, OOM during drain): the partial entry is NEVER inserted into `cache.entries`; the plan is closed (best-effort) and the exception re-thrown to the consumer. This prevents a stale partial-aggregateState entry from being read by subsequent views. `cache.put` must come after `plan.next()` succeeds — never before.
 7. `DeltaBuilder.buildForAggregate` — copy-then-replay.
 8. View extension — `CachedResultSetView` handles aggregate shape: single-row read of `deltaAggregateState.toResult()`.
-8. Test matrix (T5 set):
+9. Test matrix (T5 set):
    - T5a: COUNT(*) — CREATE matching/non-matching, UPDATE in/out of WHERE, DELETE matching.
    - T5b: SUM(prop) — same matrix + UPDATE changing prop value (T→T with delta).
    - T5c: AVG(prop) — same as SUM + count tracking.
@@ -72,12 +72,12 @@ Existing relevant code:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (plan-rewrite splice in miss path)
 
 **Out-of-scope files.**
-- `MATCH` classify and projector — Track 6.
+- `MATCH` classify and projector — Tracks 6a (Etap A) and 6b (MATCH_TUPLE_MULTI).
 - `AggregateProjectionCalculationStep` itself — splice rewires its `prev` only; the step is unchanged.
 
 **Inter-track dependencies.**
 - Depends on: Track 4 (RECORD shape + DeltaBuilder + view sorted-merge).
-- Unblocks: Track 6 (MATCH Etap A also extends ShapeClassifier and uses DeltaBuilder).
+- Unblocks: Track 6a (MATCH Etap A extends ShapeClassifier and reuses DeltaBuilder), Track 6b (MATCH_TUPLE_MULTI extends ShapeClassifier and adds buildForMatchMulti).
 
 **Library / function signatures.**
 - `AggregateState.observe(Result) → void`.
