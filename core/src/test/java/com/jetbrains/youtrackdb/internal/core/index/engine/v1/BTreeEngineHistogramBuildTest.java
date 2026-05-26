@@ -10,10 +10,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -27,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.Test;
 
@@ -1415,12 +1418,21 @@ public class BTreeEngineHistogramBuildTest {
     // The persisted side is fed by one inline absolute zero write on the
     // single tree. The sibling addToApproximateEntriesCount mutator is the
     // delta path and must stay untouched on the clear() seam — a future
-    // regression that bypassed the inMemAdjust accumulator by calling
-    // sbTree.addToApproximateEntriesCount(op, -currentTotal) directly inside
-    // clear() would land both the delta-path and the absolute-path writes,
-    // which the assertion below would catch.
+    // regression that added an extra sbTree.addToApproximateEntriesCount(op,
+    // -currentTotal) call alongside the absolute write (or replaced the
+    // absolute write with the delta-path write) would land on the delta-path
+    // mutator and trip the assertion below.
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Acknowledge the two read-side interactions the production clear()
+    // performs before the inline absolute write: doClearTree's while-loop
+    // guard (sbTree.size(op) returns 0 on the Mockito fixture, so the loop
+    // body is skipped) and the firstKey(op) read inside the post-doClearTree
+    // assert. verifyNoMoreInteractions below then locks the full interaction
+    // set on the sbTree mock to {size, firstKey, setApproximateEntriesCount}.
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -1457,6 +1469,15 @@ public class BTreeEngineHistogramBuildTest {
     // untouched.
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Acknowledge the two read-side interactions the production clear()
+    // performs before the inline absolute write: doClearTree's while-loop
+    // guard (sbTree.size(op) returns 0 on the Mockito fixture, so the loop
+    // body is skipped) and the firstKey(op) read inside the post-doClearTree
+    // assert. verifyNoMoreInteractions below then locks the full interaction
+    // set on the sbTree mock to {size, firstKey, setApproximateEntriesCount}.
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -1495,6 +1516,15 @@ public class BTreeEngineHistogramBuildTest {
     // clear() seam.
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Acknowledge the two read-side interactions the production clear()
+    // performs before the inline absolute write: doClearTree's while-loop
+    // guard (sbTree.size(op) returns 0 on the Mockito fixture, so the loop
+    // body is skipped) and the firstKey(op) read inside the post-doClearTree
+    // assert. verifyNoMoreInteractions below then locks the full interaction
+    // set on the sbTree mock to {size, firstKey, setApproximateEntriesCount}.
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -1529,6 +1559,15 @@ public class BTreeEngineHistogramBuildTest {
     // mixed-mode regardless of null/non-null distribution.
     verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Acknowledge the two read-side interactions the production clear()
+    // performs before the inline absolute write: doClearTree's while-loop
+    // guard (sbTree.size(op) returns 0 on the Mockito fixture, so the loop
+    // body is skipped) and the firstKey(op) read inside the post-doClearTree
+    // assert. verifyNoMoreInteractions below then locks the full interaction
+    // set on the sbTree mock to {size, firstKey, setApproximateEntriesCount}.
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -1574,6 +1613,82 @@ public class BTreeEngineHistogramBuildTest {
     // The sibling delta-path mutator stays untouched on the clear() seam
     // under mixed-mode.
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Acknowledge the two read-side interactions the production clear()
+    // performs before the inline absolute write: doClearTree's while-loop
+    // guard (sbTree.size(op) returns 0 on the Mockito fixture, so the loop
+    // body is skipped) and the firstKey(op) read inside the post-doClearTree
+    // assert. verifyNoMoreInteractions below then locks the full interaction
+    // set on the sbTree mock to {size, firstKey, setApproximateEntriesCount}.
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
+  }
+
+  /**
+   * Pins the SV clear() seam's write ordering: the persisted-side absolute
+   * zero write must fire BEFORE the in-mem accumulator advances. Hooks A and
+   * B downstream rely on this ordering — the persisted side is the
+   * heal-the-drift anchor and the in-mem side rides post-commit apply. A
+   * regression that swapped the two statements would land the in-mem-side
+   * delta into the holder before the persisted side landed its zero write,
+   * breaking the heal-the-drift contract; the order-agnostic plain verify
+   * calls in the sibling tests would not catch that swap.
+   *
+   * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
+   * lock cited in the production comment is NOT acquired during this test
+   * because the Mockito fixture short-circuits doClearTree().
+   */
+  @Test
+  public void singleValue_clear_persistedWriteFiresBeforeInMemAccumulator()
+      throws IOException {
+    assertNotNull(CLEAR_CONCURRENCY_CONTRACT_NOTE);
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    // Capture the holder's inMemAdjust state at the moment
+    // setApproximateEntriesCount(op, 0L) fires. If the production code
+    // advanced the accumulator first, this capture would observe -10 / -3
+    // instead of 0 / 0 and the assertions below would trip.
+    AtomicReference<Long> inMemAdjustTotalAtPersistTime = new AtomicReference<>();
+    AtomicReference<Long> inMemAdjustNullAtPersistTime = new AtomicReference<>();
+    doAnswer(
+        inv -> {
+          var deltas = f.op.getOrCreateIndexCountDeltas().getDeltas();
+          var d = deltas.get(f.engine.getId());
+          inMemAdjustTotalAtPersistTime.set(d == null ? 0L : d.getInMemAdjustTotal());
+          inMemAdjustNullAtPersistTime.set(d == null ? 0L : d.getInMemAdjustNull());
+          return null;
+        })
+        .when(f.sbTree)
+        .setApproximateEntriesCount(f.op, 0L);
+
+    f.engine.clear(f.storage, f.op);
+
+    // At the moment of the persisted-side write, the in-mem accumulator must
+    // not have advanced yet on either axis.
+    assertNotNull(
+        "setApproximateEntriesCount(op, 0L) must have fired during clear()",
+        inMemAdjustTotalAtPersistTime.get());
+    assertEquals(
+        "Persisted-side setApproximateEntriesCount(op, 0L) must fire BEFORE"
+            + " IndexCountDelta.accumulateInMemRecalibration advances the holder;"
+            + " a regression that swapped the two statements would land the"
+            + " in-mem-side delta into the holder before the persisted side"
+            + " landed its zero write, breaking the heal-the-drift contract.",
+        0L,
+        inMemAdjustTotalAtPersistTime.get().longValue());
+    assertEquals(
+        "Same ordering rule on the null axis: inMemAdjustNull must still be 0"
+            + " when the persisted-side write fires.",
+        0L,
+        inMemAdjustNullAtPersistTime.get().longValue());
+
+    // After clear() returns, the in-mem accumulator IS advanced.
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-10L, delta.getInMemAdjustTotal());
+    assertEquals(-3L, delta.getInMemAdjustNull());
   }
 
   /**
@@ -1586,7 +1701,11 @@ public class BTreeEngineHistogramBuildTest {
    * inline setApproximateEntriesCount); persistCountDelta remains the
    * delta-path for put/remove deltas, and the one-tree-only mechanics still
    * matter for that path. A future refactor that accidentally honoured
-   * nullDelta or added a sibling-tree write would fail this test.
+   * nullDelta by issuing a second addToApproximateEntriesCount(op, nullDelta)
+   * write on the single tree would fail this test (the SV engine has no
+   * sibling tree, so the precision pin below is the only catch-mechanism for
+   * that mutation — plain verify is at-least-once and would not preclude
+   * additional matching calls).
    */
   @Test
   public void singleValue_persistCountDelta_dropsNullDeltaOnSingleTree()
@@ -1601,6 +1720,13 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.persistCountDelta(f.op, -10L, -3L);
 
     verify(f.sbTree).addToApproximateEntriesCount(f.op, -10L);
+    // Pin "exactly one delta-path write" — nullDelta must not produce a
+    // second addToApproximateEntriesCount call on the single tree. Without
+    // this, a regression that issued addToApproximateEntriesCount(op,
+    // nullDelta) as a second write would slip past the contract verify
+    // above (Mockito's at-least-once matching does not preclude additional
+    // matching calls).
+    verify(f.sbTree, times(1)).addToApproximateEntriesCount(any(), anyLong());
     // No setApproximateEntriesCount call from persistCountDelta — that
     // mutator is the buildInitialHistogram / clear() inline path, not the
     // delta path.
