@@ -16,6 +16,9 @@ Retrofit `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.c
 - [ ] Track-level code review
 - [ ] Track completion
 
+**PAUSED 2026-05-26 at Phase A reviews-PASSed pending decomposition write**
+- Handoff: `../handoff-track-5-phaseA.md`
+
 ## Surprises & Discoveries
 
 <!-- Continuous-log; empty at Phase 1. Phase A populates if Pre-Flight surfaces cross-cutting facts; Phase B/C promote cross-step findings from episodes. -->
