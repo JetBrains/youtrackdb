@@ -205,7 +205,7 @@ Two SKILLs (`create_plan_skill`, `edit_design_skill`) own the writes. `create_pl
 
 ## Workflow
 
-Three runtime flows matter: the Phase 0 → Phase 1a transition (when the agent leaves research mode and starts authoring `design.md`), the Phase 1a design-iteration rationale capture (the agreed YTDB-965 extension to `edit-design`), and the Phase 1a gate → Phase 1b plan derivation handshake with the optional ESCALATE back-edge (the YTDB-975 reorder).
+Three runtime flows matter: the Phase 0 → Phase 1a transition (when the agent leaves research mode and starts authoring `design.md`), the Phase 1a per-mutation design review fan-out (the agreed YTDB-965 extension to `edit-design`), and the Phase 1a → Phase 1b transition (user-driven) with the optional ESCALATE back-edge from Phase 1b (the YTDB-975 reorder).
 
 ### Phase 0 → Phase 1a transition
 
@@ -247,7 +247,7 @@ sequenceDiagram
 
 The log is the durable artifact across `/clear`, `/compact`, and any Phase 0 pause: a future session re-entering `/create-plan` reads the verbatim `## Initial request` plus every prior decision without re-deriving them from chat memory. The mid-phase-handoff file for Phase 0 keeps its research-shaped body for the in-flight tier (What I was investigating, Already ruled out, Most promising lead, Raw notes / partial findings, Resume notes); its `## Open questions` section becomes a pointer to `decision-log.md ## Plan-time Open Questions` so the same item never lives in two places. The two files own complementary tiers: durable commitments in the log, in-flight investigation state in the handoff.
 
-### Phase 1a design-iteration rationale capture
+### Phase 1a design-iteration rationale capture (per-mutation fan-out)
 
 ```mermaid
 sequenceDiagram
@@ -255,81 +255,102 @@ sequenceDiagram
     participant ED as edit-design SKILL
     participant Design as design.md
     participant Mut as design-mutations.md
+    participant Reviewers as Reviewer sub-agents
+    participant ReviewsDir as design-reviews/cycle-N-iter-M/
+    participant Agg as Aggregator sub-agent
     participant Log as decision-log.md
+    participant Orch as Orchestrator (create-plan)
 
-    User->>ED: request mutation (with or without articulated why)
+    User->>ED: request mutation (phase1-creation, content-edit, section-add, ...)
     ED->>Design: Step 1 apply edit (Edit/Write)
-    ED->>ED: Steps 2-6 mechanical checks + cold-read iterate
-    ED->>Mut: Step 7 append mutation entry (always)
-    alt user articulated a why
-        ED->>Log: Step 7 append Plan-time Decisions entry (rationale + alternatives)
-    else mechanical-only change
-        ED-->>User: present diff + auto-review log (no decision entry)
+    ED->>ED: Step 3 mechanical checks (Bash script)
+    par cold-read (existing)
+        ED->>Reviewers: spawn cold-read (prompt-by-reference)
+    and feasibility-review
+        ED->>Reviewers: spawn feasibility-review (FD)
+    and adversarial-design-review
+        ED->>Reviewers: spawn adversarial-design-review (AD)
+    and content-triggered crash-safety
+        ED->>Reviewers: spawn crash-safety-design (CS) when triggered
+    and content-triggered concurrency
+        ED->>Reviewers: spawn concurrency-design (CC) when triggered
+    and content-triggered performance
+        ED->>Reviewers: spawn performance-design (PF) when triggered
+    and content-triggered workflow-changes
+        ED->>Reviewers: spawn 4 workflow-changes-* siblings when triggered (WCC, WCB, WCI, WCP)
+    end
+    Reviewers->>ReviewsDir: each writes raw certificate-shape output to its file
+    ED->>Agg: spawn aggregator (prompt-by-reference)
+    Agg->>ReviewsDir: read per-reviewer files
+    Agg->>Log: write one-line gate-verdict summary entry (Plan-time Decisions)
+    Agg-->>ED: return structured findings object
+    ED->>ED: Step 6 iterate on mechanical findings within iteration_budget
+    alt iteration_budget remaining + new mechanical findings
+        ED->>Design: autonomous edit-design mutation (mechanical fix)
+        Note over ED,Design: chain re-triggers fan-out (next iter-M)
+    else iteration_budget exhausted OR decision-shaped findings outstanding OR PASS
+        ED->>Mut: Step 7 append mutation entry (always)
+        alt user articulated a why
+            ED->>Log: Step 7 append Plan-time Decisions entry (rationale + alternatives)
+        end
+        ED-->>Orch: return diff + queued decision-shaped findings
+        alt decision-shaped findings queued OR user wants to add observations
+            Orch->>User: User-review checkpoint (batch surfaces queued findings + recent autonomous mutations for optional revert + slot for fresh observations)
+            User->>Orch: decisions + observations + optional reverts
+            Orch->>ED: batch-apply mutations (next round opens with user-driven mutation)
+        else PASS clean (no decision-shaped findings)
+            Orch-->>User: present diff + log entry; await next user input
+        end
     end
 ```
 
-The two log files never duplicate content. `design-mutations.md` carries operational state (mutation kind, mechanical-check verdict, iteration count, working-mode counter) consumed by `edit-design`'s own machinery — the periodic whole-doc counter and the working-mode sync auto-suggestion both keep reading `design-mutations.md` as today. `decision-log.md` carries knowledge (the *why*, the alternatives, the constraint) consumed by Phase 2 cross-reference and by Phase 4 aggregation into the durable ADR.
+Two log files never duplicate content. `design-mutations.md` carries operational state (mutation kind, mechanical-check verdict, iteration count, working-mode counter) consumed by `edit-design`'s own machinery. `decision-log.md` carries knowledge (the user's *why*, gate-verdict summaries, accepted-open-risks, transition signals, ESCALATE entries) consumed by Phase 2 cross-reference and Phase 4 ADR aggregation.
 
-### Phase 1a gate → Phase 1b derivation (with ESCALATE)
+Reviewer raw output is the third tier: per-reviewer files in `_workflow/design-reviews/cycle-N-iter-M/` give Phase 4 ADR aggregation and any future audit query the full certificate trace. The aggregator's structured object is what the orchestrator acts on; the orchestrator never reads raw reviewer prose.
+
+The fan-out fires on every `edit-design` mutation. `phase1-creation` is not special — it's the first mutation in a Phase 1a session and triggers the same reviewers any later mutation would. The autonomous mechanical-fix chain inside `edit-design`'s `iteration_budget` may produce multiple sequential mutations (each one re-triggering the fan-out at the next iter-M); the chain converges when reviewers return PASS or the budget is exhausted. Decision-shaped findings always pause the chain and surface at the next user-review checkpoint.
+
+### Phase 1a → Phase 1b transition (with ESCALATE)
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant CP as create-plan SKILL
+    participant CP as create-plan SKILL (orchestrator)
     participant Design as design.md
-    participant FR as feasibility-review.md
-    participant Sub as Phase 1a sub-agents
-    participant Plan as implementation-plan.md
     participant Log as decision-log.md
+    participant Plan as implementation-plan.md
 
-    Note over User,CP: Phase 1a: edit-design phase1-creation seeded design.md (prior diagrams)
-    CP->>CP: Auto-fire Phase 1a gate (no user signal)
-    CP->>CP: Auto-detect domain triggers in design.md
-    loop iter 1..3 per review-iteration.md
-        par
-            CP->>Sub: invoke feasibility-review (FD prefix)
-        and
-            CP->>Sub: invoke adversarial-design-review (AD prefix)
-        and optional domain-trigger reviewers
-            CP->>Sub: invoke domain-shaped reviewer
-        end
-        Sub-->>FR: cycle log: verdicts + findings (iter N)
-        alt findings are mechanical
-            CP->>Design: edit-design mutation (autonomous)
-        else findings are decision-shaped
-            CP->>User: surface alternative-A-or-B / missing-mechanism / no-default
-            User->>CP: pick / define / refine
-            CP->>Design: edit-design mutation (per user input)
-        end
-    end
-    alt all sub-agents PASS
-        CP->>FR: write gate verdict PASS
-        CP->>User: Phase 1a complete; end session; re-invoke /create-plan for Phase 1b
-    else blockers remain after 3 iters
-        CP->>User: Surface N open blockers
-        User->>CP: accepted-open-risks block OR end session for manual refinement
-        opt user accepts open risks
-            CP->>FR: write accepted-open-risks block
-            CP->>FR: write gate verdict PASS
-            CP->>User: Phase 1a complete; end session; re-invoke /create-plan for Phase 1b
-        end
-    end
+    Note over User,CP: Phase 1a: per-mutation fan-out has iterated to a state the user is satisfied with (prior diagram)
 
-    Note over User,Plan: Fresh /create-plan session: Phase 1b auto-resumes
-    User->>CP: /create-plan (re-invoked after gate PASS)
-    CP->>FR: Read latest cycle's gate verdict
-    CP->>Design: Read validated design.md
-    CP->>Log: Read decision-log.md (Decisions + Surprises + Open Questions)
-    alt derivation succeeds
-        CP->>Plan: Write Architecture Notes + Decision Records + track checklist + plan/track-N.md files
-        CP->>User: Phase 1b complete; plan ready
-    else fundamental contradiction
-        CP->>FR: Append ESCALATE entry naming the contradiction
-        CP->>User: ESCALATE message; end session; re-invoke /create-plan for Phase 1a
+    User->>CP: signal "ready for Phase 1b" (any phrasing conveying intent)
+    CP->>Log: append Plan-time Decisions entry tagged (Phase 1a → 1b) with user's intent line
+    CP->>User: Phase 1a complete; end session; re-invoke /create-plan for Phase 1b
+    Note over User,CP: ----- session ends; fresh session below -----
+
+    User->>CP: /create-plan (re-invoked)
+    CP->>Log: scan Plan-time Decisions for most recent (Phase 1a → 1b) entry
+    alt entry found AND implementation-plan.md does not yet exist
+        Note over CP,Plan: Phase 1b auto-resume
+        CP->>Design: Read validated design.md
+        CP->>Log: Read decision-log.md end-to-end (Decisions + Surprises + Open Questions)
+        alt derivation succeeds
+            CP->>Plan: Write Architecture Notes + Decision Records + track checklist + plan/track-N.md files
+            CP->>User: Phase 1b complete; plan ready
+        else fundamental contradiction
+            CP->>Log: Append Plan-time Decisions entry tagged (Phase 1b ESCALATE) with contradiction details
+            CP->>User: ESCALATE message; end session; re-invoke /create-plan to re-enter Phase 1a
+        end
+    else most recent entry is (Phase 1b ESCALATE)
+        Note over CP,Design: Phase 1a re-entry with ESCALATE note
+        CP->>User: surface ESCALATE note; enter Phase 1a; user issues edit-design mutation addressing the contradiction; per-mutation fan-out runs as usual
+    else neither found
+        CP->>User: ask the user explicitly which phase to enter
     end
 ```
 
-The gate is the Phase 1a → Phase 1b handshake. Sub-agents run against `design.md` alone (no plan exists yet); each writes its verdict + findings to `feasibility-review.md` as a per-cycle entry. Gate PASS fires when every sub-agent PASSes or when the user records an `accepted-open-risks` block, and ends the session so Phase 1b starts in fresh context. Phase 1b reads `feasibility-review.md` for the gate verdict, `design.md` for the validated structure, and `decision-log.md` for the rationale to seed Decision Records; it writes Architecture Notes, the track checklist, and one `plan/track-N.md` per planned track. ESCALATE is the alternative exit: a fundamental contradiction (missing primitive, circular track dependency, unsplittable >7-step track) writes an ESCALATE entry to `feasibility-review.md`, prints an explicit user-facing message, and ends the session. The next `/create-plan` invocation loads the ESCALATE note, re-enters Phase 1a via an `edit-design` mutation, re-runs the gate, then Phase 1b auto-resumes.
+The transition is decision-log-driven. There is no separate audit file: the Plan-time Decisions stream carries every phase-transition event the workflow needs to detect. Phase 1a → 1b is a user-driven transition (logged at user signal); Phase 1b ESCALATE is a planner-driven transition (logged when the planner hits a fundamental contradiction).
+
+Phase 1b reads `decision-log.md` end-to-end at session start. The same read serves two purposes: scanning for the auto-resume signal and seeding Decision Records / Architecture Notes from the rationale entries. Phase 2's cross-reference also reads the same file; Phase 4's ADR aggregation reads it end-to-end.
 
 ## Design philosophy
 
