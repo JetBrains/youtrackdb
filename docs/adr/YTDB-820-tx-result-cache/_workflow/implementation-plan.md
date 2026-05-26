@@ -286,9 +286,24 @@ flowchart LR
   > **Depends on:** Tracks 5, 6, 7
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — re-run iteration 2 after Opcja B retreat (Mutation 17), passed
+- [x] Plan review (consistency + structural) — manual re-run iteration 3 via `/review-plan`, passed
 
-**Re-run consistency review (CR10-CR14, on top of prior CR1-CR9 + Mutations 11-16)**:
+**Iteration 3 (manual re-run, post-Mutation-22 cleanup)**:
+
+Two new consistency findings on top of the prior CR1-CR14 set, both mechanical cleanup the Mutation 22 (Opcja B retreat) batch left behind. Cold-read surfaced one same-vintage should-fix during the design.md mutation cycle (Mutation 23). Structural review found no new findings.
+
+**Auto-fixed (mechanical)**:
+- **CR15** (blocker, mechanical): stale view-level SKIP/LIMIT prose in `plan/track-4.md:43`, `plan/track-4.md:53`, and `design.md:550` (MATCH multi-alias view-iteration bullet) instructed view-level SKIP/LIMIT application via an `emitted` counter / position offset. This contradicted post-Mutation-17 contract (SKIP/LIMIT routes to K0_NONE; only K0_NONE carries SKIP/LIMIT, and its view branch iterates `entry.results` directly). Fixed by deleting the bullet from design.md and replacing the two sentences in track-4.md with a one-sentence statement that RECORD shape carries no SKIP/LIMIT.
+- **CR16** (should-fix, mechanical): stale `-skip: int`, `-limit: int` fields on `CachedEntry` class-diagram block and `-emitted: int`, `-skip: int`, `-limit: int` fields on `CachedResultSetView` class-diagram block at `design.md:76-77` / `design.md:139-141`. Fixed by removing the five stale fields from the Mermaid `classDiagram`.
+- **Cold-read iteration-2 should-fix**: orphan LIMIT-clipping sentence at `design.md:446` ("LIMIT clipping is enforced by the consumer-visible count: the view exits after returning LIMIT results regardless of source"). Sat at the end of the RECORD/MATCH-Etap-A `view.next()` pseudocode for shapes that no longer carry LIMIT. Removed in the same mutation cycle.
+
+**Escalated (design decisions)**: none.
+
+**Mutation discipline**: design.md edits routed through the `edit-design` skill (Mutation 23 — content-edit, target=design, scope=whole-doc). Mechanical checks PASS (0 blockers; 32 should-fix and 1 suggestion are pre-existing house-style debt and length-cap debt explicitly deferred to Phase 4 sweep). Cold-read iteration 1 NEEDS REVISION on the line 446 orphan; iteration 2 PASS after the fix.
+
+**Prior reviews (preserved for traceability — CR1-CR14 + Mutation 17 + S1-S5 + L1-L12 + SO1/SO4/SO5/SO6 + T1-T7 + A1-A5)**:
+
+**Iteration 2 (re-run after Opcja B retreat, Mutation 17) — consistency review (CR10-CR14)**:
 - **CR10** (blocker, design-decision, RESOLVED via Opcja B): the D10-lazy over-fetch mechanism + D17 per-plan-shape cap were built on a false premise — `OrderByStep` is constructed with `maxResults = skip + limit` at planner-construction time (`SelectExecutionPlanner.handleOrderBy` lines 2030-2065) and uses a bounded top-N min-heap (`OrderByStep.initBoundedHeap` lines 130-180); mutating the downstream `LimitExecutionStep` post-plan-construction does not reshape the upstream heap. For blocking-sort plans the cache could not actually over-fetch, leaving the LIMIT-after-DELETE short-list hazard unresolved and breaking the SKIP-stripped cross-page sharing scheme (D16). User resolution: **Opcja B** — `ShapeClassifier.classify` now routes any query carrying SKIP or LIMIT to `K0_NONE` (D18 mutation-version gate) instead of attempting to share entries or rewrite plans. The cache executes the parsed plan as-is; correctness is preserved by D18's invariant (cache hits only while `tx.mutationVersion == entry.populateMutationVersion`). Coverage trade-off: paginated workloads still cache during pure-read scrolling but invalidate on the first tx-write; analytical workloads with stable read sets get full benefit. Architectural simplification: D10-lazy, D16, D17 deleted from Decision Records; `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY_FOR_BLOCKING_SORT` knob removed; `CacheableShape.HARD_NONE` removed (subsumed by L7 overflow → `nonCacheableKeys`); plan-rewrite logic removed from Track 4 (no `LimitExecutionStep`/`SkipExecutionStep` mutation); CacheKey reverts to strict delegation to `SQLStatement.equals` (no field-by-field walk).
 - **CR11** (mechanical, RESOLVED): design.md § Open questions referenced a non-existent class `MatchExecutionPlan`. The class is `SelectExecutionPlan` (MATCH compiles to SelectExecutionPlan via `MatchExecutionPlanner`). Fixed in design.md and plan D8-lazy CREATED-discovery rationale.
 - **CR12** (mechanical, RESOLVED by CR10 cascade): `LimitStep`/`SkipStep` references throughout plan/design/tracks were phantom (actual classes are `LimitExecutionStep` / `SkipExecutionStep`). With Opcja B the plan-rewrite logic is removed entirely, eliminating every site that referenced these classes. No rename needed.

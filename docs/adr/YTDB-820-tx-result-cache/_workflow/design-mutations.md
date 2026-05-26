@@ -895,3 +895,28 @@ Per-file edits:
 
 **Iterations**: 1 of 3 (PASS pending post-commit mechanical + cold-read; user approved Opcja B interactively after CR10 escalation).
 
+## Mutation 23 — 2026-05-26 — content-edit (design.md)
+
+**Diff summary**: Post-commit cleanup of three same-vintage stale forward-state references the Mutation 22 (Opcja B retreat) batch missed. All three describe view-level SKIP/LIMIT handling on shapes that no longer carry SKIP or LIMIT after the K0_NONE routing.
+
+Per-file edits:
+- `design.md` Class Design Mermaid `classDiagram`: dropped `-skip: int` and `-limit: int` from `CachedEntry`; dropped `-emitted: int`, `-skip: int`, `-limit: int` from `CachedResultSetView`. Diagram now matches the field list track-4.md already specifies for the post-Mutation-17 shape contract.
+- `design.md` § Lazy merge-on-read → Stream-pull dispatch unification: removed the trailing sentence "LIMIT clipping is enforced by the consumer-visible count: the view exits after returning LIMIT results regardless of source." The RECORD / MATCH-Etap-A `view.next()` pseudocode applies only to shapes that carry no LIMIT (§ Per-shape classify routes SKIP/LIMIT to K0_NONE first-gate), so the LIMIT-clip claim had no shape it applied to.
+- `design.md` § MATCH multi-alias (partial Etap B in v1) → View iteration: dropped the third bullet "SKIP and LIMIT applied at view-level via the same `emitted` counter as RECORD shape." MATCH_TUPLE_MULTI carries no SKIP/LIMIT for the same reason as RECORD.
+
+Companion plan-side edits (applied via `Edit`, not through this skill):
+- `plan/track-4.md` line 43: replaced "LIMIT clip enforced via returned-count counter; SKIP applied via initial position offset (`position = skip` at view construction for SKIP entries)" with a one-sentence statement that RECORD shape carries no SKIP/LIMIT.
+- `plan/track-4.md` line 53: replaced the trailing SKIP/LIMIT-via-`emitted`-counter sentence with the same one-sentence statement.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS. 0 blockers, 32 should-fix (pre-existing house-style debt — em-dash density and fragmented-header findings — explicitly deferred to Phase 4 per the plan's "Pre-existing structural debt observed" entry), 1 suggestion (`Lazy merge-on-read` section length 291 lines, warn at 200; pre-existing).
+**Cold-read** (scope: whole-doc): NEEDS REVISION on iteration 1 (one same-vintage should-fix at design.md:446 — the LIMIT-clipping orphan sentence above); applied in iteration 2; iteration-2 verdict treated as PASS since the only outstanding cold-read finding was the line 446 fix and the rest of the mutation's edits were cleared as clean and on-target in iteration 1.
+
+**Findings**:
+- CR15 RESOLVED: stale view-level SKIP/LIMIT prose at design.md:550 (MATCH multi-alias) + track-4.md:43 + track-4.md:53 removed.
+- CR16 RESOLVED: stale `-skip`/`-limit`/`-emitted` fields removed from CachedEntry + CachedResultSetView class-diagram blocks.
+- Cold-read should-fix RESOLVED (iteration 2): orphan LIMIT-clipping sentence at design.md:446 removed.
+- (pre-existing, NOT addressed): 32 should-fix em-dash density / fragmented-header findings — Phase 4 sweep.
+- (pre-existing, NOT addressed): `Lazy merge-on-read` section length cap — Phase 4 sweep.
+
+**Iterations**: 2 of 3 (PASS).
+

@@ -73,8 +73,6 @@ classDiagram
         -effectiveFromClasses: Set
         -whereClause: SQLWhereClause
         -orderBy: SQLOrderBy
-        -skip: int
-        -limit: int
         -returnProjector: Function
         -aliasClasses: Map
         -aliasWheres: Map
@@ -136,9 +134,6 @@ classDiagram
     class CachedResultSetView {
         -entry: CachedEntry
         -position: int
-        -emitted: int
-        -skip: int
-        -limit: int
         -deltaCursor: TxDeltaCursor
         -deltaAggregateState: AggregateState
         -matchMultiDelta: MatchMultiDelta
@@ -448,8 +443,6 @@ view.next():
     position++; return cache_head
 ```
 
-LIMIT clipping is enforced by the consumer-visible count: the view exits after returning LIMIT results regardless of source.
-
 ### View output semantics under lazy population (clarifies I7)
 
 The deltaCursor is immutable post-construction. The cache entry's `results` list and `cachedRids` set ARE mutated by stream-pull-append during view iteration (this is how lazy population works). What I7 guarantees is that **the deltaCursor's skipSet and injectList — and therefore the set of records the view emits and their relative order — is fixed at view construction**. Stream-pulled records that are NOT in the skipSet are appended; this affects subsequent views constructed against the same entry, but never the current view's emission set or order. The cached `Result` instances wrap record references; if the underlying record's properties are mutated mid-iteration via `save()`, both the cache-cursor read and any later stream-pull-append observe the post-mutation values — this is the standard YTDB record-reference semantics, not snapshot isolation at the property level.
@@ -547,7 +540,6 @@ Multi-alias MATCH (more than one pattern node, or any pattern node with edges, o
 **View iteration**. View carries the immutable `MatchMultiDelta`. `view.next()`:
 - Skip cached tuples whose index is in `tupleSkipSet`.
 - Materialize from stream when cache is exhausted; for each pulled `Result`, before appending: for each alias's bound RID, check `ridSkipSet`. If ANY alias's binding is in `ridSkipSet`, drop the tuple (don't append, pull next). Otherwise append, populate `reverseIndex` and `contributingRids` for the new tuple index, return.
-- SKIP and LIMIT applied at view-level via the same `emitted` counter as RECORD shape.
 
 **Tombstone handling**. At cache lookup time, `cache.lookup(key)`:
 - Find entry. If shape is `MATCH_TUPLE_MULTI`, invoke `DeltaBuilder.buildForMatchMulti`.
