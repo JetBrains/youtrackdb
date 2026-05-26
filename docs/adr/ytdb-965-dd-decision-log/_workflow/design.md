@@ -1,4 +1,4 @@
-<!-- workflow-sha: 676179cb82295cf15977823a415d5f5476e42526 -->
+<!-- workflow-sha: 69ad0974118f52a6097fe2155c01d5d1469c3229 -->
 # Phase 0/1 Decision Log + Design Philosophy — Design
 
 ## Overview
@@ -673,7 +673,7 @@ Both paths leave a durable audit trail in `decision-log.md`. There is no automat
 
 ### Spawn protocol
 
-Every reviewer spawn (including the aggregator) uses the prompt-by-reference protocol defined in `conventions.md §1.4.X` (added by this PR). The orchestrator's spawn body references the prompt file path plus a small inputs block; the sub-agent reads the prompt on entry. Per-reviewer inputs land inline for small cases or in `cycle-N-iter-M/<reviewer>-inputs.md` for large cases (cumulative findings to re-verify, multi-page context). The orchestrator never carries reviewer prompt bodies in its context — savings estimated at ~10x per fan-out with mandatory-only spawns, ~20x when domain triggers fire. Per-batch firing adds a further K-fold cut at user checkpoints: a K=3 batch with workflow-changes triggers would have spawned ~24 reviewer sub-agents under per-mutation timing (3 mutations × ~8 reviewers each); per-batch collapses that to ~8 spawns for the same review coverage, because the cumulative diff is the natural unit of review when the user has articulated the batch as one coherent set of intent.
+Every reviewer spawn (including the aggregator) uses the prompt-by-reference protocol defined in `conventions.md §1.4 § Sub-agent spawn protocol — prompt by reference` (added by this PR). The orchestrator's spawn body references the prompt file path plus a small inputs block; the sub-agent reads the prompt on entry. Per-reviewer inputs land inline for small cases or in `cycle-N-iter-M/<reviewer>-inputs.md` for large cases (cumulative findings to re-verify, multi-page context). The orchestrator never carries reviewer prompt bodies in its context — savings estimated at ~10x per fan-out with mandatory-only spawns, ~20x when domain triggers fire. Per-batch firing adds a further K-fold cut at user checkpoints: a K=3 batch with workflow-changes triggers would have spawned ~24 reviewer sub-agents under per-mutation timing (3 mutations × ~8 reviewers each); per-batch collapses that to ~8 spawns for the same review coverage, because the cumulative diff is the natural unit of review when the user has articulated the batch as one coherent set of intent.
 
 ### Edge cases / Gotchas
 
@@ -699,7 +699,7 @@ Every reviewer spawn (including the aggregator) uses the prompt-by-reference pro
 - `.claude/workflow/prompts/adversarial-review.md` — existing Phase A track-level adversarial prompt; left unchanged.
 - `.claude/workflow/prompts/design-review.md` — existing cold-read sub-agent (now per batch); runs in parallel with the new reviewers.
 - `.claude/workflow/review-iteration.md` — iteration protocol; finding-ID prefixes added by this PR (FD, AD, CS, CC, PF, WCC, WCB, WCI, WCP).
-- `.claude/workflow/conventions.md §1.4.X` — sub-agent prompt-by-reference spawn protocol added by this PR.
+- `.claude/workflow/conventions.md §1.4 § Sub-agent spawn protocol — prompt by reference` — sub-agent prompt-by-reference spawn protocol added by this PR.
 - `.claude/workflow/workflow.md § Session Boundary Rules` — the contract Phase 1a / 1b mirrors.
 - §"Design-doc review directory shape" — directory layout for per-reviewer files.
 - §"Phase 1b plan derivation and ESCALATE back-edge" — what runs after Phase 1a exits.
@@ -862,7 +862,7 @@ The session ends; no partial plan files land on disk. On the next `/create-plan`
 
 The link format follows house-style cross-references already in use across the workflow: a single sentence in italic blockquote or a "See:" reference at the section header. The link target is the H3 (`### Design philosophy`) under conventions.md, not an H2. The lean subsection itself then points at `.claude/workflow/design-philosophy.md`, giving the reader the orientation moment (the named principle) before the deeper material loads on demand. The two-step preserves the principle name as the anchor while keeping the longer explanations, the workflow-mapping table, the failure modes, and the external citations off the always-loaded surface.
 
-A separate one-site cross-reference set anchors the new spawn protocol at `conventions.md §1.4.X`. `conventions-execution.md` carries a one-line link to the protocol so a reader entering execution-phase rules sees the spawn rule near the rules that depend on it. This set is intentionally smaller than the philosophy mapping (one site vs five) because the spawn protocol applies symmetrically across all phases — readers entering any specific phase find it via the always-loaded conventions.md without needing per-phase cross-refs.
+A separate one-site cross-reference set anchors the new spawn protocol at `conventions.md §1.4 § Sub-agent spawn protocol — prompt by reference`. `conventions-execution.md` carries a one-line link to the protocol so a reader entering execution-phase rules sees the spawn rule near the rules that depend on it. This set is intentionally smaller than the philosophy mapping (one site vs five) because the spawn protocol applies symmetrically across all phases — readers entering any specific phase find it via the always-loaded conventions.md without needing per-phase cross-refs.
 
 ### Edge cases / Gotchas
 
