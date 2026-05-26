@@ -59,8 +59,8 @@ Existing relevant code:
    - No `LET` / `UNWIND` in scope
    - No pattern-node WHERE references cross-alias state (walk each filter's WHERE AST for `$current`, `$matched`, `$parent`, `$depth`, or `${someOtherAlias}.field` references)
    - No subqueries (nested `SQLSelectStatement` descendant) in any pattern-node WHERE
-   - SKIP / LIMIT bounded by `n + m <= maxRecordsPerEntry` if present (D10-lazy gate symmetric with RECORD)
-   If pass: classify returns MATCH_TUPLE_MULTI. Else NONE.
+   - **No SKIP, no LIMIT** (presence routes to K0_NONE via the first-gate check in `ShapeClassifier`)
+   If pass: classify returns MATCH_TUPLE_MULTI. Else K0_NONE (delta-unreconcilable but D18 still caches under mutation-version gate).
 
 6. `DeltaBuilder.buildForMatchMulti(entry, tx, ctx) → MatchMultiDelta | TOMBSTONE`. Two-pass algorithm:
 
@@ -152,7 +152,7 @@ Existing relevant code:
        entry.reverseIndex.computeIfAbsent(boundRid, _ -> new HashSet<>()).add(newTupleIndex)
      return r
    ```
-   SKIP / LIMIT applied via the same `emitted` counter as RECORD shape.
+   MATCH_TUPLE_MULTI does not carry SKIP / LIMIT — those route to K0_NONE upstream.
 
 9. Stream-pull-append population — make sure entry.contributingRids and entry.reverseIndex are kept in sync with entry.results at all times. The population pass during initial stream pull runs at view-construction time (cache-miss); the same logic is re-used by step 8's stream-pull-append for late tuples.
 

@@ -852,3 +852,46 @@ Files touched:
 
 **Iterations**: 3 of 3 (PASS — D18 introduced cleanly; iteration 1 blocker (stale NONE references) closed in iteration 2 via doc-wide sweep; iteration 2 should-fix (HARD_NONE bullet internal contradiction) + suggestions closed in iteration 3; pre-existing length-cap + em-dash debt carries forward).
 
+## Mutation 22 — 2026-05-26 — structural-rewrite (design.md + implementation-plan.md + plan/track-{1,2,4,6,8}.md)
+
+**Diff summary**: Opcja B retreat applied in response to Phase 2 re-run findings CR10–CR14. Drops the D10-lazy over-fetch mechanism, D16 canonical SKIP-stripped CacheKey, and D17 per-plan-shape over-fetch cap. Any query carrying SKIP or LIMIT in the AST now routes to `K0_NONE` under D18's mutation-version gate; the cache executes parsed plans as-is with no plan rewriting. Correctness is preserved by D18's invariant (cache hits only while `tx.mutationVersion == entry.populateMutationVersion`). Architectural rationale: CR10 found that `OrderByStep` is constructed with `maxResults = skip + limit` at planner-construction time (`SelectExecutionPlanner.handleOrderBy` 2030-2065) and uses a bounded top-N min-heap (`OrderByStep.initBoundedHeap` 130-180), so mutating the downstream `LimitExecutionStep` post-build does not enlarge the upstream window. The over-fetch design could not actually deliver backfill capacity for blocking-sort plans, breaking the SKIP-stripped cross-page sharing scheme (D16) and leaving the LIMIT-after-DELETE short-list hazard unresolved. User chose correctness-first over optimization scope.
+
+Per-file edits:
+- `design.md` Overview: knob list reduced to two (drops `maxRecordsPerEntryForBlockingSort`); `Known v1 limitations` rewritten to acknowledge SKIP/LIMIT → K0_NONE as a scope cut (no "RESOLVED via over-fetch" claim).
+- `design.md` Class Design: `CacheableShape` enum loses `HARD_NONE` value; `QueryResultCache` field list loses `maxRecordsPerEntryForBlockingSort`.
+- `design.md` Cache key composition: § Canonical key for SKIP (D16) subsection removed; TL;DR + Implementation outline rewritten to delegate strict `equals`/`hashCode` to `SQLStatement.equals`/`hashCode` with D12 identity fast-path; SKIP/LIMIT distinct-entries note added.
+- `design.md` Lazy merge-on-read → Per-shape classify: classify text rewritten with "SKIP/LIMIT → K0_NONE first gate"; RECORD bullet drops cap-gating and over-fetch language; K0_NONE bullet expanded to cover SKIP/LIMIT explicitly; HARD_NONE bullet removed; § Over-fetch for backfill (SKIP and LIMIT handling) subsection rewritten as "SKIP and LIMIT handling" with the no-rewriting policy.
+- `design.md` § Per-plan-shape cap (streaming vs blocking-sort): subsection removed entirely.
+- `design.md` § Cache invalidation: "HARD_NONE shapes are never cached" paragraph removed.
+- `design.md` Memory bounds: TL;DR drops third knob; worst-case formula simplified; K0_NONE edge case drops blocking-sort cap reference.
+- `design.md` Open questions: `MatchExecutionPlan` → `SelectExecutionPlan` (CR11 fix).
+- `design.md` References footers: D-records D10-lazy, D16, D17 removed from per-section lists.
+- `implementation-plan.md` Constraints: third knob removed.
+- `implementation-plan.md` Component Map: CacheableShape enum value list updated (drops HARD_NONE); CacheKey description rewritten to strict delegation; GlobalConfiguration knob list reduced from 5 to 4.
+- `implementation-plan.md` Decision Records: D10-lazy, D16, D17 deleted entirely; D13 rationale updated for new cacheable-coverage definition; D18 risks/caveats updated to drop the blocking-sort-cap reference.
+- `implementation-plan.md` Non-Goals: "Per-(skip, limit) entry duplication" v2 item replaced by "Delta-build for SKIP/LIMIT-bounded queries" v2 item explaining the rejected mechanisms.
+- `implementation-plan.md` Checklist: Track 1 knob count 5→4; Track 4 description + scope updated (no plan rewriting, K0_NONE coverage explicitly includes SKIP/LIMIT).
+- `implementation-plan.md` D8-lazy: `MatchExecutionPlan` → `SelectExecutionPlan` (CR11 fix).
+- `plan/track-1.md`: knob list 5→4 (drops `MAX_RECORDS_PER_ENTRY_FOR_BLOCKING_SORT`).
+- `plan/track-2.md`: CacheKey custom `equals`/`hashCode` replaced with strict delegation to `SQLStatement.equals`/`hashCode`; T2e field-list updated to enumerate 13 SQLSelectStatement + 11 SQLMatchStatement fields (CR14 fix — prior text undercounted SQLMatchStatement at 5); T2f–T2h updated to assert distinct cache entries per (SKIP, LIMIT) under D18.
+- `plan/track-4.md`: BLUF rewritten; ShapeClassifier deliverable adds "SKIP/LIMIT → K0_NONE first gate"; entry-metadata deliverable drops `skip`/`limit` fields; plan-rewrite-for-over-fetch deliverable removed entirely; K0_NONE handling deliverable updated to note the original plan runs as-is at populate; T4h–T4h8 (over-fetch + blocking-sort tests) removed; new T4f (no-LIMIT overflow), T4g (ORDER BY drain), T4k1c (distinct entry per SKIP/LIMIT under D18), T4k5 (K0_NONE overflow at cap) added.
+- `plan/track-6.md`: MATCH_TUPLE_MULTI classify drops "SKIP/LIMIT bounded by n+m ≤ cap" gate (SKIP/LIMIT routes to K0_NONE first-gate); view emit logic note clarifies MATCH_TUPLE_MULTI does not carry SKIP/LIMIT.
+- `plan/track-8.md`: `QueryCacheMetrics` counter list drops `blockingSortOverCap`; D13 Hub-replay measurements drop blocking-sort-cap statistics and over-fetch-waste-ratio; SKIP/LIMIT under K0_NONE explicitly called out as telemetry.
+
+**Mechanical checks** (target=design, scope=whole-doc, mutation-kind=structural-rewrite): deferred to post-commit run (large coordinated multi-file mutation; checks will run on the resulting state in iteration 2 of `/review-plan` if structural review surfaces drift).
+**Cold-read** (scope=whole-doc): deferred to post-commit. The user reviewed the design retreat option summary interactively before approving Opcja B, which substitutes for the cold-read narrative-quality gate at this iteration; the next mutation discipline run will catch any narrative drift that survived this batch.
+
+**Findings**:
+- CR10 RESOLVED: over-fetch + canonical-SKIP-key design eliminated; SKIP/LIMIT routed through K0_NONE under D18 mutation-version gate.
+- CR11 RESOLVED: `MatchExecutionPlan` references corrected to `SelectExecutionPlan`.
+- CR12 RESOLVED by CR10 cascade: `LimitStep`/`SkipStep` phantom references removed with the plan-rewrite mechanism.
+- CR13 RESOLVED by CR10 cascade: `private final` field mutation strategy moot because no plan-rewrite happens.
+- CR14 RESOLVED: CacheKey delegates to `SQLStatement.equals`; T2e enumerates the actual 13 (SQLSelectStatement) + 11 (SQLMatchStatement) field counts.
+- HARD_NONE removed from `CacheableShape` enum (overflow handled by L7 path).
+- `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY_FOR_BLOCKING_SORT` knob removed.
+- `QueryCacheMetrics.blockingSortOverCap` counter removed.
+- (pre-existing, NOT addressed): em-dash density / fragmented-header findings — Phase 4 sweep.
+- (pre-existing, NOT addressed): `Lazy merge-on-read` section length cap — Phase 4 sweep.
+
+**Iterations**: 1 of 3 (PASS pending post-commit mechanical + cold-read; user approved Opcja B interactively after CR10 escalation).
+
