@@ -307,6 +307,73 @@ conclusions often hinge on reference-accuracy facts that grep can
 silently miss — so research, Phase 1 planning, and Phase A track
 reviews are not exempt.
 
+### Sub-agent spawn protocol — prompt by reference
+
+When the orchestrator spawns a sub-agent via the `Agent` tool for any
+review, aggregator, or wrapped-skill purpose, the spawn prompt MUST
+pass the prompt file as a path reference, not as the prompt body. The
+sub-agent reads the prompt file on entry. The orchestrator never loads
+the prompt body into its context.
+
+Spawn-prompt template (the orchestrator constructs this; never reads
+the prompt-file body):
+
+> Read `<absolute path to prompts/<name>.md>`.
+> Apply the inputs below.
+> Write your output to `<absolute path to output file>`.
+> Inputs:
+> - `<key>`: `<value>`
+> - `<key>`: `<value>`
+> - ...
+
+Two cases for inputs:
+
+- **Small inputs** (paths, scope flags, a few finding IDs): embed
+  inline in the spawn body under the `Inputs:` block. No temp file.
+- **Large inputs** (cumulative findings across iterations, multi-page
+  context the sub-agent needs in addition to its primary target file):
+  write to disk at `<iter-or-cycle-dir>/<reviewer>-inputs.md` and
+  reference the path in the spawn body's `Inputs:` block. The inputs
+  file lives in the same directory as the sub-agent's output for
+  audit. Discriminator: total inputs > ~50 lines OR inputs contain
+  structured tables / verbatim quoted text → write to disk; otherwise
+  inline.
+
+The orchestrator pays a constant spawn-template cost (~10 lines per
+dispatch) regardless of prompt size. The prompt body (~60–200 lines
+for review prompts; multi-hundred lines for richer prompts like
+`prompts/design-review.md`) never lands in orchestrator context.
+Per-mutation savings in Phase 1a are estimated at ~10x with
+mandatory-only fan-out, ~20x when domain triggers fire.
+
+This rule applies symmetrically across the workflow:
+
+- Phase 1a design-doc reviewers (per-mutation fan-out — see
+  `design.md §"Per-mutation design review fan-out"`)
+- Phase 2 plan reviewers (`implementation-review.md`)
+- Phase A track reviewers (`track-review.md`,
+  `track-adversarial-review.md`, `track-technical-review.md`,
+  `track-risk-review.md`)
+- Phase C code reviewers (`track-code-review.md` dispatched via
+  `/code-review`)
+- The aggregator sub-agent
+- Future wrapped-skill spawns (e.g., a sub-agent `edit-design`
+  invocation if that becomes the routing in a later workflow change)
+
+A prompt file too small to warrant by-reference passing (~under 30
+lines) MAY be embedded directly in the spawn body if the orchestrator
+is constructing the prompt on the fly. Files maintained at
+`.claude/workflow/prompts/**` always pass by reference regardless of
+size; the maintenance assumption is that they will grow.
+
+Reviewer / aggregator output is always written to disk at a path the
+orchestrator names. The orchestrator's read of the output uses
+targeted reads (`Read offset / limit`, or reads a small `summary.md`
+produced by the aggregator) rather than the full reviewer file. Per
+§ Recipes (below), full-file reads of multi-thousand-line review
+output are flagged by `review-workflow-context-budget` as
+instant-consumption hits.
+
 ### Sub-agent delegation
 
 Delegating a symbol-usage question to a sub-agent (Explore, Phase A
