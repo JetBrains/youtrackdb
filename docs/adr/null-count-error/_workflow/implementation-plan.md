@@ -268,6 +268,8 @@ flowchart LR
   > Deferred follow-up (post-merge YouTrack issues). Catch widening at `IndexAbstract.buildHistogramAfterFill:401-408`; the Q5 single-issue scope from Track 3 (multi-thread real-tree contention test plus SV concurrency-test parity for both engines and both `clear()` + `buildInitialHistogram()` seams; non-atomic snapshot-read race fix); true WAL-replay test via `WalTestUtils.withWalProtection`; `IndexCountDelta.accumulateClearOrRecalibrate` deprecation / removal / `IndexCountDeltaHolderTest` fixture migration after Track 5 lands (zero production callers post-Track-5); track-4.md duplication trim (defer to Phase 4 `design-final.md` per the existing "additively composable" deferral).
   >
   > **Track file:** `plan/track-4.md` (4 steps, 0 failed; 1 review-fix iteration)
+  >
+  > **Strategy refresh:** CONTINUE — Track 5's plan was already aligned by the inline-replan + plan-review cycle that landed it; Track 4's discoveries (Hook B per-axis sum at `AbstractStorage.java:2538-2541`, `verify(...).times(1)` precision pattern, negative pin "in-mem `AtomicLong`s not mutated inline") are already reflected in `plan/track-5.md` `## Plan of Work` Step 3 and `## Context and Orientation`. No plan or track-file edits.
 
 - [ ] Track 5: `clear()` mixed-mode encoding (retrofit)
   > Retrofit `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.clear()` from Track 3's pure-delta encoding to Track 4's mixed-mode design. Persisted side gets inline `setApproximateEntriesCount(op, 0)` writes per tree; in-mem side routes through `IndexCountDelta.accumulateInMemRecalibration(op, id, -currentTotal, -currentNull)`. The drift-amplification accepted regression Track 3 documented in its Decision Log Q2 closes symmetrically.
