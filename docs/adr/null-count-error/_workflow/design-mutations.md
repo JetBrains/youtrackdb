@@ -68,3 +68,16 @@
 - None.
 
 **Iterations**: 1 of 3 (PASS)
+
+## Mutation 6 — 2026-05-26 — phase4-creation (design-final.md)
+
+**Diff summary**: Created `docs/adr/null-count-error/design-final.md` reflecting the as-built shape: mixed-mode encoding on both `clear()` and `buildInitialHistogram()` seams (not pure-delta-for-`clear()` as the original Phase 1 `design.md` framed); single `IndexCountDelta.accumulateInMemRecalibration` accumulator on the in-memory side for both seams; Hook A / Hook B in `AtomicOperationsManager.endAtomicOperation` as the single lifecycle gate with deletion of the manual calls in `AbstractStorage.commit`; three-layer cascade containment (broadened pre-`endTxCommit` and four `AtomicOperationsManager` wrapper catches; `setInError(Throwable)` `AssertionError` skip guard; engine-level `reportAndClampUnderflow` with per-engine `firstUnderflowDumped` latch). Class diagram refreshed for `IndexCountDelta`'s four fields + three accumulator methods, `tryApply` helper on `AtomicOperationsManager`, public visibility on the three storage methods. Workflow sequence diagram updated to show the inline persisted-side write + in-mem-only accumulator + Hook B sum. Section "Why mixed-mode, not pure-delta-on-both-sides or collection-style self-healing" replaces the original "Why pure-delta, not collection-style self-healing", adding a worked example for the drift-amplification reason that disqualified pure-delta-on-both-sides. PSI-verified line citations sourced from the Phase 4 handoff (HEAD `eb1d647bd1`). No mechanics-final companion — single-file design under the length trigger. Phase 4 final artifacts are not stamped per the skill's stamp-discipline rule.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS after 1 iteration. Pre-fix had 2 should-fix findings: fragmented header at "Cascade containment" (TL;DR opening overlapped 50% with heading) and at "Why mixed-mode, not pure-delta-on-both-sides or collection-style self-healing" (TL;DR opening overlapped 67% with heading). Both fixed by rewriting the TL;DR opening sentence to drop the overlapping content words.
+
+**Cold-read** (scope: whole-doc, via general-purpose sub-agent with phase4-creation-specific checks plus the four Human-reader cold-read additions): PASS — 0 findings. Verdict: cold reader can build a working mental model from the document alone; Overview names bug + cascade + three invariants; Core Concepts establishes vocabulary; four mechanism sections carry consistent TL;DR + Mechanism + Edge cases + References shape; worked example closes the loop on the delta arithmetic; lifecycle pseudocode makes Hook A/Hook B placement concrete. Plan-deviation surfacing, implementation-grounded diagrams, and no-leaked-working-file-identifiers checks all pass.
+
+**Findings**:
+- None.
+
+**Iterations**: 1 of 3 (PASS)
