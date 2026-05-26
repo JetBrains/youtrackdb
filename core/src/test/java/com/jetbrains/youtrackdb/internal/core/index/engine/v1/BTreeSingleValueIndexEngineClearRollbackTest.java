@@ -20,13 +20,16 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Regression for the pure-delta-encoded {@code clear()} on the single-value
+ * Regression for the mixed-mode-encoded {@code clear()} on the single-value
  * (UNIQUE) index engine, exercised through the main commit path. The
  * scenario mirrors
  * {@link BTreeMultiValueIndexEngineClearRollbackTest} for the single-tree
  * case, where the single {@code sbTree} stores both null and non-null
- * entries and {@code persistCountDelta} ignores {@code nullDelta} because
- * the persisted side moves by {@code totalDelta} alone.
+ * entries. Under the mixed-mode encoding the persisted side moves via a
+ * single inline {@code setApproximateEntriesCount(op, 0L)} absolute write
+ * on the {@code sbTree}; the in-memory null-counter delta now rides
+ * {@code IndexCountDelta.accumulateInMemRecalibration} on the
+ * {@code inMemAdjustNull} axis consumed by Hook B post-commit.
  *
  * <p>The transaction is marked {@code cleared = true} via the public
  * {@code FrontendTransaction.addIndexEntry(... OPERATION.CLEAR ...)} API.
@@ -110,14 +113,15 @@ public class BTreeSingleValueIndexEngineClearRollbackTest {
    * close-and-reopen reads (which recalibrate from the persisted
    * entry-point page via {@code load()}) must also report (4, 1).
    *
-   * <p>The single-value engine's {@code persistCountDelta} ignores
-   * {@code nullDelta} because the single {@code sbTree} stores both null
-   * and non-null entries (the persisted side moves by {@code totalDelta}
-   * alone). The in-memory {@code approximateNullCount} is still advanced by
-   * the apply hook on commit success and (correspondingly) NOT advanced on
-   * rollback. The post-rollback null-count assertion below catches a
-   * regression where the engine state itself was corrupted during
-   * {@code executeOperations} on the cleared-flag path.
+   * <p>Under the mixed-mode encoding, the persisted side moves via a
+   * single inline {@code setApproximateEntriesCount(op, 0L)} absolute write
+   * on the {@code sbTree} (driven by {@code engine.clear()} when it runs).
+   * The in-memory {@code approximateNullCount} is advanced by the apply
+   * hook on commit success via the {@code inMemAdjustNull} axis on the
+   * holder, and correspondingly NOT advanced on rollback. The post-rollback
+   * null-count assertion below catches a regression where the engine state
+   * itself was corrupted during {@code executeOperations} on the
+   * cleared-flag path.
    */
   @Test
   public void singleValueCommitPathClearRollback_countersStayAtPreClearValues()

@@ -28,17 +28,21 @@ import org.junit.Test;
  * {@code clearIndex} entry point bypasses the main commit path and runs
  * inside its own standalone atomic operation via {@code
  * AtomicOperationsManager.executeInsideAtomicOperation}. Under the
- * pure-delta encoding on both {@link
+ * mixed-mode encoding on both {@link
  * com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine}
  * and {@link
  * com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine},
- * the {@code clear()} body records a negative delta on the atomic op rather
- * than writing the in-memory {@code AtomicLong} counters directly. The
+ * the {@code clear()} body lands the persisted-side absolute zero write
+ * inline via {@code setApproximateEntriesCount(op, 0L)} (per tree) and
+ * routes the in-memory {@code AtomicLong} write through
+ * {@code IndexCountDelta.accumulateInMemRecalibration(op, id,
+ * -currentTotal, -currentNull)} consumed by Hook B post-commit. The
  * consolidated lifecycle gate in {@link
  * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
  * skips the apply hook on rollback (the {@code currentError == null} gate
- * fails), so the in-memory side stays at its pre-clear values and the
- * persist hook skips its writes on rollback as well.
+ * fails), so the in-memory side stays at its pre-clear values; the
+ * persisted-side write is WAL-tracked and reverts via the standard atomic-op
+ * rollback path.
  *
  * <p>Failure-injection seam. The test reflectively replaces the target
  * engine's {@code histogramManager} field with a stub whose

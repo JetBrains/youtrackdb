@@ -103,15 +103,16 @@ public final class IndexCountDelta {
    * int, boolean)}, so a per-put accumulation and a clear/recalibrate
    * accumulation issued in the same atomic operation compose algebraically.
    *
-   * <p>The two production callers, both operating at engine scope (not
-   * per-key), are:
-   *
-   * <ul>
-   *   <li>{@code BTreeMultiValueIndexEngine.clear}: passes
-   *       {@code (-currentTotal, -currentNull)} to collapse both counters.
-   *   <li>{@code BTreeSingleValueIndexEngine.clear}: same shape for the
-   *       single-tree case.
-   * </ul>
+   * <p><strong>Awaiting cleanup.</strong> The production caller count is
+   * zero after the {@code clear()} mixed-mode retrofit: both
+   * {@code BTreeMultiValueIndexEngine.clear} and
+   * {@code BTreeSingleValueIndexEngine.clear} now route through
+   * {@link #accumulateInMemRecalibration(AtomicOperation, int, long, long)}
+   * instead. Method body, sign-alignment precondition, and the
+   * {@code IndexCountDeltaHolderTest} fixtures that exercise this method's
+   * contract are kept in place pending a follow-up cleanup tracked under a
+   * separate YouTrack issue in the {@code YTDB} project with the
+   * {@code dev-workflow} tag.
    *
    * <p>Recalibration callers ({@code buildInitialHistogram} on both engines)
    * route through {@link #accumulateInMemRecalibration(AtomicOperation, int,
@@ -165,11 +166,14 @@ public final class IndexCountDelta {
    * target)} writes in {@code buildInitialHistogram}, which are WAL-tracked
    * and revert on rollback.
    *
-   * <p>The two production callers are {@code
+   * <p>The production callers are {@code
    * BTreeMultiValueIndexEngine.buildInitialHistogram} and {@code
-   * BTreeSingleValueIndexEngine.buildInitialHistogram}. Both pass
+   * BTreeSingleValueIndexEngine.buildInitialHistogram} (both pass
    * {@code (targetTotal - currentInMemTotal, exactNullCount -
-   * currentInMemNull)}.
+   * currentInMemNull)}), plus {@code BTreeMultiValueIndexEngine.clear} and
+   * {@code BTreeSingleValueIndexEngine.clear} under the mixed-mode
+   * encoding (both pass {@code (-currentTotal, -currentNull)} to collapse
+   * both counters).
    *
    * <p><strong>No precondition.</strong> Unlike
    * {@link #accumulateClearOrRecalibrate(AtomicOperation, int, long, long)},

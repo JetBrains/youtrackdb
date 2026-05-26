@@ -20,7 +20,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Regression for the pure-delta-encoded {@code clear()} on the multi-value
+ * Regression for the mixed-mode-encoded {@code clear()} on the multi-value
  * (NOTUNIQUE) index engine, exercised through the main commit path. The
  * transaction is marked {@code cleared = true} via the public
  * {@code FrontendTransaction.addIndexEntry(... OPERATION.CLEAR ...)} API.
@@ -196,8 +196,8 @@ public class BTreeMultiValueIndexEngineClearRollbackTest {
     // the in-memory counters from the persisted entry-point pages, so
     // equality with the pre-rollback reads proves the persist hook also
     // skipped its writes on the rollback path. A regression where the
-    // persist hook landed the -currentTotal / -currentNull delta on the
-    // rollback path would show up here as 0/0 or some other drifted quad.
+    // persist hook landed the absolute zero write on the rollback path
+    // would show up here as 0/0 or some other drifted quad.
     db.close();
     db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
     var enginePostRestart = getBTreeIndexEngine(db, indexName);
