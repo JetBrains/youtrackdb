@@ -55,6 +55,15 @@ import org.junit.Test;
  * {@code BTreeSingleValueIndexEngine.clear()} is not acquired here. These
  * tests pin the mechanical contract only. The lock-window race is exercised
  * by {@code BTreeSingleValueIndexEngineClearRollbackTest}.
+ *
+ * <p>Where to add new pin tests. This class is the canonical home for
+ * mixed-mode {@code clear()} pin tests on the SV engine: mechanical holder
+ * shape, persisted-write {@code times(1)} precision, write/in-mem ordering,
+ * axis isolation, and the boundary configurations (empty engine, null-only
+ * engine, clear-then-put composition). {@link BTreeEngineHistogramBuildTest}
+ * retains the historical {@code singleValue_clear_*} suite migrated from
+ * the pure-delta era for legacy continuity; new pin tests for the
+ * mixed-mode {@code clear()} contract belong here rather than there.
  */
 public class BTreeSingleValueIndexEngineClearMixedModeTest {
 
@@ -150,14 +159,21 @@ public class BTreeSingleValueIndexEngineClearMixedModeTest {
   }
 
   /**
-   * Pins the SV {@code clear()} seam's write ordering: the persisted-side
-   * absolute zero write fires BEFORE the in-mem accumulator advances. Hook
-   * A's heal-the-drift contract depends on this ordering. A regression that
-   * swapped the two statements would land the in-mem-side delta into the
-   * holder before the persisted side landed its zero write, breaking the
-   * heal-the-drift contract. The order-agnostic plain verify calls in
+   * Pins the SV {@code clear()} seam's in-stack statement ordering: the
+   * persisted-side absolute zero write fires BEFORE the in-mem accumulator
+   * advances. The pin is documentary: it locks the source-line order for
+   * symmetric audit across both engines and across the {@code clear()} and
+   * {@code buildInitialHistogram} seams. Hook A's {@code persistCountDelta}
+   * is a no-op on the {@code clear()} seam, and the persisted-side write
+   * {@code setApproximateEntriesCount(op, 0L)} is absolute (it does not
+   * read prior state), so a swap would not break crash-safety or any
+   * drift-healing contract. The order-agnostic plain verify calls in
    * {@link #singleValueClear_recordsHolderShape_andPersistedWrite} would
-   * not catch that swap.
+   * not catch the swap, hence this pin.
+   *
+   * <p>Cross-thread visibility ordering is enforced separately by the
+   * atomic-op lifecycle and the per-engine commit-path lock that
+   * {@code lockIndexes} acquires, not by this test.
    *
    * <p>This is the SV-shaped mirror of the equivalent MV pin in
    * {@link BTreeMultiValueIndexEngineClearMixedModeTest}. On the single
@@ -214,6 +230,15 @@ public class BTreeSingleValueIndexEngineClearMixedModeTest {
     assertNotNull(delta);
     assertEquals(-10L, delta.getInMemAdjustTotal());
     assertEquals(-3L, delta.getInMemAdjustNull());
+
+    // Interaction lockdown symmetric with the holder-shape test. Plain
+    // verify is at-least-once and would let a stray duplicate write slip;
+    // times(1) and verifyNoMoreInteractions catch that.
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(f.op, 0L);
+    verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -256,7 +281,111 @@ public class BTreeSingleValueIndexEngineClearMixedModeTest {
     assertEquals(3L, f.engine.getNullCount(f.op));
     // The persisted-side absolute zero write still fires unconditionally;
     // the prior put deltas neither suppress it nor add a delta-path write.
-    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    // times(1) plus verifyNoMoreInteractions locks the sbTree interaction
+    // set symmetric with the holder-shape test.
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(f.op, 0L);
     verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
+  }
+
+  /**
+   * Empty-engine boundary. clear() on an engine whose in-mem counters were
+   * never seeded records (0, 0) on both inMemAdjust axes and still fires
+   * the single-tree absolute zero write unconditionally. Pins the
+   * holder-shape degenerate case and the unconditional persisted-side
+   * write contract.
+   */
+  @Test
+  public void singleValueClear_onEmptyEngine_recordsZeroInMemAdjustAndAbsoluteWrite()
+      throws IOException {
+    var f = new BTreeEngineTestFixtures.SingleValueFixture();
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    assertEquals(0L, delta.getInMemAdjustTotal());
+    assertEquals(0L, delta.getInMemAdjustNull());
+    assertEquals(0L, f.engine.getTotalCount(f.op));
+    assertEquals(0L, f.engine.getNullCount(f.op));
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(f.op, 0L);
+    verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
+  }
+
+  /**
+   * Null-only-engine upper-edge boundary. When every entry is a null key,
+   * the in-mem-side delta has equal magnitudes on both axes. The (10, 3)
+   * mix in the other tests cannot detect an accidental axis swap because
+   * the magnitudes differ; this boundary is the only one that catches it.
+   * Hook A's persistCountDelta is a no-op on the clear() seam regardless,
+   * so the single-tree absolute zero write carries the persisted-side
+   * collapse for both axes.
+   */
+  @Test
+  public void singleValueClear_nullOnlyEngine_recordsEqualInMemAdjustOnBothAxes()
+      throws IOException {
+    var f = new BTreeEngineTestFixtures.SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(7);
+    f.engine.addToApproximateNullCount(7);
+
+    f.engine.clear(f.storage, f.op);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(0L, delta.getTotalDelta());
+    assertEquals(0L, delta.getNullDelta());
+    assertEquals(-7L, delta.getInMemAdjustTotal());
+    assertEquals(-7L, delta.getInMemAdjustNull());
+    assertEquals(7L, f.engine.getTotalCount(f.op));
+    assertEquals(7L, f.engine.getNullCount(f.op));
+    verify(f.sbTree, times(1)).setApproximateEntriesCount(f.op, 0L);
+    verify(f.sbTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.sbTree).size(any());
+    verify(f.sbTree).firstKey(any());
+    verifyNoMoreInteractions(f.sbTree);
+  }
+
+  /**
+   * Clear-then-put composition pin. Reproduces the production order from
+   * commitIndexes: a doClearIndex dispatch followed by put accumulations on
+   * the same atomic op. The holder ends with the clear() collapse on the
+   * inMemAdjust axes and the put deltas on the totalDelta / nullDelta axes;
+   * Hook B's per-axis sum (AbstractStorage.java:2538-2541) computes
+   * total = +2 + (-10) = -8 and null = +1 + (-3) = -2, which the engine
+   * mutators clamp at zero downstream. Counterpart to
+   * singleValueClear_keepsPriorPutDeltasOnTheirOwnAxis, which covers the
+   * reverse (put-then-clear) order.
+   */
+  @Test
+  public void singleValueClear_followedByPutAccumulation_composesAdditively()
+      throws IOException {
+    var f = new BTreeEngineTestFixtures.SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    f.engine.clear(f.storage, f.op);
+    IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, false);
+    IndexCountDelta.accumulate(f.op, f.engine.getId(), +1, true);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(
+        "Post-clear put on a non-null key advances totalDelta only.",
+        +2L, delta.getTotalDelta());
+    assertEquals(
+        "Post-clear put on a null key advances nullDelta by one.",
+        +1L, delta.getNullDelta());
+    assertEquals(-10L, delta.getInMemAdjustTotal());
+    assertEquals(-3L, delta.getInMemAdjustNull());
+    // Hook B's per-axis sum at AbstractStorage.java:2538-2541 computes
+    // total = +2 + (-10) = -8 and null = +1 + (-3) = -2; the engine
+    // mutators clamp at zero downstream.
   }
 }

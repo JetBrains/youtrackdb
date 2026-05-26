@@ -1375,6 +1375,13 @@ public class BTreeEngineHistogramBuildTest {
 
   // ═══════════════════════════════════════════════════════════════════════
   // clear() — mixed-mode encoding (MV and SV)
+  //
+  // The multiValue_clear_* and singleValue_clear_* groups below are the
+  // historical pin suite migrated from the pure-delta era. They remain in
+  // place for legacy continuity. The canonical home for new mixed-mode
+  // clear() pin tests is BTreeMultiValueIndexEngineClearMixedModeTest /
+  // BTreeSingleValueIndexEngineClearMixedModeTest — add new pin tests there
+  // rather than expanding either group below.
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
@@ -1625,14 +1632,20 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   /**
-   * Pins the SV clear() seam's write ordering: the persisted-side absolute
-   * zero write must fire BEFORE the in-mem accumulator advances. Hooks A and
-   * B downstream rely on this ordering — the persisted side is the
-   * heal-the-drift anchor and the in-mem side rides post-commit apply. A
-   * regression that swapped the two statements would land the in-mem-side
-   * delta into the holder before the persisted side landed its zero write,
-   * breaking the heal-the-drift contract; the order-agnostic plain verify
-   * calls in the sibling tests would not catch that swap.
+   * Pins the SV clear() seam's in-stack statement ordering: the
+   * persisted-side absolute zero write fires BEFORE the in-mem accumulator
+   * advances. The pin is documentary: it locks the source-line order for
+   * symmetric audit across both engines and across the clear() and
+   * buildInitialHistogram seams. Hook A's persistCountDelta is a no-op on
+   * the clear() seam, and the persisted-side write
+   * setApproximateEntriesCount(op, 0L) is absolute (it does not read prior
+   * state), so a swap would not break crash-safety or any drift-healing
+   * contract. The order-agnostic plain verify calls in the sibling tests
+   * would not catch the swap, hence this pin.
+   *
+   * <p>Cross-thread visibility ordering is enforced separately by the
+   * atomic-op lifecycle and the per-engine commit-path lock that
+   * lockIndexes acquires, not by this test.
    *
    * <p>See {@link #CLEAR_CONCURRENCY_CONTRACT_NOTE} — the per-tree exclusive
    * lock cited in the production comment is NOT acquired during this test
@@ -1869,6 +1882,14 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Interaction lockdown symmetric with the SV mirror at
+    // singleValue_clear_onEmptyEngine_recordsZeroInMemAdjustAndAbsoluteWrite.
+    verify(f.svTree).size(any());
+    verify(f.svTree).firstKey(any());
+    verify(f.nullTree).size(any());
+    verify(f.nullTree).firstKey(any());
+    verifyNoMoreInteractions(f.svTree);
+    verifyNoMoreInteractions(f.nullTree);
   }
 
   /**
@@ -1910,6 +1931,14 @@ public class BTreeEngineHistogramBuildTest {
     // fed by setApproximateEntriesCount, not addToApproximateEntriesCount).
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Interaction lockdown symmetric with the SV mirror at
+    // singleValue_clear_nullOnlyEngine_recordsEqualInMemAdjustOnBothAxes.
+    verify(f.svTree).size(any());
+    verify(f.svTree).firstKey(any());
+    verify(f.nullTree).size(any());
+    verify(f.nullTree).firstKey(any());
+    verifyNoMoreInteractions(f.svTree);
+    verifyNoMoreInteractions(f.nullTree);
   }
 
   /**
@@ -1947,6 +1976,14 @@ public class BTreeEngineHistogramBuildTest {
     // untouched on the clear() seam under mixed-mode.
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Interaction lockdown symmetric with the SV mirror at
+    // singleValue_clear_nonNullOnlyEngine_recordsZeroInMemAdjustNull.
+    verify(f.svTree).size(any());
+    verify(f.svTree).firstKey(any());
+    verify(f.nullTree).size(any());
+    verify(f.nullTree).firstKey(any());
+    verifyNoMoreInteractions(f.svTree);
+    verifyNoMoreInteractions(f.nullTree);
   }
 
   /**
@@ -1993,6 +2030,14 @@ public class BTreeEngineHistogramBuildTest {
     // untouched on the clear() seam under mixed-mode.
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    // Interaction lockdown symmetric with the SV mirror at
+    // singleValue_clear_keepsPriorPutDeltasOnTheirOwnAxis.
+    verify(f.svTree).size(any());
+    verify(f.svTree).firstKey(any());
+    verify(f.nullTree).size(any());
+    verify(f.nullTree).firstKey(any());
+    verifyNoMoreInteractions(f.svTree);
+    verifyNoMoreInteractions(f.nullTree);
   }
 
   /**
@@ -2019,6 +2064,13 @@ public class BTreeEngineHistogramBuildTest {
 
     verify(f.svTree).addToApproximateEntriesCount(f.op, -7L);
     verify(f.nullTree).addToApproximateEntriesCount(f.op, -3L);
+    // Precision pin symmetric with the SV sibling at
+    // singleValue_persistCountDelta_dropsNullDeltaOnSingleTree. Without
+    // times(1), a regression that issued a second addToApproximateEntriesCount
+    // call on either tree (say, double-applying the split) would slip past
+    // the at-least-once verify above.
+    verify(f.svTree, times(1)).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, times(1)).addToApproximateEntriesCount(any(), anyLong());
     // No setApproximateEntriesCount call on either tree from
     // persistCountDelta — that mutator is the buildInitialHistogram /
     // clear() inline path, not the delta path.

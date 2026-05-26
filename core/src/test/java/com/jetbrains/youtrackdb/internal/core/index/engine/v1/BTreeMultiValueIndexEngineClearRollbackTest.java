@@ -194,10 +194,16 @@ public class BTreeMultiValueIndexEngineClearRollbackTest {
 
     // Persisted check via close-and-reopen. The reopen's load() recalibrates
     // the in-memory counters from the persisted entry-point pages, so
-    // equality with the pre-rollback reads proves the persist hook also
-    // skipped its writes on the rollback path. A regression where the
-    // persist hook landed the absolute zero write on the rollback path
-    // would show up here as 0/0 or some other drifted quad.
+    // equality with the pre-rollback reads proves the persisted-side writes
+    // never landed on this path. The failure injection here fires inside
+    // executeOperations BEFORE commitIndexes dispatches to doClearIndex (see
+    // the class-level Javadoc), so engine.clear()'s inline
+    // setApproximateEntriesCount(op, 0L) writes never execute on this
+    // rollback path; this test pins the broader cleared-flag rollback
+    // survival via the commit-path catch, not the inline absolute-zero
+    // writes themselves. DISK-mode coverage that exercises the inline
+    // writes directly is deferred to the single combined YouTrack follow-up
+    // issue noted in the class-level Javadoc.
     db.close();
     db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
     var enginePostRestart = getBTreeIndexEngine(db, indexName);

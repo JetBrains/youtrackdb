@@ -319,6 +319,12 @@ public final class BTreeSingleValueIndexEngine
       // buildInitialHistogram() recalibration.
       IndexCountDelta.accumulateInMemRecalibration(
           atomicOperation, id, -currentTotal, -currentNull);
+      // mgr.resetOnClear() must remain LAST in this sequence. An IOException
+      // from it routes through atomic-op rollback via the surrounding wrap,
+      // and the WAL-tracked persisted write plus the holder-only in-mem
+      // delta both revert cleanly. Moving it earlier would not break
+      // correctness, but it would change the failure-ordering semantics and
+      // make the rollback story harder to audit.
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.resetOnClear(atomicOperation);
