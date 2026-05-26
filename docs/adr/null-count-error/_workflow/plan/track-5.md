@@ -1,3 +1,4 @@
+<!-- workflow-sha: 7412c16fabd0b69f733c9378ceda54ec3056d01d -->
 # Track 5: clear() mixed-mode encoding (retrofit)
 
 ## Purpose / Big Picture
