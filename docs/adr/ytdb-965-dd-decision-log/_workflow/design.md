@@ -9,13 +9,13 @@ This design adds two artifacts plus one Phase 1 reorder that close those gaps in
 
 - A lean `### Design philosophy` subsection inside `.claude/workflow/conventions.md` naming seven principles in one sentence each, plus a new load-on-demand `.claude/workflow/design-philosophy.md` carrying the paragraph-length explanations, the workflow-mapping table, the six failure modes, and the external citations (YTDB-842).
 - A new `_workflow/decision-log.md` durable file carrying the verbatim user aim, Phase 0 decisions / findings / open questions, and Phase 1a / 1b design-iteration and plan-derivation rationale entries appended whenever the user articulates a *why* (YTDB-965 plus the agreed Phase 1 extension).
-- A Phase 1 split into Phase 1a (design-first authoring + feasibility-review gate over `design.md`) and Phase 1b (plan derivation in a fresh session), with an ESCALATE back-edge from 1b to 1a when plan derivation hits a fundamental contradiction. A new `_workflow/feasibility-review.md` durable file records each gate cycle's sub-agent verdicts and the user's `accepted-open-risks` block (YTDB-975).
+- A Phase 1 split into Phase 1a (design-first authoring + an auto-firing feasibility-review gate over `design.md` that plugs into `review-iteration.md` with two written prompts, max 3 iterations, and an autonomous loop that halts only on decision-shaped findings) and Phase 1b (plan derivation in a fresh session), with an ESCALATE back-edge from 1b to 1a when plan derivation hits a fundamental contradiction. A new `_workflow/feasibility-review.md` durable file records each gate cycle's sub-agent verdicts, gate-check verdicts on iter-2/3, and the user's `accepted-open-risks` block (YTDB-975).
 
 These three changes ship together rather than as sequential PRs because they overlap heavily on the same workflow files (`planning.md`, `research.md`, `create-plan/SKILL.md`, `workflow.md`, `implementation-review.md`, and the new `_workflow/` artifacts registered in `conventions.md` §1.2 + §1.6). Bundling means one rebase surface, one design.md, one ADR. The intellectual coupling is also real: Principle 7 (Lean documents, load on demand) justifies the philosophy split's two-file shape and informs the new artifacts' "remove at Phase 4 cleanup" lifecycle; YTDB-975 explicitly depends on YTDB-842 landing first so its philosophy-mapping section can cite canonical principle names; the decision-log structure must know whether Phase 1 is one phase or two before its `## Plan-time *` section names freeze. Splitting into separate PRs would re-do `conventions.md`, `planning.md`, `research.md`, and `create-plan/SKILL.md` edits two or three times.
 
-The enabling primitives are: (1) a continuous-log file `decision-log.md` with a one-shot `## Initial request` anchor plus three append-only sections (`## Plan-time Decisions`, `## Plan-time Surprises`, `## Plan-time Open Questions`), each entry carrying an ISO timestamp, the D12 `[ctx=<level>]` field, and (when relevant) a `(Phase 1a)` / `(Phase 1b)` body annotation; (2) a per-cycle feasibility-review log `feasibility-review.md` with per-cycle entries for sub-agent verdicts, `accepted-open-risks` blocks, and the gate-PASS line that Phase 1b reads as its auto-resume signal; (3) an explicit session boundary between Phase 1a and Phase 1b that mirrors the existing A/B/C boundary contract in `workflow.md § Session Boundary Rules`. `design-mutations.md` stays as today; operational state (mutation kind, mechanical-check verdict, counter state) lives there; rationale lives in `decision-log.md`; feasibility verdicts live in `feasibility-review.md`; each file owns one concern.
+The enabling primitives are: (1) a continuous-log file `decision-log.md` with a one-shot `## Initial request` anchor plus three append-only sections (`## Plan-time Decisions`, `## Plan-time Surprises`, `## Plan-time Open Questions`), each entry carrying an ISO timestamp, the D12 `[ctx=<level>]` field, and (when relevant) a `(Phase 1a)` / `(Phase 1b)` body annotation; (2) a per-cycle feasibility-review log `feasibility-review.md` with per-cycle entries for sub-agent verdicts, gate-check verdicts on iter-2/3 (`VERIFIED` / `STILL OPEN` / `REJECTED` / `MOOT` / `REGRESSION`), `accepted-open-risks` blocks, and the gate-PASS line that Phase 1b reads as its auto-resume signal; the loop auto-fires after `edit-design phase1-creation` seeds `design.md` and runs autonomously, stopping for user input only when a finding requires the user to pick between alternatives, define a missing primitive, or resolve a gap whose default is not clear from surrounding context; (3) an explicit session boundary between Phase 1a and Phase 1b that mirrors the existing A/B/C boundary contract in `workflow.md § Session Boundary Rules`. `design-mutations.md` stays as today; operational state (mutation kind, mechanical-check verdict, counter state) lives there; rationale lives in `decision-log.md`; feasibility verdicts live in `feasibility-review.md`; each file owns one concern.
 
-Restructured to fit: `create-plan/SKILL.md` Steps 1b / 2 / 3 / 4 (Phase 0 writes plus the new Phase 1a / 1b sub-step ordering); `research.md` § Transition to Phase 1 updated to say Phase 1a follows research and 1b runs in a fresh session; `planning.md` § Goal + § Design Document re-framed (design is the primary 1a artifact; plan is derived in 1b); `mid-phase-handoff.md` Phase 0 handoff keeps the in-flight body and points `## Open questions` at the log, plus a new Phase 1a handoff shape; `implementation-review.md` Phase 2 narrowed (design-side consistency folds into 1a; Phase 2 keeps plan-internal structural + plan-vs-design alignment only); `workflow.md` § Phases lists 1a and 1b with the session-boundary contract; `edit-design/SKILL.md` Step 7 appends a rationale entry on every design-mutation whose request carried an articulated *why*; `prompts/create-final-design.md` Phase 4 ADR aggregation walks the log end-to-end to seed key decisions and the narrative summary; `conventions.md` §1.2 directory layout lists both new files (`decision-log.md` and `feasibility-review.md`); `conventions.md` §1.6 stamped-artifact enumeration plus the Phase 1 walk include `feasibility-review.md` (and `workflow-drift-check.md`'s byte-copied walk follows). Five workflow files carry a one-line cross-reference to the new philosophy subsection. A new `.claude/agents/feasibility-review.md` agent definition scoped to `design.md` joins the existing `.claude/agents/` set; the existing `prompts/adversarial-review.md` is reused as the second sub-agent in the gate.
+Restructured to fit: `create-plan/SKILL.md` Steps 1b / 2 / 3 / 4 (Phase 0 writes plus the new Phase 1a / 1b sub-step ordering); `research.md` § Transition to Phase 1 updated to say Phase 1a follows research and 1b runs in a fresh session; `planning.md` § Goal + § Design Document re-framed (design is the primary 1a artifact; plan is derived in 1b); `mid-phase-handoff.md` Phase 0 handoff keeps the in-flight body and points `## Open questions` at the log, plus a new Phase 1a handoff shape; `implementation-review.md` Phase 2 narrowed (design-side consistency folds into 1a; Phase 2 keeps plan-internal structural + plan-vs-design alignment only); `workflow.md` § Phases lists 1a and 1b with the session-boundary contract; `edit-design/SKILL.md` Step 7 appends a rationale entry on every design-mutation whose request carried an articulated *why*; `prompts/create-final-design.md` Phase 4 ADR aggregation walks the log end-to-end to seed key decisions and the narrative summary; `conventions.md` §1.2 directory layout lists both new files (`decision-log.md` and `feasibility-review.md`); `conventions.md` §1.6 stamped-artifact enumeration plus the Phase 1 walk include `feasibility-review.md` (and `workflow-drift-check.md`'s byte-copied walk follows). Five workflow files carry a one-line cross-reference to the new philosophy subsection. Two new sub-agent prompts under `.claude/workflow/prompts/` join the existing review prompt set: `feasibility-review.md` (PSI-verified reference-accuracy checks against `design.md`, certificate-shape output per Principle 6) and `adversarial-design-review.md` (devil's-advocate pass scoped to design content: hidden assumptions, missing failure modes, unlisted alternatives, under-specified edges; distinct from the track-level `prompts/adversarial-review.md`, which is scoped to Phase A track structure and is left unchanged). The Phase 1a gate plugs into `.claude/workflow/review-iteration.md` (max 3 iterations, severity ladder, finding format); two new finding ID prefixes `FD` (feasibility-design) and `AD` (adversarial-design) are added to that file's prefix table.
 
 No `design-mechanics.md` companion — this is a small design under the length trigger; the single-file default applies.
 
@@ -37,7 +37,7 @@ This design introduces ten load-bearing ideas. Each is named and used without re
 
 **Phase 1a design-iteration rationale entry.** When the user articulates a *why* alongside a `design.md` mutation in Phase 1a, `edit-design` Step 7 appends a Plan-time Decisions entry to `decision-log.md` carrying the rationale and the alternatives rejected. The mechanical record stays in `design-mutations.md` (unchanged). One file per concern. → §"Phase 1a design-iteration rationale".
 
-**Phase 1a feasibility-review gate.** A gate that runs after `design.md` is authored but before plan derivation, executing sub-agents against the design alone: a feasibility-review agent (does the design fit real code, PSI-verified), an adversarial-review pass, and optional domain-shaped reviews (crash safety, concurrency, performance) when the design's content triggers them. Verdict is PASS if every sub-agent returns PASS or the user records an `accepted-open-risks` block in `feasibility-review.md`. Session ends on PASS so Phase 1b runs in a fresh context. → §"Phase 1a feasibility-review gate".
+**Phase 1a feasibility-review gate.** An auto-firing gate that runs immediately after `edit-design phase1-creation` seeds `design.md`, executing two anchor sub-agents against the design alone: a feasibility-review prompt at `.claude/workflow/prompts/feasibility-review.md` (PSI-verified reference-accuracy claims, certificate-shape output per Principle 6) and an adversarial-design-review prompt at `.claude/workflow/prompts/adversarial-design-review.md` (devil's-advocate pass against design content; distinct from the existing track-level `prompts/adversarial-review.md`, which targets Phase A track structure). Plugs into `.claude/workflow/review-iteration.md` (max 3 iterations; severity blocker / should-fix / suggestion; finding format `### Finding <PREFIX><N>`; gate-check verdicts on iter-2/3). The loop is autonomous: mechanical findings are applied via `edit-design` mutations and the gate re-runs; only decision-shaped findings stop the loop to ask the user. Optional domain-shaped reviewers (crash-safety / concurrency / performance) join the cycle when design content triggers them; auto-detected, not user-confirmed. PASS ends the session so Phase 1b runs in fresh context; max-iters halt surfaces open findings with an `accepted-open-risks` option. → §"Phase 1a feasibility-review gate".
 
 **Phase 1b plan derivation.** A separate session that auto-resumes from validated `design.md` and writes the strategic plan: Architecture Notes, Decision Records (seeded from `decision-log.md ## Plan-time Decisions`), the track checklist, and per-track `plan/track-N.md` files. Detects the resume condition by checking that `design.md` exists, the latest cycle in `feasibility-review.md` records gate PASS, and `implementation-plan.md` does not yet exist. → §"Phase 1b plan derivation and ESCALATE back-edge".
 
@@ -73,21 +73,28 @@ classDiagram
         +Periodic whole-doc counter source
         +Working-mode counter source
     }
-    class feasibility_review_md {
+    class feasibility_review_log_md {
         +Per-gate-cycle entries (Phase 1a)
-        +Sub-agent verdicts (feasibility + adversarial + optional domain)
+        +Sub-agent verdicts (feasibility + adversarial-design + optional domain)
+        +Per-iter gate-check verdicts on iter-2/3
         +Accepted-open-risks block (user-recorded)
-        +Gate verdict line (PASS / NEEDS REVISION / ESCALATE)
+        +Gate verdict line (PASS / PASS with accepted open risks / ESCALATE)
     }
-    class feasibility_review_agent_md {
-        +New Phase 1a sub-agent under .claude/agents/
+    class feasibility_review_prompt_md {
+        +New Phase 1a prompt under .claude/workflow/prompts/
         +PSI-verified reference-accuracy checks against design.md
-        +Returns PASS / NEEDS REVISION verdict + findings
+        +Certificate-shape output per Principle 6; finding ID prefix FD
+    }
+    class adversarial_design_review_md {
+        +New Phase 1a prompt under .claude/workflow/prompts/
+        +Devil's-advocate pass against design content
+        +Distinct from track-level prompts/adversarial-review.md
+        +Certificate-shape output per Principle 6; finding ID prefix AD
     }
     class create_plan_skill {
         +Phase 0: Step 1b creates decision-log.md; Steps 2-3 write triggers
         +Phase 0 to 1a: Step 4 reads decision-log.md and confirms aim
-        +Phase 1a: authors design.md first; invokes feasibility gate; writes feasibility-review.md
+        +Phase 1a: authors design.md via edit-design phase1-creation; gate auto-fires; loop runs per review-iteration.md (max 3 iters); writes feasibility-review.md
         +Phase 1b (fresh session): auto-resumes from gate PASS; derives Architecture Notes + tracks + plan files
         +Phase 1b ESCALATE: writes ESCALATE entry to feasibility-review.md, ends session
     }
@@ -130,9 +137,9 @@ classDiagram
     create_plan_skill ..> decision_log_md : writes (Phase 0)
     edit_design_skill ..> decision_log_md : writes (Phase 1a rationale)
     edit_design_skill ..> design_mutations_md : writes (mechanics)
-    create_plan_skill ..> feasibility_review_agent_md : invokes (Phase 1a gate)
-    feasibility_review_agent_md ..> feasibility_review_md : writes verdict + findings
-    create_plan_skill ..> feasibility_review_md : writes Phase 1a + reads Phase 1b auto-resume
+    create_plan_skill ..> feasibility_review_prompt_md : invokes (auto-fire after phase1-creation)
+    create_plan_skill ..> adversarial_design_review_md : invokes (auto-fire after phase1-creation)
+    create_plan_skill ..> feasibility_review_log_md : writes cycle log (sub-agent verdicts + findings, FD / AD prefixed) + reads Phase 1b auto-resume
     create_plan_skill ..> research_md : reads
     create_plan_skill ..> planning_md : reads (Phase 1b)
     research_md ..> conventions_md : philosophy ref
@@ -144,7 +151,7 @@ classDiagram
     design_document_rules_md ..> conventions_md : philosophy ref
 ```
 
-Three file artifacts (`decision_log_md`, `design_mutations_md`, `feasibility_review_md`) own three complementary roles: knowledge (rationale, alternatives, open questions), mechanics (mutation kind, mechanical-check verdict, counter state), and feasibility verdicts (per-cycle sub-agent results, the user's `accepted-open-risks` block, the gate-PASS line that Phase 1b reads as its auto-resume signal). One new always-loaded surface (the lean `### Design philosophy` subsection inside `conventions_md`) names the principles; one new load-on-demand artifact (`design_philosophy_md`) carries the paragraph-length explanations, the workflow-mapping table, the failure modes, and the external citations. One new agent definition (`feasibility_review_agent_md`) under `.claude/agents/` runs in Phase 1a alongside the existing `prompts/adversarial-review.md`. Two SKILLs (`create_plan_skill`, `edit_design_skill`) write to `decision_log_md` in their owning sub-phase; `create_plan_skill` also writes to and reads from `feasibility_review_md` across the Phase 1a / 1b boundary; `edit_design_skill` additionally writes to `design_mutations_md` on every invocation. Five workflow documents (`research_md`, `planning_md`, `mid_phase_handoff_md`, `implementation_review_md`, `workflow_md`) wire the new artifacts into existing phase boundaries on their read or coordination side. Five documents (`planning_md`, `design_document_rules_md`, `conventions_execution_md`, `mid_phase_handoff_md`, `research_md`) point at the lean `conventions_md § Design philosophy` subsection (two-step); the lean subsection itself points at `design_philosophy_md` so the deeper material stays load-on-demand.
+Three durable file artifacts (`decision_log_md`, `design_mutations_md`, `feasibility_review_log_md`) own three complementary roles: knowledge (rationale, alternatives, open questions), mechanics (mutation kind, mechanical-check verdict, counter state), and feasibility verdicts (per-cycle sub-agent results, per-iter gate-check verdicts on iter-2/3, the user's `accepted-open-risks` block, the gate-PASS line that Phase 1b reads as its auto-resume signal). One new always-loaded surface (the lean `### Design philosophy` subsection inside `conventions_md`) names the principles; one new load-on-demand artifact (`design_philosophy_md`) carries the paragraph-length explanations, the workflow-mapping table, the failure modes, and the external citations. Two new prompt files at `.claude/workflow/prompts/` (`feasibility_review_prompt_md` and `adversarial_design_review_md`) define the Phase 1a gate's sub-agent behavior; both produce certificate-shape output per Principle 6, both plug into `.claude/workflow/review-iteration.md`'s iteration protocol with new finding ID prefixes `FD` and `AD`. Two SKILLs (`create_plan_skill`, `edit_design_skill`) write to `decision_log_md` in their owning sub-phase; `create_plan_skill` also writes to and reads from `feasibility_review_log_md` across the Phase 1a / 1b boundary; `edit_design_skill` additionally writes to `design_mutations_md` on every invocation. Five workflow documents (`research_md`, `planning_md`, `mid_phase_handoff_md`, `implementation_review_md`, `workflow_md`) wire the new artifacts into existing phase boundaries on their read or coordination side. Five documents (`planning_md`, `design_document_rules_md`, `conventions_execution_md`, `mid_phase_handoff_md`, `research_md`) point at the lean `conventions_md § Design philosophy` subsection (two-step); the lean subsection itself points at `design_philosophy_md` so the deeper material stays load-on-demand.
 
 ## Workflow
 
@@ -225,23 +232,37 @@ sequenceDiagram
     participant Plan as implementation-plan.md
     participant Log as decision-log.md
 
-    Note over User,CP: Phase 1a in progress: design.md authored via edit-design (prior diagrams)
-    User->>CP: design looks ready / run the gate
-    CP->>User: Recommend optional domain sub-agents from design content
-    User->>CP: confirm / override
-    loop per sub-agent (feasibility + adversarial + optional domain)
-        CP->>Sub: invoke against design.md
-        Sub-->>FR: write verdict + findings (per cycle)
-    end
-    alt all PASS or user accepts open risks
-        opt user accepts open risks
-            CP->>FR: write accepted-open-risks block
+    Note over User,CP: Phase 1a: edit-design phase1-creation seeded design.md (prior diagrams)
+    CP->>CP: Auto-fire Phase 1a gate (no user signal)
+    CP->>CP: Auto-detect domain triggers in design.md
+    loop iter 1..3 per review-iteration.md
+        par
+            CP->>Sub: invoke feasibility-review (FD prefix)
+        and
+            CP->>Sub: invoke adversarial-design-review (AD prefix)
+        and optional domain-trigger reviewers
+            CP->>Sub: invoke domain-shaped reviewer
         end
+        Sub-->>FR: cycle log: verdicts + findings (iter N)
+        alt findings are mechanical
+            CP->>Design: edit-design mutation (autonomous)
+        else findings are decision-shaped
+            CP->>User: surface alternative-A-or-B / missing-mechanism / no-default
+            User->>CP: pick / define / refine
+            CP->>Design: edit-design mutation (per user input)
+        end
+    end
+    alt all sub-agents PASS
         CP->>FR: write gate verdict PASS
         CP->>User: Phase 1a complete; end session; re-invoke /create-plan for Phase 1b
-    else iterate
-        CP->>Design: edit-design mutation
-        CP->>CP: re-run gate
+    else blockers remain after 3 iters
+        CP->>User: Surface N open blockers
+        User->>CP: accepted-open-risks block OR end session for manual refinement
+        opt user accepts open risks
+            CP->>FR: write accepted-open-risks block
+            CP->>FR: write gate verdict PASS
+            CP->>User: Phase 1a complete; end session; re-invoke /create-plan for Phase 1b
+        end
     end
 
     Note over User,Plan: Fresh /create-plan session: Phase 1b auto-resumes
@@ -462,65 +483,123 @@ After the ack, the session enters Phase 1a: `design.md` authoring via `edit-desi
 
 ## Phase 1a feasibility-review gate
 
-**TL;DR.** After `design.md` is authored via `edit-design`, a sub-agent review fires against the design alone before plan derivation begins. Three slots invoke per cycle: a new agent at `.claude/agents/feasibility-review.md` (PSI-verified reference-accuracy checks against `design.md`), the existing `prompts/adversarial-review.md` (devil's-advocate edge-case pass), and zero or more domain-shaped reviewers (crash-safety, concurrency, performance) when the design's content triggers a recommendation the user confirms. Each cycle's verdicts and findings append to `_workflow/feasibility-review.md`. PASS fires when every sub-agent returns PASS or the user records an `accepted-open-risks` block; on PASS, the session ends so a fresh `/create-plan` invocation handles plan derivation in clean context.
+**TL;DR.** Two reviewers auto-run against the design immediately after `edit-design` seeds it, with no user signal required: a reference-accuracy pass at `.claude/workflow/prompts/feasibility-review.md` and a devil's-advocate pass at `.claude/workflow/prompts/adversarial-design-review.md`. Both produce certificate-shape output per Principle 6 (Semi-formal reasoning for reviewers): premises, structural traversal, findings as conclusions. The loop plugs into `.claude/workflow/review-iteration.md` (max 3 iterations, severity ladder, cumulative finding IDs `FD` and `AD`) and runs autonomously: mechanical findings are applied via `edit-design` mutations and the loop re-fires; it halts to ask the user only on decision-shaped findings (alternatives the design did not list, a missing primitive, an under-specified condition with no clear default). On PASS the session ends so plan derivation runs in fresh context; on max-iters with persistent blockers, the loop surfaces open findings with an `accepted-open-risks` option.
 
 The gate is the structural answer to the Phase 1 ordering gap: today `design.md` lands last and back-fills decisions the plan already crystallized around, so design-side flaws surface only after Phase 2 review. Moving design ahead of plan derivation and inserting a design-only review layer in between catches feasibility, adversarial, and domain-specific issues before plan structure is committed.
 
-The three sub-agent slots map to distinct review dimensions:
+### Auto-fire trigger and loop ownership
 
-- **Feasibility-review** (new agent at `.claude/agents/feasibility-review.md`). Reads `design.md` against the real codebase via PSI find-usages, find-implementations, and call-hierarchy queries. Flags claims that don't fit current code: a referenced method that doesn't exist, a proposed interface contract that contradicts an existing implementation, a "no production callers" claim that the audit actually refutes. PSI-reachability is mandatory; the agent falls back to grep only when mcp-steroid is `NOT reachable` and records the caveat in its verdict.
-- **Adversarial-review** (existing `prompts/adversarial-review.md`). Devil's-advocate pass on the design: under-specified edges, hidden assumptions, missing failure modes, sections where the author convinced themselves but a fresh reader would not.
-- **Domain-shaped reviewers** (optional). At gate-trigger time, the agent inspects `design.md` for content triggers (WAL / persistence / recovery language activates crash-safety review; locks / atomics / barriers / volatile / synchronized activates concurrency review; hot-path / allocation / I/O / direct-memory / cache language activates performance review). The agent surfaces a recommendation ("crash-safety reviewer recommended because design mentions WAL replay at §Recovery"); the user confirms, overrides, or adds.
+The Phase 1a orchestrator inside `create-plan` invokes the gate immediately after the `edit-design phase1-creation` mutation lands. No user "design ready" signal is required; the first iteration starts as part of the same SKILL invocation that produced the seeded `design.md`. Subsequent `edit-design` mutations during the cycle are driven by review findings, not by user direction; the orchestrator applies mechanical fixes autonomously and surfaces decision-shaped findings to the user only when the proposed fix cannot be resolved from surrounding design context. When the user issues a substantive `edit-design` mutation outside the cycle (a design revision the user wants to drive directly between iterations), the gate restarts from iter-1 on the new `design.md` state. The audit entry in `feasibility-review.md` opens a fresh cycle header to record the restart.
 
-Each cycle's per-sub-agent verdicts append to `feasibility-review.md` as a structured entry. File shape:
+### Two anchor sub-agents
+
+Both reviewer slots cover distinct dimensions; each runs on every cycle.
+
+- **feasibility-review** (`.claude/workflow/prompts/feasibility-review.md`). Reads `design.md` and verifies reference-accuracy against the codebase via PSI find-usages / find-implementations / call-hierarchy (mcp-steroid required when reachable; grep fallback carries an explicit caveat per `conventions.md §1.4`). Each claim in `design.md` (a referenced method exists; a contract is consistent with current implementations; "no production callers" is verified; a slot has no consumer) becomes a premise; the reviewer traverses via PSI; the conclusion is a finding when premise and traversal disagree. Finding ID prefix `FD`. Output shape mirrors `prompts/adversarial-review.md § Output Format`: Part 1 (Certificates) names every premise + traversal mechanism + verdict; Part 2 (Findings) emits one finding per disagreeing certificate entry, citing the entry that produced it. Severity rubric per `review-iteration.md`.
+- **adversarial-design-review** (`.claude/workflow/prompts/adversarial-design-review.md`). Devil's-advocate pass on `design.md` scoped to design content: hidden assumptions in mechanisms, missing failure modes the design doesn't address, under-specified edges, sections where the author convinced themselves but a fresh reader cannot, alternatives not even listed. Targets explicitly distinct from the track-level `prompts/adversarial-review.md`, which is scoped to Phase A track structure (Decision Records / Invariants / Integration Points / Non-Goals): categories that don't exist at design time. Finding ID prefix `AD`. Same certificate-shape output as feasibility-review (Part 1 Certificates, Part 2 Findings), tuned to design challenges (premise = the assumption or alternative; traversal = construct a concrete counter-scenario; conclusion = finding when the design fails the challenge). Survival test on every challenge.
+- **Optional domain-shaped reviewers.** At gate-trigger time the loop scans `design.md` for content triggers (WAL / persistence / recovery → crash-safety; locks / atomics / barriers / synchronized → concurrency; hot-path / allocation / I/O / direct-memory / cache → performance). Triggered reviewers join the cycle automatically; the user is not asked. Design-time variants of these reviewers live in `.claude/workflow/prompts/` and are written as part of the gate implementation when first needed; for YTDB-975's initial scope only feasibility-review and adversarial-design-review are mandatory. The project's existing `.claude/agents/review-crash-safety.md`, `review-concurrency.md`, `review-performance.md` are scoped to code review on a diff, not design review on prose, and are not reused directly.
+
+### Semi-formal reasoning protocol (Principle 6) — required for both prompts
+
+Each reviewer emits findings only by way of a structured trace back to the claim that justified them. The certificate shape is fixed per Principle 6: every finding cites the entry that produced it, and entries name three parts: the premise (what the reviewer checked: a referenced claim, an alternative not listed, a missing failure mode), the traversal mechanism (PSI find-usages, PSI call-hierarchy, structural inspection of `design.md`, counter-scenario construction), and the conclusion (verdict plus evidence: VERIFIED, REJECTED, or finding emitted with file:line citation). A reviewer cannot emit a finding without a corresponding entry; the template makes this structural. Existing precedent: `prompts/adversarial-review.md` and `prompts/technical-review.md` already emit certificate-shaped findings; the new design-time files mirror that shape adapted to design content rather than code or track structure.
+
+### Iteration loop (per `review-iteration.md`)
+
+Each cycle through the gate follows the standard workflow review protocol. The gate plugs into `.claude/workflow/review-iteration.md` verbatim. Max 3 cycles. Iter-1 is a full review (both anchor sub-agents plus any auto-detected domain reviewers run, all findings emitted, finding IDs assigned cumulatively by the convention there). Iter-2 and iter-3 are gate-checks: previous findings re-verified with the five verdicts from `§ Gate-check verdict handling` in that same file (`VERIFIED` / `STILL OPEN` / `REJECTED` / `MOOT` / `REGRESSION`); new findings (if any) added with the next cumulative ID. After iter-3 with persistent blockers, the cycle halts (see § "Max-iters halt and `accepted-open-risks`" below).
+
+Per-iteration cycle inside the gate:
+
+1. Spawn sub-agents in parallel: feasibility-review, adversarial-design-review, and any auto-detected domain reviewers.
+2. Collect findings; classify by severity (blocker / should-fix / suggestion) per `review-iteration.md`.
+3. For each finding, apply the decision-shaped triage (§ "Decision-shaped finding criterion" below). Mechanical fixes apply autonomously via `edit-design`; decision-shaped fixes surface to the user, await input, then apply via `edit-design`.
+4. After the iteration's mutations land, re-fire the gate (iter-2 or iter-3) if any findings remained open or new mutations could have introduced regressions; otherwise emit PASS.
+
+PASS condition: both anchor sub-agents return PASS (plus any active domain reviewers) AND no STILL OPEN blockers, OR an `accepted-open-risks` block is recorded against the remaining blockers.
+
+### Decision-shaped finding criterion
+
+A reviewer's proposed fix runs autonomously when surrounding context makes the resolution clear, and stops to ask the user when the resolution requires picking between alternatives or defining a new primitive. Three concrete shapes need user input:
+
+- **Alternative-A-or-B finding.** The reviewer found that the design chose approach A but the codebase has infrastructure for approach B (or another viable alternative) that the design didn't list. The resolution requires the user to either accept the existing choice with strengthened rationale, switch to the alternative, or list both. Example: "Section X assumes a single-pass scan; the existing `IndexHistogramManager` infrastructure supports a two-pass approach the design doesn't mention."
+- **Missing-mechanism finding.** The design assumes a primitive that no code or convention provides; the resolution requires the user to define the new primitive or revise the section to use an existing one. Example: "Section Y references a 'session-boundary lock' that doesn't exist in the workflow vocabulary or in code; the design either needs the primitive defined or the section restructured to use an existing locking mechanism."
+- **Under-specified-gap finding.** The design names a step but doesn't say what happens when a condition arises. Triage: if the condition has a clear default behavior from surrounding context (the rest of the section names a default path; a referenced existing mechanism handles the case; a `conventions.md` rule covers it), apply the default autonomously and continue. Otherwise, surface to the user. Example: "Section Z's gate fires on PASS but doesn't say what happens when one sub-agent times out; surrounding context suggests treating timeout as a NEEDS REVISION (autonomous fix) but the question of whether to retry or give up is open (surface)."
+
+The per-finding triage runs inside the gate orchestrator (the SKILL driving the loop), not inside the reviewer prompts. The reviewer prompts emit findings + proposed fixes; the loop driver applies the criterion. The split is deliberate: reviewers stay focused on their own discipline (reference-accuracy or adversarial counterargument); the loop driver owns the user-vs-autonomous routing because it carries the surrounding design context the reviewers don't see.
+
+### Max-iters halt and `accepted-open-risks`
+
+After iter-3 with persistent blockers, the loop surfaces the open findings to the user with a structured prompt:
+
+> *"The Phase 1a gate exhausted 3 iterations with N open blockers. Findings remaining: [list with IDs + severities + one-line summaries]. Options: (a) record an `accepted-open-risks` block in `feasibility-review.md` and proceed to Phase 1b; (b) end this session, refine `design.md` manually, then re-invoke `/create-plan` for a fresh gate cycle."*
+
+On option (a), the user-stated rationale is appended to the latest cycle entry as `**Accepted open risks**:` plus one bullet per accepted finding; the gate verdict line is written as `PASS (with accepted open risks)`; the session ends so Phase 1b runs in fresh context. On option (b), the session ends with no gate verdict; the next `/create-plan` invocation re-fires the gate from iter-1 on the user's manually-refined `design.md`.
+
+### `feasibility-review.md` file shape
 
 ```markdown
 # Feasibility Review — <Feature Name>
 
-<!-- Append-only log of every Phase 1a gate cycle. Each cycle's sub-agent
-verdicts and findings land here; Phase 1b reads the latest cycle's gate
-verdict as its auto-resume signal. Removed by the Phase 4 cleanup commit
-alongside the rest of _workflow/**. -->
+<!-- Append-only log of every Phase 1a gate cycle. Each cycle's
+sub-agent verdicts, per-iter gate-check verdicts, and findings land
+here; Phase 1b reads the latest cycle's gate verdict as its auto-
+resume signal. Removed by the Phase 4 cleanup commit alongside the
+rest of _workflow/**. -->
 
 ## Cycle 1 — <ISO date>
 
-**Sub-agents invoked**: feasibility-review, adversarial-review[, domain-1[, domain-2]]
+**Auto-fire trigger**: edit-design phase1-creation at <commit-SHA>
+
+### Iteration 1 — full review
+
+**Sub-agents invoked**: feasibility-review (FD), adversarial-design-review (AD)[, domain-X-review (prefix), ...]
 
 **feasibility-review** (PSI-backed | grep-fallback): <PASS | NEEDS REVISION>
-- <finding> — file:line citation
-- ...
+- FD1 [blocker]: <one-line summary; full body in certificate trace> — file:line citation
+- FD2 [should-fix]: ...
 
-**adversarial-review**: <PASS | NEEDS REVISION>
-- <finding>
-- ...
+**adversarial-design-review**: <PASS | NEEDS REVISION>
+- AD1 [blocker]: ...
+- AD2 [should-fix]: ...
 
 **<domain-name>-review** (when invoked): <PASS | NEEDS REVISION>
-- <finding>
-- ...
+- <prefix>N [<severity>]: ...
 
-**Accepted open risks** (when the user accepts findings rather than iterating):
-- <risk> — **Why accepted**: <user-stated rationale>
+### Iteration 2 — gate-check
 
-**Gate verdict**: PASS | NEEDS REVISION | ESCALATE
+- FD1: VERIFIED | STILL OPEN | REJECTED | MOOT | REGRESSION
+- AD1: VERIFIED | ...
+- (cumulative new findings, if any: FD3, AD3, ...)
+
+### Iteration 3 — gate-check
+
+- (verdicts for remaining open findings)
+
+**Accepted open risks** (when iter-3 halts and the user opts to accept):
+- <risk; ref to finding ID> — **Why accepted**: <user-stated rationale>
+
+**Gate verdict**: PASS | PASS (with accepted open risks) | ESCALATE-to-Phase-1a-via-manual-refinement
 ```
-
-Gate PASS ends the session with a user-facing message: *"Phase 1a complete. End this session and re-invoke `/create-plan` to enter Phase 1b (plan derivation)."* The session-end mirrors the A/B/C session-boundary contract in `workflow.md § Session Boundary Rules`: durable state (`design.md`, the `feasibility-review.md` verdict) crosses the boundary; chat-buffer state does not.
-
-Iteration on findings runs the standard `edit-design` mutation cycle plus a re-invocation of the gate. The cycle count is bounded by user patience, not by a hard limit; the `accepted-open-risks` block exists precisely for the case where iteration yields diminishing returns and the user wants to move on.
 
 ### Edge cases / Gotchas
 
-- **PSI unavailable.** When mcp-steroid is `NOT reachable`, the feasibility-review agent's reference-accuracy claims fall back to grep and the cycle entry records the caveat ("feasibility-review: PASS (grep-fallback, reference-accuracy not PSI-verified)"). Gate PASS is still allowed in this state, but the open-risk implication should be noted explicitly so Phase 4 ADR aggregation can surface it.
-- **Multi-sub-agent disagreement.** Each sub-agent returns its own verdict independently. PASS requires every sub-agent to PASS, OR the user to record an `accepted-open-risks` block citing the disagreeing sub-agent's finding. The gate does not auto-resolve disagreements.
-- **Domain-trigger drift.** A design that didn't mention crash-safety on cycle 1 may add a §"Recovery" section by cycle 3; the domain-recommendation step re-runs each cycle, so a new domain reviewer can join mid-iteration. The opposite case (a removed trigger no longer warranting a domain reviewer) drops the reviewer for subsequent cycles; prior cycles' entries stay on disk as the audit trail.
-- **Mid-gate pause.** If context fills past `warning` mid-iteration, the standard `mid-phase-handoff.md` protocol writes a `handoff-phase1a-gate.md` capturing the current cycle's partial findings and the next sub-agent to run. Resume reads the partial cycle entry from `feasibility-review.md` and continues without re-running already-PASSed sub-agents.
+- **PSI unavailable.** When mcp-steroid is `NOT reachable`, feasibility-review falls back to grep and records the caveat on every affected verdict line (for example, "FD3: NEEDS REVISION (grep-fallback, reference-accuracy not PSI-verified)"). Gate PASS is still allowed in this state, but the open-risk implication is logged so Phase 4 ADR aggregation can surface it. Adversarial-design-review is unaffected (its traversal is structural / counter-scenario construction over `design.md`, not codebase reference-accuracy).
+- **Mid-loop user mutation.** When the user issues a substantive `edit-design` mutation between cycles (a fix the user wants to drive directly), the gate restarts from iter-1 on the new `design.md` state. Audit trail in `feasibility-review.md` shows the cycle restart with a new `**Auto-fire trigger**: user mutation at <commit-SHA>` line. Prior cycle entries stay on disk as the audit trail.
+- **Iter-2 regression on mechanical fix.** When iter-2's gate-check verdict is `REGRESSION` (a mechanical fix between iters introduced a new issue), the regression is treated as a blocker per `review-iteration.md § Gate-check verdict handling`; the loop continues to iter-3 with revert-or-repair instructions for the next mutation. The original finding's ID stays open; the regression gets its own ID.
+- **Domain-trigger auto-detection false positive.** When the loop auto-adds a domain reviewer the user thinks is irrelevant (a brief "WAL" reference triggering crash-safety review unnecessarily), the user can manually drop the reviewer at any user-input boundary by stating the override; the override is recorded as a one-line note in the next cycle's entry. The auto-detection rule favors over-inclusion: a false-positive costs one extra reviewer slot; a false-negative costs the discipline the trigger was meant to enforce.
+- **`design-review.md` cold-read still fires per-mutation.** The Phase 1a gate does NOT replace `prompts/design-review.md` (the per-mutation cold-read comprehension review fired by `edit-design` Step 4). The cold-read runs after every `edit-design` mutation; the Phase 1a gate runs after the `phase1-creation` mutation and after each loop iteration's mutations. They layer: cold-read catches comprehension drift per-edit; the Phase 1a gate catches feasibility / adversarial issues on the doc as a whole.
+- **Single sub-agent disagreement.** PASS requires both anchor sub-agents to PASS (plus any active domain reviewers). One PASS + one NEEDS REVISION continues the loop into the next iteration; the loop does not auto-resolve disagreement between sub-agents.
+- **Phase 1b ESCALATE re-enters via Phase 1a.** When Phase 1b's ESCALATE back-edge fires (per §"Phase 1b plan derivation and ESCALATE back-edge"), the user re-invokes `/create-plan`; the next session enters Phase 1a, the user works through an `edit-design` mutation addressing the ESCALATE, the gate re-fires from iter-1 on the new `design.md`, and on PASS the session ends for Phase 1b to auto-resume in a fresh `/create-plan` invocation.
+- **Mid-gate pause.** When context fills past `warning` mid-iteration, the standard `mid-phase-handoff.md` protocol writes a `handoff-phase1a-gate.md` capturing the current cycle's partial findings and the next sub-agent to run. Resume reads the partial cycle entry from `feasibility-review.md` and continues without re-running already-PASSed sub-agents.
 
 ### References
 
 - YTDB-975 — umbrella issue and acceptance criteria.
 - Parent epic YTDB-813.
-- `.claude/workflow/prompts/adversarial-review.md` — the reusable existing sub-agent.
-- `.claude/agents/feasibility-review.md` — the new agent definition added by this PR.
+- `.claude/workflow/prompts/feasibility-review.md` — feasibility prompt written by this PR.
+- `.claude/workflow/prompts/adversarial-design-review.md` — adversarial-design prompt written by this PR.
+- `.claude/workflow/prompts/adversarial-review.md` — existing Phase A track-level adversarial prompt; left unchanged.
+- `.claude/workflow/prompts/design-review.md` — existing per-mutation cold-read; layers with the Phase 1a gate.
+- `.claude/workflow/review-iteration.md` — iteration protocol the gate plugs into; `FD` and `AD` prefixes added to its prefix table by this PR.
 - `.claude/workflow/workflow.md § Session Boundary Rules` — the contract Phase 1a / 1b mirrors.
 - §"Phase 1b plan derivation and ESCALATE back-edge" — what runs after gate PASS.
 
