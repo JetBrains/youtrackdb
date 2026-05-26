@@ -224,4 +224,4 @@ Per-step replay safety:
 
 ## Base commit
 
-<!-- Phase B writes the SHA of HEAD at session start. -->
+928825a13cd912b4bfe653ae6c169e9917ac498a
