@@ -453,7 +453,7 @@ jobs:
             -f trigger_sha="$TRIGGER_SHA"
       - name: Send Zulip notification on failure
         if: failure()
-        uses: zulip/github-actions-zulip/send-message@v1
+        uses: zulip/github-actions-zulip/send-message@v2
         with:
           api-key: ${{ secrets.ZULIP_API_KEY }}
           email: ci-status-bot@youtrackdb.zulipchat.com
@@ -837,7 +837,7 @@ jobs:
             -f failed_workflow_name="${{ github.workflow }}" \
             -f trigger_sha="${{ github.sha }}"
       - name: Send Zulip notification
-        uses: zulip/github-actions-zulip/send-message@v1
+        uses: zulip/github-actions-zulip/send-message@v2
         with:
           api-key: ${{ secrets.ZULIP_API_KEY }}
           email: ci-status-bot@youtrackdb.zulipchat.com
@@ -887,7 +887,7 @@ jobs:
 
       - name: Send Zulip notification
         if: steps.previous_run.outputs.previous_conclusion == 'failure'
-        uses: zulip/github-actions-zulip/send-message@v1
+        uses: zulip/github-actions-zulip/send-message@v2
         with:
           api-key: ${{ secrets.ZULIP_API_KEY }}
           email: ci-status-bot@youtrackdb.zulipchat.com
