@@ -297,4 +297,7 @@ flowchart LR
 **Consistency review:** zero findings; all PSI-verified citations in Track 5 match the codebase (MV/SV `clear()` bodies and signatures, `IndexCountDelta.accumulateInMemRecalibration` location, `inMemAdjustTotal`/`inMemAdjustNull` fields, `AbstractStorage.applyIndexCountDeltas` sum at lines 2538–2541, exactly two production callers of `accumulateClearOrRecalibrate`).
 
 ## Final Artifacts
-- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
+- [>] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
+
+**PAUSED 2026-05-26 at Phase 4 pre-drafting (context warning, 36%) pending session refresh before drafting `design-final.md`**
+- Handoff: `_workflow/handoff-phase4.md`
