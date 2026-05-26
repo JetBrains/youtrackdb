@@ -920,3 +920,35 @@ Companion plan-side edits (applied via `Edit`, not through this skill):
 
 **Iterations**: 2 of 3 (PASS).
 
+## Mutation 24 — 2026-05-26 — content-edit (design.md)
+
+**Diff summary**: Adds two new Decision Records to the design text — D19 (SUM/AVG cross-subtype-safe BigDecimal internal accumulator with type-pinned replay) and D20 (AGGREGATE_COUNT_DISTINCT cacheable shape, promoted from K0_NONE per user direction). Both DRs are fully detailed in `implementation-plan.md`; this mutation propagates the implementation detail into the design text. Two same-vintage cleanups bundled: edge-CREATED parenthetical at § MATCH multi-alias tightened (overstated coverage corrected), and a Weight-aware LRU bullet added to § Open questions as a v2 deferral gated on D13 measurement.
+
+Per-file edits (all `design.md`):
+- § Class Design Mermaid `classDiagram`: added `AGGREGATE_COUNT_DISTINCT` value to CacheableShape enum; added `sumAccumulator: BigDecimal`, `scalarReturnType: Class`, `distinctBuckets: Map` fields to AggregateState.
+- § Lazy merge-on-read → Per-shape classify: AGGREGATE_* bullet extended to cover `COUNT(DISTINCT prop)` as AGGREGATE_COUNT_DISTINCT; K0_NONE bullet's "COUNT DISTINCT" replaced with "expression-DISTINCT (`COUNT(DISTINCT a+b)`, `COUNT(DISTINCT someFunction())`)" and explicit "plain-property `COUNT(DISTINCT prop)` is NOT in this list" sentence.
+- § Aggregate delta — AGGREGATE_* shapes: inserted two new paragraphs (D19 cross-subtype safety; D20 AGGREGATE_COUNT_DISTINCT transitions including the F→F / F→T / T→F / T→T-same-key / T→T-key-change matrix). References footer extended with D19 + D20 (cold-read iteration 2 polish).
+- § MATCH multi-alias (partial Etap B in v1): edge-CREATED parenthetical replaced with tightened wording — tombstone trigger fires only when edge class is named via `class:` on a path item; common `.out('label')` syntax does not bind the edge class; gap is part of separate-ADR scope for full Etap B.
+- § Edge cases / Gotchas → Aggregate result type: rewritten to reflect BigDecimal internal accumulator + scalarReturnType pin.
+- § Open questions deferred to execution: TL;DR "Five items" → "Six items"; new Weight-aware LRU bullet inserted between Class-scoped K0_NONE invalidation and Sub-statement caching.
+
+Companion edits applied via `Edit` (not through this skill):
+- `implementation-plan.md`: D19 + D20 added after D18; Component Map AggregateState bullet extended with new fields; CacheableShape enum value list extended; Non-Goals delta-build aggregate-shapes bullet updated (drops `COUNT(DISTINCT col)` from K0_NONE list, adds `COUNT(DISTINCT a+b)` to expression-aggregate K0_NONE list); Track 5 description scope grown from ~5 to ~7 steps.
+- `plan/track-5.md`: BLUF + Concrete deliverables extended for D19/D20; algorithm steps for observe / applyMutation / copy extended with BigDecimal coercion + COUNT_DISTINCT branch; test matrix extended with T5m (SUM cross-subtype), T5m' (AVG cross-subtype), T5n (COUNT_DISTINCT classify), T5o (CREATED), T5p (DELETED), T5q (UPDATED bucket move), T5q' (cross-subtype bucket key).
+- `plan/track-8.md`: QueryCacheMetrics counter list extended with `aggregateCountDistinctHits` and `aggregateCountDistinctInvalidations`.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS. 0 blockers, 33 should-fix (pre-existing house-style debt — em-dash density and fragmented-header findings — explicitly deferred to Phase 4 per the plan's "Pre-existing structural debt observed" entry), 0 suggestions.
+**Cold-read** (scope: whole-doc): PASS. 0 blockers, 0 should-fix, 3 suggestions (non-mandatory polish). Suggestion 1 (References footer on § Aggregate delta missing D19/D20 anchors) was applied as iteration 2 polish; suggestions 2 (Weight-aware LRU has no D-record number) and 3 (trailing redundancy in Aggregate result type entry) were judged not worth a follow-up edit and are recorded here only.
+
+**Findings**:
+- D19 / D20 introduction RESOLVED: new DRs and supporting prose added across Class Design, Per-shape classify, Aggregate delta, Edge cases / Gotchas.
+- Edge-CREATED parenthetical RESOLVED: tightened to require explicit `class:` annotation on edge path items.
+- Weight-aware LRU added to v2 deferral catalog in § Open questions.
+- Cold-read suggestion 1 RESOLVED (iteration 2 polish): D19 + D20 added to § Aggregate delta References footer.
+- Cold-read suggestions 2 + 3 NOT addressed: no-DR-number for Weight-aware LRU is acceptable (matches Per-entry WHERE memoization treatment); redundant trailing sentence in Aggregate result type is minor and the alternative phrasing would lose the "don't coerce everything to double" idiom that survives from the eager design.
+- (pre-existing, NOT addressed): 33 should-fix em-dash density / fragmented-header findings — Phase 4 sweep.
+- (pre-existing, NOT addressed): `Lazy merge-on-read` section length cap — Phase 4 sweep.
+
+**Iterations**: 2 of 3 (PASS).
+
+

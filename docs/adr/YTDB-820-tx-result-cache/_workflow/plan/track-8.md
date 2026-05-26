@@ -16,7 +16,7 @@ Existing relevant code:
 - `jmh-ldbc/` — JMH LDBC harness; reuse JMH plumbing patterns.
 
 **Concrete deliverables.**
-- `QueryCacheMetrics` class — counters: `hits`, `misses`, `evictions`, `deltaBuildTimeNanos`, `deltaBuildCount`, `spliceFailures` (L6 fallback — unexpected step shape on aggregate side-tap plan walk in Track 5), `k0NoneHits` (D18 — K0_NONE entry served as cache hit because `tx.mutationVersion` matched populate stamp), `k0NoneInvalidations` (D18 — K0_NONE entry invalidated at lookup because `tx.mutationVersion` diverged), `k0NoneShortCircuits` (D18 — `nonCacheableKeys` short-circuited a previously-churned K0_NONE key, no lookup attempt). Per-tx (held on `QueryResultCache`).
+- `QueryCacheMetrics` class — counters: `hits`, `misses`, `evictions`, `deltaBuildTimeNanos`, `deltaBuildCount`, `spliceFailures` (L6 fallback — unexpected step shape on aggregate side-tap plan walk in Track 5), `k0NoneHits` (D18 — K0_NONE entry served as cache hit because `tx.mutationVersion` matched populate stamp), `k0NoneInvalidations` (D18 — K0_NONE entry invalidated at lookup because `tx.mutationVersion` diverged), `k0NoneShortCircuits` (D18 — `nonCacheableKeys` short-circuited a previously-churned K0_NONE key, no lookup attempt), `aggregateCountDistinctHits` (D20 — AGGREGATE_COUNT_DISTINCT entry served via delta-build), `aggregateCountDistinctInvalidations` (D20 — AGGREGATE_COUNT_DISTINCT entry overflowed `maxRecordsPerEntry` and routed through the L7 path). Per-tx (held on `QueryResultCache`).
 - `FrontendTransactionImpl.getQueryCacheMetrics() → QueryCacheMetrics` accessor.
 - Counter increments at:
   - `cache.lookup` hit / miss.
