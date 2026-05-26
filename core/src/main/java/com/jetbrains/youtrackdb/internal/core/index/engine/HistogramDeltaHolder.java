@@ -40,6 +40,25 @@ public final class HistogramDeltaHolder {
   private final Map<Integer, HistogramDelta> deltas = new HashMap<>();
 
   /**
+   * Idempotency latch set by {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage#applyHistogramDeltas}
+   * after a successful pass. Read by the apply hook in {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager#endAtomicOperation}
+   * to short-circuit a second apply on the same atomic operation. Defensive
+   * belt against any future re-entry into apply within the same atomic
+   * operation, for example a nested or mistakenly-replayed lifecycle pass.
+   * The latch would also prevent a double-apply of histogram deltas to the
+   * in-memory CHM cache if any path tried to invoke apply twice in a row.
+   *
+   * <p>Thread-confinement: plain boolean because the holder lives on a single
+   * AtomicOperation, driven by exactly one thread between
+   * {@code startAtomicOperation} and {@code endAtomicOperation}. If a future
+   * path applies from a different thread, this field must become volatile or
+   * move behind a synchronizer.
+   */
+  private boolean applied = false;
+
+  /**
    * Returns the delta for the given engine, creating it if absent.
    */
   public HistogramDelta getOrCreate(int engineId) {
@@ -51,5 +70,20 @@ public final class HistogramDeltaHolder {
    */
   public Map<Integer, HistogramDelta> getDeltas() {
     return Collections.unmodifiableMap(deltas);
+  }
+
+  /**
+   * Marks this holder as already applied to the in-memory CHM cache.
+   * Idempotent: calling twice in a row is harmless.
+   */
+  public void setApplied() {
+    this.applied = true;
+  }
+
+  /**
+   * Returns {@code true} once {@link #setApplied()} has been called.
+   */
+  public boolean isApplied() {
+    return applied;
   }
 }

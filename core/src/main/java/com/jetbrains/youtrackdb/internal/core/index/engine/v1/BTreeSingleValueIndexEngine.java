@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -10,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -26,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -56,6 +59,15 @@ public final class BTreeSingleValueIndexEngine
   // key, so this is O(1)). Adjusted at commit time via applyIndexCountDeltas
   // and recalibrated by buildInitialHistogram() during create/rebuild.
   private final AtomicLong approximateNullCount = new AtomicLong();
+
+  // One-shot latch for the in-memory counter underflow stack-trace dump.
+  // Shared by addToApproximateEntriesCount and addToApproximateNullCount: the
+  // first underflow on either mutator (per engine instance) wins the CAS and
+  // emits an error log with a stack trace so the next regression is
+  // pin-pointable; subsequent underflows on the same engine emit a compact
+  // error line without the stack. Resets on storage close + reopen because the
+  // engine is re-instantiated.
+  private final AtomicBoolean firstUnderflowDumped = new AtomicBoolean(false);
 
   public BTreeSingleValueIndexEngine(
       int id, String name, AbstractStorage storage, int version) {
@@ -229,36 +241,90 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     try {
+      // Order is load-bearing for race-freedom on the clearIndex API path:
+      // when doClearTree() enters its while-loop body (the common case for any
+      // populated index), the per-tree exclusive lock is acquired transitively
+      // via tree.remove → executeInsideComponentOperation →
+      // acquireExclusiveLockTillOperationComplete and held for the remainder
+      // of this call. For genuinely empty indexes, no lock is taken; the
+      // snapshot reads then race against any concurrent commit's apply hook on
+      // the same engine, but currentTotal/currentNull are 0 in normal
+      // operation and the resulting (0, 0) delta is a no-op. The commit path
+      // independently holds the per-engine lock at AbstractStorage.lockIndexes
+      // before clear() runs, so this race is API-path-only.
       doClearTree(atomicOperation);
       // Postcondition: doClearTree must remove every entry from the B-tree.
       // If entries remain, the iterate-and-remove loop missed them (e.g., due
       // to cursor invalidation during page rebalancing). This assert fires
-      // BEFORE the approximate count reset, so the CI stack trace
-      // distinguishes "doClearTree left entries" from "entries appeared later."
+      // BEFORE the snapshot read, so the CI stack trace distinguishes
+      // "doClearTree left entries" from "entries appeared later."
       assert sbTree.firstKey(atomicOperation) == null
           : "doClearTree() left entries in engine=" + name + " id=" + id
-              + " treeSize=" + sbTree.size(atomicOperation)
-              + " approximateCount=" + approximateIndexEntriesCount.get();
-      // Reset persisted count on entry point page after clearing tree data.
-      // persistIndexCountDeltas adds only deltas from replayed entries after
-      // the clear, yielding the correct final count.
-      sbTree.setApproximateEntriesCount(atomicOperation, 0);
+              + " treeSize=" + sbTree.size(atomicOperation);
+      // Snapshot under the per-tree lock acquired by doClearTree() above.
+      final long currentTotal = approximateIndexEntriesCount.get();
+      final long currentNull = approximateNullCount.get();
+      assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
+          : "clear() snapshot invariant violated on engine=" + name + " id=" + id
+              + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
       indexesSnapshot.clear();
-      // In-memory counters are set eagerly inside the atomic operation. If the
-      // enclosing transaction rolls back:
-      // 1. WAL reverts the persisted page to pre-clear count (e.g., 1000)
-      // 2. In-memory counters stay at 0
-      // 3. Next commit's persistCountDelta adds delta (e.g., +5) to reverted
-      //    page → 1005
-      // 4. applyIndexCountDeltas adds delta to in-memory 0 → 5
-      // 5. On restart, load() reads 1005, diverging from the 5 the live
-      //    instance has
+      // Mixed-mode encoding (replaces the prior pure-delta encoding that wrote
+      // totalDelta=-currentTotal through persistCountDelta and silently dropped
+      // nullDelta because the single-value engine stores nulls and non-nulls
+      // in the same tree).
+      // Persisted side: one inline absolute write on the single tree,
+      // WAL-tracked through the AOM lifecycle, reverts on rollback, and lands
+      // at zero regardless of any pre-existing in-mem-vs-persisted drift.
+      // Heals the drift window the pure-delta encoding accepted as an open
+      // regression: addToApproximateEntriesCount(-currentInMem) on the
+      // persisted side would land the EP below zero whenever in-mem had
+      // drifted above persisted (e.g. from a reportAndClampUnderflow event on
+      // a prior commit).
       //
-      // Self-healing: buildInitialHistogram() recalibrates both from an exact
-      // scan. This divergence is tolerable because counters are approximate and
-      // rollback of clear() is an extremely rare edge case.
-      approximateIndexEntriesCount.set(0);
-      approximateNullCount.set(0);
+      // No new checked-exception exposure on this rewrite:
+      // setApproximateEntriesCount declares no checked exception. The body of
+      // CellBTreeSingleValueV3.setApproximateEntriesCount routes the EP page
+      // write through executeInsideComponentOperation, which catches the
+      // underlying IOException and rewraps it as a
+      // CommonStorageComponentException (unchecked). The setApproximate-
+      // EntriesCount call therefore sits inside the existing method-level try
+      // purely for code locality; a runtime failure escapes as an unchecked
+      // exception, triggers atomic-op rollback at the surrounding
+      // executeInsideAtomicOperation boundary, and is handled at the
+      // clearIndex API surface. The method-level catch below remains
+      // load-bearing for mgr.resetOnClear, which is now the only IOException
+      // source on this body.
+      sbTree.setApproximateEntriesCount(atomicOperation, 0L);
+      // In-mem side: route the collapse through the mixed-mode accumulator
+      // shared with buildInitialHistogram(). The delta (-currentTotal,
+      // -currentNull) advances inMemAdjustTotal / inMemAdjustNull on the
+      // holder; Hook B's applyIndexCountDeltas sums
+      // getTotalDelta() + getInMemAdjustTotal() (and the null mirror)
+      // post-commit before calling the engine mutators. On rollback the
+      // holder is dropped and the in-mem AtomicLongs stay at their
+      // pre-clear() values; on success they advance to zero post-commit,
+      // matching the persisted side. The new accumulator is the sole carrier
+      // of the null-counter delta on this engine — Hook A's persistCountDelta
+      // still ignores nullDelta for SV, but Hook A is a no-op for this seam
+      // because clear() no longer writes to getTotalDelta()/getNullDelta().
+      //
+      // Race posture vs the prior pure-delta encoding. Mixed-mode narrows the
+      // snapshot-read race the lock-window comment block above documents: the
+      // persisted side is now an absolute zero write (immune to a wrong
+      // (currentTotal, currentNull) snapshot); only the in-mem side keeps the
+      // race window. The consequence is bounded the same way the prior
+      // encoding documented: the in-mem-side delta is additively composable,
+      // so concurrent recalibrations on the same engine compose via
+      // AtomicLong.addAndGet, and any residual drift self-heals on the next
+      // buildInitialHistogram() recalibration.
+      IndexCountDelta.accumulateInMemRecalibration(
+          atomicOperation, id, -currentTotal, -currentNull);
+      // mgr.resetOnClear() must remain LAST in this sequence. An IOException
+      // from it routes through atomic-op rollback via the surrounding wrap,
+      // and the WAL-tracked persisted write plus the holder-only in-mem
+      // delta both revert cleanly. Moving it earlier would not break
+      // correctness, but it would change the failure-ordering semantics and
+      // make the rollback story harder to audit.
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.resetOnClear(atomicOperation);
@@ -610,18 +676,49 @@ public final class BTreeSingleValueIndexEngine
           mgr.getKeyFieldCount());
     }
 
-    // Recalibrate from exact count — persist first so that if setApproximateEntriesCount
-    // throws, the in-memory counters remain at their prior (approximate) values rather
-    // than diverging from the rolled-back persisted state.
+    // Recalibrate from exact counts using mixed-mode encoding.
     //
-    // Note: if the enclosing atomic operation rolls back after this point, WAL reverts
-    // the persisted page but the in-memory counters keep the new values. This temporary
-    // divergence is acceptable because counters are approximate by design and the next
-    // buildInitialHistogram() or load() will recalibrate them.
+    // Persisted side: the sbTree.setApproximateEntriesCount call below is
+    // WAL-tracked through the AOM lifecycle. It writes the absolute target
+    // value (not a delta), so on every successful recalibration the persisted
+    // EP page lands at the exact count regardless of the pre-rebuild
+    // persisted value — pre-existing in-mem-vs-persisted drift heals here.
+    // On rollback the WAL reverts this write.
+    //
+    // In-mem side: the AtomicLong counters do NOT move inline. The snapshot
+    // delta (target - currentInMem) is recorded on the AtomicOperation via
+    // IndexCountDelta.accumulateInMemRecalibration and applied by Hook B
+    // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds.
+    // On the only production path that reaches this method
+    // (IndexAbstract.buildHistogramAfterFill via executeInsideAtomicOperation),
+    // no per-index lock is held during Hook B's apply; concurrent commits on
+    // the same engine compose via AtomicLong.addAndGet's additive semantics.
+    // On rollback the holder is dropped and the in-mem counters stay at
+    // their pre-recalibration value, so the persisted-side WAL revert and
+    // the in-mem-side no-op stay in step. The structural divergence that
+    // produced the underflow cascade is unreachable on this path.
+    //
+    // Scope: the structural-impossibility claim covers only the count
+    // counters (approximateIndexEntriesCount, approximateNullCount). The
+    // IndexHistogramManager.cache snapshots installed by the preceding
+    // mgr.buildHistogram call are NOT reverted on rollback (a heap-only
+    // cache rebuilt on next storage open; out-of-scope follow-up).
+    //
+    // SV-specific note: persistCountDelta ignores nullDelta on this engine
+    // (the single tree stores nulls and non-nulls together; the persisted
+    // side moves by totalDelta alone). The in-mem-only accumulator below
+    // is therefore the sole carrier of the null-counter recalibration on
+    // this path.
     long exactTotal = scannedNonNull + exactNullCount;
     sbTree.setApproximateEntriesCount(atomicOperation, exactTotal);
-    approximateIndexEntriesCount.set(exactTotal);
-    approximateNullCount.set(exactNullCount);
+    long currentTotal = approximateIndexEntriesCount.get();
+    long currentNull = approximateNullCount.get();
+    assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
+        : "buildInitialHistogram() snapshot invariant violated on engine="
+            + name + " id=" + id
+            + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
+    IndexCountDelta.accumulateInMemRecalibration(
+        atomicOperation, id, exactTotal - currentTotal, exactNullCount - currentNull);
   }
 
   @Override
@@ -636,20 +733,62 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void addToApproximateEntriesCount(long delta) {
-    long prev = approximateIndexEntriesCount.get();
     long updated = approximateIndexEntriesCount.addAndGet(delta);
-    assert updated >= 0
-        : "In-memory approximateIndexEntriesCount underflow: engine=" + name
-            + " id=" + id + " prev=" + prev + " delta=" + delta
-            + " updated=" + updated;
+    if (updated < 0) {
+      reportAndClampUnderflow(
+          "approximateIndexEntriesCount", approximateIndexEntriesCount, updated, delta);
+    }
   }
 
   @Override
   public void addToApproximateNullCount(long delta) {
     long updated = approximateNullCount.addAndGet(delta);
-    assert updated >= 0
-        : "In-memory approximateNullCount underflow: updated="
-            + updated + " delta=" + delta;
+    if (updated < 0) {
+      reportAndClampUnderflow(
+          "approximateNullCount", approximateNullCount, updated, delta);
+    }
+  }
+
+  /**
+   * Handles an in-memory approximate-count underflow on either mutator: logs at
+   * error level with engine identity, then clamps the counter back to 0 via
+   * CAS. The first underflow per engine instance carries a stack trace so the
+   * next regression is pin-pointable; subsequent underflows on the same engine
+   * emit a compact error without the stack.
+   *
+   * <p>If the CAS to 0 fails (a concurrent applier already moved the counter
+   * away from {@code observedNegative}), the method leaves the counter alone.
+   * A clamp-loop would mask a legitimate concurrent decrement and force the
+   * counter to 0 even when the new value is correct; under heavy contention
+   * the counter may stay negative until the next sufficiently-positive delta.
+   * This trade-off is intentional.
+   */
+  // Package-private (rather than private) so the engine-level underflow
+  // regression tests in this package can invoke it directly with a pre-set
+  // counter value to pin the failed-CAS branch (see
+  // BTreeSingleValueIndexEngineUnderflowTest
+  //   #failedClampCasLeavesCounterAtConcurrentWriterValueThroughEnginePath).
+  // Production callers are exclusively the two mutators above.
+  void reportAndClampUnderflow(
+      String counterName, AtomicLong counter, long observedNegative, long delta) {
+    if (firstUnderflowDumped.compareAndSet(false, true)) {
+      LogManager.instance().error(
+          this,
+          "In-memory %s underflow on engine '%s' (id=%d): updated=%d delta=%d."
+              + " Clamping to 0; the cause should be a divergence between persisted"
+              + " and in-memory counter state — see stack trace.",
+          new IllegalStateException("approximate-count underflow stack"),
+          counterName, name, id, observedNegative, delta);
+    } else {
+      LogManager.instance().error(
+          this,
+          "In-memory %s underflow on engine '%s' (id=%d): updated=%d delta=%d."
+              + " Clamping to 0 (stack trace suppressed; already emitted once for this"
+              + " engine instance).",
+          null,
+          counterName, name, id, observedNegative, delta);
+    }
+    counter.compareAndSet(observedNegative, 0);
   }
 
   @Override
