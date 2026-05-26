@@ -233,6 +233,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
+          compare_to_earlier_commit: false
           check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
@@ -304,6 +305,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
+          compare_to_earlier_commit: false
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
@@ -368,6 +370,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
+          compare_to_earlier_commit: false
           check_name: Tests Results (macOS arm, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
@@ -425,6 +428,7 @@ jobs:
           action_fail: true
           large_files: true
           comment_mode: off
+          compare_to_earlier_commit: false
           check_name: Tests Results (Small Cache IT)
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
