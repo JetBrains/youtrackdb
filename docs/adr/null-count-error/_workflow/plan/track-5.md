@@ -30,6 +30,8 @@ Retrofit `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.c
 
 <!-- Continuous-log; empty at Phase 1. Phase A/B/C reviews append timestamped entries; Phase C track completion appends final summary. -->
 
+- [x] Technical: PASS at iteration 2 (6 actionable findings, 5 accepted into plan, 1 rejected as spurious). Iter-1 surfaced T1 (blocker — unreachable IOException wrap on MV `clear()`; `setApproximateEntriesCount` declares no checked exception), T2 (blocker — Step 3's Mockito-driven test migration described files that don't carry that shape; user picked Option A — add per-engine pin tests), T3 (should-fix — citation drifts; PSI re-verification showed reviewer hallucinated line numbers, all plan citations correct), T4 (suggestion — SV try/catch widening was vacuously true), T5 (should-fix — confirmed `persistCountDelta` short-circuits on `(0, 0)` so Hook A no-op claim holds without plan change), T6 (suggestion — added race-blast-radius commentary to Step 1). Iter-2 gate-check VERIFIED T1/T2/T4/T5/T6, REJECTED T3 (orchestrator's SPURIOUS classification confirmed), 0 STILL OPEN / 0 REGRESSION / 0 new findings.
+
 ## Context and Orientation
 
 The two `clear()` bodies (PSI-verified post-Track-4 at inline-replan):
@@ -50,48 +52,55 @@ After Track 5 lands, `IndexCountDelta.accumulateClearOrRecalibrate` has zero pro
 
 `IndexCountDelta.accumulateInMemRecalibration` (Track 4) accepts arbitrarily-signed deltas; Track 5's deltas are `(-currentTotal, -currentNull)` with `|nullDelta| <= |totalDelta|` and same-sign (both negative, given the engine snapshot invariant). No precondition rewrites are needed on the accumulator side. Hook A's `persistCountDelta` reads only `getTotalDelta()` / `getNullDelta()`; the in-mem-only fields are not consumed on the persist side. Track 5's `clear()` writes nothing to `getTotalDelta()` / `getNullDelta()` (the persisted side is fed by the inline `setApproximateEntriesCount` calls), so Hook A is a no-op for the `clear()` seam post-Track-5.
 
-The deliverable: MV `clear()` rewrite, SV `clear()` rewrite, and an update of the two existing rollback test suites (`BTreeMultiValueIndexEngineClearRollbackTest`, `BTreeSingleValueIndexEngineClearRollbackTest`) to expect the new mixed-mode shape on the holder row plus inline `setApproximateEntriesCount(op, 0)` persisted-side verifies. The MV body gains a new local IOException-to-IndexException wrap try/catch around the new `setApproximateEntriesCount` calls (mirroring the existing histogram-reset wrap at MV:333-345) because MV `clear()` does not declare `throws IOException`. The SV body extends the existing method-level try/catch (lines 243-296) over the new calls; no new try/catch is added.
+The deliverable: MV `clear()` rewrite, SV `clear()` rewrite, two new Mockito-driven pin tests (`BTreeMultiValueIndexEngineClearMixedModeTest`, `BTreeSingleValueIndexEngineClearMixedModeTest`) mirroring Track 4 iter-1's holder-row + per-tree-verify + negative-pin patterns, Javadoc-only reframings on the three existing tests (`BTreeMultiValueIndexEngineClearRollbackTest`, `BTreeSingleValueIndexEngineClearRollbackTest`, `ClearIndexApiRollbackTest`) that today reference the pure-delta encoding in prose, and a one-line awaiting-cleanup note on the `accumulateClearOrRecalibrate` Javadoc. No new try/catch on either engine: `BTree.setApproximateEntriesCount` declares no checked exception (the body wraps the EP-page write in `executeInsideComponentOperation`, which absorbs IOException internally), so the MV body inlines the two writes directly and the SV body's existing method-level try/catch (lines 243–296) continues to cover `mgr.resetOnClear` unchanged.
 
 ## Plan of Work
 
 Three logical edits:
 
-1. **Rewrite `BTreeMultiValueIndexEngine.clear` lines 318–332 (pre-Track-5)** to mixed-mode encoding. Keep `clearSVTree(atomicOperation)` at line 302, the postcondition asserts at lines 304–309, the in-mem snapshot reads at lines 311–312, the snapshot-invariant assert at lines 313–315, the `indexesSnapshot.clear()` / `nullIndexesSnapshot.clear()` calls at lines 316–317, and the histogram-reset block at lines 333–345 (which keeps the pre-existing `mgr.resetOnClear` wrap). Replace the `accumulateClearOrRecalibrate` call at lines 331–332 and the pure-delta comment block at lines 318–330 with a new local try/catch around the per-tree absolute writes plus the in-mem-only accumulator call. Replacement body shape:
+1. **Rewrite `BTreeMultiValueIndexEngine.clear` lines 318–332 (pre-Track-5)** to mixed-mode encoding. Keep `clearSVTree(atomicOperation)` at line 302, the postcondition asserts at lines 304–309, the in-mem snapshot reads at lines 311–312, the snapshot-invariant assert at lines 313–315, the `indexesSnapshot.clear()` / `nullIndexesSnapshot.clear()` calls at lines 316–317, and the histogram-reset block at lines 333–345 (which keeps the pre-existing `mgr.resetOnClear` wrap). Replace the `accumulateClearOrRecalibrate` call at lines 331–332 and the pure-delta comment block at lines 318–330 with two inline per-tree absolute writes plus the in-mem-only accumulator call. Replacement body shape:
    ```java
    // Persisted-side absolute writes per tree: WAL-tracked through the AOM
    // lifecycle, revert on rollback, land at zero regardless of any
    // pre-existing in-mem-vs-persisted drift. Heal the drift Track 3's
    // pure-delta encoding accepted as an open window.
    //
-   // Local try-catch needed: unlike BTreeSingleValueIndexEngine.clear(),
-   // this method's outer scope does not catch IOException.
-   try {
-     svTree.setApproximateEntriesCount(atomicOperation, 0);
-     nullTree.setApproximateEntriesCount(atomicOperation, 0);
-   } catch (IOException e) {
-     throw BaseException.wrapException(
-         new IndexException(storage.getName(),
-             "Error during persisted-count reset on clear of index " + name),
-         e, storage.getName());
-   }
+   // No new try/catch: setApproximateEntriesCount declares no checked
+   // exception (BTree.setApproximateEntriesCount and the CellBTreeSingleValue
+   // interface both have empty throws clauses; the body wraps the EP-page
+   // write in executeInsideComponentOperation, which absorbs IOException
+   // internally). The histogram-reset try/catch at lines 333–345 still
+   // covers mgr.resetOnClear, the only IOException source on this body.
+   svTree.setApproximateEntriesCount(atomicOperation, 0);
+   nullTree.setApproximateEntriesCount(atomicOperation, 0);
    // In-mem-side delta: advances only post-commit via Hook B's apply on the
    // same engine. Same accumulator Track 4 uses for buildInitialHistogram.
    // Additive on the in-mem side under the bifurcated lock posture: the
    // engine-level AtomicLong's addAndGet semantics make concurrent
    // recalibrations on the same engine converge to truth post-commit.
+   //
+   // Race posture vs Track 3 pure-delta. Mixed-mode narrows the snapshot-
+   // read race the bifurcated-lock-posture comment block documents: the
+   // persisted side is now an absolute zero write (immune to a wrong
+   // (currentTotal, currentNull) snapshot); only the in-mem side keeps the
+   // race window, and the consequence is bounded the same way Track 3
+   // documented (next buildInitialHistogram self-heals).
    IndexCountDelta.accumulateInMemRecalibration(
        atomicOperation, id, -currentTotal, -currentNull);
    ```
-   Update the lock-window comment block at lines 284–301 if any wording calls out the pure-delta encoding choice (sweep on review; the comment focuses on the snapshot-read race and is largely unaffected). The histogram-reset try/catch at lines 333–345 is untouched. The MV `clear()` method signature does NOT gain `throws IOException`; the new wrap absorbs the new exposure locally.
+   Update the lock-window comment block at lines 284–301 if any wording calls out the pure-delta encoding choice (sweep on review; the comment focuses on the snapshot-read race and is largely unaffected — the narrowed-race observation above is a Step 1 comment, not a comment-block edit). The histogram-reset try/catch at lines 333–345 is untouched. The MV `clear()` method signature does NOT gain `throws IOException`; no new exposure to absorb.
 
-2. **Rewrite `BTreeSingleValueIndexEngine.clear` lines 271–287 (pre-Track-5)** with the structurally identical change for the single-tree case. Keep the outer `try` at line 243, the lock-window comment block at lines 244–254, `doClearTree(atomicOperation)` at line 255, the postcondition assert at lines 261–263, the snapshot reads at lines 265–266, the snapshot-invariant assert at lines 267–269, `indexesSnapshot.clear()` at line 270, the `mgr.resetOnClear` call at line 290, and the method-level catch at lines 292–296 (which already converts `IOException` to `IndexException`). Replace the `accumulateClearOrRecalibrate` call at lines 286–287 and the pure-delta comment block at lines 271–285 with the SV-shaped inline write plus accumulator call:
+2. **Rewrite `BTreeSingleValueIndexEngine.clear` lines 271–287 (pre-Track-5)** with the structurally identical change for the single-tree case. Keep the outer `try` at line 243, the lock-window comment block at lines 244–254, `doClearTree(atomicOperation)` at line 255, the postcondition assert at lines 261–263, the snapshot reads at lines 265–266, the snapshot-invariant assert at lines 267–269, `indexesSnapshot.clear()` at line 270, the `mgr.resetOnClear` call at line 290, and the method-level catch at lines 292–296 (which converts `IOException` from `mgr.resetOnClear` to `IndexException`). Replace the `accumulateClearOrRecalibrate` call at lines 286–287 and the pure-delta comment block at lines 271–285 with the SV-shaped inline write plus accumulator call:
    ```java
    // Persisted-side absolute write: WAL-tracked through the AOM lifecycle,
    // reverts on rollback, lands at zero regardless of any pre-existing
    // in-mem-vs-persisted drift. The single-tree engine's persistCountDelta
    // ignored nullDelta in the prior pure-delta encoding; the absolute write
-   // replaces that path entirely on the persisted side. Inside the existing
-   // method-level try, so IOException flows to the catch at lines 292–296.
+   // replaces that path entirely on the persisted side. setApproximateEntriesCount
+   // declares no checked exception (executeInsideComponentOperation absorbs
+   // any IOException internally), so the surrounding method-level try/catch
+   // is not load-bearing for this call — it stays purely to cover
+   // mgr.resetOnClear below.
    sbTree.setApproximateEntriesCount(atomicOperation, 0);
    // In-mem-side delta: advances only post-commit via Hook B's apply on the
    // same engine. The new accumulator is the sole carrier of the null-counter
@@ -102,18 +111,37 @@ Three logical edits:
    IndexCountDelta.accumulateInMemRecalibration(
        atomicOperation, id, -currentTotal, -currentNull);
    ```
-   The catch block at lines 292–296 stays — `setApproximateEntriesCount` may throw `IOException`, and the existing wrap handles it without changes. The lock-window posture comment at lines 244–254 is unchanged.
+   The catch block at lines 292–296 stays as-is — `mgr.resetOnClear` declares `throws IOException`, and the existing wrap continues to handle it. The new `setApproximateEntriesCount` call sits inside the same try purely for code locality, not because it adds new checked-exception exposure. The lock-window posture comment at lines 244–254 is unchanged.
 
-3. **Update the existing rollback test suites and the `accumulateClearOrRecalibrate` Javadoc.** The two suites are `BTreeMultiValueIndexEngineClearRollbackTest` (`core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearRollbackTest.java:62`, ~9 cases per Track 3 Phase C) and `BTreeSingleValueIndexEngineClearRollbackTest` (`:67`, ~7 cases). Both carry assertions matching Track 3's pure-delta posture. Migration:
+3. **Add per-engine mixed-mode pin tests, update the existing rollback tests' Javadocs to mixed-mode framing, and update the `accumulateClearOrRecalibrate` Javadoc.** The current test landscape (PSI-verified at Phase A iter-1):
 
-   - Persisted-side `verify(svTree, never()).setApproximateEntriesCount(...)` / `verify(sbTree, never()).setApproximateEntriesCount(...)` pins flip to `verify(svTree, times(1)).setApproximateEntriesCount(eq(op), eq(0L))` (MV: two trees × `times(1)`; SV: one tree × `times(1)`). The `times(1)` precision matches Track 4's iter-1 finding F9 pattern, not the looser default `verify(...).setApproximateEntriesCount(eq(op), eq(0L))`.
-   - Holder-row assertions migrate from `delta.getTotalDelta() == -currentTotal && delta.getNullDelta() == -currentNull` (Track 3 pure-delta) to `delta.getInMemAdjustTotal() == -currentTotal && delta.getInMemAdjustNull() == -currentNull` (Track 5 mixed-mode in-mem-side) plus `delta.getTotalDelta() == 0 && delta.getNullDelta() == 0` zero-pins on the per-put fields. The four-field shape mirrors Track 4's iter-1 holder-inspection pattern.
-   - Mirror Track 4's negative-pin convention: assert the in-mem `AtomicLong`s stay at pre-state during the atomic op (Hook B advances them post-commit, not inline). Mockito stubs of `Storage.applyIndexCountDeltas` (or a real-storage variant if the existing tests already use one) verify that `addToApproximateEntriesCount(-currentTotal)` and `addToApproximateNullCount(-currentNull)` only fire on the success path, not on rollback.
-   - The rollback-discard tests' Mockito `verifyNoMoreInteractions` blocks (Track 4 iter-1 finding F1 precedent) stay; the assertion list updates to the four-field holder shape plus the per-tree persisted-side verify.
+   - `BTreeMultiValueIndexEngineClearRollbackTest` (`core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearRollbackTest.java`, 1 `@Test` method, 252 lines) is a DISK-mode integration test where the failing transaction pushes a `RecordSerializationOperation` that throws inside `executeOperations` — `engine.clear()` never runs. Zero `verify(...)` calls; the contract pinned is "cleared-flag rollback survival" (post-rollback in-mem and persisted reads stay at preparatory values).
+   - `BTreeSingleValueIndexEngineClearRollbackTest` (`:BTreeSingleValueIndexEngineClearRollbackTest.java`, 1 `@Test` method, 257 lines) is the SV mirror of the same shape.
+   - `ClearIndexApiRollbackTest` (`core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/ClearIndexApiRollbackTest.java`, 1 `@Test` method) is a MEMORY-mode standalone-atomic-op test where `engine.clear()` DOES run via the `clearIndex` API path; a throwing `IndexHistogramManager.resetOnClear` stub triggers rollback from inside `clear()`. The post-rollback in-mem counter contract is pinned.
 
-   Update the `accumulateClearOrRecalibrate` Javadoc at `IndexCountDelta.java:98–139` (post-Step-1 of Track 4): the "two production callers" list at lines 109–114 becomes historical — Track 5 retrofitted both callers to `accumulateInMemRecalibration`. Add a one-line note pointing at the follow-up YouTrack issue (post-merge; the issue id is not yet allocated, so the note names the work in prose). Do not annotate with `@Deprecated`, do not remove the method body, do not touch `IndexCountDeltaHolderTest` fixture references (15+ sites at lines 327, 345, 363, 382, 405, 407, 425, 426, 449, 468, 474, 545). The cleanup is a separate follow-up; this track keeps test churn minimal.
+   Step 3's scope is three sub-edits:
 
-Ordering constraint: Steps 1 and 2 are independent at the engine level (no inter-engine dependency); Step 3 depends on both engines landing because the test suites pin per-engine behaviour. Recommended order: Step 1 (MV) → Step 2 (SV) → Step 3 (tests + Javadoc) so the test rewrites happen once and pin the final shape across both engines.
+   - **3a. Add per-engine mixed-mode pin tests.** Create two new Mockito-driven test classes mirroring Track 4 iter-1's holder-inspection + per-tree-verify + negative-pin patterns:
+
+     - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearMixedModeTest.java`. Asserts:
+       - Per-tree persisted-side verify: `verify(svTree, times(1)).setApproximateEntriesCount(eq(op), eq(0L))` and `verify(nullTree, times(1)).setApproximateEntriesCount(eq(op), eq(0L))`. The `times(1)` precision matches Track 4 iter-1 finding F9.
+       - Holder-row inspection on the post-`clear()`-pre-commit holder state: `delta.getInMemAdjustTotal() == -currentTotal && delta.getInMemAdjustNull() == -currentNull` plus `delta.getTotalDelta() == 0 && delta.getNullDelta() == 0`. Four-field shape mirrors Track 4 iter-1 holder-inspection.
+       - Negative pin: in-mem `AtomicLong`s (`getTotalCount` / `getNullCount` engine accessors) stay at pre-`clear()` values DURING the atomic op (read between `clear()` returning and Hook B's apply firing). Hook B advances them post-commit, not inline. Mirrors Track 4 iter-1's "not mutated inline by `buildInitialHistogram`" pattern.
+       - `verifyNoMoreInteractions` on the per-tree Mockito stubs after the four pinned calls (mirrors Track 4 iter-1 finding F1).
+
+     - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngineClearMixedModeTest.java`. SV mirror with single-tree shape: `verify(sbTree, times(1)).setApproximateEntriesCount(eq(op), eq(0L))`; same holder-row + negative-pin + `verifyNoMoreInteractions` set.
+
+     Both classes use Mockito stubs for the per-tree BTree fields (reflective field injection mirroring `ClearIndexApiRollbackTest`'s `swapHistogramManager` pattern at lines 203–210; the field names are `svTree`/`nullTree` for MV and `sbTree` for SV). Setup mirrors `ClearIndexApiRollbackTest` for the engine + storage wiring (MEMORY DB, preparatory commit of `(3 non-null + 1 null)` for MV / `(4 entries)` for SV, snapshot of pre-`clear()` counters via engine accessors). Cumulative new test surface across both classes: ~250-400 lines.
+
+   - **3b. Update the three existing tests' Javadocs to mixed-mode framing.** No code changes — only Javadoc rewording so future readers don't see "pure-delta-encoded" prose alongside Track 5's mixed-mode encoding:
+
+     - `BTreeMultiValueIndexEngineClearRollbackTest.java` lines 23 ("Regression for the pure-delta-encoded `clear()`...") and 197–200 ("A regression where the persist hook landed the -currentTotal / -currentNull delta on the rollback path..."). Reframe to "mixed-mode-encoded `clear()`" and reframe the persisted-side regression hook to "where the persist hook landed the absolute zero write on the rollback path".
+     - `BTreeSingleValueIndexEngineClearRollbackTest.java` — equivalent edits at the matching SV positions.
+     - `ClearIndexApiRollbackTest.java` lines 26–56 (the class-level Javadoc). Reword "Under the pure-delta encoding on both ... the `clear()` body records a negative delta on the atomic op rather than writing the in-memory `AtomicLong` counters directly" to "Under the mixed-mode encoding on both ... the `clear()` body lands the persisted-side absolute zero write inline via `setApproximateEntriesCount(op, 0)` and routes the in-memory `AtomicLong` write through `IndexCountDelta.accumulateInMemRecalibration` consumed by Hook B post-commit."
+
+   - **3c. Update the `accumulateClearOrRecalibrate` Javadoc** at `IndexCountDelta.java:98–139` (the Javadoc block immediately preceding the method declaration at line 140). The "two production callers" list becomes historical — Track 5 retrofitted both callers to `accumulateInMemRecalibration`. Add a one-line note pointing at the follow-up YouTrack issue (post-merge; the issue id is not yet allocated, so the note names the work in prose). Do not annotate with `@Deprecated`, do not remove the method body, do not touch `IndexCountDeltaHolderTest` fixture references (12+ sites — actual count from PSI find-usages, not 15+ as the earlier draft stated). The cleanup is a separate follow-up; this track keeps existing-test churn minimal while adding the new per-engine mixed-mode pin coverage.
+
+Ordering constraint: Steps 1 and 2 are independent at the engine level (no inter-engine dependency); Step 3 depends on both engines landing because the new pin tests verify per-engine post-`clear()` behavior. Recommended order: Step 1 (MV) → Step 2 (SV) → Step 3 (new pin tests + existing-test Javadoc updates + `IndexCountDelta` Javadoc) so the pin tests are authored once against the final production shape and the existing-test Javadoc rewording happens after the encoding change is in place.
 
 Invariants to preserve: the lock-window posture comments at MV:284–301 and SV:244–254 stay as-is. The bifurcated-lock-posture concurrency contract that Track 3 documented applies symmetrically to Track 5's persisted-side `setApproximateEntriesCount` writes (which land per tree under `executeInsideComponentOperation`'s per-tree exclusive lock). The in-mem-side delta is additively composable, so concurrent recalibrations on the same engine converge to truth post-commit. The Q5 multi-thread real-tree contention test gap inherited from Tracks 3 and 4 stays open under the single combined follow-up YouTrack issue Track 3 named (one ticket covers both engines and both `clear()` + `buildInitialHistogram()` seams).
 
@@ -133,6 +161,7 @@ Track-level acceptance criteria:
 - After a successful `clear()` invocation on a populated SV engine, persisted side reads `approximateEntriesCount == 0` on `sbTree`; in-mem `approximateIndexEntriesCount == 0` and `approximateNullCount == 0`.
 - On rollback of the atomic op containing `clear()` (both engines), in-mem `AtomicLong`s retain their pre-`clear()` values; persisted side reverts via WAL to the pre-`clear()` value. The bug pattern observed in `Pre_Tests_Test_REST_2026.2.51599.log` (in-mem advance without WAL commit) is structurally impossible on the `clear()` seam post-Track-5.
 - Pre-existing in-mem-vs-persisted drift (Track-1 underflow-clamp event, residual Track-3 drift-amplification window) heals to zero on the persisted side on every successful `clear()` invocation. The drift-amplification accepted regression Track 3 documented closes symmetrically.
+- New per-engine pin tests verify the mechanical contract per-call: each tree's `setApproximateEntriesCount(op, 0)` fires exactly once during `clear()`; the holder records `(inMemAdjustTotal == -currentTotal, inMemAdjustNull == -currentNull, totalDelta == 0, nullDelta == 0)` post-`clear()`-pre-commit; the in-mem `AtomicLong`s read pre-`clear()` values during the atomic op (Hook B advances them post-commit, not inline).
 - `IndexCountDelta.accumulateClearOrRecalibrate` retains its current body and tests; the production caller count drops to zero. `IndexCountDeltaHolderTest` exercises the method's precondition contract directly and stays green without changes.
 
 Per-step EARS/Gherkin acceptance lines are Phase A placeholders.
@@ -151,11 +180,14 @@ Per-step EARS/Gherkin acceptance lines are Phase A placeholders.
 
 **In-scope files:**
 
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java` (modified — `clear()` body at lines 283–346; the recalibration call at lines 331–332 and the pure-delta comment block at lines 318–330 become a mixed-mode block; new local IOException wrap around the persisted-side writes)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java` (modified — `clear()` body at lines 242–297; the recalibration call at lines 286–287 and the pure-delta comment block at lines 271–285 become a mixed-mode block; existing method-level try/catch absorbs the new persisted-side write exposure)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngine.java` (modified — `clear()` body at lines 283–346; the recalibration call at lines 331–332 and the pure-delta comment block at lines 318–330 become a mixed-mode block with two inline `setApproximateEntriesCount(op, 0)` calls plus the accumulator call; no new try/catch — `setApproximateEntriesCount` declares no checked exception)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngine.java` (modified — `clear()` body at lines 242–297; the recalibration call at lines 286–287 and the pure-delta comment block at lines 271–285 become a mixed-mode block with one inline `setApproximateEntriesCount(op, 0)` call plus the accumulator call; existing method-level try/catch covers `mgr.resetOnClear` unchanged)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexCountDelta.java` (Javadoc-only modification — `accumulateClearOrRecalibrate` Javadoc at lines 98–139 gets the awaiting-cleanup note; method body at lines 140–154 stays unchanged)
-- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearRollbackTest.java` (modified — ~9 cases; holder-row migration plus per-tree persisted-side verify pins)
-- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngineClearRollbackTest.java` (modified — ~7 cases; holder-row migration plus persisted-side verify pin)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearMixedModeTest.java` (**new** — Mockito-driven pin test for the MV mixed-mode `clear()` contract: per-tree `verify(...times(1)).setApproximateEntriesCount(eq(op), eq(0L))`, holder-row inspection, negative pin "in-mem `AtomicLong`s not mutated inline", `verifyNoMoreInteractions`. Mirrors Track 4 iter-1 patterns)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngineClearMixedModeTest.java` (**new** — Mockito-driven pin test for the SV mixed-mode `clear()` contract: single-tree shape of the same assertion set)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearRollbackTest.java` (Javadoc-only modification — class-level Javadoc at line 23 and the in-method Javadoc paragraph at lines 197–200 reframe "pure-delta-encoded" / "-currentTotal / -currentNull delta" to mixed-mode framing)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeSingleValueIndexEngineClearRollbackTest.java` (Javadoc-only modification — SV mirror of the MV rollback-test Javadoc edits)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/ClearIndexApiRollbackTest.java` (Javadoc-only modification — class-level Javadoc at lines 26–56 reframes "pure-delta encoding" / "records a negative delta on the atomic op" to mixed-mode framing)
 
 **Out-of-scope:**
 
