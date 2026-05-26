@@ -20,6 +20,21 @@ The fix has two layers. First, **convert both sites to delta-mediated in-mem wri
 - **Lock-window invariant**: `applyIndexCountDeltas` and `applyHistogramDeltas` run with the per-index lock acquired at `lockIndexes` (AbstractStorage:2255) still held. Achieved by placing the apply hooks inside `endAtomicOperation` before `releaseLocks` returns the lock; the manual call at AbstractStorage:2365 (which runs after the lock release) is deleted.
 - **Independent revertability**: each track lands one logical change so reverts are surgical.
 
+### Workflow document loading discipline
+
+Every workflow document, sub-skill, recipe, and cross-reference link under `.claude/workflow/`, `.claude/skills/`, `.claude/agents/`, `.claude/docs/`, plus the root `CLAUDE.md` and every doc they point at, is loaded on a **needs-to-know basis only**. Do not pre-load. Do not follow a link until the current step actually needs the content it points at.
+
+Applies to the orchestrator, every sub-agent spawned from the workflow, and every implementer prompt. The rule is load-bearing for context budget: the implementation plan alone is tens of thousands of characters, each track file accumulates similarly, and the workflow rule files cross-reference dozens of recipe / convention / protocol files. Speculative loading inflates every spawn by the cost of every reachable document and is the dominant cause of mid-phase context-window pauses.
+
+Practical shape:
+
+- **Orchestrator** loads the phase-specific workflow document only on entering that phase (State 0, A, B, C, or 4). On-demand documents (`inline-replanning.md`, `mid-phase-handoff.md`, `review-iteration.md`, `code-review-protocol.md`, `risk-tagging.md`, `plan-slim-rendering.md`, `episode-format-reference.md`, `design-document-rules.md`, recipe files) load only when the situation requiring them actually fires.
+- **Sub-agents** receive paths to files (not inlined content); each sub-agent reads only the paths its task requires. The canonical context block in `track-code-review.md` § Sub-agents already follows this shape — preserve it on any future edit.
+- **Implementers** read `implementer-rules.md` once on spawn plus the named inputs in the spawn prompt; cross-references inside `implementer-rules.md` are followed only when the step task requires them.
+- **Recipes and mcp-steroid skill guides** are fetched (`steroid_fetch_resource`, `Skill` tool) only when their trigger condition fires.
+
+Carries forward to every remaining track in this plan, every dimensional review fan-out, every implementer spawn, and the Phase 4 final-artifacts session.
+
 ### Implementer pacing (YTDB-971)
 
 Every implementer prompt spawned from this plan (Phase B step implementers, Phase C track-level fix implementers) carries the pacing guidance verbatim. The anti-pattern is background `./mvnw` paired with `tail -f` (or any other buffering pipe), no PID registration, no explicit kill before exit, and idle file reads burning message budget while the build runs. The branch saw three concrete cases:
