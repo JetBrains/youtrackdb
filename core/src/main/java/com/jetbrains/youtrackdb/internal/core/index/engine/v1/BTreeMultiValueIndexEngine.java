@@ -315,20 +315,46 @@ public final class BTreeMultiValueIndexEngine
             + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
-    // Pure-delta encoding: record the collapse as Δ = -current on the atomic
-    // op. The persist hook calls persistCountDelta, which splits the delta
-    // (nonNullDelta = totalDelta - nullDelta) and writes -currentNonNull to
-    // svTree's EP page and -currentNull to nullTree's EP page before
-    // commitChanges; the net intent is the full collapse. The apply hook
-    // then advances the in-memory AtomicLong counters after commitChanges
-    // but before lock release. The persisted EP pages are transiently out
-    // of sync with the now-empty trees until the persist hook runs. Any
-    // pre-existing drift between in-memory and persisted is intentionally
-    // not normalised here; eagerly zeroing the persisted side would
-    // re-introduce the in-atomic-op write that this encoding removes, and
-    // buildInitialHistogram() recalibration covers the rare residual case
-    // on next touch.
-    IndexCountDelta.accumulateClearOrRecalibrate(
+    // Mixed-mode encoding (replaces the prior pure-delta encoding that
+    // wrote -currentTotal / -currentNull through the persist hook).
+    // Persisted side: two inline per-tree absolute writes, WAL-tracked
+    // through the AOM lifecycle, revert on rollback, and land at zero
+    // regardless of any pre-existing in-mem-vs-persisted drift. Heals the
+    // drift window the pure-delta encoding accepted as an open regression:
+    // addToApproximateEntriesCount(-currentInMem) on the persisted side
+    // would land the EP below zero whenever in-mem had drifted above
+    // persisted (e.g. from a reportAndClampUnderflow event on a prior
+    // commit).
+    //
+    // No new try/catch on this rewrite: setApproximateEntriesCount declares
+    // no checked exception. BTree.setApproximateEntriesCount wraps the EP
+    // page write in executeInsideComponentOperation, which absorbs the
+    // underlying IOException internally, so the MV clear() signature does
+    // not gain "throws IOException". The histogram-reset try/catch below
+    // still covers mgr.resetOnClear, which is the only IOException source
+    // remaining on this body.
+    svTree.setApproximateEntriesCount(atomicOperation, 0);
+    nullTree.setApproximateEntriesCount(atomicOperation, 0);
+    // In-mem side: route the collapse through the mixed-mode accumulator
+    // shared with buildInitialHistogram(). The delta (-currentTotal,
+    // -currentNull) advances inMemAdjustTotal / inMemAdjustNull on the
+    // holder; Hook B's applyIndexCountDeltas sums
+    // getTotalDelta() + getInMemAdjustTotal() (and the null mirror)
+    // post-commit before calling the engine mutators. On rollback the
+    // holder is dropped and the in-mem AtomicLongs stay at their
+    // pre-clear() values; on success they advance to zero post-commit,
+    // matching the persisted side.
+    //
+    // Race posture vs the prior pure-delta encoding. Mixed-mode narrows
+    // the snapshot-read race the bifurcated-lock-posture comment block
+    // above documents: the persisted side is now an absolute zero write
+    // (immune to a wrong (currentTotal, currentNull) snapshot); only the
+    // in-mem side keeps the race window. The consequence is bounded the
+    // same way: the in-mem-side delta is additively composable, so
+    // concurrent recalibrations on the same engine compose via
+    // AtomicLong.addAndGet, and any residual drift self-heals on the next
+    // buildInitialHistogram() recalibration.
+    IndexCountDelta.accumulateInMemRecalibration(
         atomicOperation, id, -currentTotal, -currentNull);
     var mgr = histogramManager;
     if (mgr != null) {
