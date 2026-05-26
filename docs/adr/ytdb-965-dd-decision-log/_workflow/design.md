@@ -22,7 +22,7 @@ The rest of this document is structured as: Core Concepts → Class Design → W
 
 ## Core Concepts
 
-This design introduces twelve load-bearing ideas. Each is named and used without re-definition in the sections that follow.
+This design introduces fourteen load-bearing ideas. Each is named and used without re-definition in the sections that follow.
 
 **Design philosophy.** A lean `### Design philosophy` subsection inside `.claude/workflow/conventions.md` (always-loaded) naming seven principles in one sentence each, plus a new load-on-demand `.claude/workflow/design-philosophy.md` carrying paragraph-length explanations, the workflow-mapping table, the six failure modes, and the external citations. The lean subsection points at the detailed doc (two-step). Names what the conventions already do so future "optimizations" pay a visible cost. Replaces the unnamed status quo. → §"Design philosophy".
 
