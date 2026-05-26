@@ -437,7 +437,7 @@ Step 2 prompt; quoted exactly>
 <!-- Continuous-log. One entry per decision made during Phase 0
 research, Phase 1a design iteration, or Phase 1b plan derivation.
 Format:
-- <ISO timestamp> [ctx=<level>] <one-line decision> [(Phase 1a) or (Phase 1b) annotation when relevant]
+- <ISO timestamp> [ctx=<level>] <one-line decision> [annotation: (Phase 1a) | (Phase 1b) | (Phase 1a gate-verdict) | (Phase 1a accepted-open-risks) | (Phase 1a → 1b) | (Phase 1b ESCALATE) when relevant]
   - **Why:** <rationale in one sentence>
   - **Alternatives rejected:** <X (reason); Y (reason)>
 -->
@@ -462,7 +462,7 @@ Architecture Notes to fill. Format:
 Lifecycle:
 
 - **Created.** `create-plan` Step 1b (idempotent — safe to re-run on resume); created alongside the `_workflow/plan/` directory.
-- **Written by.** `create-plan` Steps 2 / 3 (Phase 0 research); `edit-design` Step 7 (Phase 1a rationale capture); `create-plan` Phase 1b plan-derivation writes when the planner articulates rationale during plan authoring.
+- **Written by.** `create-plan` Steps 2 / 3 (Phase 0 research); `edit-design` Step 7 (Phase 1a rationale capture); `create-plan` Phase 1b plan-derivation writes when the planner articulates rationale during plan authoring; the aggregator sub-agent writes per-mutation gate-verdict summary entries during Phase 1a; `create-plan` writes the `(Phase 1a → 1b)` transition entry at user signal and the `(Phase 1b ESCALATE)` entry when plan derivation hits a fundamental contradiction.
 - **Read by.** `create-plan` Step 4 (Phase 0 → Phase 1a aim-confirmation handshake); `create-plan` Phase 1b session start (full end-to-end read, seeds Decision Records and Architecture Notes); `implementation-review.md` (Phase 2 optional cross-reference); `prompts/create-final-design.md` (Phase 4 ADR aggregation).
 - **Removed.** Phase 4 cleanup commit, alongside the rest of `_workflow/**`.
 
@@ -475,6 +475,7 @@ The `[ctx=<level>]` field follows the D12 canonical statusline-read-then-write o
 - Phase 4 ADR aggregation reads `decision-log.md` end-to-end through `prompts/create-final-design.md`: Plan-time Decisions entries seed the ADR's key-decisions section; Plan-time Surprises entries seed the ADR's narrative summary; Plan-time Open Questions that landed in plan elements (DRs, invariants, non-goals) are not re-aggregated. Without this read, the design's stated benefit (rationale survives `/compact` into the final ADR) does not land.
 - The file deliberately has no workflow-SHA stamp on line 1 — its append-only contract makes it replay-immune by construction, same rationale as `design-mutations.md`'s exclusion in `conventions.md § 1.6(f)`.
 - The `(Phase 1a)` / `(Phase 1b)` body annotation is informational, not structural; Phase 4 ADR aggregation reads both annotations but does not partition the ADR by sub-phase. Entries without an annotation are treated as Phase 0 by default.
+- **Gate-verdict and ESCALATE entries are read by Phase 1b auto-resume detection** (most-recent walk of `## Plan-time Decisions`); they are NOT aggregated into Phase 4 ADR content as decisions in their own right — only the underlying user-articulated rationale entries become ADR decisions. The aggregator's gate-verdict entries and the planner's ESCALATE entries serve audit + transition-detection purposes; Phase 4 reads them for audit but does not promote them to the ADR's key-decisions section.
 
 ### References
 
@@ -537,7 +538,7 @@ The transition replaces today's single-shot summarization ("summarize the key re
 
 The handshake itself works as follows. The agent surfaces the current state of §Initial request for the user to confirm: *"Confirming the aim before planning: <verbatim §Initial request content>. OK as-is, or refinements needed?"* The user acks or refines; refinement turns at this confirmation point are LLM-heuristic-free (the user is explicitly editing the aim, so the agent treats the response as a refinement append by default, with timestamp). This confirmation catches in-Phase-0 misclassifications of refinement-vs-exploration that may have routed content to the wrong place during research. The Phase 0 double-write rule's asymmetric safety net protects against one classification error only (refinement misread as exploration); the explicit Step 4 confirmation closes the gap on the reverse error.
 
-After the ack, the session enters Phase 1a: `design.md` authoring via `edit-design`. The decision-log is left in place; Phase 1a continues to append rationale entries via `edit-design` Step 7 (see §"Phase 1a design-iteration rationale"), and Phase 1b later reads the file end-to-end to seed plan content (see §"Phase 1b plan derivation and ESCALATE back-edge").
+After the ack, the session enters Phase 1a: `design.md` authoring via `edit-design`. The first `edit-design` invocation is `phase1-creation`; it triggers the per-mutation review fan-out like any other mutation (see §"Per-mutation design review fan-out"). The decision-log is left in place; Phase 1a continues to append rationale entries via `edit-design` Step 7 and per-mutation gate-verdict summaries via the aggregator (see §"Phase 1a design-iteration rationale"); Phase 1b later reads the file end-to-end to seed plan content and detect the auto-resume signal (see §"Phase 1b plan derivation and ESCALATE back-edge").
 
 ### Edge cases / Gotchas
 
@@ -549,7 +550,7 @@ After the ack, the session enters Phase 1a: `design.md` authoring via `edit-desi
 
 - §"Decision-log file shape" — per-section format the read consumes.
 - §"Write triggers" — what landed in each section during Phase 0.
-- §"Phase 1a feasibility-review gate" — what happens after `design.md` is authored.
+- §"Per-mutation design review fan-out" — what runs on every mutation against `design.md`, starting with `phase1-creation`.
 - §"Phase 1b plan derivation and ESCALATE back-edge" — where the log-to-plan mapping runs.
 
 ## Per-mutation design review fan-out
@@ -764,7 +765,7 @@ These are out of scope for this PR (the migration of those phases to the per-rev
 
 The two-file split has a real cost: every Phase 1a rationale entry duplicates a timestamp with its sibling `design-mutations.md` entry, and Phase 4 aggregation walks both streams. The split is justified because the readers differ. `design-mutations.md`'s sync auto-suggestion and periodic whole-doc counter scan that file for mechanics state alone; `decision-log.md`'s Phase 4 ADR aggregation walks rationale alone. Mixing the two concerns in one file would force every reader to filter for its half. Separation pays for itself by keeping each reader's scan over a homogeneous file.
 
-The integration point is `edit-design/SKILL.md` Step 7 (review log append), which fires only inside Phase 1a (the design-authoring sub-phase). After appending the per-mutation entry to `design-mutations.md`, the skill checks whether the user's mutation request carried an articulated *why* — a user message naming the rationale, or an explicit phrase like "because", "in order to", "to avoid", "to satisfy constraint X". When it did, the skill also appends a Plan-time Decisions entry to `decision-log.md` using the standard write-trigger format (ISO timestamp + `[ctx=<level>]` + decision line + `**Why:**` + `**Alternatives rejected:**`) plus the `(Phase 1a)` body annotation per §"Decision-log file shape".
+The integration point is `edit-design/SKILL.md` Step 7 (review log append), which fires after the Step 4 fan-out + Step 6 iteration converge on the current mutation. The fan-out is upstream of this rationale-capture trigger; whether the mutation went through autonomous chained fixes or PASSed cleanly on the first iter doesn't affect whether the user articulated a *why* worth capturing in `decision-log.md`. After appending the per-mutation entry to `design-mutations.md`, the skill checks whether the user's mutation request carried an articulated *why* — a user message naming the rationale, or an explicit phrase like "because", "in order to", "to avoid", "to satisfy constraint X". When it did, the skill also appends a Plan-time Decisions entry to `decision-log.md` using the standard write-trigger format (ISO timestamp + `[ctx=<level>]` + decision line + `**Why:**` + `**Alternatives rejected:**`) plus the `(Phase 1a)` body annotation per §"Decision-log file shape".
 
 Mechanical-only mutations (typo fixes, formatting cleanups, a section rename with no design implication) produce no Plan-time Decisions entry. The mutation entry in `design-mutations.md` is sufficient.
 
@@ -858,6 +859,8 @@ The session ends; no partial plan files land on disk. On the next `/create-plan`
 | `research.md` | Write-trigger section header (new in this PR) | The new write triggers implement Principles 3 and 4 (Knowledge overhang + Episodic memory). |
 
 The link format follows house-style cross-references already in use across the workflow: a single sentence in italic blockquote or a "See:" reference at the section header. The link target is the H3 (`### Design philosophy`) under conventions.md, not an H2. The lean subsection itself then points at `.claude/workflow/design-philosophy.md`, giving the reader the orientation moment (the named principle) before the deeper material loads on demand. The two-step preserves the principle name as the anchor while keeping the longer explanations, the workflow-mapping table, the failure modes, and the external citations off the always-loaded surface.
+
+A separate one-site cross-reference set anchors the new spawn protocol at `conventions.md §1.4.X`. `conventions-execution.md` carries a one-line link to the protocol so a reader entering execution-phase rules sees the spawn rule near the rules that depend on it. This set is intentionally smaller than the philosophy mapping (one site vs five) because the spawn protocol applies symmetrically across all phases — readers entering any specific phase find it via the always-loaded conventions.md without needing per-phase cross-refs.
 
 ### Edge cases / Gotchas
 
