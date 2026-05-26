@@ -18,6 +18,9 @@ Convert `BTreeMultiValueIndexEngine.buildInitialHistogram()` and `BTreeSingleVal
 - [x] 2026-05-25T18:44Z [ctx=warning] Track-level code review
 - [x] 2026-05-25T18:44Z [ctx=warning] Track complete
 
+**PAUSED 2026-05-26 at Phase C Track Completion (Review mode) pending inline-replanning for Track 5 (clear() mixed-mode retrofit) before Track 4 collapse and [x] in implementation-plan.md**
+- Handoff: `../handoff-track-4-phaseC.md`
+
 ## Surprises & Discoveries
 
 - 2026-05-25T14:49Z: Step 2 inheritance for Step 3 and Step 4. See `## Episodes §Step 2`. Step 3 (SV `buildInitialHistogram`) must mirror Step 2 verbatim: assert message format `"buildInitialHistogram() snapshot invariant violated on engine=NAME id=N: currentTotal=… currentNull=…"` (Track 3 `clear()` precedent), bifurcated-lock-posture comment, CHM-cache scope disclaimer, holder-inspection assertions on `getInMemAdjustTotal` / `getInMemAdjustNull` plus `getTotalDelta()==0` / `getNullDelta()==0` pins, and a divergent pre-state on the SV `_delegatesToManager` test. Step 4 picks up six review-deferred test-coverage items: MV one-tree-empty drift shape pin, Q3 sign-opposed counter-example pin (worked example `currentTotal=100, currentNull=10, scannedNonNull=80, exactNullCount=15 → totalDelta=-5, nullDelta=+5`), zero-delta no-op holder-row pin, `assertsSnapshotInvariant_currentNullExceedsTotal` mirror for `buildInitialHistogram`, crash-recovery WAL-replay test (disk-mode crash before checkpoint, reopen, persisted EP page lands at recalibrated target), and reload-via-`load()` convergence test (crash after commit but before Hook B applies; on reopen `load()` reseeds in-mem AtomicLongs from persisted target).
