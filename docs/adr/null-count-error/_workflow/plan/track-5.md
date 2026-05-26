@@ -11,13 +11,11 @@ Retrofit `BTreeMultiValueIndexEngine.clear()` and `BTreeSingleValueIndexEngine.c
 
 ## Progress
 
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
-
-**PAUSED 2026-05-26 at Phase A reviews-PASSed pending decomposition write**
-- Handoff: `../handoff-track-5-phaseA.md`
+- [x] 2026-05-26T08:25Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 
@@ -150,7 +148,9 @@ Invariants to preserve: the lock-window posture comments at MV:284–301 and SV:
 
 ## Concrete Steps
 
-<!-- Phase A populates this section with a thin numbered roster: one entry per step with description, `risk:` tag, and a status checkbox. -->
+1. Rewrite `BTreeMultiValueIndexEngine.clear()` body (lines 283-346 pre-Track-5) to mixed-mode encoding. Replace the `accumulateClearOrRecalibrate(atomicOperation, id, -currentTotal, -currentNull)` call at lines 331-332 and the pure-delta comment block at lines 318-330 with two inline per-tree absolute writes (`svTree.setApproximateEntriesCount(atomicOperation, 0)`, `nullTree.setApproximateEntriesCount(atomicOperation, 0)`) followed by `IndexCountDelta.accumulateInMemRecalibration(atomicOperation, id, -currentTotal, -currentNull)`. Keep `clearSVTree(atomicOperation)` at line 302, postcondition asserts at lines 304-309, the `currentTotal`/`currentNull` snapshot reads at lines 311-312, the snapshot-invariant assert at lines 313-315, the two `indexesSnapshot.clear()` / `nullIndexesSnapshot.clear()` calls at lines 316-317, the lock-window comment block at lines 284-301, and the histogram-reset try/catch at lines 333-345 (covers `mgr.resetOnClear` unchanged). No new try/catch: `BTree.setApproximateEntriesCount` declares no checked exception (the body wraps the EP-page write in `executeInsideComponentOperation`, which absorbs IOException internally), and the MV `clear()` signature does not gain `throws IOException`. The new comment block names the mixed-mode design and the narrowed snapshot-read race posture against Track 3 pure-delta — risk: high (crash-safety: WAL-tracked encoding change on the `clear()` seam, with the structurally-impossible-divergence design claim depending on this rewrite; concurrency: publication ordering of the persisted-side write shifts from post-commit via Hook B to inline within the atomic op, while the in-mem `AtomicLong` advance still rides Hook B's post-commit apply via the new accumulator)  [ ]
+2. Rewrite `BTreeSingleValueIndexEngine.clear()` body (lines 242-297 pre-Track-5) with the structurally identical mixed-mode change for the single-tree case. Replace the `accumulateClearOrRecalibrate(atomicOperation, id, -currentTotal, -currentNull)` call at lines 286-287 and the pure-delta comment block at lines 271-285 with one inline `sbTree.setApproximateEntriesCount(atomicOperation, 0)` write followed by `IndexCountDelta.accumulateInMemRecalibration(atomicOperation, id, -currentTotal, -currentNull)`. Keep the outer `try` at line 243, the lock-window comment block at lines 244-254, `doClearTree(atomicOperation)` at line 255, the postcondition assert at lines 261-263, the snapshot reads at lines 265-266, the snapshot-invariant assert at lines 267-269, `indexesSnapshot.clear()` at line 270, the `mgr.resetOnClear(atomicOperation)` call at line 290, and the method-level catch at lines 292-296 (converts IOException from `mgr.resetOnClear` to IndexException — load-bearing for `mgr.resetOnClear` alone post-Track-5). The new `setApproximateEntriesCount` write sits inside the same try purely for code locality; it adds no new checked-exception exposure. SV's `persistCountDelta` ignored `nullDelta` in the prior pure-delta encoding, and the absolute write replaces that path entirely on the persisted side, while the in-mem null-counter delta now rides the accumulator — risk: high (crash-safety: same shape as Step 1 on SV; concurrency: same lock contract and post-commit publication ordering hold) *(parallel with Step 1)*  [ ]
+3. Add per-engine mixed-mode pin tests and Javadoc-only updates. Sub-edit 3a creates `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeMultiValueIndexEngineClearMixedModeTest.java` and `BTreeSingleValueIndexEngineClearMixedModeTest.java` as Mockito-driven pin tests mirroring Track 4 iter-1's holder-row + per-tree-verify + negative-pin + `verifyNoMoreInteractions` patterns. MV asserts `verify(svTree, times(1)).setApproximateEntriesCount(eq(op), eq(0L))` and the same on `nullTree`; SV asserts the single-tree shape on `sbTree`. Both classes pin the post-`clear()`-pre-commit holder shape `inMemAdjustTotal == -currentTotal && inMemAdjustNull == -currentNull && totalDelta == 0 && nullDelta == 0` and the negative invariant that in-mem `AtomicLong` accessors return pre-`clear()` values during the atomic op (Hook B advances them post-commit, not inline). Setup uses a MEMORY DB with reflective field injection for the per-tree BTree stubs, mirroring `ClearIndexApiRollbackTest`'s `swapHistogramManager` pattern at lines 203-210; field names are `svTree`/`nullTree` for MV and `sbTree` for SV. Sub-edit 3b reframes Javadocs from "pure-delta-encoded" to "mixed-mode-encoded" on `BTreeMultiValueIndexEngineClearRollbackTest.java` (class-level at line 23, in-method paragraph at lines 197-200), `BTreeSingleValueIndexEngineClearRollbackTest.java` (SV mirror positions), and `ClearIndexApiRollbackTest.java` (class-level at lines 26-56). Sub-edit 3c appends a one-line awaiting-cleanup note to the `IndexCountDelta.accumulateClearOrRecalibrate` Javadoc at lines 98-139, naming the follow-up YouTrack work in prose (no `@Deprecated` annotation, no method-body change, no `IndexCountDeltaHolderTest` fixture migration — deferred to the follow-up issue) — risk: low (default: tests-only step plus Javadoc-only edits; no shared test infrastructure modified; no production-code behavior change)  [ ]
 
 ## Episodes
 
@@ -173,7 +173,13 @@ Per-step EARS/Gherkin acceptance lines are Phase A placeholders.
 
 ## Idempotence and Recovery
 
-<!-- Phase A populates: per-step recovery paths. Each step's recovery posture (revert + retry / commit-as-is / split / escalate) lands here once decomposition runs. -->
+All three steps follow the standard revert-and-retry posture. Pre-commit failures route through the implementer's `git reset --hard HEAD`; post-commit dim-review findings on Step 1's `risk: high` and Step 2's `risk: high` route through `Review fix:` commits or, on a risk-upgrade or rollback request, through `git revert` plus a fresh `mode=INITIAL` respawn per `step-implementation-recovery.md`.
+
+Per-step replay safety:
+
+- **Step 1 (MV `clear()` rewrite).** The two `setApproximateEntriesCount(atomicOperation, 0)` writes are WAL-tracked through the AOM lifecycle; WAL replay re-applies them on recovery. The in-mem side rides Track 4's `inMemAdjustTotal` / `inMemAdjustNull` accumulator pair, which Hook B re-applies post-commit on the same engine. Re-running the rewritten `clear()` on the same atomic op writes zero twice with identical end state; the accumulator advances additively but in practice fires once per `clear()` invocation.
+- **Step 2 (SV `clear()` rewrite).** Same recovery surface as Step 1 with one tree. The single `sbTree.setApproximateEntriesCount(atomicOperation, 0)` write inherits the same AOM lifecycle and WAL replay coverage; the in-mem null-counter delta lands on the same accumulator pair Hook B reads.
+- **Step 3 (pin tests plus Javadoc edits).** No production-code behavior change to recover from. The new Mockito-driven pin tests are deterministic unit tests (pass-or-fail per JVM invocation, no shared mutable state across runs). Javadoc edits roll back cleanly via `git revert` with no functional impact.
 
 ## Artifacts and Notes
 
