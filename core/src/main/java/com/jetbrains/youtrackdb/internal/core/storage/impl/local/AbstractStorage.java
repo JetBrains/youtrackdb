@@ -5185,46 +5185,6 @@ public abstract class AbstractStorage
             engine.delete(null);
           }
         }
-
-        linkCollectionsBTreeManager.close();
-
-        // we close all files inside cache system so we only clear collection metadata
-        collections.clear();
-        collectionMap.clear();
-        indexEngines.clear();
-        indexEngineNameMap.clear();
-        sharedSnapshotIndex.clear();
-        visibilityIndex.clear();
-        snapshotIndexSize.set(0);
-        sharedEdgeSnapshotIndex.clear();
-        edgeVisibilityIndex.clear();
-        edgeSnapshotIndexSize.set(0);
-        sharedIndexesSnapshot.clear();
-        indexesSnapshotVisibilityIndex.clear();
-        sharedNullIndexesSnapshot.clear();
-        nullIndexSnapshotVisibilityIndex.clear();
-        indexesSnapshotEntriesCount.set(0);
-
-        if (writeCache != null) {
-          writeCache.removeBackgroundExceptionListener(this);
-          writeCache.removePageIsBrokenListener(this);
-        }
-
-        writeAheadLog.removeCheckpointListener(this);
-
-        if (readCache != null) {
-          try {
-            readCache.deleteStorage(writeCache);
-          } catch (final Exception e) {
-            LogManager.instance().error(this, "Error during deletion of read cache", e);
-          }
-        }
-
-        try {
-          writeAheadLog.delete();
-        } catch (final Exception e) {
-          LogManager.instance().error(this, "Error during deletion of write ahead log", e);
-        }
       } else {
         LogManager.instance()
             .error(
@@ -5232,6 +5192,57 @@ public abstract class AbstractStorage
                 "Because of JVM error happened inside of storage it can not be properly closed",
                 null);
       }
+
+      // Resource releases below run in both branches, matching the
+      // doShutdown() (close) path at lines 5107-5145 in this file. The WAL
+      // holds two direct-memory write buffers allocated in
+      // CASDiskWriteAheadLog.<init>; skipping writeAheadLog.delete() (which
+      // routes through close(false) and deallocates both buffers in its
+      // finally block) leaks the pointers and trips the
+      // DirectMemoryAllocator.checkMemoryLeaks() assertion at JVM shutdown,
+      // surfacing as "There was an error in the forked process" on
+      // surefire/failsafe. Pure in-memory teardown (map clears,
+      // linkCollectionsBTreeManager.close) and resource handoff (listener
+      // removal, readCache.deleteStorage, writeAheadLog.delete) have no
+      // data-correctness dependency on the storage state.
+      linkCollectionsBTreeManager.close();
+      collections.clear();
+      collectionMap.clear();
+      indexEngines.clear();
+      indexEngineNameMap.clear();
+      sharedSnapshotIndex.clear();
+      visibilityIndex.clear();
+      snapshotIndexSize.set(0);
+      sharedEdgeSnapshotIndex.clear();
+      edgeVisibilityIndex.clear();
+      edgeSnapshotIndexSize.set(0);
+      sharedIndexesSnapshot.clear();
+      indexesSnapshotVisibilityIndex.clear();
+      sharedNullIndexesSnapshot.clear();
+      nullIndexSnapshotVisibilityIndex.clear();
+      indexesSnapshotEntriesCount.set(0);
+
+      if (writeCache != null) {
+        writeCache.removeBackgroundExceptionListener(this);
+        writeCache.removePageIsBrokenListener(this);
+      }
+
+      writeAheadLog.removeCheckpointListener(this);
+
+      if (readCache != null) {
+        try {
+          readCache.deleteStorage(writeCache);
+        } catch (final Exception e) {
+          LogManager.instance().error(this, "Error during deletion of read cache", e);
+        }
+      }
+
+      try {
+        writeAheadLog.delete();
+      } catch (final Exception e) {
+        LogManager.instance().error(this, "Error during deletion of write ahead log", e);
+      }
+
       postCloseSteps(true, isInError(), idGen.getLastId());
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
