@@ -530,7 +530,7 @@ Single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <project
 - `orderBy = the ORDER BY from the MATCH statement (if any)`
 - `returnProjector: Function<RecordAbstract, Result>` — a closure built at entry construction from the MATCH `RETURN` clause that takes a single record and produces a `Result` shaped like the original execution's output (e.g., `RETURN u, u.name` produces `Result{u: rec, name: rec.name}`).
 
-Delta-build for MATCH Etap A is the RECORD path with the `returnProjector` applied to each inject-list entry. Equivalence vs fresh re-execution validated by a Track 6a step-g test that runs the same MATCH twice (cache miss then hit + delta) and asserts result-set equality across CREATED/UPDATED/DELETED scenarios.
+Delta-build for MATCH Etap A is the RECORD path with the `returnProjector` applied to each inject-list entry. Equivalence vs fresh re-execution validated by Track 6a's T6h test that runs the same MATCH twice (cache miss then hit + delta) and asserts result-set equality across CREATED/UPDATED/DELETED scenarios.
 
 ### MATCH multi-alias (partial Etap B in v1)
 
@@ -856,7 +856,7 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 
 ### References
 - D-records: D5-lazy (view-output contract → I4), D6 (non-determinism → I5), D11 (effectiveFromClasses closure depends on I8), D15 (snapshot-at-construction → I7)
-- Tracks: T1 (I1, I2, I6), T3 (I3), T4 (I4, I7 for record/match), T5 (I4, I7 for aggregate), T7 (I5)
+- Tracks: T1 (I1, I2, I6), T3 (I3), T4 (I4, I7 for record/match), T5 (I4, I7 for aggregate), T6a (I4 for MATCH Etap A), T6b (I4 for MATCH_TUPLE_MULTI), T7 (I5)
 
 ## Open questions deferred to execution
 

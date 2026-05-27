@@ -46,9 +46,9 @@ Existing relevant code:
 
 ## Plan of Work
 
-1. `ShapeClassifier.classify` — AST shape inspection. Initial scope: RECORD for cacheable SELECT shapes, NONE for everything else (aggregates and MATCH handled in Tracks 5-6 by extending classify).
+1. `ShapeClassifier.classify` — AST shape inspection. Initial scope: RECORD for cacheable SELECT shapes, NONE for everything else (aggregates and MATCH handled in Tracks 5, 6a, 6b by extending classify).
 2. `OrderByComparator` — wrap `SQLOrderBy` for use at sort time. Plain identifier and modifier-chain support (deterministic gate refined in Track 7).
-3. Entry construction extension — capture `effectiveFromClasses` via D11 closure, `whereClause`, `orderBy`, `skip`, `limit`. Populate `cachedRids` during stream pull.
+3. Entry construction extension — capture `effectiveFromClasses` via D11 closure, `whereClause`, `orderBy`. Populate `cachedRids` during stream pull.
 4. `DeltaBuilder.buildForRecord` — single pass over `recordOps`, **filtered by `op.version > entry.populateMutationVersion` per D21** to skip pre-populate mutations the tx-aware executor already baked into `entry.results`, class filter, WHERE eval, cache-membership check via `cached_at_build = entry.cachedRids.contains(op.rid)`, dispatch on `(op.type, cached_at_build, match_after)` per design.md § Lazy merge-on-read → TxDeltaCursor (10-row table; the `cached_at_build` column remains load-bearing under D21 because `FrontendTransactionImpl.addRecordOperation` collapses CREATE+UPDATE in place — op type stays CREATED while version advances, so a CREATED op with `op.version > populateMutationVersion` can be either a true post-populate CREATE or a collapsed pre-populate CREATE with post-populate UPDATEs), sort inject_list by `OrderByComparator`.
 5. `CachedResultSetView.next()` sorted-merge — replace Track 2's empty-delta logic. The merge algorithm is the one in design.md § Stream-pull dispatch unification → `view.next()` pseudocode. Critical point: when `cache_head == null` AND `!entry.exhausted`, the view MUST pull from `stream_pull_one()` BEFORE consulting `delta_head` — otherwise the view returns delta records ahead of not-yet-pulled storage records that sort before them, violating the sorted-merge invariant. Stream-pull-append path consults `deltaCursor.shouldSkip(rid)` for each pulled Result BEFORE appending to `entry.results`; skipped Results are dropped and the loop pulls the next one. RECORD shape carries no SKIP/LIMIT (Mutation 17 routes any SKIP/LIMIT query to K0_NONE), so the view has no SKIP/LIMIT counter.
 6. Wire into `DatabaseSessionEmbedded.query()` — build delta on both miss (after entry populate) and hit paths.
@@ -102,7 +102,7 @@ Existing relevant code:
 
 **Inter-track dependencies.**
 - Depends on: Tracks 2, 3.
-- Unblocks: Tracks 5 (aggregate), 6 (MATCH Etap A), 7 (hardening).
+- Unblocks: Tracks 5 (aggregate), 6a (MATCH Etap A), 6b (MATCH_TUPLE_MULTI), 7 (hardening).
 
 **Library / function signatures.**
 - `ShapeClassifier.classify(SQLStatement) → CacheableShape`.
