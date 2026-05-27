@@ -250,6 +250,7 @@ flowchart TB
 - **OTel Metrics signal (histograms, counters)**: out of scope. Span-only telemetry. Percentile metrics are deferred to a follow-up ticket.
 - **TinkerPop `ProfileStep` / native YTDB Explain integration**: out of scope. The Gremlin-to-SQL explain bridge is a parallel concern, not part of the OTel emission path.
 - **`OTEL_SEMCONV_STABILITY_OPT_IN` env var**: greenfield emission of stable v1.33.0 conventions, no legacy version to switch between.
+- **Per-operator execution-plan timing inside a query span**: out of scope. Each query emits one CLIENT (server) or INTERNAL (embedded) span covering the full execution; the internal structure of `SelectExecutionPlan` (MatchFirstStep, MatchStep, Prefetch, projection, etc.) stays opaque in the trace. Operators debugging slow plans use `EXPLAIN` / `SQLProfiler`. The same applies to translated Gremlin traversals (YTDB-558): the boundary step's underlying MATCH plan is not decomposed into child spans or span events. A future ticket may add opt-in plan-operator span events sourced from `SQLProfiler` if operators request that visibility, gated by a per-tag rule symmetric to the slow-query threshold.
 
 ## Checklist
 
