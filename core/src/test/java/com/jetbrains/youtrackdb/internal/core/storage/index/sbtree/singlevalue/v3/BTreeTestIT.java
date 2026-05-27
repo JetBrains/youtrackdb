@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -1121,10 +1123,20 @@ public class BTreeTestIT {
             singleValueTree.getApproximateEntriesCount(atomicOperation)));
   }
 
-  // Verifies that addToApproximateEntriesCount throws AssertionError when a
-  // negative delta would drive the count below zero (underflow). This is the
-  // last line of defense against count drift bugs propagating to the query
+  // Verifies that addToApproximateEntriesCount fails with the underflow guard
+  // when a negative delta would drive the count below zero. This is the last
+  // line of defense against count drift bugs propagating to the query
   // optimizer — a negative approximate count is never valid.
+  //
+  // Since YTDB-958, AssertionError thrown from inside an atomic-op consumer
+  // is caught by AtomicOperationsManager.executeInsideComponentOperation and
+  // wrapped in a CommonStorageComponentException, which in turn is caught by
+  // executeInsideAtomicOperation and wrapped in a StorageException. The test
+  // therefore catches the documented outer wrapper (StorageException) and
+  // unwraps the cause chain to find the underflow AssertionError rather than
+  // expecting it to escape unwrapped. The cause chain is bounded so a
+  // production-side regression that broke the wrapping structure fails this
+  // test loudly instead of silently passing on a coincidental match.
   @Test
   public void addToApproximateEntriesCountThrowsOnUnderflow() throws Exception {
     // Set known initial count
@@ -1138,11 +1150,22 @@ public class BTreeTestIT {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> singleValueTree.addToApproximateEntriesCount(
               atomicOperation, -10L));
-      Assert.fail("Expected AssertionError for underflow delta");
-    } catch (AssertionError e) {
+      Assert.fail("Expected wrapped AssertionError for underflow delta");
+    } catch (StorageException e) {
+      // Document the wrapping structure: StorageException -> CommonStorageComponentException
+      // -> AssertionError. Asserting at each level catches a refactor that
+      // reshuffles the cascade as a test failure rather than a silent pass.
       Assert.assertTrue(
-          "Error message must mention 'underflow'",
-          e.getMessage().contains("underflow"));
+          "Direct cause of StorageException must be CommonStorageComponentException; got: "
+              + e.getCause(),
+          e.getCause() instanceof CommonStorageComponentException);
+      var inner = e.getCause().getCause();
+      Assert.assertTrue(
+          "Inner cause must be the underflow AssertionError; got: " + inner,
+          inner instanceof AssertionError);
+      Assert.assertTrue(
+          "AssertionError message must mention 'underflow'; got: " + inner.getMessage(),
+          inner.getMessage() != null && inner.getMessage().contains("underflow"));
     }
 
     // Verify count was NOT modified — the assert fires before the write

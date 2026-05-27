@@ -3663,10 +3663,46 @@ public abstract class AbstractStorage
   }
 
   public void moveToErrorStateIfNeeded(final Throwable error) {
-    if (error != null
-        && !((error instanceof HighLevelException)
-            || (error instanceof NeedRetryException)
-            || (error instanceof InternalErrorException))) {
+    if (error == null) {
+      return;
+    }
+    // Defense-in-depth, extends YTDB-958 Layer 2: if any AssertionError appears
+    // in the cause chain (up to MAX_CAUSE_DEPTH levels), treat the failure as a
+    // -ea-only invariant violation and do not poison the storage. The direct-type
+    // guard inside setInError already catches bare AssertionErrors. This walk
+    // covers the wrapped case: an AssertionError thrown from a lambda inside
+    // executeInsideComponentOperation is wrapped in CommonStorageComponentException
+    // by that wrapper, then bubbles through executeInsideAtomicOperation, which
+    // passes the wrapper (not the original AssertionError) to endAtomicOperation,
+    // which calls this method. Without the cause-chain walk, the wrapper passes
+    // setInError's instanceof check, the storage is flipped into in-error mode,
+    // and downstream cleanup cannot close the storage cleanly. That leaves
+    // direct-memory pointers unreleased and surfaces as a JVM-shutdown leak-check
+    // failure.
+    //
+    // The documented cascade is at most two levels deep
+    // (StorageException -> CommonStorageComponentException -> AssertionError),
+    // so MAX_CAUSE_DEPTH=8 is a generous bound that also defends against pathological
+    // cause chains. The walk also tracks visited Throwables via IdentityHashMap to
+    // defend against self-referential getCause() overrides or initCause cycles
+    // injected by third-party exception types — without that defense the loop
+    // could spin forever inside the atomic-op finally block, stranding locks held
+    // by the calling thread.
+    final int MAX_CAUSE_DEPTH = 8;
+    final var seen = Collections.newSetFromMap(
+        new java.util.IdentityHashMap<Throwable, Boolean>());
+    Throwable t = error;
+    int depth = 0;
+    while (t != null && depth < MAX_CAUSE_DEPTH && seen.add(t)) {
+      if (t instanceof AssertionError) {
+        return;
+      }
+      t = t.getCause();
+      depth++;
+    }
+    if (!((error instanceof HighLevelException)
+        || (error instanceof NeedRetryException)
+        || (error instanceof InternalErrorException))) {
       setInError(error);
     }
   }

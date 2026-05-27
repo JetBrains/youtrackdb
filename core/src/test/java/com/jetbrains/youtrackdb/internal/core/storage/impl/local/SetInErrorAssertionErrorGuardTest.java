@@ -200,6 +200,108 @@ public class SetInErrorAssertionErrorGuardTest {
         .isTrue();
   }
 
+  /**
+   * Pins the cause-chain walk in {@link AbstractStorage#moveToErrorStateIfNeeded}.
+   * When an {@link AssertionError} is thrown from a lambda inside
+   * {@code AtomicOperationsManager.executeInsideComponentOperation}, that wrapper
+   * catches it and re-throws as a {@code CommonStorageComponentException} with the
+   * {@code AssertionError} preserved as the cause. The outer
+   * {@code executeInsideAtomicOperation} then passes the wrapper (not the original
+   * {@code AssertionError}) to {@code endAtomicOperation}, which forwards it to
+   * {@code moveToErrorStateIfNeeded}. Without the cause-chain walk, the
+   * {@code instanceof AssertionError} check inside {@code setInError} misses the
+   * wrapped case and the storage is incorrectly flipped into in-error mode.
+   * The walk closes that residual cascade vector left by YTDB-958's Layer 2.
+   */
+  @Test
+  public void wrappedAssertionErrorInCauseChainDoesNotFlipReadOnlyMode() {
+    var underflow = new AssertionError("approximateEntriesCount underflow");
+    var wrapper = new RuntimeException("CommonStorageComponentException stand-in", underflow);
+    storage.moveToErrorStateIfNeeded(wrapper);
+    assertThat(storage.isInError())
+        .as("wrapper exception whose cause chain contains AssertionError must not"
+            + " flip the storage into permanent error state")
+        .isFalse();
+  }
+
+  /**
+   * Pins the negative side of the cause-chain walk: a regular failure (no
+   * AssertionError anywhere in the cause chain) must still flip the storage
+   * into in-error mode. Guards against a regression that broadens the
+   * skip-condition and accidentally swallows real errors.
+   */
+  @Test
+  public void nonAssertionErrorCauseChainStillFlipsReadOnlyMode() {
+    var innerCause = new IllegalStateException("inner");
+    var wrapper = new RuntimeException("outer", innerCause);
+    storage.moveToErrorStateIfNeeded(wrapper);
+    assertThat(storage.isInError())
+        .as("wrapper whose cause chain contains no AssertionError must still"
+            + " flip the storage flag")
+        .isTrue();
+  }
+
+  /**
+   * Pins the multi-level cause-chain walk: an AssertionError nested deeper than
+   * one level (mirroring the StorageException -> CommonStorageComponentException
+   * -> AssertionError chain produced when an assert fires inside a component
+   * operation that is then caught by the atomic-operation wrapper) must still
+   * be detected.
+   */
+  @Test
+  public void deeplyWrappedAssertionErrorIsAlsoSkipped() {
+    var underflow = new AssertionError("underflow at deepest level");
+    var inner = new RuntimeException("component wrapper", underflow);
+    var outer = new RuntimeException("atomic-op wrapper", inner);
+    storage.moveToErrorStateIfNeeded(outer);
+    assertThat(storage.isInError())
+        .as("AssertionError nested multiple levels deep must still be detected"
+            + " by the cause-chain walk")
+        .isFalse();
+  }
+
+  /**
+   * Pins the cycle-defense in {@link AbstractStorage#moveToErrorStateIfNeeded}'s
+   * cause-chain walk. A self-referential cause (constructed via two-element
+   * initCause cycle) must not cause the walk to spin forever. Without the
+   * IdentityHashMap-based visited-set defense, the walk would loop indefinitely
+   * inside an atomic-op finally block, stranding any locks held by the calling
+   * thread. The walk should terminate and proceed with the normal poison
+   * decision (flipping the storage into in-error mode because no AssertionError
+   * appears in the chain).
+   */
+  @Test(timeout = 5000)
+  public void cyclicCauseChainTerminatesAndStillFlipsReadOnlyMode() {
+    var a = new RuntimeException("a");
+    var b = new RuntimeException("b");
+    a.initCause(b);
+    b.initCause(a);
+    storage.moveToErrorStateIfNeeded(a);
+    assertThat(storage.isInError())
+        .as("cyclic cause chain with no AssertionError must still flip the storage")
+        .isTrue();
+  }
+
+  /**
+   * Pins the depth bound in the cause-chain walk. An AssertionError nested
+   * deeper than the documented cascade (StorageException ->
+   * CommonStorageComponentException -> AssertionError, depth 2) must still be
+   * found by the walk — the MAX_CAUSE_DEPTH bound is generous enough to cover
+   * pathological wrapping while still avoiding indefinite spin on cycles.
+   */
+  @Test
+  public void assertionErrorWithinDepthBoundIsStillSkipped() {
+    var underflow = new AssertionError("deep underflow");
+    Throwable chain = underflow;
+    for (int i = 0; i < 5; i++) {
+      chain = new RuntimeException("wrapper-" + i, chain);
+    }
+    storage.moveToErrorStateIfNeeded(chain);
+    assertThat(storage.isInError())
+        .as("AssertionError within the MAX_CAUSE_DEPTH bound must skip the poison flip")
+        .isFalse();
+  }
+
   // Stand-in for real-world AssertionError subclasses (e.g., JUnit's
   // org.opentest4j.AssertionFailedError, or hypothetical project-local invariants). The
   // guard's `instanceof AssertionError` check must match this subclass.
