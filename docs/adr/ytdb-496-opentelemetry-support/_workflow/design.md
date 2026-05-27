@@ -12,7 +12,9 @@ A pair of static-utility classifiers in `core` (`GremlinBytecodeClassifier`, `Sq
 
 The TX listener side stays narrow on purpose: only `writeTransactionCommitted` and `writeTransactionFailed` fire, both for write transactions only, and the OTel implementation emits a standalone commit span with no YTDB-side TX-lifetime wrapper. Read-only transactions emit nothing on the TX listener and therefore no commit-side span. This matches the existing YTDB read-only-TX semantics (the TX listener never fires on a read-only close) and keeps mostly-read workloads from paying alloc-and-emit cost per query for an empty container span.
 
-On the query side, a configurable slow-query threshold gates span emission inside `OTelQueryMetricsListener.queryFinished` so a host running heavy read traffic drops fast successful queries before any tracer allocation. The global default is `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=100` and `0` disables the gate (emit everything). Per-tag overrides go through `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` — same format as the per-tag mode rules, resolved through a parallel `SlowQueryThresholdResolver` consuming `TagRule<Long>` on the same sealed interface. Errors bypass the gate because trace viewers are the primary investigation surface for failures; a 1 ms failing query still emits a span carrying `error.type` and the sanitized query text.
+On the query side, a configurable slow-query threshold gates span emission inside `OTelQueryMetricsListener.queryFinished` so a host running heavy read traffic drops fast successful queries before any tracer allocation. The global default is `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=100` and `0` disables the gate (emit everything). Per-tag overrides go through `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` (same format as the per-tag mode rules), resolved through a parallel `SlowQueryThresholdResolver` consuming `TagRule<Long>` on the same sealed interface. Errors bypass the gate because trace viewers are the primary investigation surface for failures; a 1 ms failing query still emits a span carrying `error.type` and the sanitized query text.
+
+A second optional gate emits a wall-clock heartbeat sample: `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` (default `0` = disabled) sets a process-wide interval, and `OTelQueryMetricsListener.queryFinished` emits one span per interval regardless of query duration. The two gates compose disjunctively (heartbeat picks fast queries for visibility, slow-query catches latency outliers, errors always emit). A symmetric `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES` provides per-tag heartbeat intervals through a parallel `SampleHeartbeatResolver` consuming `TagRule<Long>` on the same sealed interface. The mechanism counters the structural bias of random sampling (1% of queries skews toward fast queries because fast queries are simply more numerous); a wall-clock heartbeat is unbiased over time.
 
 `YTDBTransaction` exposes a builder-style API for listener wiring: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)` are separate fluent methods. The new `withTrackingId(String)` stores an explicit tracking ID on the transaction; `FrontendTransaction.getTrackingId(): String` returns that explicit value when set, else falls back to `String.valueOf(getId())` so the internal-ID source stays the default.
 
@@ -24,7 +26,7 @@ The rest of this document covers: Core Concepts (vocabulary primer), Class Desig
 
 ## Core Concepts
 
-This design introduces eight load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
+This design introduces nine load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
 
 **Span.** An OpenTelemetry record covering one unit of work with a start timestamp, an end timestamp, a name, a kind (CLIENT / SERVER / INTERNAL / PRODUCER / CONSUMER), a status (OK / ERROR), and arbitrary key/value attributes. Replaces "nothing in YTDB" (no prior telemetry primitive). → §"Sem-conv attribute mapping" and §"Class Design".
 
@@ -39,6 +41,8 @@ This design introduces eight load-bearing ideas. Each is named and used without 
 **Query source classification.** Two static-helper classifiers in `core` extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Called directly from the existing fire sites: `YTDBQueryMetricsStep` for Gremlin, and the `DatabaseSessionEmbedded.executeStatementWithMetrics` helper for SQL (invoked from both `query()` and `executeInternal()`). No SPI or ServiceLoader; the call sites parse before invoking, so the classifiers piggyback on parsing that runs anyway. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
 
 **Slow-query threshold (per-tag).** A wall-clock duration in milliseconds resolved per-query from the same query tag that drives mode selection. Global default `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=100`; per-tag overrides via `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` go through a process-global `SlowQueryThresholdResolver` consuming `TagRule<Long>` on the same sealed interface that powers mode resolution. When the resolved threshold is greater than zero, `OTelQueryMetricsListener.queryFinished` returns early before any span allocation if `executionTimeNanos < thresholdNanos` and the query did not throw. Errors always emit regardless. The global default is read at OTel listener construction time; tag-rule resolution is per-query, so a long-running session can hit different thresholds for different tags. Replaces "all-or-nothing emission gated only on listener presence", which over-emitted on mostly-read workloads. → §"Slow-query threshold gating".
+
+**Time-based query sampling (heartbeat).** A wall-clock interval in milliseconds resolved per-query from the same query tag. Global default `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS=0` (disabled); positive values emit one span per `N` ms regardless of duration, picked from whichever successful query finishes first after the interval elapses. Per-tag overrides via `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES` resolve through a process-global `SampleHeartbeatResolver` sharing the sealed `TagRule<T>` matcher hierarchy with the mode and slow-query resolvers. The race for the "first query after the interval" slot is resolved by `AtomicLong.compareAndSet` on a per-listener `lastHeartbeatNanos` field, so under load exactly one query per window claims the heartbeat slot. Composes disjunctively with the slow-query gate (a query emits if either gate passes). Replaces "no sampling beyond the slow-query gate", which biased visibility toward latency outliers and left the fast-query workload invisible. → §"Time-based sampling".
 
 **Explicit transaction tracking ID.** A host-provided string identifier passed to a transaction via `YTDBTransaction.withTrackingId(String)`. When set, `FrontendTransaction.getTrackingId(): String` returns the explicit value; when unset, the accessor falls back to `String.valueOf(getId())` so the existing internal-ID source remains the default. Both `QueryDetails.getTransactionTrackingId()` and `TransactionDetails.getTransactionTrackingId()` read through this accessor, so explicit IDs surface in OTel span attributes (`youtrackdb.transaction.tracking_id`) and in custom listener implementations alike. Replaces the earlier "internal ID only" model where hosts had no way to attach a stable identifier from their own dispatch layer. → §"Class Design" and §"Listener registration and ordering".
 
@@ -74,6 +78,8 @@ classDiagram
         -Tracer tracer
         -SpanKind clientKind
         -long defaultThresholdNanos
+        -long defaultHeartbeatNanos
+        -AtomicLong lastHeartbeatNanos
         +queryFinished(QueryDetails, long, long) void
     }
     class OTelTransactionMetricsListener {
@@ -120,6 +126,12 @@ classDiagram
         +resolve(Optional~String~ tag, long defaultNanos) long
         +global() SlowQueryThresholdResolver$
     }
+    class SampleHeartbeatResolver {
+        -List~TagRule~ rules
+        -ConcurrentHashMap~String,Long~ cache
+        +resolve(Optional~String~ tag, long defaultNanos) long
+        +global() SampleHeartbeatResolver$
+    }
     class TagRule {
         <<sealed interface>>
         +matches(String tag) boolean
@@ -142,6 +154,7 @@ classDiagram
         +getDefaultQueryMonitoringMode() QueryMonitoringMode
         +resolveQueryMonitoringMode(Optional~String~ tag) QueryMonitoringMode
         +resolveSlowQueryThresholdNanos(Optional~String~ tag) long
+        +resolveSampleHeartbeatNanos(Optional~String~ tag) long
         +getTrackingId() String
         +iterateAllQueryListeners() Iterable~QueryMetricsListener~
     }
@@ -172,10 +185,12 @@ classDiagram
     TagRule <|.. TagRuleRegex
     QueryMonitoringModeResolver --> TagRule : holds list of
     SlowQueryThresholdResolver --> TagRule : holds list of
+    SampleHeartbeatResolver --> TagRule : holds list of
     FrontendTransaction --> QueryMonitoringModeResolver : resolveQueryMonitoringMode delegates to global()
     FrontendTransaction --> SlowQueryThresholdResolver : resolveSlowQueryThresholdNanos delegates to global()
+    FrontendTransaction --> SampleHeartbeatResolver : resolveSampleHeartbeatNanos delegates to global()
     YTDBTransaction --> FrontendTransaction : fluent builder stores tracking-id and mode on
-    YouTrackDBOpenTelemetry --> OTelQueryMetricsListener : populates defaultThresholdNanos from config
+    YouTrackDBOpenTelemetry --> OTelQueryMetricsListener : populates defaultThresholdNanos and defaultHeartbeatNanos from config
     OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry(.., ownedByYtdb=true) / shutdown
 ```
 
@@ -183,7 +198,7 @@ The diagram covers the production classes the design introduces. Three interface
 
 `SQLStatement` gains a default-empty `getQueryTag(): Optional<String>` accessor populated by the parser when a `/*+ TAG=X */` hint precedes the statement. Two new static-utility classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and one value record (`Classification`) land in `core` next to the existing parsing infrastructure. Gremlin's classifier piggybacks on the bytecode walk `YTDBQueryMetricsStep.produceScript()` already performs, and the SQL classifier dispatches on the `SQLStatement` AST that both `DatabaseSessionEmbedded.query()` and `executeInternal()` already produce via `SQLEngine.parse(...)` before delegating to the `executeStatementWithMetrics` helper. The classifiers are pure functions, called directly from the existing fire sites; no SPI, no ServiceLoader.
 
-Two process-global resolvers (both in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`, and `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; both cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so both resolvers share the matcher hierarchy. Five classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
+Three process-global resolvers (all in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`; `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; `SampleHeartbeatResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES`. All three cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so the resolvers share the matcher hierarchy. Five classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
 
 Both OTel listeners take a `SpanKind clientKind` constructor argument that selects between CLIENT and INTERNAL for the query span and the standalone commit span. INTERNAL is used when YTDB runs in-process with the host (embedded), CLIENT when YTDB runs as a standalone server process and the host is a network client. `YouTrackDBOpenTelemetry` resolves `clientKind` from how the SDK was wired: the `OpenTelemetryServerPlugin` invokes the package-private 3-arg variant `setOpenTelemetry(otel, ownedByYtdb=true, serverMode=true)` so CLIENT propagates to both listeners; every embedded entry point (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) defaults `serverMode=false` so INTERNAL applies. The two flags carry separate concerns: `ownedByYtdb` controls whether `shutdown()` closes the SDK; `serverMode` controls the CLIENT/INTERNAL split on emitted spans. See §"Sem-conv attribute mapping" for the sem-conv rule that drives this choice.
 
@@ -191,7 +206,9 @@ The producer copies each `Classification(operationName, collectionName)` value i
 
 `OTelQueryMetricsListener` and `OTelTransactionMetricsListener` are independent — the query listener takes its parent context from `Context.current()` at fire time (the host's active span, when wrapped), not from any TX-side state. The two listeners are wired alongside each other by `YouTrackDBOpenTelemetry` but share no fields or callbacks. Multiple OTel facades coexisting in the same JVM (test fixtures spinning up a fresh SDK per test method) are independent for the same reason.
 
-`OTelQueryMetricsListener` takes a third constructor argument `long defaultThresholdNanos`, populated by `YouTrackDBOpenTelemetry` from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `100`, read once at SDK init, multiplied to nanoseconds). At each fire the listener calls `SlowQueryThresholdResolver.global().resolve(querySummary, defaultThresholdNanos)` to compute the effective threshold for this query — a matching tag rule overrides the default, an unset tag or unmatched tag falls back to the default. When the resolved value is greater than zero, the listener returns early on successful queries whose `executionTimeNanos` falls under the threshold, skipping all span allocation. Errors bypass the gate through `QueryDetails.getErrorType()`, populated by both fire sites from the caught exception's class FQN (see §"Slow-query threshold gating" for the gate pseudocode and the error-bypass contract).
+`OTelQueryMetricsListener` takes two additional constructor arguments alongside the existing `Tracer` and `SpanKind` pair: `long defaultThresholdNanos` populated by `YouTrackDBOpenTelemetry` from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `100`, multiplied to nanoseconds) and `long defaultHeartbeatNanos` populated from `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` (default `0`, disabled). Both are read once at SDK init. The listener also owns an `AtomicLong lastHeartbeatNanos` field initialized to `0` and updated by `compareAndSet` when a query claims the heartbeat slot.
+
+At each fire the listener evaluates two gates against the resolved per-query values. First the heartbeat gate: `SampleHeartbeatResolver.global().resolve(querySummary, defaultHeartbeatNanos)`; if the interval is positive and `now - lastHeartbeatNanos >= interval`, the listener CAS-claims the slot and emits. Otherwise the slow-query gate runs: `SlowQueryThresholdResolver.global().resolve(querySummary, defaultThresholdNanos)`; if the threshold is positive and `executionTimeNanos < thresholdNanos`, the listener returns early and skips all span allocation. Errors bypass both gates through `QueryDetails.getErrorType()`, populated by both fire sites from the caught exception's class FQN (see §"Slow-query threshold gating" and §"Time-based sampling" for the gate pseudocode and the error-bypass contract).
 
 Class Design is a structural reference section; edge cases for each component live in the mechanism sections this section points to.
 
@@ -310,6 +327,34 @@ Span name fallback examples. Gremlin: a query labeled with `g.with(YTDBQueryConf
 
 Span kinds per role follow sem-conv v1.33.0 §"Span kind", which mandates CLIENT for over-network DB calls and INTERNAL for in-process and in-memory database libraries. YTDB satisfies both definitions in different deployments, so the kind is mode-aware: in embedded mode the query span and the standalone commit span are INTERNAL (YTDB runs in-process with the host); in server mode they are CLIENT (YTDB runs as a separate process the host reaches over the network). No SERVER / PRODUCER / CONSUMER spans are emitted by YTDB, and no YTDB-side INTERNAL wrapper span parents the query or commit spans — both attach directly to `Context.current()`. Track 6a's listener tests (`OTelGremlinQueryTest`, `OTelSqlQueryTest`, `OTelTransactionMetricsListenerTest`) parametrize over `clientKind` so each test exercises both INTERNAL (embedded default) and CLIENT (server-plugin path), asserting the positive cases on `SpanData.getKind()` and the negative case (no SERVER / PRODUCER / CONSUMER spans) against the in-memory exporter.
 
+### YouTrackDB vendor attributes (intro)
+
+**TL;DR.** OpenTelemetry's `db.<system>.*` prefix carries DB-implementation-specific structural fields beyond the standard `db.*` set; YTDB-496 reserves the `db.youtrackdb.*` namespace and ships an initial six-key set populated by the existing classifiers (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) during the same parser-output walk that already extracts operation and collection. Values are deliberately constrained to booleans and small integers so trace consumers can group and filter queries by structural shape without paying for high-cardinality storage. Higher-resolution fields (predicate values, sort columns, property keys, per-operator timing) stay out of MVP and ship in a follow-up ticket once production demand surfaces.
+
+Initial attribute set (MVP):
+
+| Attribute | Source | Cardinality | Notes |
+|---|---|---|---|
+| `db.youtrackdb.where_present` | SQL: presence of WHERE / Gremlin: presence of `has(...)` / `where(...)` step | boolean | filter trace by "queries with predicates" vs unconditional scans |
+| `db.youtrackdb.order_present` | SQL: presence of ORDER BY / Gremlin: presence of `order()` step | boolean | filter by "sorted queries" |
+| `db.youtrackdb.limit_present` | SQL: presence of LIMIT / Gremlin: presence of `limit(...)` / `range(...)` / `tail(...)` step | boolean | filter by "bounded queries" |
+| `db.youtrackdb.from_class_count` | SQL: count of FROM targets / Gremlin: count of top-level `V(...)` / `E(...)` start steps | small int (typically 1-3) | flag multi-target queries |
+| `db.youtrackdb.step_count` | Gremlin only: count of top-level bytecode instructions | small int (typically 1-20) | rough complexity proxy; SQL omits |
+| `db.youtrackdb.has_subtraversal` | Gremlin only: presence of any `__.*` sub-traversal or `match(...)` pattern | boolean | flag composite Gremlin shapes; SQL omits |
+
+Cardinality policy. Every attribute in `db.youtrackdb.*` MUST be bounded: boolean, small integer (under ~20 distinct values), or enum. The bound applies to the *attribute value*, not to the *attribute key* (the key set is closed, defined in this table). Trace backends typically index per attribute key per distinct value, so an unbounded value range translates directly to backend storage and query cost.
+
+Out of MVP (high-cardinality, deferred to follow-up):
+
+- specific predicate values (`age > 30`, `name = "Alice"`) — every distinct literal blows up cardinality
+- specific ORDER BY columns or `by(...)` keys — user-controlled, schema-dependent
+- specific property keys read via `values(...)` or projection — same cardinality concern as ORDER BY keys
+- full execution-plan structure (per-operator timing, per-step row counts) — already covered by the § Non-Goals bullet on per-operator timing; the follow-up ticket sources data from `SQLProfiler` and emits span events rather than span attributes to avoid polluting the per-span attribute set
+
+Future-extension policy. New attributes land under `db.youtrackdb.*` if they pass two tests: (a) bounded cardinality per the policy above, and (b) extractable from existing parser output without re-walking the query. Attributes failing either test go into the per-operator span-events follow-up, which can carry higher-cardinality fields without cost-amplifying the per-span attribute set.
+
+Extraction site. The shared `Classification` value record gains additional optional fields, one per attribute in the table above, with defaults representing "not present". `GremlinBytecodeClassifier.classify(Bytecode)` and `SqlSyntaxClassifier.classify(SQLStatement)` populate the fields during the same walk that already extracts operation and collection. The OTel listener reads the fields from `QueryDetails` accessors (extended in Track 1 alongside the existing operation / collection / namespace / errorType accessors) and sets them on the emitted span; custom (non-OTel) listeners that ignore the new accessors are unaffected.
+
 ### Edge cases / Gotchas
 
 - An empty `db.query.text` (e.g., the rare case where `stringStatement` is null on the SQL path and `statement.getOriginalStatement()` also returns null) is acceptable; the attribute is Recommended, not Required.
@@ -318,7 +363,7 @@ Span kinds per role follow sem-conv v1.33.0 §"Span kind", which mandates CLIENT
 - `db.namespace` resolution depends on the database name being readily available from the transaction context. If unavailable, the attribute is omitted, which is allowed by sem-conv ("if available").
 
 ### References
-- D-records: D5, D6, D8, D9, D16
+- D-records: D5, D6, D8, D9, D16, D19
 - Mechanics: none
 
 ## Span timing capture
@@ -635,6 +680,85 @@ The standalone commit span is not threshold-gated in this design. Commit duratio
 ### References
 - D-records: D16 (slow-query threshold inside OTel listener, error bypass, per-tag rules via `TagRule<Long>`)
 - Invariants: Listener exception isolation (the gate sits inside the try/catch wrapper at the fire site, so an exception in the threshold comparison cannot unwind the transaction)
+- Mechanics: none
+
+## Time-based sampling
+
+**TL;DR.** A wall-clock heartbeat gate inside `OTelQueryMetricsListener` emits one span every `N` ms regardless of query duration, so operators see a representative sample of the workload even when the slow-query gate filters out everything fast. Toggleable via `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` (default `0` = disabled); per-tag overrides through `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES` resolve against a process-global `SampleHeartbeatResolver` consuming `TagRule<Long>` on the same sealed interface that powers mode and slow-query resolution. Composes disjunctively with the slow-query gate: a query emits if either gate passes, so heartbeat picks fast queries while slow-query still catches latency outliers.
+
+Configuration entries:
+
+- `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` (default `0`) — global wall-clock interval in milliseconds between heartbeat emissions. Positive values cause `OTelQueryMetricsListener.queryFinished` to emit a span for the first successful query that arrives more than `N` ms after the last heartbeat emission, then advance the heartbeat clock. `0` disables the heartbeat gate entirely; only the slow-query gate emits.
+- `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES` (default empty) — per-tag overrides, same format as the slow-query rules. Comma-separated, first-wins, with `tag=ms` for exact match, `prefix:X=ms` for prefix match, `regex:X=ms` for regex match. Example: `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES=findActiveUsers=100,prefix:batch-=5000`. A tag whose rule matches uses that interval; an unset or unmatched tag falls back to the global default.
+
+The resolver reuses the same machinery as `SlowQueryThresholdResolver` — only the semantic of the `Long` value differs (heartbeat interval vs duration threshold):
+
+```java
+public final class SampleHeartbeatResolver {
+    private final List<TagRule<Long>> rules;
+    private final ConcurrentHashMap<String, Long> cache;
+
+    public long resolve(Optional<String> tag, long defaultNanos) {
+        if (tag.isEmpty()) return defaultNanos;
+        return cache.computeIfAbsent(tag.get(), t -> resolveUncached(t, defaultNanos));
+    }
+    // resolveUncached walks rules in order, first-wins; values stored as nanoseconds.
+
+    public static SampleHeartbeatResolver global() { ... }
+}
+```
+
+The heartbeat gate sits at the top of `OTelQueryMetricsListener.queryFinished`, BEFORE the slow-query gate. Composition rule: the heartbeat gate runs first; if it claims the slot, the query emits and the slow-query gate is bypassed (saves one resolver lookup); if it does not claim, the slow-query gate evaluates as before. Error queries bypass both gates and always emit; the heartbeat clock is not advanced by error emissions, so a stream of errors does not suppress the heartbeat sample of successful queries.
+
+Pseudo-implementation:
+
+```java
+private final AtomicLong lastHeartbeatNanos = new AtomicLong(0);
+
+@Override
+public void queryFinished(QueryDetails details, long startedAtMillis, long executionTimeNanos) {
+  boolean isError = details.getErrorType().isPresent();
+  if (!isError) {
+    Optional<String> tag = Optional.ofNullable(details.getQuerySummary());
+    long heartbeatNanos = SampleHeartbeatResolver.global().resolve(tag, defaultHeartbeatNanos);
+    if (heartbeatNanos > 0 && tryClaimHeartbeat(heartbeatNanos)) {
+      // heartbeat slot claimed — fall through to span emission
+    } else {
+      long thresholdNanos = SlowQueryThresholdResolver.global().resolve(tag, defaultThresholdNanos);
+      if (thresholdNanos > 0 && executionTimeNanos < thresholdNanos) {
+        return;  // both gates dropped this query
+      }
+    }
+  }
+  // existing span construction (sem-conv attributes, parent context, span.end)
+}
+
+private boolean tryClaimHeartbeat(long heartbeatNanos) {
+  long now = System.nanoTime();
+  long last = lastHeartbeatNanos.get();
+  if (now - last < heartbeatNanos) return false;
+  return lastHeartbeatNanos.compareAndSet(last, now);
+}
+```
+
+The `AtomicLong.compareAndSet` resolves the multi-thread race: under load several queries finish within the same heartbeat window and all see `now - last >= heartbeatNanos`, but only the first CAS succeeds; losers fall through to the slow-query gate. The result is exactly one query per heartbeat window claims the heartbeat slot; the rest either pass the slow-query gate, get dropped, or emit on error.
+
+### Edge cases / Gotchas
+
+- The heartbeat clock is process-global per `OTelQueryMetricsListener` instance (one `AtomicLong`), not per-thread. This matches "one sample every N ms of wall-clock" semantics regardless of QPS or thread count. Per-thread heartbeat would emit one sample per thread per N ms, which scales noise with parallelism.
+- Per-tag heartbeat intervals share the same clock. A query tagged `findHotpath` and another tagged `batchJob` arriving in the same window both compete for the same `lastHeartbeatNanos` slot; whichever wins the CAS resets the clock for everyone. This is intentional: the heartbeat is a workload-level sample, not a per-tag stream. Operators wanting per-tag streams configure dedicated OTel exporters on the SDK side.
+- A query that's slow AND wins the heartbeat CAS emits only once, not twice. The composition order (heartbeat first, slow-query second) skips the slow-query gate after a heartbeat claim.
+- Error queries always emit, regardless of heartbeat or slow-query state. The heartbeat clock is NOT advanced by error emissions; an error every N ms does not suppress the heartbeat sample of successful queries.
+- Heartbeat-emitted spans look identical to slow-query-emitted spans in the trace viewer; no `sample.reason` attribute distinguishes them in YTDB-496. Operators wanting to tell "this was a heartbeat sample" apart from "this was actually slow" compare span duration against the configured slow-query threshold downstream. Adding an explicit attribute is a future-ticket concern (low cost; would land alongside the structured-attributes extension).
+- Mid-process changes to the heartbeat interval require an SDK rebuild — same constraint as the slow-query threshold default. The tag-rule list is also compiled once at startup.
+- A heartbeat interval shorter than the resolver's lookup cost (`ConcurrentHashMap.get` on a cached tag, ~50 ns) is wasted — the gate evaluates more often than it can possibly emit. Practical minimum is around 1 ms; sensible production defaults are 100 ms to 10 s.
+- Disabling the heartbeat (interval = 0) makes the gate evaluate `if (0 > 0 && …)`, which short-circuits on the first conjunct. Zero overhead for the disabled case beyond the resolver lookup, which itself short-circuits on `tag.isEmpty()` and returns the default immediately.
+- Tag-rule cache cardinality blow-up if a misuse-pattern host emits unique tags per request (e.g., a UUID) — same caveat as for the other two resolvers; documented as host responsibility, no LRU bound in YTDB-496.
+- Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The heartbeat gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own sampling can call `SampleHeartbeatResolver.global()` themselves.
+
+### References
+- D-records: D18 (time-based heartbeat sampling alongside slow-query gate, AtomicLong CAS for race-free single-emit per window, per-tag rules via `TagRule<Long>`)
+- Invariants: Listener exception isolation (the heartbeat CAS sits inside the same try/catch wrapper at the fire site), Heartbeat-and-threshold disjunctive composition (one successful query emits at most once even when both gates would pass)
 - Mechanics: none
 
 ## SDK lifecycle: embedded vs server
