@@ -29,7 +29,7 @@ Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH br
 
 1. Complete `CacheKey` with `equals(o)`:
    - **Identity fast-path** (D12): `if (this.statement == other.statement && Objects.equals(this.params, other.params)) return true;`. Catches identical-text repeats served by `STATEMENT_CACHE`.
-   - **Structural fall-through**: if the fast-path missed, deep equals: `this.statement.equals(other.statement) && Objects.equals(this.params, other.params)`. `SQLStatement.equals` is structural per `SQLSelectStatement:380` (13 fields) and `SQLMatchStatement:507` (11 fields). Different statement classes → false.
+   - **Structural fall-through**: if the fast-path missed, deep equals: `this.statement.equals(other.statement) && Objects.equals(this.params, other.params)`. `SQLStatement.equals` is structural per `SQLSelectStatement:380` (13 fields) and `SQLMatchStatement:508` (11 fields). Different statement classes → false.
    - `params` compared deep with `Arrays.deepEquals` for array-valued entries and RID equality for identifiables.
    - `hashCode() = statement.hashCode() ^ params.hashCode()`; cache lazily.
    - Defensive-copy params at constructor time.
@@ -70,7 +70,7 @@ Wire the cache into `DatabaseSessionEmbedded.query()` idempotent SELECT/MATCH br
 
 **Library / function signatures.**
 - `CacheKey(SQLStatement, Map<Object,Object>) → defensive-copied Map`.
-- `CacheKey.equals(Object)` — D12 `==` fast-path on `statement` reference; on miss, deep `statement.equals` + `Objects.equals(params, params)`. `SQLStatement.equals` is the existing structural override (`SQLSelectStatement:380`, `SQLMatchStatement:507`).
+- `CacheKey.equals(Object)` — D12 `==` fast-path on `statement` reference; on miss, deep `statement.equals` + `Objects.equals(params, params)`. `SQLStatement.equals` is the existing structural override (`SQLSelectStatement:380`, `SQLMatchStatement:508`).
 - `CacheKey.hashCode()` — `statement.hashCode() ^ params.hashCode()`.
 - `CachedResultSetView(CachedEntry, TxDeltaCursor, DatabaseSessionEmbedded)`.
 - `DatabaseSessionEmbedded.query(...)` returns `ResultSet` (unchanged signature; new internal branching).

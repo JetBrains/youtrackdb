@@ -50,7 +50,7 @@ Existing relevant code:
    ```
    The normal pin skip lets LinkedHashMap stay above soft cap transiently; the fallback at 2× hard cap bounds memory in pathological abandoned-view scenarios.
 7. **`CachedResultSetView` registration in `activeQueries`** — view constructor registers itself in `DatabaseSessionEmbedded.activeQueries` map (same map LocalResultSet uses) under a unique session-scoped key. `view.close()` deregisters. This guarantees tx-end `closeActiveQueries()` reaches every constructed view (including app-abandoned ones), calling `view.close()` which decrements `liveViewCount` and closes the underlying stream wrapper. Without this hookup, abandoned views leak `liveViewCount > 0` past cache.clear and prevent next-tx LRU eviction.
-7. Stream-lifecycle tests (T3 set):
+8. Stream-lifecycle tests (T3 set):
    - T3a: two consumers race to next(). First pulls record A; second sees A in `entry.results[0]`; second pulls record B; first sees B in `entry.results[1]`. Both end at same final state.
    - T3b: consumer drops view mid-iteration without closing. Cache retains the entry; new `query()` constructs a new view that continues from current position.
    - T3c: tx end while view is mid-iteration → `cache.clear()` closes the stream → next `view.next()` throws (acceptable for shutdown).
