@@ -14,8 +14,9 @@ Lay down the foundational pieces with no behavioral change: four `GlobalConfigur
 - `localCache.clear()` at line 182 is the model for the defensive clear in `beginInternal`.
 
 **Concrete deliverables.**
-- `QueryResultCache` class (new, package `internal.core.tx` or sub-package) with `LinkedHashMap<CacheKey, CachedEntry>` field, `lookup`/`put`/`invalidateAll`/`clear` API stubs.
-- `CachedEntry` class skeleton with `shape`, `results`, `cachedRids`, `stream`, AST-metadata fields, `close()` idempotent no-op.
+- `QueryResultCache` class (new, package `internal.core.tx` or sub-package) with `LinkedHashMap<CacheKey, CachedEntry>` field, `lookup`/`put`/`invalidateAll`/`clear` API stubs. Override `removeEldestEntry(eldest)` to skip entries with `eldest.getValue().liveViewCount > 0` (I9 — prevents silent result truncation under LRU pressure when a view is still iterating); evicted entries' `close()` is invoked.
+- `CachedEntry` class skeleton with `shape`, `results`, `cachedRids`, `stream`, AST-metadata fields, `populateMutationVersion: long` (D18 + D21 — stamped pre-`plan.start(ctx)` on cache miss; used by K0_NONE for lookup invalidation gate and by cacheable shapes as DeltaBuilder filter `op.version > populateMutationVersion`), `liveViewCount: int` (I9 — incremented by `CachedResultSetView` ctor, decremented idempotently by `close()` and natural exhaustion), `close()` idempotent no-op.
+- `RecordOperation` skeleton adjusted: gain `version: long` field stamped from `tx.mutationVersion` at every `addRecordOperation` call (D21). `FrontendTransactionImpl.addRecordOperation` stamps at both code paths — new-entry (`txEntry = new RecordOperation(record, status)`) and collapse-in-place (the existing `txEntry.type` flip per `FrontendTransactionImpl.java:591-612`). The collapse path re-stamps the existing op's version to the new value so `op.version` always reflects the latest mutation timestamp for its RID — DeltaBuilder's `op.version > entry.populateMutationVersion` filter relies on this to decide whether the latest collapsed state was already observed by populate.
 - `TxDeltaCursor` class skeleton with `skipSet`, `injectList`, `peek`/`pop`/`shouldSkip` stubs.
 - `CacheableShape` enum.
 - `CacheKey` class skeleton (statement + params holder; equals/hashCode stubs).

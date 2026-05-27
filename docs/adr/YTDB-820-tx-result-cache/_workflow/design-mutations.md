@@ -951,4 +951,59 @@ Companion edits applied via `Edit` (not through this skill):
 
 **Iterations**: 2 of 3 (PASS).
 
+## Mutation 25 — 2026-05-27 — content-edit (design.md + design-mutations.md)
+
+**Diff summary**: Two correctness regressions identified during interactive in-session review (Sandra) and fixed by introducing one invariant (I9) and one Decision Record (D21). Edits applied directly via `Edit` rather than through the edit-design skill because the conversation was interactive and the corrections were load-bearing for any subsequent track work. The mutation entry reconstructs the log in-format so the design's change history stays auditable, and includes a documented oscillation on the dispatch table simplification that was tried and rolled back when a corner case surfaced.
+
+**Regression 1 — silent result truncation under LRU eviction (fixed by I9 + `liveViewCount` refcount).**
+
+Pre-mutation design: `CachedResultSetView` held strong refs to its entry's `results` list and `cachedRids` set, but not to the entry itself. When `maxEntries` was reached and `removeEldestEntry` evicted the entry, the entry's `stream` was closed. A view still iterating that entry would continue reading its cached prefix, fail to lazy-pull additional records (closed stream), and silently report exhaustion at whatever prefix happened to be cached. Result: the view returned a strict subset of the rows an uncached fresh execution would return. This violated the `ResultSet` contract: opting into the cache flag changed result cardinality, not just performance. design.md:728 documented this as "Acceptable: behavior degrades to 'I got the prefix that was cached at eviction time'" — the in-session review judged this not acceptable.
+
+Fix: `CachedEntry` carries `liveViewCount: int`. `CachedResultSetView` ctor increments; `close()` and natural exhaustion decrement (idempotent). `QueryResultCache.removeEldestEntry` skips entries with `liveViewCount > 0`; the map's size grows transiently under sustained view-pinning. Memory soft-bound is acceptable because tx end clears everything and the worst-case pinned count is bounded by the user's concurrently-alive `ResultSet` count (same upper bound uncached path already accepts via `activeQueries`). Invariant I9 formalises the cardinality guarantee with a test (open view, issue ≥maxEntries distinct cache keys, assert RID sequence matches parallel uncached query).
+
+**Regression 2 — populate-time double-application of tx mutations on cache miss (fixed by D21 populate-version stamping + retained `cached_at_build` dispatch column).**
+
+Pre-mutation design: cache miss-path drove the standard executor (`plan.start(ctx)` for RECORD/MATCH, the `AggregateCacheTapStep`-spliced plan for AGGREGATE) and assumed the executor read pre-tx storage state. DeltaBuilder then applied the full `tx.recordOperations` set on top. This double-counted any pre-existing tx mutations: `RecordIteratorCollection` (`core/.../iterator/RecordIteratorCollection.java:90-180`) emits tx-CREATED records via its `nextTxId` phase (forward direction) before storage records; `FrontendTransactionImpl.loadRecord` returns in-memory tx-CREATED / tx-UPDATED state and throws `RecordNotFoundException` for tx-DELETED. So `entry.results` populated on miss already contained tx-applied state. The pre-mutation dispatch table at design.md:327 explicitly assumed otherwise ("CREATED RIDs are temp; cached_at_build is irrelevant" + "CREATED RIDs are temporary and storage never emits them" at line 379). Concrete consequence: `tx.begin(); db.save(Alice); db.query("SELECT FROM Person")` returned Alice **twice** on the first cache hit — once from cached prefix (executor included her), once from inject_list (DeltaBuilder dispatched her CREATED op).
+
+Worse, the bug was a leak of the conceptual model: cache content was a function of `(query, storage, populate-timing-within-tx)` rather than `(query, storage, tx-state)`. Two entries for the same key created at different moments in the same tx lifecycle would emit different results when subjected to identical subsequent mutation patterns.
+
+Fix: each `RecordOperation` carries `version: long` stamped from `tx.mutationVersion` at `addRecordOperation` time. The collapse-in-place path (`addRecordOperation` updating an existing op per `FrontendTransactionImpl.java:591-612`) re-stamps `version` to the new `mutationVersion`. Each `CachedEntry` carries `populateMutationVersion: long` stamped from `tx.mutationVersion` at the moment the cache miss begins driving the executor (extends D18's K0_NONE-only stamping to all shapes). DeltaBuilder filters `tx.recordOperations` by `op.version > entry.populateMutationVersion` before dispatch — only post-populate mutations enter the delta. The conceptual invariant becomes: `view.output = state-at-populate + delta-after-populate = fresh-execution-result-at-query-call-moment`, holding for every populate timing.
+
+**Oscillation on dispatch table simplification (rolled back).** A first pass at the D21 edit attempted to simplify the dispatch table by dropping the `cached_at_build` column, on the reasoning that the D21 filter had already restricted dispatch to post-populate ops and so any RID in `cachedRids` for one of those ops must be there because populate observed pre-mutation storage state. This was wrong: `FrontendTransactionImpl.addRecordOperation` (lines 591-612) collapses CREATE+UPDATE on the same RID in place — the op `type` stays `CREATED` while `version` advances to the latest mutation. So a `CREATED` op with `op.version > populateMutationVersion` can be either a truly new post-populate CREATE (record never in cache) or a pre-populate CREATE whose post-populate UPDATEs bumped its version (record in cache from populate, properties live-bound to the latest mutation). The simplified table emitted duplicates for the collapsed-CREATE-with-post-populate-UPDATE case (failing the WHERE-no-longer-matches subcase: record stayed in cache emission because dispatch dropped the skip_set entry). Re-introduced `cached_at_build` as the runtime distinguisher; D21's contribution becomes "restrict the dispatch SET" rather than "collapse the dispatch LOGIC".
+
+Per-file edits (all `design.md`):
+- § Overview ¶2 rewritten: removed factually-incorrect "Cache entries are immutable from the moment they are populated"; added D21 anchoring paragraph explaining populate-version stamping and why the executor's tx-awareness mandates it.
+- § Class Design `classDiagram`: `CachedEntry` gains `liveViewCount: int`.
+- § Lazy merge-on-read → TxDeltaCursor: new opening paragraph introducing D21's populate-version filter; snapshot construction switched to filtered stream; dispatch table restored to original 10-row shape (CREATED gains its own cached_at_build rows for the collapse case); added "Why `cached_at_build` is still load-bearing under D21" justification paragraph that documents the addRecordOperation collapse trap.
+- § Lazy merge-on-read → Cross-view delta sharing: added sentence explaining that `addRecordOperation` collapse-in-place re-stamps `op.version` to the latest `mutationVersion`.
+- § Lazy merge-on-read → buildForRecord pseudocode: snapshot construction switched to D21-filtered stream.
+- § Lazy merge-on-read → Stream-pull dispatch unification: removed wrong "storage never emits CREATED" assumption; replaced with the correct D21 framing — post-populate CREATEs that are not collapse cases have temp RIDs the executor cannot have already emitted because their addRecordOperation post-dates `populateMutationVersion`.
+- § Aggregate delta — AGGREGATE_* shapes: `Replay applyMutation` step rewritten with the same populate-version filter.
+- § MATCH multi-alias (partial Etap B in v1): `DeltaBuilder.buildForMatchMulti` snapshot rewritten with populate-version filter + new opening paragraph explaining symmetric application of D21.
+- § Concurrency and lifecycle → LRU and iteration safety: `removeEldestEntry` rewritten to skip pinned entries; new "View pinning rationale" paragraph; new paragraph documenting CachedResultSetView's ctor/close hooks.
+- § Memory bounds: `maxEntries` flagged as **soft** cap; total memory bound formula extended to account for `pinned_excess`.
+- § Memory bounds → Edge cases / Gotchas → "Eviction during iteration": rewritten from "Acceptable: behavior degrades" to "Cannot happen: live views pin their entry".
+- § Invariants TL;DR: "Eight" → "Nine".
+- § Invariants: new I9 entry with test prescription.
+
+Companion edits NOT applied in this mutation (left for next mutation pass — explicit marker so a planner pass picks them up):
+- `implementation-plan.md`: D21 D-record should be added after D20; Component Map `RecordOperation` bullet needs `version: long` field note; Track 4 (DeltaBuilder) scope grows to include the populate-version filter logic AND the unchanged dispatch table; Track 3 (cache miss path) scope grows to include the `populateMutationVersion` stamping; Component Map FrontendTransactionImpl bullet should mention the new `version` field on `RecordOperation` and the collapse-in-place re-stamping. Marker for next planner pass.
+- `plan/track-1.md`, `plan/track-3.md`, `plan/track-4.md`: BLUF + Concrete deliverables need D21 cross-refs.
+- `plan/track-3.md`: implementation step "stamp `entry.populateMutationVersion = tx.mutationVersion` immediately before `plan.start(ctx)` in the miss path; do not stamp at view-construction" needs explicit wording.
+- Tests for D21 (RECORD shape: save Alice + query → assert exactly one Alice; AGGREGATE_COUNT: save Alice + COUNT(*) → assert exactly N+1; UPDATED + match_after=true post-populate: save Bob with new ORDER BY key → assert Bob's emitted position matches uncached fresh execution; collapsed-CREATE-with-post-populate-UPDATE where post-state fails WHERE → assert record dropped from emission).
+- Tests for I9 (pin under maxEntries pressure, assert RID-sequence parity vs uncached).
+
+**Mechanical checks**: NOT RUN — direct Edit path skipped the edit-design skill's auto-review. In-session interactive review (Sandra surfaced both regressions and the dispatch-table oscillation) provides equivalent gate; formal mechanical-check pass scheduled for next session opening.
+
+**Cold-read**: NOT RUN — same reason.
+
+**Findings**:
+- Regression 1 (silent truncation): RESOLVED via I9 + `liveViewCount` refcount + `removeEldestEntry` skip-pinned rewrite.
+- Regression 2 (double-application): RESOLVED via D21 populate-version stamping + DeltaBuilder filter.
+- Dispatch-table simplification: ATTEMPTED then ROLLED BACK after collapse-CREATE-with-post-populate-UPDATE corner case surfaced; original 10-row shape retained with new D21-filter prose and explicit load-bearing rationale paragraph.
+- Implementation plan + track files: NOT YET propagated — recorded as follow-up marker above.
+- Mechanical-check + cold-read: NOT YET run — recorded as follow-up marker above.
+
+**Iterations**: 1 of 3 (in-session interactive review counted as iteration 1; formal mechanical + cold-read pending next session).
+
 
