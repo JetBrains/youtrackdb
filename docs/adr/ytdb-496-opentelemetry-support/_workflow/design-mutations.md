@@ -404,3 +404,22 @@ Side-effect (user-authorized, outside edit-design scope): reformatted `implement
 **Findings**: none.
 
 **Iterations**: 1 of 3 (PASS on first run).
+
+## Mutation 30 — 2026-05-27 — content-edit (design.md)
+
+**Diff summary**: Cold-read fixes from the deferred whole-doc review of Mutations 26-28. Six grouped fixes. (B1) § Workflow References footer L280: D10 removed (TX-lifetime span dropped in M26, footer carried stale reference); final form `- D-records: D1, D2, D4`. (B2 + S3 combined) § Sem-conv attribute mapping References footer L314: D7 removed (REVERSED by M29, superseded by D16) and D16 added (the table's `error.type` row at L294 cross-references D16's gate-bypass mechanism); final form `- D-records: D5, D6, D8, D9, D16`. (S1) § Class Design opening 255-word paragraph at L179 split into three paragraphs at natural topic boundaries: (a) interfaces extended in `core` + YTDBTransaction builders, (b) `SQLStatement` + classifiers + `Classification` value record, (c) process-global resolvers + sealed `TagRule<T>` + OTel-module classes. All wording preserved; only blank-line breaks inserted. (S2) § Overview paragraph 3 at L9, 186 words, split into two paragraphs at the "and a pair of static-utility classifiers" boundary; reworded "three load-bearing additions" to "two load-bearing additions" and started new paragraph with "A pair of static-utility classifiers" so the count matches. (S4) Class diagram at L175 gains a new arrow `YouTrackDBOpenTelemetry --> OTelQueryMetricsListener : populates defaultThresholdNanos from config`, placed alongside existing `YouTrackDBOpenTelemetry`-related arrows; closes the prose-vs-diagram gap at L188.
+
+**Mechanical checks** (target=design): PASS — zero findings.
+**Cold-read** (scope: whole-doc — periodic counter at 30 % 5 == 0 forced escalation from content-edit's default bounded scope): PASS — zero blockers, zero should-fix, two suggestions (non-actioned).
+
+**Findings**:
+- blocker (addressed): B1 — § Workflow References L280 stale D10 reference (D10 was reversed in M26). Removed.
+- blocker (addressed): B2 — § Sem-conv References L314 stale D7 reference (D7 was reversed in M29). Removed; same edit added D16 to close S3.
+- should-fix (addressed): S1 — § Class Design opening paragraph 255 words. Split into three paragraphs.
+- should-fix (addressed): S2 — § Overview paragraph 3 at 186 words. Split into two paragraphs.
+- should-fix (addressed): S3 — § Sem-conv References footer lacked D16 even though the table's `error.type` row depends on D16's gate-bypass. Folded into B2 fix.
+- should-fix (addressed): S4 — Class diagram missing arrow for `defaultThresholdNanos` wiring from `YouTrackDBOpenTelemetry` to `OTelQueryMetricsListener`. Added.
+- suggestion (logged, not applied): § Overview paragraph 4 L19 retains a ~280-word single sentence with two em-dashes joining six independent restructures with commas; splitting at "and `GlobalConfiguration` gains five `OPENTELEMETRY_*` entries…" would lower em-dash density and match the readability uplift M30 achieved on paragraphs 1 and 3. Cold-read flagged this only because the mutation context asked about em-dash density in split paragraphs.
+- suggestion (logged, not applied): D-record annotation style inconsistency between section footers (bare IDs in most footers vs annotated `D16 (slow-query threshold inside OTel listener, error bypass, per-tag rules via TagRule<Long>)` in § Slow-query threshold gating and `D11 (...)` in § Exception isolation contract); both styles are explicitly permitted in house-style.
+
+**Iterations**: 1 of 3 (PASS — single mechanical + cold-read pass, no iteration needed; cold-read confirmed no residual references to dropped concepts from M26 — TX-lifetime span, activeTxContext, txListener field on query listener, "TX span boundedness" invariant — and 12 of 12 `**Full design**` refs in the implementation plan resolve to real sections).
