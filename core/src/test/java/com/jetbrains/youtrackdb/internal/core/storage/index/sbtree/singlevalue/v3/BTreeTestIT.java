@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -1119,12 +1121,41 @@ public class BTreeTestIT {
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> Assert.assertEquals(120L,
             singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // Exact-zero boundary: delta == -current must produce updated == 0
+    // without triggering the assert. Zero is a valid approximate entries
+    // count (the index has just been emptied), so the guard is
+    // `updated >= 0`, not `updated > 0`. A future tightening to `> 0` would
+    // still pass the underflow regression test (delta=-10 well below zero)
+    // and the values above (150, 120 well above zero); this case is the
+    // only one that distinguishes the two predicates.
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.setApproximateEntriesCount(
+            atomicOperation, 7L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.addToApproximateEntriesCount(
+            atomicOperation, -7L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(
+            "delta == -current must produce exactly 0, not underflow",
+            0L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
   }
 
-  // Verifies that addToApproximateEntriesCount throws AssertionError when a
-  // negative delta would drive the count below zero (underflow). This is the
-  // last line of defense against count drift bugs propagating to the query
-  // optimizer — a negative approximate count is never valid.
+  // Verifies the assert guard in addToApproximateEntriesCount: a negative
+  // delta that would drive the count below zero must trigger the assert and
+  // leave the persisted count unchanged. The guard stops count drift from
+  // reaching the query optimizer, where a negative approximate count is
+  // invalid input.
+  //
+  // The AssertionError thrown inside BTree.addToApproximateEntriesCount does
+  // NOT escape as a bare Error: AtomicOperationsManager.executeInsideComponentOperation
+  // wraps it in CommonStorageComponentException (so the storage/component
+  // context is preserved) and the outer executeInsideAtomicOperation re-wraps
+  // that in StorageException so the rollback path runs through
+  // endAtomicOperation(op, error). The broadened catch contract was introduced
+  // by YTDB-958; this test pins both wrapping layers so a regression that
+  // drops either one (and would let a bare AssertionError escape) is caught.
   @Test
   public void addToApproximateEntriesCountThrowsOnUnderflow() throws Exception {
     // Set known initial count
@@ -1134,18 +1165,67 @@ public class BTreeTestIT {
 
     // Delta of -10 would produce count = 5 + (-10) = -5, triggering the
     // assert guard in BTree.addToApproximateEntriesCount().
+    //
+    // The "did we observe the wrapped exception?" check fires OUTSIDE the
+    // try-catch (via threwAsExpected) so the diagnostic Assert.fail call for
+    // the no-throw path cannot accidentally be caught by the sibling
+    // catch (Error escaped) arm and surface as a misleading
+    // "escaped as a bare Error" message.
+    boolean threwAsExpected = false;
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> singleValueTree.addToApproximateEntriesCount(
               atomicOperation, -10L));
-      Assert.fail("Expected AssertionError for underflow delta");
-    } catch (AssertionError e) {
+    } catch (StorageException wrapped) {
+      // Outer wrap: the underflow AssertionError escaped
+      // executeInsideComponentOperation as a CommonStorageComponentException,
+      // which executeInsideAtomicOperation then re-wraps as StorageException.
+      final Throwable componentCause = wrapped.getCause();
       Assert.assertTrue(
-          "Error message must mention 'underflow'",
-          e.getMessage().contains("underflow"));
-    }
+          "StorageException cause must be CommonStorageComponentException, was "
+              + (componentCause == null ? "null" : componentCause.getClass().getName()),
+          componentCause instanceof CommonStorageComponentException);
 
-    // Verify count was NOT modified — the assert fires before the write
+      // Inner wrap: the original AssertionError must survive on the cause chain
+      // so log / debug surfaces see the real invariant message.
+      final Throwable assertionCause = componentCause.getCause();
+      Assert.assertTrue(
+          "CommonStorageComponentException cause must be the original AssertionError, was "
+              + (assertionCause == null ? "null" : assertionCause.getClass().getName()),
+          assertionCause instanceof AssertionError);
+      Assert.assertNotNull(
+          "AssertionError must carry a message", assertionCause.getMessage());
+      final String assertionMessage = assertionCause.getMessage();
+      // Pin the diagnostic format the dev console needs at debug time: the
+      // literal "underflow" tag plus the current and delta values interpolated
+      // from the live state. A mutation that broke the interpolation but kept
+      // the literal would otherwise slip through.
+      Assert.assertTrue(
+          "AssertionError message must mention 'underflow', was: " + assertionMessage,
+          assertionMessage.contains("underflow"));
+      Assert.assertTrue(
+          "AssertionError message must include current=5, was: " + assertionMessage,
+          assertionMessage.contains("current=5"));
+      Assert.assertTrue(
+          "AssertionError message must include delta=-10, was: " + assertionMessage,
+          assertionMessage.contains("delta=-10"));
+      threwAsExpected = true;
+    } catch (AssertionError escaped) {
+      // A bare AssertionError escaping the wrapper is exactly the regression
+      // this test guards against. Pre-YTDB-958 the catch in
+      // executeInsideAtomicOperation was `catch (Exception)` only, so an
+      // AssertionError from the lambda body escaped as a bare Error.
+      // Narrower than catch (Error escaped): OOM / LinkageError would be a
+      // different failure mode and should not be mislabelled here.
+      Assert.fail("AssertionError escaped the AtomicOperationsManager wrappers as a bare Error: "
+          + escaped);
+    }
+    Assert.assertTrue(
+        "Expected StorageException wrapping the underflow AssertionError",
+        threwAsExpected);
+
+    // Verify count was NOT modified — the assert fires before the write,
+    // and the atomic-op rollback restores any partial state.
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> Assert.assertEquals(
             "Count must remain 5 after failed underflow attempt",
