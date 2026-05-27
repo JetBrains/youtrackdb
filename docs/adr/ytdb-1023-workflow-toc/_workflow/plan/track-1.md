@@ -110,7 +110,7 @@ belong to one specific step. Per-step episode content lives in
 
 - The scripts themselves (`workflow-reindex.py`, `measure-read-share.py`) — Tracks 2 and 3.
 - Per-section annotations on any file other than `conventions.md` itself — Track 4.
-- Cross-reference suffixes in `CLAUDE.md` and agent files — Track 5.
+- Cross-reference suffixes in agent files and SKILL.md startup read-lists — Track 5. (`CLAUDE.md` is out of scope per the plan's Non-Goals.)
 
 ### Inter-track dependencies
 

@@ -11,13 +11,13 @@ This design adds three layers of metadata so an agent can decide *whether* to op
 
 A mechanical Python script (`workflow-reindex.py`, no LLM) validates the schema at pre-commit and CI time; the `review-workflow-context-budget` agent absorbs the qualitative audit at PR review. A second mechanical script (`measure-read-share.py`) becomes standing Phase 4 infrastructure: every future ADR carries a percentages-only token-usage snapshot for the worktree that ran it.
 
-The rest of this document covers, in order: Core Concepts (vocabulary primer); the annotation idiom and TOC region format; the role and phase enums; the cross-reference convention; the bootstrap protocol for agent system prompts; the reindex script; the telemetry script; the CI gate semantics; the migration replay semantics for this change; and the Phase 4 ADR template extension.
+The rest of this document covers, in order: Core Concepts (vocabulary primer); the files and surfaces out of scope (single consolidated reference); the annotation idiom and TOC region format; the role and phase enums; the cross-reference convention; the bootstrap protocol for agent system prompts; the reindex script; the telemetry script; the CI gate semantics; the migration replay semantics for this change; and the Phase 4 ADR template extension.
 
 ## Core Concepts
 
 This design introduces eight load-bearing ideas. Each is named and used without re-definition in the sections that follow.
 
-**TOC region.** A delimited Markdown table directly under the H1 of every annotated file, between `<!--Document index start-->` and `<!--Document index end-->` comments. Lists one row per `##` heading (and selected `###` where the author granularizes). The CI gate rebuilds the table from the per-section annotations and fails on divergence. Replaces the implicit "open the file and scan its `##` headings" pattern. → §"Annotation idiom and TOC region".
+**TOC region.** A delimited Markdown table directly under the H1 of every annotated file, between `<!--Document index start-->` and `<!--Document index end-->` comments. Lists one row per `##` and one row per `###` heading — no author-judged granularity. The CI gate rebuilds the table from the per-section annotations and fails on divergence. Replaces the implicit "open the file and scan its `##` headings" pattern. → §"Annotation idiom and TOC region".
 
 **Section annotation.** An HTML comment on the line after every `##` and `###` heading carrying `roles=...`, `phases=...`, and `summary="..."`. Invisible to humans, parsed by one regex. The single source of truth for the TOC region above. → §"Annotation idiom and TOC region".
 
@@ -25,13 +25,50 @@ This design introduces eight load-bearing ideas. Each is named and used without 
 
 **Phase enum.** 10 values naming the workflow's phase taxonomy: `0`, `1`, `1a`, `1b`, `2`, `3A`, `3B`, `3C`, `4`, `any`. `1a` and `1b` are reserved for YTDB-975 (in flight) and carry no annotations at rollout. → §"Role and phase enums".
 
-**Cross-reference convention.** Inline references to workflow docs in SKILL.md startup read-lists and in `.claude/agents/*.md` files carry the suffix `name.md:roles:phases`. An agent in role R during phase P reads the suffix and skips files where neither matches, before opening anything. `CLAUDE.md` is intentionally excluded (general-purpose, not workflow-specific). → §"Cross-reference convention".
+**Cross-reference convention.** Workflow-doc references carry a `roles:phases` suffix so the reader can filter before opening or jumping. Cross-file refs (in SKILL.md startup read-lists and in `.claude/agents/*.md`) use the full `name.md:roles:phases` form and are hand-written. In-file refs (`§X.Y` and `§X.Y(z)` inside a workflow doc) use the shorter `§X.Y(z):roles:phases` form and are **auto-stamped** by `workflow-reindex.py --write` from the target heading's annotation. `CLAUDE.md` is intentionally excluded (general-purpose, not workflow-specific). → §"Cross-reference convention".
 
 **Bootstrap block.** An instruction block at the top of every workflow-related system prompt — between frontmatter and main body — that names the agent's role and explains the TOC-aware reading protocol in ≤30 lines. Scope: 7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` (38 files total). Closes the chicken-and-egg gap: the cross-ref protocol is defined in `conventions.md §1.8`, but an agent that does not know the protocol would Read §1.8 in full to learn it. → §"Bootstrap protocol for agent system prompts".
 
 **`workflow-reindex.py`.** Mechanical Python script at `.claude/scripts/workflow-reindex.py`. Modes: `--check` (CI / pre-commit) and `--write` (author rebuild of TOC tables). Validates enum tokens and TOC-vs-annotation consistency. No LLM. → §"Reindex script".
 
 **`measure-read-share.py`.** Mechanical Python script at `.claude/scripts/measure-read-share.py`. Runs once per Phase 4 ADR creation, from the worktree only. Outputs a percentages-only Read% snapshot over the worktree's transcript-folder lifetime. Becomes standing infrastructure: every future Phase 4 ADR carries the section. → §"Telemetry script".
+
+## Files and surfaces out of scope
+
+**TL;DR.** The schema covers a specific set of workflow-related Markdown: 30 docs under `.claude/workflow/`, 11 prompts under `.claude/workflow/prompts/`, 7 workflow-referencing SKILL.md, and 20 agent definitions under `.claude/agents/`. Six exclusions are listed below; each one cross-references the mechanism section that owns its authoritative rule. This section is the single anchor a reader new to the design follows when asking "does the schema apply to X?" — the mechanism sections still carry the rule.
+
+### The six exclusions
+
+1. **Agent files lack per-section TOC + annotations.** The 20 `.claude/agents/*.md` files carry the bootstrap block at the top and the cross-file `:roles:phases` suffix on their outgoing workflow-doc references, but no per-section HTML annotation comments and no TOC region. Rationale: agent files are loaded as system prompts when sub-agents spawn; the Read tool never opens them, so per-section annotations would not save Read-tool tokens. → §"Bootstrap protocol" → §"Scope and uniformity"; D6 in the plan.
+
+2. **`CLAUDE.md` is excluded from all three layers.** No section-level annotations, no cross-file suffix on its workflow-doc references, no bootstrap block. Rationale: `CLAUDE.md` is a general-purpose project guide loaded into every session regardless of role or phase. The file-level filter (skip-on-role-mismatch) does not apply because every agent in every phase needs it. → §"Overview"; Non-Goals in the plan.
+
+3. **Phase 4 final artifacts carry no annotations.** `design-final.md`, `design-mechanics-final.md` (when present), and `adr.md` are durable post-merge artifacts under `docs/adr/<dir>/` (outside `_workflow/`). They are committed once and read by humans (PR reviewers, future re-readers, decision auditors), not loaded by sub-agents at runtime. Rationale: the Read-share problem this design solves is about full-file loads in active sessions; Phase 4 artifacts are accessed by humans on GitHub, where token cost is not a factor. → Migration replay semantics §"What this plan changes vs. what migration replays".
+
+4. **Ephemeral `_workflow/**` artifacts carry no annotations.** `implementation-plan.md`, `design.md`, `design-mechanics.md` (when present), `plan/track-N.md`, `design-mutations.md`, and any `handoff-*.md` live under `_workflow/` for the branch's lifetime and are removed in the Phase 4 cleanup commit before merge. Rationale: these files are branch-local working artifacts loaded by orchestrator and implementer agents in specific phases; per-section TOC + annotations on them would impose author-time burden on every plan author for marginal Read-tool savings on already-short working files. The schema's section-level layer is targeted at the durable, frequently-loaded workflow rule files instead. → §"Reindex script" → §"Discovery mechanism" (the script's fixed globs are the inclusion list; `_workflow/**` paths are deliberately absent).
+
+5. **Non-workflow skills carry no bootstrap block.** Skills like `ai-tells`, `run-jmh-benchmarks-hetzner`, `profile-jmh-regressions`, `run`, `verify`, `init`, `review`, `security-review` do not Read files under `.claude/workflow/` or `.claude/skills/` at runtime, so the bootstrap block would be inert text. The 7 workflow-referencing skills (`create-plan`, `execute-tracks`, `edit-design`, `migrate-workflow`, `review-workflow-pr`, `review-plan`, `code-review`) are the explicit allow-list for bootstrap insertion. → §"Bootstrap protocol" → §"Scope and uniformity".
+
+6. **Files with no `^## ` headings carry no TOC region.** A rare but legal shape — a tiny in-scope file (e.g., a one-paragraph helper doc) needs no TOC because there is nothing to enumerate. The reindex script's rule 2 (TOC region present) accepts an empty TOC or omitted TOC for such files. Rule 4 (annotation density) is trivially satisfied with no headings to annotate. → §"Reindex script" → §"Edge cases / Gotchas".
+
+The `.claude/scripts/**` tree is non-Markdown (Python source) and not in any annotation scope by file extension; that exclusion is mechanical rather than a design decision and is named here only for completeness.
+
+### Why a consolidated section
+
+The exclusions are scattered across the document by the mechanism sections that define them: bootstrap scope lives in §"Bootstrap protocol", reindex behaviour in §"Reindex script", Phase 4 boundary in §"Migration replay semantics". A reader new to the design who asks "does this apply to `CLAUDE.md`?" or "what about Phase 4 final artifacts?" should find the answer in one place rather than reading every mechanism section. This section is that single place; the relevant mechanism sections still carry the authoritative rule, and this section cross-references them.
+
+### Edge cases / Gotchas
+
+- A `.claude/agents/*.md` file that grows large enough to consider per-section TOC: the design's answer stays "no per-section annotations for agent files" — the Read tool never opens them. The fix for an oversized agent file is to restructure the file (extract content into a workflow doc the agent Reads on demand) rather than to add annotations to the agent file.
+- A skill that today is non-workflow but starts Reading workflow files in the future: the bootstrap-block scope expands by 1 — the reindex script's rule 7 allow-list (currently 7 SKILL.md names) grows in the same commit as the new Read.
+- A new `_workflow/**` artifact type a future workflow-format commit adds (beyond the existing six): per the working-tree scope rule, the new type stays unannotated by default. A workflow-format commit that wants the schema to cover a new type explicitly opts in by adding it to the discovery globs.
+- The `.claude/scripts/**` tree is non-Markdown and the discovery globs already skip it. The exclusion is mechanical and would only become relevant if someone added a Markdown file under `.claude/scripts/` — the design defines no behaviour for that case; a future maintainer adds it to the discovery globs or leaves it out, but the schema does not need to anticipate non-existent files.
+- A reader looking for "what is in scope" finds the inverse view in §"Reindex script" → §"Discovery mechanism" (the fixed globs the script walks). The two views are complementary: this section is the explicit exclusion list with rationale; the discovery globs are the explicit inclusion list without rationale.
+
+### References
+
+- D6: Agent files get refs-only suffix sweep plus bootstrap block (no per-section annotations).
+- D8: Bootstrap block embedded in every workflow-related system prompt.
 
 ## Annotation idiom and TOC region
 
@@ -48,6 +85,8 @@ This design introduces eight load-bearing ideas. Each is named and used without 
 |---|---|---|---|
 | §1.1 Glossary | any | any | Workflow vocabulary, controlled enums. |
 | §1.6 Workflow-SHA stamps | orchestrator, migrator | 1,1a,1b,3A,3B,3C,4 | Stamp format, computation, range, unstamped protocol. |
+| §1.6(a) Format definition | orchestrator, migrator | 1,1a,1b,3A,3B,3C,4 | Stamp regex, line-1 position contract. |
+| §1.6(c) Stamp range definition | migrator | 3A,3B,3C,4 | BASE_SHA..HEAD range, pairwise merge-base fold. |
 | §1.7 Staging for workflow-modifying branches | orchestrator, implementer, final-designer | 3A,3B,3C,4 | Staged subtree path layout, marker, reads precedence. |
 <!--Document index end-->
 
@@ -70,7 +109,7 @@ The annotation comment lives on the line **immediately after** the heading. A re
 ### Edge cases / Gotchas
 
 - Headings inside fenced code blocks or HTML comments are not real headings; the reindex script's regex skips them.
-- A single `##` heading without an annotation comment on the next line is a CI blocker.
+- A `##` or `###` heading without an annotation comment on the next line is a CI blocker. `### ` annotations are required at the same density as `## ` annotations — no author-judged granularity. (One exception: the bootstrap-block heading `## Reading workflow files (TOC protocol)`; see §"Bootstrap protocol" → §"Block placement and stability".)
 - Annotation values containing quotes inside the summary must escape (`summary="Reads \"index\" entries"`). The author can also rewrite to avoid quotes.
 - The TOC's column order is fixed: `Section | Roles | Phases | Summary`.
 
@@ -137,18 +176,20 @@ The phase taxonomy does NOT carve out separate tokens for ESCALATE / inline-repl
 
 ## Cross-reference convention
 
-**TL;DR.** Workflow-doc references in SKILL.md startup read-lists and in `.claude/agents/*.md` files carry the suffix `name.md:roles:phases`. The reader matches its own role+phase against the suffix and opens the file only on a hit. `CLAUDE.md` is out of scope (general-purpose project guide, not workflow-specific).
+**TL;DR.** Workflow-doc references carry a `roles:phases` suffix so the reader can filter before opening (cross-file refs) or before jumping to the cited section (in-file refs). Cross-file refs (in SKILL.md startup read-lists and in `.claude/agents/*.md` files) use the full `name.md:roles:phases` form and are **hand-written**. In-file refs (`§X.Y` and `§X.Y(z)` inside a workflow doc) use the shorter `§X.Y(z):roles:phases` form and are **auto-stamped** by `workflow-reindex.py --write` from the target heading's annotation. `CLAUDE.md` is out of scope (general-purpose project guide, not workflow-specific).
 
 ### Format
 
 ```
-conventions.md:orchestrator,implementer:1,3A,3B,3C
-step-implementation.md:implementer:3B
-implementer-rules.md:implementer:3B,3C
-prompts/technical-review.md:reviewer-technical:3A
+conventions.md:orchestrator,implementer:1,3A,3B,3C       # cross-file, hand-written
+step-implementation.md:implementer:3B                    # cross-file, hand-written
+implementer-rules.md:implementer:3B,3C                   # cross-file, hand-written
+prompts/technical-review.md:reviewer-technical:3A        # cross-file, hand-written
+§1.6(c):migrator:3A,3B,3C,4                              # in-file, auto-stamped by --write
+§1.7:orchestrator,implementer,final-designer:3A,3B,3C,4  # in-file, auto-stamped by --write
 ```
 
-The path is relative to the conventional anchor (`.claude/workflow/`, `.claude/skills/`). The suffix's colons separate three fields; `,`-separated lists inside each field follow the same no-space rule as section annotations.
+The path is relative to the conventional anchor (`.claude/workflow/`, `.claude/skills/`). The suffix's colons separate the three fields (`name.md` / `§X.Y(z)` then `roles` then `phases`); `,`-separated lists inside each field follow the same no-space rule as section annotations. Cross-file refs carry the `.md` filename; in-file refs start at `§` and omit the file part since the reader already knows which file they are in.
 
 ### Read-decision flow
 
@@ -176,16 +217,32 @@ flowchart TD
 
 The flow's load-bearing properties: the file-level filter avoids the open when neither role nor phase matches; the TOC filter avoids the full-section read when the section's role+phase doesn't match.
 
+### In-file reference auto-stamping
+
+In-file `§X.Y` and `§X.Y(z)` references inside any in-scope workflow doc are auto-stamped by `workflow-reindex.py --write`. The author writes the plain ref (`§1.6(c)`); the script resolves the target heading, reads its annotation comment, derives the matching `roles:phases` suffix, and rewrites the ref in place (`§1.6(c):migrator:3A,3B,3C,4`). The author never types the suffix and never updates it when the target's annotation changes — `--write` is the single source of truth for the stamped form.
+
+**Why auto-stamp in-file but hand-write cross-file.** Two forces pull in opposite directions. Cross-file refs are fewer per file (typically one startup read-list per SKILL.md plus a small outgoing-ref set per agent file) and the citer often cares about a narrow slice of the target's role/phase set, not the full set, so hand-writing the suffix lets the citer record what they care about. In-file refs are common, the target's annotation lives in the same file (so resolving the suffix is mechanical and unambiguous), and the citer almost always means "the target's full annotation" rather than a narrow slice, so auto-stamping eliminates author burden and keeps the suffix in sync with target drift mechanically.
+
+**Drift detection.** When a target heading's annotation changes (a role added, a phase tightened), every in-file ref to that heading goes stale until the next `--write` rewrites them. The reindex script's rule 8 (new) flags stamped suffixes that don't match their target's current annotation as a CI blocker; the fix is `workflow-reindex.py --write` (mechanical). Plain (unstamped) in-file refs are also a CI blocker — the author skipped the `--write` step before commit; the same fix applies.
+
+**Cross-file precision.** Cross-file refs may pin a specific sub-section by appending `§X.Y(z)` after the filename: `conventions.md§1.6(c):migrator:3A,3B,3C,4`. Sub-section precision in cross-file form stays hand-written — the cross-file roles/phases describe the citer's slice of the target, not the target's full annotation, so auto-derivation would defeat the precision the citer wanted to express.
+
+**Read-decision flow extension.** The flowchart above covers the cross-file case: the agent reads the ref, file-level-matches against role+phase, opens, then TOC-matches and jumps. For in-file refs the file-level match is trivially satisfied (the agent is already in the file); the reader skips the OPEN and READ_TOC steps, applies the same role+phase check against the suffix, and jumps directly when matched. No diagram update is needed — the in-file path is a special case where the file-level decision is moot.
+
 ### Edge cases / Gotchas
 
 - A reference without the `:roles:phases` suffix in scope of the CI gate is a blocker after Track 5 lands.
-- The suffix's roles/phases describe **the sections the citer cares about**, not every section of the referenced file. A reference can list a narrow subset; the reader still opens the TOC and decides per-section.
-- A reference inside fenced code blocks or example text is excluded from the CI gate by surrounding context (the gate's regex respects code-fence boundaries).
+- The suffix's roles/phases on a cross-file ref describe **the sections the citer cares about**, not every section of the referenced file. A reference can list a narrow subset; the reader still opens the TOC and decides per-section.
+- The suffix's roles/phases on an in-file ref describe **the target heading's current annotation**, not the citer's narrow slice. The `--write` mode rewrites them mechanically; the author does not edit the stamped form by hand.
+- A cross-file ref pinning a sub-section (`conventions.md§1.6(c):roles:phases`) stays hand-written even though the section anchor matches in-file shape. The hand-vs-auto split is on cross-file vs in-file, not on the presence of `§X.Y(z)`.
+- A reference inside fenced code blocks or example text is excluded from the CI gate by surrounding context (the gate's regex respects code-fence boundaries). The auto-stamp `--write` mode applies the same code-fence exclusion to avoid rewriting refs that appear in example blocks.
+- An in-file ref to a heading that does not exist (typo in the section number or letter) is a CI blocker. The script resolves the ref against the file's heading set and surfaces unresolved refs at `--check` time.
 
 ### References
 
 - D2: Per-section annotation as HTML comment on the line after the heading.
 - D6: Agent files get refs-only suffix sweep plus bootstrap block (no per-section annotations).
+- D9: In-file `§X.Y(z)` references auto-stamped by the reindex script with target-derived suffix.
 
 ## Bootstrap protocol for agent system prompts
 
@@ -228,11 +285,13 @@ Per-file variation: the role token is fixed for agent files (e.g., `reviewer-dim
 
 The block sits between the frontmatter (`---` block on SKILL.md and most agent files; sometimes absent on prompts) and the main body (H1 or first instruction). On files without frontmatter, the block sits at the very top, followed by the H1. On files with a TOC region (the 7 SKILL.md and 11 prompts, which Track 4 annotates), the bootstrap block sits before the TOC region; the TOC region remains directly under the H1 per §"Annotation idiom and TOC region".
 
-When an in-scope file is updated, the block is preserved byte-for-byte unless the role or phase mapping changes. The reindex script's rule 8 validates the block's presence (literal heading match); content is hand-written and not validated.
+When an in-scope file is updated, the block is preserved byte-for-byte unless the role or phase mapping changes. The reindex script's rule 7 validates the block's presence (literal heading match); content is hand-written and not validated.
+
+**Interaction with TOC density rules (3 and 4).** The bootstrap block's literal `## Reading workflow files (TOC protocol)` heading is exempt from §"Reindex script" rule 3 (every `^## ` / `^### ` heading has a TOC row) and rule 4 (every `## ` / `### ` heading carries an annotation comment). The exemption uses the same literal-heading match rule 7 already keys off, so the reindex script holds one carve-out, not three. The bootstrap heading therefore carries no annotation comment and produces no TOC row in any of the 38 in-scope files. Rationale: the heading is byte-identical across every in-scope file, sits structurally above the H1 (the TOC region sits below), and forcing a row would land an identical line in every file's TOC region, clutter that the uniform-density rule does not buy the reader anything to enforce.
 
 ### CI enforcement
 
-The reindex script's rule 8 (new): every in-scope SKILL.md, `.claude/workflow/prompts/*.md`, and `.claude/agents/*.md` carries the bootstrap block at the top, identifiable by the literal heading `## Reading workflow files (TOC protocol)`. Missing block → CI failure. The check is presence-only; block content is hand-written.
+The reindex script's rule 7 (new): every in-scope SKILL.md, `.claude/workflow/prompts/*.md`, and `.claude/agents/*.md` carries the bootstrap block at the top, identifiable by the literal heading `## Reading workflow files (TOC protocol)`. Missing block → CI failure. The check is presence-only; block content is hand-written.
 
 ### Edge cases / Gotchas
 
@@ -240,6 +299,7 @@ The reindex script's rule 8 (new): every in-scope SKILL.md, `.claude/workflow/pr
 - A new in-scope file added after rollout must carry the block before its first commit. The reindex script catches the omission at CI time.
 - The block's role and phase tokens are the author's responsibility; the reindex script does not validate the tokens against the locked enum at this site. An out-of-enum token surfaces when an annotation or cross-ref elsewhere uses the same token and fails the existing rule 5 check.
 - Updating the bootstrap block content across all 38 files is a single coordinated edit — the literal heading is the anchor; the body below it follows a fixed template. A future change to the template applies via `steroid_apply_patch` on the unified heading + body pair.
+- The bootstrap heading is the **only** `## ` heading in workflow scope exempt from the rule-3 / rule-4 density contract. Every other `## ` and `### ` heading in any in-scope file carries an annotation comment and a TOC row. Future bootstrap-style instruction blocks added at the top of workflow files (none planned) would need an analogous literal-heading carve-out; the reindex script's exemption list is short by design — one entry today, growing only when a future block lands.
 
 ### References
 
@@ -267,11 +327,12 @@ For every in-scope file:
 
 1. **Stamp present.** Line 1 carries the workflow-SHA stamp per `conventions.md §1.6`. Already enforced by drift gate; reindex script re-checks for consistency.
 2. **TOC region present.** Exactly one `<!--Document index start-->`/`end-->` pair under the H1.
-3. **TOC matches annotations.** Every `^## ` heading has a TOC row; every TOC row maps to a real heading. The `--write` mode rebuilds the TOC from the annotations.
-4. **Annotation present after every `## ` heading.** Selected `### ` headings may also have annotations when the author granularizes; the gate accepts but does not require `### ` annotation density.
+3. **TOC matches annotations.** Every `^## ` and `^### ` heading has a TOC row; every TOC row maps to a real heading. The `--write` mode rebuilds the TOC from the annotations. **Exempt:** the bootstrap-block heading `## Reading workflow files (TOC protocol)` is excluded by literal-heading match (see §"Bootstrap protocol" → §"Block placement and stability").
+4. **Annotation present after every `## ` and every `### ` heading.** No author-judged granularity — `### ` annotations are required at the same density as `## ` annotations. A `## ` or `### ` heading without an annotation comment on the next line is a CI blocker. **Exempt:** same literal-heading match as rule 3.
 5. **Annotation fields well-formed.** `roles=`, `phases=`, `summary="..."`. All tokens drawn from the locked enums (script reads the enums from `conventions.md §1.8`).
-6. **Cross-reference suffix on SKILL.md startup read-lists and agent file refs.** Every workflow-doc reference in `.claude/skills/*/SKILL.md` (the startup read-list and the body) and in `.claude/agents/*.md` carries the `:roles:phases` suffix. Refs inside fenced code blocks are excluded. `CLAUDE.md` is explicitly out of scope (general-purpose, not workflow-specific).
+6. **Cross-file reference suffix (hand-written).** Every workflow-doc reference in `.claude/skills/*/SKILL.md` (the startup read-list and the body) and in `.claude/agents/*.md` carries the `name.md:roles:phases` suffix. The author hand-writes the suffix; the script verifies presence but does not derive the value (cross-file refs describe the citer's narrow slice of the target, not the target's full annotation). Refs inside fenced code blocks are excluded. `CLAUDE.md` is explicitly out of scope (general-purpose, not workflow-specific).
 7. **Bootstrap block presence on workflow-related system prompts.** Each of the 7 in-scope SKILL.md files (`create-plan`, `execute-tracks`, `edit-design`, `migrate-workflow`, `review-workflow-pr`, `review-plan`, `code-review`), each of the 11 `.claude/workflow/prompts/*.md` files, and each of the 20 `.claude/agents/*.md` files carries the bootstrap block at the top, identifiable by the literal heading `## Reading workflow files (TOC protocol)`. The check is presence-only; block body is hand-written and not validated.
+8. **In-file reference suffix (auto-stamped).** Every in-file `§X.Y` and `§X.Y(z)` reference inside an in-scope workflow doc carries the matching `:roles:phases` suffix derived from the target heading's annotation. Two failure modes are blockers: (a) an unstamped plain ref (the author skipped `--write`), (b) a stamped ref whose suffix doesn't match the target heading's current annotation (target drift). Both fix the same way: `workflow-reindex.py --write` rewrites every in-file ref from the current annotations. Refs to a heading that does not exist (typo, removed section) are also a blocker. Refs inside fenced code blocks and example text are excluded from both `--check` validation and `--write` rewriting.
 
 ### Exit codes
 
@@ -286,25 +347,34 @@ Findings printed as one line per file:
 ```
 .claude/workflow/conventions.md:142:annotation: roles= field missing
 .claude/workflow/step-implementation.md:67:TOC: section "§3.2" present in annotations but missing from TOC
+.claude/workflow/conventions.md:215:in-file-ref: §1.6(c) is unstamped — run --write
+.claude/workflow/conventions.md:298:in-file-ref: §1.7 stamped suffix migrator:3A drifted from target's current annotation orchestrator,implementer,final-designer:3A,3B,3C,4 — run --write
+.claude/workflow/implementer-rules.md:412:in-file-ref: §9.4(c) does not resolve to any heading in this file
 ```
 
-Path:line:category: explanation. Author runs `--write` to fix mechanical issues; enum-token corrections are author-driven.
+Path:line:category: explanation. The `in-file-ref:` category covers unstamped, drifted, and unresolved refs. Author runs `--write` to fix the first two (mechanical); the third requires hand-editing the citing prose to point at a real heading.
 
 ### `--write` semantics
 
 - Rebuilds the TOC region in place from current annotation comments.
-- Does NOT add or modify per-section annotations (the author writes those).
-- Idempotent: running `--write` twice in a row produces no diff after the first run.
+- Auto-stamps in-file `§X.Y` and `§X.Y(z)` references by deriving the `:roles:phases` suffix from each target heading's annotation. Plain refs gain the suffix; stamped refs whose suffix has drifted from the target's current annotation are rewritten to the current value.
+- Does NOT add or modify per-section annotations or cross-file `name.md:roles:phases` suffixes — those are the author's responsibility.
+- Skips refs inside fenced code blocks and example text.
+- Halts and reports without rewriting if any in-file ref does not resolve to a heading in the same file (unresolved-ref blocker handled at `--check` time).
+- Idempotent: running `--write` twice in a row produces no diff after the first run, because the second run reads the same annotations and writes the same suffixes.
 
 ### Edge cases / Gotchas
 
 - A file with no `^## ` headings (rare but possible) needs no TOC region; the gate accepts an empty TOC or omitted TOC for such files.
 - A file with a TOC region but no annotations is a CI failure — the TOC has no source of truth to rebuild from.
 - Pre-commit hook runs the script only on staged files in scope; CI runs against the full file set.
+- The hand-vs-auto split for ref suffixes follows cross-file vs in-file, not the presence of `§X.Y(z)`. A cross-file ref that pins a sub-section (`conventions.md§1.6(c):migrator:3A,3B,3C,4`) stays hand-written; the script's `--write` mode does not touch cross-file refs even when they carry a section anchor.
+- An in-file ref that drifts because the target heading's annotation changed lands as a `--check` blocker on the very next CI run after the target's annotation edit — the fix loop is `--write` (one mechanical pass).
 
 ### References
 
 - D5: Reindex script at `.claude/scripts/workflow-reindex.py`, mechanical Python, no LLM.
+- D9: In-file `§X.Y(z)` references auto-stamped by the reindex script with target-derived suffix.
 
 ## Telemetry script
 

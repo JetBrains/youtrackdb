@@ -146,7 +146,7 @@ belong to one specific step. Per-step episode content lives in
 ### Inter-track dependencies
 
 - **Depends on Track 1.** Bootstrap block content names role/phase tokens drawn from the §1.8 locked enums.
-- **Depends on Track 2.** The reindex script's rule 8 (bootstrap presence check) and rule 7 (cross-ref suffix on SKILL.md startup read-lists and agent files) enforce this track's output.
+- **Depends on Track 2.** The reindex script's rule 7 (bootstrap presence check) and rule 6 (cross-file ref suffix on SKILL.md startup read-lists and agent files, hand-written) enforce this track's output. Rule 8 (in-file ref auto-stamp) also fires on this track's edits but is mechanical: any in-file refs the bootstrap insertion or refs sweep introduces get auto-stamped by `workflow-reindex.py --write` before commit.
 - **Depends on Track 4.** Per-section TOC and annotations on the 7 SKILL.md and 11 prompts must exist before the bootstrap block points at the TOC-aware reading protocol. The agent-side `:roles:phases` suffix also points at annotated targets.
 - **Closes the acceptance criterion.** The two-branch migration verification is the final acceptance gate from the issue.
 

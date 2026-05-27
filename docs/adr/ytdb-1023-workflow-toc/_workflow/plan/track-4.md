@@ -53,7 +53,7 @@ adversarial-review.md, consistency-gate-verification.md, consistency-review.md, 
 
 All 46 files route through §1.7 staging because they're under `.claude/workflow/**` or `.claude/skills/**`.
 
-Section counts vary widely. `conventions.md` has ~10 H2 sections plus many H3s; smaller files like `track-skip.md` may have 2–3 H2s. Annotation count estimate (~600) is the upper bound; actual depends on H3 granularization.
+Section counts vary widely. `conventions.md` has ~10 H2 sections plus many H3s; smaller files like `track-skip.md` may have 2–3 H2s. Every `##` and every `###` heading carries an annotation per the locked density rule (no author-judged granularity; the bootstrap-block heading is the sole literal-heading exception). Annotation count estimate (~600) is the upper bound from per-file heading inventories.
 
 ### Files in scope
 
@@ -62,7 +62,7 @@ All 46 enumerated above. Staged copies under `_workflow/staged-workflow/.claude/
 ### Files out of scope
 
 - `.claude/agents/**` — refs-only sweep, no per-section annotations. Track 5 territory.
-- `CLAUDE.md` — cross-reference suffix only. Track 5 territory.
+- `CLAUDE.md` — general-purpose project guide, not workflow-specific. Out of scope for this plan; see Non-Goals.
 - `.claude/scripts/**` — the scripts themselves are not in-scope for annotations.
 
 ## Plan of Work
@@ -129,7 +129,7 @@ All 46 files enumerated above. Staged copies under `_workflow/staged-workflow/`.
 ### Out-of-scope
 
 - `.claude/agents/**` — Track 5.
-- `CLAUDE.md` — Track 5.
+- `CLAUDE.md` — out of scope (general-purpose, not workflow-specific).
 - `.claude/scripts/**` — not annotated.
 
 ### Inter-track dependencies
@@ -137,7 +137,7 @@ All 46 files enumerated above. Staged copies under `_workflow/staged-workflow/`.
 - **Depends on Track 1.** The schema in `conventions.md §1.8` must exist before authors can write annotations to it.
 - **Depends on Track 2.** The reindex script must exist for `--write` scaffolding and `--check` validation.
 - **Depends on Track 3** in execution order (not structurally). Track 3 lands first so `prompts/create-final-design.md` already carries the telemetry-invocation block when Track 4 annotates it.
-- **Unblocks Track 5.** Cross-reference suffixes in `CLAUDE.md` and agent files point AT files whose role/phase tags exist; while the suffix is technically forward-resolvable, landing Track 4 first keeps the schema's surface coherent at every commit.
+- **Unblocks Track 5.** Cross-reference suffixes in the 20 agent files point AT files whose role/phase tags exist; while the suffix is technically forward-resolvable, landing Track 4 first keeps the schema's surface coherent at every commit.
 
 ### Library/function signatures touched
 
