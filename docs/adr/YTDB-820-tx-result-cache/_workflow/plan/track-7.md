@@ -18,7 +18,7 @@ Existing relevant code:
 - `LinkedHashMap.removeEldestEntry(Map.Entry)` — LRU eviction hook target.
 
 **Concrete deliverables.**
-- `NonDeterministicQueryDetector.contains(SQLStatement) → boolean` — denylist AST walker for `sysdate`, zero-arg `date()`, `uuid`, `random`, `eval`, `currentTimeMillis`, `nanoTime` and context vars `$now`, `$current`, `$thread`, `$parent`, `$depth`.
+- `NonDeterministicQueryDetector.contains(SQLStatement) → boolean` — denylist AST walker for `sysdate`, zero-arg `date()`, `uuid`, `random`, `eval`, `currentTimeMillis`, `nanoTime` and context vars `$now`, `$current`, `$currentMatch`, `$matched`, `$thread`, `$parent`, `$depth`. The context-variable list covers every per-row / per-MATCH-candidate binding in `CommandContext` (`VAR_CURRENT`, `VAR_CURRENT_MATCH`, `VAR_MATCHED`, `VAR_DEPTH`) — bypass is conservative because `DeltaBuilder` does not replicate the executor's upstream-step `ctx.setSystemVariable(VAR_CURRENT, record)` chain. Walker scope: full AST traversal — top-level WHERE clauses, ORDER BY items + modifier chains, RETURN expressions, MATCH per-alias WHEREs, MATCH WHILE conditions, all nested expression positions.
 - `NonDeterministicQueryDetector.contains(SQLOrderByItem) → boolean` — same walker scoped to a single ORDER BY item's modifier chain.
 - Cache lookup gate — `DatabaseSessionEmbedded.query()` checks: idempotent + SELECT/MATCH type + `!NonDeterministicQueryDetector.contains(stmt)` + `!stmt.noCache`. Fail any → bypass cache (no lookup, no put).
 - DML invalidation hook in `DatabaseSessionEmbedded.executeInternal()` — for `SQLTruncateClassStatement`, call `cache.invalidateAll()` before delegation to underlying handler.
@@ -52,6 +52,9 @@ Existing relevant code:
    - T7m (L9 re-entrancy): register a UDF that calls `session.query("SELECT FROM Other")` inside `MyFn.score(rec)`; outer query `SELECT FROM Item WHERE MyFn.score(this) > 0.5`; verify the nested lookup short-circuits (no LRU touch, no put), the outer view continues iterating without its paused stream being closed by inner LRU eviction.
    - T7k (I5): aggregate test — any non-deterministic query never creates an entry.
    - T7l: schema-DDL canary — invoke `CREATE CLASS X` via session; assertion in cache hook does not fire because the upstream `SchemaShared.saveInternal` throws first.
+   - T7o: per-row context bypass — `SELECT FROM Issue WHERE state = $current.workflow.openState` bypasses cache; no entry created. Repeat for `ORDER BY $current.x`, `SELECT $current.priority FROM …`. Assert detector returns true for each.
+   - T7p: MATCH context bypass — `MATCH {as:u, class:User WHERE $matched.something = 'x'} RETURN u` bypasses; `MATCH {as:u, class:User WHERE $currentMatch.depth < 3} RETURN u` bypasses. Assert no entry created.
+   - T7q: WHILE / `$depth` bypass — `MATCH {as:u, class:Node}-[edge]->{as:v, WHILE: $depth < 5} RETURN v` bypasses cache. Confirms walker scope reaches WHILE conditions, not just WHERE clauses.
 
 **Invariants to preserve.** I5: non-deterministic / NOCACHE queries never cached. I8: schema DDL upstream guard works (canary should never fire under normal operation). Memory bound: `maxEntries × maxRecordsPerEntry` Result references ceiling.
 
