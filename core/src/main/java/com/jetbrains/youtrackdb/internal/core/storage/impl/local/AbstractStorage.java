@@ -5185,46 +5185,6 @@ public abstract class AbstractStorage
             engine.delete(null);
           }
         }
-
-        linkCollectionsBTreeManager.close();
-
-        // we close all files inside cache system so we only clear collection metadata
-        collections.clear();
-        collectionMap.clear();
-        indexEngines.clear();
-        indexEngineNameMap.clear();
-        sharedSnapshotIndex.clear();
-        visibilityIndex.clear();
-        snapshotIndexSize.set(0);
-        sharedEdgeSnapshotIndex.clear();
-        edgeVisibilityIndex.clear();
-        edgeSnapshotIndexSize.set(0);
-        sharedIndexesSnapshot.clear();
-        indexesSnapshotVisibilityIndex.clear();
-        sharedNullIndexesSnapshot.clear();
-        nullIndexSnapshotVisibilityIndex.clear();
-        indexesSnapshotEntriesCount.set(0);
-
-        if (writeCache != null) {
-          writeCache.removeBackgroundExceptionListener(this);
-          writeCache.removePageIsBrokenListener(this);
-        }
-
-        writeAheadLog.removeCheckpointListener(this);
-
-        if (readCache != null) {
-          try {
-            readCache.deleteStorage(writeCache);
-          } catch (final Exception e) {
-            LogManager.instance().error(this, "Error during deletion of read cache", e);
-          }
-        }
-
-        try {
-          writeAheadLog.delete();
-        } catch (final Exception e) {
-          LogManager.instance().error(this, "Error during deletion of write ahead log", e);
-        }
       } else {
         LogManager.instance()
             .error(
@@ -5232,6 +5192,76 @@ public abstract class AbstractStorage
                 "Because of JVM error happened inside of storage it can not be properly closed",
                 null);
       }
+
+      // Resource releases below run in both branches, matching the
+      // doShutdown() (close) path at lines 5107-5145 in this file. The WAL
+      // holds two direct-memory write buffers allocated in
+      // CASDiskWriteAheadLog.<init>; skipping writeAheadLog.delete() (which
+      // routes through close(false) and deallocates both buffers in its
+      // finally block) leaks the pointers and trips the
+      // DirectMemoryAllocator.checkMemoryLeaks() assertion at JVM shutdown,
+      // surfacing as "There was an error in the forked process" on
+      // surefire/failsafe. Pure in-memory teardown (map clears,
+      // linkCollectionsBTreeManager.close) and resource handoff (listener
+      // removal, readCache.deleteStorage, writeAheadLog.delete) have no
+      // data-correctness dependency on the storage state.
+      linkCollectionsBTreeManager.close();
+      collections.clear();
+      collectionMap.clear();
+      indexEngines.clear();
+      indexEngineNameMap.clear();
+      sharedSnapshotIndex.clear();
+      visibilityIndex.clear();
+      snapshotIndexSize.set(0);
+      sharedEdgeSnapshotIndex.clear();
+      edgeVisibilityIndex.clear();
+      edgeSnapshotIndexSize.set(0);
+      sharedIndexesSnapshot.clear();
+      indexesSnapshotVisibilityIndex.clear();
+      sharedNullIndexesSnapshot.clear();
+      nullIndexSnapshotVisibilityIndex.clear();
+      indexesSnapshotEntriesCount.set(0);
+
+      // writeCache and readCache are guaranteed non-null past this
+      // point. The entry guard at the top of doShutdownOnDelete returns
+      // early on STATUS.CLOSED and throws unless status == STATUS.OPEN
+      // or isInError(). writeCache is assigned during
+      // initWalAndDiskCache (DiskStorage.java:790 for the disk engine,
+      // DirectMemoryStorage.java:78 for the in-memory engine), and
+      // readCache is assigned in the DiskStorage constructor
+      // (DiskStorage.java:261) or during the in-memory engine's init
+      // (DirectMemoryStorage.java:74). status = STATUS.OPEN is reached
+      // only after that wiring completes; every open() failure path
+      // that flips isInError() leaves status at STATUS.CLOSED, which
+      // the early-return catches. The asserts document the invariant
+      // and runtime-check it under -ea (the test JVM default;
+      // production runs -ea off, so this is free).
+      //
+      // Listener teardown and read-cache deletion run inside a
+      // defensive try/catch(Throwable) so any unexpected runtime
+      // failure here (a future invariant violation under -ea off, an
+      // implementation that throws from a listener removal, etc.)
+      // cannot bypass writeAheadLog.delete() and re-leak the WAL's two
+      // direct-memory write buffers (the exact failure mode this
+      // commit fixed).
+      assert writeCache != null;
+      assert readCache != null;
+      try {
+        writeCache.removeBackgroundExceptionListener(this);
+        writeCache.removePageIsBrokenListener(this);
+        writeAheadLog.removeCheckpointListener(this);
+        readCache.deleteStorage(writeCache);
+      } catch (final Throwable t) {
+        LogManager.instance()
+            .error(this, "Error during listener teardown or read cache deletion", t);
+      }
+
+      try {
+        writeAheadLog.delete();
+      } catch (final Exception e) {
+        LogManager.instance().error(this, "Error during deletion of write ahead log", e);
+      }
+
       postCloseSteps(true, isInError(), idGen.getLastId());
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
