@@ -12,7 +12,7 @@ Lock the role enum, phase enum, per-section annotation idiom, TOC region format,
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-05-28T11:57Z [ctx=info] Review + decomposition complete
@@ -20,6 +20,7 @@ Lock the role enum, phase enum, per-section annotation idiom, TOC region format,
 - [x] 2026-05-28T12:46Z [ctx=safe] Step 2 complete (commit 103239ba09)
 - [x] 2026-05-28T12:46Z [ctx=safe] Step implementation complete (Phase B done)
 - [x] 2026-05-28T13:06Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-28T13:09Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -41,6 +42,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
 summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 2 (6 findings, 6 accepted: T1, T4 should-fix; T2, T3, T5, T6 suggestions — glossary gained "Bootstrap block" row, worked example dropped stamp line and uses constructed demo heading, §1.8 self-annotation marked out-of-scope, acceptance bullet 3 clarified worked example vs real TOC region, decomposition collapsed from 3 steps to 2).
+- [x] Dimensional code review: PASS at iteration 1 (4 reviewers: consistency / context budget / writing style / instruction completeness; 18 findings synthesised). In-scope set of 10 findings landed in `Review fix:` commit `bed762c965` and verified at gate check: WC1 (should-fix), WC2 (minor), WC3 (minor); WI2, WI3, WI4, WI5, WI6 (should-fix); WI8 (minor); WS1 (suggestion). 8 findings deferred for track-completion discussion: WB1, WB2, WB3 (content-trim design decisions), WI1 (scope-pointer overlapping the readable-alone acceptance criterion), WI7 (summary-cap enforcement — Track 2 territory), WI9 (worked example `### ` density), WI10 (§1.8 self-annotation breadcrumb), MF1 (§1.8(h) References cite resolution at Phase 4). Context budget skipped at gate check since none of its findings were in-scope this iteration.
 
 ## Context and Orientation
 
