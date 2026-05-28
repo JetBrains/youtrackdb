@@ -1,0 +1,40 @@
+name: Workflow TOC check
+
+# Validates `.claude/workflow/**`, `.claude/skills/**`, and `.claude/agents/**`
+# Markdown files against the per-section TOC + role/phase annotation schema
+# defined in `.claude/workflow/conventions.md §1.8`. The same script runs
+# locally as part of `.githooks/pre-commit`; this workflow is the remote
+# safety net for PRs that bypass the local hook (forks without the hook
+# installed, `--no-verify` commits, etc.).
+#
+# The path filter keeps runtime under ~10 seconds on PRs that actually
+# touch workflow content. PRs that never touch a workflow file do not
+# trigger this workflow.
+
+on:
+  pull_request:
+    paths:
+      - '.claude/**/*.md'
+      - '.githooks/pre-commit'
+      - '.github/workflows/workflow-toc-check.yml'
+      - 'docs/adr/**/_workflow/staged-workflow/.claude/**/*.md'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  toc-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Validate workflow TOC + annotations
+        run: python3 .claude/scripts/workflow-reindex.py --check

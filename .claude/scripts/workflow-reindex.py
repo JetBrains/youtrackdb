@@ -104,8 +104,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # set. The seven SKILL.md anchors are spelled out individually so adding
 # a new in-scope skill is a single-line edit and the script does not
 # accidentally pull in skills outside the workflow surface.
+#
+# Two glob sets land here side by side. The first set walks the live
+# `.claude/...` tree — the steady-state path that every non-workflow-
+# modifying branch validates against. The second set walks the staged
+# subtree under `docs/adr/*/_workflow/staged-workflow/.claude/...`. The
+# pre-commit hook widens its file-name filter to include staged paths
+# so workflow-modifying branches catch staged edits before they land
+# in history; the script's discovery walk has to enumerate the same
+# staged surface so `--files <staged-path>` finds the file on disk and
+# `--check` (no `--files`) sweeps it during a CI walk.
 # ---------------------------------------------------------------------------
 IN_SCOPE_GLOBS: Tuple[str, ...] = (
+    # Live paths — the canonical workflow surface.
     ".claude/workflow/**/*.md",
     ".claude/workflow/prompts/**/*.md",
     ".claude/skills/create-plan/SKILL.md",
@@ -115,6 +126,14 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     ".claude/skills/review-plan/SKILL.md",
     ".claude/skills/review-workflow-pr/SKILL.md",
     ".claude/skills/code-review/SKILL.md",
+    # Staged paths — present only on workflow-modifying branches per
+    # `conventions.md §1.7(e)`. The pre-commit hook and the CI workflow
+    # pass these paths through `--files`; the discovery walk picks them
+    # up via the globs below so the script can read the staged copy
+    # directly.
+    "docs/adr/*/_workflow/staged-workflow/.claude/workflow/**/*.md",
+    "docs/adr/*/_workflow/staged-workflow/.claude/skills/**/SKILL.md",
+    "docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md",
 )
 
 

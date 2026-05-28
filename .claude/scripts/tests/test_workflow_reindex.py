@@ -463,6 +463,89 @@ def test_discover_in_scope_files_smoke() -> None:
     )
 
 
+def test_discover_in_scope_files_picks_up_staged_paths() -> None:
+    """Staged workflow / skill / agent files under `docs/adr/*/_workflow/staged-workflow/`
+    are part of the discovery walk so the pre-commit hook and CI workflow
+    can pass staged paths through `--files` and have them validate.
+
+    Without this, a workflow-modifying branch that edited only the staged
+    copy of `.claude/workflow/conventions.md` would have its staged edits
+    silently skipped at the gate — the bug the in-scope-set extension
+    closes.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        # Live conventions.md so the bootstrap probe has a fallback target.
+        # The live tree itself stays otherwise empty so the test does not
+        # accidentally rely on the repo's live workflow surface.
+        write_fixture_conventions(root / ".claude" / "workflow" / "conventions.md")
+        # A staged workflow file (under `.claude/workflow/`).
+        staged_workflow = (
+            root
+            / "docs"
+            / "adr"
+            / "some-plan"
+            / "_workflow"
+            / "staged-workflow"
+            / ".claude"
+            / "workflow"
+            / "step-implementation.md"
+        )
+        staged_workflow.parent.mkdir(parents=True, exist_ok=True)
+        staged_workflow.write_text("# Staged step file\n", encoding="utf-8")
+        # A staged skill file under `.claude/skills/<name>/SKILL.md`.
+        staged_skill = (
+            root
+            / "docs"
+            / "adr"
+            / "some-plan"
+            / "_workflow"
+            / "staged-workflow"
+            / ".claude"
+            / "skills"
+            / "execute-tracks"
+            / "SKILL.md"
+        )
+        staged_skill.parent.mkdir(parents=True, exist_ok=True)
+        staged_skill.write_text("# Staged skill\n", encoding="utf-8")
+        # A staged agent file under `.claude/agents/<name>.md`.
+        staged_agent = (
+            root
+            / "docs"
+            / "adr"
+            / "some-plan"
+            / "_workflow"
+            / "staged-workflow"
+            / ".claude"
+            / "agents"
+            / "review-workflow-context-budget.md"
+        )
+        staged_agent.parent.mkdir(parents=True, exist_ok=True)
+        staged_agent.write_text("# Staged agent\n", encoding="utf-8")
+        files = MODULE.discover_in_scope_files(root)
+        rels = {p.resolve().relative_to(root.resolve()).as_posix() for p in files}
+        assert (
+            "docs/adr/some-plan/_workflow/staged-workflow/.claude/workflow/step-implementation.md"
+            in rels
+        ), f"staged workflow path missing from discovery; got {sorted(rels)}"
+        assert (
+            "docs/adr/some-plan/_workflow/staged-workflow/.claude/skills/execute-tracks/SKILL.md"
+            in rels
+        ), f"staged skill path missing from discovery; got {sorted(rels)}"
+        assert (
+            "docs/adr/some-plan/_workflow/staged-workflow/.claude/agents/review-workflow-context-budget.md"
+            in rels
+        ), f"staged agent path missing from discovery; got {sorted(rels)}"
+        # The `--files` predicate (`_normalise_file_path` + membership in
+        # the discovery set) must also resolve the staged path. Pass an
+        # absolute path through the normaliser and check it lands inside
+        # the discovered set.
+        normalised = MODULE._normalise_file_path(str(staged_workflow), root)
+        assert normalised in rels, (
+            f"normalised staged path {normalised!r} is not in discovery set"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Helpers for the validation-rule tests.
 #
@@ -2607,6 +2690,10 @@ def main() -> int:
         ),
         ("inline_backtick_spans unclosed", test_inline_backtick_spans_unclosed_no_span),
         ("discover_in_scope_files smoke", test_discover_in_scope_files_smoke),
+        (
+            "discover_in_scope_files picks up staged paths",
+            test_discover_in_scope_files_picks_up_staged_paths,
+        ),
         # Validation rules + --check CLI surface.
         (
             "rule_2 missing TOC fails when file has H2",
