@@ -49,20 +49,28 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     // Used as the upper bound on `executionTimeNanos = endNano - nano`, i.e., the
     // allowance for how much more than the real elapsed time the ticker-measured
     // duration can be. Both `endNano` and `nano` are past `System.nanoTime()` samples
-    // captured by the ticker's scheduled thread, so the ticker-measured duration can
-    // exceed real time by at most one scheduler period. On virtualized CI that period
-    // can stretch well beyond the configured granularity:
+    // captured by the ticker's scheduled thread, so under nominal conditions the
+    // ticker-measured duration exceeds real time by roughly one scheduler period.
+    // On virtualized CI multiple periods of staleness can stack:
     //   * Windows: ~15.6 ms OS timer quantum; scheduleAtFixedRate(10 ms) actually fires
-    //     at ~15.6 ms intervals, plus CPU contention adds another quantum — worst-case
-    //     staleness ~31 ms for a 10 ms granularity.
+    //     at ~15.6 ms intervals, plus CPU contention adds another quantum, so
+    //     worst-case staleness reaches ~31 ms (~3 periods) for a 10 ms granularity.
     //   * GitHub-hosted macOS arm (virtualized Apple Silicon): per-fire ticker lag up
-    //     to ~75 ms observed for a 10 ms granularity. Less predictable than the
-    //     Hetzner bare-metal nodes the Linux legs run on.
-    // A 10x multiplier (100 ms for a 10 ms granularity) covers both worst cases with
-    // headroom while still catching a ticker that drifts much further behind real time.
-    // The tight "ticker never runs ahead of wall-clock" direction on `startedAtMillis`
-    // is guarded independently by a bound at one granularity + ALLOWED_TICKER_JITTER_MS.
-    TICKER_POSSIBLE_LAG_NANOS = granularity * 10;
+    //     to ~191 ms (~19 periods) observed once on the JDK 25 leg of PR #1097 for a
+    //     10 ms granularity. The macOS arm runners are less predictable than the
+    //     Hetzner bare-metal nodes the Linux legs run on. Prior bumps from 5x to 10x
+    //     covered observed lag up to ~75 ms; the 10x bound continued to trip after
+    //     that, hence this further bump.
+    // A 30x multiplier (300 ms for a 10 ms granularity) covers the observed 191 ms
+    // worst case plus ~57% headroom. Picked over 20x so a similar-magnitude
+    // worsening on a future runner does not force another bump immediately; if 30x
+    // also trips, the next step should be an environment-conditional bound or an
+    // aggregate cross-iteration check rather than another multiplier bump.
+    // The tight "ticker never runs ahead of wall-clock" direction on
+    // `startedAtMillis` is guarded independently by a bound at one granularity +
+    // ALLOWED_TICKER_JITTER_MS, so this multiplier only affects the upper bound on
+    // `executionTimeNanos`.
+    TICKER_POSSIBLE_LAG_NANOS = granularity * 30;
   }
 
   @Before
@@ -929,8 +937,11 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   /// [Ticker#approximateCurrentTimeMillis()] is updated by a background thread that can be delayed
   /// by OS scheduling, making any single-iteration lower bound flaky. So we check per-iteration
   /// approximate monotonicity (allowing up to 1 ms backward jitter from ticker recalibration)
-  /// and upper bound, then verify after the loop that the ticker has kept pace with real elapsed
-  /// time overall.
+  /// and a loose per-iteration upper bound on `executionTimeNanos` sized to absorb worst-case
+  /// scheduler-thread staleness on virtualized CI (see [#TICKER_POSSIBLE_LAG_NANOS] for the
+  /// derivation). The loose upper bound only catches gross over-reporting (drift much larger
+  /// than scheduler staleness); a complementary aggregate cross-iteration check would catch a
+  /// systematic small drift, but is not yet implemented.
   private void testQuery(
       QueryMonitoringMode mode, RememberingListener listener, Random random) throws Exception {
     long prevStartedAtMillis = 0;
