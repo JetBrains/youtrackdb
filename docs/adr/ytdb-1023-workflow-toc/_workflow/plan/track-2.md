@@ -16,11 +16,15 @@ Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `-
 - [ ] Track completion
 
 - [x] 2026-05-28T13:58Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-28T14:16Z [ctx=info] Step 1 complete (commit f676e9172b)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- §1.8 enum extraction requires column-0 token rule; wrap-text continuation lines (any line beginning with whitespace) are not enum values. Step 2's rule 5d ("tokens drawn from the bootstrap output") consumes the clean 15-role / 8-phase set with no further filtering. See Episodes §Step 1.
+- Bootstrap API for downstream tracks: Track 4 (annotation rollout) and Track 5 (cross-ref enforcement) consume `load_bootstrap_enums(repo_root)` returning `BootstrapEnums(roles, phases, source)`, plus `parse_in_scope_files(repo_root)` returning `ParsedFile` records (each carries `fenced_lines` so ref-in-fence exclusion is a boolean lookup). See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -112,7 +116,7 @@ The script self-bootstraps from `conventions.md §1.8` for enum values via the D
 
 ## Concrete Steps
 
-1. Author `workflow-reindex.py` script core — file discovery (fixed in-scope globs per design.md §"Reindex script" → §"Discovery mechanism"); heading + annotation parsing (regex on `^##`, `^###`, line-after); TOC region detection (delimiter comments); CommonMark fence + inline-backtick state machine (per `design-mechanical-checks.py:209-263` precedent; inline-backtick is the Track 2 addition per A2); staged-aware §1.8 probe per D12 (single-match enforced; multiple matches halt with exit 2; fall back to live `.claude/workflow/conventions.md`); structured representation of every in-scope file's annotations and TOC; bootstrap output exposed to downstream rules — risk: medium (multi-file logic; new module introduces the resolver every downstream step consumes; staged-aware probe extends §1.7(d) reads-precedence scope per D12)  [ ]
+1. Author `workflow-reindex.py` script core — file discovery (fixed in-scope globs per design.md §"Reindex script" → §"Discovery mechanism"); heading + annotation parsing (regex on `^##`, `^###`, line-after); TOC region detection (delimiter comments); CommonMark fence + inline-backtick state machine (per `design-mechanical-checks.py:209-263` precedent; inline-backtick is the Track 2 addition per A2); staged-aware §1.8 probe per D12 (single-match enforced; multiple matches halt with exit 2; fall back to live `.claude/workflow/conventions.md`); structured representation of every in-scope file's annotations and TOC; bootstrap output exposed to downstream rules — risk: medium (multi-file logic; new module introduces the resolver every downstream step consumes; staged-aware probe extends §1.7(d) reads-precedence scope per D12)  [x] commit: f676e9172b
 2. Implement validation rules 1-8 and `--check` mode — rule 1 (stamp present); rule 2 (TOC present, empty-TOC accepted for files without `^## ` headings); rule 3 (TOC matches annotations, bootstrap-block exemption); rule 4 (annotation present at every `^## ` / `^### `, bootstrap-block exemption); rule 5 sub-checks 5a-5e (closes T4 / WI7 summary cap ≤120 chars); rule 6 cross-file subset with `any`-wildcard semantics per §1.8(e) A3 + fenced/inline-backtick exclusion per A2; rule 7 bootstrap-block presence; rule 8 in-file ref auto-stamp suffix (unstamped/stale/unresolved); `--files` filter silently skips out-of-scope paths per A6; exit codes 0/1/2 — risk: medium (multi-file logic; rule 5, 6, 8 carry the most novel logic — `any` semantics, subset validation, in-file ref auto-stamp; CI surface so bugs ship broken gate)  [ ]
 3. Implement `--write` mode — TOC region rebuild from current annotations; in-file `§X.Y(z)` auto-stamp from target heading's annotation; halt-on-unresolved contract per T5 (exit 2, no writes, even when other refs in same file are auto-fixable); fenced + inline-backtick exclusion per A2; idempotent (running `--write` twice produces no diff); does NOT modify per-section annotations or cross-file `name.md:roles:phases` suffixes (those remain hand-written per D9) — risk: medium (multi-file mutation; halt-on-unresolved is correctness-sensitive; idempotence is testable)  [ ]
 4. Restructure `.githooks/pre-commit` (T2 — Java-only gate factored into function called only when `STAGED_JAVA_FILES` non-empty, workflow-reindex block runs unconditionally other than JetBrains-remote gate; T3 — widened filter regex covering both live `.claude/(workflow|skills|agents)/**/*.md` and staged `docs/adr/*/_workflow/staged-workflow/.claude/(workflow|skills|agents)/**/*.md`; `--diff-filter=ACMR` excludes deletions) + new `.github/workflows/workflow-toc-check.yml` (T7 — dedicated workflow with path filter covering `.claude/**/*.md`, `.githooks/pre-commit`, the workflow file itself, and `docs/adr/**/_workflow/staged-workflow/.claude/**/*.md`; single step `python3 .claude/scripts/workflow-reindex.py --check`) — risk: medium (build-config change; new CI workflow + hook restructure; broken hook fails every commit on the branch, but the change is mechanical and contained)  [ ]
@@ -122,6 +126,17 @@ The script self-bootstraps from `conventions.md §1.8` for enum values via the D
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit f676e9172b, 2026-05-28T14:16Z [ctx=info]
+**What was done:** Authored `.claude/scripts/workflow-reindex.py` as the shared parsing core that downstream Track 2 commits extend with `--check` and `--write` surfaces. The module covers file discovery against the fixed in-scope globs from design.md §"Reindex script" → §"Discovery mechanism", heading + annotation parsing (regex on `^## `, `^### `, and the line after), TOC region detection between `<!--Document index start/end-->` delimiters, the CommonMark fence + inline-backtick state machine (fenced half modeled on `design-mechanical-checks.py:209-263`; inline-backtick half new here per A2), and the staged-aware §1.8 bootstrap probe per D12 (single staged match wins; multiple matches halt with `AmbiguousBootstrapProbeError` that the CLI surfaces as exit 2; fallback to live `.claude/workflow/conventions.md` when no staged copy exists). Test runner at `.claude/scripts/tests/test_workflow_reindex.py` follows the project's `python3 file.py` shape (no pytest dependency on CI). 18 tests cover module-load smoke, three bootstrap configurations (live-only, staged-wins, multiple-staged-halts), annotation parsing (well-formed plus space-after-comma malformed), heading collection plus bootstrap-block exemption flag, TOC region detection, fence handling, inline-backtick spans, and in-scope file discovery.
+
+**What was discovered:** The §1.8 phase-enum block has multi-line continuation lines where wrap-text begins with leading whitespace; a naive "first token per non-empty line" rule captured `non-workflow-modifying:` as a bogus 9th phase token. The fix requires enum tokens to start at column 0; continuation lines are wrap-text, not enum values. Step 2's rule 5d inherits the clean 15-role / 8-phase set with no further filtering. Track 4 (annotation rollout) and Track 5 (cross-ref enforcement) consume the bootstrap output through `load_bootstrap_enums(repo_root)` returning a `BootstrapEnums(roles, phases, source)` tuple, plus `parse_in_scope_files(repo_root)` returning `ParsedFile` records carrying a `fenced_lines` list for ref exclusion. Python 3.14's `@dataclass` requires the module to be in `sys.modules` before `exec_module` runs (PEP-451 contract); the test runner registers the module explicitly. See Episodes §Step 1.
+
+**Key files:**
+- `.claude/scripts/workflow-reindex.py` (new)
+- `.claude/scripts/tests/test_workflow_reindex.py` (new)
+
+**Critical context:** The annotation field regex anchors on `(?:^|\s)` before the field name and on `(?=\s|$|-->)` after the comma-list value to reject the `roles=foo, bar` shape (space after comma) that the no-space-around-commas rule forbids. A simpler word-boundary regex accepts the malformed shape because the captured value `foo` is a clean token. Step 2's rule 5a / 5b can rely on `Annotation.well_formed=False`; the `raw` field is preserved so the error message can name the offending substring.
 
 ## Validation and Acceptance
 
