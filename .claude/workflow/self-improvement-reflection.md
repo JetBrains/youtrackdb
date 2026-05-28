@@ -127,14 +127,20 @@ In scope (record):
   routed the agent to a stale code path, a recipe failed in a way that
   required manual intervention.
 - The agent had to repeat the same correction more than once in a
-  session because no rule prevented it.
+  session because no rule prevented it. (Requires prior-session
+  citation OR `population_in_horizon ≥ 3` to clear medium — see
+  §Severity guide.)
 - A sub-agent prompt produced output that the orchestrator had to
-  rewrite or reject in a recurring way.
+  rewrite or reject in a recurring way. (Requires prior-session
+  citation OR `population_in_horizon ≥ 3` to clear medium — see
+  §Severity guide.)
 - Tooling gap: the agent reached for a recipe that should exist
   (`mcp-steroid` recipe, build script, helper) and had to roll it
   manually.
 - A reviewer (Phase A or Phase C sub-agent) repeatedly raised the
   same low-value finding the workflow could have prevented upstream.
+  (Requires prior-session citation OR `population_in_horizon ≥ 3`
+  to clear medium — see §Severity guide.)
 - Migration-shaped frictions (`session-type=migrate-workflow` only):
   - Ambiguous classification rules — replay logic could not decide
     whether a commit-shape entry belonged in the migration scope or
@@ -223,16 +229,18 @@ self_fix_cost = turns_per_occurrence × population_in_horizon
   loads `track-review.md`", "only sessions whose plan covers a
   rename track"). The justification names *which* sessions hit the
   trigger, not just "all of them".
-  - **Tier caps** (never exceed these without explicit justification):
+  - **Tier caps** on the session-count factor. Multipliers for
+    in-session fan-out (iteration count, sub-agent fan-out) compose
+    on top of the cap with explicit justification (see example 3):
     - Always-loaded base (`CLAUDE.md`, `conventions.md`,
-      `workflow.md`) — cap ≈ 100 sessions / 6 months.
+      `workflow.md`): cap ≈ 100 sessions / 6 months.
     - Phase doc (`track-review.md`, `step-implementation.md`, this
-      guide) — cap ≈ 50 sessions / 6 months.
-    - On-demand recipe (ESCALATE path, narrow recipe) — cap ≈ 5
+      guide): cap ≈ 50 sessions / 6 months.
+    - On-demand recipe (ESCALATE path, narrow recipe): cap ≈ 5
       sessions / 6 months.
     The caps are ceilings, not free credits. A finding that fires
     only on rename-track Phase A sessions does not get the full
-    phase-doc cap of 50 — count the rename-track sessions you
+    phase-doc cap of 50: count the rename-track sessions you
     actually expect.
   - **Recurrence floor**: if `population_in_horizon < 3`, the
     candidate fails the gate without computing the rest. A friction
@@ -261,10 +269,11 @@ self_fix_cost = turns_per_occurrence × population_in_horizon
 
 3. **File — expensive per occurrence.** Phase A reviewer re-flags
    the same low-value finding on every iteration (~3 / Phase A).
-   - `population_in_horizon = 150` ("3 iterations × every Phase A
-     session — phase-doc cap × 3, justified by the inner-loop
-     fan-out").
-   - `self_fix_cost = 1 turn × 150 = 150`
+   - `population_in_horizon = 50` ("every Phase A session over the
+     horizon, at the phase-doc cap").
+   - `turns_per_occurrence = 3` ("3 iterations × 1 turn per
+     iteration — intra-session fan-out").
+   - `self_fix_cost = 3 × 50 = 150`
    - Fix is a 1-paragraph upstream filter in the reviewer prompt
      (phase doc): `load_cost = 1 × 2 = 2`
    - Ratio `150 / 2 = 75×` → **file**.
@@ -295,6 +304,13 @@ under `dev-workflow`. The check is a sanity floor on top of the
 ratio inequality: an oversized fix can clear the 5× margin on raw
 numbers and still be the wrong shape for this queue.
 
+**Scope-match fail overrides the ratio.** If the candidate fails
+scope-match, drop it regardless of ratio and render the issue
+body's §Cost-benefit gate verdict as `drop-scope-match` (see the
+§Issue body template). The two gates are AND-combined, not OR-
+combined: a candidate must clear both ratio (≥ 5) and scope-match
+(pass) to be filed.
+
 ### Quick checklist
 
 - Did you actually compute both sides? If you wrote "feels worth
@@ -302,11 +318,11 @@ numbers and still be the wrong shape for this queue.
 - Compute the ratio `r = self_fix_cost / load_cost` and read off
   the verdict:
   - `r ≥ 5` (self-fix dominates by ≥5×) → **record**.
-  - `0.2 < r < 5` (tie or near-tie band) → **drop**. The unit is
+  - `0.2 ≤ r < 5` (tie or near-tie band) → **drop**. The unit is
     coarse; only clear wins should make it through, and the
     workflow's signal-to-noise ratio matters more than
     completeness.
-  - `r ≤ 0.2` (load dominates by ≥5×) → **drop**. The friction
+  - `r < 0.2` (load dominates by >5×) → **drop**. The friction
     may still be real, but the fix is project- or ADR-shaped,
     not workflow-shaped. Surface it in the session's normal
     output if useful, but do not file it under `dev-workflow`.
@@ -392,12 +408,14 @@ correct outcome, not a failure to look hard enough.
       section (see §Issue body template) so a later triager can
       challenge the verdict by reading the math off the issue, not
       the session log.
-   3. Cap the surviving list at 1 (highest severity, most frequent,
-      or blocking the most downstream work — see §Per-session cap).
 
-   If every friction in the session is filtered out by the first
-   two passes, that is a zero-finding session; skip to step 8 with
-   the empty-result template.
+   If every friction in the session is filtered out by the severity
+   and cost-benefit filters, that is a zero-finding session; skip
+   to the presentation step (Step 8) with the empty-result
+   template. The §Per-session cap fires later (as the first action
+   of Step 8, after Step 6 sibling-merge and Step 7 YouTrack-
+   dedup), so the surviving draft from Step 5 may contain more than
+   one candidate.
 
    For each surviving candidate, draft:
    - Title (imperative summary, ≤80 chars)
@@ -420,9 +438,25 @@ correct outcome, not a failure to look hard enough.
    YouTrack, scan the surviving candidates for siblings: any pair
    where (a) the §Proposed fix lands in the same file + section, or
    (b) the §Symptom paragraphs share ≥2 named docs, tools, or
-   sub-agents. Pick the strongest representative and merge the
-   others into it, folding their §Symptom / §Reproduction context
-   text where it adds detail and dropping it where it duplicates.
+   sub-agents. "Named" means an explicit reference to a file path,
+   tool name, sub-agent name, or class identifier — parenthetical
+   asides count, bare nouns ("the doc", "the agent") do not. Worked
+   example for clause (b): both symptoms mention `track-review.md`
+   and the technical-review sub-agent → siblings; one mentions
+   `track-review.md` and the other mentions `track-completion.md`
+   with no other overlap → not siblings.
+   Pick the strongest representative and merge the others into it,
+   folding their §Symptom / §Reproduction context text where it
+   adds detail and dropping it where it duplicates.
+   When merging, retain the strongest representative's Type,
+   Severity, and §Cost-benefit gate math. On disagreement: highest
+   severity wins (`high` over `medium`); Bug wins over Feature on
+   Type, since the broken-behaviour framing carries the stronger
+   priority signal. If the merged-out candidates' §Proposed fix
+   strengthens (not replaces) the chosen fix, fold it in;
+   incompatible proposed fixes mean the candidates are not
+   siblings — leave them separate and let the Step 8 cap-at-1
+   selection pick one.
    Keep a list of merged-out titles for the Step 8 user-facing
    message so the user sees what was consolidated. This step exists
    because Step 7's YouTrack-side dedup compares against existing
@@ -451,13 +485,20 @@ correct outcome, not a failure to look hard enough.
    and which existing issue id matched — it surfaces in step 8
    alongside the same-session sibling-merge list from step 6.
 
-8. **Present surviving candidates to the user.** Single message:
+8. **Cap the surviving list at 1, then present to the user.** Cap
+   first: from the candidates that survived Step 5's filters,
+   Step 6's sibling-merge, and Step 7's YouTrack dedup, keep the
+   highest-impact one (highest severity, most frequent, or blocking
+   the most downstream work — see §Per-session cap) and discard
+   the rest. The discarded candidates resurface naturally the next
+   time they bite. Then present the result in a single message:
 
    ```
    ## Self-improvement reflection
 
    Branch: <branch> @ <short-SHA>
 
+   Merged X sibling candidate(s) into proposal #N: <title-a>, <title-b>, ...
    Filtered N candidate(s) as duplicates of: YTDB-NNNN, YTDB-MMMM, ...
 
    M proposed for creation under YTDB (tag `dev-workflow`):
@@ -470,6 +511,10 @@ correct outcome, not a failure to look hard enough.
    "none". I will create the chosen issues in YouTrack and end
    the session.
    ```
+
+   Omit the `Merged …` line when Step 6 merged nothing, and omit
+   the `Filtered …` line when Step 7 filtered nothing. Either line
+   appears only when the corresponding step did work.
 
    If no candidates surfaced at all (M=0 and N=0), present:
 
@@ -486,11 +531,14 @@ correct outcome, not a failure to look hard enough.
    ```
    ## Self-improvement reflection
 
+   Merged X sibling candidate(s) into the filtered draft: <title-a>, <title-b>, ...
    N candidate(s) all filtered as duplicates of: YTDB-NNNN, YTDB-MMMM, ...
    No new issues proposed.
    ```
 
-   and end the session.
+   The `Merged …` line still appears when Step 6 merged anything,
+   even when the surviving merged draft was then duplicate-filtered;
+   omit it when Step 6 merged nothing. End the session afterwards.
 
 9. **Create the chosen issues in YouTrack.**
 
@@ -603,9 +651,16 @@ The Markdown body submitted to `create_issue.description`:
 - `self_fix_cost = <turns_per_occurrence> × <population_in_horizon>
   = <value>`
 - `ratio = self_fix_cost / load_cost = <value>×`
-- verdict: **record** (ratio ≥ 5) | drop (ratio < 5)
+- verdict: **record** (ratio ≥ 5 AND scope-match pass) |
+  drop-near-tie (0.2 ≤ ratio < 5) | drop-load-dominates
+  (ratio < 0.2) | drop-scope-match (scope-match fail, any ratio)
 - scope-match check: §Proposed fix is ≤ ~5× the friction it cures
-  (paragraphs added / files touched) — pass | fail
+  (paragraphs added / files touched). pass | fail
+
+This block is rendered only for candidates that survive Step 5's
+filters; a candidate that fails the §Cost-benefit gate or the
+recurrence floor (`population_in_horizon < 3`) is dropped before
+the issue body is written.
 
 ## Symptom
 
@@ -625,7 +680,12 @@ the tool, the sub-agent.
   whose implementer return value is non-SUCCESS">
 - Prior-session evidence (for `medium` severity, see §Severity guide):
   `<commit-SHA | path/to/handoff.md | log line>` — names a session
-  where this friction has already bitten.
+  where this friction has already bitten. When prior-session
+  evidence is unreachable from this working tree, the agent may
+  cite population math instead:
+  `population_in_horizon = <integer>: <which sessions>`. The math
+  must come from the §Cost-benefit gate computation and clear the
+  recurrence floor (`≥ 3`).
 
 ## Why it's a problem
 
@@ -722,25 +782,36 @@ filter. If a friction does not clear the medium bar, do not file
 it and do not relabel it to medium to keep it alive.
 
 - `medium` — recurring friction or ambiguity that **(a)** bit
-  THIS session AND **(b)** has already bitten at least one prior
-  session whose log line, commit SHA, or handoff file the agent can
-  cite by path in the issue body's §Reproduction context. The
-  friction must still cost multiple turns per occurrence or cause
-  occasional wrong outputs the user catches. A friction that bit
-  only this session and is *plausibly* recurring does not clear
-  medium — drop it; speculative-recurrence findings are noise. The
-  evidence-floor citation is the price of admission to the
-  `dev-workflow` queue.
+  THIS session AND **(b)** has evidence of recurrence: either a
+  prior session whose log line, commit SHA, or handoff file the
+  agent can cite by path in the issue body's §Reproduction context,
+  OR a `population_in_horizon ≥ 3` (per §Cost-benefit gate) when
+  prior-session evidence is unreachable from this working tree
+  (fresh branch type, rotated handoffs, first-time-exercised path).
+  The friction must still cost multiple turns per occurrence or
+  cause occasional wrong outputs the user catches. A friction that
+  bit only this session and is *plausibly* recurring without
+  population-math backing does not clear medium. Drop it;
+  speculative-recurrence findings are noise. The evidence-floor
+  citation (prior-session OR population math) is the price of
+  admission to the `dev-workflow` queue. When citing population
+  math instead of a SHA, the §Reproduction context's Prior-session
+  evidence bullet reads `population_in_horizon = <integer>: <which
+  sessions>` instead of a path or SHA.
   - *Example*: a Phase A review sub-agent (technical, risk, or
     adversarial) repeatedly returns the same low-value finding
     that the orchestrator must override every iteration; no
     upstream filter exists. Prior-session evidence: commit
-    `<SHA>` in the previous track's Phase A log. (Clears the
-    §Cost-benefit gate: `population_in_horizon = 150` ("3
-    iterations × every Phase A session"),
-    `self_fix_cost = 1 × 150 = 150`; an upstream-filter paragraph
-    in a phase doc costs `load_cost = 1 × 2 = 2`;
-    ratio `150 / 2 = 75×` clears the 5× margin.)
+    `81ac6c1771` in the previous track's Phase A log. (The agent
+    pulls a SHA like this from `git log --grep='Phase A'
+    origin/develop..HEAD --since='3 months ago'` or from the prior
+    track's `_workflow/tracks/track-N.md` Phase A review-fix
+    episode.) Clears the §Cost-benefit gate:
+    `population_in_horizon = 50` ("every Phase A session"),
+    `turns_per_occurrence = 3` ("3 iterations × 1 turn each"),
+    `self_fix_cost = 3 × 50 = 150`; an upstream-filter paragraph
+    in a phase doc costs `load_cost = 1 × 2 = 2`; ratio
+    `150 / 2 = 75×` clears the 5× margin.
 - `high` — blocks a phase, causes silent wrong outputs, or pushes
   the agent into an unrecoverable state. A `high` finding should
   be rare and almost always points to a missing rule or a
@@ -815,9 +886,8 @@ the triager can verify it.
   paper-cut friction with a phase-doc-rewriting fix is the
   workflow telling you the finding is project-shaped or
   ADR-shaped. Surface it in the session's normal output instead.
-  This is a separate failure mode from the ratio inequality: an
-  oversized fix can clear the 5× margin on raw numbers and still
-  fail the scope-match check.
+  This is a separate failure mode from the ratio inequality (see
+  §Scope-match check).
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
