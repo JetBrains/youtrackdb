@@ -5222,19 +5222,38 @@ public abstract class AbstractStorage
       nullIndexSnapshotVisibilityIndex.clear();
       indexesSnapshotEntriesCount.set(0);
 
-      if (writeCache != null) {
+      // writeCache and readCache are guaranteed non-null past this
+      // point. The entry guard at the top of doShutdownOnDelete returns
+      // early on STATUS.CLOSED and throws unless status == STATUS.OPEN
+      // or isInError(). writeCache is assigned during
+      // initWalAndDiskCache (DiskStorage.java:790 for the disk engine,
+      // DirectMemoryStorage.java:78 for the in-memory engine), and
+      // readCache is assigned in the DiskStorage constructor
+      // (DiskStorage.java:261) or during the in-memory engine's init
+      // (DirectMemoryStorage.java:74). status = STATUS.OPEN is reached
+      // only after that wiring completes; every open() failure path
+      // that flips isInError() leaves status at STATUS.CLOSED, which
+      // the early-return catches. The asserts document the invariant
+      // and runtime-check it under -ea (the test JVM default;
+      // production runs -ea off, so this is free).
+      //
+      // Listener teardown and read-cache deletion run inside a
+      // defensive try/catch(Throwable) so any unexpected runtime
+      // failure here (a future invariant violation under -ea off, an
+      // implementation that throws from a listener removal, etc.)
+      // cannot bypass writeAheadLog.delete() and re-leak the WAL's two
+      // direct-memory write buffers (the exact failure mode this
+      // commit fixed).
+      assert writeCache != null;
+      assert readCache != null;
+      try {
         writeCache.removeBackgroundExceptionListener(this);
         writeCache.removePageIsBrokenListener(this);
-      }
-
-      writeAheadLog.removeCheckpointListener(this);
-
-      if (readCache != null) {
-        try {
-          readCache.deleteStorage(writeCache);
-        } catch (final Exception e) {
-          LogManager.instance().error(this, "Error during deletion of read cache", e);
-        }
+        writeAheadLog.removeCheckpointListener(this);
+        readCache.deleteStorage(writeCache);
+      } catch (final Throwable t) {
+        LogManager.instance()
+            .error(this, "Error during listener teardown or read cache deletion", t);
       }
 
       try {
