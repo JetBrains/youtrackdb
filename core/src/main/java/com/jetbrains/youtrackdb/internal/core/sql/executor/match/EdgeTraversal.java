@@ -249,7 +249,7 @@ public class EdgeTraversal {
    * formula stays the historical reference point for the BUILD_EAGER
    * decision when CLT confidence is established.
    */
-  static final double BUILD_PER_ENTRY_MULTIPLIER = 100.0;
+  static final double BUILD_PER_ENTRY_MULTIPLIER = 10.0;
 
   /**
    * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
