@@ -2197,6 +2197,9 @@ public class EdgeTraversalCacheTest {
     when(desc.resolve(any(), any())).thenReturn(ridSet);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
+    // buildTime nanoTime pair only fires under PROFILE — enable so the
+    // counter is non-zero for the assertion below.
+    et.setProfilingEnabled(true);
     var ctx = new BasicCommandContext();
 
     et.resolveWithCache(ctx, LARGE_LINKBAG);
@@ -2292,6 +2295,10 @@ public class EdgeTraversalCacheTest {
     var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
+
+    // buildTime nanoTime pair only fires under PROFILE — enable so the
+    // counter is non-zero for the assertion below.
+    et.setProfilingEnabled(true);
 
     // Defer 3 times (500 each = 1500 < 2000)
     et.resolveWithCache(ctx, 500);
@@ -2407,6 +2414,9 @@ public class EdgeTraversalCacheTest {
     when(desc.resolve(any(), any())).thenReturn(null);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
+    // buildTime nanoTime pair only fires under PROFILE — enable so the
+    // counter is non-zero for the assertion below.
+    et.setProfilingEnabled(true);
     var ctx = new BasicCommandContext();
 
     var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
