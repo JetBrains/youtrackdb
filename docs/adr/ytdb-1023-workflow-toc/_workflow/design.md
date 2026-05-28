@@ -384,26 +384,41 @@ Path:line:category: explanation. The `in-file-ref:` category covers unstamped, d
 
 ### Scope and detection
 
-The script measures `~/.claude/projects/<encoded-cwd>/*.jsonl` where `<encoded-cwd>` is the cwd's absolute path with `/` replaced by `-` (the encoding Claude Code uses for transcript folders).
+The script measures `~/.claude/projects/<encoded-cwd>/**/*.jsonl` (recursive — sub-agent transcripts live under `<transcript-stem>/subagents/` and account for the majority of jsonl files on most worktrees, matching `session-stats.py`'s walker shape). `<encoded-cwd>` is the cwd with `/` replaced by `-`; the script resolves the cwd via `Path.cwd().resolve()` first so symlinked worktree roots (e.g. `/home/user/Projects/ytdb/feature -> /workspace/feature`) map to the right encoded folder, and falls back to the raw `Path.cwd()` encoding if the resolved-path folder is missing under `~/.claude/projects/`.
 
-Worktree-vs-main detection: `git worktree list --porcelain` returns the main worktree first, linked worktrees after. The script reads the list, compares `cwd` to the main worktree path, and:
+Worktree-vs-main detection routes through the `.git` file-vs-directory shape, not `git worktree list` ordering: the main checkout has `.git` as a directory; every linked worktree has `.git` as a file pointing at `.git/worktrees/<name>`. The script checks `(Path.cwd() / '.git').is_file()`:
 
-- **cwd is the main worktree** → emit skip notice, exit 0 with no stats.
-- **cwd is a linked worktree** → proceed with measurement against this worktree's transcript folder only.
-- **cwd is not in `git worktree list`** → emit skip notice (the script is running outside any git worktree), exit 0.
+- **`.git` is a file** (linked worktree) → proceed with measurement against this worktree's transcript folder only.
+- **`.git` is a directory** (main checkout) → emit the main-checkout skip notice, exit 0.
+- **`.git` is missing or unreadable** (running outside any git tree, or the cwd is not a checkout) → emit the no-checkout skip notice, exit 0.
+
+The shape check is documented by git (`gitrepository-layout(5)`) and stable across git versions; the porcelain-position heuristic ("first entry is main") is not — a fresh clone whose main checkout is on a feature branch with no `develop` worktree would mislabel that checkout.
 
 ### Measurement methodology
 
 For each jsonl transcript in the worktree's folder:
 
-1. Read every line as JSON.
-2. Classify content blocks:
-   - `tool_result` content with `tool_use_id` matching a Read tool call → bucket by `tool_input.file_path`.
-   - `tool_result` for any other tool → bucket by tool name.
-   - User-prompt text, assistant-output text, system-prompt content → "Prompts and output".
-3. Sum content tokens per bucket (token count approximated by character count / 4, the standard heuristic; the script documents the approximation).
-4. Compute Read share = Read bucket / total context.
-5. For the top-files table: rank file paths within the Read bucket; emit top-10.
+1. Read every line as JSON. Real transcripts on disk carry record types `assistant`, `user`, `mode`, `attachment`, `last-prompt`, `pr-link`, `file-history-snapshot`, and `system`; only `assistant` and `user` records carry the token-bearing content blocks the script tallies. Other record types are skipped.
+2. Build a `tool_use_id → (tool_name, tool_input)` index from `assistant`-typed records' `content[].type == "tool_use"` entries in a first pass (or maintain it incrementally during a one-pass walk). `tool_result` content blocks carry only `tool_use_id` — the tool name and original input are recovered through this index.
+3. Classify content blocks against the index:
+
+   | Source record | Block shape | Bucket |
+   |---|---|---|
+   | `assistant` | `text` | Prompts and output |
+   | `assistant` | `thinking` | Prompts and output (counted, since it shapes context) |
+   | `assistant` | `tool_use` | (not bucketed — indexed only) |
+   | `user` | `tool_result` with index entry `name == "Read"` | `Read` (sub-bucket: `tool_input.file_path`) |
+   | `user` | `tool_result` with index entry `name in {Bash, Grep, Edit}` | that tool's bucket |
+   | `user` | `tool_result` with any other index entry | Other tool results |
+   | `user` | plain `text` content | Prompts and output |
+   | `attachment` | any | Prompts and output |
+
+   `tool_result.content` is either a string OR a list of blocks (e.g., a list of `text` blocks, or `image` + `text` for Read on a binary). Treat the string and list-of-text cases uniformly; for the `image` block case, count the textual blocks and skip the image blocks.
+
+4. Dedup per record by `uuid` (the cross-record id every transcript line carries). Sub-agent transcripts embed records from their orchestrator; the dedup is required so a record counted in the orchestrator transcript is not re-counted from the sub-agent walk. `session-stats.py`'s `(message.id, requestId)` key is assistant-only — do not reuse it for `tool_result` records, which carry neither field.
+5. Sum content tokens per bucket (token count approximated by character count / 4, the standard heuristic; the script documents the approximation).
+6. Compute Read share = Read bucket / total context.
+7. For the top-files table: rank file paths within the Read bucket; emit top-10. Normalise every path to be repo-relative against the worktree root (`Path.relative_to(Path.cwd())` with a fallback to the raw path tagged `<outside-worktree>` if the path resolves outside). The published ADR must not contain absolute paths under `/home/...` or similar (publication-safety constraint, sibling to I4).
 
 ### Output format
 
@@ -435,7 +450,9 @@ Generated by `.claude/scripts/measure-read-share.py` against
 `~/.claude/projects/<encoded-worktree-cwd>/`.
 ```
 
-Skip notice format:
+Percentages render to one decimal place with largest-remainder rounding so each column sums to exactly 100.0% (independent `round()` per row drops the sum-to-100 invariant on most distributions).
+
+Skip notice formats (one per distinct cause, so an ADR reader can tell which trigger fired):
 
 ```markdown
 ## Token usage telemetry
@@ -443,6 +460,15 @@ Skip notice format:
 Skipped: Phase 4 ran from the main checkout, not a dedicated worktree.
 Per-feature telemetry only applies when each plan is executed in its own worktree.
 ```
+
+```markdown
+## Token usage telemetry
+
+Skipped: no transcripts found under this worktree's transcript folder.
+The worktree may have been used from an IDE without a Claude Code session log.
+```
+
+Rendering discipline: the script buffers the full Markdown section in memory and prints atomically on success; on parse failure mid-walk it prints a skip notice with the per-file error and exits 0 so the ADR commit still succeeds.
 
 ### Phase 4 integration
 
@@ -558,19 +584,24 @@ Two branches from this set are picked at Track 5 time. The verification procedur
 
 ### Section placement in `adr.md`
 
-The telemetry section appears after the main ADR content (problem statement, decision, outcome) and before any reflective notes. Concrete order in `adr.md`:
+The telemetry section lands at the end of `adr.md`, after `## Key Discoveries`. Concrete order matching the live `prompts/create-final-design.md` § "Artifact 2: ADR" template:
 
 ```
 # <Plan name> — Architecture Decision Record
 ## Summary
-## Problem
-## Decision
-## Outcome
-## Token usage telemetry         ← inserted here
-## Notes / Caveats               ← if present
+## Goals
+## Constraints
+## Architecture Notes
+  ### Component Map
+  ### Decision Records
+  ### Invariants & Contracts
+  ### Integration Points
+  ### Non-Goals
+## Key Discoveries
+## Token usage telemetry        ← inserted here
 ```
 
-The placement keeps the telemetry visible (above the fold for a skimming reader interested in the metric) without displacing the load-bearing ADR content.
+The telemetry is metadata about the session shape, not load-bearing ADR content; appending leaves every existing H2 in place and matches the historical post-merge ADRs that already follow this template.
 
 ### Standing infrastructure properties
 
