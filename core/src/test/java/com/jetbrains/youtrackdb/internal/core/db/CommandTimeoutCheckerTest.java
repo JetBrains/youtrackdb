@@ -292,18 +292,50 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
    * endCommand() removes the entry from the running map, so a subsequent timeout sweep
    * must not interrupt a thread that has already called endCommand. Pins isolation between
    * a finished command and a later sleep on the same thread.
+   *
+   * <p>Constants encode one invariant: {@code PHASE_2_SLEEP_MS > TIMEOUT_MS}, so Phase 2
+   * stays sleeping past the deadline and at least one sweep tick fires while the worker
+   * is unregistered. A future edit that bumps the timeout without bumping Phase 2 would
+   * silently break the contract this test pins; making the invariant a Java expression
+   * surfaces that drift in code review.
+   *
+   * <p>Sweep liveness during Phase 2 is pinned by sibling tests ({@link #testTimeout},
+   * {@link #onlyRegisteredThreadsAreInterrupted}); this test assumes the periodic
+   * scheduler is firing and asserts that none of those ticks interrupt the unregistered
+   * thread.
+   *
+   * <p>Timing rationale: the 500 ms timeout gives ~480 ms of slack between Phase 1's
+   * sleep waking up and the first "deadline expired" sweep tick. The original 80 ms
+   * timeout left only ~60 ms of slack, which a contended macOS arm JDK 21 CI runner
+   * consumed (run 26573938792). When the OS preempts the worker between Phase 1's
+   * sleep ending and endCommand() returning, a sweep tick that fires inside that
+   * preemption sets the interrupted flag, and Phase 2's Thread.sleep then sees it on
+   * entry and throws. No defensive interrupt-flag clear is added: that would mask a
+   * real regression where a sweep tick fires after endCommand (e.g., due to a future
+   * weakly-consistent iterator hazard).
    */
   @Test
   public void endCommandUnregistersBeforeTimeoutFires() throws InterruptedException {
-    var checker = new CommandTimeoutChecker(80, this);
+    // 500 ms timeout pins the race window at ~480 ms (see method Javadoc).
+    final long timeoutMs = 500L;
+    // Phase 1 sleep is short; only constraint is < timeoutMs.
+    final long phase1SleepMs = 20L;
+    // Phase 2 must sleep past the deadline so any post-endCommand sweep tick is observed.
+    final long phase2SleepMs = timeoutMs + 200L;
+    // Worker happy-path is ~720 ms; 5 s leaves ample headroom while staying well under
+    // joinSpawnedWorkersAndShutdownScheduler's 5 s per-worker interrupt+join budget.
+    // The class-wide AWAIT_SECS=15 is reserved for the 60 s sleeper regression tests.
+    final long awaitSecs = 5L;
+
+    var checker = new CommandTimeoutChecker(timeoutMs, this);
     var phase2Interrupted = new AtomicBoolean(false);
     var done = new CountDownLatch(1);
 
     spawn(() -> {
       checker.startCommand(null);
-      // Phase 1: legitimate work, well under the timeout — endCommand cleans up.
+      // Phase 1: legitimate work, well under the timeout; endCommand cleans up.
       try {
-        Thread.sleep(20);
+        Thread.sleep(phase1SleepMs);
       } catch (InterruptedException e) {
         // Spurious — should not happen here.
       }
@@ -312,14 +344,14 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       // Phase 2: now sleep past the timeout window. We expect NO interrupt because we
       // are no longer registered.
       try {
-        Thread.sleep(300);
+        Thread.sleep(phase2SleepMs);
       } catch (InterruptedException e) {
         phase2Interrupted.set(true);
       }
       done.countDown();
     });
 
-    assertTrue(done.await(3, TimeUnit.SECONDS));
+    assertTrue(done.await(awaitSecs, TimeUnit.SECONDS));
     assertFalse("post-endCommand sleep must not be interrupted",
         phase2Interrupted.get());
 
