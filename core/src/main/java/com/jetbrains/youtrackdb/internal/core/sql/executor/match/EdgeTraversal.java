@@ -1095,6 +1095,21 @@ public class EdgeTraversal {
         && !Double.isNaN(inListSelectivity) && inListSelectivity >= 0;
     double effectiveSelectivity = useCalibratedM
         ? inListSelectivity : indexLookupSelectivity;
+    // Variant B safety: class-level selectivity already passed the REJECT
+    // gate above, but the empirical sample can still come back above the
+    // threshold when adjacency lists are heavily biased subsets of the
+    // class (e.g. LDBC IC2 friend-of recent-message bias). Reject early
+    // with a dedicated skip reason instead of letting m collapse to
+    // MAX_VALUE and silently masquerading as BUILD_NOT_AMORTIZED for the
+    // remainder of the execution. Not cached: the sample is per-execution
+    // empirical data, not a class-level invariant, so a fresh execution
+    // is free to re-evaluate.
+    if (useCalibratedM
+        && inListSelectivity
+            > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
+      recordPreFilterSkip(PreFilterSkipReason.IN_LIST_SELECTIVITY_TOO_LOW);
+      return AmortizationDecision.REJECT;
+    }
     double m = computeMinNeighborsForBuild(
         estimatedSize, loadToScanRatio, effectiveSelectivity);
     if (useCalibratedM) {

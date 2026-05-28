@@ -65,5 +65,20 @@ public enum PreFilterSkipReason {
    * a single query, so a missing statistic at the first vertex stays
    * missing for all subsequent vertices.
    */
-  STATS_UNAVAILABLE
+  STATS_UNAVAILABLE,
+
+  /**
+   * The sampled in-list selectivity (Variant B calibration path) exceeds
+   * the configured threshold. Class-level selectivity passed the
+   * {@link #SELECTIVITY_TOO_LOW} gate, but the actual per-bag mix observed
+   * on the first vertex shows the IndexLookup predicate is satisfied by
+   * too large a fraction of adjacency-list entries for the build to pay
+   * off. Without this branch, the calibrated {@code m} formula would
+   * degenerate to {@link Double#MAX_VALUE} and keep deferring forever
+   * under {@link #BUILD_NOT_AMORTIZED}, wasting the sample work and
+   * masking the real cause in diagnostics. Not cached as a permanent
+   * rejection: the sample is empirical and per-execution, so a follow-up
+   * execution against less biased bags is free to re-evaluate.
+   */
+  IN_LIST_SELECTIVITY_TOO_LOW
 }

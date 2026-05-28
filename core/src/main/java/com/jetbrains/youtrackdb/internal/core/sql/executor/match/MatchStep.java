@@ -249,6 +249,8 @@ public class MatchStep extends AbstractExecutionStep {
           .append(TraversalPreFilterHelper.maxRidSetSize());
       case SELECTIVITY_TOO_LOW -> result.append(", threshold=")
           .append(TraversalPreFilterHelper.indexLookupMaxSelectivity());
+      case IN_LIST_SELECTIVITY_TOO_LOW -> result.append(", threshold=")
+          .append(TraversalPreFilterHelper.indexLookupMaxSelectivity());
       case OVERLAP_RATIO_TOO_HIGH -> result.append(", threshold=")
           .append(TraversalPreFilterHelper.edgeLookupMaxRatio());
       case NONE, BUILD_NOT_AMORTIZED, LINKBAG_TOO_SMALL,
