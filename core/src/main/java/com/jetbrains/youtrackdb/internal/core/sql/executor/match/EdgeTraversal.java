@@ -111,7 +111,7 @@ public class EdgeTraversal {
    * produces unbounded relative error and BUILD_EAGER commits the build
    * cost on an essentially-random forecast.
    *
-   * <p>Stamped by {@link MatchExecutionPlanner#stampEdgeForecasts}:
+   * <p>Stamped by {@link MatchExecutionPlanner#stampEdgeMetadata}:
    * <ul>
    *   <li>For an edge whose source alias is a root (its row count comes
    *       directly from {@code estimatedRootEntries}, not from upstream
@@ -415,7 +415,7 @@ public class EdgeTraversal {
 
   /**
    * Sets the effective root-lineage sample size for this edge. Called by
-   * {@code MatchExecutionPlanner.stampEdgeForecasts}. Pass {@code -1} when
+   * {@code MatchExecutionPlanner.stampEdgeMetadata}. Pass {@code -1} when
    * the planner cannot determine a sample size (the BUILD_EAGER gate then
    * routes to DEFERRED_WITH_NET, which is the safe fallback). Negative
    * non-sentinel values are normalised to {@code -1}.

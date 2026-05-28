@@ -1784,7 +1784,11 @@ public class MatchExecutionPlanner {
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
-      optimizeScheduleWithIntersections(sortedEdges, context);
+      // optimizeScheduleWithIntersections is the sole producer of IndexLookup
+      // descriptors. It reports back whether any edge ended up with one — the
+      // single signal that gates the (expensive) forecast pass below, so we
+      // never have to re-scan the schedule for IndexLookup presence.
+      var hasIndexLookup = optimizeScheduleWithIntersections(sortedEdges, context);
 
       // Re-bind filters after optimization: detectNotInAntiJoin() may have
       // stripped NOT IN conditions from aliasFilters, so we must push the
@@ -1803,25 +1807,14 @@ public class MatchExecutionPlanner {
         }
       }
 
-      // Forecast stamping only feeds the BUILD_EAGER amortization decision,
-      // which fires exclusively on edges carrying a RidFilterDescriptor
-      // .IndexLookup descriptor. optimizeScheduleWithIntersections above is
-      // the sole producer of IndexLookup descriptors, so by this point the
-      // attachment is final. When no edge in the schedule has one, every
-      // forecastN computed here would be unread — skip the pass entirely.
-      if (anyEdgeHasIndexLookup(sortedEdges)) {
-        // Cache class approximateCount lookups for the forecast pass:
-        // stampEdgeForecasts walks the schedule and calls approximateCount
-        // once per edge (via targetSelectivityFactor) for the same target
-        // class. The schema snapshot is immutable for the duration of
-        // planning, so a per-plan cache is safe and removes redundant
-        // SchemaImmutableClass.approximateCount hits.
-        Map<String, Long> classCountCache = new HashMap<>();
-        stampEdgeForecasts(sortedEdges, estimatedRootEntries, classCountCache,
-            context.getDatabaseSession());
-      }
-
-      attachCollectionIdFilters(sortedEdges, context);
+      // Single schedule walk that stamps both per-edge collection-ID class
+      // filters (always needed by the traverser) and BUILD_EAGER row-count
+      // forecasts (only when an IndexLookup descriptor exists — otherwise
+      // the forecast result is unread). Replaces the previous two-loop
+      // structure (stampEdgeForecasts + attachCollectionIdFilters) with one
+      // pass; the forecast-specific state is allocated lazily inside the
+      // method when hasIndexLookup is true.
+      stampEdgeMetadata(sortedEdges, estimatedRootEntries, hasIndexLookup, context);
 
       // Hash join optimization: detect secondary branches that can be evaluated as
       // build-side hash joins (semi-join if intermediates not downstream, inner join
@@ -2516,7 +2509,11 @@ public class MatchExecutionPlanner {
     }
 
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    if (schema == null || !schema.existsClass(targetClass)) {
+    if (schema == null) {
+      return 1.0;
+    }
+    var schemaClass = schema.getClassInternal(targetClass);
+    if (schemaClass == null) {
       return 1.0;
     }
 
@@ -2526,11 +2523,11 @@ public class MatchExecutionPlanner {
       if (cached != null) {
         classCount = cached;
       } else {
-        classCount = schema.getClassInternal(targetClass).approximateCount(session);
+        classCount = schemaClass.approximateCount(session);
         classCountCache.put(targetClass, classCount);
       }
     } else {
-      classCount = schema.getClassInternal(targetClass).approximateCount(session);
+      classCount = schemaClass.approximateCount(session);
     }
     if (classCount <= 0) {
       return 1.0;
@@ -2538,7 +2535,6 @@ public class MatchExecutionPlanner {
 
     var filter = aliasFilters != null ? aliasFilters.get(targetAlias) : null;
     if (filter != null) {
-      var schemaClass = schema.getClassInternal(targetClass);
       double heuristic = estimateFilterSelectivity(
           filter, classCount, schemaClass, session);
       if (heuristic >= 0.0) {
@@ -2554,151 +2550,175 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Returns {@code true} when any edge in the schedule carries an
-   * {@link RidFilterDescriptor.IndexLookup} descriptor (either directly or
-   * inside a {@link RidFilterDescriptor.Composite}). Used to short-circuit
-   * {@link #stampEdgeForecasts} when no edge can ever be promoted to the
-   * BUILD_EAGER amortization path, making the forecast result unread.
+   * Single-pass schedule walk that stamps two independent pieces of plan-time
+   * metadata on each {@link EdgeTraversal}:
+   *
+   * <ol>
+   *   <li><b>Collection-ID class filter</b> (always) — resolves the target
+   *       node's class constraint to collection IDs. The traverser applies
+   *       this as a zero-I/O class filter on the link bag, skipping vertices
+   *       whose collection ID does not match.</li>
+   *   <li><b>Row-count forecast</b> (only when {@code stampForecasts} is
+   *       {@code true} — i.e. at least one edge carries a
+   *       {@link RidFilterDescriptor.IndexLookup} descriptor). Stamps
+   *       {@code forecastN} and {@code rootSourceRows} on each edge,
+   *       feeding {@code EdgeTraversal.resolveWithCache}'s {@code BUILD_EAGER}
+   *       vs {@code DEFERRED_WITH_NET} amortization decision. When no edge
+   *       has an IndexLookup the forecast would be unread, so the
+   *       per-edge cost (a {@link #targetSelectivityFactor} call and the
+   *       propagation bookkeeping) is skipped.</li>
+   * </ol>
+   *
+   * <p>Replaces an earlier two-method pair that walked the schedule
+   * independently; the merged loop keeps the same conditional gating on the
+   * forecast block but removes the second pass entirely.
+   *
+   * <p>Forecast-pass state ({@code classCountCache}, {@code aliasRowEstimate},
+   * {@code aliasRootSampleSize}) is allocated lazily inside the method only
+   * when {@code stampForecasts} is {@code true}. The {@code Long.MAX_VALUE}
+   * input strip is a scheduler-priority hack: inferred-class aliases get
+   * MAX_VALUE in {@code estimatedRootEntries} as a sentinel that must not
+   * propagate into the forecast (it would cascade-multiply to MAX_VALUE and
+   * force BUILD_EAGER regardless of the real cost-model verdict).
    */
-  private static boolean anyEdgeHasIndexLookup(List<EdgeTraversal> schedule) {
-    for (var et : schedule) {
-      var desc = et.getIntersectionDescriptor();
-      if (desc instanceof RidFilterDescriptor.IndexLookup) {
-        return true;
-      }
-      if (desc instanceof RidFilterDescriptor.Composite c
-          && c.findIndexLookup() != null) {
-        return true;
-      }
+  private void stampEdgeMetadata(
+      List<EdgeTraversal> schedule,
+      Map<String, Long> estimatedRootEntries,
+      boolean stampForecasts,
+      CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    if (session == null) {
+      return;
     }
-    return false;
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+
+    // Forecast-pass state — materialized only when at least one edge has an
+    // IndexLookup descriptor; otherwise none of these maps are read.
+    Map<String, Long> classCountCache = null;
+    Map<String, Long> aliasRowEstimate = null;
+    Map<String, Long> aliasRootSampleSize = null;
+    if (stampForecasts) {
+      classCountCache = new HashMap<>();
+      aliasRowEstimate = new HashMap<>(estimatedRootEntries.size());
+      for (var entry : estimatedRootEntries.entrySet()) {
+        if (entry.getValue() != null && entry.getValue() != Long.MAX_VALUE) {
+          aliasRowEstimate.put(entry.getKey(), entry.getValue());
+        }
+      }
+      // The CLT-relevant n is the original root, not the propagated expected
+      // count along the way — see EdgeTraversal#rootSourceRows.
+      aliasRootSampleSize = new HashMap<>(aliasRowEstimate);
+    }
+
+    for (var et : schedule) {
+      var sourceAlias = et.out ? et.edge.out.alias : et.edge.in.alias;
+      var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+
+      // --- Collection-ID class filter (always) ---
+      if (targetAlias != null && schema != null) {
+        var className = aliasClasses.get(targetAlias);
+        if (className != null) {
+          var schemaClass = schema.getClassInternal(className);
+          if (schemaClass != null) {
+            et.setAcceptedCollectionIds(
+                TraversalPreFilterHelper.collectionIdsForClass(schemaClass));
+          }
+        }
+      }
+
+      // --- Row-count forecast (only when any edge has an IndexLookup) ---
+      if (!stampForecasts) {
+        continue;
+      }
+      stampForecastFor(et, sourceAlias, targetAlias,
+          aliasRowEstimate, aliasRootSampleSize, classCountCache, session);
+    }
   }
 
   /**
-   * Walks the topologically-sorted schedule once and stamps a
-   * {@code forecastN} on each {@link EdgeTraversal} — the plan-time estimate
-   * of total neighbors that edge will process during a single query
-   * execution. Used at runtime by
-   * {@code EdgeTraversal.resolveWithCache} to choose between
-   * {@code BUILD_EAGER} and {@code DEFERRED_WITH_NET} amortization modes.
-   *
-   * <p>Maintains a propagating {@code aliasRowEstimate} map seeded from
-   * {@code estimatedRootEntries}. For each edge:
-   * <ol>
-   *   <li>Source/target alias are picked from {@code edge.out} respecting the
-   *       scheduled traversal direction ({@link EdgeTraversal#out}).</li>
-   *   <li>If the source alias has no row estimate, {@code forecastN} is
-   *       marked absent ({@code -1}) and the target alias is not updated —
-   *       downstream edges inherit the gap.</li>
-   *   <li>Otherwise {@code forecastN = sourceRows × estimateMethodFanOut(…)},
-   *       stamped on the edge, and the target alias gets
-   *       {@code forecastN × targetSelectivityFactor(…)} for downstream hops.</li>
-   * </ol>
-   *
-   * <p>Non-positive or non-finite intermediate values short-circuit to an
-   * absent forecast.
+   * Per-edge forecast stamping. Computes {@code forecastN = sourceRows ×
+   * estimateMethodFanOut} and propagates the row estimate to the target
+   * alias for downstream edges. Non-positive or non-finite intermediate
+   * values short-circuit to an absent forecast ({@code -1}); saturated
+   * forecasts (clamped to {@code Long.MAX_VALUE}) are also treated as
+   * absent — the defense mirrors the {@code MAX_VALUE} input strip at
+   * {@link #stampEdgeMetadata}'s entry boundary.
    */
-  private void stampEdgeForecasts(
-      List<EdgeTraversal> schedule,
-      Map<String, Long> estimatedRootEntries,
+  private void stampForecastFor(
+      EdgeTraversal et,
+      @Nullable String sourceAlias,
+      @Nullable String targetAlias,
+      Map<String, Long> aliasRowEstimate,
+      Map<String, Long> aliasRootSampleSize,
       Map<String, Long> classCountCache,
       DatabaseSessionEmbedded session) {
-    // Strip the {@code Long.MAX_VALUE} sentinels that
-    // {@link #createExecutionPlan} writes into {@code estimatedRootEntries}
-    // for inferred-class aliases (the {@code inferredWhileExprAliases}
-    // loop). The inflation is a scheduler-priority hack — it must never
-    // propagate into the row-count forecast, where it triggers cascading
-    // multiplications that drive {@code forecastN} to {@code Long.MAX_VALUE}
-    // and force every IndexLookup edge into BUILD_EAGER regardless of the
-    // real cost-model verdict. Inferred aliases instead enter
-    // {@code aliasRowEstimate} only via downstream propagation from earlier
-    // edges (which uses the real {@code targetSelectivityFactor}).
-    Map<String, Long> aliasRowEstimate = new HashMap<>(estimatedRootEntries.size());
-    for (var entry : estimatedRootEntries.entrySet()) {
-      if (entry.getValue() != null && entry.getValue() != Long.MAX_VALUE) {
-        aliasRowEstimate.put(entry.getKey(), entry.getValue());
-      }
+    if (sourceAlias == null || targetAlias == null) {
+      et.setForecastN(-1L);
+      et.setRootSourceRows(-1L);
+      return;
     }
 
-    // Tracks the effective root-lineage sample size for each alias. An alias
-    // present in {@code estimatedRootEntries} starts as its own root with
-    // its row count as the sample size. Targets populated by downstream
-    // propagation inherit the upstream edge's root-lineage size (the
-    // CLT-relevant n is the original root, not the propagated expected
-    // count along the way — see EdgeTraversal#rootSourceRows).
-    Map<String, Long> aliasRootSampleSize = new HashMap<>(aliasRowEstimate);
+    Long sourceRows = aliasRowEstimate.get(sourceAlias);
+    Long sourceRootSize = aliasRootSampleSize.get(sourceAlias);
+    // Stamp the root-lineage sample size on every scheduled edge,
+    // independent of whether the forecast itself ends up usable.
+    et.setRootSourceRows(sourceRootSize == null ? -1L : sourceRootSize);
 
-    for (var et : schedule) {
-      String sourceAlias = et.out ? et.edge.out.alias : et.edge.in.alias;
-      String targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
-      if (sourceAlias == null || targetAlias == null) {
-        et.setForecastN(-1L);
-        et.setRootSourceRows(-1L);
-        continue;
-      }
+    if (sourceRows == null || sourceRows <= 0) {
+      et.setForecastN(-1L);
+      return;
+    }
 
-      Long sourceRows = aliasRowEstimate.get(sourceAlias);
-      Long sourceRootSize = aliasRootSampleSize.get(sourceAlias);
-      // Stamp the root-lineage sample size on every scheduled edge,
-      // independent of whether the forecast itself ends up usable.
-      et.setRootSourceRows(sourceRootSize == null ? -1L : sourceRootSize);
+    var method = et.edge.item.getMethod();
+    String sourceClass = aliasClasses.get(sourceAlias);
+    double fanOut = estimateMethodFanOut(method, sourceClass, session);
+    if (!(fanOut > 0) || !Double.isFinite(fanOut)) {
+      et.setForecastN(-1L);
+      return;
+    }
 
-      if (sourceRows == null || sourceRows <= 0) {
-        et.setForecastN(-1L);
-        continue;
-      }
+    double forecastDouble = sourceRows * fanOut;
+    if (!Double.isFinite(forecastDouble) || forecastDouble <= 0) {
+      et.setForecastN(-1L);
+      return;
+    }
+    // Saturated forecast (clamp to Long.MAX_VALUE) is treated as absent.
+    // Otherwise the cost-model break-even is trivially satisfied by a
+    // saturated value, which re-introduces the inflation-driven
+    // BUILD_EAGER bug that the MAX_VALUE input strip closes at the
+    // entry boundary. Saturation here is rare in practice (it requires
+    // sourceRows × fanOut > 9.2e18 in double arithmetic) but the
+    // defensive {@code -1} mirrors the input strip's intent.
+    long forecastNLong = forecastDouble >= (double) Long.MAX_VALUE
+        ? -1L : (long) Math.ceil(forecastDouble);
+    et.setForecastN(forecastNLong);
 
-      var method = et.edge.item.getMethod();
-      String sourceClass = aliasClasses.get(sourceAlias);
-      double fanOut = estimateMethodFanOut(method, sourceClass, session);
-      if (!(fanOut > 0) || !Double.isFinite(fanOut)) {
-        et.setForecastN(-1L);
-        continue;
-      }
-
-      double forecastDouble = sourceRows * fanOut;
-      if (!Double.isFinite(forecastDouble) || forecastDouble <= 0) {
-        et.setForecastN(-1L);
-        continue;
-      }
-      // Saturated forecast (clamp to Long.MAX_VALUE) is treated as absent.
-      // Otherwise the cost-model break-even is trivially satisfied by a
-      // saturated value, which re-introduces the inflation-driven
-      // BUILD_EAGER bug that the MAX_VALUE input strip closes at the
-      // entry boundary. Saturation here is rare in practice (it requires
-      // sourceRows × fanOut > 9.2e18 in double arithmetic) but the
-      // defensive {@code -1} mirrors the input strip's intent.
-      long forecastNLong = forecastDouble >= (double) Long.MAX_VALUE
-          ? -1L : (long) Math.ceil(forecastDouble);
-      et.setForecastN(forecastNLong);
-
-      // Propagate to the target alias for downstream edges. Skip propagation
-      // when the existing entry is already at least as constraining as our
-      // forecast — fresh estimates from {@code estimateRootEntries} should
-      // not be overwritten by a looser-derived value. Inflation of the
-      // propagated row count is bounded by the {@code Long.MAX_VALUE}
-      // saturation guard above and by the CLT gate downstream
-      // ({@link EdgeTraversal#MIN_FOR_CLT}) which routes low-confidence
-      // forecasts to {@code DEFERRED_WITH_NET}.
-      double targetSel = targetSelectivityFactor(
-          targetAlias, et.edge, et.out,
-          aliasClasses, aliasFilters, aliasRowEstimate, classCountCache, session);
-      double targetDouble = forecastDouble * targetSel;
-      if (Double.isFinite(targetDouble) && targetDouble > 0) {
-        long targetRows = (long) Math.min(
-            (double) Long.MAX_VALUE, Math.ceil(targetDouble));
-        Long existing = aliasRowEstimate.get(targetAlias);
-        if (existing == null || targetRows < existing) {
-          aliasRowEstimate.put(targetAlias, targetRows);
-          // Propagate the source's root sample size. If the target already
-          // had a fresher root sample size from {@code estimatedRootEntries}
-          // (e.g. it's itself a class-rooted alias), keep that — fresh
-          // class-based statistics outrank inherited lineage from a tiny
-          // upstream sample.
-          Long existingRoot = aliasRootSampleSize.get(targetAlias);
-          if (existingRoot == null && sourceRootSize != null) {
-            aliasRootSampleSize.put(targetAlias, sourceRootSize);
-          }
+    // Propagate to the target alias for downstream edges. Skip propagation
+    // when the existing entry is already at least as constraining as our
+    // forecast — fresh estimates from {@code estimateRootEntries} should
+    // not be overwritten by a looser-derived value. Inflation of the
+    // propagated row count is bounded by the {@code Long.MAX_VALUE}
+    // saturation guard above and by the CLT gate downstream
+    // ({@link EdgeTraversal#MIN_FOR_CLT}) which routes low-confidence
+    // forecasts to {@code DEFERRED_WITH_NET}.
+    double targetSel = targetSelectivityFactor(
+        targetAlias, et.edge, et.out,
+        aliasClasses, aliasFilters, aliasRowEstimate, classCountCache, session);
+    double targetDouble = forecastDouble * targetSel;
+    if (Double.isFinite(targetDouble) && targetDouble > 0) {
+      long targetRows = (long) Math.min(
+          (double) Long.MAX_VALUE, Math.ceil(targetDouble));
+      Long existing = aliasRowEstimate.get(targetAlias);
+      if (existing == null || targetRows < existing) {
+        aliasRowEstimate.put(targetAlias, targetRows);
+        // Propagate the source's root sample size. If the target already
+        // had a fresher root sample size from {@code estimatedRootEntries}
+        // (e.g. it's itself a class-rooted alias), keep that — fresh
+        // class-based statistics outrank inherited lineage from a tiny
+        // upstream sample.
+        Long existingRoot = aliasRootSampleSize.get(targetAlias);
+        if (existingRoot == null && sourceRootSize != null) {
+          aliasRootSampleSize.put(targetAlias, sourceRootSize);
         }
       }
     }
@@ -3211,8 +3231,13 @@ public class MatchExecutionPlanner {
    * indexable condition that does not reference {@code $matched}, a {@link
    * RidFilterDescriptor.IndexLookup} is attached to the edge.
    */
-  private void optimizeScheduleWithIntersections(
+  private boolean optimizeScheduleWithIntersections(
       List<EdgeTraversal> schedule, CommandContext ctx) {
+    // Tracks whether at least one IndexLookup descriptor was attached during
+    // this pass. Returned to the caller so it can short-circuit the forecast
+    // pass (the sole consumer of BUILD_EAGER amortization data) without
+    // having to re-scan the schedule after the fact.
+    var hasIndexLookup = false;
     // Build a map: target alias → edge index, so we can find the producing edge
     Map<String, Integer> targetAliasToEdgeIndex = new HashMap<>();
     for (var i = 0; i < schedule.size(); i++) {
@@ -3400,6 +3425,7 @@ public class MatchExecutionPlanner {
       if (indexDesc != null) {
         edgeJ.addIntersectionDescriptor(
             new RidFilterDescriptor.IndexLookup(indexDesc));
+        hasIndexLookup = true;
         logger.debug(
             "MATCH pre-filter: IndexLookup on edge[{}] "
                 + "(class '{}' for alias '{}')",
@@ -3409,6 +3435,7 @@ public class MatchExecutionPlanner {
       // Target alias becomes bound after this edge executes
       boundAliases.add(targetAliasJ);
     }
+    return hasIndexLookup;
   }
 
   /**
@@ -4098,36 +4125,6 @@ public class MatchExecutionPlanner {
               + "({}({}) chain semi-join via $matched.{})",
           j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
           chainDesc.backRefAlias());
-    }
-  }
-
-  /**
-   * Resolves each edge's target class constraint to collection IDs at plan
-   * time. The traverser applies this as a zero-I/O class filter on the link
-   * bag, skipping vertices whose collection ID does not match.
-   */
-  private void attachCollectionIdFilters(
-      List<EdgeTraversal> schedule, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    if (session == null) {
-      return;
-    }
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    for (var et : schedule) {
-      var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
-      if (targetAlias == null) {
-        continue;
-      }
-      var className = aliasClasses.get(targetAlias);
-      if (className == null) {
-        continue;
-      }
-      var schemaClass = schema.getClassInternal(className);
-      if (schemaClass == null) {
-        continue;
-      }
-      et.setAcceptedCollectionIds(
-          TraversalPreFilterHelper.collectionIdsForClass(schemaClass));
     }
   }
 

@@ -356,7 +356,7 @@ public class IndexSearchDescriptor {
     if (selectivity < 0) {
       return -1.0;
     }
-    return Math.min(1.0, Math.max(0.0, selectivity));
+    return Math.clamp(selectivity, 0.0, 1.0);
   }
 
   /**
