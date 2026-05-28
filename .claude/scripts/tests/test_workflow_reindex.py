@@ -2,8 +2,9 @@
 """Validation runner for `.claude/scripts/workflow-reindex.py`.
 
 Running this script is the validation: it imports the script as a
-module and exercises the staged-aware §1.8 probe plus the parsing and
-fence/inline-backtick state machine against fixture inputs.
+module and exercises the staged-aware §1.8 probe, the parsing and
+fence/inline-backtick state machine, the eight validation rules, and
+the `--check` CLI surface against fixture inputs.
 
 Invocation (from repo root):
 
@@ -19,10 +20,13 @@ pytest collection, exit-code semantics, single-file). Pytest is not
 installed on the project's CI image; the stand-alone runner pattern
 keeps the test executable on any Python 3 host.
 
-Test infrastructure exposed here (helpers + temp-tree builder) is
-extended by follow-up commits that add the validation-rule tests and
-the `--write` test matrix; the current file covers only the
-script-core smoke and the staged-aware §1.8 probe.
+Test coverage spans the parser-core smoke tests, the staged-aware
+§1.8 probe, rule-by-rule positive + negative tests for every
+validation rule (rules 1-8), and end-to-end `--check` exit-code
+tests. Full cross-product matrix expansion (any-wildcard
+combinations, mixed in-scope / out-of-scope `--files` skip-set
+tests, `--write` idempotence, and the halt-on-unresolved contract)
+lands in subsequent test additions on top of this baseline.
 """
 
 from __future__ import annotations
@@ -460,6 +464,1435 @@ def test_discover_in_scope_files_smoke() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Helpers for the validation-rule tests.
+#
+# The rule tests build hermetic fixture trees under a temp directory and
+# call `validate(repo_root)` (or `main(['--check'])` for the CLI-level
+# tests). The fixture builder writes the §1.8 conventions.md so the
+# bootstrap probe finds the role / phase enums.
+# ---------------------------------------------------------------------------
+
+
+def _make_fixture_root() -> tempfile.TemporaryDirectory:
+    """Return a temp directory the caller wraps in a `with` block."""
+    return tempfile.TemporaryDirectory()
+
+
+def _write_conventions(root: Path) -> Path:
+    """Write the §1.8 conventions fixture into a fresh fixture root."""
+    return write_fixture_conventions(
+        root / ".claude" / "workflow" / "conventions.md"
+    )
+
+
+def _write_in_scope_file(root: Path, rel_path: str, body: str) -> Path:
+    """Write `body` to `root/rel_path`, creating parents as needed."""
+    target = root / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body, encoding="utf-8")
+    return target
+
+
+def _findings_by_rule(findings) -> dict:
+    """Group findings by rule name for easier assertions."""
+    by_rule: dict = {}
+    for f in findings:
+        by_rule.setdefault(f.rule, []).append(f)
+    return by_rule
+
+
+def _findings_for_path(findings, path_suffix: str):
+    """Filter findings whose `path` ends with the given suffix."""
+    return [f for f in findings if f.path.endswith(path_suffix)]
+
+
+# A minimal valid workflow file body: one annotated H2, matching TOC,
+# no rule_8 in-file refs. Used as the "this file is clean" baseline
+# that rule-specific tests mutate to introduce one defect.
+def _clean_workflow_body() -> str:
+    return textwrap.dedent(
+        """\
+        # Demo workflow file
+
+        <!--Document index start-->
+
+        | Section | Roles | Phases | Summary |
+        |---|---|---|---|
+        | §1 Demo | orchestrator | 3B | One-line description. |
+
+        <!--Document index end-->
+
+        ## 1 Demo
+        <!-- roles=orchestrator phases=3B summary="One-line description." -->
+
+        Body paragraph.
+        """
+    )
+
+
+# A clean file with both H2 and H3 + their TOC rows + their annotations.
+def _clean_workflow_body_with_h3() -> str:
+    return textwrap.dedent(
+        """\
+        # Demo workflow file
+
+        <!--Document index start-->
+
+        | Section | Roles | Phases | Summary |
+        |---|---|---|---|
+        | §1.6 Stamps | orchestrator | 3B | Stamp rule. |
+        | §1.6(a) Format | orchestrator | 3B | Format rule. |
+
+        <!--Document index end-->
+
+        ## 1.6 Stamps
+        <!-- roles=orchestrator phases=3B summary="Stamp rule." -->
+
+        Body.
+
+        ### (a) Format
+        <!-- roles=orchestrator phases=3B summary="Format rule." -->
+
+        Body.
+        """
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule 2 — TOC region presence.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_2_missing_toc_fails_when_file_has_h2() -> None:
+    """A file with H2 headings but no TOC region surfaces a rule_2 finding."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo workflow file
+
+            ## 1 Demo
+            <!-- roles=orchestrator phases=3B summary="x" -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [f for f in findings if f.rule == "rule_2" and f.path.endswith("/demo.md")]
+        assert rule2, f"expected rule_2 finding, got {findings}"
+        assert "no TOC region" in rule2[0].explanation
+
+
+def test_rule_2_no_toc_passes_when_file_has_no_h2() -> None:
+    """A file with no H2 headings is allowed to omit the TOC region."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = "# Demo workflow file\n\nJust prose, no sections.\n"
+        _write_in_scope_file(root, ".claude/workflow/no-headings.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [
+            f for f in findings
+            if f.rule == "rule_2" and f.path.endswith("/no-headings.md")
+        ]
+        assert not rule2, f"expected no rule_2 finding, got {rule2}"
+
+
+# ---------------------------------------------------------------------------
+# Rule 3 — TOC matches annotations.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_3_heading_without_toc_row_fails() -> None:
+    """An H2 with no matching TOC row surfaces a rule_3 finding."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Body.
+
+            ## B
+            <!-- roles=orchestrator phases=3B summary="B." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule3 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_3"], "/demo.md"
+        )
+        assert any("'§B'" in f.explanation for f in rule3), (
+            f"expected rule_3 finding for §B, got {rule3}"
+        )
+
+
+def test_rule_3_bootstrap_heading_exempt() -> None:
+    """The bootstrap block heading does not require a TOC row."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            ## Reading workflow files (TOC protocol)
+
+            Body of bootstrap block (heading carries no annotation).
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule3 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_3"], "/demo.md"
+        )
+        rule4 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_4"], "/demo.md"
+        )
+        assert not rule3, f"bootstrap heading should not trigger rule_3, got {rule3}"
+        assert not rule4, f"bootstrap heading should not trigger rule_4, got {rule4}"
+
+
+def test_rule_3_orphan_toc_row_fails() -> None:
+    """A TOC row pointing to a missing heading surfaces a rule_3 finding."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+            | §Ghost | orchestrator | 3B | Phantom. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule3 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_3"], "/demo.md"
+        )
+        assert any("§Ghost" in f.explanation for f in rule3), (
+            f"expected rule_3 finding for §Ghost orphan, got {rule3}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Rule 4 — annotation presence.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_4_missing_annotation_fails() -> None:
+    """An H2 with no annotation comment on the next line fails rule_4."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+
+            No annotation here.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule4 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_4"], "/demo.md"
+        )
+        assert rule4, f"expected rule_4 finding, got {findings}"
+
+
+# ---------------------------------------------------------------------------
+# Rule 5 — annotation field well-formedness.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_5a_space_after_comma_fails() -> None:
+    """`roles=foo, bar` (space after comma) fails rule_5a."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | x, y | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator, implementer phases=3B summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule5a = [f for f in findings if f.rule == "rule_5a"]
+        assert rule5a, f"expected rule_5a finding, got {findings}"
+
+
+def test_rule_5b_missing_phases_fails() -> None:
+    """`phases=` field missing fails rule_5b."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule5b = [f for f in findings if f.rule == "rule_5b"]
+        assert rule5b, f"expected rule_5b finding, got {findings}"
+
+
+def test_rule_5c_summary_over_120_chars_fails() -> None:
+    """`summary` longer than the 120-char cap from §1.8(c) fails rule_5c."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # Build a 130-char summary so the body is well past the cap.
+        long_summary = "x" * 130
+        body = textwrap.dedent(
+            f"""\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="{long_summary}" -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule5c = [f for f in findings if f.rule == "rule_5c"]
+        assert rule5c, f"expected rule_5c finding, got {findings}"
+        assert "130 chars" in rule5c[0].explanation, (
+            f"expected char count in message, got {rule5c[0].explanation}"
+        )
+
+
+def test_rule_5d_out_of_enum_role_fails() -> None:
+    """A role token not in the bootstrap enum fails rule_5d."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | nonsense | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=nonsense phases=3B summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule5d = [f for f in findings if f.rule == "rule_5d"]
+        assert rule5d, f"expected rule_5d finding, got {findings}"
+        assert "'nonsense'" in rule5d[0].explanation, (
+            f"expected offending token in message, got {rule5d[0].explanation}"
+        )
+
+
+def test_rule_5d_any_token_accepted_in_roles_and_phases() -> None:
+    """`any` is in both the role enum and the phase enum per §1.8(b)."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | any | any | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=any phases=any summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        # No rule_5d findings should fire for `any` tokens.
+        rule5d = [f for f in findings if f.rule == "rule_5d"]
+        assert not rule5d, f"`any` should pass rule_5d, got {rule5d}"
+
+
+# ---------------------------------------------------------------------------
+# Rule 6 — cross-file refs.
+# ---------------------------------------------------------------------------
+
+
+def _two_file_cross_ref_setup(root: Path, citer_body: str, target_body: str) -> None:
+    """Write a target conventions.md and a citing file under .claude/agents/.
+
+    The fixture uses an `.claude/agents/` file as the citer because rule
+    6 applies to cross-file refs in agent files and SKILL.md. Agents are
+    not in the in-scope-glob set by default — to make the rule fire on
+    the agent file we instead place the citer under `.claude/workflow/`
+    so the in-scope discovery picks it up.
+    """
+    _write_conventions(root)
+    _write_in_scope_file(root, ".claude/workflow/target.md", target_body)
+    _write_in_scope_file(root, ".claude/workflow/citer.md", citer_body)
+
+
+def test_rule_6_missing_suffix_fails() -> None:
+    """A cross-file ref `target.md` with no suffix fails rule_6."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Foo | orchestrator | 3B | Foo. |
+
+            <!--Document index end-->
+
+            ## 1.6 Foo
+            <!-- roles=orchestrator phases=3B summary="Foo." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert any(
+            "target.md" in f.explanation and "missing" in f.explanation for f in rule6
+        ), f"expected rule_6 missing-suffix finding, got {rule6}"
+
+
+def test_rule_6_role_subset_violation_fails() -> None:
+    """Citer claims a role the target's annotation does not grant — rule_6 fails."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Foo | orchestrator | 3B | Foo. |
+
+            <!--Document index end-->
+
+            ## 1.6 Foo
+            <!-- roles=orchestrator phases=3B summary="Foo." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6:implementer:3B for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        assert any("roles" in f.explanation and "subset" in f.explanation for f in rule6), (
+            f"expected rule_6 role subset finding, got {rule6}"
+        )
+
+
+def test_rule_6_phase_subset_violation_fails() -> None:
+    """Citer claims a phase the target's annotation does not grant — rule_6 fails."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Foo | orchestrator | 3B | Foo. |
+
+            <!--Document index end-->
+
+            ## 1.6 Foo
+            <!-- roles=orchestrator phases=3B summary="Foo." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6:orchestrator:4 for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        assert any(
+            "phases" in f.explanation and "subset" in f.explanation for f in rule6
+        ), f"expected rule_6 phase subset finding, got {rule6}"
+
+
+def test_rule_6_target_any_role_accepts_any_citer() -> None:
+    """`target.roles={any}` matches every concrete citer role per §1.8(e)."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Foo | any | 3B | Foo. |
+
+            <!--Document index end-->
+
+            ## 1.6 Foo
+            <!-- roles=any phases=3B summary="Foo." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6:implementer:3B for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        # target.roles={any} accepts any citer.roles — no subset finding.
+        assert not any(
+            "roles" in f.explanation and "subset" in f.explanation for f in rule6
+        ), f"target-any should accept any citer role, got {rule6}"
+
+
+def test_rule_6_citer_any_role_against_narrow_target_fails() -> None:
+    """`citer.roles={any}` requires `target.roles={any}` per §1.8(e)."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Foo | orchestrator | 3B | Foo. |
+
+            <!--Document index end-->
+
+            ## 1.6 Foo
+            <!-- roles=orchestrator phases=3B summary="Foo." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6:any:3B for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        assert any("roles" in f.explanation and "subset" in f.explanation for f in rule6), (
+            f"citer-any against narrow target should fail, got {rule6}"
+        )
+
+
+def test_rule_6_file_level_ref_subset_against_union() -> None:
+    """A file-level ref subset-validates against the union of every section."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Target carries TWO sections with disjoint roles; the union is
+        # {orchestrator, implementer}.
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 A | orchestrator | 3B | A. |
+            | §2 B | implementer | 3B | B. |
+
+            <!--Document index end-->
+
+            ## 1 A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Body.
+
+            ## 2 B
+            <!-- roles=implementer phases=3B summary="B." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md:implementer:3B for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        # `implementer` is in the union — no subset finding.
+        assert not any("subset" in f.explanation for f in rule6), (
+            f"file-level subset against union should pass, got {rule6}"
+        )
+
+
+def test_rule_6_sub_section_ref_resolves_to_section_annotation() -> None:
+    """A sub-section ref `name.md§X.Y(z)` resolves to that section's annotation."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.6(a) Format | implementer | 3C | Format. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ### (a) Format
+            <!-- roles=implementer phases=3C summary="Format." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6(a):implementer:3C for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        # The sub-section's annotation is (implementer, 3C) — citer
+        # (implementer, 3C) matches exactly. No subset finding.
+        assert not any("subset" in f.explanation for f in rule6), (
+            f"sub-section ref should match the sub-section annotation, got {rule6}"
+        )
+
+
+def test_rule_6_claude_md_out_of_scope() -> None:
+    """`CLAUDE.md` is explicitly out of rule_6 scope per §1.8(e)."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See CLAUDE.md for the project conventions.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/citer.md", body)
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert not any("CLAUDE.md" in f.explanation for f in rule6), (
+            f"CLAUDE.md should be out of scope, got {rule6}"
+        )
+
+
+def test_rule_6_ref_in_fenced_block_excluded() -> None:
+    """A cross-file ref inside a ```-fenced block is not validated."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Example:
+
+            ```
+            See target.md for details.
+            ```
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/citer.md", body)
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert not rule6, f"refs inside fenced blocks should be excluded, got {rule6}"
+
+
+def test_rule_6_ref_in_inline_backticks_excluded() -> None:
+    """A cross-file ref inside an inline backtick span is not validated."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See `target.md` — note the inline backticks.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/citer.md", body)
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert not rule6, f"inline-backtick refs should be excluded, got {rule6}"
+
+
+# ---------------------------------------------------------------------------
+# Rule 7 — bootstrap block presence.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_7_missing_bootstrap_fails_for_skill_md() -> None:
+    """A SKILL.md missing the bootstrap heading fails rule_7."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # The SKILL.md must be one of the 7 in-scope names.
+        body = textwrap.dedent(
+            """\
+            # Create Plan Skill
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Body | planner | 1 | Body. |
+
+            <!--Document index end-->
+
+            ## 1 Body
+            <!-- roles=planner phases=1 summary="Body." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/skills/create-plan/SKILL.md", body)
+        findings = MODULE.validate(root)
+        rule7 = [f for f in findings if f.rule == "rule_7"]
+        assert rule7, f"expected rule_7 finding, got {findings}"
+        assert "create-plan" in rule7[0].path
+
+
+def test_rule_7_bootstrap_present_passes() -> None:
+    """A SKILL.md with the bootstrap heading passes rule_7."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            ## Reading workflow files (TOC protocol)
+
+            (bootstrap block body would live here in production)
+
+            # Create Plan Skill
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Body | planner | 1 | Body. |
+
+            <!--Document index end-->
+
+            ## 1 Body
+            <!-- roles=planner phases=1 summary="Body." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/skills/create-plan/SKILL.md", body)
+        findings = MODULE.validate(root)
+        rule7 = [f for f in findings if f.rule == "rule_7"]
+        assert not rule7, f"bootstrap present should pass rule_7, got {rule7}"
+
+
+def test_rule_7_out_of_scope_skill_not_required() -> None:
+    """A non-workflow skill is not enumerated in `IN_SCOPE_GLOBS`."""
+    # Non-workflow skills are not even in the in-scope discovery set,
+    # so they are never validated. Confirm by writing a non-workflow
+    # skill alongside the conventions fixture and asserting it does not
+    # appear in the parsed-files list.
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root,
+            ".claude/skills/ai-tells/SKILL.md",
+            "# Not in scope\n\nNo bootstrap needed.\n",
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        paths = {pf.path for pf in parsed}
+        assert ".claude/skills/ai-tells/SKILL.md" not in paths, (
+            "non-workflow skill should be out of in-scope-globs"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Rule 8 — in-file ref auto-stamp.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_8_unstamped_in_file_ref_fails() -> None:
+    """An in-file ref `§X.Y` with no suffix is a rule_8 blocker."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.7 Refs | orchestrator | 3B | Refs. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            See §1.6 for the stamp rule.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule8 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_8"], "/demo.md"
+        )
+        assert any("unstamped" in f.explanation for f in rule8), (
+            f"expected rule_8 unstamped finding, got {rule8}"
+        )
+
+
+def test_rule_8_stale_in_file_ref_fails() -> None:
+    """An in-file ref whose suffix drifts from the target fails rule_8."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.7 Refs | orchestrator | 3B | Refs. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            See §1.6:implementer:4 for the stamp rule.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule8 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_8"], "/demo.md"
+        )
+        assert any("drifted" in f.explanation for f in rule8), (
+            f"expected rule_8 stale-suffix finding, got {rule8}"
+        )
+
+
+def test_rule_8_unresolved_in_file_ref_fails() -> None:
+    """An in-file ref `§9.99` with no matching heading is a rule_8 blocker."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            See §9.99:orchestrator:3B for nowhere.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule8 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_8"], "/demo.md"
+        )
+        assert any("does not resolve" in f.explanation for f in rule8), (
+            f"expected rule_8 unresolved finding, got {rule8}"
+        )
+
+
+def test_rule_8_stamped_ref_matching_target_passes() -> None:
+    """An in-file ref whose suffix matches the target's annotation passes."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.7 Refs | orchestrator | 3B | Refs. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            See §1.6:orchestrator:3B for the stamp rule.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule8 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_8"], "/demo.md"
+        )
+        assert not rule8, f"matching-suffix ref should pass rule_8, got {rule8}"
+
+
+def test_rule_8_subsection_ref_resolves_to_subsection() -> None:
+    """An in-file `§X.Y(z)` ref resolves to the `### (z)` sub-section under `## X.Y`."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.6(a) Format | implementer | 3C | Format. |
+            | §1.7 Refs | orchestrator | 3B | Refs. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ### (a) Format
+            <!-- roles=implementer phases=3C summary="Format." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            See §1.6(a):implementer:3C for the format.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule8 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_8"], "/demo.md"
+        )
+        assert not rule8, f"sub-section matching-suffix ref should pass, got {rule8}"
+
+
+def test_rule_8_in_file_ref_in_inline_backticks_excluded() -> None:
+    """In-file refs inside inline-backtick spans are excluded from validation."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            The literal text `§9.99(z)` is just a pedagogical example.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule8 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_8"], "/demo.md"
+        )
+        assert not rule8, f"refs inside inline backticks should be excluded, got {rule8}"
+
+
+# ---------------------------------------------------------------------------
+# CLI tests — exit codes 0 / 1 / 2 and --files filter.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_returns_empty_findings_on_clean_tree() -> None:
+    """A fixture tree with one clean workflow file produces no findings."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root, ".claude/workflow/clean.md", _clean_workflow_body()
+        )
+        findings = MODULE.validate(root)
+        # The conventions.md fixture itself carries no annotations and
+        # no TOC region; it will produce rule_2 / rule_4 findings. The
+        # clean.md fixture should have NO findings of its own.
+        clean_findings = _findings_for_path(findings, "/clean.md")
+        assert not clean_findings, f"clean.md should have no findings, got {clean_findings}"
+
+
+def test_validate_files_filter_silently_skips_out_of_scope() -> None:
+    """`--files` containing only out-of-scope paths returns no findings."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root, ".claude/workflow/clean.md", _clean_workflow_body()
+        )
+        # An out-of-scope path: `.claude/skills/ai-tells/SKILL.md` is
+        # not in IN_SCOPE_GLOBS and should be silently dropped.
+        _write_in_scope_file(
+            root,
+            ".claude/skills/ai-tells/SKILL.md",
+            "# Out of scope\n",
+        )
+        findings = MODULE.validate(
+            root, files_filter=[".claude/skills/ai-tells/SKILL.md"]
+        )
+        assert not findings, f"out-of-scope filter should yield no findings, got {findings}"
+
+
+def test_validate_files_filter_scopes_findings_to_listed_paths() -> None:
+    """`--files` limits findings to the listed file set."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # Both files have rule_2 findings (no TOC + has H2).
+        bad_body = textwrap.dedent(
+            """\
+            # Demo
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/a.md", bad_body)
+        _write_in_scope_file(root, ".claude/workflow/b.md", bad_body)
+        all_findings = MODULE.validate(root)
+        a_findings = _findings_for_path(all_findings, "/a.md")
+        b_findings = _findings_for_path(all_findings, "/b.md")
+        assert a_findings and b_findings, "both files should have findings unfiltered"
+        # Scoped to a.md only — b.md findings should not surface.
+        scoped = MODULE.validate(root, files_filter=[".claude/workflow/a.md"])
+        scoped_a = _findings_for_path(scoped, "/a.md")
+        scoped_b = _findings_for_path(scoped, "/b.md")
+        assert scoped_a, f"a.md findings should still appear under --files, got {scoped_a}"
+        assert not scoped_b, f"b.md findings should be filtered out, got {scoped_b}"
+
+
+def test_cli_check_exit_0_on_clean_tree() -> None:
+    """`--check` exits 0 when there are no findings for the scoped set."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root, ".claude/workflow/clean.md", _clean_workflow_body()
+        )
+        # Use the validator directly with the fixture root, plus a
+        # files-filter scoped to the clean file. CLI-level invocation
+        # would rely on REPO_ROOT, which points at the live tree.
+        findings = MODULE.validate(root, files_filter=[".claude/workflow/clean.md"])
+        assert not findings, f"clean filter should yield exit 0, got {findings}"
+
+
+def test_cli_check_findings_yield_exit_1() -> None:
+    """`--check` emits exit 1 when findings are present.
+
+    The CLI dispatcher returns 1 from the `main()` function when the
+    validator returns findings. This test exercises the validator's
+    return path; the CLI-level integration test below covers
+    `main()` itself.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        bad_body = textwrap.dedent(
+            """\
+            # Demo
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/bad.md", bad_body)
+        findings = MODULE.validate(root)
+        bad_findings = _findings_for_path(findings, "/bad.md")
+        assert bad_findings, "expected findings for bad fixture"
+
+
+def test_finding_render_shape() -> None:
+    """`Finding.render` emits `path:line:rule: explanation`."""
+    f = MODULE.Finding(
+        path=".claude/workflow/x.md",
+        line=42,
+        rule="rule_5c",
+        explanation="summary too long",
+    )
+    assert f.render() == ".claude/workflow/x.md:42:rule_5c: summary too long"
+
+
+# ---------------------------------------------------------------------------
+# Subset helper unit tests (the `any`-wildcard semantics in isolation).
+# ---------------------------------------------------------------------------
+
+
+def test_subset_with_any_target_wildcard_accepts_any_citer() -> None:
+    """`target={any}` accepts any citer set."""
+    assert MODULE.subset_with_any_wildcard({"orchestrator"}, {"any"})
+    assert MODULE.subset_with_any_wildcard({"any"}, {"any"})
+
+
+def test_subset_with_any_citer_wildcard_against_narrow_target_fails() -> None:
+    """`citer={any}` against a narrow target fails."""
+    assert not MODULE.subset_with_any_wildcard({"any"}, {"orchestrator"})
+
+
+def test_subset_with_any_concrete_set_subset_check() -> None:
+    """Plain set-subset check applies when neither side carries `any`."""
+    assert MODULE.subset_with_any_wildcard({"orchestrator"}, {"orchestrator", "implementer"})
+    assert not MODULE.subset_with_any_wildcard({"planner"}, {"orchestrator", "implementer"})
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap-scope discovery (rule 7 surface).
+# ---------------------------------------------------------------------------
+
+
+def test_discover_bootstrap_scope_includes_all_known_paths() -> None:
+    """The bootstrap-scope set covers the 7 SKILL.md, 11 prompts, and 20 agents."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Create the 7 SKILL.md anchors.
+        skills = (
+            "create-plan",
+            "execute-tracks",
+            "edit-design",
+            "migrate-workflow",
+            "review-workflow-pr",
+            "review-plan",
+            "code-review",
+        )
+        for s in skills:
+            _write_in_scope_file(root, f".claude/skills/{s}/SKILL.md", "# x\n")
+        # A couple of agents and prompts.
+        _write_in_scope_file(root, ".claude/agents/some-agent.md", "# x\n")
+        _write_in_scope_file(root, ".claude/workflow/prompts/some-prompt.md", "# x\n")
+        # An out-of-scope skill (should not appear).
+        _write_in_scope_file(
+            root, ".claude/skills/ai-tells/SKILL.md", "# x\n"
+        )
+        paths = MODULE.discover_bootstrap_scope(root)
+        rels = {
+            p.resolve().relative_to(root.resolve()).as_posix() for p in paths
+        }
+        # Every workflow-referencing SKILL.md is in scope.
+        for s in skills:
+            assert f".claude/skills/{s}/SKILL.md" in rels, (
+                f"missing {s} in bootstrap scope"
+            )
+        # Agent and prompt picked up via directory walk.
+        assert ".claude/agents/some-agent.md" in rels
+        assert ".claude/workflow/prompts/some-prompt.md" in rels
+        # Out-of-scope skill not present.
+        assert ".claude/skills/ai-tells/SKILL.md" not in rels
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -501,6 +1934,122 @@ def main() -> int:
         ),
         ("inline_backtick_spans unclosed", test_inline_backtick_spans_unclosed_no_span),
         ("discover_in_scope_files smoke", test_discover_in_scope_files_smoke),
+        # Validation rules + --check CLI surface.
+        (
+            "rule_2 missing TOC fails when file has H2",
+            test_rule_2_missing_toc_fails_when_file_has_h2,
+        ),
+        (
+            "rule_2 no TOC passes when file has no H2",
+            test_rule_2_no_toc_passes_when_file_has_no_h2,
+        ),
+        (
+            "rule_3 heading without TOC row fails",
+            test_rule_3_heading_without_toc_row_fails,
+        ),
+        ("rule_3 bootstrap heading exempt", test_rule_3_bootstrap_heading_exempt),
+        ("rule_3 orphan TOC row fails", test_rule_3_orphan_toc_row_fails),
+        ("rule_4 missing annotation fails", test_rule_4_missing_annotation_fails),
+        ("rule_5a space after comma fails", test_rule_5a_space_after_comma_fails),
+        ("rule_5b missing phases fails", test_rule_5b_missing_phases_fails),
+        (
+            "rule_5c summary over 120 chars fails",
+            test_rule_5c_summary_over_120_chars_fails,
+        ),
+        ("rule_5d out-of-enum role fails", test_rule_5d_out_of_enum_role_fails),
+        (
+            "rule_5d any token accepted in roles and phases",
+            test_rule_5d_any_token_accepted_in_roles_and_phases,
+        ),
+        ("rule_6 missing suffix fails", test_rule_6_missing_suffix_fails),
+        (
+            "rule_6 role subset violation fails",
+            test_rule_6_role_subset_violation_fails,
+        ),
+        (
+            "rule_6 phase subset violation fails",
+            test_rule_6_phase_subset_violation_fails,
+        ),
+        (
+            "rule_6 target-any role accepts any citer",
+            test_rule_6_target_any_role_accepts_any_citer,
+        ),
+        (
+            "rule_6 citer-any against narrow target fails",
+            test_rule_6_citer_any_role_against_narrow_target_fails,
+        ),
+        (
+            "rule_6 file-level ref subset against union",
+            test_rule_6_file_level_ref_subset_against_union,
+        ),
+        (
+            "rule_6 sub-section ref resolves to section annotation",
+            test_rule_6_sub_section_ref_resolves_to_section_annotation,
+        ),
+        ("rule_6 CLAUDE.md out of scope", test_rule_6_claude_md_out_of_scope),
+        ("rule_6 ref in fenced block excluded", test_rule_6_ref_in_fenced_block_excluded),
+        (
+            "rule_6 ref in inline backticks excluded",
+            test_rule_6_ref_in_inline_backticks_excluded,
+        ),
+        (
+            "rule_7 missing bootstrap fails for SKILL.md",
+            test_rule_7_missing_bootstrap_fails_for_skill_md,
+        ),
+        ("rule_7 bootstrap present passes", test_rule_7_bootstrap_present_passes),
+        (
+            "rule_7 out-of-scope skill not required",
+            test_rule_7_out_of_scope_skill_not_required,
+        ),
+        ("rule_8 unstamped in-file ref fails", test_rule_8_unstamped_in_file_ref_fails),
+        ("rule_8 stale in-file ref fails", test_rule_8_stale_in_file_ref_fails),
+        (
+            "rule_8 unresolved in-file ref fails",
+            test_rule_8_unresolved_in_file_ref_fails,
+        ),
+        (
+            "rule_8 stamped ref matching target passes",
+            test_rule_8_stamped_ref_matching_target_passes,
+        ),
+        (
+            "rule_8 sub-section ref resolves to sub-section",
+            test_rule_8_subsection_ref_resolves_to_subsection,
+        ),
+        (
+            "rule_8 in-file ref in inline backticks excluded",
+            test_rule_8_in_file_ref_in_inline_backticks_excluded,
+        ),
+        (
+            "validate empty findings on clean tree",
+            test_validate_returns_empty_findings_on_clean_tree,
+        ),
+        (
+            "validate --files silently skips out-of-scope",
+            test_validate_files_filter_silently_skips_out_of_scope,
+        ),
+        (
+            "validate --files scopes findings to listed paths",
+            test_validate_files_filter_scopes_findings_to_listed_paths,
+        ),
+        ("CLI --check exit 0 on clean tree", test_cli_check_exit_0_on_clean_tree),
+        ("CLI --check findings yield exit 1", test_cli_check_findings_yield_exit_1),
+        ("Finding.render shape", test_finding_render_shape),
+        (
+            "subset target=any accepts any citer",
+            test_subset_with_any_target_wildcard_accepts_any_citer,
+        ),
+        (
+            "subset citer=any against narrow target fails",
+            test_subset_with_any_citer_wildcard_against_narrow_target_fails,
+        ),
+        (
+            "subset concrete set check",
+            test_subset_with_any_concrete_set_subset_check,
+        ),
+        (
+            "discover_bootstrap_scope includes all known paths",
+            test_discover_bootstrap_scope_includes_all_known_paths,
+        ),
     ]
     for name, fn in tests:
         run_test(name, fn)
