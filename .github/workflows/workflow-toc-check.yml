@@ -36,5 +36,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      # This gate reports ~1500 findings against the un-annotated live
+      # workflow tree until the universal per-section annotation rollout
+      # and the bootstrap-block insertion across system-prompt files
+      # both land on develop (per YTDB-1023's acceptance criteria). Until
+      # then, treat the gate as informational on PRs that touch workflow
+      # content; reviewers should not block on it. The gate becomes
+      # load-bearing the moment the annotation rollout commit reaches
+      # develop — at that point a non-zero finding count means the diff
+      # broke the schema and the gate refuses to merge.
       - name: Validate workflow TOC + annotations
         run: python3 .claude/scripts/workflow-reindex.py --check

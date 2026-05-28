@@ -135,19 +135,30 @@ These checks apply to load-on-demand files (workflow rules, workflow prompts, ag
 
 The `.claude/scripts/workflow-reindex.py` script (added by YTDB-1023) validates the §1.8 schema mechanically: TOC presence and consistency, per-section annotation well-formedness, cross-file ref subset validation, in-file `§X.Y(z)` auto-stamp suffix correctness, and bootstrap-block presence on the 38 in-scope system prompts. Its output is the deterministic half of this agent's review; the qualitative axes above are the judgment half.
 
-Invoke the script once per review. Run it scope-narrowed to the diff when the changed-files list is small enough to enumerate:
+Invocation MUST include `--check` explicitly. If the script is invoked without a mode flag, its bootstrap-smoke fallback prints role / phase enum tokens to stdout and exits 0 — that is NOT a clean gate result. Retry with `--check`.
+
+Choose the invocation form by the size of the changed-workflow-files set. With ≤25 changed workflow-machinery files, use the scope-narrowed `--files` form. With >25, use the full-repo walk. Fallback: if the `--files` form fails with `OSError: Argument list too long` or exits 2 with no stdout findings, retry without `--files`.
+
+Build the `--files` argument by selecting from the spawn prompt's `## Changed Files` list those paths matching `.claude/(workflow|skills|agents)/.*\.md$` OR `docs/adr/.*/_workflow/staged-workflow/\.claude/(workflow|skills|agents)/.*\.md$` — same regex the pre-commit hook uses. Pass them as space-separated arguments. Out-of-scope paths are silently skipped by the script, so passing the full filtered list is safe.
+
+Scope-narrowed (≤25 changed workflow-machinery files):
 
 ```bash
-python3 .claude/scripts/workflow-reindex.py --check --files <space-separated list of changed .md paths under .claude/{workflow,skills,agents}/>
+python3 .claude/scripts/workflow-reindex.py --check --files <space-separated list built per the rule above>
 ```
 
-When the diff is large or spans many directories, run the full-repo walk:
+Full-repo walk (>25 changed files, or `--files` fallback):
 
 ```bash
 python3 .claude/scripts/workflow-reindex.py --check
 ```
 
-The script writes findings to stdout in `path:line:rule_N: explanation` form and exits 0 (clean), 1 (findings), or 2 (script error or ambiguous staged §1.8 probe). Exit 2 with no findings on stdout is itself a Critical `WB<N>` finding — the gate cannot run, the review cannot certify the diff, and the diff must not land until the probe is unambiguous.
+The script writes findings to stdout in `path:line:rule_N: explanation` form and exits 0 (clean), 1 (findings), or 2 (script error, ambiguous staged §1.8 probe, or other failure). Always capture stderr too; an exit-2 result may carry an `error:` prefixed message on stderr that names the failure shape. Exit 2 is a Critical `WB<N>` finding regardless of which stream carries the message, with the per-finding fields populated by sub-case:
+
+- **Ambiguous staged §1.8 probe** (`AmbiguousBootstrapProbeError` from the discovery layer): File = the colliding staged `conventions.md` paths joined with `+`; Axis = `load-on-demand discipline`; Suggestion = "remove or merge the conflicting staged-workflow copies".
+- **Script error / Python traceback on stderr** (any other exit-2 cause): File = `.claude/scripts/workflow-reindex.py`; Axis = `instant per-operation consumption`; Suggestion = "investigate the Python traceback on stderr and re-run".
+
+Then filter the script's exit-1 findings against this diff. Cross-reference each finding's `path` against the changed-files list supplied in the spawn prompt's `## Changed Files` section. Surface only findings whose `path` was modified by this diff. Findings on unchanged files are pre-existing schema debt; mention the total count in `### Reviewer notes` but do not emit them as `WB<N>` items. The diff-filter also applies to the early-exit predicate in Process step 2 above: the script-clean half of the predicate is "the diff-filtered finding set is empty", not "the full-repo run produced no findings". A schema-only-state branch with 1500 unchanged-file findings still early-exits clean when the diff under review touches none of them.
 
 ### Severity mapping for script findings
 
@@ -210,7 +221,7 @@ Render each finding (script or judgment) as a single bullet under its matched H4
 **WB<N>** — File: `path/to/file` (line X-Y), Axis: <always-loaded | load-on-demand discipline | instant per-operation consumption>, Cost: <lines/characters added or per-operation lines pulled>, Issue: <why this is a budget hit, or the script's `rule_N` explanation>, Suggestion: <target location, delegation target, cap value, pointer destination, or `--write` rerun>
 ```
 
-Numbering: `WB<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WB1 + WB2 under Critical, WB3 + WB4 + WB5 under Recommended, WB6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
+Numbering: `WB<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WB1 + WB2 under Critical, WB3 + WB4 + WB5 under Recommended, WB6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.
 
 ## Guidelines
 

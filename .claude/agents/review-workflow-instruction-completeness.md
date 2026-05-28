@@ -124,10 +124,10 @@ Focus on changed files under `.claude/skills/`, `.claude/agents/`, `.claude/work
 Render each finding as a single bullet under its matched H4 in the format:
 
 ```markdown
-**IC<N>** — File: `path/to/file.md` (line X-Y), Axis: <conditional branch coverage | gate resume path | sub-agent handshake | phase output → next-phase input | error and recovery path | cleanup and idempotency | loop termination | empty-input case | state marker transition | argument validation>, Cost: <one-clause description of the operational impact, e.g., "LLM stranded with no resume rule on context-clear mid-gate", "orphan output that downstream phase assumes exists", "iteration loop has no max-cap">, Issue: <what case isn't handled, including the branch / phase / handshake identifier>, Suggestion: <concrete fallback or recovery rule>
+**WI<N>** — File: `path/to/file.md` (line X-Y), Axis: <conditional branch coverage | gate resume path | sub-agent handshake | phase output → next-phase input | error and recovery path | cleanup and idempotency | loop termination | empty-input case | state marker transition | argument validation>, Cost: <one-clause description of the operational impact, e.g., "LLM stranded with no resume rule on context-clear mid-gate", "orphan output that downstream phase assumes exists", "iteration loop has no max-cap">, Issue: <what case isn't handled, including the branch / phase / handshake identifier>, Suggestion: <concrete fallback or recovery rule>
 ```
 
-Numbering: `IC<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: IC1 + IC2 under Critical, IC3 + IC4 under Recommended, IC5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
+Numbering: `WI<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WI1 + WI2 under Critical, WI3 + WI4 under Recommended, WI5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.
 
 ## Guidelines
 

@@ -124,10 +124,10 @@ Focus only on changes to `.claude/hooks/*.sh`, `.claude/scripts/*.{sh,py}`, and 
 Render each finding as a single bullet under its matched H4 in the format:
 
 ```markdown
-**HS<N>** — File: `path/to/script.sh` (line X-Y), Axis: <shell hygiene | /tmp collision | idempotency | hook performance | secret hygiene | concurrent-agent safety | error handling | JSON validity | Python script>, Cost: <one-clause description of the operational impact, e.g., "race on shared lockfile under two agents", "secret leak in transcript", "200ms latency on every PreToolUse">, Issue: <what's unsafe>, Suggestion: <concrete fix>
+**WH<N>** — File: `path/to/script.sh` (line X-Y), Axis: <shell hygiene | /tmp collision | idempotency | hook performance | secret hygiene | concurrent-agent safety | error handling | JSON validity | Python script>, Cost: <one-clause description of the operational impact, e.g., "race on shared lockfile under two agents", "secret leak in transcript", "200ms latency on every PreToolUse">, Issue: <what's unsafe>, Suggestion: <concrete fix>
 ```
 
-Numbering: `HS<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: HS1 + HS2 under Critical, HS3 + HS4 under Recommended, HS5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
+Numbering: `WH<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WH1 + WH2 under Critical, WH3 + WH4 under Recommended, WH5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.
 
 ## Guidelines
 

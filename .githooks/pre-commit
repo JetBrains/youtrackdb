@@ -18,14 +18,19 @@
 #
 # Skip with: git commit --no-verify
 
+set -euo pipefail
+
 # Check if this is the JetBrains/youtrackdb repository
-REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+REMOTE_URL=$(git remote get-url origin 2>/dev/null || true)
 if [[ ! "$REMOTE_URL" =~ [/:]JetBrains/youtrackdb(\.git)?$ ]]; then
     exit 0
 fi
 
-# Find the repository root (where pom.xml lives)
+# Find the repository root (where pom.xml lives). An empty REPO_ROOT would
+# cause `cd ""` to silently land in $HOME on some bash configurations, so
+# bail out early when git could not locate the worktree.
 REPO_ROOT=$(git rev-parse --show-toplevel)
+[[ -n "$REPO_ROOT" ]] || exit 0
 
 # --------------------------------------------------------------------------
 # Gate 1: Spotless on staged Java files.
@@ -49,12 +54,17 @@ run_java_checks() {
         return 1
     fi
 
-    # Re-stage any files that Spotless modified
-    echo "$staged_java_files" | while IFS= read -r file; do
+    # Re-stage any files that Spotless modified. Use the same here-string
+    # idiom as `run_workflow_reindex_check` below — `echo | while read`
+    # would split a path containing a newline across iterations (no
+    # legitimate Java path in this repo carries one, but idiom consistency
+    # makes maintenance easier and avoids one fork for `echo`).
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
         if [ -f "$REPO_ROOT/$file" ]; then
             git add "$REPO_ROOT/$file"
         fi
-    done
+    done <<< "$staged_java_files"
     return 0
 }
 
@@ -70,13 +80,22 @@ run_java_checks() {
 # reindex script has nothing to validate on a delete.
 # --------------------------------------------------------------------------
 run_workflow_reindex_check() {
-    local staged_workflow_files filter_regex
+    local staged_workflow_files filter_regex staged_diff grep_rc
     filter_regex='^\.claude/(workflow|skills|agents)/.*\.md$'
     filter_regex+='|^docs/adr/[^/]+/_workflow/staged-workflow/\.claude/(workflow|skills|agents)/.*\.md$'
-    staged_workflow_files=$(
-        git diff --cached --name-only --diff-filter=ACMR \
-            | grep -E "$filter_regex" || true
-    )
+    staged_diff=$(git diff --cached --name-only --diff-filter=ACMR)
+    # Distinguish grep exit 1 ("no matches", the normal empty-diff case)
+    # from grep exit >=1 errors (grep binary missing, unsupported regex,
+    # etc.). The naive `grep ... || true` form swallows both, and the
+    # downstream empty-string check would silently pass the commit.
+    set +e
+    staged_workflow_files=$(printf '%s\n' "$staged_diff" | grep -E "$filter_regex")
+    grep_rc=$?
+    set -e
+    if [ "$grep_rc" -gt 1 ]; then
+        echo "ERROR: grep failed (exit $grep_rc) while filtering staged workflow files" >&2
+        return 1
+    fi
     if [ -z "$staged_workflow_files" ]; then
         return 0
     fi

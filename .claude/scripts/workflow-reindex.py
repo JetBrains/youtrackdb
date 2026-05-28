@@ -131,6 +131,14 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     # pass these paths through `--files`; the discovery walk picks them
     # up via the globs below so the script can read the staged copy
     # directly.
+    #
+    # Skills asymmetry is intentional: the staged glob accepts any
+    # SKILL.md so a workflow-modifying plan that stages a non-workflow
+    # skill (rare) still gets validated, while the live glob above
+    # restricts to the 7 workflow-referencing anchors. Live `.claude/
+    # skills/**` carries ~20 skills today and only the 7 enumerated
+    # above interact with the workflow tree; the staged subtree is
+    # plan-scoped and only contains files the author chose to stage.
     "docs/adr/*/_workflow/staged-workflow/.claude/workflow/**/*.md",
     "docs/adr/*/_workflow/staged-workflow/.claude/skills/**/SKILL.md",
     "docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md",
@@ -519,7 +527,7 @@ def inline_backtick_spans(line: str) -> List[Tuple[int, int]]:
             # advanced) and continue.
             pass
         # `i` is either at `n` (no closer) or just past the closer's
-        # last backtick (the for-else clause above sets j past the run
+        # last backtick (the while-else clause above sets j past the run
         # before assignment to i below).
         i = j
     return spans

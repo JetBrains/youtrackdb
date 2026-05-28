@@ -137,10 +137,10 @@ Focus only on changed files under `.claude/skills/`, `.claude/agents/`, `.claude
 Render each finding as a single bullet under its matched H4 in the format:
 
 ```markdown
-**PD<N>** — File: `path/to/file.md` (line X-Y), Axis: <description discriminability | clean-context invocation | deterministic decision rules | sub-agent delegation | tooling routing | $ARGUMENTS handling | output contract | examples and counterexamples | frontmatter>, Cost: <one-clause description of the prompt-engineering impact, e.g., "non-reproducible LLM behavior on borderline inputs", "sub-agent routes through grep where PSI is required", "description fails discriminability against neighboring skill">, Issue: <what's wrong from a prompt-engineering standpoint>, Suggestion: <concrete rewrite or rule>
+**WP<N>** — File: `path/to/file.md` (line X-Y), Axis: <description discriminability | clean-context invocation | deterministic decision rules | sub-agent delegation | tooling routing | $ARGUMENTS handling | output contract | examples and counterexamples | frontmatter>, Cost: <one-clause description of the prompt-engineering impact, e.g., "non-reproducible LLM behavior on borderline inputs", "sub-agent routes through grep where PSI is required", "description fails discriminability against neighboring skill">, Issue: <what's wrong from a prompt-engineering standpoint>, Suggestion: <concrete rewrite or rule>
 ```
 
-Numbering: `PD<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: PD1 + PD2 under Critical, PD3 + PD4 + PD5 under Recommended, PD6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
+Numbering: `WP<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WP1 + WP2 under Critical, WP3 + WP4 + WP5 under Recommended, WP6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.
 
 ## Guidelines
 
