@@ -233,6 +233,25 @@ public class EdgeTraversal {
   static final int IN_LIST_SAMPLE_SIZE = 30;
 
   /**
+   * Multiplier applied to {@code m} on the calibrated-m path to correct the
+   * implicit underestimation of build cost {@code B} in
+   * {@link #computeMinNeighborsForBuild}. The base formula assumes
+   * {@code B = estimatedSize × scan_cost}, which models build cost as one
+   * bitmap-probe per entry. In reality the build performs B-tree traversal,
+   * key deserialization, and RoaringBitmap insertion per entry —
+   * roughly {@code 50-100×} more expensive than a simple probe. Without
+   * this correction, the cost-model break-even fires far earlier than the
+   * real volume at which the build pays off, leading to IC2-shaped
+   * regressions.
+   *
+   * <p>Applied only on the calibrated path (sampled in-list selectivity
+   * + CLT-fail) so existing CLT-pass behavior is unchanged. The base
+   * formula stays the historical reference point for the BUILD_EAGER
+   * decision when CLT confidence is established.
+   */
+  static final double BUILD_PER_ENTRY_MULTIPLIER = 100.0;
+
+  /**
    * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
    * descriptor. Resolved from {@link #forecastN} vs the runtime-computed
    * {@code m} on the first {@code resolveWithCache} call, then memoized for
@@ -1078,6 +1097,16 @@ public class EdgeTraversal {
         ? inListSelectivity : indexLookupSelectivity;
     double m = computeMinNeighborsForBuild(
         estimatedSize, loadToScanRatio, effectiveSelectivity);
+    if (useCalibratedM) {
+      // Variant B+ (B-fix): correct the implicit B = estimatedSize ×
+      // scan_cost underestimation. Real build_per_entry is roughly
+      // 50-100× the bitmap-probe cost (B-tree descent + key
+      // deserialization + bitmap insertion). Apply only on the
+      // calibrated path so CLT-pass behavior stays at the historical
+      // formula — the cost-model has been tuned for that regime over
+      // multiple LDBC benchmark cycles.
+      m *= BUILD_PER_ENTRY_MULTIPLIER;
+    }
 
     // Decide mode on first call. BUILD_EAGER requires both:
     //   1. rootSourceRows >= MIN_FOR_CLT — CLT confidence in forecastN
