@@ -1,3 +1,4 @@
+<!-- workflow-sha: 7cdacac6aecc5fac81f314418453a8831c3ef37e -->
 # Track 8: Observability + JMH — QueryCacheMetrics + benchmark + Hub replay
 
 ## Purpose / Big Picture

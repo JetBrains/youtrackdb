@@ -1,3 +1,4 @@
+<!-- workflow-sha: 7cdacac6aecc5fac81f314418453a8831c3ef37e -->
 # Track 6a: MATCH delta — Etap A (single-alias as RECORD)
 
 ## Purpose / Big Picture

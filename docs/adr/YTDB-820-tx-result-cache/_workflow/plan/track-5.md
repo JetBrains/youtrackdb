@@ -1,3 +1,4 @@
+<!-- workflow-sha: 7cdacac6aecc5fac81f314418453a8831c3ef37e -->
 # Track 5: Aggregate delta — AGGREGATE_* shapes
 
 ## Purpose / Big Picture

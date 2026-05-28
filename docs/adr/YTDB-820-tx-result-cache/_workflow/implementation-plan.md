@@ -1,3 +1,4 @@
+<!-- workflow-sha: 7cdacac6aecc5fac81f314418453a8831c3ef37e -->
 # YTDB-820 Transaction-scoped query result cache
 
 ## Design Document

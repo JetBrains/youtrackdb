@@ -1,3 +1,4 @@
+<!-- workflow-sha: 7cdacac6aecc5fac81f314418453a8831c3ef37e -->
 # Track 6b: MATCH delta — partial Etap B (MATCH_TUPLE_MULTI)
 
 ## Purpose / Big Picture
