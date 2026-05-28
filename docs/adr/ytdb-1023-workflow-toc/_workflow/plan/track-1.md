@@ -96,6 +96,10 @@ verbatim as test method names. Empty until Move 3 lands. -->
 
 Both steps are file-rewrites against `_workflow/staged-workflow/.claude/workflow/conventions.md`. Re-running either step against an already-applied state produces no diff (the §1.8 body and the §1.1 glossary rows already exist verbatim in the staged file). Recovery from any failure reverts via the implementer's standard `git reset --hard HEAD` path; no on-disk artifacts other than the staged conventions.md change. Step 1 is the first touch on the staged path, so §1.7(e) copy-then-edit fires: the implementer copies the live `.claude/workflow/conventions.md` to the staged path verbatim before applying the §1.8 append, preserving develop's state as the staged baseline. Step 2 is a subsequent write to the same staged file and edits it in place per §1.7(e).
 
+## Base commit
+
+82c26e729b5bc7e5e7987d708ea0041fcef9f11f
+
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
 belong to one specific step. Per-step episode content lives in
