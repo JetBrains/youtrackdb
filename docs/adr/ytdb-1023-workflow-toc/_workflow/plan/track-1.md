@@ -16,11 +16,14 @@ Lock the role enum, phase enum, per-section annotation idiom, TOC region format,
 - [ ] Track completion
 
 - [x] 2026-05-28T11:57Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-28T12:41Z [ctx=safe] Step 1 complete (commit 64b2b7d5bb)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- 2026-05-28T12:41Z Step 1 discovered: §1.8(c) annotation idiom locks the no-space rule on comma-separated lists; Track 2's `workflow-reindex.py` rule-5 regex enforces it. See Episodes §Step 1.
+- 2026-05-28T12:41Z Step 1 discovered: §1.8(g)'s worked example heading `## 99.1 Demo section` is a documentation example; Track 4 reviewers should not flag it as a missing annotation. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -70,13 +73,23 @@ The §1.8 author writes against the LIVE develop state of conventions.md (read f
 
 ## Concrete Steps
 
-1. Author §1.8 schema body in staged conventions.md — full role enum (15 values) and phase enum (8 values), annotation idiom, TOC region format, cross-reference convention with read-decision flowchart, and a worked example block (fenced code) using a constructed `## 99.1 Demo section` heading and omitting the `<!-- workflow-sha: ... -->` line per Finding T2 — risk: low (default: docs authoring; no code, no behavior change; routed through `_workflow/staged-workflow/.claude/workflow/conventions.md` per §1.7(e))  [ ]
+1. Author §1.8 schema body in staged conventions.md — full role enum (15 values) and phase enum (8 values), annotation idiom, TOC region format, cross-reference convention with read-decision flowchart, and a worked example block (fenced code) using a constructed `## 99.1 Demo section` heading and omitting the `<!-- workflow-sha: ... -->` line per Finding T2 — risk: low (default: docs authoring; no code, no behavior change; routed through `_workflow/staged-workflow/.claude/workflow/conventions.md` per §1.7(e))  [x] commit: 64b2b7d5bb
 2. Add §1.1 glossary rows for Section annotation, TOC region, Role enum, Phase enum, Cross-reference convention, Bootstrap block — the first five anchor at §1.8 as the canonical reference; Bootstrap block anchors at design.md §"Bootstrap protocol for agent system prompts" (Phase 1) or `design-final.md` (post-Phase-4) since Track 5 owns the bootstrap rollout but the conceptual definition stays in the design document — risk: low (default: docs authoring; single-section additions in the same staged file)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 64b2b7d5bb, 2026-05-28T12:41Z [ctx=safe]
+**What was done:** Authored §1.8 "Per-section role/phase annotations and TOC region" in the staged conventions.md (`_workflow/staged-workflow/.claude/workflow/conventions.md`). The section locks the 15-value role enum (a), the 8-value phase enum (b), the HTML-comment annotation idiom (c), the TOC region format (d), the hand-written cross-file / auto-stamped in-file cross-reference convention (e), a Mermaid read-decision flow (f), a worked example using a constructed `## 99.1 Demo section` heading that omits the workflow-sha stamp line (g), and a References sub-section (h) linking to D1/D2/D9/D10 and matching design.md sections.
+
+**What was discovered:** §1.8(c) annotation idiom carries the no-space rule for comma-separated lists verbatim. Track 2's `workflow-reindex.py` rule-5 regex must enforce that rule (consistency point with design.md §"Role and phase enums" → §"Edge cases / Gotchas"). §1.8(g)'s worked example uses the constructed heading `## 99.1 Demo section`; Track 4 reviewers should treat this fenced-code heading as a documentation example, not a real conventions.md section requiring an annotation row.
+
+**Key files:**
+- `docs/adr/ytdb-1023-workflow-toc/_workflow/staged-workflow/.claude/workflow/conventions.md` (new)
+
+**Critical context:** First touch of the staged subtree on this branch. The staged-workflow directory did not exist before this commit; the §1.7(e) copy-then-edit fired and the staged baseline is byte-identical to develop's live conventions.md before the §1.8 append. Subsequent steps reading conventions.md from within the implementer see the staged copy per §1.7(d) reads precedence.
 
 ## Validation and Acceptance
 
