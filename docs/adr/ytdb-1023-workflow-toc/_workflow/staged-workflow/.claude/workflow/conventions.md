@@ -1150,8 +1150,27 @@ no longer matches the citer's intent), which stays a human-review
 concern. Sub-section refs resolve to that section's annotation
 directly; file-level refs without a section anchor resolve to the
 union of every section's annotations in the target file. Refs inside
-fenced code blocks (including the worked example in (g)) are excluded
-from validation.
+fenced code blocks (including the worked example in (g)) **and refs
+inside inline backtick spans** (e.g., ``the form `§1.6(c)` is
+rewritten``) are excluded from validation; the same exclusion applies
+to `--write` auto-stamping below.
+
+**`any`-wildcard semantics.** The `any` token in a roles or phases
+list is a wildcard with one-way semantics:
+
+- `target.roles={any}` matches any citer role: `{specific} ⊆ {any}`
+  holds for every concrete role token.
+- `citer.roles={any}` requires `target.roles={any}` — the citer
+  cannot claim wildcard authority the target does not grant; subset
+  fails when the target carries any narrower set.
+- `target.roles={any}, citer.roles={any}` passes trivially.
+
+The same three rules apply to the phases axis, evaluated
+independently of roles. The asymmetry (target wildcard widens; citer
+wildcard does not) is the design contract: a narrowed target's
+explicit role list is the intended audience, and a citer claiming
+`any` against a narrowed target would silently overclaim the
+target's scope.
 
 **In-file drift detection.** When a target heading's annotation
 changes, every in-file ref to that heading goes stale until the next

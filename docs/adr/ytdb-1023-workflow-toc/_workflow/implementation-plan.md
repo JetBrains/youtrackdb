@@ -145,13 +145,21 @@ flowchart TD
 - **Implemented in**: Track 2 (subset check extension to rule 6 in `workflow-reindex.py`)
 - **Full design**: design.md §"Reindex script" → §"Validation rules" rule 6, design.md §"Cross-reference convention" → §"In-file reference auto-stamping" (the "Cross-file drift detection" bold paragraph inside)
 
-#### D11: Track 2 introduces a `WB<N>` finding-prefix on `review-workflow-context-budget` output
+#### D11: Track 2 introduces the `WB / HS / PD / IC / WS / CN` finding-prefix family on the six `review-workflow-*` agents
 
-- **Alternatives considered**: keep the agent's existing severity-labeled output (`Critical / Recommended / Minor`) without per-finding numeric IDs; introduce the IDs without the severity labels.
-- **Rationale**: the workflow's other dim-review agents emit prefixed IDs (`CR<N>`, `S<N>`, `CQ<N>`, ...) so reviewers cite a specific finding in PR threads and follow-up commits (`Review fix: WB3 — ...`). The reindex script can surface dozens of low-severity items on a workflow-machinery diff; per-finding IDs let the author address them individually without re-quoting the body. The prefix lives alongside (not instead of) the severity labels — each finding stays under `Critical | Recommended | Minor` and additionally carries a `WB<N>` numeric ID.
-- **Risks/Caveats**: minor agent-prompt churn; PR threads citing the old severity-only format are not affected.
+- **Alternatives considered**: keep the agents' existing severity-labeled output (`Critical / Recommended / Minor`) without per-finding numeric IDs; scope the prefix to `review-workflow-context-budget` only and accept format asymmetry across the six dim-review agents.
+- **Rationale**: the plan/track review prefix family (`CR<N>`, `S<N>`, `T<N>`, `R<N>`, `A<N>`) per `review-iteration.md` already lets reviewers cite findings by ID in PR threads and follow-up commits (`Review fix: WB3 — ...`). The six `review-workflow-*` agents (`context-budget`, `hook-safety`, `prompt-design`, `instruction-completeness`, `writing-style`, `consistency`) currently emit free-prose bullets under `Critical / Recommended / Minor` headings — no per-finding ID. Extending the prefix uniformly to all six (`WB / HS / PD / IC / WS / CN`) eliminates the asymmetry and matches the family already established outside the workflow-machinery dispatch. The prefix lives alongside (not instead of) the severity labels — each finding stays under `Critical | Recommended | Minor` and additionally carries the numeric ID.
+- **Risks/Caveats**: scope-up vs the original context-budget-only proposal — five additional agent-prompt edits in Track 2 Step 5, all template-bound. PR threads citing the old severity-only format are not affected.
 - **Implemented in**: Track 2
 - **Full design**: design.md §"CI gate semantics" → §"Agent-side absorption"
+
+#### D12: Reindex script self-bootstraps enum tokens via staged-aware probe of `conventions.md §1.8`
+
+- **Alternatives considered**: hard-coded enum literals in the script with a `--check-enum-sync` validation against `conventions.md §1.8` (simpler bootstrap, but enum changes need edits at two sites); deferring rule 5's enum-token check until Phase 4 promote (leaves a CI-gate hole on this branch and every other workflow-modifying branch until promote).
+- **Rationale**: the `§1.7(d)` reads-precedence rule is already the established pattern for resolving `.claude/workflow/**` paths on a workflow-modifying branch — the staged copy is authoritative when present, the live path is the fallback. Extending the same precedence to `workflow-reindex.py` (CI + pre-commit consumers, outside the original "implementer's per-spawn read site only" carve-out) keeps one consistent reads-precedence pattern across the convention, makes the script work correctly on this branch before Phase 4 promote, and avoids hard-coding enum values in two places. T3's hook-regex widening already requires the script to know about staged paths, so the bootstrap probe shares discovery infrastructure.
+- **Risks/Caveats**: a probe finding two staged conventions.md candidates (multiple `docs/adr/*/_workflow/staged-workflow/.claude/workflow/conventions.md` matches across multiple workflow-modifying plans in the same worktree) is ambiguous; the script halts with exit 2 rather than picking one. The one-plan-per-branch project convention bounds this to a single match in practice.
+- **Implemented in**: Track 2 (Step 1 — bootstrap probe in discovery code; Step 2 — rule 5 reads bootstrap output for enum-token validation)
+- **Full design**: design.md §"Reindex script" → §"Discovery mechanism" (consumes the same staged-aware path the bootstrap probe enumerates), conventions.md §1.7(d) (the reads-precedence rule whose scope this DR extends)
 
 ### Invariants
 

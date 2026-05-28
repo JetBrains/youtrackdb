@@ -10,10 +10,12 @@ After this track lands, `workflow-reindex.py` mechanically validates schema comp
 Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `--write` modes; stdlib only). Wire a pre-commit hook and a GitHub Actions step. Update `.claude/agents/review-workflow-context-budget.md` to absorb the audit. Tests under `.claude/scripts/tests/`.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-05-28T13:58Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -29,6 +31,9 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 2 (7 findings, 7 accepted: T1, T2 blockers — D12 added for staged-aware §1.8 probe, hook restructure named in Step 4; T3, T4, T5 should-fix — staged-path regex widening, summary ≤120 char sub-rule 5c, `--write` mixed-content halt test; T6, T7 suggestions — prefix placement template pinned, dedicated CI workflow committed).
+- [x] Adversarial: PASS at iteration 2 (7 findings, 7 accepted: A1 should-fix — D11 scope expanded to all six `review-workflow-*` agents per user decision; A2, A3, A4 should-fix — §1.8(e) gained inline-backtick exclusion clause + `any`-wildcard semantics paragraph, pre-commit vs CI scope gap documented via contrasting hook/CI bullets; A5, A6, A7 suggestions — fence-parser precedent cited, out-of-scope `--files` silent-skip sub-rule + test, Step 2/3 split rationale recorded under Plan of Work).
 
 ## Context and Orientation
 
@@ -53,9 +58,14 @@ The `review-workflow-context-budget` agent at `.claude/agents/review-workflow-co
 
 - `.claude/scripts/workflow-reindex.py` — new file, live path (scripts are not staged per §1.7).
 - `.claude/scripts/tests/test_workflow_reindex.py` — new test file, live path.
-- `.githooks/pre-commit` — extended (existing Spotless block preserved, workflow-reindex check appended), live path.
-- `.github/workflows/<existing or new>.yml` — CI step added, live path.
-- `.claude/agents/review-workflow-context-budget.md` — updated, live path (agents are not staged per §1.7).
+- `.githooks/pre-commit` — restructured (Java-only gate factored into a function; workflow-reindex block runs unconditionally other than the JetBrains-remote gate), live path.
+- `.github/workflows/workflow-toc-check.yml` — new dedicated CI workflow (path-filtered), live path.
+- `.claude/agents/review-workflow-context-budget.md` — updated (script invocation + `WB<N>` prefix), live path (agents are not staged per §1.7).
+- `.claude/agents/review-workflow-hook-safety.md` — updated (`HS<N>` prefix), live path.
+- `.claude/agents/review-workflow-prompt-design.md` — updated (`PD<N>` prefix), live path.
+- `.claude/agents/review-workflow-instruction-completeness.md` — updated (`IC<N>` prefix), live path.
+- `.claude/agents/review-workflow-writing-style.md` — updated (`WS<N>` prefix), live path.
+- `.claude/agents/review-workflow-consistency.md` — updated (`CN<N>` prefix), live path.
 
 ### Files out of scope
 
@@ -65,23 +75,48 @@ The `review-workflow-context-budget` agent at `.claude/agents/review-workflow-co
 
 ## Plan of Work
 
-The track lands in five steps:
+The track lands in five steps. The Step 2 / Step 3 split is intentional (A7): the shared parsing + fence/backtick state machine lives in Step 1 as a module-level resolver; Step 2 introduces the validate-only `--check` surface (independently testable on exit codes); Step 3 introduces the mutate `--write` surface (halt-on-unresolved atomicity). Merging would mix validate-only and mutate-on-write semantics in one commit; the split keeps each step's failure surface clean.
 
-1. **Script core: parsing and discovery.** Implement file enumeration (fixed globs), heading + annotation parsing (regex on `^##`, `^###`, and the line after), TOC region detection (between the delimiter comments). No validation yet; just structured representation of every in-scope file's annotations and TOC.
-2. **Validation rules and `--check` mode.** Implement every check from `design.md §"Reindex script" > Validation rules`: stamp present, TOC present, TOC matches annotations (every `^##` and `^###` heading has a TOC row; bootstrap-block heading exempt), annotation present after every `##` and `###` heading (same bootstrap exemption), field well-formedness, enum-token validation (script reads enums from `conventions.md §1.8`), cross-file reference suffix on SKILL.md startup read-lists and agent file refs (hand-written; presence + subset against target annotation per D10 — sub-section refs resolve to that section's annotation, file-level refs resolve to the union of all section annotations), bootstrap-block presence on the 38 in-scope system prompts, in-file `§X.Y(z)` reference suffix validation (auto-stamped; check for unstamped, drifted, and unresolved refs). Exit codes per design.
-3. **`--write` mode.** TOC region rebuild from current annotations. Auto-stamp every in-file `§X.Y(z)` reference with the `:roles:phases` suffix derived from the target heading's annotation. Idempotent (running `--write` twice produces no diff after the first run). Does not modify per-section annotations or cross-file `name.md:roles:phases` suffixes. Skips refs inside fenced code blocks. Halts on unresolved in-file refs rather than auto-stamping the wrong heading.
-4. **Pre-commit hook + CI wiring.** Pre-commit hook in `.githooks/pre-commit` (callable when user sets `core.hooksPath`). GitHub Actions step calling `python3 .claude/scripts/workflow-reindex.py --check`. Both surface findings with file:line:category format.
-5. **Audit agent updates + tests.** Update `.claude/agents/review-workflow-context-budget.md` to invoke the reindex script during workflow-machinery review. Write tests under `.claude/scripts/tests/test_workflow_reindex.py` covering: valid file passes, missing TOC fails, out-of-enum token fails, cross-file ref without suffix fails, cross-file ref with role not in target's annotation fails (subset violation), cross-file ref with phase not in target's annotation fails (subset violation), cross-file file-level ref subset-validates against union of all section annotations, cross-file sub-section ref subset-validates against the specific section's annotation, in-file ref unstamped fails, in-file ref stale-suffix fails (target annotation changed), in-file ref unresolved fails (typo), bootstrap-heading exemption from density rules, `--write` idempotence, `--write` auto-stamps in-file refs from target annotations, `--write` does NOT touch cross-file refs even on subset violation.
+1. **Script core: parsing, discovery, fence + inline-backtick state machine, staged-aware §1.8 probe.** Implement file enumeration (fixed globs per design.md §"Reindex script" → §"Discovery mechanism"), heading + annotation parsing (regex on `^##`, `^###`, and the line after), TOC region detection (between delimiter comments), and the CommonMark fence + inline-backtick state machine that rules 6, 8, and `--write` all consume (per `design-mechanical-checks.py:209-263` precedent — fenced + same-char-and-length close match; inline-backtick exclusion is the Track-2 addition per A2 to cover pedagogical refs inside backtick spans). Self-bootstrap path per D12: probe `docs/adr/*/_workflow/staged-workflow/.claude/workflow/conventions.md` (single-match enforced; multiple matches halt with exit 2); read §1.8 from the matched staged copy, fall back to live `.claude/workflow/conventions.md` when no staged copy is present. No validation yet; just structured representation of every in-scope file's annotations and TOC plus the bootstrap output (15 role tokens, 8 phase tokens) the next step consumes.
 
-The script self-bootstraps from `conventions.md §1.8` for enum values. This means Track 2 cannot complete its first run until Track 1 lands; the script's tests use a fixture conventions.md with the enums to be hermetic.
+2. **Validation rules 1-8 and `--check` mode.** Implement every check from `design.md §"Reindex script" > Validation rules`:
+   - Rule 1: stamp present on line 1.
+   - Rule 2: exactly one TOC region under H1 (accepts empty TOC for files with no `^## ` headings).
+   - Rule 3: TOC matches annotations (every `^## ` and `^### ` heading has a TOC row; bootstrap-block heading exempt by literal-text match).
+   - Rule 4: annotation present after every `^## ` and `^### ` heading (same bootstrap exemption).
+   - Rule 5 (field well-formedness — sub-rules enumerated explicitly per T4, A3):
+     - 5a: `roles=` field present, non-empty, comma-separated, no spaces around commas;
+     - 5b: `phases=` same shape;
+     - 5c: `summary="..."` double-quoted, **≤120 chars (closes Track 1 WI7)**; embedded quotes escaped per §1.8(c);
+     - 5d: all tokens drawn from the bootstrap output (15 roles + 8 phases including `any`);
+     - 5e: malformed annotation comment (missing closing `-->`, multi-line) fails.
+   - Rule 6: cross-file ref suffix presence + subset validation per D10 and §1.8(e) `any`-wildcard semantics — `target.roles={any}` matches any citer role; `citer.roles={any}` requires `target.roles={any}`; sub-section refs resolve to that section's annotation directly; file-level refs resolve to the union of every section's annotations in the target file. Refs inside fenced code blocks **and inside inline backtick spans** are excluded (per §1.8(e) Cross-file drift detection paragraph).
+   - Rule 7: bootstrap-block presence on the 38 in-scope system prompts (literal heading `## Reading workflow files (TOC protocol)`).
+   - Rule 8: in-file `§X.Y(z)` ref auto-stamp suffix matches the target heading's current annotation; unstamped, stale, and unresolved refs all fail (same `--write` recovery for the first two; hand-edit for the third). Refs inside fenced code blocks and inline backtick spans excluded.
+   - **Discovery-glob filter for `--files` input** (closes A6): the hook may pass a non-workflow-referencing SKILL.md path (e.g., `.claude/skills/run-jmh-benchmarks-hetzner/SKILL.md`) because the hook's regex is broader than the in-scope glob. Such out-of-scope files are silently skipped; the script exits 0 on a fully-skipped `--files` set.
+   - Exit codes: `0` (clean), `1` (findings), `2` (script error or ambiguous bootstrap probe). Output format `path:line:category: explanation` per design.
+
+3. **`--write` mode.** TOC region rebuild from current annotations. Auto-stamp every in-file `§X.Y(z)` reference with the `:roles:phases` suffix derived from the target heading's annotation. **Halt-on-unresolved contract** (closes T5): if any in-file ref does not resolve to a heading in the same file, halt with exit 2 and no writes — even when other refs in the same file are auto-fixable. The author hand-edits the citing prose to point at a real heading, then re-runs `--write`. Skips refs inside fenced code blocks **and inline backtick spans**. Idempotent: running `--write` twice produces no diff after the first run. Does NOT modify per-section annotations or cross-file `name.md:roles:phases` suffixes (those remain hand-written per D9).
+
+4. **Pre-commit hook restructure + dedicated GitHub Actions workflow.**
+   - **Hook restructure** (closes T2): `.githooks/pre-commit` currently early-exits on "no Java files staged" (line 17-19). The naive append-after-Spotless approach inherits this exit and silently skips workflow-only commits. Lift the Java-only gate into a function called only when `STAGED_JAVA_FILES` is non-empty, then run the workflow-reindex block unconditionally (other than the JetBrains-remote gate at line 11-13).
+   - **Hook regex widening** (closes T3): widen the workflow-files filter to match both live paths (`^\.claude/(workflow|skills)/.*\.md$|^\.claude/agents/.*\.md$`) and staged paths (`^docs/adr/.*/_workflow/staged-workflow/\.claude/(workflow|skills|agents)/.*\.md$`). Use `--diff-filter=ACMR` to exclude deletions.
+   - **New dedicated CI workflow** (closes T7): `.github/workflows/workflow-toc-check.yml` with `on: pull_request: paths: ['.claude/**/*.md', '.githooks/pre-commit', '.github/workflows/workflow-toc-check.yml', 'docs/adr/**/_workflow/staged-workflow/.claude/**/*.md']`. Single step: `python3 .claude/scripts/workflow-reindex.py --check`. Path filter keeps the workflow's runtime under ~10 seconds per PR that actually touches workflow content; doesn't block on Maven.
+
+5. **Audit-agent prefix family + comprehensive test matrix.**
+   - **Six dim-review agents gain the prefix family** per D11 expanded scope: `WB` (`review-workflow-context-budget`), `HS` (`review-workflow-hook-safety`), `PD` (`review-workflow-prompt-design`), `IC` (`review-workflow-instruction-completeness`), `WS` (`review-workflow-writing-style`), `CN` (`review-workflow-consistency`). Placement per T6: `**<PFX><N>** — File: ..., Axis: ..., Cost: ..., Issue: ..., Suggestion: ...` under the existing `#### Critical / #### Recommended / #### Minor` H4s; numeric IDs sequence across severities (not restarted per severity), matching the plan/track prefix family in `review-iteration.md`.
+   - **Context-budget agent additionally invokes the reindex script** during workflow-machinery review and surfaces script findings as `WB<N>` items under the appropriate severity heading.
+   - **Tests under `.claude/scripts/tests/test_workflow_reindex.py`** cover the validation matrix: valid file passes; missing TOC fails (rule 2); out-of-enum token fails (rule 5d); summary >120 chars fails (rule 5c, closes T4); annotation with spaces around commas fails (rule 5a/5b); cross-file ref without suffix fails (rule 6); cross-file subset violations (rule 6) — role-not-in-target, phase-not-in-target, `any`-wildcard cases per A3 (target-any + specific citer passes; citer-any + specific target fails; both-any passes); cross-file file-level ref subset-validates against the union; cross-file sub-section ref subset-validates against that section; in-file ref unstamped fails (rule 8); in-file ref stale-suffix fails (rule 8); in-file ref unresolved fails (rule 8); inline-backtick ref is NOT validated AND NOT auto-stamped (A2); bootstrap-heading exemption from rules 3 and 4; `--write` idempotence; `--write` auto-stamps in-file refs from target annotations; `--write` halts with exit 2 on mixed-content (stale + unresolved refs in same file) and writes nothing (closes T5); `--write` does NOT touch cross-file refs even on subset violation; out-of-scope SKILL.md path passed via `--files` is silently skipped (closes A6); staged-aware §1.8 probe finds the staged copy when present and falls back to live when absent (D12).
+
+The script self-bootstraps from `conventions.md §1.8` for enum values via the D12 staged-aware probe. Tests use a fixture `conventions.md` with the enums to stay hermetic; the staged-aware probe code path is exercised by a separate fixture pair (live-only copy; staged + live copies; multiple staged copies → exit 2).
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+
+1. Author `workflow-reindex.py` script core — file discovery (fixed in-scope globs per design.md §"Reindex script" → §"Discovery mechanism"); heading + annotation parsing (regex on `^##`, `^###`, line-after); TOC region detection (delimiter comments); CommonMark fence + inline-backtick state machine (per `design-mechanical-checks.py:209-263` precedent; inline-backtick is the Track 2 addition per A2); staged-aware §1.8 probe per D12 (single-match enforced; multiple matches halt with exit 2; fall back to live `.claude/workflow/conventions.md`); structured representation of every in-scope file's annotations and TOC; bootstrap output exposed to downstream rules — risk: medium (multi-file logic; new module introduces the resolver every downstream step consumes; staged-aware probe extends §1.7(d) reads-precedence scope per D12)  [ ]
+2. Implement validation rules 1-8 and `--check` mode — rule 1 (stamp present); rule 2 (TOC present, empty-TOC accepted for files without `^## ` headings); rule 3 (TOC matches annotations, bootstrap-block exemption); rule 4 (annotation present at every `^## ` / `^### `, bootstrap-block exemption); rule 5 sub-checks 5a-5e (closes T4 / WI7 summary cap ≤120 chars); rule 6 cross-file subset with `any`-wildcard semantics per §1.8(e) A3 + fenced/inline-backtick exclusion per A2; rule 7 bootstrap-block presence; rule 8 in-file ref auto-stamp suffix (unstamped/stale/unresolved); `--files` filter silently skips out-of-scope paths per A6; exit codes 0/1/2 — risk: medium (multi-file logic; rule 5, 6, 8 carry the most novel logic — `any` semantics, subset validation, in-file ref auto-stamp; CI surface so bugs ship broken gate)  [ ]
+3. Implement `--write` mode — TOC region rebuild from current annotations; in-file `§X.Y(z)` auto-stamp from target heading's annotation; halt-on-unresolved contract per T5 (exit 2, no writes, even when other refs in same file are auto-fixable); fenced + inline-backtick exclusion per A2; idempotent (running `--write` twice produces no diff); does NOT modify per-section annotations or cross-file `name.md:roles:phases` suffixes (those remain hand-written per D9) — risk: medium (multi-file mutation; halt-on-unresolved is correctness-sensitive; idempotence is testable)  [ ]
+4. Restructure `.githooks/pre-commit` (T2 — Java-only gate factored into function called only when `STAGED_JAVA_FILES` non-empty, workflow-reindex block runs unconditionally other than JetBrains-remote gate; T3 — widened filter regex covering both live `.claude/(workflow|skills|agents)/**/*.md` and staged `docs/adr/*/_workflow/staged-workflow/.claude/(workflow|skills|agents)/**/*.md`; `--diff-filter=ACMR` excludes deletions) + new `.github/workflows/workflow-toc-check.yml` (T7 — dedicated workflow with path filter covering `.claude/**/*.md`, `.githooks/pre-commit`, the workflow file itself, and `docs/adr/**/_workflow/staged-workflow/.claude/**/*.md`; single step `python3 .claude/scripts/workflow-reindex.py --check`) — risk: medium (build-config change; new CI workflow + hook restructure; broken hook fails every commit on the branch, but the change is mechanical and contained)  [ ]
+5. Expand audit-agent prefix family to all six `review-workflow-*` agents (A1 — `WB / HS / PD / IC / WS / CN` family, placement per T6 — `**<PFX><N>** — File: ..., Axis: ..., Cost: ..., Issue: ..., Suggestion: ...` under existing `#### Critical / #### Recommended / #### Minor` H4s, sequencing across severities); `review-workflow-context-budget.md` additionally invokes the reindex script during workflow-machinery review and surfaces script findings as `WB<N>` items; tests under `.claude/scripts/tests/test_workflow_reindex.py` cover the full validation matrix from Step 5 of Plan of Work (closes T5 mixed-content halt, T4 summary cap, A2 inline-backtick exclusion, A3 `any`-wildcard cases, A6 out-of-scope `--files` skip, D12 staged-aware probe fixtures) — risk: medium (test infrastructure; multi-file edits across six agent prompts, template-bound)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -92,13 +127,17 @@ Phase 1; Phase A does not populate. -->
 
 After this track lands:
 
-- `python3 .claude/scripts/workflow-reindex.py --check` runs against the schema-only state (Track 1 landed, Track 4 not yet) and exits 0 or 1 deterministically. Exit 1 surfaces specific files-lines-categories.
-- Cross-file ref subset violations (citer's roles/phases not in target's current annotation per D10) surface as `cross-file-ref:` category findings with both sides named in the error message; the author hand-edits either the citer or the target to resolve.
-- `python3 .claude/scripts/workflow-reindex.py --write` rebuilds TOCs idempotently.
-- Pre-commit hook fires on staged workflow files and blocks commits with findings.
-- GitHub Actions step fires on PRs touching in-scope files and fails the PR with the same findings.
-- `.claude/agents/review-workflow-context-budget.md` carries instructions to invoke the script during workflow-machinery review; the agent emits a per-finding `WB<N>` numeric prefix on script-surfaced items, introduced by this track (D11) under the existing `Critical / Recommended / Minor` severity labels.
-- Tests under `.claude/scripts/tests/test_workflow_reindex.py` cover the validation matrix and pass cleanly.
+- `python3 .claude/scripts/workflow-reindex.py --check` runs against the schema-only state (Track 1 landed, Track 4 not yet) and exits 0, 1, or 2 deterministically. Exit 1 surfaces specific files-lines-categories; exit 2 covers script error or ambiguous bootstrap probe.
+- The script self-bootstraps from `conventions.md §1.8` via the D12 staged-aware probe: it reads §1.8 from `docs/adr/*/_workflow/staged-workflow/.claude/workflow/conventions.md` when present (single match enforced; multiple matches halt with exit 2), and falls back to live `.claude/workflow/conventions.md` otherwise.
+- Rule 5 sub-checks all fire: summary >120 chars fails (5c, closes Track 1 WI7); spaces around commas in `roles=` / `phases=` fail (5a/5b); out-of-enum tokens fail (5d); malformed annotation comment fails (5e).
+- Rule 6 cross-file subset violations surface with both sides named; `any`-wildcard semantics per §1.8(e) — `target.roles={any}` matches any citer role, `citer.roles={any}` requires `target.roles={any}`. Refs inside fenced code blocks AND inline backtick spans are excluded.
+- Rule 8 in-file ref validation catches unstamped, stale-suffix, and unresolved refs. Inline-backtick refs are excluded.
+- `python3 .claude/scripts/workflow-reindex.py --write` rebuilds TOCs idempotently and auto-stamps in-file refs. Halts with exit 2 on the first unresolved ref in a file and writes nothing (atomicity contract — even when other refs in the same file are auto-fixable). Skips refs inside fenced code blocks and inline backtick spans. Does NOT touch cross-file `name.md:roles:phases` suffixes.
+- Out-of-scope SKILL.md paths passed via `--files` (e.g., a non-workflow-referencing skill that the hook's broader regex pulled in) are silently skipped; the script exits 0 on a fully-skipped `--files` set.
+- Pre-commit hook (`.githooks/pre-commit`) is restructured so the workflow-reindex block runs even on commits that touch no Java files (the existing Java-only gate is factored into a function). The hook's filter matches both live `.claude/{workflow,skills,agents}/**/*.md` paths and staged `docs/adr/*/_workflow/staged-workflow/.claude/**/*.md` paths.
+- New `.github/workflows/workflow-toc-check.yml` fires on PRs touching workflow content (live or staged paths) and fails the PR with the same findings.
+- All six `review-workflow-*` agents (`context-budget`, `hook-safety`, `prompt-design`, `instruction-completeness`, `writing-style`, `consistency`) emit per-finding numeric prefixes from the family `WB / HS / PD / IC / WS / CN` under the existing `Critical / Recommended / Minor` severity headings (D11 expanded scope per A1). Context-budget additionally invokes the script and surfaces script findings as `WB<N>` items.
+- Tests under `.claude/scripts/tests/test_workflow_reindex.py` cover the validation matrix described in Step 5 of Plan of Work and pass cleanly. The staged-aware §1.8 probe is exercised by three fixture configurations: live-only, staged + live (staged wins per D12), multiple staged matches (exit 2).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -106,8 +145,14 @@ After this track lands:
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+- **Step 1** (script core + staged-aware probe): the new file `.claude/scripts/workflow-reindex.py` and the test-fixture skeleton under `.claude/scripts/tests/` are atomic file writes. Re-running against an already-applied state produces no diff. Recovery from any failure reverts via the implementer's standard `git reset --hard HEAD`.
+- **Step 2** (validation rules + `--check`): extends Step 1's file in place. Re-running produces no diff. The `--check` exit-code contract (0 / 1 / 2) is the only externally observable behavior and is testable on fixtures without filesystem side effects. Recovery reverts via `git reset --hard HEAD`.
+- **Step 3** (`--write`): extends the same script file in place plus adds `--write` test fixtures. Critical idempotence claim — running `python3 .claude/scripts/workflow-reindex.py --write` twice produces no diff after the first run. The halt-on-unresolved contract leaves the working tree unchanged on the failure path (atomic). Recovery reverts via `git reset --hard HEAD`.
+- **Step 4** (hook restructure + new CI workflow): edits `.githooks/pre-commit` in place plus adds `.github/workflows/workflow-toc-check.yml`. The hook restructure is mechanical (move existing logic into a function, prepend the new gate). Re-running the edit against an already-applied state produces no diff. Recovery reverts via `git reset --hard HEAD`; if the new hook causes commit failures on subsequent steps, the revert restores the original Spotless-only hook. The new CI workflow only fires on PRs; its addition does not affect any in-flight commit.
+- **Step 5** (six agent prefix family + tests): edits six `.claude/agents/review-workflow-*.md` files in place plus extends the existing `test_workflow_reindex.py` from Step 1 with the full validation matrix. The six agent edits are template-bound (prepend `**<PFX><N>** — ` to the existing per-finding bullet shape in each Output Format section); re-running produces no diff. The test file is additive. Recovery reverts via `git reset --hard HEAD`.
+
+Track-level recovery: each step's commit is independently revertable. A failure at Step N can be addressed by `git revert <step-N-SHA>` while preserving Steps 1..N-1. The staged conventions.md §1.8(e) clarifications committed by Phase A are independent of the script implementation and survive any Step revert; they would only need rollback if the design itself is reopened (ESCALATE territory).
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
@@ -120,9 +165,14 @@ belong to one specific step. Per-step episode content lives in
 
 - `.claude/scripts/workflow-reindex.py` (new)
 - `.claude/scripts/tests/test_workflow_reindex.py` (new)
-- `.githooks/pre-commit` (extended)
-- `.github/workflows/<existing or new>.yml` (modified)
-- `.claude/agents/review-workflow-context-budget.md` (modified)
+- `.githooks/pre-commit` (restructured: Java-only gate factored, workflow-reindex block appended)
+- `.github/workflows/workflow-toc-check.yml` (new dedicated CI workflow)
+- `.claude/agents/review-workflow-context-budget.md` (modified — script invocation + `WB<N>` prefix)
+- `.claude/agents/review-workflow-hook-safety.md` (modified — `HS<N>` prefix)
+- `.claude/agents/review-workflow-prompt-design.md` (modified — `PD<N>` prefix)
+- `.claude/agents/review-workflow-instruction-completeness.md` (modified — `IC<N>` prefix)
+- `.claude/agents/review-workflow-writing-style.md` (modified — `WS<N>` prefix)
+- `.claude/agents/review-workflow-consistency.md` (modified — `CN<N>` prefix)
 
 ### Out-of-scope
 
@@ -138,5 +188,6 @@ belong to one specific step. Per-step episode content lives in
 
 ### Library/function signatures touched
 
-- `workflow-reindex.py` exports CLI: `--check` (exit 0/1/2), `--write` (in-place TOC rebuild), `--files <space-separated>` (scope to listed files; used by pre-commit hook). No public Python API; all interaction is CLI.
-- `review-workflow-context-budget.md` agent system prompt: section added/extended that invokes the script. The agent's output gains a per-finding `WB<N>` prefix introduced by this track (D11), emitted alongside the existing `Critical / Recommended / Minor` severity labels.
+- `workflow-reindex.py` exports CLI: `--check` (exit 0/1/2), `--write` (in-place TOC rebuild + in-file ref auto-stamp), `--files <space-separated>` (scope to listed files; used by pre-commit hook; out-of-scope paths silently skipped). No public Python API; all interaction is CLI.
+- `review-workflow-context-budget.md` agent system prompt: section added that invokes the script and folds script findings into the existing severity buckets. The agent's output gains a per-finding `WB<N>` prefix.
+- The other five `review-workflow-*` agents (`hook-safety`, `prompt-design`, `instruction-completeness`, `writing-style`, `consistency`) each gain a parallel per-finding numeric prefix from the family `HS / PD / IC / WS / CN` per D11 expanded scope. Output Format edits are template-bound (placement under existing `Critical / Recommended / Minor` headings); finding content semantics unchanged.
