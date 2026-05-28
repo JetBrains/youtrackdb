@@ -13,7 +13,7 @@ Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `-
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-05-28T13:58Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-28T14:16Z [ctx=info] Step 1 complete (commit f676e9172b)
@@ -23,6 +23,7 @@ Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `-
 - [x] 2026-05-28T15:08Z [ctx=info] Step 5 complete (commit 1865bcf7cc)
 - [x] 2026-05-28T15:36Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations, commit fc2d829421)
 - [x] 2026-05-28T15:40Z [ctx=warning] Track-level code review complete (iteration 1 PASS on all dimensions; no carry-forward)
+- [x] 2026-05-28T15:48Z [ctx=warning] Track complete (Completion gate: user-initiated Review-mode round applied Review fix `a77c27a7ea` — draft-PR skip on `workflow-toc-check.yml` — then Approved)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -51,6 +52,7 @@ summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 2 (7 findings, 7 accepted: T1, T2 blockers — D12 added for staged-aware §1.8 probe, hook restructure named in Step 4; T3, T4, T5 should-fix — staged-path regex widening, summary ≤120 char sub-rule 5c, `--write` mixed-content halt test; T6, T7 suggestions — prefix placement template pinned, dedicated CI workflow committed).
 - [x] Adversarial: PASS at iteration 2 (7 findings, 7 accepted: A1 should-fix — D11 scope expanded to all six `review-workflow-*` agents per user decision; A2, A3, A4 should-fix — §1.8(e) gained inline-backtick exclusion clause + `any`-wildcard semantics paragraph, pre-commit vs CI scope gap documented via contrasting hook/CI bullets; A5, A6, A7 suggestions — fence-parser precedent cited, out-of-scope `--files` silent-skip sub-rule + test, Step 2/3 split rationale recorded under Plan of Work).
+- [x] Track completion: Approved at the Completion gate after one user-initiated Review-mode round that surfaced a single FIX_FINDING — `workflow-toc-check.yml` should skip draft PRs to silence the gate during the Tracks 2-5 schema-only-state window. Applied as `Review fix: a77c27a7ea` (added `ready_for_review` to the `pull_request` activity-types filter; gated the job with `if: github.event.pull_request.draft == false`; preserved the existing expected-red-window comment block, paths filter, workflow_dispatch trigger, read-only permissions, and 5-minute timeout). No gate-check re-run was required — 2-line YAML change with no regression surface.
 - [x] Track-level code review: PASS at iteration 1 across 5 dimensions (consistency, prompt-design, instruction-completeness, hook-safety, writing-style). 21 raw findings synthesised to 14 in-scope + 7 deferred. All 14 closed in `Review fix: fc2d829421` (source files: 4-prefix rename CN→WC, HS→WH, PD→WP, IC→WI per Path A user decision; context-budget agent gained explicit `--check` precondition, ≤25-vs-full-repo decision rule with ARG_MAX fallback, diff-filter step, two-sub-case exit-2 handling, `--files` build regex; pre-commit gained `set -euo pipefail` + grep-rc discriminator + here-string idiom alignment; CI workflow gained expected-red-window comment; all six agents gained within-bucket ordering rule) plus orchestrator-owned Workflow update `84db362edc` (D11 title + Rationale rewritten to the canonical family, track-2.md Step 4 episode em-dash trim). Context-budget dimension skipped at gate check since WB1 was a deferred suggestion. Deferred items: CN6 + CN7 (design.md drift, frozen until Phase 4), WB1 (re-assess after Track 4 lands once steady-state finding count is known), CN8 (informational, resolved by the rename).
 
 ## Context and Orientation
