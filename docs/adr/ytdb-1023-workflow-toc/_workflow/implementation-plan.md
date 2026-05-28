@@ -18,7 +18,7 @@
 - House style applies to every Markdown file authored or modified during the rollout (see conventions.md §1.5).
 - Per-section annotations are author-written, not LLM-inferred — LLM-inferred metadata drifts silently. The reindex script is mechanical: scrape, validate, rebuild the TOC. No model in the loop.
 - Periodic background runs of the reindex script are explicitly avoided. Checks fire at commit time (pre-commit hook) and CI only.
-- All annotation tokens must be drawn from the locked role enum (15 values) and phase enum (10 values, two reserved for YTDB-975). The CI gate fails on out-of-enum tokens.
+- All annotation tokens must be drawn from the locked role enum (15 values) and phase enum (8 values). The CI gate fails on out-of-enum tokens.
 - The telemetry script publishes percentages only — never absolute token counts. Runs only from a worktree (skipped when invoked from the main checkout). Scope is the worktree's transcript folder over its lifetime.
 - This is the first workflow-modifying branch to exercise the §1.7 staging path end-to-end (per conventions.md §1.7(h)). Writes to `.claude/workflow/**` and `.claude/skills/**` route through `_workflow/staged-workflow/`; writes to `.claude/scripts/**`, `.claude/agents/**`, and `.github/workflows/**` go to live paths. `CLAUDE.md` is intentionally out of scope for this plan (general-purpose project guide, not workflow-specific).
 
@@ -65,7 +65,7 @@ flowchart TD
     Annotated --> Tail
 ```
 
-- **Schema layer (Track 1)** — `conventions.md §1.8` is the foundation. Locks the role enum (15 values), phase enum (10 values), per-section annotation idiom, TOC region format, and cross-reference convention. Every other component reads from it.
+- **Schema layer (Track 1)** — `conventions.md §1.8` is the foundation. Locks the role enum (15 values), phase enum (8 values), per-section annotation idiom, TOC region format, and cross-reference convention. Every other component reads from it.
 - **Reindex script + audit agent (Track 2)** — `workflow-reindex.py` is the mechanical Python script that scrapes annotations, rebuilds TOCs, and validates enum tokens. Modes: `--check` (CI / pre-commit) and `--write` (author rebuild). The `review-workflow-context-budget` agent absorbs the audit at PR review time.
 - **Telemetry script (Track 3)** — `measure-read-share.py` runs once per Phase 4 ADR creation, from the worktree only. Computes a percentages-only Read% snapshot over the worktree's transcript lifetime; embeds the output in `adr.md`. Updates `prompts/create-final-design.md` to invoke it.
 - **Annotated content (Track 4)** — single-commit-style universal rollout of TOC + per-section annotations across 49 files. ~600 annotations, all author-written.
@@ -86,6 +86,8 @@ flowchart TD
 - **Risks/Caveats**: long sections push the annotation off-screen, but the in-file TOC mirrors the comment so the cost is recoverable from the top of the file.
 - **Implemented in**: Track 1 (schema), Track 4 (rollout)
 - **Full design**: design.md §"Annotation idiom and TOC region"
+
+*D3 was dropped during Phase 1 design refinement. See `design-mutations.md` Mutation 2.*
 
 #### D4: Telemetry script runs from worktree only; skips when run from main
 
@@ -183,7 +185,7 @@ flowchart TD
   > **Scope:** ~3 steps covering the §1.8 authoring (enums + idiom + TOC + cross-ref), the §1.1 glossary cross-link, and a worked-example block (one annotated section + one TOC region).
 
 - [ ] Track 2: Reindex script + CI gate + audit agent updates
-  > Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `--write` modes; stdlib only). Wire a pre-commit hook and a GitHub Actions step. Update `.claude/agents/review-workflow-context-budget.md` to absorb the audit. Tests under `.claude/scripts/tests/`.
+  > Build `.claude/scripts/workflow-reindex.py` (mechanical Python, `--check` and `--write` modes, stdlib only) and wire it into a pre-commit hook plus a GitHub Actions step. Update `.claude/agents/review-workflow-context-budget.md` to absorb the audit at PR-review time. Tests live under `.claude/scripts/tests/`.
   > **Scope:** ~5 steps covering script core (scrape + validate + rebuild), modes and exit codes, hook + CI wiring, audit-agent updates, and tests.
   > **Depends on:** Track 1
 
@@ -192,17 +194,36 @@ flowchart TD
   > **Scope:** ~4 steps covering script core (jsonl walk + tool-result tally), worktree-vs-main detection, Phase 4 prompt update, and tests.
 
 - [ ] Track 4: Universal annotation rollout (49 files)
-  > Author per-section TOC + annotations for every in-scope file: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, and 7 workflow-referencing skill files. ~600 annotations, all author-written. Run `workflow-reindex.py --write` to scaffold TOC tables, then hand-correct per-section `roles=`, `phases=`, `summary=`. Land in a single logical batch so the schema becomes universally applicable on one commit (or a small adjacent group; squash-merge collapses anyway).
+  > Author per-section TOC + annotations for every in-scope file (49 total: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, 7 workflow-referencing skill files; ~600 annotations, all author-written). `workflow-reindex.py --write` scaffolds the TOC tables; the author hand-corrects per-section `roles=`, `phases=`, `summary=`. Lands as a single logical batch (or a small adjacent group; squash-merge collapses anyway) so the schema becomes universally applicable at one commit.
   > **Scope:** ~6 steps covering workflow root (split into two batches by file count), prompts, skills, validation pass, and a final reindex `--check` green run.
   > **Depends on:** Track 1, Track 2
 
 - [ ] Track 5: Bootstrap block + agent files refs sweep + migration verification
   > Insert the bootstrap protocol block (~30 lines, per design §"Bootstrap protocol for agent system prompts") at the top of 38 system prompts: 7 SKILL.md files, 11 `.claude/workflow/prompts/*.md`, and 20 `.claude/agents/*.md`. Apply the `name:roles:phases` cross-reference suffix to outgoing workflow-doc refs in the 20 agent files and to SKILL.md startup read-lists. Then verify `/migrate-workflow` replays cleanly onto at least two active branches per the acceptance criterion — expected to be a stamp-rewrite-only normalization since this plan doesn't change `_workflow/**` artifact shape.
   > **Scope:** ~6 steps covering bootstrap insertion (38 files, batched by category), agent files refs sweep, SKILL.md read-list suffix sweep, migration replay test on branch A, migration replay test on branch B, final validation.
-  > **Depends on:** Track 4
+  > **Depends on:** Track 1, Track 2, Track 4
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed: consistency at iteration 3, structural at iteration 2
+
+**Auto-fixed (mechanical)**:
+- CR3: file count corrected 30→31 (plan + design + track-4).
+- CR4: prompts count corrected 9→11, cascading to 46→49 totals.
+- CR5: `.githooks/pre-commit` framing "extend, not new" in track-2.md (partial — CR8 closed remaining sites).
+- CR6: D6 gained the `**Full design**` link.
+- CR8: pre-commit-hook framing rewrite completed across four remaining sites (design.md §"CI gate semantics" TL;DR + §"Pre-commit hook" subsection, implementation-plan.md Integration Points, track-2.md Interfaces in-scope set).
+- CR10: design.md §"Agent-side absorption" gained parenthetical naming D11 as WB-prefix introduction source; §"CI gate semantics" References footer gained the D11 cite.
+- S1: phase enum value count corrected 10→8 at `### Constraints` and Component Map Schema-layer bullet.
+- S2: Track 2 and Track 4 plan-file intro paragraphs compressed to ≤3 sentences.
+- S3: Track 5 `**Depends on:**` widened from Track 4 only to Track 1, Track 2, Track 4.
+
+**Escalated (design decisions)**:
+- CR1: telemetry invocation hook point — user picked Step 3 §"Artifact 2: ADR".
+- CR2: orphan TELE → CMD edge in design.md Mermaid — user picked drop entirely.
+- CR7: WB<N> per-finding prefix — user picked introduce; D11 added motivating the prefix.
+- CR9: D11 missing `**Full design**` link — user picked anchor at design.md §"CI gate semantics" → §"Agent-side absorption".
+- S4: D3 numbering gap — user picked add one-line breadcrumb between D2 and D4 pointing at `design-mutations.md` Mutation 2.
+- S5: Track 4 plan-file annotation for Track 3 execution-order coupling — user rejected (`**Depends on:**` carries structural deps only).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
