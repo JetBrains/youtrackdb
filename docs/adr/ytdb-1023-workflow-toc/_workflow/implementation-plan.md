@@ -180,9 +180,17 @@ flowchart TD
 
 ## Checklist
 
-- [ ] Track 1: Schema definition (`conventions.md §1.8`)
+- [x] Track 1: Schema definition (`conventions.md §1.8`)
   > Lock the role enum, phase enum, per-section annotation idiom, TOC region format, and cross-reference convention in a new `§1.8` of `conventions.md`. This section is the foundation every subsequent track reads from; it must land first.
-  > **Scope:** ~3 steps covering the §1.8 authoring (enums + idiom + TOC + cross-ref), the §1.1 glossary cross-link, and a worked-example block (one annotated section + one TOC region).
+  >
+  > **Track episode:**
+  > §1.8 lands the foundational schema in the staged `conventions.md`: 15-value role enum, 8-value phase enum, HTML-comment annotation idiom, TOC region format under H1, hand-written cross-file / auto-stamped in-file cross-reference convention, read-decision flow, worked example using a constructed `## 99.1 Demo section`, and References footer. §1.1 gained six glossary rows for the load-bearing terms (Bootstrap block carries dual-anchor phrasing for the design.md → design-final.md transition).
+  >
+  > Phase C dim-review spawned four reviewers (consistency / context budget / writing style / instruction completeness); 10 of 18 synthesised findings landed in `Review fix: bed762c965` and all gate-checks passed at iter-1. The fix-set covered the typo-recovery rule, out-of-enum recovery, bootstrap-exemption rephrase to pure literal-text match, TOC-region-absence rule for files without `## ` headings, the TOC Section cell format spec, fenced-code-block exclusion in cross-file drift detection, a cross-file-with-sub-section format example, an ownership-label fix in this track file, and a BLUF opener swap. Eight findings deferred for design discussion went un-applied at user approval.
+  >
+  > **Cross-track signals.** Track 2 reviewers: §1.8 now carries prose anchors for the three CI-blocker shapes the reindex script enforces — rule 2 (TOC absence accepted when file has no `## ` headings), rule 5 (out-of-enum tokens), rule 8 (unresolved or stale `§X.Y(z)` anchors). §1.8(e)'s fenced-code-block exclusion paragraph should match the script's validation traversal. Track 4 reviewers: §1.1 glossary's `Bootstrap block` row names placement as "between the frontmatter (when present) and the H1" — match this phrasing on subsequent bootstrap edits. Outstanding design questions (move Mermaid / worked example / enum descriptions out of always-loaded `conventions.md` to cut bootstrap surface; readable-alone vs scope-pointer tradeoff) are unaddressed and may resurface at Track 4 or Phase 4.
+  >
+  > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
 
 - [ ] Track 2: Reindex script + CI gate + audit agent updates
   > Build `.claude/scripts/workflow-reindex.py` (mechanical Python, `--check` and `--write` modes, stdlib only) and wire it into a pre-commit hook plus a GitHub Actions step. Update `.claude/agents/review-workflow-context-budget.md` to absorb the audit at PR-review time. Tests live under `.claude/scripts/tests/`.
