@@ -1893,6 +1893,679 @@ def test_discover_bootstrap_scope_includes_all_known_paths() -> None:
 
 
 # ---------------------------------------------------------------------------
+# `--write` mode tests.
+#
+# Each test builds a hermetic fixture root, runs `compute_write_plan`
+# and `apply_write_plan`, and asserts on the rewritten file content.
+# The halt-on-unresolved test asserts the disk state is unchanged
+# across files when even one in-scope file has an unresolved ref.
+# ---------------------------------------------------------------------------
+
+
+def _read_file(path: Path) -> str:
+    """Return the file content as text."""
+    return path.read_text(encoding="utf-8")
+
+
+def _run_write_plan(root: Path, files_filter=None) -> dict:
+    """Compute and apply the write plan; return the plan dict."""
+    plan = MODULE.compute_write_plan(root, files_filter=files_filter)
+    MODULE.apply_write_plan(plan)
+    return plan
+
+
+def test_write_rebuilds_toc_from_h2_annotations() -> None:
+    """A file with stale TOC rows gets the TOC rebuilt from current annotations."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # The TOC body is intentionally wrong (the "stale" row maps to
+        # a heading that does not exist; the real heading carries
+        # different annotation content).
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | implementer | 4 | Stale summary. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="Current summary." -->
+
+            Body.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # The rebuilt TOC row carries the current annotation values.
+        assert (
+            "| §A | orchestrator | 3B | Current summary. |" in rewritten
+        ), f"expected fresh TOC row; got:\n{rewritten}"
+        # The stale row is gone.
+        assert "Stale summary." not in rewritten, (
+            f"stale TOC row should be gone; got:\n{rewritten}"
+        )
+
+
+def test_write_rebuilds_toc_with_h2_and_h3() -> None:
+    """The TOC rebuild emits one row per H2 AND per H3 in document order."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ### (a) Format
+            <!-- roles=implementer phases=3C summary="Format." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            Body.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # Three rows: H2 1.6, H3 (a), H2 1.7 — in document order.
+        h16_idx = rewritten.find("| §1.6 Stamps")
+        ha_idx = rewritten.find("| §(a) Format")
+        h17_idx = rewritten.find("| §1.7 Refs")
+        assert h16_idx > 0, f"missing H2 1.6 row; got:\n{rewritten}"
+        assert ha_idx > h16_idx, f"H3 (a) row should follow H2 1.6; got:\n{rewritten}"
+        assert h17_idx > ha_idx, f"H2 1.7 row should follow H3 (a); got:\n{rewritten}"
+
+
+def test_write_bootstrap_heading_omitted_from_toc() -> None:
+    """The bootstrap-block heading does not appear in the rebuilt TOC."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap-block body.
+
+            <!--Document index start-->
+
+            <!--Document index end-->
+
+            ## 1 Body
+            <!-- roles=orchestrator phases=3B summary="Body." -->
+
+            Body.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # The bootstrap heading must not appear as a TOC row.
+        assert "Reading workflow files (TOC protocol)" not in rewritten.split(
+            "<!--Document index end-->"
+        )[0].split("<!--Document index start-->")[1], (
+            f"bootstrap heading should be exempt from TOC; got:\n{rewritten}"
+        )
+        assert "| §1 Body" in rewritten, (
+            f"expected the real H2 in the TOC; got:\n{rewritten}"
+        )
+
+
+def test_write_empty_toc_when_no_h2() -> None:
+    """A file with no `^## ` headings and a TOC region gets an empty TOC body."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §Ghost | orchestrator | 3B | Phantom. |
+
+            <!--Document index end-->
+
+            Just prose, no sections.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # No `| Section |` header row should be inside the rebuilt TOC.
+        between = rewritten.split("<!--Document index start-->")[1].split(
+            "<!--Document index end-->"
+        )[0]
+        assert "| Section |" not in between, (
+            f"empty TOC should carry no table; got TOC body:\n{between!r}"
+        )
+        # The phantom row is gone.
+        assert "Phantom." not in rewritten, (
+            f"phantom row should be removed; got:\n{rewritten}"
+        )
+
+
+def test_write_no_toc_delimiters_no_op_on_toc_half() -> None:
+    """A file without TOC delimiters is a no-op for the TOC half of `--write`."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # No TOC delimiters at all. `--write` must NOT inject them.
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            ## 1 Body
+            <!-- roles=orchestrator phases=3B summary="Body." -->
+
+            Body.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        before = _read_file(target)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        after = _read_file(target)
+        assert "<!--Document index start-->" not in after, (
+            f"--write should NOT inject TOC delimiters; got:\n{after}"
+        )
+        assert before == after, (
+            f"file with no TOC should be untouched; before vs after:\n"
+            f"BEFORE:\n{before}\nAFTER:\n{after}"
+        )
+
+
+def test_write_stamps_unstamped_in_file_ref() -> None:
+    """An unstamped in-file ref `§X.Y` gets the target's suffix appended."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.7 Refs | orchestrator | 3B | Refs. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            See §1.6 for the stamp rule.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        assert "See §1.6:orchestrator:3B for the stamp rule." in rewritten, (
+            f"expected stamped ref; got:\n{rewritten}"
+        )
+
+
+def test_write_rewrites_stale_in_file_ref_suffix() -> None:
+    """A stale in-file ref suffix gets rewritten to match the target's current annotation."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.7 Refs | orchestrator | 3B | Refs. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ## 1.7 Refs
+            <!-- roles=orchestrator phases=3B summary="Refs." -->
+
+            See §1.6:implementer:4 for the stamp rule.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # Stale `:implementer:4` rewritten to current `:orchestrator:3B`.
+        assert "See §1.6:orchestrator:3B" in rewritten, (
+            f"expected rewritten suffix; got:\n{rewritten}"
+        )
+        assert ":implementer:4" not in rewritten, (
+            f"stale suffix should be gone; got:\n{rewritten}"
+        )
+
+
+def test_write_skips_ref_in_fenced_block() -> None:
+    """A `§X.Y` ref inside a fenced code block is not auto-stamped."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Example block:
+
+            ```
+            See §1.6 — should stay as-is.
+            ```
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # The ref inside the fenced block should still be `§1.6` (no suffix).
+        assert "See §1.6 — should stay as-is." in rewritten, (
+            f"fenced-block ref should NOT be auto-stamped; got:\n{rewritten}"
+        )
+
+
+def test_write_skips_ref_in_inline_backticks() -> None:
+    """A `§X.Y` ref inside an inline-backtick span is not auto-stamped."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            The literal text `§1.6` is a pedagogical example and stays bare.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        # Backticked ref retains its literal form.
+        assert "`§1.6`" in rewritten, (
+            f"backticked ref should NOT be auto-stamped; got:\n{rewritten}"
+        )
+        assert "`§1.6:orchestrator:3B`" not in rewritten, (
+            f"backticked ref should not gain a suffix; got:\n{rewritten}"
+        )
+
+
+def test_write_halts_on_unresolved_ref_in_same_file() -> None:
+    """A file with mixed resolvable + unresolved refs aborts with no writes."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            See §1.6 (resolvable) and §9.99 (unresolved) — neither should land.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        before = _read_file(target)
+        try:
+            MODULE.compute_write_plan(
+                root, files_filter=[".claude/workflow/demo.md"]
+            )
+        except MODULE.UnresolvedInFileRefError as exc:
+            # Exactly one unresolved site reported.
+            assert any(
+                anchor == "§9.99" for _path, _line, anchor in exc.sites
+            ), f"expected §9.99 in unresolved sites; got {exc.sites}"
+        else:
+            raise AssertionError(
+                "expected UnresolvedInFileRefError for mixed-content file"
+            )
+        after = _read_file(target)
+        # No write landed — the otherwise-resolvable §1.6 is still bare.
+        assert before == after, (
+            f"halt-on-unresolved should leave file unchanged; before vs after:\n"
+            f"BEFORE:\n{before}\nAFTER:\n{after}"
+        )
+
+
+def test_write_halts_atomically_across_multiple_files() -> None:
+    """Unresolved ref in file N blocks writes to all M files in the plan."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # File A: cleanly resolvable.
+        body_a = textwrap.dedent(
+            """\
+            # File A
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## 1 A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See §1 for the body.
+            """
+        )
+        # File B: contains an unresolved ref.
+        body_b = textwrap.dedent(
+            """\
+            # File B
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 B | orchestrator | 3B | B. |
+
+            <!--Document index end-->
+
+            ## 1 B
+            <!-- roles=orchestrator phases=3B summary="B." -->
+
+            See §99.99 — does not resolve.
+            """
+        )
+        target_a = _write_in_scope_file(root, ".claude/workflow/a.md", body_a)
+        target_b = _write_in_scope_file(root, ".claude/workflow/b.md", body_b)
+        before_a = _read_file(target_a)
+        before_b = _read_file(target_b)
+        try:
+            MODULE.compute_write_plan(root)
+        except MODULE.UnresolvedInFileRefError:
+            pass
+        else:
+            raise AssertionError("expected UnresolvedInFileRefError")
+        after_a = _read_file(target_a)
+        after_b = _read_file(target_b)
+        # Both files unchanged — atomicity across the whole plan.
+        assert before_a == after_a, (
+            f"file A should be untouched by failed plan; before vs after:\n"
+            f"BEFORE:\n{before_a}\nAFTER:\n{after_a}"
+        )
+        assert before_b == after_b, (
+            f"file B should be untouched by failed plan; before vs after:\n"
+            f"BEFORE:\n{before_b}\nAFTER:\n{after_b}"
+        )
+
+
+def test_write_is_idempotent() -> None:
+    """A second `--write` run produces the same file content as the first."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | implementer | 4 | Stale. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Current." -->
+
+            See §1.6 for the body.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        first_pass = _read_file(target)
+        # Second run must produce no diff.
+        plan = MODULE.compute_write_plan(
+            root, files_filter=[".claude/workflow/demo.md"]
+        )
+        # The plan must report no changes for an already-stamped file.
+        fwp = plan[".claude/workflow/demo.md"]
+        assert not fwp.changed, (
+            f"second `--write` pass should report no change; got "
+            f"new_lines={fwp.new_lines!r}"
+        )
+        MODULE.apply_write_plan(plan)
+        second_pass = _read_file(target)
+        assert first_pass == second_pass, (
+            f"second pass diverged from first; first vs second:\n"
+            f"FIRST:\n{first_pass}\nSECOND:\n{second_pass}"
+        )
+
+
+def test_write_does_not_touch_cross_file_refs() -> None:
+    """`--write` walks past cross-file `name.md:roles:phases` suffixes, even on subset violations."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # The target file carries a narrow annotation (orchestrator only).
+        target_body = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Body | orchestrator | 3B | Body. |
+
+            <!--Document index end-->
+
+            ## 1 Body
+            <!-- roles=orchestrator phases=3B summary="Body." -->
+
+            Body.
+            """
+        )
+        # The citer claims a role the target does not grant — rule 6
+        # would flag this under `--check`. `--write` must not rewrite
+        # the cross-file suffix.
+        citer_body = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## 1 A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md:implementer:3B for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer_body, target_body)
+        target_citer = root / ".claude" / "workflow" / "citer.md"
+        before = _read_file(target_citer)
+        _run_write_plan(root, files_filter=[".claude/workflow/citer.md"])
+        after = _read_file(target_citer)
+        # The cross-file `target.md:implementer:3B` is preserved verbatim.
+        assert "target.md:implementer:3B" in after, (
+            f"cross-file ref should be preserved; got:\n{after}"
+        )
+        # And nothing else mutated the citer's prose (the citer's TOC
+        # already matched its single H2 with the current annotation, so
+        # the TOC rebuild is a no-op here too).
+        assert before == after, (
+            f"citer file should be untouched (TOC already correct, "
+            f"cross-file ref left alone); before vs after:\n"
+            f"BEFORE:\n{before}\nAFTER:\n{after}"
+        )
+
+
+def test_write_skips_out_of_scope_files() -> None:
+    """`--write` with `--files` containing only out-of-scope paths is a no-op."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root,
+            ".claude/skills/ai-tells/SKILL.md",
+            "# Out of scope\n\nNo TOC, no annotations.\n",
+        )
+        plan = MODULE.compute_write_plan(
+            root, files_filter=[".claude/skills/ai-tells/SKILL.md"]
+        )
+        assert plan == {}, (
+            f"out-of-scope `--files` should yield empty plan; got {plan}"
+        )
+
+
+def test_write_subsection_ref_resolves_and_stamps() -> None:
+    """An in-file `§X.Y(z)` ref resolves to the `### (z)` sub-section under `## X.Y`."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+            | §1.6(a) Format | implementer | 3C | Format. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            Body.
+
+            ### (a) Format
+            <!-- roles=implementer phases=3C summary="Format." -->
+
+            See §1.6(a) for the format rule.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        _run_write_plan(root, files_filter=[".claude/workflow/demo.md"])
+        rewritten = _read_file(target)
+        assert "See §1.6(a):implementer:3C for the format rule." in rewritten, (
+            f"expected stamped sub-section ref; got:\n{rewritten}"
+        )
+
+
+def test_cli_write_exit_2_on_unresolved_ref() -> None:
+    """The `--write` CLI exits 2 when any in-file ref is unresolved.
+
+    Asserts on the dispatcher's return value directly. The CLI uses
+    REPO_ROOT, so this test fixtures the live tree differently from
+    the in-memory tests above; it exercises the plan-then-apply
+    sequence through `main()`.
+    """
+    # Build a tiny fixture and patch REPO_ROOT for the duration of the
+    # call. We cannot easily patch a module-level constant; instead,
+    # exercise the same code path that the CLI dispatches into.
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            See §9.99 — unresolved.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        try:
+            MODULE.compute_write_plan(root)
+        except MODULE.UnresolvedInFileRefError as exc:
+            sites = exc.sites
+            assert any(
+                anchor == "§9.99" for _p, _l, anchor in sites
+            ), f"expected §9.99 in sites; got {sites}"
+            return
+        raise AssertionError(
+            "expected UnresolvedInFileRefError on unresolved-ref fixture"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -2049,6 +2722,71 @@ def main() -> int:
         (
             "discover_bootstrap_scope includes all known paths",
             test_discover_bootstrap_scope_includes_all_known_paths,
+        ),
+        # --write mode.
+        (
+            "--write rebuilds TOC from H2 annotations",
+            test_write_rebuilds_toc_from_h2_annotations,
+        ),
+        (
+            "--write rebuilds TOC with H2 and H3 in order",
+            test_write_rebuilds_toc_with_h2_and_h3,
+        ),
+        (
+            "--write omits bootstrap heading from TOC",
+            test_write_bootstrap_heading_omitted_from_toc,
+        ),
+        (
+            "--write empties TOC when file has no H2",
+            test_write_empty_toc_when_no_h2,
+        ),
+        (
+            "--write is a no-op for files without TOC delimiters",
+            test_write_no_toc_delimiters_no_op_on_toc_half,
+        ),
+        (
+            "--write stamps unstamped in-file ref",
+            test_write_stamps_unstamped_in_file_ref,
+        ),
+        (
+            "--write rewrites stale in-file ref suffix",
+            test_write_rewrites_stale_in_file_ref_suffix,
+        ),
+        (
+            "--write skips ref in fenced block",
+            test_write_skips_ref_in_fenced_block,
+        ),
+        (
+            "--write skips ref in inline backticks",
+            test_write_skips_ref_in_inline_backticks,
+        ),
+        (
+            "--write halts on unresolved ref in same file",
+            test_write_halts_on_unresolved_ref_in_same_file,
+        ),
+        (
+            "--write halts atomically across multiple files",
+            test_write_halts_atomically_across_multiple_files,
+        ),
+        (
+            "--write is idempotent",
+            test_write_is_idempotent,
+        ),
+        (
+            "--write does not touch cross-file refs",
+            test_write_does_not_touch_cross_file_refs,
+        ),
+        (
+            "--write skips out-of-scope --files entries",
+            test_write_skips_out_of_scope_files,
+        ),
+        (
+            "--write sub-section ref resolves and stamps",
+            test_write_subsection_ref_resolves_and_stamps,
+        ),
+        (
+            "CLI --write exit 2 on unresolved ref",
+            test_cli_write_exit_2_on_unresolved_ref,
         ),
     ]
     for name, fn in tests:

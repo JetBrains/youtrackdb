@@ -9,8 +9,10 @@ per-section role/phase annotation system defined in
   and exit nonzero on findings. Used by the pre-commit hook and CI.
 - `--write` — rebuild every TOC region in place from the current
   annotations and auto-stamp every in-file `§X.Y(z)` reference with
-  the target heading's roles/phases suffix. The `--write` surface is
-  added by the next commit; this commit lands `--check`.
+  the target heading's roles/phases suffix. Halts atomically with
+  exit 2 if any in-file ref is unresolved (write nothing, anywhere);
+  idempotent (second invocation produces no diff). Does NOT touch
+  cross-file `name.md:roles:phases` suffixes (hand-written per D9).
 
 Both modes share file enumeration, heading/annotation parsing, TOC
 region detection, and the CommonMark fence + inline-backtick state
@@ -65,7 +67,10 @@ probe). `--files <paths>` scopes validation to the listed files —
 out-of-scope paths are silently skipped per design.md §"Reindex
 script" → §"Validation rules" (the pre-commit hook's regex is
 broader than the in-scope glob, so this skip is load-bearing for
-mixed-content commits). `--write` is added by the next commit.
+mixed-content commits). `--write` computes the full plan in memory
+across the in-scope set, halts with exit 2 on the first unresolved
+in-file ref (writing nothing), and applies the mutations to disk
+only when every file resolves cleanly.
 """
 
 from __future__ import annotations
@@ -1742,6 +1747,336 @@ def _normalise_file_path(raw: str, repo_root: Path) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# `--write` mode: TOC region rebuild + in-file ref auto-stamp.
+#
+# Two mutations land per in-scope file:
+#
+# 1. The TOC region between the delimiter comments is regenerated from
+#    the file's current annotations. One row per `^## ` / `^### `
+#    heading in document order; the bootstrap-block heading is exempt
+#    per rule 3 / §1.8(c). A file without delimiter comments is a
+#    no-op for the TOC half — `--write` does NOT inject a TOC into a
+#    file that never had one (the universal annotation rollout owns
+#    first-touch delimiter placement).
+# 2. Every in-file `§X.Y[(z)][:roles:phases]` ref is rewritten to
+#    carry the target heading's current annotation as its suffix. The
+#    rewrite skips fenced code blocks and inline backtick spans per
+#    §1.8(e). It also skips refs inside the TOC region (those are
+#    TOC anchors, not in-prose refs — they get rebuilt by the TOC
+#    half above).
+#
+# Atomicity. `compute_write_plan` runs in two passes: it parses every
+# in-scope file and computes the proposed mutations, raising
+# `UnresolvedInFileRefError` on the first unresolved in-file ref. The
+# CLI converts that exception to exit 2 with no disk writes anywhere.
+# Only when every file resolves cleanly does `apply_write_plan` push
+# the new content to disk. This matches the "halt-on-unresolved"
+# contract from design.md §"Reindex script" → §"--write mode".
+#
+# Idempotence. The TOC rebuild is deterministic from the headings +
+# annotations; running `--write` twice produces the same TOC body
+# both times. In-file ref rewrites land the target's current
+# annotation; a second pass observes the freshly-stamped ref already
+# matching the target and emits no change. The CLI exits 0 in both
+# cases (clean run; mutations applied OR no mutations needed).
+# ---------------------------------------------------------------------------
+
+
+class UnresolvedInFileRefError(RuntimeError):
+    """Raised when an in-file ref does not resolve to a heading in the same file.
+
+    Carries `(path, line, anchor)` tuples for every unresolved ref the
+    scanner found so the CLI can render a useful exit-2 message. The
+    halt is atomic: a single unresolved ref in any in-scope file blocks
+    every other file's writes.
+    """
+
+    def __init__(self, sites: Sequence[Tuple[str, int, str]]):
+        self.sites = tuple(sites)
+        message = "; ".join(
+            f"{path}:{line}: unresolved {anchor} — no matching heading in this file"
+            for path, line, anchor in self.sites
+        )
+        super().__init__(message)
+
+
+@dataclass
+class FileWritePlan:
+    """Per-file mutation plan for a single `--write` pass.
+
+    `new_lines` is the rewritten file content (no trailing newline
+    enforcement — the writer preserves the original file's trailing-
+    newline shape). `changed` is True iff `new_lines` differs from
+    the file's current content; the writer skips no-diff files.
+    """
+
+    parsed: ParsedFile
+    new_lines: List[str]
+    changed: bool
+
+
+def _build_toc_rows(parsed: ParsedFile) -> List[str]:
+    """Return the rebuilt TOC table lines for `parsed` (no delimiter comments).
+
+    Includes the header row, the separator row, and one data row per
+    `^## ` / `^### ` heading in document order. The bootstrap-block
+    heading is exempt per §1.8(c). Headings with no well-formed
+    annotation contribute `(missing)` placeholders in the role / phase
+    cells and an empty summary cell — rules 4 / 5 catch those, so the
+    `--write` pass does not refuse to run on a file that has other
+    findings.
+
+    A file with no non-bootstrap H2/H3 headings yields an empty table
+    (just the delimiter pair with no rows between them — the caller
+    is responsible for emitting the surrounding `<!--Document index
+    start-->` / `<!--Document index end-->` comments).
+    """
+    data_rows: List[str] = []
+    for h in parsed.headings:
+        if h.is_bootstrap:
+            continue
+        section = _heading_to_section_label(h)
+        if h.annotation is not None and h.annotation.well_formed:
+            roles = ",".join(h.annotation.roles or ())
+            phases = ",".join(h.annotation.phases or ())
+            summary = h.annotation.summary or ""
+        else:
+            roles = "(missing)"
+            phases = "(missing)"
+            summary = ""
+        data_rows.append(f"| {section} | {roles} | {phases} | {summary} |")
+    if not data_rows:
+        return []
+    header = "| Section | Roles | Phases | Summary |"
+    separator = "|---|---|---|---|"
+    return [header, separator, *data_rows]
+
+
+def _rebuild_toc_region(parsed: ParsedFile) -> Optional[List[str]]:
+    """Return the file's new line list with the TOC region rebuilt, or None.
+
+    Returns `None` when the file has no TOC region (no delimiter
+    comments) — `--write` does not inject a TOC into a file that
+    never had one (the universal annotation rollout owns first-touch
+    delimiter placement).
+
+    The rebuilt region preserves the start / end delimiter lines and
+    flanking blank lines: the new content between the delimiters is
+    a blank line, the table body, and a blank line (matching the
+    canonical shape per `conventions.md §1.8(d)`). When the file has
+    no non-bootstrap H2/H3 headings, the rebuilt region carries only
+    the blank lines and no table — rule 2 accepts an empty TOC for
+    such files.
+    """
+    if parsed.toc is None:
+        return None
+    rows = _build_toc_rows(parsed)
+    # `parsed.toc.start_line` and `parsed.toc.end_line` are 1-based;
+    # convert to 0-based indices for slicing.
+    start_idx = parsed.toc.start_line - 1
+    end_idx = parsed.toc.end_line - 1
+    # Keep the start delimiter line and everything before it; replace
+    # the body between the delimiters; keep the end delimiter line and
+    # everything after it. Sandwich the body with blank lines to match
+    # the §1.8(d) shape.
+    body: List[str] = [""]
+    body.extend(rows)
+    body.append("")
+    new_lines = list(parsed.lines[: start_idx + 1]) + body + list(parsed.lines[end_idx:])
+    return new_lines
+
+
+def _compute_in_file_ref_rewrites(
+    parsed: ParsedFile,
+) -> Tuple[List[Tuple[int, int, int, str]], List[Tuple[int, str]]]:
+    """Return `(rewrites, unresolved)` for in-file refs in `parsed`.
+
+    `rewrites` is a list of `(line_idx_0based, col_start, col_end,
+    new_text)` tuples — one per ref that needs a suffix change. The
+    tuples are sorted by `(line_idx, col_start)` so the caller can
+    apply them in descending-position order without later edits
+    shifting earlier-edit offsets.
+
+    `unresolved` is a list of `(line_no_1based, anchor)` tuples for
+    refs whose target does not resolve in this file. A non-empty
+    `unresolved` triggers the halt-on-unresolved contract; the
+    caller wraps these into `UnresolvedInFileRefError` and aborts.
+
+    Refs already carrying the target's current annotation as a suffix
+    contribute nothing to `rewrites` — idempotence falls out of
+    "no diff" → "no rewrite".
+    """
+    rewrites: List[Tuple[int, int, int, str]] = []
+    unresolved: List[Tuple[int, str]] = []
+    for line_no, col, m in scan_in_file_refs(parsed):
+        major = m.group("major")
+        minor = m.group("minor")
+        sub = m.group("sub")
+        anchor_text = f"§{major}.{minor}" + (f"({sub})" if sub else "")
+        target = resolve_anchor(parsed.headings, major, minor, sub)
+        if target is None:
+            unresolved.append((line_no, anchor_text))
+            continue
+        if target.annotation is None or not target.annotation.well_formed:
+            # No well-formed annotation on the target — rule 8 reports
+            # this as a finding under `--check`, but `--write` cannot
+            # derive a suffix to stamp. Skip the rewrite; the author
+            # fixes the target's annotation (rule 4 / rule 5) and
+            # re-runs `--write`.
+            continue
+        expected_roles = ",".join(target.annotation.roles or ())
+        expected_phases = ",".join(target.annotation.phases or ())
+        new_text = f"{anchor_text}:{expected_roles}:{expected_phases}"
+        # `m.end()` is the 0-based end-exclusive column of the existing
+        # ref (with whatever stale suffix it already carried, if any).
+        # The replacement text replaces the entire `§X.Y[(z)][:r:p]`
+        # span — both the anchor and any prior suffix.
+        if m.group(0) == new_text:
+            continue  # already correct — idempotence
+        rewrites.append((line_no - 1, col, m.end(), new_text))
+    rewrites.sort(key=lambda x: (x[0], x[1]))
+    return rewrites, unresolved
+
+
+def _apply_line_rewrites(
+    lines: List[str], rewrites: Sequence[Tuple[int, int, int, str]]
+) -> List[str]:
+    """Apply column-range rewrites to lines, descending-position order per line.
+
+    `rewrites` carries `(line_idx, col_start, col_end, new_text)` tuples
+    sorted by `(line_idx, col_start)`. Within each line we apply edits
+    in descending `col_start` order so an earlier edit cannot shift a
+    later edit's offsets.
+    """
+    out = list(lines)
+    # Group rewrites by line, then apply descending-col within each line.
+    by_line: Dict[int, List[Tuple[int, int, str]]] = {}
+    for line_idx, col_start, col_end, new_text in rewrites:
+        by_line.setdefault(line_idx, []).append((col_start, col_end, new_text))
+    for line_idx, edits in by_line.items():
+        edits.sort(key=lambda x: x[0], reverse=True)
+        line = out[line_idx]
+        for col_start, col_end, new_text in edits:
+            line = line[:col_start] + new_text + line[col_end:]
+        out[line_idx] = line
+    return out
+
+
+def compute_write_plan(
+    repo_root: Path,
+    files_filter: Optional[Sequence[str]] = None,
+) -> Dict[str, FileWritePlan]:
+    """Compute the full `--write` plan across the in-scope set.
+
+    Runs the TOC rebuild and in-file ref rewrite passes in memory for
+    every in-scope file (or every file in `files_filter` when that
+    argument is supplied). Raises `UnresolvedInFileRefError` on the
+    first file with one or more unresolved in-file refs — the caller
+    must NOT proceed to disk writes. The error carries every
+    unresolved site discovered across the whole pass, not just the
+    first; the author then sees the full list rather than playing
+    whack-a-mole.
+
+    Returns a dict keyed by repo-relative POSIX path. Each
+    `FileWritePlan` carries the proposed new line list plus a
+    `changed` flag (True iff the new content differs from the file's
+    current content). The caller filters by `changed` before writing.
+    """
+    parsed_files = parse_in_scope_files(repo_root)
+    parsed_by_path = {pf.path: pf for pf in parsed_files}
+    if files_filter is not None:
+        scoped: List[str] = []
+        for raw in files_filter:
+            normalised = _normalise_file_path(raw, repo_root)
+            if normalised is None:
+                continue
+            if normalised in parsed_by_path:
+                scoped.append(normalised)
+        target_paths: FrozenSet[str] = frozenset(scoped)
+    else:
+        target_paths = frozenset(parsed_by_path.keys())
+    plan: Dict[str, FileWritePlan] = {}
+    unresolved_sites: List[Tuple[str, int, str]] = []
+    for pf in parsed_files:
+        if pf.path not in target_paths:
+            continue
+        # Compute in-file ref rewrites first — unresolved refs short-
+        # circuit the whole pass via the exception below.
+        rewrites, unresolved = _compute_in_file_ref_rewrites(pf)
+        for line_no, anchor in unresolved:
+            unresolved_sites.append((pf.path, line_no, anchor))
+        # The TOC rebuild happens on the post-ref-rewrite line list so
+        # in-file ref edits inside the TOC region (there shouldn't be
+        # any — `scan_in_file_refs` skips the TOC region — but defence-
+        # in-depth) compose cleanly with the TOC rewrite.
+        new_lines = _apply_line_rewrites(pf.lines, rewrites)
+        # Apply TOC rebuild against the rewritten line list. Build a
+        # transient ParsedFile-shaped view so `_rebuild_toc_region`
+        # can read the start/end delimiter positions and TOC rows.
+        # The fence/heading positions are byte-for-byte stable across
+        # the in-file ref rewrites — the ref edits only change the
+        # column count past `§X.Y`, not heading lines or fence lines —
+        # so reusing the original `parsed.toc` line numbers is safe.
+        toc_rebuilt = _rebuild_toc_region(
+            ParsedFile(
+                path=pf.path,
+                abs_path=pf.abs_path,
+                lines=new_lines,
+                headings=pf.headings,
+                toc=pf.toc,
+                fenced_lines=pf.fenced_lines,
+            )
+        )
+        if toc_rebuilt is not None:
+            new_lines = toc_rebuilt
+        plan[pf.path] = FileWritePlan(
+            parsed=pf,
+            new_lines=new_lines,
+            changed=(new_lines != pf.lines),
+        )
+    if unresolved_sites:
+        raise UnresolvedInFileRefError(unresolved_sites)
+    return plan
+
+
+def _read_trailing_newline(path: Path) -> bool:
+    """Return True iff the file on disk ends with a `\\n`.
+
+    `splitlines()` drops the trailing terminator, so we re-read the
+    raw bytes to preserve the original file's "ends-with-newline" or
+    "does-not" shape across the write. New files (no on-disk content
+    yet) default to True — every workflow file in the project ends
+    with a newline.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return True
+    return data.endswith(b"\n")
+
+
+def apply_write_plan(plan: Dict[str, FileWritePlan]) -> List[str]:
+    """Write the planned mutations to disk.
+
+    Returns the list of repo-relative paths whose content actually
+    changed. Files with `changed=False` are skipped — idempotence
+    relies on the no-op-write here, otherwise the file's mtime would
+    flap on every `--write` run.
+    """
+    written: List[str] = []
+    for path, fwp in plan.items():
+        if not fwp.changed:
+            continue
+        trailing_newline = _read_trailing_newline(fwp.parsed.abs_path)
+        body = "\n".join(fwp.new_lines)
+        if trailing_newline:
+            body += "\n"
+        fwp.parsed.abs_path.write_text(body, encoding="utf-8")
+        written.append(path)
+    return written
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point.
 # ---------------------------------------------------------------------------
 
@@ -1763,7 +2098,11 @@ def _build_argparser() -> argparse.ArgumentParser:
     mode.add_argument(
         "--write",
         action="store_true",
-        help="Rebuild TOCs and auto-stamp in-file refs (added by the next commit).",
+        help=(
+            "Rebuild TOC regions and auto-stamp in-file `§X.Y(z)` "
+            "refs. Halts atomically with exit 2 if any in-file ref "
+            "is unresolved."
+        ),
     )
     parser.add_argument(
         "--files",
@@ -1789,11 +2128,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = _build_argparser()
     args = parser.parse_args(argv)
     if args.write:
-        print(
-            "error: --write is not implemented yet; the next commit lands it.",
-            file=sys.stderr,
-        )
-        return 2
+        try:
+            plan = compute_write_plan(REPO_ROOT, files_filter=args.files)
+        except AmbiguousBootstrapProbeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        except UnresolvedInFileRefError as exc:
+            # Halt-on-unresolved contract: no writes anywhere, exit 2,
+            # message lists every site so the author can fix in one pass.
+            for path, line, anchor in exc.sites:
+                print(
+                    f"{path}:{line}:rule_8: unresolved {anchor} — "
+                    "no matching heading in this file",
+                    file=sys.stderr,
+                )
+            print(
+                "error: --write halted; fix the unresolved refs and re-run.",
+                file=sys.stderr,
+            )
+            return 2
+        written = apply_write_plan(plan)
+        for path in written:
+            print(path)
+        return 0
     if not args.check:
         # Bootstrap-only smoke output (no `--check` argument). Useful for
         # sanity-checking the probe on a fresh checkout; the runner can
