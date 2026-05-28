@@ -12,7 +12,7 @@ Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `-
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-05-28T13:58Z [ctx=info] Review + decomposition complete
@@ -22,6 +22,7 @@ Build `.claude/scripts/workflow-reindex.py` (mechanical Python; `--check` and `-
 - [x] 2026-05-28T14:56Z [ctx=info] Step 4 complete (commit 5525fcf4ed)
 - [x] 2026-05-28T15:08Z [ctx=info] Step 5 complete (commit 1865bcf7cc)
 - [x] 2026-05-28T15:36Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations, commit fc2d829421)
+- [x] 2026-05-28T15:40Z [ctx=warning] Track-level code review complete (iteration 1 PASS on all dimensions; no carry-forward)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -50,6 +51,7 @@ summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 2 (7 findings, 7 accepted: T1, T2 blockers — D12 added for staged-aware §1.8 probe, hook restructure named in Step 4; T3, T4, T5 should-fix — staged-path regex widening, summary ≤120 char sub-rule 5c, `--write` mixed-content halt test; T6, T7 suggestions — prefix placement template pinned, dedicated CI workflow committed).
 - [x] Adversarial: PASS at iteration 2 (7 findings, 7 accepted: A1 should-fix — D11 scope expanded to all six `review-workflow-*` agents per user decision; A2, A3, A4 should-fix — §1.8(e) gained inline-backtick exclusion clause + `any`-wildcard semantics paragraph, pre-commit vs CI scope gap documented via contrasting hook/CI bullets; A5, A6, A7 suggestions — fence-parser precedent cited, out-of-scope `--files` silent-skip sub-rule + test, Step 2/3 split rationale recorded under Plan of Work).
+- [x] Track-level code review: PASS at iteration 1 across 5 dimensions (consistency, prompt-design, instruction-completeness, hook-safety, writing-style). 21 raw findings synthesised to 14 in-scope + 7 deferred. All 14 closed in `Review fix: fc2d829421` (source files: 4-prefix rename CN→WC, HS→WH, PD→WP, IC→WI per Path A user decision; context-budget agent gained explicit `--check` precondition, ≤25-vs-full-repo decision rule with ARG_MAX fallback, diff-filter step, two-sub-case exit-2 handling, `--files` build regex; pre-commit gained `set -euo pipefail` + grep-rc discriminator + here-string idiom alignment; CI workflow gained expected-red-window comment; all six agents gained within-bucket ordering rule) plus orchestrator-owned Workflow update `84db362edc` (D11 title + Rationale rewritten to the canonical family, track-2.md Step 4 episode em-dash trim). Context-budget dimension skipped at gate check since WB1 was a deferred suggestion. Deferred items: CN6 + CN7 (design.md drift, frozen until Phase 4), WB1 (re-assess after Track 4 lands once steady-state finding count is known), CN8 (informational, resolved by the rename).
 
 ## Context and Orientation
 
