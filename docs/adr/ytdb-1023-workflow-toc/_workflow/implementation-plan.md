@@ -1,4 +1,4 @@
-<!-- workflow-sha: 676179cb82295cf15977823a415d5f5476e42526 -->
+<!-- workflow-sha: 367f5f83f1bce0e98eaeb0679973f9728db64b61 -->
 # Per-document TOC + per-section role/phase annotations
 
 ## Design Document
