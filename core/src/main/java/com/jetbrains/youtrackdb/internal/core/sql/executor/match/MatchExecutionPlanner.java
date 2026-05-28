@@ -1799,7 +1799,11 @@ public class MatchExecutionPlanner {
       // Annotate each edge traversal with the source node's class/RID/filter
       // constraints (post-optimization, so stripped filters are reflected).
       // MatchReverseEdgeTraverser uses these when traversing in reverse.
+      // Also propagate the profile flag so the per-build nanoTime pair in
+      // EdgeTraversal#materializeAndCache only fires when PROFILE asked for
+      // it — see EdgeTraversal#profilingEnabled.
       for (var edge : sortedEdges) {
+        edge.setProfilingEnabled(profilingEnabled);
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));

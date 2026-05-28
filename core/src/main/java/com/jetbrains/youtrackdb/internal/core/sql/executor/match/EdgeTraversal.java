@@ -157,6 +157,26 @@ public class EdgeTraversal {
   static final long MIN_FOR_CLT = 30L;
 
   /**
+   * Whether the owning query is in PROFILE mode. Controls whether the
+   * one-shot {@link System#nanoTime()} pair around {@code desc.resolve()}
+   * in {@link #materializeAndCache} fires. Cost when off: zero (the pair
+   * is gated behind this flag). Cost when on: ~130 ns per RidSet build,
+   * trivially amortised over the build wallclock (typically tens of
+   * milliseconds for IndexLookup ranges).
+   *
+   * <p>The captured value, {@link #preFilterBuildTimeNanos}, is read only
+   * by {@code MatchStep}'s PROFILE output. Off-profile queries never use
+   * the value, so the measurement is pure overhead in that path — we skip
+   * it.
+   *
+   * <p>Stamped at plan-build time by {@code MatchExecutionPlanner} after
+   * the schedule is established. Bind-independent (depends on the
+   * statement form, not on per-execution parameters), so {@link #copy()}
+   * propagates it to per-execution copies.
+   */
+  private boolean profilingEnabled;
+
+  /**
    * Cached reference to the {@link CoreMetrics#PREFILTER_EFFECTIVENESS}
    * metric. Lazily resolved on first pre-filter application. Falls back
    * to {@link Ratio#NOOP} if the MetricsRegistry is unavailable.
@@ -427,6 +447,15 @@ public class EdgeTraversal {
   /** Returns the root-lineage sample size, or {@code -1} when absent. */
   public long getRootSourceRows() {
     return rootSourceRows;
+  }
+
+  /**
+   * Marks this edge as running inside a {@code PROFILE} query. Enables the
+   * build-time {@code nanoTime} pair in {@link #materializeAndCache}.
+   * Off by default — standard query execution pays no measurement cost.
+   */
+  public void setProfilingEnabled(boolean profilingEnabled) {
+    this.profilingEnabled = profilingEnabled;
   }
 
   /** Returns the memoized amortization mode (test/PROFILE visibility). */
@@ -787,9 +816,16 @@ public class EdgeTraversal {
    */
   @Nullable private RidSet materializeAndCache(
       RidFilterDescriptor desc, @Nullable Object key, CommandContext ctx) {
-    long buildStart = System.nanoTime();
+    // Measure build wallclock only when the owning query asked for PROFILE.
+    // {@code preFilterBuildTimeNanos} is consumed exclusively by the PROFILE
+    // pretty-printer in {@code MatchStep}, so off-profile measurements would
+    // be pure overhead. The pair adds ~130 ns/build; trivial in absolute
+    // terms but unnecessary on the default path.
+    long buildStart = profilingEnabled ? System.nanoTime() : 0L;
     var ridSet = desc.resolve(ctx, key);
-    preFilterBuildTimeNanos += System.nanoTime() - buildStart;
+    if (profilingEnabled) {
+      preFilterBuildTimeNanos += System.nanoTime() - buildStart;
+    }
     if (ridSet != null) {
       // Set once: an empty RidSet (size==0) does not "claim" the slot,
       // so the next non-empty materialization overwrites it. Reporting
@@ -1160,6 +1196,7 @@ public class EdgeTraversal {
     // them across executions.
     copy.forecastN = forecastN;
     copy.rootSourceRows = rootSourceRows;
+    copy.profilingEnabled = profilingEnabled;
     // Cache, cachedSkipReasons, accumulatedLinkBagTotal,
     // indexLookupSelectivity, mode, metric references, and pre-filter
     // counters are intentionally not copied — stale data from a previous
