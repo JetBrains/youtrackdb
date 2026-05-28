@@ -32,7 +32,7 @@ during Phase 3 execution.
 | **Section annotation** | The one-line HTML comment `<!-- roles=<comma-list> phases=<comma-list> summary="<one-line>" -->` placed immediately after every annotated `##` or `###` heading. Carries the section's role and phase audience plus a ≤120-char summary; the TOC region's summary cell reads from `summary="..."` verbatim. Comma-separated lists carry no spaces. Required at the same density on `### ` as on `## ` (one literal-heading exception: the bootstrap-block heading `## Reading workflow files (TOC protocol)`). Format definition in §1.8. |
 | **TOC region** | The Markdown table between the literal `<!--Document index start-->` and `<!--Document index end-->` comment delimiters, sitting directly under a workflow doc's H1. Columns are fixed at `Section | Roles | Phases | Summary`; rows map 1:1 to every `^## ` and `^### ` heading (bootstrap-block heading exempted). `workflow-reindex.py --write` rebuilds the table from per-section annotations; authors do not maintain it by hand. Format definition in §1.8. |
 | **Cross-reference convention** | The `roles:phases` suffix on workflow-doc references that lets a reader filter before opening (cross-file refs) or before jumping to a section (in-file refs). Cross-file refs in SKILL.md startup read-lists and `.claude/agents/*.md` files use the full `name.md:roles:phases` form and are hand-written; in-file `§X.Y(z):roles:phases` refs inside a workflow doc are auto-stamped by `workflow-reindex.py --write` from the target heading's annotation. The reindex script subset-validates cross-file suffixes against the target. Format, examples, and drift-detection rules in §1.8. |
-| **Bootstrap block** | The ~30-line instruction block placed above the H1 of every workflow-related system prompt (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` — 38 files total). The block names the agent's role and embeds enough of the TOC-aware reading protocol that a freshly spawned sub-agent applies the filter from its first Read instead of paying the full-file cost to bootstrap itself from `conventions.md §1.8`. Block body and scope live in `design.md §"Bootstrap protocol for agent system prompts"` during Phase 1 and in `design-final.md` after the Phase 4 squash-merge; the reindex script's presence check is rule 7. |
+| **Bootstrap block** | The ~30-line instruction block placed between the frontmatter (when present) and the H1 of every workflow-related system prompt (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` — 38 files total). The block names the agent's role and embeds enough of the TOC-aware reading protocol that a freshly spawned sub-agent applies the filter from its first Read instead of paying the full-file cost to bootstrap itself from `conventions.md §1.8`. Block body and scope live in `design.md §"Bootstrap protocol for agent system prompts"` during Phase 1 and in `design-final.md` after the Phase 4 squash-merge; the reindex script's presence check is rule 7. |
 
 ---
 
@@ -961,16 +961,16 @@ workflow-modifying plans only.
 
 ## 1.8 Per-section role/phase annotations and TOC region
 
-This section is the canonical reference for the per-section annotation
-schema. Every in-scope workflow doc carries a TOC region directly under
-its H1 plus a one-line HTML annotation comment after every `##` and
-every `###` heading. A reader entering a workflow file via a
-cross-file reference filters on file-level roles+phases before opening,
-then filters on the TOC region's per-section roles+phases before
-jumping to a section. The schema lives in this file so the reindex
-script (`workflow-reindex.py`, see `design.md §"Reindex script"`) and
-every agent that bootstraps the TOC-aware reading protocol read the
-enums and the idiom from a single source.
+Every in-scope workflow doc carries a TOC region directly under its H1
+plus a one-line HTML annotation comment after every `##` and every
+`###` heading. A reader entering a workflow file via a cross-file
+reference filters on file-level roles+phases before opening, then
+filters on the TOC region's per-section roles+phases before jumping
+to a section. This section is the canonical reference for the
+per-section annotation schema, so the reindex script
+(`workflow-reindex.py`, see `design.md §"Reindex script"`) and every
+agent that bootstraps the TOC-aware reading protocol read the enums
+and the idiom from a single source.
 
 ### (a) Role enum
 
@@ -1010,7 +1010,9 @@ role in the workflow (the glossary, for example).
 ### (b) Phase enum
 
 Closed at rollout — 8 values. New phases require a workflow-format
-commit on the same terms as new roles.
+commit on the same terms as new roles; the drift gate then fires on
+every active branch and routes affected branches through
+`/migrate-workflow`.
 
 ```
 0    Research                              (/create-plan interactive exploration)
@@ -1052,14 +1054,18 @@ Field rules:
 
 Comma-separated lists carry no spaces (`roles=orchestrator,implementer`,
 not `roles=orchestrator, implementer`). The reindex script's regex
-enforces the no-space rule.
+enforces the no-space rule. An out-of-enum token in `roles=`,
+`phases=`, or a cross-file ref's suffix is a CI blocker under rule 5;
+the fix is either replace the token with an in-enum value or land a
+workflow-format commit adding the new token to (a) or (b) per the
+rollout rule above.
 
 A heading whose annotation comment is missing on the next line is a CI
 blocker. `### ` annotations are required at the same density as `## `
 annotations — no author-judged granularity. The single exception is
-the bootstrap-block heading `## Reading workflow files (TOC protocol)`
-which sits above the H1 in workflow-related system prompts; the
-reindex script's exemption uses a literal-heading match.
+any heading whose literal text is `## Reading workflow files (TOC protocol)` —
+the bootstrap-block heading in workflow-related system prompts. The
+reindex script's exemption is a pure literal-text match (location-independent).
 
 ### (d) TOC region format
 
@@ -1067,13 +1073,22 @@ A Markdown table between literal `<!--Document index start-->` and
 `<!--Document index end-->` comment delimiters, sitting directly under
 the H1. The TOC's section list maps 1:1 to every `^## ` and `^### `
 heading in the file (the bootstrap heading is the sole exception, as
-above).
+above). A file with no `^## ` headings carries no TOC region (no rows
+to enumerate); the reindex script's rule 2 accepts an omitted TOC for
+such files. See design.md §"Files and surfaces out of scope" Exclusion 6
+for the rationale.
 
 Column order is fixed: `Section | Roles | Phases | Summary`. The
 summary cell reads from the section's annotation `summary="..."`
 field verbatim. `workflow-reindex.py --write` rebuilds the TOC table
 from the per-section annotation comments; the author does not maintain
 the TOC by hand.
+
+- Section cell carries the heading text prefixed with `§`, with the
+  `## ` / `### ` Markdown markers stripped (e.g., the heading
+  `## 1.8 Per-section role/phase annotations and TOC region` produces
+  the Section cell `§1.8 Per-section role/phase annotations and TOC region`).
+  Sub-section anchors `§X.Y(z)` follow the same convention.
 
 ### (e) Cross-reference convention
 
@@ -1095,6 +1110,7 @@ conventions.md:orchestrator,implementer:1,3A,3B,3C       # cross-file, hand-writ
 step-implementation.md:implementer:3B                    # cross-file, hand-written
 implementer-rules.md:implementer:3B,3C                   # cross-file, hand-written
 prompts/technical-review.md:reviewer-technical:3A        # cross-file, hand-written
+conventions.md§1.6(c):migrator:3A,3B,3C,4                # cross-file with sub-section, hand-written
 §1.6(c):migrator:3A,3B,3C,4                              # in-file, auto-stamped by --write
 §1.7:orchestrator,implementer,final-designer:3A,3B,3C,4  # in-file, auto-stamped by --write
 ```
@@ -1133,7 +1149,9 @@ The check does not catch citer-too-narrow drift (a valid subset that
 no longer matches the citer's intent), which stays a human-review
 concern. Sub-section refs resolve to that section's annotation
 directly; file-level refs without a section anchor resolve to the
-union of every section's annotations in the target file.
+union of every section's annotations in the target file. Refs inside
+fenced code blocks (including the worked example in (g)) are excluded
+from validation.
 
 **In-file drift detection.** When a target heading's annotation
 changes, every in-file ref to that heading goes stale until the next
@@ -1141,7 +1159,12 @@ changes, every in-file ref to that heading goes stale until the next
 suffixes that don't match their target's current annotation as a CI
 blocker; the fix is `workflow-reindex.py --write` (mechanical). Plain
 (unstamped) in-file refs are also a CI blocker — the author skipped
-the `--write` step before commit; the same fix applies.
+the `--write` step before commit; the same fix applies. An in-file
+ref whose `§X.Y(z)` anchor does not resolve to a real heading in the
+same file (typo, removed section) is also a CI blocker under rule 8;
+`--write` halts on unresolved anchors rather than auto-stamping the
+wrong target — the author hand-edits the citing prose to point at a
+real heading.
 
 ### (f) Read-decision flow
 

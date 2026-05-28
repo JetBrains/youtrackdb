@@ -63,7 +63,7 @@ The §1.8 prose must include the read-decision flow from `design.md §"Cross-ref
 
 - `.claude/workflow/conventions-execution.md` — not modified by this track.
 - `.claude/scripts/**` — Track 2 territory.
-- `prompts/**` — Track 3 territory.
+- `prompts/**` — `prompts/create-final-design.md` modified by Track 3 (telemetry-invocation block); full annotation rollout by Track 4.
 - Per-section annotation comments on §1.8 itself and its `### ` sub-sections. The annotation rollout for `conventions.md` is Track 4's territory (the universal rollout covers conventions.md, including §1.8, in a single coordinated pass). Track 1 authors §1.8's rule body but does not pre-annotate §1.8's own headings.
 
 ## Plan of Work
