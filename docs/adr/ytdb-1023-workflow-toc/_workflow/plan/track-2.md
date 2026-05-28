@@ -120,7 +120,7 @@ belong to one specific step. Per-step episode content lives in
 
 - `.claude/scripts/workflow-reindex.py` (new)
 - `.claude/scripts/tests/test_workflow_reindex.py` (new)
-- `.githooks/pre-commit` (new or extended)
+- `.githooks/pre-commit` (extended)
 - `.github/workflows/<existing or new>.yml` (modified)
 - `.claude/agents/review-workflow-context-budget.md` (modified)
 

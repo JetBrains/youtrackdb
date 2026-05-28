@@ -461,11 +461,11 @@ Per-feature telemetry only applies when each plan is executed in its own worktre
 
 ## CI gate semantics
 
-**TL;DR.** Two enforcement surfaces: a pre-commit hook (new) and a GitHub Actions step (new or extended). Both call `workflow-reindex.py --check`. Author fixes findings with `--write` (mechanical) plus hand-editing (annotations and enum-token corrections).
+**TL;DR.** Two enforcement surfaces: a pre-commit hook (extended) and a GitHub Actions step (new or extended). Both call `workflow-reindex.py --check`. Author fixes findings with `--write` (mechanical) plus hand-editing (annotations and enum-token corrections).
 
-### Pre-commit hook
+### Pre-commit hook (local enforcement surface)
 
-Lives at `.githooks/pre-commit` or as an extension of an existing hook. Runs against staged files only:
+Extends `.githooks/pre-commit` (existing Spotless block preserved, workflow-reindex check appended). The new block applies after Spotless and runs `workflow-reindex.py --check` against the staged set, scoped to Markdown under `.claude/workflow/`, `.claude/skills/`, or `.claude/agents/`:
 
 ```bash
 #!/bin/bash
@@ -497,7 +497,7 @@ PR fails when the script exits nonzero; the failure surfaces the specific files 
 
 ### Agent-side absorption
 
-`.claude/agents/review-workflow-context-budget.md` invokes the script during workflow-machinery PR review. The dim-track review for workflow-machinery diffs surfaces script findings as `WB1, WB2, ...` items.
+`.claude/agents/review-workflow-context-budget.md` invokes the script during workflow-machinery PR review. The dim-track review for workflow-machinery diffs surfaces script findings as `WB1, WB2, ...` items (the `WB<N>` prefix is introduced by Track 2 per D11; the agent emits it alongside the existing `Critical / Recommended / Minor` severity labels).
 
 ### Edge cases / Gotchas
 
@@ -508,6 +508,7 @@ PR fails when the script exits nonzero; the failure surfaces the specific files 
 ### References
 
 - D5: Reindex script at `.claude/scripts/workflow-reindex.py`, mechanical Python, no LLM.
+- D11: `WB<N>` prefix family for context-budget findings (introduced by Track 2).
 
 ## Migration replay semantics
 

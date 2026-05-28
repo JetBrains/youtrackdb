@@ -149,3 +149,16 @@ Plan + track propagation: (a) implementation-plan.md — D9 record added between
 - (none)
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 11 — 2026-05-28 — content-edit (design.md)
+
+**Diff summary**: Closes iteration-2 gate-verification residues CR8 (design-side) and CR10. CR8 aligns design.md §"CI gate semantics" TL;DR + §"Pre-commit hook" subsection opening with track-2.md's already-corrected "extended" framing — the `.githooks/pre-commit` file exists today as a Spotless runner gated on JetBrains/youtrackdb origin (CR5's iteration-1 fix landed in track-2.md but not in design.md). CR10 extends §"Agent-side absorption" with a parenthetical naming D11 as the introduction source of the `WB<N>` prefix, so a reader landing on design.md without crossing the plan or track-2 sees the introduction status. Iteration 1 mechanical surfaced a fragmented-header should-fix at the rewritten §"Pre-commit hook" subsection (50% heading-word overlap with the new one-line paragraph through `pre-commit`); fix was to rename the heading to `### Pre-commit hook (local enforcement surface)`, expanding heading content words from 2 to 5 and dropping overlap to 20%. The local-enforcement-surface qualifier also makes the parallel with §"GitHub Actions step" (the CI enforcement surface) explicit. A trailing D11 References-footer entry was added to close the inline-parenthetical cite per cold-read suggestion 1.
+
+**Mechanical checks** (target=design): iteration 1 surfaced 1 should-fix (fragmented-header at design.md:466). Iteration 2: PASS, 0 findings.
+
+**Cold-read** (scope: bounded — §"CI gate semantics" + §"Telemetry script" + §"Migration replay semantics" + §"Overview" + §"Core Concepts"): PASS, 2 suggestions logged. Suggestion 1 — append D11 cite to §"CI gate semantics" References footer — was applied (closes loop on the inline D11 parenthetical). Suggestion 2 — pre-commit-hook snippet at design.md:472 omits `--diff-filter=ACMR` while the gotcha at line 504 documents the requirement — carried forward as known debt; pre-existing and outside CR8/CR10 scope, fold into the next mutation that touches §"Pre-commit hook" subsection or §"Edge cases / Gotchas".
+
+**Findings**:
+- (none — all iteration-1 mechanical findings resolved; cold-read suggestions noted above)
+
+**Iterations**: 2 of 3 (PASS — iteration 1 mechanical surfaced the fragmented-header should-fix; iteration 2 fixed the heading expansion and re-ran clean).

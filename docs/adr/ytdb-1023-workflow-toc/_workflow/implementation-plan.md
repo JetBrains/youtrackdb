@@ -149,6 +149,7 @@ flowchart TD
 - **Rationale**: the workflow's other dim-review agents emit prefixed IDs (`CR<N>`, `S<N>`, `CQ<N>`, ...) so reviewers cite a specific finding in PR threads and follow-up commits (`Review fix: WB3 — ...`). The reindex script can surface dozens of low-severity items on a workflow-machinery diff; per-finding IDs let the author address them individually without re-quoting the body. The prefix lives alongside (not instead of) the severity labels — each finding stays under `Critical | Recommended | Minor` and additionally carries a `WB<N>` numeric ID.
 - **Risks/Caveats**: minor agent-prompt churn; PR threads citing the old severity-only format are not affected.
 - **Implemented in**: Track 2
+- **Full design**: design.md §"CI gate semantics" → §"Agent-side absorption"
 
 ### Invariants
 
@@ -162,7 +163,7 @@ flowchart TD
 
 ### Integration Points
 
-- Pre-commit hook (new) calls `workflow-reindex.py --check` and fails the commit when annotated files diverge from the schema.
+- Pre-commit hook (existing `.githooks/pre-commit` extended with a workflow-reindex block) calls `workflow-reindex.py --check` and fails the commit when annotated files diverge from the schema.
 - GitHub Actions workflow (new or extended) calls the same script with `--check` for PR validation.
 - `.claude/agents/review-workflow-context-budget.md` agent invokes the script during workflow-machinery code review.
 - `prompts/create-final-design.md` invokes `measure-read-share.py` before writing `adr.md`; the output is embedded as a standard section.
@@ -202,9 +203,6 @@ flowchart TD
 
 ## Plan Review
 - [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
-
-**PAUSED 2026-05-28 at State 0 mid-flight pending consistency-gate verification + structural review**
-- Handoff: `_workflow/handoff-state0.md`
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
