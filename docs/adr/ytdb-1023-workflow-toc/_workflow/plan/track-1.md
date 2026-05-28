@@ -37,7 +37,7 @@ summary at Phase C. -->
 Schema content already locked during Phase 0 research:
 
 - **Role enum, 15 values** — see `design.md §"Role and phase enums"` for the full list and per-value descriptions.
-- **Phase enum, 10 values** — `0`, `1`, `1a`, `1b`, `2`, `3A`, `3B`, `3C`, `4`, `any`. `1a` and `1b` reserved for YTDB-975.
+- **Phase enum, 8 values** — `0`, `1`, `2`, `3A`, `3B`, `3C`, `4`, `any`.
 - **Annotation idiom** — HTML comment on the line after every `##`/`###` heading, carrying `roles=`, `phases=`, `summary="..."`.
 - **TOC region format** — Markdown table between `<!--Document index start-->` and `<!--Document index end-->` directly under H1.
 - **Cross-reference convention** — `name.md:roles:phases` suffix on inline workflow-doc refs.
@@ -81,7 +81,7 @@ Phase 1; Phase A does not populate. -->
 
 After this track lands:
 
-- `conventions.md §1.8` exists and contains the full schema: role enum (15 values), phase enum (10 values with `1a`/`1b` flagged as reserved), annotation idiom + TOC format, cross-reference convention.
+- `conventions.md §1.8` exists and contains the full schema: role enum (15 values), phase enum (8 values), annotation idiom + TOC format, cross-reference convention.
 - `conventions.md §1.1` glossary has rows for the new load-bearing terms, each pointing at §1.8.
 - The §1.8 section itself carries a TOC entry (the file's existing TOC region or one introduced as part of this track's worked example).
 - A reader new to the schema can author a per-section annotation by reading §1.8 alone, without needing to consult `design.md` or this track file.

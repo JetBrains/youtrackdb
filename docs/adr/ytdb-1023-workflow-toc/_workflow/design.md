@@ -23,9 +23,9 @@ This design introduces eight load-bearing ideas. Each is named and used without 
 
 **Role enum.** 15 values naming every distinct calling agent across the workflow: `orchestrator`, `planner`, `implementer`, `decomposer`, `final-designer`, `migrator`, `pr-reviewer`, `reviewer-technical`, `reviewer-risk`, `reviewer-adversarial`, `reviewer-plan`, `reviewer-design`, `reviewer-dim-step`, `reviewer-dim-track`, `any`. Locked in `§1.8`. → §"Role and phase enums".
 
-**Phase enum.** 10 values naming the workflow's phase taxonomy: `0`, `1`, `1a`, `1b`, `2`, `3A`, `3B`, `3C`, `4`, `any`. `1a` and `1b` are reserved for YTDB-975 (in flight) and carry no annotations at rollout. → §"Role and phase enums".
+**Phase enum.** 8 values naming the workflow's phase taxonomy: `0`, `1`, `2`, `3A`, `3B`, `3C`, `4`, `any`. → §"Role and phase enums".
 
-**Cross-reference convention.** Workflow-doc references carry a `roles:phases` suffix so the reader can filter before opening or jumping. Cross-file refs (in SKILL.md startup read-lists and in `.claude/agents/*.md`) use the full `name.md:roles:phases` form and are hand-written. In-file refs (`§X.Y` and `§X.Y(z)` inside a workflow doc) use the shorter `§X.Y(z):roles:phases` form and are **auto-stamped** by `workflow-reindex.py --write` from the target heading's annotation. `CLAUDE.md` is intentionally excluded (general-purpose, not workflow-specific). → §"Cross-reference convention".
+**Cross-reference convention.** Workflow-doc references carry a `roles:phases` suffix so the reader can filter before opening or jumping. Cross-file refs (in SKILL.md startup read-lists and in `.claude/agents/*.md`) use the full `name.md:roles:phases` form and are hand-written, with the script subset-validating each citer's slice against the target heading's current annotation. In-file refs (`§X.Y` and `§X.Y(z)` inside a workflow doc) use the shorter `§X.Y(z):roles:phases` form and are **auto-stamped** by `workflow-reindex.py --write` from the target heading's annotation. `CLAUDE.md` is intentionally excluded (general-purpose, not workflow-specific). → §"Cross-reference convention".
 
 **Bootstrap block.** An instruction block at the top of every workflow-related system prompt — between frontmatter and main body — that names the agent's role and explains the TOC-aware reading protocol in ≤30 lines. Scope: 7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` (38 files total). Closes the chicken-and-egg gap: the cross-ref protocol is defined in `conventions.md §1.8`, but an agent that does not know the protocol would Read §1.8 in full to learn it. → §"Bootstrap protocol for agent system prompts".
 
@@ -84,8 +84,8 @@ The exclusions are scattered across the document by the mechanism sections that 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §1.1 Glossary | any | any | Workflow vocabulary, controlled enums. |
-| §1.6 Workflow-SHA stamps | orchestrator, migrator | 1,1a,1b,3A,3B,3C,4 | Stamp format, computation, range, unstamped protocol. |
-| §1.6(a) Format definition | orchestrator, migrator | 1,1a,1b,3A,3B,3C,4 | Stamp regex, line-1 position contract. |
+| §1.6 Workflow-SHA stamps | orchestrator, migrator | 1,3A,3B,3C,4 | Stamp format, computation, range, unstamped protocol. |
+| §1.6(a) Format definition | orchestrator, migrator | 1,3A,3B,3C,4 | Stamp regex, line-1 position contract. |
 | §1.6(c) Stamp range definition | migrator | 3A,3B,3C,4 | BASE_SHA..HEAD range, pairwise merge-base fold. |
 | §1.7 Staging for workflow-modifying branches | orchestrator, implementer, final-designer | 3A,3B,3C,4 | Staged subtree path layout, marker, reads precedence. |
 <!--Document index end-->
@@ -119,7 +119,7 @@ The annotation comment lives on the line **immediately after** the heading. A re
 
 ## Role and phase enums
 
-**TL;DR.** Two locked enums in `conventions.md §1.8`. 15 roles cover every distinct calling agent across the workflow; 10 phases cover the workflow's phase taxonomy with two slots reserved for YTDB-975 in flight.
+**TL;DR.** Both vocabularies live in `conventions.md §1.8` and are closed at rollout: 15 values name every distinct calling agent across the workflow, 8 values name the workflow's phase taxonomy. Out-of-enum tokens fail CI; future additions require a workflow-format commit.
 
 ### Role enum (15 values)
 
@@ -143,13 +143,11 @@ reviewer-dim-track  — Phase 3C track-level dimensional reviewers (same 10 + co
 
 `reviewer-plan` folds the Phase 2 consistency and structural reviewers into one tag because the pair always run together and the only files that address them separately are their own prompt files (which a sub-agent reads as its own system prompt, so the role tag is moot at that read site). The 6 `review-workflow-*` agents activate as scope-flagged variants of `reviewer-dim-step` / `reviewer-dim-track`; no separate role.
 
-### Phase enum (10 values)
+### Phase enum (8 values)
 
 ```
 0    Research                              (/create-plan interactive exploration)
 1    Planning                              (/create-plan plan + design authoring)
-1a   Per-mutation review                   (reserved for YTDB-975 in flight)
-1b   Plan derivation                       (reserved for YTDB-975 in flight)
 2    Plan Review                           (autonomous, /execute-tracks State 0)
 3A   Track Review + Decomposition
 3B   Step Implementation
@@ -159,20 +157,18 @@ reviewer-dim-track  — Phase 3C track-level dimensional reviewers (same 10 + co
 any  Wildcard
 ```
 
-`1a` and `1b` carry zero annotations at rollout because YTDB-975 (which introduces the Phase 1 sub-split) is on a parallel branch (`ytdb-965-dd-decision-log`) and has not merged to `develop`. The slots stay reserved so YTDB-975's eventual landing on `develop` does not force a second workflow-format commit.
-
 ### Cross-cutting flows
 
 The phase taxonomy does NOT carve out separate tokens for ESCALATE / inline-replanning (runs within Phase 3A or 3C; tag `phases=3A,3C`), review mode (Track Pre-Flight in 3A or Track Completion in 3C; same tag), or `edit-design` mutations (Phase 1, 3A, 3C, 4; tag the union). `/migrate-workflow` and `/review-workflow-pr` sit outside the phase taxonomy and use `phases=any`.
 
 ### Edge cases / Gotchas
 
-- The CI gate accepts enum tokens with zero in-file users — `1a` and `1b` at rollout, future enum additions before their first author.
+- The CI gate accepts enum tokens with zero in-file users — future enum additions before their first author.
 - Comma-separated lists must not contain spaces (`roles=orchestrator,implementer`, not `roles=orchestrator, implementer`). The script's regex enforces this.
 
 ### References
 
-- D1: Lock the enum at 15 roles + 10 phases (with 1a/1b reserved).
+- D1: Lock the enum at 15 roles + 8 phases.
 
 ## Cross-reference convention
 
@@ -223,6 +219,8 @@ In-file `§X.Y` and `§X.Y(z)` references inside any in-scope workflow doc are a
 
 **Why auto-stamp in-file but hand-write cross-file.** Two forces pull in opposite directions. Cross-file refs are fewer per file (typically one startup read-list per SKILL.md plus a small outgoing-ref set per agent file) and the citer often cares about a narrow slice of the target's role/phase set, not the full set, so hand-writing the suffix lets the citer record what they care about. In-file refs are common, the target's annotation lives in the same file (so resolving the suffix is mechanical and unambiguous), and the citer almost always means "the target's full annotation" rather than a narrow slice, so auto-stamping eliminates author burden and keeps the suffix in sync with target drift mechanically.
 
+**Cross-file drift detection.** Hand-writing the cross-file suffix preserves the citer's narrower-slice expressiveness; the script subset-validates the slice against the target heading's current annotation (`citer.roles ⊆ target.roles` AND `citer.phases ⊆ target.phases`). Equality is not required — narrower is the design contract. A subset violation surfaces when a target's annotation is tightened (a role removed, a phase dropped) and the citer's slice falls out of subset; the CI error names both sides so the author decides whether to widen the citer or restore the target. The check does not catch citer-too-narrow drift (a valid subset that no longer matches the citer's intent), which stays a human-review concern. Sub-section refs (`name.md§X.Y(z):...`) resolve to that section's annotation directly; file-level refs without a section anchor resolve to the union of every section's annotations in the target file.
+
 **Drift detection.** When a target heading's annotation changes (a role added, a phase tightened), every in-file ref to that heading goes stale until the next `--write` rewrites them. The reindex script's rule 8 (new) flags stamped suffixes that don't match their target's current annotation as a CI blocker; the fix is `workflow-reindex.py --write` (mechanical). Plain (unstamped) in-file refs are also a CI blocker — the author skipped the `--write` step before commit; the same fix applies.
 
 **Cross-file precision.** Cross-file refs may pin a specific sub-section by appending `§X.Y(z)` after the filename: `conventions.md§1.6(c):migrator:3A,3B,3C,4`. Sub-section precision in cross-file form stays hand-written — the cross-file roles/phases describe the citer's slice of the target, not the target's full annotation, so auto-derivation would defeat the precision the citer wanted to express.
@@ -232,7 +230,7 @@ In-file `§X.Y` and `§X.Y(z)` references inside any in-scope workflow doc are a
 ### Edge cases / Gotchas
 
 - A reference without the `:roles:phases` suffix in scope of the CI gate is a blocker after Track 5 lands.
-- The suffix's roles/phases on a cross-file ref describe **the sections the citer cares about**, not every section of the referenced file. A reference can list a narrow subset; the reader still opens the TOC and decides per-section.
+- The suffix's roles/phases on a cross-file ref describe **the sections the citer cares about**, not every section of the referenced file. A reference can list a narrow subset; the reader still opens the TOC and decides per-section. The script's rule 6 subset-validates the citer's slice against the target heading's current annotation, so a citer that drifts out of subset after a target edit fails CI.
 - The suffix's roles/phases on an in-file ref describe **the target heading's current annotation**, not the citer's narrow slice. The `--write` mode rewrites them mechanically; the author does not edit the stamped form by hand.
 - A cross-file ref pinning a sub-section (`conventions.md§1.6(c):roles:phases`) stays hand-written even though the section anchor matches in-file shape. The hand-vs-auto split is on cross-file vs in-file, not on the presence of `§X.Y(z)`.
 - A reference inside fenced code blocks or example text is excluded from the CI gate by surrounding context (the gate's regex respects code-fence boundaries). The auto-stamp `--write` mode applies the same code-fence exclusion to avoid rewriting refs that appear in example blocks.
@@ -243,6 +241,7 @@ In-file `§X.Y` and `§X.Y(z)` references inside any in-scope workflow doc are a
 - D2: Per-section annotation as HTML comment on the line after the heading.
 - D6: Agent files get refs-only suffix sweep plus bootstrap block (no per-section annotations).
 - D9: In-file `§X.Y(z)` references auto-stamped by the reindex script with target-derived suffix.
+- D10: Subset-validate cross-file ref suffixes against target annotations.
 
 ## Bootstrap protocol for agent system prompts
 
@@ -330,7 +329,7 @@ For every in-scope file:
 3. **TOC matches annotations.** Every `^## ` and `^### ` heading has a TOC row; every TOC row maps to a real heading. The `--write` mode rebuilds the TOC from the annotations. **Exempt:** the bootstrap-block heading `## Reading workflow files (TOC protocol)` is excluded by literal-heading match (see §"Bootstrap protocol" → §"Block placement and stability").
 4. **Annotation present after every `## ` and every `### ` heading.** No author-judged granularity — `### ` annotations are required at the same density as `## ` annotations. A `## ` or `### ` heading without an annotation comment on the next line is a CI blocker. **Exempt:** same literal-heading match as rule 3.
 5. **Annotation fields well-formed.** `roles=`, `phases=`, `summary="..."`. All tokens drawn from the locked enums (script reads the enums from `conventions.md §1.8`).
-6. **Cross-file reference suffix (hand-written).** Every workflow-doc reference in `.claude/skills/*/SKILL.md` (the startup read-list and the body) and in `.claude/agents/*.md` carries the `name.md:roles:phases` suffix. The author hand-writes the suffix; the script verifies presence but does not derive the value (cross-file refs describe the citer's narrow slice of the target, not the target's full annotation). Refs inside fenced code blocks are excluded. `CLAUDE.md` is explicitly out of scope (general-purpose, not workflow-specific).
+6. **Cross-file reference suffix (hand-written, subset-validated).** Every workflow-doc reference in `.claude/skills/*/SKILL.md` (the startup read-list and the body) and in `.claude/agents/*.md` carries the `name.md:roles:phases` suffix. The author hand-writes the suffix; the script verifies presence and subset validity. **Subset check:** for each cross-file ref, the citer's `roles` must be a subset of the target heading's current `roles=...`, and the citer's `phases` must be a subset of the target heading's current `phases=...`. Equality is not required — the citer's slice may be narrower than the target's full annotation (the hand-written form's whole point per D9 / D10). Citer-not-a-subset is a CI blocker; the fix is either widen the citer's slice or revisit the target's annotation. **Sub-section resolution:** a ref pinning a sub-section (`name.md§X.Y(z):...`) resolves to that section's annotation directly. **File-level refs:** a ref without an anchor (`name.md:roles:phases`) resolves to the union of every section's annotations in the target file; the citer's slice must be a subset of the union. Refs inside fenced code blocks are excluded. `CLAUDE.md` is explicitly out of scope (general-purpose, not workflow-specific).
 7. **Bootstrap block presence on workflow-related system prompts.** Each of the 7 in-scope SKILL.md files (`create-plan`, `execute-tracks`, `edit-design`, `migrate-workflow`, `review-workflow-pr`, `review-plan`, `code-review`), each of the 11 `.claude/workflow/prompts/*.md` files, and each of the 20 `.claude/agents/*.md` files carries the bootstrap block at the top, identifiable by the literal heading `## Reading workflow files (TOC protocol)`. The check is presence-only; block body is hand-written and not validated.
 8. **In-file reference suffix (auto-stamped).** Every in-file `§X.Y` and `§X.Y(z)` reference inside an in-scope workflow doc carries the matching `:roles:phases` suffix derived from the target heading's annotation. Two failure modes are blockers: (a) an unstamped plain ref (the author skipped `--write`), (b) a stamped ref whose suffix doesn't match the target heading's current annotation (target drift). Both fix the same way: `workflow-reindex.py --write` rewrites every in-file ref from the current annotations. Refs to a heading that does not exist (typo, removed section) are also a blocker. Refs inside fenced code blocks and example text are excluded from both `--check` validation and `--write` rewriting.
 
@@ -350,9 +349,10 @@ Findings printed as one line per file:
 .claude/workflow/conventions.md:215:in-file-ref: §1.6(c) is unstamped — run --write
 .claude/workflow/conventions.md:298:in-file-ref: §1.7 stamped suffix migrator:3A drifted from target's current annotation orchestrator,implementer,final-designer:3A,3B,3C,4 — run --write
 .claude/workflow/implementer-rules.md:412:in-file-ref: §9.4(c) does not resolve to any heading in this file
+.claude/agents/some-agent.md:42:cross-file-ref: conventions.md§1.6:migrator:3A,4 — citer's phase 4 not in target's current phases 3A,3B,3C — widen citer or restore target
 ```
 
-Path:line:category: explanation. The `in-file-ref:` category covers unstamped, drifted, and unresolved refs. Author runs `--write` to fix the first two (mechanical); the third requires hand-editing the citing prose to point at a real heading.
+Path:line:category: explanation. The `in-file-ref:` category covers unstamped, drifted, and unresolved refs (author runs `--write` to fix the first two; the third requires hand-editing the citing prose to point at a real heading). The `cross-file-ref:` category covers subset violations (citer's roles or phases not in the target's annotation), unresolved targets (cited heading doesn't exist), and missing suffix (author skipped the hand-write). Subset violations are fixed by hand-editing either the citer (widen the slice) or the target's annotation (restore the token); `--write` does not touch cross-file refs.
 
 ### `--write` semantics
 
@@ -370,11 +370,13 @@ Path:line:category: explanation. The `in-file-ref:` category covers unstamped, d
 - Pre-commit hook runs the script only on staged files in scope; CI runs against the full file set.
 - The hand-vs-auto split for ref suffixes follows cross-file vs in-file, not the presence of `§X.Y(z)`. A cross-file ref that pins a sub-section (`conventions.md§1.6(c):migrator:3A,3B,3C,4`) stays hand-written; the script's `--write` mode does not touch cross-file refs even when they carry a section anchor.
 - An in-file ref that drifts because the target heading's annotation changed lands as a `--check` blocker on the very next CI run after the target's annotation edit — the fix loop is `--write` (one mechanical pass).
+- A cross-file ref subset violation that arises because the target's annotation was tightened (a role removed, a phase dropped) lands as a `--check` blocker on the next CI run. The fix is **not** `--write` (it doesn't touch cross-file refs); the author must either widen the citer's slice in the SKILL.md / agent file or restore the target's annotation. The error message names both sides so the choice is informed.
 
 ### References
 
 - D5: Reindex script at `.claude/scripts/workflow-reindex.py`, mechanical Python, no LLM.
 - D9: In-file `§X.Y(z)` references auto-stamped by the reindex script with target-derived suffix.
+- D10: Subset-validate cross-file ref suffixes against target annotations.
 
 ## Telemetry script
 
