@@ -1,5 +1,5 @@
 <!-- workflow-sha: 676179cb82295cf15977823a415d5f5476e42526 -->
-# Track 4: Universal annotation rollout (46 files)
+# Track 4: Universal annotation rollout (49 files)
 
 ## Purpose / Big Picture
 
@@ -7,7 +7,7 @@ After this track lands, every in-scope workflow doc and skill file carries a TOC
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Author per-section TOC + annotations for every in-scope file: 30 under `.claude/workflow/`, 9 under `.claude/workflow/prompts/`, and 7 workflow-referencing skill files. ~600 annotations, all author-written. Run `workflow-reindex.py --write` to scaffold TOC tables, then hand-correct per-section `roles=`, `phases=`, `summary=`. Land in a single logical batch so the schema becomes universally applicable on one commit (or a small adjacent group; squash-merge collapses anyway).
+Author per-section TOC + annotations for every in-scope file: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, and 7 workflow-referencing skill files. ~600 annotations, all author-written. Run `workflow-reindex.py --write` to scaffold TOC tables, then hand-correct per-section `roles=`, `phases=`, `summary=`. Land in a single logical batch so the schema becomes universally applicable on one commit (or a small adjacent group; squash-merge collapses anyway).
 
 ## Progress
 - [ ] Review + decomposition
@@ -34,13 +34,11 @@ summary at Phase C. -->
 
 The file set as enumerated during Phase 0 research:
 
-**`.claude/workflow/` root (30 files):**
+**`.claude/workflow/` root (31 files):**
 branch-divergence-check.md, code-review-protocol.md, commit-conventions.md, conventions-execution.md, conventions.md, defensive-push-check.md, design-decision-escalation.md, design-document-rules.md, ephemeral-identifier-rule.md, episode-format-reference.md, finding-synthesis-recipe.md, implementation-review.md, implementer-rules.md, inline-replanning.md, mid-phase-handoff.md, planning.md, plan-slim-rendering.md, research.md, review-agent-selection.md, review-iteration.md, review-mode.md, risk-tagging.md, self-improvement-reflection.md, step-implementation.md, step-implementation-recovery.md, structural-review.md, track-code-review.md, track-review.md, track-skip.md, workflow-drift-check.md, workflow.md.
 
-**`.claude/workflow/prompts/` (9 files):**
+**`.claude/workflow/prompts/` (11 files):**
 adversarial-review.md, consistency-gate-verification.md, consistency-review.md, create-final-design.md, design-review.md, dimensional-review-gate-check.md, review-gate-verification.md, risk-review.md, structural-gate-verification.md, structural-review.md, technical-review.md.
-
-(Note: the prompts directory has 11 files per `ls` output during research; the spec budget of 9 reflects a research-time count that should be reconciled to the actual 11 during Phase A.)
 
 **Workflow-referencing skills (7 files):**
 - `.claude/skills/create-plan/SKILL.md` (17 workflow-doc refs)
@@ -51,13 +49,13 @@ adversarial-review.md, consistency-gate-verification.md, consistency-review.md, 
 - `.claude/skills/review-plan/SKILL.md` (7 refs)
 - `.claude/skills/code-review/SKILL.md` (3 refs; borderline)
 
-All 46 files route through §1.7 staging because they're under `.claude/workflow/**` or `.claude/skills/**`.
+All 49 files route through §1.7 staging because they're under `.claude/workflow/**` or `.claude/skills/**`.
 
 Section counts vary widely. `conventions.md` has ~10 H2 sections plus many H3s; smaller files like `track-skip.md` may have 2–3 H2s. Every `##` and every `###` heading carries an annotation per the locked density rule (no author-judged granularity; the bootstrap-block heading is the sole literal-heading exception). Annotation count estimate (~600) is the upper bound from per-file heading inventories.
 
 ### Files in scope
 
-All 46 enumerated above. Staged copies under `_workflow/staged-workflow/.claude/workflow/**` and `_workflow/staged-workflow/.claude/skills/**`.
+All 49 enumerated above. Staged copies under `_workflow/staged-workflow/.claude/workflow/**` and `_workflow/staged-workflow/.claude/skills/**`.
 
 ### Files out of scope
 
@@ -71,7 +69,7 @@ The track lands in six steps grouped by file batch:
 
 1. **Workflow root, first half (~15 files).** Annotate the largest / most-referenced files first: `conventions.md`, `workflow.md`, `step-implementation.md`, `track-code-review.md`, `conventions-execution.md`, `track-review.md`, `implementer-rules.md`, `design-document-rules.md`, `planning.md`, `review-iteration.md`, `self-improvement-reflection.md`, `implementation-review.md`, `workflow-drift-check.md`, `structural-review.md`, `plan-slim-rendering.md`. For each: run `workflow-reindex.py --write` to scaffold the TOC, then author per-section `roles=`, `phases=`, `summary=` decisions.
 2. **Workflow root, second half (~15 files).** Annotate the remaining 15 root files. Same procedure.
-3. **Prompts (9–11 files).** Annotate every prompt under `.claude/workflow/prompts/`. Prompts are typically shorter than rules; faster batch.
+3. **Prompts (11 files).** Annotate every prompt under `.claude/workflow/prompts/`. Prompts are typically shorter than rules; faster batch.
 4. **Skills (7 files).** Annotate the 7 workflow-referencing skill files. Skill files have a specific shape (frontmatter + skill prose); the annotation idiom applies after the frontmatter block.
 5. **Validation pass.** Run `python3 .claude/scripts/workflow-reindex.py --check` against the full file set. Fix any findings (mostly enum-token typos, TOC drift). Iterate until clean.
 6. **House-style sweep.** Run a final pass against the annotation summary text — every `summary="..."` must follow house style (no banned vocabulary). Re-run the reindex check; close the track.
@@ -100,7 +98,7 @@ Phase 1; Phase A does not populate. -->
 
 After this track lands:
 
-- Every in-scope file (46 total) carries a TOC region directly under H1.
+- Every in-scope file (49 total) carries a TOC region directly under H1.
 - Every `^##` heading in every in-scope file is followed by an annotation comment.
 - `python3 .claude/scripts/workflow-reindex.py --check` exits 0 across the full file set.
 - Annotation summary text passes house-style review (no banned vocabulary, ≤120 chars, plain prose).
@@ -124,7 +122,7 @@ belong to one specific step. Per-step episode content lives in
 
 ### In-scope file set
 
-All 46 files enumerated above. Staged copies under `_workflow/staged-workflow/`.
+All 49 files enumerated above. Staged copies under `_workflow/staged-workflow/`.
 
 ### Out-of-scope
 

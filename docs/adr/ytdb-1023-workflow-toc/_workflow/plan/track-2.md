@@ -42,7 +42,7 @@ summary at Phase C. -->
 
 CI today runs no workflow-doc validation (`find .github -type f | xargs grep -l workflow` returns empty for workflow-doc references). The CI integration in this track is greenfield: either a new GitHub Actions workflow file or a new step in an existing workflow.
 
-Pre-commit hooks: `.githooks/prepare-commit-msg` exists for issue-prefix auto-prepending. No pre-commit hook chain exists for workflow files. This track adds one — either at `.githooks/pre-commit` or extending the existing setup.
+Pre-commit hooks: `.githooks/prepare-commit-msg` exists for issue-prefix auto-prepending. `.githooks/pre-commit` already exists as a Spotless runner for staged Java files (gated on the JetBrains/youtrackdb origin). No workflow-file gating runs from it today. This track extends the existing `.githooks/pre-commit` by appending a second block that runs the reindex script on staged workflow files; the Spotless block is preserved.
 
 The `review-workflow-context-budget` agent at `.claude/agents/review-workflow-context-budget.md` is the audit absorber per YTDB-1023. Current agent definition reviews "always-loaded surface, load-on-demand discipline, and instant per-operation consumption". This track extends the agent's responsibilities to include:
 
@@ -53,7 +53,7 @@ The `review-workflow-context-budget` agent at `.claude/agents/review-workflow-co
 
 - `.claude/scripts/workflow-reindex.py` — new file, live path (scripts are not staged per §1.7).
 - `.claude/scripts/tests/test_workflow_reindex.py` — new test file, live path.
-- `.githooks/pre-commit` — new file (or extension of existing), live path.
+- `.githooks/pre-commit` — extended (existing Spotless block preserved, workflow-reindex check appended), live path.
 - `.github/workflows/<existing or new>.yml` — CI step added, live path.
 - `.claude/agents/review-workflow-context-budget.md` — updated, live path (agents are not staged per §1.7).
 
@@ -97,7 +97,7 @@ After this track lands:
 - `python3 .claude/scripts/workflow-reindex.py --write` rebuilds TOCs idempotently.
 - Pre-commit hook fires on staged workflow files and blocks commits with findings.
 - GitHub Actions step fires on PRs touching in-scope files and fails the PR with the same findings.
-- `.claude/agents/review-workflow-context-budget.md` carries instructions to invoke the script during workflow-machinery review; agent's finding prefix `WB...` covers script-surfaced items.
+- `.claude/agents/review-workflow-context-budget.md` carries instructions to invoke the script during workflow-machinery review; the agent emits a per-finding `WB<N>` numeric prefix on script-surfaced items, introduced by this track (D11) under the existing `Critical / Recommended / Minor` severity labels.
 - Tests under `.claude/scripts/tests/test_workflow_reindex.py` cover the validation matrix and pass cleanly.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
@@ -139,4 +139,4 @@ belong to one specific step. Per-step episode content lives in
 ### Library/function signatures touched
 
 - `workflow-reindex.py` exports CLI: `--check` (exit 0/1/2), `--write` (in-place TOC rebuild), `--files <space-separated>` (scope to listed files; used by pre-commit hook). No public Python API; all interaction is CLI.
-- `review-workflow-context-budget.md` agent system prompt: section added/extended that invokes the script. Finding prefix stays `WB...`.
+- `review-workflow-context-budget.md` agent system prompt: section added/extended that invokes the script. The agent's output gains a per-finding `WB<N>` prefix introduced by this track (D11), emitted alongside the existing `Critical / Recommended / Minor` severity labels.

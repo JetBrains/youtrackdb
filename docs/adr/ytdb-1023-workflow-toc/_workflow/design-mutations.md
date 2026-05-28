@@ -123,3 +123,29 @@ Plan + track propagation: (a) implementation-plan.md — D9 record added between
 - suggestion (cold-read iteration 1, logged not applied): The sub-section resolution rule and file-level union rule are stated in both the "Cross-file drift detection" paragraph and rule 6, with slightly different wording. The two statements agree on substance today; a future edit that tightens one and forgets the other would create a contradiction. Reviewer recommended canonicalizing on rule 6 (script-implementation detail) and cross-referencing from "Cross-file drift detection". Carried forward as low-priority polish; if a future mutation touches either site, fold the duplication then.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 9 — 2026-05-28 — content-edit (design.md)
+
+**Diff summary**: Corrected `§"Files and surfaces out of scope"` TL;DR's `.claude/workflow/` doc count from `30` to `31` to match the actual directory. Triggered by Phase 2 consistency-review finding CR3, which observed the same drift across implementation-plan.md (Component Map node label, Annotated content bullet, Track 4 entry header + body) and `plan/track-4.md` (title, purpose, files-in-scope section). The plan-side counts were corrected via `Edit` in the same Phase 2 fix batch; this mutation lines design.md up with the corrected plan.
+
+**Mechanical checks** (target=design): iteration 1 surfaced a pre-existing blocker at `implementation-plan.md:145` — D10's `**Full design**` line cited `design.md §"Cross-reference convention" → §"In-file reference auto-stamping" → §"Cross-file drift detection"`, but the third level is a bold-paragraph subsection inside the auto-stamping H3, not a heading; the full-design-link-resolution check could not resolve it. The plan ref was rewritten to drop the unresolvable third level and name the bold-paragraph subsection in parenthetical prose instead: `... → §"In-file reference auto-stamping" (the "Cross-file drift detection" bold paragraph inside)`. Iteration 2: PASS, 0 findings.
+
+**Cold-read** (scope: bounded — `Files and surfaces out of scope` + `Overview` + `Core Concepts` + `Annotation idiom and TOC region`): PASS on iteration 1, 0 findings. The cold-read verified the changed TL;DR is internally coherent at 31, no surrounding section carries a contradictory file count, the bootstrap-scope quadruple (7/11/20 → 38) in Overview and Core Concepts is unaffected, and every `**Full design**` ref in the plan resolves to an existing `##` heading in design.md.
+
+**Findings**:
+- (none)
+
+**Iterations**: 2 of 3 (PASS — iteration 1 mechanical surfaced the pre-existing D10 link blocker; iteration 2 fixed the plan ref and re-ran clean).
+
+## Mutation 10 — 2026-05-28 — content-edit (design.md)
+
+**Diff summary**: Rewrote `§"Telemetry script"` → `§"Phase 4 integration"` and one `### Edge cases / Gotchas` bullet to reflect that the telemetry script's invocation hooks into `create-final-design.md` Step 3 §"Artifact 2: ADR" (the adr.md-write step), not Step 5 (the final-artifacts commit step). Triggered by Phase 2 consistency-review finding CR1 (a real blocker: the live prompt's Step 5 only stages files already on disk, so the previous wording "runs in Step 5 before writing adr.md" described an impossible execution). The companion `track-3.md` step-number rewrites land in the same Phase 2 fix batch (Step 4 description + Context-and-Orientation + Validation + Library/function signatures). The edge case bullet on workflow-modifying plans now acknowledges that telemetry in Step 3 precedes the promote-staged-workflow commit in Step 4 and explains that the script measures session-transcript token usage rather than on-disk workflow state, so the timing affects session-event coverage rather than measurement substance.
+
+**Mechanical checks** (target=design): PASS on iteration 1 — 0 findings.
+
+**Cold-read** (scope: whole-doc — periodic counter triggered at 10th mutation): PASS on iteration 1, 0 findings. The cold-read verified that the rewritten Phase 4 integration paragraph is internally consistent with §"Telemetry script" §"Edge cases / Gotchas" bullet on the same execution-order point, that `§"Migration replay semantics"` describes a separate axis (branch artifact migration vs. intra-session step ordering) without contradiction, and that every `**Full design**` reference in the plan and track files resolves to a real `^##` or `^###` heading in design.md. The Step 3 / Step 4 / Step 5 vocabulary stays unambiguous because line 449 explicitly disqualifies Step 5 ("only stages files already on disk") and line 588 names Step 4 separately as the promote-staged-workflow commit.
+
+**Findings**:
+- (none)
+
+**Iterations**: 1 of 3 (PASS).

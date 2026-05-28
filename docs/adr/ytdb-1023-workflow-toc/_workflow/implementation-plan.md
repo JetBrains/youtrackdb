@@ -44,8 +44,8 @@ flowchart TD
     end
 
     subgraph Annotated["Annotated content (Track 4)"]
-        WF[".claude/workflow/**<br/>30 files"]
-        PR["prompts/**<br/>9 files"]
+        WF[".claude/workflow/**<br/>31 files"]
+        PR["prompts/**<br/>11 files"]
         SK["7 workflow-<br/>referencing skills"]
     end
 
@@ -63,13 +63,12 @@ flowchart TD
     REINDEX --> CI
     REINDEX --> BUDGET
     Annotated --> Tail
-    TELE --> CMD
 ```
 
 - **Schema layer (Track 1)** — `conventions.md §1.8` is the foundation. Locks the role enum (15 values), phase enum (10 values), per-section annotation idiom, TOC region format, and cross-reference convention. Every other component reads from it.
 - **Reindex script + audit agent (Track 2)** — `workflow-reindex.py` is the mechanical Python script that scrapes annotations, rebuilds TOCs, and validates enum tokens. Modes: `--check` (CI / pre-commit) and `--write` (author rebuild). The `review-workflow-context-budget` agent absorbs the audit at PR review time.
 - **Telemetry script (Track 3)** — `measure-read-share.py` runs once per Phase 4 ADR creation, from the worktree only. Computes a percentages-only Read% snapshot over the worktree's transcript lifetime; embeds the output in `adr.md`. Updates `prompts/create-final-design.md` to invoke it.
-- **Annotated content (Track 4)** — single-commit-style universal rollout of TOC + per-section annotations across 46 files. ~600 annotations, all author-written.
+- **Annotated content (Track 4)** — single-commit-style universal rollout of TOC + per-section annotations across 49 files. ~600 annotations, all author-written.
 - **Tail (Track 5)** — Bootstrap block insertion across 38 system-prompt files (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md`) plus the `:roles:phases` cross-reference suffix sweep on agent files and SKILL.md startup read-lists. `CLAUDE.md` is intentionally out of scope (general-purpose project guide, not workflow-specific). Migration replay verification on two active branches closes the acceptance criterion.
 
 #### D1: Lock the enum at 15 roles + 8 phases
@@ -110,6 +109,7 @@ flowchart TD
 - **Rationale**: agent `.md` files are loaded as system prompts when sub-agents spawn. The Read tool never opens them, so per-section annotations would not save Read-tool tokens. Outgoing workflow-doc refs still benefit from the `:roles:phases` suffix. A bootstrap block at the top of each agent file teaches the spawned sub-agent the TOC-aware reading protocol before its first workflow-file Read.
 - **Risks/Caveats**: structural asymmetry in the codebase (some `.md` files carry TOC, some don't). Mitigated by the schema enumerating which file paths get TOC annotations and which carry the bootstrap.
 - **Implemented in**: Track 5
+- **Full design**: design.md §"Files and surfaces out of scope" (exclusion 1), design.md §"Bootstrap protocol for agent system prompts" → §"Scope and uniformity"
 
 #### D7: Migration replay is a no-op for this plan; verification confirms drift-gate normalization
 
@@ -141,7 +141,14 @@ flowchart TD
 - **Rationale**: D9's rationale already documents cross-file refs as "narrower than the target's full annotation" — that phrasing is a subset relationship and the script can mechanically check it. For each cross-file ref `name.md§X.Y:roles:phases`, the script parses the target's annotation at the cited section and verifies `citer.roles ⊆ target.roles` AND `citer.phases ⊆ target.phases`. Catches the real drift case (target tightened, citer claims a token the target no longer has) without forcing equality. Implementation cost is +30 lines of Python on top of the existing rule 6 parsing.
 - **Risks/Caveats**: false negative for the "citer is too narrow" case (a valid subset that no longer matches the citer's intent) — mechanically undetectable, stays a human-review concern. Sub-section refs resolve to that section's annotation directly; file-level refs without a section anchor resolve to the union of every section's annotations in the target file. The CI error names both sides so the author chooses whether to widen the citer or restore the target.
 - **Implemented in**: Track 2 (subset check extension to rule 6 in `workflow-reindex.py`)
-- **Full design**: design.md §"Reindex script" → §"Validation rules" rule 6, design.md §"Cross-reference convention" → §"In-file reference auto-stamping" → §"Cross-file drift detection"
+- **Full design**: design.md §"Reindex script" → §"Validation rules" rule 6, design.md §"Cross-reference convention" → §"In-file reference auto-stamping" (the "Cross-file drift detection" bold paragraph inside)
+
+#### D11: Track 2 introduces a `WB<N>` finding-prefix on `review-workflow-context-budget` output
+
+- **Alternatives considered**: keep the agent's existing severity-labeled output (`Critical / Recommended / Minor`) without per-finding numeric IDs; introduce the IDs without the severity labels.
+- **Rationale**: the workflow's other dim-review agents emit prefixed IDs (`CR<N>`, `S<N>`, `CQ<N>`, ...) so reviewers cite a specific finding in PR threads and follow-up commits (`Review fix: WB3 — ...`). The reindex script can surface dozens of low-severity items on a workflow-machinery diff; per-finding IDs let the author address them individually without re-quoting the body. The prefix lives alongside (not instead of) the severity labels — each finding stays under `Critical | Recommended | Minor` and additionally carries a `WB<N>` numeric ID.
+- **Risks/Caveats**: minor agent-prompt churn; PR threads citing the old severity-only format are not affected.
+- **Implemented in**: Track 2
 
 ### Invariants
 
@@ -183,8 +190,8 @@ flowchart TD
   > Build `.claude/scripts/measure-read-share.py` — worktree-scoped, lifetime window, percentages-only output, skips when run from the main checkout. Update `prompts/create-final-design.md` to invoke the script and embed its output as a standard "Token usage telemetry" section in `adr.md`. Tests under `.claude/scripts/tests/`.
   > **Scope:** ~4 steps covering script core (jsonl walk + tool-result tally), worktree-vs-main detection, Phase 4 prompt update, and tests.
 
-- [ ] Track 4: Universal annotation rollout (46 files)
-  > Author per-section TOC + annotations for every in-scope file: 30 under `.claude/workflow/`, 9 under `.claude/workflow/prompts/`, and 7 workflow-referencing skill files. ~600 annotations, all author-written. Run `workflow-reindex.py --write` to scaffold TOC tables, then hand-correct per-section `roles=`, `phases=`, `summary=`. Land in a single logical batch so the schema becomes universally applicable on one commit (or a small adjacent group; squash-merge collapses anyway).
+- [ ] Track 4: Universal annotation rollout (49 files)
+  > Author per-section TOC + annotations for every in-scope file: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, and 7 workflow-referencing skill files. ~600 annotations, all author-written. Run `workflow-reindex.py --write` to scaffold TOC tables, then hand-correct per-section `roles=`, `phases=`, `summary=`. Land in a single logical batch so the schema becomes universally applicable on one commit (or a small adjacent group; squash-merge collapses anyway).
   > **Scope:** ~6 steps covering workflow root (split into two batches by file count), prompts, skills, validation pass, and a final reindex `--check` green run.
   > **Depends on:** Track 1, Track 2
 
@@ -195,6 +202,9 @@ flowchart TD
 
 ## Plan Review
 - [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+**PAUSED 2026-05-28 at State 0 mid-flight pending consistency-gate verification + structural review**
+- Handoff: `_workflow/handoff-state0.md`
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

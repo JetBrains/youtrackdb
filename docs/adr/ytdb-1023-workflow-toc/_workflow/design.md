@@ -35,7 +35,7 @@ This design introduces eight load-bearing ideas. Each is named and used without 
 
 ## Files and surfaces out of scope
 
-**TL;DR.** The schema covers a specific set of workflow-related Markdown: 30 docs under `.claude/workflow/`, 11 prompts under `.claude/workflow/prompts/`, 7 workflow-referencing SKILL.md, and 20 agent definitions under `.claude/agents/`. Six exclusions are listed below; each one cross-references the mechanism section that owns its authoritative rule. This section is the single anchor a reader new to the design follows when asking "does the schema apply to X?" — the mechanism sections still carry the rule.
+**TL;DR.** The schema covers a specific set of workflow-related Markdown: 31 docs under `.claude/workflow/`, 11 prompts under `.claude/workflow/prompts/`, 7 workflow-referencing SKILL.md, and 20 agent definitions under `.claude/agents/`. Six exclusions are listed below; each one cross-references the mechanism section that owns its authoritative rule. This section is the single anchor a reader new to the design follows when asking "does the schema apply to X?" — the mechanism sections still carry the rule.
 
 ### The six exclusions
 
@@ -446,7 +446,7 @@ Per-feature telemetry only applies when each plan is executed in its own worktre
 
 ### Phase 4 integration
 
-`prompts/create-final-design.md` Step 5 (the final-artifacts commit) calls the script before writing `adr.md` and embeds its output as a standard `## Token usage telemetry` section. The section's location in `adr.md` is configurable per prompt but defaults to the end (after rationale, before any appendix).
+`prompts/create-final-design.md` Step 3 §"Artifact 2: ADR" (the adr.md-write step) invokes the script while composing `adr.md` and embeds its output as a standard `## Token usage telemetry` section in the same write. The section's location in `adr.md` is configurable per prompt but defaults to the end (after rationale, before any appendix). Step 5 (the final-artifacts commit) only stages files already on disk and is not the hook point — composing telemetry there would require a post-commit amendment.
 
 ### Edge cases / Gotchas
 
@@ -585,7 +585,7 @@ Each ADR's section is a standalone snapshot; the script does not compare against
 
 - A Phase 4 session that runs from the main checkout (rare; convention is one worktree per feature) emits the skip notice. The ADR still has the section, just with the skip explanation.
 - A Phase 4 session that resumes after an interruption: the script is invoked once per Phase 4 run; resuming re-runs it. The output reflects the worktree's full lifetime, so resuming doesn't produce inconsistent snapshots.
-- A workflow-modifying plan whose Phase 4 includes the promote-staged-workflow commit: the telemetry script runs after promotion (in Step 5, the final-artifacts step), so the post-promotion live `.claude/workflow/**` state is the one being measured.
+- A workflow-modifying plan whose Phase 4 includes the promote-staged-workflow commit (Step 4): telemetry runs in Step 3 (adr.md composition), which precedes Step 4 in the prompt's normal step order, so the promote commit's own session activity is not captured in the snapshot. Since the script measures session-transcript token usage (jsonl files under `~/.claude/projects/<encoded-cwd>/`), not on-disk workflow state, the timing affects which session events the snapshot covers, not whether the promoted workflow content is "visible." The omission is small (one commit's tool-call traffic) and the snapshot reports a percentages-only lifetime aggregate, so the impact on Read% is below measurement precision.
 
 ### References
 

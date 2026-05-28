@@ -41,7 +41,7 @@ The telemetry script's measurement methodology (per `design.md §"Telemetry scri
 - Detection: `git worktree list --porcelain` first entry = main worktree; skip if cwd matches; proceed otherwise.
 - Output: percentages-only Markdown section ready for inclusion in `adr.md`.
 
-Phase 4 today: `prompts/create-final-design.md` orchestrates the final-artifacts commit (and optional promote-staged-workflow commit on workflow-modifying plans). Step 5 writes `adr.md`. This track extends Step 5 to invoke the telemetry script and embed its output.
+Phase 4 today: `prompts/create-final-design.md` orchestrates the final-artifacts commit (and optional promote-staged-workflow commit on workflow-modifying plans). Step 3 writes the two final artifacts; `adr.md` is composed in Step 3 §"Artifact 2: ADR". This track extends Step 3's adr.md composition to invoke the telemetry script and embed its output inline as the `## Token usage telemetry` section.
 
 ### Files in scope
 
@@ -62,7 +62,7 @@ The track lands in four steps:
 1. **Worktree-vs-main detection.** Implement the `git worktree list --porcelain` parsing logic plus the cwd-comparison check. Returns a tuple `(is_worktree: bool, encoded_path: str)`. Tests cover: cwd = main checkout, cwd = linked worktree, cwd outside any worktree, missing git (graceful skip).
 2. **jsonl walk and bucket tally.** Implement the per-file walker: read each line as JSON, classify content blocks (`tool_result:Read` by file path, other tool results by name, non-tool content as "Prompts and output"), sum approximate token counts (char count / 4 per existing convention). Aggregate per worktree's folder. Tests use fixture jsonl files.
 3. **Output rendering.** Format the tool-mix table and top-10 file table into Markdown per `design.md §"Telemetry script" > Output format`. Skip notice for non-worktree case. Tests verify rendering against fixture inputs.
-4. **Phase 4 prompt integration.** Update `prompts/create-final-design.md` Step 5 to invoke `python3 .claude/scripts/measure-read-share.py` before writing `adr.md`, capture the output, and embed it as the `## Token usage telemetry` section. The section's position in `adr.md` follows the template in `design.md §"Phase 4 ADR template extension"`.
+4. **Phase 4 prompt integration.** Update `prompts/create-final-design.md` Step 3 §"Artifact 2: ADR" to invoke `python3 .claude/scripts/measure-read-share.py` while composing `adr.md`, capture the output, and embed it as the `## Token usage telemetry` section. The section's position in `adr.md` follows the template in `design.md §"Phase 4 ADR template extension"`. Step 3 is the adr.md-write step; Step 5 (the final-artifacts commit) only stages files already written to disk.
 
 Step 4 modifies a file under `.claude/workflow/prompts/`, which routes through the §1.7 staging path. Steps 1–3 modify files under `.claude/scripts/`, which go to live paths.
 
@@ -86,7 +86,7 @@ After this track lands:
 - `python3 .claude/scripts/measure-read-share.py` runs from a worktree and emits the Markdown section with real percentages from the worktree's transcript folder.
 - The same script run from the main checkout emits the skip notice and exits 0.
 - The script never emits absolute token counts (verified by output inspection in tests).
-- `prompts/create-final-design.md` Step 5 invokes the script and embeds its output in `adr.md` as `## Token usage telemetry`.
+- `prompts/create-final-design.md` Step 3 (Artifact 2: ADR) invokes the script and embeds its output in `adr.md` as `## Token usage telemetry`.
 - Tests under `.claude/scripts/tests/test_measure_read_share.py` cover the worktree detection matrix, the bucket tally against fixture jsonl, and the output rendering.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
@@ -125,4 +125,4 @@ belong to one specific step. Per-step episode content lives in
 ### Library/function signatures touched
 
 - `measure-read-share.py` exports CLI: no arguments needed for default behavior (auto-detects worktree, walks transcript folder, emits Markdown to stdout). Optional `--top=N` flag overrides top-files cap (default 10).
-- `prompts/create-final-design.md` Step 5: bash block added to invoke the script and capture output before writing `adr.md`.
+- `prompts/create-final-design.md` Step 3 (Artifact 2: ADR): bash block added to invoke the script and capture output while composing `adr.md`.
