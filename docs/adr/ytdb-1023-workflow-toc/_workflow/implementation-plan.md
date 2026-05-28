@@ -191,6 +191,8 @@ flowchart TD
   > **Cross-track signals.** Track 2 reviewers: §1.8 now carries prose anchors for the three CI-blocker shapes the reindex script enforces — rule 2 (TOC absence accepted when file has no `## ` headings), rule 5 (out-of-enum tokens), rule 8 (unresolved or stale `§X.Y(z)` anchors). §1.8(e)'s fenced-code-block exclusion paragraph should match the script's validation traversal. Track 4 reviewers: §1.1 glossary's `Bootstrap block` row names placement as "between the frontmatter (when present) and the H1" — match this phrasing on subsequent bootstrap edits. Outstanding design questions (move Mermaid / worked example / enum descriptions out of always-loaded `conventions.md` to cut bootstrap surface; readable-alone vs scope-pointer tradeoff) are unaddressed and may resurface at Track 4 or Phase 4.
   >
   > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no plan rewrites needed. Cross-track signals already captured in Track 1's episode (WI7 summary-cap → Track 2 rule 5; §1.8(g) demo heading + glossary table rows → Track 4 reviewer carve-outs; Bootstrap block dual-anchor phrasing → Track 5 + Phase 4) are absorbed by downstream tracks during their own execution.
 
 - [ ] Track 2: Reindex script + CI gate + audit agent updates
   > Build `.claude/scripts/workflow-reindex.py` (mechanical Python, `--check` and `--write` modes, stdlib only) and wire it into a pre-commit hook plus a GitHub Actions step. Update `.claude/agents/review-workflow-context-budget.md` to absorb the audit at PR-review time. Tests live under `.claude/scripts/tests/`.
