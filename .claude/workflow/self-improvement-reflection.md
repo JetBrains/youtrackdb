@@ -181,7 +181,7 @@ turn of work) so the two sides can be compared directly without
 tracking raw tokens.
 
 ```
-file if:  load_cost  ≤  self_fix_cost / 2     # at least a 2× margin
+file if:  load_cost  ≤  self_fix_cost / 5     # at least a 5× margin
 ```
 
 Horizon for both sides: **6 months**.
@@ -210,60 +210,90 @@ tier, not by significant figures.
 ### self_fix_cost — what the friction costs if left alone
 
 ```
-self_fix_cost = turns_per_occurrence × occurrences_in_horizon
+self_fix_cost = turns_per_occurrence × population_in_horizon
 ```
 
 - **turns_per_occurrence**: the cost of one recovery this session.
   A doc re-read counts as 1, a sub-agent re-spawn as 3, a user
   prompt as 2; chain them as needed.
-- **occurrences_in_horizon**: a trigger is **deterministic** if a
-  code path or doc rule will make the same input produce the same
-  friction on every future session that hits it; it is
-  **non-deterministic** if the friction depends on session-specific
-  context (this branch's code, this user's prompt, this run's
-  timing).
-  - **Deterministic-recur trigger**: every matching session fires.
-    Use the matching tier's session count over the horizon
-    (always-loaded ≈ 100, phase doc ≈ 50, on-demand ≈ 5).
-  - **Non-deterministic, plausible on ≥3 future sessions**: use 3.
-  - **Non-deterministic, fewer than 3 plausible future hits**: the
-    candidate fails the recurrence floor; drop without computing.
+- **population_in_horizon**: an explicit integer naming the number
+  of sessions over the 6-month horizon that will actually hit this
+  trigger. The agent writes `population_in_horizon = <integer>`
+  with a one-line justification (e.g., "every Phase A session that
+  loads `track-review.md`", "only sessions whose plan covers a
+  rename track"). The justification names *which* sessions hit the
+  trigger, not just "all of them".
+  - **Tier caps** (never exceed these without explicit justification):
+    - Always-loaded base (`CLAUDE.md`, `conventions.md`,
+      `workflow.md`) — cap ≈ 100 sessions / 6 months.
+    - Phase doc (`track-review.md`, `step-implementation.md`, this
+      guide) — cap ≈ 50 sessions / 6 months.
+    - On-demand recipe (ESCALATE path, narrow recipe) — cap ≈ 5
+      sessions / 6 months.
+    The caps are ceilings, not free credits. A finding that fires
+    only on rename-track Phase A sessions does not get the full
+    phase-doc cap of 50 — count the rename-track sessions you
+    actually expect.
+  - **Recurrence floor**: if `population_in_horizon < 3`, the
+    candidate fails the gate without computing the rest. A friction
+    that bit one session and will plausibly bite fewer than three
+    is project-shaped, not workflow-shaped.
 
 ### Worked examples
 
 1. **Drop — recurrence floor fails.** Agent misread one heading
-   once, recovered in 1 turn, no reason to expect it recurs. Fails
-   the recurrence floor; drop without computing either side.
+   once, recovered in 1 turn, no reason to expect it recurs.
+   `population_in_horizon = 1` ("this session, no plausible
+   future hits"). Fails the recurrence floor (1 < 3); drop without
+   computing either side.
 
-2. **File — deterministic, cheap self-fix.** A wrong section name
-   in `track-review.md` deterministically fires on every Phase A
-   session.
-   - `self_fix_cost = 1 turn × 50 sessions = 50`
+2. **File — wide population, cheap self-fix.** A wrong section name
+   in `track-review.md` fires on every Phase A session that loads
+   the doc.
+   - `population_in_horizon = 50` ("every Phase A session over
+     the horizon", at the phase-doc cap).
+   - `self_fix_cost = 1 turn × 50 = 50`
    - Fix is a 1-line caveat (0.2 paragraphs) in a phase doc:
      `load_cost = 0.2 × 2 = 0.4`
-   - `0.4 << 50` → **file**. A naïve "feels cheap to self-fix"
-     reading would miss the cumulative cost across 50 future
-     sessions; the recurrence-floor branch catches it.
+   - Ratio `50 / 0.4 = 125×` → **file**. A naïve "feels cheap to
+     self-fix" reading would miss the cumulative cost across 50
+     future sessions.
 
 3. **File — expensive per occurrence.** Phase A reviewer re-flags
-   the same low-value finding on every iteration (~3 / Phase A,
-   deterministic).
-   - `self_fix_cost = 1 turn × (3 × 50) = 150`
+   the same low-value finding on every iteration (~3 / Phase A).
+   - `population_in_horizon = 150` ("3 iterations × every Phase A
+     session — phase-doc cap × 3, justified by the inner-loop
+     fan-out").
+   - `self_fix_cost = 1 turn × 150 = 150`
    - Fix is a 1-paragraph upstream filter in the reviewer prompt
      (phase doc): `load_cost = 1 × 2 = 2`
-   - `2 << 150` → **file**.
+   - Ratio `150 / 2 = 75×` → **file**.
 
 4. **Drop — near-tie.** Agent re-read one doc and asked the user
-   once (3 turns of recovery). Plausible on ~3 future sessions,
-   not deterministic.
-   - `self_fix_cost = 3 × 3 = 9`
+   once (3 turns of recovery). Plausible on a small number of
+   future sessions.
+   - `population_in_horizon = 3` ("rename-track sessions that touch
+     the renames tracker — three plausible in the horizon").
+   - `self_fix_cost = 3 turns × 3 = 9`
    - The only place a preventive rule fits is `conventions.md`
      (always-loaded). A 1-paragraph clarification:
      `load_cost = 1 × 5 = 5`
-   - Ratio `self_fix / load = 9 / 5 = 1.8×`, inside the 2× margin
-     → **drop** (see checklist). Surface as project-shaped
-     guidance in the session's normal output, not under
-     `dev-workflow`.
+   - Ratio `9 / 5 = 1.8×`, well inside the 5× margin → **drop**
+     (see checklist). Surface as project-shaped guidance in the
+     session's normal output, not under `dev-workflow`.
+
+### Scope-match check
+
+A candidate also fails the gate if its §Proposed fix is more than
+**~5×** the cost of the friction it cures, measured in paragraphs
+added or files touched. A widget-rule paper-cut that takes two
+turns to recover from should not produce a fix that rewrites a
+phase doc and touches three sub-agent prompts. These are
+project-shaped or ADR-shaped findings, not workflow paper-cuts.
+Surface them in the session's normal output, do not file them
+under `dev-workflow`. The check is a sanity floor on top of the
+ratio inequality: an oversized fix can clear the 5× margin on raw
+numbers and still be the wrong shape for this queue.
 
 ### Quick checklist
 
@@ -271,12 +301,12 @@ self_fix_cost = turns_per_occurrence × occurrences_in_horizon
   it" without numbers, you skipped the gate.
 - Compute the ratio `r = self_fix_cost / load_cost` and read off
   the verdict:
-  - `r ≥ 2` (self-fix dominates by ≥2×) → **record**.
-  - `0.5 < r < 2` (tie or near-tie) → **drop**. The unit is
+  - `r ≥ 5` (self-fix dominates by ≥5×) → **record**.
+  - `0.2 < r < 5` (tie or near-tie band) → **drop**. The unit is
     coarse; only clear wins should make it through, and the
     workflow's signal-to-noise ratio matters more than
     completeness.
-  - `r ≤ 0.5` (load dominates by ≥2×) → **drop**. The friction
+  - `r ≤ 0.2` (load dominates by ≥5×) → **drop**. The friction
     may still be real, but the fix is project- or ADR-shaped,
     not workflow-shaped. Surface it in the session's normal
     output if useful, but do not file it under `dev-workflow`.
@@ -285,18 +315,19 @@ self_fix_cost = turns_per_occurrence × occurrences_in_horizon
 
 ## Per-session cap
 
-At most **3** issues per session — this is a ceiling, not a target.
-Zero or one real finding is the expected outcome on most sessions;
-two or three should feel exceptional. **Do not invent findings to
-hit the cap.** Padding the buffer with thin, manufactured frictions
-just to fill three slots is a worse failure mode than filing zero,
-because the triager has to spend turns rejecting them and the
-`dev-workflow` queue loses its signal.
+At most **1** issue per session — this is a ceiling, not a target.
+Zero is the expected outcome on most sessions; one should feel
+exceptional. **Do not invent a finding to hit the cap.** Padding the
+slot with a thin, manufactured friction just to file something is a
+worse failure mode than filing zero, because the triager has to
+spend turns rejecting it and the `dev-workflow` queue loses its
+signal.
 
-If reflection turns up more than three real frictions, keep the
-three highest-impact ones (highest severity, most frequent, or
-blocking the most downstream work) and discard the rest. Quality
-of the proposals matters more than completeness.
+If reflection turns up more than one real friction, keep the
+highest-impact one (highest severity, most frequent, or blocking the
+most downstream work) and discard the rest. The others will resurface
+the next time they bite. Quality of the proposal matters more than
+completeness.
 
 If reflection turns up zero, say so explicitly to the user and end
 the session. A clean session that produces no findings is the
@@ -352,19 +383,20 @@ correct outcome, not a failure to look hard enough.
    2. Drop any friction that fails the §Cost-benefit gate. Compute
       both sides of the inequality explicitly: `load_cost` from the
       doc-tier table and `self_fix_cost` from
-      `turns_per_occurrence × occurrences_in_horizon`. Apply the
-      checklist's 2× margin rule. A friction that survives severity
-      but fails the gate is a project- or ADR-shaped finding;
-      mention it in the session's normal output if useful, but do
-      not file it. The computed numbers stay in the agent's draft
-      and are not persisted into the issue body; a later triager
-      who challenges the verdict re-runs the gate from the
-      reproduction context.
-   3. Cap the surviving list at 3 (highest severity, most frequent,
+      `turns_per_occurrence × population_in_horizon`. Apply the
+      checklist's 5× margin rule and the §Scope-match check. A
+      friction that survives severity but fails the gate is a
+      project- or ADR-shaped finding; mention it in the session's
+      normal output if useful, but do not file it. The computed
+      numbers are rendered in the issue body's §Cost-benefit gate
+      section (see §Issue body template) so a later triager can
+      challenge the verdict by reading the math off the issue, not
+      the session log.
+   3. Cap the surviving list at 1 (highest severity, most frequent,
       or blocking the most downstream work — see §Per-session cap).
 
    If every friction in the session is filtered out by the first
-   two passes, that is a zero-finding session; skip to step 7 with
+   two passes, that is a zero-finding session; skip to step 8 with
    the empty-result template.
 
    For each surviving candidate, draft:
@@ -384,7 +416,21 @@ correct outcome, not a failure to look hard enough.
    - Body draft (Symptom, Reproduction context, Why it's a problem,
      Proposed fix, Acceptance criteria — see §Issue body template)
 
-6. **Filter against existing dev-workflow issues.** Search YouTrack
+6. **Merge same-session siblings.** Before checking against
+   YouTrack, scan the surviving candidates for siblings: any pair
+   where (a) the §Proposed fix lands in the same file + section, or
+   (b) the §Symptom paragraphs share ≥2 named docs, tools, or
+   sub-agents. Pick the strongest representative and merge the
+   others into it, folding their §Symptom / §Reproduction context
+   text where it adds detail and dropping it where it duplicates.
+   Keep a list of merged-out titles for the Step 8 user-facing
+   message so the user sees what was consolidated. This step exists
+   because Step 7's YouTrack-side dedup compares against existing
+   issues only, not against other candidates in the same draft —
+   widget-rule-at-three-call-sites and "inverse halves of one
+   carve-out" patterns escape that filter otherwise.
+
+7. **Filter against existing dev-workflow issues.** Search YouTrack
    for recent `project: YTDB tag: dev-workflow` issues:
    ```
    mcp__youtrack__search_issues(
@@ -402,9 +448,10 @@ correct outcome, not a failure to look hard enough.
    long-closed rule has regressed, the new candidate's reproduction
    context will read differently enough from the closed one that it
    should not match. Keep a list of which candidates were filtered
-   and which existing issue id matched — it surfaces in step 7.
+   and which existing issue id matched — it surfaces in step 8
+   alongside the same-session sibling-merge list from step 6.
 
-7. **Present surviving candidates to the user.** Single message:
+8. **Present surviving candidates to the user.** Single message:
 
    ```
    ## Self-improvement reflection
@@ -445,7 +492,7 @@ correct outcome, not a failure to look hard enough.
 
    and end the session.
 
-8. **Create the chosen issues in YouTrack.**
+9. **Create the chosen issues in YouTrack.**
 
    First, fetch the YTDB project's issue-fields schema **once for
    the whole batch**:
@@ -462,14 +509,14 @@ correct outcome, not a failure to look hard enough.
      `Defect`, `Issue`, …); candidates drafted as `Feature` map to
      the first enhancement-flavoured value (`Feature`, `Task`,
      `Enhancement`, `Improvement`, …). Note any mapping in the
-     follow-up report (Step 9).
+     follow-up report (Step 10).
    - **Cover required fields beyond `Type`.** If the schema marks
      other custom fields as required at creation (e.g., `State`,
      `Subsystem`), set each one to a safe default the project
      documents — typically `State: Open` (or the equivalent
      "new / unconfirmed" state the schema lists first). If a
      required field has no value the agent can confidently pick,
-     abort that candidate, surface the gap to the user in Step 9,
+     abort that candidate, surface the gap to the user in Step 10,
      and continue with the next.
    - **Set `Priority` from severity.** Map the candidate's drafted
      severity to the closest accepted value in the schema's
@@ -479,8 +526,8 @@ correct outcome, not a failure to look hard enough.
      the default is the agent's call. If the schema's `Priority`
      enum is missing one of the canonical values, fall back to the
      nearest accepted value and note the substitution in the
-     Step 9 follow-up report. If the schema does not expose a
-     `Priority` field at all, skip it and note that in Step 9.
+     Step 10 follow-up report. If the schema does not expose a
+     `Priority` field at all, skip it and note that in Step 10.
    - **Cache the result for this session.** Do not re-fetch per
      candidate — the schema does not change mid-session.
 
@@ -520,7 +567,7 @@ correct outcome, not a failure to look hard enough.
    "Created `<id>` but tagging failed — please add the
    `dev-workflow` tag manually." Do not delete the issue.
 
-9. **Report created issues to the user.** Single follow-up message:
+10. **Report created issues to the user.** Single follow-up message:
 
    ```
    Created N YouTrack issue(s):
@@ -529,9 +576,9 @@ correct outcome, not a failure to look hard enough.
    ...
    ```
 
-   Append any per-issue tagging failures noted in step 8.
+   Append any per-issue tagging failures noted in step 9.
 
-10. **End the session** per the phase's normal end-of-session
+11. **End the session** per the phase's normal end-of-session
     instructions. **No commit is produced by reflection** — the
     issues live in YouTrack, nothing was added to the repo.
 
@@ -547,13 +594,28 @@ The Markdown body submitted to `create_issue.description`:
 **Phase:** state-0 | phase-a | phase-b | phase-c | phase-4 | migrate-workflow
 **Source session:** <YYYY-MM-DD> /execute-tracks <adr-dir-name> | /migrate-workflow <adr-dir-name>
 
+## Cost-benefit gate
+
+- `load_cost = <paragraphs> × <tier multiplier> = <value>` (tier:
+  always-loaded | phase-doc | on-demand)
+- `population_in_horizon = <integer>` — <one-line justification
+  naming which sessions actually hit the trigger>
+- `self_fix_cost = <turns_per_occurrence> × <population_in_horizon>
+  = <value>`
+- `ratio = self_fix_cost / load_cost = <value>×`
+- verdict: **record** (ratio ≥ 5) | drop (ratio < 5)
+- scope-match check: §Proposed fix is ≤ ~5× the friction it cures
+  (paragraphs added / files touched) — pass | fail
+
 ## Symptom
 
-What the agent observed during the session, in one short paragraph.
-Concrete, not abstract — name the doc, the step, the tool, the
-sub-agent.
+What the agent observed during the session, in one short paragraph
+(≤2 paragraphs). Concrete, not abstract — name the doc, the step,
+the tool, the sub-agent.
 
 ## Reproduction context
+
+(≤6 bullets)
 
 - Phase: <state-0 / phase-a / phase-b / phase-c / phase-4 / migrate-workflow>
 - Workflow doc(s) involved: `path/to/doc.md` §Section
@@ -561,25 +623,42 @@ sub-agent.
 - ADR directory at the time: `docs/adr/<dir-name>/`
 - Trigger condition: <what kicks this off — e.g., "any Phase B step
   whose implementer return value is non-SUCCESS">
+- Prior-session evidence (for `medium` severity, see §Severity guide):
+  `<commit-SHA | path/to/handoff.md | log line>` — names a session
+  where this friction has already bitten.
 
 ## Why it's a problem
 
-One short paragraph on the impact: wasted turns, wrong outputs,
-silent failures, blocked sessions, recurring corrections.
+One short paragraph (≤1 paragraph) on the impact: wasted turns,
+wrong outputs, silent failures, blocked sessions, recurring
+corrections.
 
 ## Proposed fix
 
-A specific, actionable change. Edit `<file>` §<section> to <do X>.
-Or add a new recipe in `<file>` for <Y>. Or split <doc> into <A> and
-<B>. If multiple options exist, list them with one-line trade-offs.
+A specific, actionable change (≤3 paragraphs, OR an enumerated list
+of ≤3 options with one-line trade-offs). Edit `<file>` §<section> to
+<do X>. Or add a new recipe in `<file>` for <Y>. Or split <doc> into
+<A> and <B>.
 
 ## Acceptance criteria
+
+(≤4 bullets)
 
 - <Workflow change visible at <path>>
 - <Reproduction context no longer triggers the symptom>
 - <If applicable: regression check — e.g., grep that the bad pattern
   is gone>
 ```
+
+### Section length caps
+
+The template literals above enforce hard caps. Total body length
+**≤600 words** (excluding the `**Source:**` / `**Severity:**` /
+`**Phase:**` / `**Source session:**` header block and the
+§Cost-benefit gate section, which are fixed-shape). A thin friction
+deserves a thin issue — padding the body to justify the gate verdict
+is the same anti-pattern as inventing findings to fill the
+§Per-session cap.
 
 The **Source** line is mandatory — it lets the triager check out
 the exact branch and commit that produced the friction.
@@ -642,16 +721,26 @@ is no `low` tier in the issue body, the priority mapping, or the
 filter. If a friction does not clear the medium bar, do not file
 it and do not relabel it to medium to keep it alive.
 
-- `medium` — recurring friction or ambiguity that costs multiple
-  turns per occurrence, or causes occasional wrong outputs that
-  the user catches.
+- `medium` — recurring friction or ambiguity that **(a)** bit
+  THIS session AND **(b)** has already bitten at least one prior
+  session whose log line, commit SHA, or handoff file the agent can
+  cite by path in the issue body's §Reproduction context. The
+  friction must still cost multiple turns per occurrence or cause
+  occasional wrong outputs the user catches. A friction that bit
+  only this session and is *plausibly* recurring does not clear
+  medium — drop it; speculative-recurrence findings are noise. The
+  evidence-floor citation is the price of admission to the
+  `dev-workflow` queue.
   - *Example*: a Phase A review sub-agent (technical, risk, or
     adversarial) repeatedly returns the same low-value finding
     that the orchestrator must override every iteration; no
-    upstream filter exists. (Clears the §Cost-benefit gate:
-    `self_fix_cost = 1 turn × 3 iterations × 50 Phase A sessions
-    = 150`; an upstream-filter paragraph in a phase doc costs
-    `load_cost = 1 × 2 = 2`; 2 << 150.)
+    upstream filter exists. Prior-session evidence: commit
+    `<SHA>` in the previous track's Phase A log. (Clears the
+    §Cost-benefit gate: `population_in_horizon = 150` ("3
+    iterations × every Phase A session"),
+    `self_fix_cost = 1 × 150 = 150`; an upstream-filter paragraph
+    in a phase doc costs `load_cost = 1 × 2 = 2`;
+    ratio `150 / 2 = 75×` clears the 5× margin.)
 - `high` — blocks a phase, causes silent wrong outputs, or pushes
   the agent into an unrecoverable state. A `high` finding should
   be rare and almost always points to a missing rule or a
@@ -665,7 +754,7 @@ it and do not relabel it to medium to keep it alive.
 
 Set the YouTrack `Priority` custom field at creation time from the
 candidate's severity. Use the project's schema (fetched once in
-Step 8) to pick the closest accepted enum value:
+Step 9) to pick the closest accepted enum value:
 
 | Severity | Preferred `Priority`            | Fallback order if missing      |
 |----------|---------------------------------|--------------------------------|
@@ -676,7 +765,7 @@ Reserve `Critical` / `Show-stopper` for `high` findings that
 actively blocked the session and have no documented recovery path
 — most `high` findings still map to `Major`. If the schema exposes
 only a subset of these names, fall back to the nearest accepted
-value and note the substitution in the Step 9 follow-up report so
+value and note the substitution in the Step 10 follow-up report so
 the triager can verify it.
 
 ---
@@ -685,19 +774,19 @@ the triager can verify it.
 
 - **Do not** auto-create YouTrack issues without user confirmation.
   Every issue created by reflection passes through the user gate in
-  §step 7.
+  §step 8.
 - **Do not** spawn a sub-agent for reflection. It is a single
   main-agent step; sub-agent overhead is not justified.
 - **Do not** treat reflection as a place to dump code-review
   findings, plan corrections, or general project ideas. Stay on
   workflow-process problems.
-- **Do not** exceed the 3-issue cap. If more bubble up, pick the top
-  three and let the rest go — they will resurface naturally if they
+- **Do not** exceed the 1-issue cap. If more bubble up, pick the
+  top one and let the rest go — they will resurface naturally if they
   really matter.
-- **Do not** invent findings to fill the 3-issue cap. The cap is a
-  ceiling; zero or one real finding is the typical outcome.
-  Manufactured frictions waste triage turns and dilute the
-  `dev-workflow` queue's signal.
+- **Do not** invent a finding to fill the 1-issue cap. The cap is a
+  ceiling; zero real findings is the typical outcome. Manufactured
+  frictions waste triage turns and dilute the `dev-workflow` queue's
+  signal.
 - **Do not** record low-severity findings. Reflection's bar is
   medium-and-above (see §Severity guide). Annoyances that cost a
   turn or two without affecting workflow correctness are noise —
@@ -715,12 +804,20 @@ the triager can verify it.
   mapping) and set it at creation. The triager can re-calibrate,
   but the default priority is the agent's responsibility.
 - **Do not** record any candidate (Bug or Feature) that fails the
-  §Cost-benefit gate. The bar is `load_cost ≤ self_fix_cost / 2`
-  (a 2× margin between the sides): `load_cost` is paragraphs added
+  §Cost-benefit gate. The bar is `load_cost ≤ self_fix_cost / 5`
+  (a 5× margin between the sides): `load_cost` is paragraphs added
   × the doc-tier multiplier; `self_fix_cost` is turns per
-  occurrence × occurrences in horizon. Non-deterministic one-offs
-  fail the recurrence floor, and ADR-specific frictions are
+  occurrence × `population_in_horizon`. Populations below 3 fail
+  the recurrence floor, and ADR-specific frictions are
   project-shaped, not workflow-shaped.
+- **Do not** record any candidate whose §Proposed fix is more than
+  ~5× the cost of the friction it cures (§Scope-match check). A
+  paper-cut friction with a phase-doc-rewriting fix is the
+  workflow telling you the finding is project-shaped or
+  ADR-shaped. Surface it in the session's normal output instead.
+  This is a separate failure mode from the ratio inequality: an
+  oversized fix can clear the 5× margin on raw numbers and still
+  fail the scope-match check.
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
