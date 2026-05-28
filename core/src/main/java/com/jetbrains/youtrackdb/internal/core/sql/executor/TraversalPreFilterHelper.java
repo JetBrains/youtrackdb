@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -79,6 +80,62 @@ public final class TraversalPreFilterHelper {
   private static final int CHECKPOINT_INTERVAL_MASK = 0x3FF; // every 1024
 
   private TraversalPreFilterHelper() {
+  }
+
+  /**
+   * Samples up to {@code sampleSize} entries from the link bag, evaluates the
+   * given index-search descriptor's predicate on each loaded entity, and
+   * returns the observed hit rate (fraction passing the predicate).
+   *
+   * <p>Used by the per-edge in-list selectivity calibration path
+   * ({@code EdgeTraversal.inListSelectivity}). The result feeds the
+   * BUILD_EAGER / DEFERRED_WITH_NET cost model so the formula
+   * {@code m = estimatedSize / (ratio · (1−s))} uses the actual per-bag
+   * selectivity rather than the class-level average — important for
+   * queries whose adjacency lists are biased subsets of the class
+   * (LDBC IC2: recent-message bias on friends).
+   *
+   * <p>Returns {@code -1.0} when no entry could be evaluated (empty bag,
+   * all loads failed, or no key condition present).
+   *
+   * <p>The iterator obeys the standard {@link Iterable} contract — a fresh
+   * iterator per {@code pfli.iterator()} call. Sampling does not consume
+   * later iteration: subsequent calls re-read from the start.
+   */
+  public static double sampleInListSelectivity(
+      PreFilterableLinkBagIterable pfli,
+      IndexSearchDescriptor desc,
+      CommandContext ctx,
+      int sampleSize) {
+    var keyCondition = desc.getKeyCondition();
+    if (keyCondition == null) {
+      return -1.0;
+    }
+    var additional = desc.getAdditionalRangeCondition();
+    int loaded = 0;
+    int hits = 0;
+    var iter = pfli.iterator();
+    while (iter.hasNext() && loaded < sampleSize) {
+      var item = iter.next();
+      if (!(item instanceof Identifiable id)) {
+        continue;
+      }
+      try {
+        loaded++;
+        boolean match = keyCondition.evaluate(id, ctx)
+            && (additional == null || additional.evaluate(id, ctx));
+        if (match) {
+          hits++;
+        }
+      } catch (RecordNotFoundException ignored) {
+        // Treat missing record as a miss — it would not contribute to
+        // the post-build savings either.
+      }
+    }
+    if (loaded == 0) {
+      return -1.0;
+    }
+    return (double) hits / loaded;
   }
 
   /**

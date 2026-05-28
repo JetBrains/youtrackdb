@@ -207,6 +207,32 @@ public class EdgeTraversal {
   private double indexLookupSelectivity = Double.NaN;
 
   /**
+   * Sampled in-list selectivity (fraction of link-bag entries passing the
+   * IndexLookup predicate), measured on the first vertex that reaches
+   * {@link #checkIndexLookupAmortization}. Bind-dependent — per execution
+   * a fresh sample is taken (the constructor leaves it at {@code NaN}).
+   *
+   * <p>When set ({@code ≥ 0}) it overrides the class-level
+   * {@link #indexLookupSelectivity} in the {@code m} formula on the
+   * DEFERRED_WITH_NET branch where the CLT confidence gate would
+   * otherwise leave us trusting forecast-based heuristics over real data.
+   *
+   * <p>{@code NaN} — not sampled yet. {@code -1.0} — sampling attempted but
+   * yielded no usable observations (empty bag, all loads failed); the code
+   * then falls back to class-level selectivity. {@code [0, 1]} — valid
+   * sample, used to recalibrate {@code m}.
+   */
+  private double inListSelectivity = Double.NaN;
+
+  /**
+   * Number of link-bag entries to sample when calibrating the in-list
+   * selectivity. K=30 is the classical CLT rule-of-thumb sample size; the
+   * binomial standard error of a hit-rate estimate at K=30 is roughly 9pp,
+   * comfortably below the IC2/IC4 separation (~70% vs ~3%).
+   */
+  static final int IN_LIST_SAMPLE_SIZE = 30;
+
+  /**
    * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
    * descriptor. Resolved from {@link #forecastN} vs the runtime-computed
    * {@code m} on the first {@code resolveWithCache} call, then memoized for
@@ -461,6 +487,25 @@ public class EdgeTraversal {
   /** Returns the memoized amortization mode (test/PROFILE visibility). */
   Mode getMode() {
     return mode;
+  }
+
+  /** Returns {@code true} once the in-list selectivity sample has been taken. */
+  boolean isInListSampled() {
+    return !Double.isNaN(inListSelectivity);
+  }
+
+  /** Returns the sampled in-list selectivity, or {@code NaN} when not sampled. */
+  double getInListSelectivity() {
+    return inListSelectivity;
+  }
+
+  /**
+   * Records the in-list selectivity sample taken from the first vertex's
+   * link bag. {@code -1.0} means sampling produced no usable result
+   * (callers fall back to the class-level selectivity).
+   */
+  void setInListSelectivity(double sample) {
+    this.inListSelectivity = sample;
   }
 
   public boolean isConsumed() {
@@ -1016,9 +1061,23 @@ public class EdgeTraversal {
     // Compute the break-even m for both the mode decision and the
     // DEFERRED_WITH_NET trigger. Cheap — depends on estimatedSize and the
     // cached selectivity.
+    //
+    // Variant B (in-list calibration): when the CLT confidence gate fails
+    // (rootSourceRows < MIN_FOR_CLT) and a per-edge sample was taken
+    // upstream (MatchEdgeTraverser.applyPreFilter), use the measured
+    // in-list selectivity in place of the class-level value. The class-level
+    // figure averages across the whole class and is misleading when
+    // adjacency lists are biased subsets (LDBC IC2: friends' link bags are
+    // recent-biased — in-list ~70% vs class-level ~1%). Calibrating m
+    // against the actual per-bag mix produces a break-even that matches
+    // runtime cost-balance.
     double loadToScanRatio = currentLoadToScanRatio();
+    boolean useCalibratedM = rootSourceRows >= 0 && rootSourceRows < MIN_FOR_CLT
+        && !Double.isNaN(inListSelectivity) && inListSelectivity >= 0;
+    double effectiveSelectivity = useCalibratedM
+        ? inListSelectivity : indexLookupSelectivity;
     double m = computeMinNeighborsForBuild(
-        estimatedSize, loadToScanRatio, indexLookupSelectivity);
+        estimatedSize, loadToScanRatio, effectiveSelectivity);
 
     // Decide mode on first call. BUILD_EAGER requires both:
     //   1. rootSourceRows >= MIN_FOR_CLT — CLT confidence in forecastN
@@ -1052,12 +1111,21 @@ public class EdgeTraversal {
     }
 
     // DEFERRED_WITH_NET: accumulate and check the adaptive safety-net
-    // trigger T = max(2·forecastN, m). Absent forecast collapses to f = 0,
-    // so T = m (floor). Triggering near T bounds the excess vs no-prefilter
-    // at ~B per edge.
+    // trigger.
+    //
+    // When the in-list sample calibrated m above (Variant B), the trigger
+    // collapses to T = m — the cost-model break-even is now trustworthy
+    // per-query, so the `2·forecastN` belt-and-braces floor is dropped.
+    // Otherwise the historic trigger T = max(2·forecastN, m) keeps the
+    // safety net for cases where neither forecast nor m can be trusted.
     accumulatedLinkBagTotal += linkBagSize;
-    long f = forecastN < 0 ? 0L : forecastN;
-    double trigger = Math.max(2.0 * f, m);
+    double trigger;
+    if (useCalibratedM) {
+      trigger = m;
+    } else {
+      long f = forecastN < 0 ? 0L : forecastN;
+      trigger = Math.max(2.0 * f, m);
+    }
     if (accumulatedLinkBagTotal < (long) Math.ceil(trigger)) {
       recordPreFilterSkip(PreFilterSkipReason.BUILD_NOT_AMORTIZED);
       assert key == null || cache == null || !cache.containsKey(key)
@@ -1198,10 +1266,11 @@ public class EdgeTraversal {
     copy.rootSourceRows = rootSourceRows;
     copy.profilingEnabled = profilingEnabled;
     // Cache, cachedSkipReasons, accumulatedLinkBagTotal,
-    // indexLookupSelectivity, mode, metric references, and pre-filter
-    // counters are intentionally not copied — stale data from a previous
-    // execution must not leak into a new plan instance. The constructor
-    // and field initializers reset them to their correct initial values.
+    // indexLookupSelectivity, inListSelectivity, mode, metric references,
+    // and pre-filter counters are intentionally not copied — stale data
+    // from a previous execution must not leak into a new plan instance.
+    // The constructor and field initializers reset them to their correct
+    // initial values.
     return copy;
   }
 }
