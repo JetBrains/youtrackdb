@@ -1033,3 +1033,40 @@ Per-file edits:
 
 **Iterations**: 3 of 3 (script-run after each batch of edits drove the iteration count; final run-PASS landed within budget).
 
+## Mutation 27 — 2026-05-28 — structural-rewrite (design.md)
+
+**Diff summary**: User-requested cold-read pass via `prompts/design-review.md` (whole-doc, phase1-creation) surfaced one blocker and six should-fix Human-reader findings. The blocker was glossary-introduction: an 837-line design with 12 top-level `##` sections and >10 new domain terms (Etap A, Etap B, K0_NONE, K1 sharp-merge, mutationVersion, populateMutationVersion, effectiveFromClasses, TxDeltaCursor, DeltaBuilder, DNQ) had no `## Core Concepts` section, and several terms appeared in the Overview before any inline definition. Should-fix findings: missing companion-file pointer in Overview, § Workflow TL;DR sitting below the sequence diagram instead of above it, five inline parenthetical D/T asides at lines 32/386/459/745/808 that should collapse to References footers, no Edge cases / Gotchas sub-section (or N/A justification) on § Invariants and § Open questions deferred to execution, audience not named in the Overview, navigability gap where § Lazy merge-on-read TL;DR did not point at the companion mechanics file.
+
+Per-file edits (`design.md` only — `design-mechanics.md` untouched):
+- § Overview: prepended an audience-fit lead sentence naming YTDB query-engine maintainers as the intended reader and pointing fresh readers at § Core Concepts. Expanded the DNQ acronym inline ("YouTrack DNQ (DSL-based query system used by YouTrack)").
+- § Overview: appended a Companion: pointer sentence naming `design-mechanics.md` and the one-direction cross-reference rule. Added "Core Concepts →" to the document-structure roadmap.
+- § Overview: reworded the trailing sentence containing the `(D2 risk)` aside; D2 stays subject of the sentence, D13 is named as the gate.
+- New `## Core Concepts` section inserted between § Overview and § Class Design. Eight concepts: Cacheable shape, K0_NONE, K1 sharp-merge (prior iteration), Etap A, Etap B, mutationVersion / populateMutationVersion, effectiveFromClasses, TxDeltaCursor / DeltaBuilder. Each ≤8 lines, each pairs the new concept with its baseline delta and ends with a "→ § <section>" pointer per `design-document-rules.md § Core Concepts`.
+- § Workflow: moved the `**TL;DR.**` paragraph from after the sequence diagram to before it (why-before-what). The post-diagram slot now carries a one-sentence caption summarising what the diagram traces.
+- Inline parenthetical D/T asides stripped at the four remaining locations: `(T5 invariant)` after "Self-healing version mismatch" header → reworded to a period-terminated label; `(D14, see implementation-plan.md)` → "Cost-benefit analysis on the D14 sorted-value index"; `(T6 invariant)` removed from `### \`clear()\` is owner-thread-only` heading; `(T3f)` removed from `**Cross-caller test**` test description label.
+- § Invariants: added `### Edge cases / Gotchas` sub-section with one-sentence N/A justification ("pure contract list; failure modes live alongside the primitive each invariant guards").
+- § Open questions deferred to execution: added `### Edge cases / Gotchas` sub-section with one-sentence N/A justification ("each bullet above is itself a deferred concern; no second-order surprises live below them").
+- § Lazy merge-on-read TL;DR: appended one trailing sentence pointing at the companion mechanics document for the full `view.next()` pseudocode (composes with the existing `Mechanics:` line at line 615).
+
+Fragmented-header iteration fixes (three findings introduced by the above edits, all cleared in one re-iteration):
+- § Lazy merge-on-read TL;DR appended sentence originally ended with the literal phrase "Lazy merge-on-read"; rewrote to "the companion mechanics document; the References footer at the end of this section carries the exact heading anchor".
+- `### \`clear()\` is owner-thread-only` heading lost its (T6 invariant) tail, dropping heading content words below threshold relative to the first paragraph; restructured the section to lead with a BLUF sentence about the cross-thread invariant before naming the assertion gate.
+- § Open questions § Edge cases / Gotchas N/A line still echoed "edge case" + "gotchas" against the heading; rewrote without heading-word overlap ("each bullet above is itself a deferred concern; no second-order surprises live below them").
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS. Final script run reported `{blockers: 0, should_fix: 0, suggestions: 1}`. The lone suggestion is the pre-existing `per-section-length` on § Lazy merge-on-read (289 lines, below the 300 should-fix cap, content is template-bound state-machine tables and pseudocode exempt under house-style § Structural rules section length cap exception).
+
+**Cold-read** (scope: whole-doc): PASS. Re-verification via fresh sub-agent against the post-fix document returned YES on the cold-reader mental-model question and a PASS verdict. The eight applied fixes compose without introducing new contradictions, broken references, or undefined-term-before-use violations. Audience is named, prerequisites are explicit, Core Concepts defines the eight load-bearing terms before the Parts, the Workflow TL;DR sits above the sequence diagram, every mechanism section carries TL;DR + Edge-cases sub-section + References footer, and the `Mechanics:` link resolves to `design-mechanics.md §"Lazy merge-on-read"`.
+
+**Findings**:
+- Blocker: glossary-introduction (no Core Concepts, Etap A/B/K0_NONE/K1/DNQ undefined at first use) → RESOLVED via new `## Core Concepts` section + DNQ expansion in Overview.
+- Should-fix: overview-concept-first (missing companion pointer) → RESOLVED.
+- Should-fix: why-before-what (§ Workflow TL;DR position) → RESOLVED.
+- Should-fix: references footer shape (five inline parenthetical asides) → RESOLVED at four locations; the fifth (line 32 `(D2 risk)`) was reworded in this mutation.
+- Should-fix: edge-cases sub-section (§ Invariants and § Open questions) → RESOLVED via N/A justifications.
+- Should-fix: audience-fit (Overview) → RESOLVED via lead sentence naming the audience.
+- Should-fix: navigability (§ Lazy merge-on-read TL;DR Mechanics pointer) → RESOLVED.
+- Iteration findings (three fragmented-header should-fix introduced by the above edits) → all RESOLVED in one re-iteration.
+- Suggestion: per-section-length on § Lazy merge-on-read (289 lines) → INFORMATIONAL; under the 300 cap, content is template-exempt.
+
+**Iterations**: 2 of 3 (initial apply landed all eight cold-read fixes; second iteration cleared the three fragmented-header findings introduced by the new prose; final mechanical run + cold-read re-verification both PASS within budget).
+
