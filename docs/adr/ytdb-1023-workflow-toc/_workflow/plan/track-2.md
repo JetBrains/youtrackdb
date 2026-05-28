@@ -154,6 +154,10 @@ verbatim as test method names. Empty until Move 3 lands. -->
 
 Track-level recovery: each step's commit is independently revertable. A failure at Step N can be addressed by `git revert <step-N-SHA>` while preserving Steps 1..N-1. The staged conventions.md §1.8(e) clarifications committed by Phase A are independent of the script implementation and survive any Step revert; they would only need rollback if the design itself is reopened (ESCALATE territory).
 
+## Base commit
+
+1c18a0b5ca7b0a711bc070f2f80e22b2a00c43c8
+
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
 belong to one specific step. Per-step episode content lives in
