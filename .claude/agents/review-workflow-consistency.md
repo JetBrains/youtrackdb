@@ -111,11 +111,13 @@ Focus only on changed files under `.claude/`, root `CLAUDE.md`, and `docs/adr/<d
 [Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
-For each finding, include:
-- **File**: `path/to/file.md` (line X-Y)
-- **Referent**: where the broken/stale reference resolves (or fails to)
-- **Issue**: what's inconsistent
-- **Suggestion**: how to align both sides
+Render each finding as a single bullet under its matched H4 in the format:
+
+```markdown
+**CN<N>** — File: `path/to/file.md` (line X-Y), Axis: <skill/agent cross-reference | threshold and table sync | hook wiring | recipe / mcp-steroid URI | mermaid vs prose | glossary and term consistency | plan ↔ design ↔ track-file reference | cross-file rule restatement>, Cost: <one-clause description of the consistency impact, e.g., "phantom skill name; orchestrator dispatch will fail", "threshold drift between CLAUDE.md and statusline script", "stale recipe URI">, Issue: <what's inconsistent, naming the Referent (where the broken or stale reference resolves, or fails to)>, Suggestion: <how to align both sides>
+```
+
+Numbering: `CN<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: CN1 + CN2 under Critical, CN3 + CN4 under Recommended, CN5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
 
 ## Guidelines
 

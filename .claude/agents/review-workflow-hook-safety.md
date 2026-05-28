@@ -121,10 +121,13 @@ Focus only on changes to `.claude/hooks/*.sh`, `.claude/scripts/*.{sh,py}`, and 
 [Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
-For each finding:
-- **File**: `path/to/script.sh` (line X-Y)
-- **Issue**: what's unsafe
-- **Suggestion**: concrete fix
+Render each finding as a single bullet under its matched H4 in the format:
+
+```markdown
+**HS<N>** — File: `path/to/script.sh` (line X-Y), Axis: <shell hygiene | /tmp collision | idempotency | hook performance | secret hygiene | concurrent-agent safety | error handling | JSON validity | Python script>, Cost: <one-clause description of the operational impact, e.g., "race on shared lockfile under two agents", "secret leak in transcript", "200ms latency on every PreToolUse">, Issue: <what's unsafe>, Suggestion: <concrete fix>
+```
+
+Numbering: `HS<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: HS1 + HS2 under Critical, HS3 + HS4 under Recommended, HS5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
 
 ## Guidelines
 

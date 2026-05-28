@@ -642,6 +642,140 @@ def _clean_workflow_body_with_h3() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Rule 1 — workflow-SHA stamp on line 1 (staged docs/adr/ artifacts only).
+#
+# Live `.claude/workflow/` files do not carry a stamp; rule 1 is enforced
+# on `docs/adr/<dir>/_workflow/staged-workflow/.claude/...` paths only.
+# These tests use the staged subtree so the rule actually fires.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_1_stamp_present_on_staged_path_passes() -> None:
+    """A staged copy under docs/adr/.../staged-workflow/.claude/ with a
+    valid workflow-sha stamp on line 1 passes rule 1.
+
+    The fixture mirrors the workflow-modifying staging layout: the staged
+    workflow file sits under `docs/adr/<plan>/_workflow/staged-workflow/.claude/workflow/`
+    and starts with a 40-char-hex `workflow-sha:` comment. The validator's
+    rule 1 gate (the `docs/adr/` path prefix branch) accepts the file
+    without a rule_1 finding.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            <!-- workflow-sha: 0123456789abcdef0123456789abcdef01234567 -->
+            # Demo staged file
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Demo | orchestrator | 3B | One-line description. |
+
+            <!--Document index end-->
+
+            ## 1 Demo
+            <!-- roles=orchestrator phases=3B summary="One-line description." -->
+
+            Body.
+            """
+        )
+        staged_rel = (
+            "docs/adr/some-plan/_workflow/staged-workflow/"
+            ".claude/workflow/demo.md"
+        )
+        _write_in_scope_file(root, staged_rel, body)
+        findings = MODULE.validate(root)
+        rule1 = [
+            f for f in findings if f.rule == "rule_1" and staged_rel in f.path
+        ]
+        assert not rule1, f"staged file with valid stamp should pass rule_1; got {rule1}"
+
+
+def test_rule_1_missing_stamp_on_staged_path_fails() -> None:
+    """A staged copy under docs/adr/.../staged-workflow/.claude/ that
+    lacks the workflow-sha stamp on line 1 fails rule 1.
+
+    The fixture starts the file with an H1, not the stamp comment, so the
+    `_STAMP_LINE_RE` match fails and the validator records a rule_1
+    finding at line 1.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo staged file
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Demo | orchestrator | 3B | One-line description. |
+
+            <!--Document index end-->
+
+            ## 1 Demo
+            <!-- roles=orchestrator phases=3B summary="One-line description." -->
+
+            Body.
+            """
+        )
+        staged_rel = (
+            "docs/adr/some-plan/_workflow/staged-workflow/"
+            ".claude/workflow/demo.md"
+        )
+        _write_in_scope_file(root, staged_rel, body)
+        findings = MODULE.validate(root)
+        rule1 = [
+            f for f in findings if f.rule == "rule_1" and staged_rel in f.path
+        ]
+        assert rule1, f"staged file without stamp should fail rule_1; got {findings}"
+        assert rule1[0].line == 1, (
+            f"rule_1 finding should anchor at line 1; got line {rule1[0].line}"
+        )
+
+
+def test_rule_1_live_workflow_file_without_stamp_passes() -> None:
+    """A live `.claude/workflow/<name>.md` file without a workflow-sha
+    stamp passes rule 1 — the rule is scoped to staged `docs/adr/`
+    paths only (the drift-gate handles live workflow files separately).
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Live workflow file with no stamp
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Demo | orchestrator | 3B | Body. |
+
+            <!--Document index end-->
+
+            ## 1 Demo
+            <!-- roles=orchestrator phases=3B summary="Body." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/live-demo.md", body)
+        findings = MODULE.validate(root)
+        rule1 = [
+            f for f in findings
+            if f.rule == "rule_1" and "/live-demo.md" in f.path
+        ]
+        assert not rule1, (
+            f"live workflow file should not trigger rule_1; got {rule1}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Rule 2 — TOC region presence.
 # ---------------------------------------------------------------------------
 
@@ -1252,6 +1386,59 @@ def test_rule_6_citer_any_role_against_narrow_target_fails() -> None:
         rule6 = [f for f in findings if f.rule == "rule_6"]
         assert any("roles" in f.explanation and "subset" in f.explanation for f in rule6), (
             f"citer-any against narrow target should fail, got {rule6}"
+        )
+
+
+def test_rule_6_both_any_wildcard_passes() -> None:
+    """`target.roles={any}` + `citer.roles={any}` is the trivially satisfied case.
+
+    Per §1.8(e), `target.roles={any}` matches any citer role, and the
+    citer-any case requires the target to also be `any`. Both ends being
+    `any` is the union; no rule_6 subset finding should fire.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        target = textwrap.dedent(
+            """\
+            # Target
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Foo | any | any | Foo. |
+
+            <!--Document index end-->
+
+            ## 1.6 Foo
+            <!-- roles=any phases=any summary="Foo." -->
+
+            Body.
+            """
+        )
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | any | any | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=any phases=any summary="A." -->
+
+            See target.md§1.6:any:any for details.
+            """
+        )
+        _two_file_cross_ref_setup(root, citer, target)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        assert not rule6, (
+            f"both-any wildcard should produce no rule_6 finding, got {rule6}"
         )
 
 
@@ -2440,6 +2627,70 @@ def test_write_halts_atomically_across_multiple_files() -> None:
         )
 
 
+def test_write_halts_on_mixed_stale_and_unresolved_refs() -> None:
+    """A file with both a stale-suffix ref and an unresolved ref aborts
+    with no writes — neither auto-fixable nor unresolved sites land.
+
+    The mixed-content case is the strongest atomicity claim: when one ref
+    in a file is a candidate for `--write` auto-stamping (stale suffix on
+    a resolvable target) AND another ref in the same file fails to
+    resolve, the script must refuse the whole file. Partial application
+    would leave the stale ref rewritten and the unresolved ref still
+    pointing at nothing — exactly the "half-fixed file" the
+    halt-on-unresolved contract forbids.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo mixed-content
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1.6 Stamps | orchestrator | 3B | Stamps. |
+
+            <!--Document index end-->
+
+            ## 1.6 Stamps
+            <!-- roles=orchestrator phases=3B summary="Stamps." -->
+
+            First ref is stale-stamped: §1.6:implementer:4 should rewrite to
+            §1.6:orchestrator:3B. Second ref is unresolved: §99.99 has no
+            heading. The file should be left untouched until the §99.99
+            site is hand-edited.
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        before = _read_file(target)
+        try:
+            MODULE.compute_write_plan(
+                root, files_filter=[".claude/workflow/demo.md"]
+            )
+        except MODULE.UnresolvedInFileRefError as exc:
+            assert any(
+                anchor == "§99.99" for _path, _line, anchor in exc.sites
+            ), f"expected §99.99 in unresolved sites; got {exc.sites}"
+        else:
+            raise AssertionError(
+                "expected UnresolvedInFileRefError for mixed stale + unresolved"
+            )
+        after = _read_file(target)
+        # No write landed — the otherwise-rewritable stale suffix
+        # `§1.6:implementer:4` is still present byte-for-byte.
+        assert before == after, (
+            f"mixed-content halt should leave file unchanged; before vs after:\n"
+            f"BEFORE:\n{before}\nAFTER:\n{after}"
+        )
+        # Verify the stale-suffix ref is still in the on-disk content as
+        # evidence the auto-stamp half did NOT run.
+        assert "§1.6:implementer:4" in after, (
+            "stale suffix should remain in the file untouched"
+        )
+
+
 def test_write_is_idempotent() -> None:
     """A second `--write` run produces the same file content as the first."""
     with _make_fixture_root() as tmp:
@@ -2696,6 +2947,18 @@ def main() -> int:
         ),
         # Validation rules + --check CLI surface.
         (
+            "rule_1 stamp present on staged path passes",
+            test_rule_1_stamp_present_on_staged_path_passes,
+        ),
+        (
+            "rule_1 missing stamp on staged path fails",
+            test_rule_1_missing_stamp_on_staged_path_fails,
+        ),
+        (
+            "rule_1 live workflow file without stamp passes",
+            test_rule_1_live_workflow_file_without_stamp_passes,
+        ),
+        (
             "rule_2 missing TOC fails when file has H2",
             test_rule_2_missing_toc_fails_when_file_has_h2,
         ),
@@ -2737,6 +3000,10 @@ def main() -> int:
         (
             "rule_6 citer-any against narrow target fails",
             test_rule_6_citer_any_role_against_narrow_target_fails,
+        ),
+        (
+            "rule_6 both-any wildcard passes",
+            test_rule_6_both_any_wildcard_passes,
         ),
         (
             "rule_6 file-level ref subset against union",
@@ -2854,6 +3121,10 @@ def main() -> int:
         (
             "--write halts atomically across multiple files",
             test_write_halts_atomically_across_multiple_files,
+        ),
+        (
+            "--write halts on mixed stale + unresolved refs",
+            test_write_halts_on_mixed_stale_and_unresolved_refs,
         ),
         (
             "--write is idempotent",

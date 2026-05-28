@@ -134,10 +134,13 @@ Focus only on changed files under `.claude/skills/`, `.claude/agents/`, `.claude
 [Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
-For each finding:
-- **File**: `path/to/file.md` (line X-Y)
-- **Issue**: what's wrong from a prompt-engineering standpoint
-- **Suggestion**: concrete rewrite or rule
+Render each finding as a single bullet under its matched H4 in the format:
+
+```markdown
+**PD<N>** — File: `path/to/file.md` (line X-Y), Axis: <description discriminability | clean-context invocation | deterministic decision rules | sub-agent delegation | tooling routing | $ARGUMENTS handling | output contract | examples and counterexamples | frontmatter>, Cost: <one-clause description of the prompt-engineering impact, e.g., "non-reproducible LLM behavior on borderline inputs", "sub-agent routes through grep where PSI is required", "description fails discriminability against neighboring skill">, Issue: <what's wrong from a prompt-engineering standpoint>, Suggestion: <concrete rewrite or rule>
+```
+
+Numbering: `PD<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: PD1 + PD2 under Critical, PD3 + PD4 + PD5 under Recommended, PD6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
 
 ## Guidelines
 

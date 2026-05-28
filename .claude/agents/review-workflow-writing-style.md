@@ -129,10 +129,13 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 [Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
-For each finding:
-- **File**: `path/to/file.md` (line X-Y)
-- **Issue**: which rule is violated and where
-- **Suggestion**: rewrite (provide the exact replacement text when possible)
+Render each finding as a single bullet under its matched H4 in the format:
+
+```markdown
+**WS<N>** — File: `path/to/file.md` (line X-Y), Axis: <banned vocabulary | em-dash overuse | BLUF lead | section length | heading style | repo-anchored voice | knowledge-cutoff disclaimer | bullet-vs-prose | conciseness | adjective triads>, Cost: <one-clause description of the style impact, e.g., "banned vocabulary in always-loaded skill description", "three em dashes in one paragraph", "section over soft cap with padding pattern present">, Issue: <which rule is violated and where>, Suggestion: <rewrite — provide the exact replacement text when possible>
+```
+
+Numbering: `WS<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WS1 + WS2 under Critical, WS3 + WS4 + WS5 under Recommended, WS6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
 
 ## Guidelines
 

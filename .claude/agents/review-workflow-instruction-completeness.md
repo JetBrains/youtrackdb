@@ -121,11 +121,13 @@ Focus on changed files under `.claude/skills/`, `.claude/agents/`, `.claude/work
 [Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
-For each finding:
-- **File**: `path/to/file.md` (line X-Y)
-- **Branch / phase / handshake**: which procedural element is incomplete
-- **Issue**: what case isn't handled
-- **Suggestion**: concrete fallback or recovery rule
+Render each finding as a single bullet under its matched H4 in the format:
+
+```markdown
+**IC<N>** — File: `path/to/file.md` (line X-Y), Axis: <conditional branch coverage | gate resume path | sub-agent handshake | phase output → next-phase input | error and recovery path | cleanup and idempotency | loop termination | empty-input case | state marker transition | argument validation>, Cost: <one-clause description of the operational impact, e.g., "LLM stranded with no resume rule on context-clear mid-gate", "orphan output that downstream phase assumes exists", "iteration loop has no max-cap">, Issue: <what case isn't handled, including the branch / phase / handshake identifier>, Suggestion: <concrete fallback or recovery rule>
+```
+
+Numbering: `IC<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: IC1 + IC2 under Critical, IC3 + IC4 under Recommended, IC5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes.
 
 ## Guidelines
 
