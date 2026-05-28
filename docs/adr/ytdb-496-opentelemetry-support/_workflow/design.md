@@ -36,7 +36,7 @@ This design introduces nine load-bearing ideas. Each is named and used without r
 
 **Sem-conv v1.33.0.** OpenTelemetry's stable semantic conventions for database client spans, dictating attribute names (`db.system.name`, `db.query.text`, etc.), their requirement levels (Required / Conditionally Required / Recommended / Opt-In), and the span-name fallback chain. Replaces "no vendor-neutral attribute schema". → §"Sem-conv attribute mapping".
 
-**Query tagging and per-tag mode resolution.** An enum `QueryMonitoringMode` (co-located with `QueryMetricsListener` / `TransactionMetricsListener` in `internal/common/profiler/monitoring/`) selects timing precision per query: `LIGHTWEIGHT` reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()` for sub-millisecond precision at the cost of two syscalls per measurement. **Each query resolves its mode independently from its tag** through a process-global `QueryMonitoringModeResolver`: rules configured at startup via `OPENTELEMETRY_QUERY_MODE_TAG_RULES` map tag matchers (exact / prefix / regex) to modes, first-wins; when no rule matches, the resolver falls back to the per-TX default set via `YTDBTransaction.withQueryMonitoringMode(...)`; when no per-TX default is set, the fallback is `LIGHTWEIGHT`. Tag sources: Gremlin via `g.with(YTDBQueryConfigParam.querySummary, "X")` and SQL via the parser hint `/*+ TAG=X */` populating `SQLStatement.getQueryTag(): Optional<String>`. Two queries in the same transaction with different tags can use different modes; the commit fire site has no query tag and therefore uses the TX default. Replaces "always-EXACT timing" implied by the original design and the per-TX-snapshot scheme from earlier iterations of this design. → §"Query tagging and per-tag rule resolution", §"SQL execution layer hook", and §"Gremlin bytecode classification".
+**Query tagging and per-tag mode resolution.** An enum `QueryMonitoringMode` (co-located with `QueryMetricsListener` / `TransactionMetricsListener` in `internal/common/profiler/monitoring/`) selects timing precision per query: `LIGHTWEIGHT` reads from `GranularTicker` at ~10 ms granularity with no syscall on the hot path; `EXACT` reads from `Instant.now()` for the wall-clock start (ns / μs on JDK 21 Linux) and `System.nanoTime()` for the duration delta, paying two syscalls per measurement for sub-millisecond precision. **Each query resolves its mode independently from its tag** through a process-global `QueryMonitoringModeResolver`: rules configured at startup via `OPENTELEMETRY_QUERY_MODE_TAG_RULES` map tag matchers (exact / prefix / regex) to modes, first-wins; when no rule matches, the resolver falls back to the per-TX default set via `YTDBTransaction.withQueryMonitoringMode(...)`; when no per-TX default is set, the fallback is `LIGHTWEIGHT`. Tag sources: Gremlin via `g.with(YTDBQueryConfigParam.querySummary, "X")` and SQL via the parser hint `/*+ TAG=X */` populating `SQLStatement.getQueryTag(): Optional<String>`. Two queries in the same transaction with different tags can use different modes; the commit fire site has no query tag and therefore uses the TX default. Replaces "always-EXACT timing" implied by the original design and the per-TX-snapshot scheme from earlier iterations of this design. → §"Query tagging and per-tag rule resolution", §"SQL execution layer hook", and §"Gremlin bytecode classification".
 
 **Query source classification.** Two static-helper classifiers in `core` extract `db.operation.name` and `db.collection.name` for the two query sources YTDB supports. The Gremlin classifier walks the TinkerPop `Bytecode` instruction list to resolve the first source step (`V`/`E`/`addV`/`addE`/`drop`) and the first `hasLabel(X)` argument. The SQL classifier reads the parsed `SQLStatement` subclass (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) and the target class from the FROM / INTO / UPDATE clause. Both return `Optional.empty()` when the query shape doesn't yield clean values. Called directly from the existing fire sites: `YTDBQueryMetricsStep` for Gremlin, and the `DatabaseSessionEmbedded.executeStatementWithMetrics` helper for SQL (invoked from both `query()` and `executeInternal()`). No SPI or ServiceLoader; the call sites parse before invoking, so the classifiers piggyback on parsing that runs anyway. Replaces "raw sanitized query string only". → §"Gremlin bytecode classification" (Gremlin rules table) and §"SQL execution layer hook" (SQL rules table and statement-subclass dispatch).
 
@@ -68,11 +68,13 @@ classDiagram
         +getCollectionName() Optional~String~
         +getDatabaseName() Optional~String~
         +getErrorType() Optional~String~
+        +getStartedAtEpochNanos() long
     }
     class TransactionDetails["TransactionMetricsListener.TransactionDetails"] {
         <<interface>>
         +getTransactionTrackingId() String
         +getDatabaseName() Optional~String~
+        +getCommittedAtEpochNanos() long
     }
     class OTelQueryMetricsListener {
         -Tracer tracer
@@ -241,8 +243,8 @@ sequenceDiagram
     Step->>CLS: classify(bytecode)
     CLS-->>Step: Classification(SELECT, User)
     Step->>OQL: queryFinished(details, startMs, durNs)
-    OQL->>TR: spanBuilder("SELECT User").setParent(Context.current()).startSpan(startMs)
-    OQL->>TR: span.end(startMs + durNs/1e6)
+    OQL->>TR: spanBuilder("SELECT User").setStartTimestamp(details.startedAtEpochNanos, NS).setParent(Context.current()).startSpan()
+    OQL->>TR: span.end(details.startedAtEpochNanos + durNs, NS)
     TR-->>EXP: span data
     Host->>TS: hostSpan.end()
     TS-->>EXP: span data
@@ -263,8 +265,8 @@ sequenceDiagram
 
     Host->>TX: tx.commit() (write tx)
     TX->>OTL: writeTransactionCommitted(details, commitMs, commitNs)
-    OTL->>TR: spanBuilder("commit <trackingId>").setSpanKind(clientKind).setParent(Context.current()).startSpan(commitMs)
-    OTL->>TR: span.end(commitMs + commitNs/1e6)
+    OTL->>TR: spanBuilder("commit <trackingId>").setSpanKind(clientKind).setStartTimestamp(details.committedAtEpochNanos, NS).setParent(Context.current()).startSpan()
+    OTL->>TR: span.end(details.committedAtEpochNanos + commitNs, NS)
 ```
 
 `writeTransactionCommitted` fires only for write transactions per existing YTDB semantics. A read-only transaction's implicit close path emits nothing on the TX listener and therefore no commit span. The participant box represents `FrontendTransactionImpl` because the listener fire happens inside `notifyMetricsListener()` on the committing thread, and `YTDBTransaction.commit()` delegates to it through the Gremlin and native-SQL paths alike. The commit span takes its parent from `Context.current()` (host span if the host wrapped the commit, root otherwise); no YTDB-internal TX wrapper span is created. `writeTransactionFailed` follows the same shape with `error.type` populated and span status set to ERROR.
@@ -368,29 +370,37 @@ Extraction site. The shared `Classification` value record gains additional optio
 
 ## Span timing capture
 
-**TL;DR.** OTel expresses span duration as `endTime - startTime`, never as an attribute. The listener API already passes the wall-clock start (`startedAtMillis`) and the monotonic duration (`executionTimeNanos`) as separate parameters of `queryFinished` and `writeTransactionCommitted`, so the OTel listener builds spans with explicit timestamps without inventing its own clock. The pattern is `setStartTimestamp(startedAtMillis, MILLISECONDS).startSpan()` then `span.end(startedAtMillis + executionTimeNanos / 1_000_000, MILLISECONDS)`, keeping the span's recorded duration aligned with what the fire site measured.
+**TL;DR.** Span emission goes through `TimeUnit.NANOSECONDS` end-to-end so duration carries every nanosecond the fire site measured. The pattern is `setStartTimestamp(startNanos, NANOSECONDS).startSpan()` then `span.end(startNanos + executionTimeNanos, NANOSECONDS)` — zero integer division on the emission path. The listener API exposes the wall-clock start two ways: the legacy `startedAtMillis` parameter for back-compat, plus a new default-method accessor `QueryDetails.getStartedAtEpochNanos(): long` returning epoch-nanoseconds. Under `EXACT` the fire site populates the accessor at full nanosecond precision via `Instant.now()`; the default implementation derives from `startedAtMillis` so listeners that ignore the new accessor still get a sensible value.
 
 The mapping inside `OTelQueryMetricsListener.queryFinished(...)`:
 
 ```java
+long startNanos = details.getStartedAtEpochNanos();
 Span span = tracer.spanBuilder(name)
-    .setSpanKind(CLIENT)
-    .setStartTimestamp(startedAtMillis, TimeUnit.MILLISECONDS)
+    .setSpanKind(clientKind)
+    .setStartTimestamp(startNanos, TimeUnit.NANOSECONDS)
     .setParent(Context.current())  // host context if host wrapped, otherwise root
     .startSpan();
 // set sem-conv attributes (db.system.name, db.query.text, ...)
-span.end(startedAtMillis + executionTimeNanos / 1_000_000L, TimeUnit.MILLISECONDS);
+span.end(startNanos + executionTimeNanos, TimeUnit.NANOSECONDS);
 ```
 
-Both values come from the same clock pair the fire site captured for the resolved mode at this query. Under `LIGHTWEIGHT` the fire site reads `ticker.approximateCurrentTimeMillis()` for the start and `ticker.approximateNanoTime()` for the duration delta; under `EXACT` it reads `System.currentTimeMillis()` and `System.nanoTime()`. The listener sees a consistent pair regardless of mode, so the OTel-recorded duration never drifts from the listener-measured duration.
+Both values come from the same clock pair the fire site captured for the resolved mode at this query. Under `EXACT` the fire site reads `Instant.now()` for the start (full nanosecond field on JDK 21; OS-dependent actual resolution lands at ns / μs on Linux, ~ms on older Windows) and `System.nanoTime()` for the duration delta. Under `LIGHTWEIGHT` it reads `ticker.approximateCurrentTimeMillis() * 1_000_000L` for the start nanos and `ticker.approximateNanoTime()` for the duration delta, both at ~10 ms ticker granularity. The listener sees a consistent ns pair regardless of mode, so the OTel-recorded duration never drifts from the listener-measured duration.
 
 Implicit `now()` would be wrong here. The listener callback fires *after* the operation completes, so `tracer.spanBuilder(...).startSpan()` without an explicit timestamp would record callback-entry time as the span start — losing the relationship between the span and the actual query timing. Passing `setStartTimestamp(...)` and `span.end(endTs)` makes the span match the measured operation.
 
-The standalone commit span for write transactions is built the same way as a query span, with `commitAtMillis` / `commitTimeNanos` from `writeTransactionCommitted` (or `writeTransactionFailed` on the error path) filling the timestamp slots. Read-only transactions do not invoke this listener (existing YTDB semantics, preserved), so no commit span is emitted for them.
+The standalone commit span for write transactions is built the same way as a query span, with the commit start nanos read from a new `TransactionDetails.getCommittedAtEpochNanos(): long` default-method accessor (back-compat default derives from `commitAtMillis`) and the duration read from `commitTimeNanos`. Read-only transactions do not invoke this listener (existing YTDB semantics, preserved), so no commit span is emitted for them.
 
 ### Edge cases / Gotchas
 
-- The listener API's `startedAtMillis` is in milliseconds. Under `EXACT`, the underlying clock is `System.currentTimeMillis()` (~1 ms precision); under `LIGHTWEIGHT`, the ticker resolves at ~10 ms granularity. Sub-millisecond accuracy on the span START is not preserved; the span DURATION retains nanosecond precision because `executionTimeNanos` passes through unchanged. Trace viewers render at millisecond resolution, so this is consistent with how spans display.
+- Span timestamps emit in `TimeUnit.NANOSECONDS` regardless of timing mode; source-clock resolution decides the actual precision a trace viewer renders. Concretely:
+
+  | Mode | Start precision | Duration precision | Start source | Duration source |
+  |---|---|---|---|---|
+  | `EXACT` | ns / μs (OS-dependent, `Instant.now()`) | ns (`System.nanoTime` delta) | `Instant.now()` epoch-nanos | `System.nanoTime` |
+  | `LIGHTWEIGHT` | ~10 ms (ticker) | ~10 ms (ticker delta) | `ticker.approximateCurrentTimeMillis * 1_000_000L` | `ticker.approximateNanoTime` |
+
+  A 1.234567 ms query under `EXACT` records a span with duration ~1234567 ns, no integer-ms rounding on the emission path. The same query under `LIGHTWEIGHT` rounds to a ticker tick (~0 or ~10 ms) because the ticker itself updates at that granularity, not because of any emission-side conversion. Hosts that need sub-ms precision pick `EXACT` per-TX via `withQueryMonitoringMode(EXACT)` or per-tag via `OPENTELEMETRY_QUERY_MODE_TAG_RULES`.
 - A clock skew between the fire site and the OTel SDK's exporter does not affect span duration, only the absolute placement on a wall-clock timeline. The exporter normalizes timestamps per the backend protocol.
 - An OTel-compatible backend that requires strictly-monotonic timestamps within a single trace sees no violation: every YTDB span is built with `(start, end)` from one fire-site clock read, and `end > start` always holds because `executionTimeNanos > 0` for any completed operation.
 
@@ -559,16 +569,20 @@ Hook anatomy in the `executeStatementWithMetrics` helper (both callers pass an a
                                                           falls back to tx.getDefaultQueryMonitoringMode() then LIGHTWEIGHT
    if LIGHTWEIGHT:
      ticker = YouTrackDBEnginesManager.instance().getTicker()
-     startMillis = ticker.approximateCurrentTimeMillis()
-     startNanos  = ticker.approximateNanoTime()         // no syscalls
+     startMillis     = ticker.approximateCurrentTimeMillis()
+     startEpochNanos = startMillis * 1_000_000L          // ms-granular value lifted to ns scale
+     startNanoTime   = ticker.approximateNanoTime()      // no syscalls
    else (EXACT):
-     startMillis = System.currentTimeMillis()
-     startNanos  = System.nanoTime()                    // two syscalls
+     now              = Instant.now()                    // single syscall, ns / μs field
+     startEpochNanos  = now.getEpochSecond() * 1_000_000_000L + now.getNano()
+     startMillis      = now.toEpochMilli()               // back-compat for legacy startedAtMillis param
+     startNanoTime    = System.nanoTime()                // monotonic delta base
 4. Run statement.execute(this, args, true) inside the existing try/catch; capture any thrown exception as caughtError
 5. elapsedNanos = (mode == LIGHTWEIGHT)
-                    ? ticker.approximateNanoTime() - startNanos
-                    : System.nanoTime() - startNanos
-6. Build QueryDetails (rawSql, args, statement, trackingId, errorType from caughtError.getClass().getName() when present),
+                    ? ticker.approximateNanoTime() - startNanoTime
+                    : System.nanoTime() - startNanoTime
+6. Build QueryDetails (rawSql, args, statement, trackingId, errorType from caughtError.getClass().getName() when present;
+   startedAtMillis = startMillis; getStartedAtEpochNanos() returns startEpochNanos),
    fire listeners.queryFinished(...) wrapped in try/catch (Exception | LinkageError | AssertionError) so listener
    exceptions don't break the query. If caughtError is non-null, rethrow it after the fire so the call site behaves
    as before. QueryDetails.getErrorType() drives the slow-query threshold bypass in OTelQueryMetricsListener
@@ -579,7 +593,7 @@ Both call sites do the parsing themselves before calling the helper. `query()` (
 
 The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(rawSql)` (from the OTel module) on first access; `getOperationName()` and `getCollectionName()` call `SqlSyntaxClassifier.classify(statement)` (a static utility in `core`) on first access. Hosts that don't read these accessors pay no sanitization or classification cost — the parsed `SQLStatement` is already available because `SQLEngine.parse(...)` runs unconditionally to execute the query.
 
-Timing capture follows the per-query mode resolution model from §"Query tagging and per-tag rule resolution". The helper reads the tag from `statement.getQueryTag()` (populated by the SQL parser when a `/*+ TAG=X */` hint precedes the statement; `Optional.empty()` otherwise), then calls `currentTx.resolveQueryMonitoringMode(tag)` to pick the clock source. `LIGHTWEIGHT` reads from `GranularTicker` at 10 ms granularity, with no syscall on the hot path. `EXACT` reads from `System.nanoTime()` / `System.currentTimeMillis()`, paying two syscalls per query for sub-millisecond precision. The commit fire site in `FrontendTransactionImpl.notifyMetricsListener` has no per-statement tag context and reads directly from `currentTx.getDefaultQueryMonitoringMode()`, so the commit clock pair matches whatever default the host set on the transaction (the same value the SQL hook falls back to when no tag rule matches). Different statements within one transaction can therefore record at different precisions while the commit timer remains aligned with the TX default; both fire sites in one query (Gremlin step at `YTDBQueryMetricsStep.close()` and SQL helper) resolve from the same tag and reach the same mode, satisfying the per-query Timing-mode uniformity invariant.
+Timing capture follows the per-query mode resolution model from §"Query tagging and per-tag rule resolution". The helper reads the tag from `statement.getQueryTag()` (populated by the SQL parser when a `/*+ TAG=X */` hint precedes the statement; `Optional.empty()` otherwise), then calls `currentTx.resolveQueryMonitoringMode(tag)` to pick the clock source. `LIGHTWEIGHT` reads from `GranularTicker` at 10 ms granularity, with no syscall on the hot path. `EXACT` reads `Instant.now()` for the wall-clock start (single syscall, ns / μs field on JDK 21 Linux) and `System.nanoTime()` for the monotonic duration delta; the wall-clock value populates both the legacy `startedAtMillis` listener parameter (via `Instant.toEpochMilli()`) and the new `getStartedAtEpochNanos()` accessor at full ns precision (see §"Span timing capture"). The commit fire site in `FrontendTransactionImpl.notifyMetricsListener` has no per-statement tag context and reads directly from `currentTx.getDefaultQueryMonitoringMode()`, so the commit clock pair matches whatever default the host set on the transaction (the same value the SQL hook falls back to when no tag rule matches). Different statements within one transaction can therefore record at different precisions while the commit timer remains aligned with the TX default; both fire sites in one query (Gremlin step at `YTDBQueryMetricsStep.close()` and SQL helper) resolve from the same tag and reach the same mode, satisfying the per-query Timing-mode uniformity invariant.
 
 The Gremlin path does not double-fire. Gremlin traversals route through `session.query()`, which would otherwise re-enter the helper, but `YTDBGraphQuery.execute(...)` and `YTDBGraphQuery.explain(...)` each activate a thread-local `GremlinSqlSuppression` token (re-entrant counter, auto-closeable) for the duration of the underlying `transaction.query(...)` call (an `EXPLAIN`-prefixed query in the explain case). The helper checks `GremlinSqlSuppression.isActive()` at step 2 and short-circuits before any timer read or listener fire, so a Gremlin traversal emits exactly one span (the Gremlin one at `YTDBQueryMetricsStep.close()`) and no SQL children. This preserves the OTel sem-conv alignment of one user-facing operation to one span and prevents leaking the Gremlin-to-SQL translation as observable trace noise.
 
