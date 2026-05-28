@@ -204,5 +204,8 @@ flowchart TD
 ## Plan Review
 - [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
+**PAUSED 2026-05-28 at State 0 mid-flight pending iteration-3 gate verification + structural review**
+- Handoff: `_workflow/handoff-state0.md`
+
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
