@@ -150,3 +150,7 @@ belong to one specific step. Per-step episode content lives in
 
 - `measure-read-share.py` exports CLI: no arguments needed for default behavior (auto-detects worktree, walks transcript folder, emits Markdown to stdout). Optional `--top=N` flag overrides top-files cap (default 10).
 - `prompts/create-final-design.md` Step 3 (Artifact 2: ADR): bash block added to invoke the script and capture output while composing `adr.md`.
+
+## Base commit
+
+058c65b53a5abfd93a2e956496e45c0ac54dd889
