@@ -284,7 +284,15 @@ flowchart TD
   > **Depends on:** Track 1, Track 2, Track 4
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1 (D16 re-validation)
+
+**Auto-fixed (mechanical)**: S1, S2 — two stale step-range references in `plan/track-4.md`'s Concrete Steps roster that the D16 renumber sweep missed (Step 3 note `Steps 4-7` → `Steps 5, 6, 8, 9`; Step 4 note `Steps 5-8` → `Steps 5, 6, 8, 9`), now matching the Plan-of-Work / Idempotence / Validation enumeration.
+
+**Acknowledged, not applied**: CR1 — stale `Step 7`/`Step 8` numbers in two frozen pre-D16 historical entries in `plan/track-4.md` (the Step 6 episode and a 14:30Z Surprises entry, both written before the 15:07Z D16 replan). Episodes are immutable, and rewriting a timestamped historical entry with post-replan numbers would falsify it; the renumber is already recorded in the Decision Log (`old Steps 7-8 → 8-9`) and Progress. The execution agent reads the authoritative roster, so there is zero execution impact.
+
+**Escalated (design decisions)**: none.
+
+**Verified (D16 premise)**: `build_file_lookup` in the live `workflow-reindex.py` records no `<skill-dir>/SKILL.md` key (D16's premise holds); the dangling `edit-design/SKILL.md:final-designer:4` ref exists in staged `create-final-design.md`; staged `conventions.md §1.8(e)` already prescribes the `.claude/skills/`-relative target shape, so the script is the defect and no Track 1 schema reopen is needed; the renumber (new Step 7 = D16 SKILL-key fix, old 7→8, old 8→9) is coherent across every current-state section.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
