@@ -1185,53 +1185,86 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     annotated staged copy under
     `docs/adr/<dir>/_workflow/staged-workflow/.claude/...`. A converted
     cross-file ref must subset-validate against the branch's authored
-    annotation, which is the staged copy — so when both a live and a
-    staged copy resolve to the same key, the staged copy wins. On a
-    non-workflow-modifying branch (develop, or a branch with no staged
-    subtree) no staged copy exists and the lookup stays pure-live, so
-    behaviour is unchanged.
+    annotation, which is the staged copy — so when a live copy and a
+    staged copy of the SAME logical target resolve to a key, the staged
+    copy wins. On a non-workflow-modifying branch (develop, or a branch
+    with no staged subtree) no staged copy exists and the lookup stays
+    pure-live, so behaviour is unchanged.
 
     Keys are derived from each file's logical `.claude/...` path (staged
     prefix stripped), so a staged prompt and its live namesake both
     contribute the `prompts/<basename>` key — keying on the raw staged
     path would have hidden the `prompts/` form for staged prompts.
 
-    Multi-staged ambiguity guard. If two distinct staged copies of one
-    logical target are present (two plan dirs each carrying a
-    staged-workflow subtree, say), the script cannot tell which annotation
-    a converted ref should validate against, so it halts with
+    Multi-staged ambiguity guard. The guard fires only on a genuine
+    duplicate: two staged copies of ONE logical target (two plan dirs each
+    carrying a staged-workflow subtree of the same `.claude/...` path). In
+    that case the script cannot tell which annotation a converted ref
+    should validate against, so it halts with
     `AmbiguousBootstrapProbeError` (CLI exit 2) — the same guard the §1.8
     enum bootstrap probe uses for a duplicated staged `conventions.md`.
-    Two live copies of one logical key never occur (the live globs and the
-    filesystem both forbid it); the guard fires only on staged duplicates.
+
+    Distinct targets that happen to share a basename are NOT a duplicate.
+    Several in-scope files collide on a bare-basename key: all seven
+    `SKILL.md` anchors key to bare `SKILL.md`, and the workflow-root
+    `structural-review.md` and its `prompts/structural-review.md` namesake
+    both key to bare `structural-review.md`. These collisions occur on the
+    live side too, where the live globs yield more than one file per such
+    key. They are resolved by first-match-wins (the first candidate
+    recorded for the key keeps it), not rejected. The guard distinguishes
+    the two cases by the recorded winner's logical `.claude/...` path: a
+    second staged copy halts only when its logical path equals the recorded
+    winner's logical path (the genuine "one target, two plan dirs" case);
+    otherwise it is a distinct target sharing a key and the first-match-wins
+    entry stands. For every basename that is a valid bare cross-file ref
+    target (`conventions.md`, `step-implementation.md`, and the like), the
+    globs yield at most one file per key, so the first-match-wins clause is
+    a no-op there.
     """
-    # Resolve per key with staged precedence. The live copy seeds each key
-    # and a staged copy overrides it; a second staged copy for the same key
-    # is the ambiguous case the guard rejects.
+    # Resolve per key with staged precedence. The first candidate seeds each
+    # key; a staged copy of the SAME logical target overrides a recorded
+    # live copy; a second staged copy of that SAME logical target is the
+    # ambiguous case the guard rejects. Candidates sharing only a basename
+    # (distinct logical targets) keep the first-match-wins entry.
     lookup: Dict[str, ParsedFile] = {}
-    staged_keys: set = set()
+    # Per key, the recorded winner's logical `.claude/...` path and whether
+    # it is the staged copy. Tracking the logical path tells a genuine "one
+    # target, two plan dirs" duplicate apart from two distinct targets that
+    # merely share a basename key, on both the live and the staged side.
+    winner_logical: Dict[str, str] = {}
+    winner_staged: Dict[str, bool] = {}
 
     def _record(key: str, pf: ParsedFile) -> None:
         staged = _is_staged(pf)
+        logical = _logical_workflow_path(pf)
         if key not in lookup:
             lookup[key] = pf
-            if staged:
-                staged_keys.add(key)
+            winner_logical[key] = logical
+            winner_staged[key] = staged
             return
+        if logical != winner_logical[key]:
+            # A different logical target sharing this basename key (the
+            # SKILL.md / structural-review.md collisions, live or staged).
+            # First-match-wins: keep the recorded entry.
+            return
+        # Same logical target as the recorded winner.
         if not staged:
-            # A live copy never displaces an already-chosen entry: a staged
-            # winner stays, and a second live copy for one key cannot occur.
+            # A live copy never displaces the recorded entry; a second live
+            # copy of one logical target cannot occur (the globs and the
+            # filesystem yield one live file per logical path).
             return
-        if key in staged_keys:
-            # Two staged copies resolve to the same logical target — halt
-            # rather than silently picking one (§1.8 enum-probe guard reuse).
+        if winner_staged[key]:
+            # Two staged copies of ONE logical target (two plan dirs each
+            # carrying a staged-workflow subtree) — halt rather than
+            # silently picking one (§1.8 enum-probe guard reuse).
             raise AmbiguousBootstrapProbeError(
                 f"Multiple staged copies resolve to cross-file ref key {key!r} — "
                 f"target resolution is ambiguous:\n  {lookup[key].path}\n  {pf.path}"
             )
-        # Staged copy overrides the live entry already recorded for this key.
+        # The recorded entry is the live copy of this logical target; the
+        # staged copy overrides it (staged precedence per §1.7(d)).
         lookup[key] = pf
-        staged_keys.add(key)
+        winner_staged[key] = True
 
     for pf in parsed:
         logical = _logical_workflow_path(pf)

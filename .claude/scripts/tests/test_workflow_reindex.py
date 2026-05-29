@@ -1835,6 +1835,168 @@ def test_build_file_lookup_multiple_staged_copies_halts() -> None:
             )
 
 
+def test_build_file_lookup_distinct_staged_basename_collision_first_match_wins() -> None:
+    """Distinct staged targets that share a basename key do NOT trip the guard.
+
+    Several in-scope files key to one bare basename without being the same
+    logical target: every `SKILL.md` keys to bare `SKILL.md`, and the
+    workflow-root `structural-review.md` and its `prompts/` namesake both
+    key to bare `structural-review.md`. The ambiguity guard must fire only
+    on two staged copies of ONE logical target, not on two distinct targets
+    that merely collide on a key. Here a single plan stages two different
+    SKILL.md anchors and both structural-review.md copies; the lookup must
+    build without raising and resolve each shared key first-match-wins.
+
+    Regression for the earlier guard, which keyed on the bare basename and
+    so falsely raised when a second staged file produced an already-staged
+    key — breaking every `--check` once a plan staged a colliding set.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Two distinct staged SKILL.md anchors under one plan: same bare
+        # `SKILL.md` key, different logical paths.
+        skill_a = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/skills/create-plan/SKILL.md"),
+            _annotated_target_body(),
+        )
+        skill_b = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/skills/execute-tracks/SKILL.md"),
+            _annotated_target_body(),
+        )
+        # Staged workflow-root and staged prompts structural-review.md:
+        # same bare `structural-review.md` key, different logical paths.
+        sr_root = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/structural-review.md"),
+            _annotated_target_body(),
+        )
+        sr_prompt = _write_in_scope_file(
+            root,
+            _staged_rel(
+                "some-plan", ".claude/workflow/prompts/structural-review.md"
+            ),
+            _annotated_target_body(),
+        )
+        parsed = [
+            MODULE.parse_file(skill_a, root),
+            MODULE.parse_file(skill_b, root),
+            MODULE.parse_file(sr_root, root),
+            MODULE.parse_file(sr_prompt, root),
+        ]
+        # Must not raise — these are distinct targets, not a duplicate.
+        lookup = MODULE.build_file_lookup(parsed)
+        # Bare `SKILL.md` resolves first-match-wins to the first staged
+        # SKILL.md recorded.
+        assert lookup["SKILL.md"].path == skill_a.relative_to(root).as_posix(), (
+            f"bare SKILL.md should first-match-win to {skill_a}, "
+            f"got {lookup['SKILL.md'].path}"
+        )
+        # Bare `structural-review.md` resolves first-match-wins to the
+        # workflow-root copy (recorded before the prompts copy).
+        assert lookup[
+            "structural-review.md"
+        ].path == sr_root.relative_to(root).as_posix(), (
+            "bare structural-review.md should first-match-win to the "
+            f"workflow-root copy, got {lookup['structural-review.md'].path}"
+        )
+        # The disambiguated `prompts/structural-review.md` key still
+        # resolves to the prompts copy.
+        assert lookup[
+            "prompts/structural-review.md"
+        ].path == sr_prompt.relative_to(root).as_posix(), (
+            "prompts/structural-review.md should resolve to the prompts copy, "
+            f"got {lookup['prompts/structural-review.md'].path}"
+        )
+
+
+def test_build_file_lookup_distinct_staged_basename_does_not_displace_live() -> None:
+    """A staged copy of a DIFFERENT target sharing a key never displaces a live winner.
+
+    Companion to the first-match-wins collision test, exercising the
+    live-recorded-first ordering: a live workflow-root `structural-review.md`
+    seeds the bare key, then a staged `prompts/structural-review.md` (a
+    distinct logical target) is recorded. The staged prompts copy must NOT
+    override the bare key — staged precedence applies only between a live
+    and a staged copy of the SAME logical target. The bare key keeps the
+    live workflow-root copy; the prompts copy owns only the disambiguated
+    `prompts/` key.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live_root = _write_in_scope_file(
+            root, ".claude/workflow/structural-review.md", _annotated_target_body()
+        )
+        staged_prompt = _write_in_scope_file(
+            root,
+            _staged_rel(
+                "some-plan", ".claude/workflow/prompts/structural-review.md"
+            ),
+            _annotated_target_body(),
+        )
+        # Live before staged mirrors the glob ordering.
+        parsed = [
+            MODULE.parse_file(live_root, root),
+            MODULE.parse_file(staged_prompt, root),
+        ]
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "structural-review.md"
+        ].path == ".claude/workflow/structural-review.md", (
+            "bare structural-review.md must keep the live workflow-root copy; "
+            "the staged prompts copy is a distinct target and must not "
+            f"displace it, got {lookup['structural-review.md'].path}"
+        )
+        assert lookup[
+            "prompts/structural-review.md"
+        ].path == staged_prompt.relative_to(root).as_posix(), (
+            "prompts/structural-review.md should resolve to the staged prompts "
+            f"copy, got {lookup['prompts/structural-review.md'].path}"
+        )
+
+
+def test_cli_check_exit_2_on_multiple_staged_copies() -> None:
+    """The `--check` CLI converts the multi-staged ambiguity raise to exit 2.
+
+    Companion to the `--write` unresolved-ref exit-2 test. The
+    `build_file_lookup` raise on two staged copies of one logical target is
+    only meaningful if `main(["--check"])` surfaces it as exit 2; this test
+    pins that conversion. `build_file_lookup` has a single call site
+    (`validate`, the `--check` path); the `--write` path does no cross-file
+    resolution, so the multi-staged exit-2 path is `--check`-only.
+
+    The CLI reads the module-level `REPO_ROOT`, so the test points it at a
+    fixture root carrying two staged copies of one target across two plan
+    dirs (the genuine ambiguous case), then restores it.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # A live conventions.md so the bootstrap probe succeeds (the probe
+        # falls back to live when no staged conventions exists), isolating
+        # the failure to the cross-file lookup.
+        _write_conventions(root)
+        # Two plan dirs each stage the same logical target — the ambiguous
+        # case the lookup halts on.
+        _write_in_scope_file(
+            root,
+            _staged_rel("plan-a", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        _write_in_scope_file(
+            root,
+            _staged_rel("plan-b", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        saved_repo_root = MODULE.REPO_ROOT
+        MODULE.REPO_ROOT = root
+        try:
+            rc = MODULE.main(["--check"])
+        finally:
+            MODULE.REPO_ROOT = saved_repo_root
+        assert rc == 2, f"expected --check exit 2 on multi-staged ambiguity, got {rc}"
+
+
 def test_converted_ref_subset_passes_against_staged_target() -> None:
     """End-to-end: a converted ref subset-passes against a staged-annotated target.
 
@@ -3818,6 +3980,18 @@ def main() -> int:
         (
             "build_file_lookup multiple staged copies halts",
             test_build_file_lookup_multiple_staged_copies_halts,
+        ),
+        (
+            "build_file_lookup distinct staged basename collision first-match-wins",
+            test_build_file_lookup_distinct_staged_basename_collision_first_match_wins,
+        ),
+        (
+            "build_file_lookup distinct staged basename does not displace live",
+            test_build_file_lookup_distinct_staged_basename_does_not_displace_live,
+        ),
+        (
+            "CLI --check exit 2 on multiple staged copies",
+            test_cli_check_exit_2_on_multiple_staged_copies,
         ),
         (
             "converted ref subset-passes against staged target",
