@@ -1164,6 +1164,27 @@ def _is_staged(pf: ParsedFile) -> bool:
     return _STAGED_SUBTREE_PREFIX_RE.match(pf.path) is not None
 
 
+def _is_workflow_root_doc(logical: str) -> bool:
+    """Return True iff `logical` is a `.claude/workflow/` root doc (not a prompt).
+
+    A workflow-root doc sits directly under `.claude/workflow/` with no
+    further directory component (`.claude/workflow/conventions.md`,
+    `.claude/workflow/structural-review.md`). A prompt under
+    `.claude/workflow/prompts/` is NOT a root doc. The bare-basename
+    cross-file ref form resolves to the workflow-root doc when both share a
+    basename (§1.8(e) basename-collision rule).
+    """
+    return (
+        logical.startswith(".claude/workflow/")
+        and "/" not in logical[len(".claude/workflow/") :]
+    )
+
+
+def _is_workflow_prompt(logical: str) -> bool:
+    """Return True iff `logical` is a `.claude/workflow/prompts/` prompt."""
+    return logical.startswith(".claude/workflow/prompts/")
+
+
 def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     """Build a lookup table from cross-file ref `name.md` shapes to parsed files.
 
@@ -1220,12 +1241,29 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     target (`conventions.md`, `step-implementation.md`, and the like), the
     globs yield at most one file per key, so the first-match-wins clause is
     a no-op there.
+
+    Workflow-root precedence on the bare key (§1.8(e) basename
+    collision). One basename collision has a defined winner rather than
+    first-match-wins: when a `.claude/workflow/` root doc and a
+    `.claude/workflow/prompts/` prompt share a basename
+    (`structural-review.md` today), the bare key resolves to the
+    workflow-root doc and the prompt is reachable only through its
+    `prompts/<name>` key. A prompt therefore claims the bare key only when
+    no workflow-root namesake exists (so a prompts-only basename keeps its
+    bare key and existing bare prompt refs still resolve), while a
+    workflow-root doc claims the bare key unconditionally — regardless of
+    parse order, since the glob sorts the prompts path first. SKILL.md
+    collisions are untouched: SKILL.md is never a bare cross-file ref
+    target and no workflow-root SKILL.md exists, so the override never
+    fires for them and they stay first-match-wins. The override is scoped
+    to the bare-basename key; the `prompts/<name>` key is unaffected.
     """
     # Resolve per key with staged precedence. The first candidate seeds each
     # key; a staged copy of the SAME logical target overrides a recorded
     # live copy; a second staged copy of that SAME logical target is the
     # ambiguous case the guard rejects. Candidates sharing only a basename
-    # (distinct logical targets) keep the first-match-wins entry.
+    # (distinct logical targets) keep the first-match-wins entry, except the
+    # bare key's workflow-root-over-prompt override below (§1.8(e)).
     lookup: Dict[str, ParsedFile] = {}
     # Per key, the recorded winner's logical `.claude/...` path and whether
     # it is the staged copy. Tracking the logical path tells a genuine "one
@@ -1234,7 +1272,7 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     winner_logical: Dict[str, str] = {}
     winner_staged: Dict[str, bool] = {}
 
-    def _record(key: str, pf: ParsedFile) -> None:
+    def _record(key: str, pf: ParsedFile, is_bare_key: bool) -> None:
         staged = _is_staged(pf)
         logical = _logical_workflow_path(pf)
         if key not in lookup:
@@ -1245,7 +1283,27 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
         if logical != winner_logical[key]:
             # A different logical target sharing this basename key (the
             # SKILL.md / structural-review.md collisions, live or staged).
-            # First-match-wins: keep the recorded entry.
+            # Default is first-match-wins, but the bare key gives the
+            # workflow-root doc precedence over a colliding prompt
+            # (§1.8(e)): the bare form means the workflow-root doc, the prompt is
+            # reached via its `prompts/<name>` key. The override is
+            # order-independent — it displaces a recorded prompt when the
+            # new candidate is the root doc, and refuses to let a prompt
+            # displace a recorded root doc.
+            if is_bare_key:
+                cand_root = _is_workflow_root_doc(logical)
+                winner_root = _is_workflow_root_doc(winner_logical[key])
+                cand_prompt = _is_workflow_prompt(logical)
+                winner_prompt = _is_workflow_prompt(winner_logical[key])
+                if cand_root and winner_prompt:
+                    lookup[key] = pf
+                    winner_logical[key] = logical
+                    winner_staged[key] = staged
+                    return
+                if cand_prompt and winner_root:
+                    # The workflow-root doc keeps the bare key.
+                    return
+            # Every other distinct-target collision: first-match-wins.
             return
         # Same logical target as the recorded winner.
         if not staged:
@@ -1269,11 +1327,11 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     for pf in parsed:
         logical = _logical_workflow_path(pf)
         # Bare filename keys: `step-implementation.md`, `conventions.md`.
-        _record(Path(logical).name, pf)
+        _record(Path(logical).name, pf, is_bare_key=True)
         # `prompts/X.md` keys for files under `.claude/workflow/prompts/`,
         # matched on the logical path so staged prompt copies also key here.
         if logical.startswith(".claude/workflow/prompts/"):
-            _record(f"prompts/{Path(logical).name}", pf)
+            _record(f"prompts/{Path(logical).name}", pf, is_bare_key=False)
     return lookup
 
 

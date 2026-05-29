@@ -1845,7 +1845,15 @@ def test_build_file_lookup_distinct_staged_basename_collision_first_match_wins()
     on two staged copies of ONE logical target, not on two distinct targets
     that merely collide on a key. Here a single plan stages two different
     SKILL.md anchors and both structural-review.md copies; the lookup must
-    build without raising and resolve each shared key first-match-wins.
+    build without raising.
+
+    SKILL.md collisions resolve first-match-wins (no defined winner — bare
+    SKILL.md is never a cross-file ref target). The structural-review.md
+    collision resolves by the §1.8(e) workflow-root override: the bare key is
+    the workflow-root doc, the prompt is reached via its `prompts/` key. In
+    this fixture the root copy is recorded before the prompt, so the result
+    matches both rules; the separate order-independence test below pins the
+    override on the glob-order ordering (prompt first).
 
     Regression for the earlier guard, which keyed on the bare basename and
     so falsely raised when a second staged file produced an already-staged
@@ -1888,17 +1896,17 @@ def test_build_file_lookup_distinct_staged_basename_collision_first_match_wins()
         # Must not raise — these are distinct targets, not a duplicate.
         lookup = MODULE.build_file_lookup(parsed)
         # Bare `SKILL.md` resolves first-match-wins to the first staged
-        # SKILL.md recorded.
+        # SKILL.md recorded (no workflow-root override — no workflow-root SKILL.md).
         assert lookup["SKILL.md"].path == skill_a.relative_to(root).as_posix(), (
             f"bare SKILL.md should first-match-win to {skill_a}, "
             f"got {lookup['SKILL.md'].path}"
         )
-        # Bare `structural-review.md` resolves first-match-wins to the
-        # workflow-root copy (recorded before the prompts copy).
+        # Bare `structural-review.md` resolves to the workflow-root copy
+        # (§1.8(e) workflow-root override; here also the first-recorded copy).
         assert lookup[
             "structural-review.md"
         ].path == sr_root.relative_to(root).as_posix(), (
-            "bare structural-review.md should first-match-win to the "
+            "bare structural-review.md should resolve to the "
             f"workflow-root copy, got {lookup['structural-review.md'].path}"
         )
         # The disambiguated `prompts/structural-review.md` key still
@@ -1954,6 +1962,198 @@ def test_build_file_lookup_distinct_staged_basename_does_not_displace_live() -> 
             "prompts/structural-review.md should resolve to the staged prompts "
             f"copy, got {lookup['prompts/structural-review.md'].path}"
         )
+
+
+# ---------------------------------------------------------------------------
+# build_file_lookup — bare-basename workflow-root-over-prompt override (§1.8(e)).
+#
+# §1.8(e) basename collision: the bare ref form means the workflow-root doc,
+# the `prompts/` prefix means the prompt. `structural-review.md` is the one
+# in-scope basename shared by a `.claude/workflow/` root doc and a
+# `.claude/workflow/prompts/` prompt today. The lookup must give the bare
+# key to the workflow-root doc independent of parse order (the discovery
+# glob sorts the prompts path first), keep the prompt reachable via its
+# `prompts/<name>` key, and leave prompts-only and non-colliding basenames
+# untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_build_file_lookup_bare_resolves_to_workflow_root_when_prompt_recorded_first() -> None:
+    """The bare key resolves to the workflow-root doc even when the prompt parses first.
+
+    This is the real-world ordering: the discovery glob sorts
+    `.claude/workflow/prompts/structural-review.md` before
+    `.claude/workflow/structural-review.md` (the `prompts/` segment sorts
+    before the bare basename), so the prompt is recorded first. Without the
+    the override, first-match-wins would hand the bare key to the prompt and
+    leave the workflow-root doc unreachable. The override must displace the
+    recorded prompt with the root doc, regardless of order. This is the
+    order-independence the earlier collision test could not exercise, since
+    it recorded the root copy first.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        prompt = _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/structural-review.md",
+            _annotated_target_body(),
+        )
+        root_doc = _write_in_scope_file(
+            root, ".claude/workflow/structural-review.md", _annotated_target_body()
+        )
+        # Prompt before root — mirrors the discovery glob sort order.
+        parsed = [
+            MODULE.parse_file(prompt, root),
+            MODULE.parse_file(root_doc, root),
+        ]
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "structural-review.md"
+        ].path == ".claude/workflow/structural-review.md", (
+            "bare structural-review.md must resolve to the workflow-root doc "
+            "even when the prompt is recorded first (workflow-root override), got "
+            f"{lookup['structural-review.md'].path}"
+        )
+        assert lookup[
+            "prompts/structural-review.md"
+        ].path == ".claude/workflow/prompts/structural-review.md", (
+            "prompts/structural-review.md must still resolve to the prompt, "
+            f"got {lookup['prompts/structural-review.md'].path}"
+        )
+
+
+def test_build_file_lookup_bare_collision_via_real_discovery_order() -> None:
+    """End-to-end: discovery + lookup against a fixture tree resolves the collision.
+
+    Exercises the override through the actual `discover_in_scope_files` /
+    `parse_in_scope_files` path rather than a hand-ordered list, so the glob
+    sort order (prompt first) is the order under test. This is the
+    current-branch shape: both `structural-review.md` copies live, neither
+    staged. The bare key must resolve to the workflow-root doc and the
+    `prompts/` key to the prompt.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/structural-review.md",
+            _annotated_target_body(),
+        )
+        _write_in_scope_file(
+            root, ".claude/workflow/structural-review.md", _annotated_target_body()
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "structural-review.md"
+        ].path == ".claude/workflow/structural-review.md", (
+            "bare structural-review.md must resolve to the workflow-root doc "
+            f"through real discovery order, got {lookup['structural-review.md'].path}"
+        )
+        assert lookup[
+            "prompts/structural-review.md"
+        ].path == ".claude/workflow/prompts/structural-review.md", (
+            "prompts/structural-review.md must resolve to the prompt, "
+            f"got {lookup['prompts/structural-review.md'].path}"
+        )
+
+
+def test_build_file_lookup_prompts_only_basename_keeps_bare_key() -> None:
+    """A basename owned only by a prompt keeps its bare key (fallback preserved).
+
+    The §1.8(e) override fires only when a workflow-root namesake exists. A
+    prompt with no workflow-root namesake (`technical-review.md` — there is
+    no `.claude/workflow/technical-review.md`) must still claim the bare
+    key, so existing bare prompt refs keep resolving.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        prompt = _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/technical-review.md",
+            _annotated_target_body(),
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "technical-review.md"
+        ].path == prompt.relative_to(root).as_posix(), (
+            "a prompts-only basename must keep its bare key, got "
+            f"{lookup.get('technical-review.md')}"
+        )
+        assert lookup[
+            "prompts/technical-review.md"
+        ].path == prompt.relative_to(root).as_posix(), (
+            "the prompts/ key must also resolve to the prompt, got "
+            f"{lookup.get('prompts/technical-review.md')}"
+        )
+
+
+def test_build_file_lookup_non_colliding_basename_unchanged() -> None:
+    """A non-colliding workflow-root basename resolves to itself (override is a no-op).
+
+    `conventions.md` has no `prompts/` namesake, so the §1.8(e) override never
+    fires and the bare key resolves to the workflow-root doc exactly as
+    before — a regression guard that the override does not perturb the
+    common single-file case.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        conv = _write_in_scope_file(
+            root, ".claude/workflow/conventions.md", _annotated_target_body()
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "conventions.md"
+        ].path == conv.relative_to(root).as_posix(), (
+            "a non-colliding workflow-root basename must resolve to itself, got "
+            f"{lookup.get('conventions.md')}"
+        )
+        assert "prompts/conventions.md" not in lookup, (
+            "a workflow-root doc must not produce a prompts/ key"
+        )
+
+
+def test_build_file_lookup_staged_root_wins_bare_over_staged_prompt_any_order() -> None:
+    """Staged workflow-root claims the bare key over a staged prompt, both orders.
+
+    On a workflow-modifying branch both copies of the collision pair are
+    staged. The bare key must resolve to the staged workflow-root doc and
+    the `prompts/` key to the staged prompt — and the result must not depend
+    on which staged copy parses first.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        staged_root = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/structural-review.md"),
+            _annotated_target_body(),
+        )
+        staged_prompt = _write_in_scope_file(
+            root,
+            _staged_rel(
+                "some-plan", ".claude/workflow/prompts/structural-review.md"
+            ),
+            _annotated_target_body(),
+        )
+        root_pf = MODULE.parse_file(staged_root, root)
+        prompt_pf = MODULE.parse_file(staged_prompt, root)
+        for order in ([prompt_pf, root_pf], [root_pf, prompt_pf]):
+            lookup = MODULE.build_file_lookup(order)
+            assert lookup[
+                "structural-review.md"
+            ].path == staged_root.relative_to(root).as_posix(), (
+                "bare structural-review.md must resolve to the staged "
+                f"workflow-root doc regardless of order, got "
+                f"{lookup['structural-review.md'].path}"
+            )
+            assert lookup[
+                "prompts/structural-review.md"
+            ].path == staged_prompt.relative_to(root).as_posix(), (
+                "prompts/structural-review.md must resolve to the staged prompt, "
+                f"got {lookup['prompts/structural-review.md'].path}"
+            )
 
 
 def test_cli_check_exit_2_on_multiple_staged_copies() -> None:
@@ -3988,6 +4188,26 @@ def main() -> int:
         (
             "build_file_lookup distinct staged basename does not displace live",
             test_build_file_lookup_distinct_staged_basename_does_not_displace_live,
+        ),
+        (
+            "build_file_lookup bare resolves to workflow-root when prompt recorded first",
+            test_build_file_lookup_bare_resolves_to_workflow_root_when_prompt_recorded_first,
+        ),
+        (
+            "build_file_lookup bare collision via real discovery order",
+            test_build_file_lookup_bare_collision_via_real_discovery_order,
+        ),
+        (
+            "build_file_lookup prompts-only basename keeps bare key",
+            test_build_file_lookup_prompts_only_basename_keeps_bare_key,
+        ),
+        (
+            "build_file_lookup non-colliding basename unchanged",
+            test_build_file_lookup_non_colliding_basename_unchanged,
+        ),
+        (
+            "build_file_lookup staged root wins bare over staged prompt any order",
+            test_build_file_lookup_staged_root_wins_bare_over_staged_prompt_any_order,
         ),
         (
             "CLI --check exit 2 on multiple staged copies",
