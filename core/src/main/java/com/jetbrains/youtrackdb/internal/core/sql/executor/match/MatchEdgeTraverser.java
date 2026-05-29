@@ -586,10 +586,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
         // Link bag too small for pre-filter to be worthwhile.
         edge.recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
       } else {
-        // EXPERIMENTAL rollback: Variant B in-list sample disabled —
-        // checkIndexLookupAmortization now uses class-level selectivity
-        // unconditionally and falls back to 0dd39b3 DEFER semantics on
-        // the CLT-fail path.
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
         // ridSet == null → skip reason already set by resolveWithCache().
         // IndexLookup selectivity is class-level (constant per query) — if

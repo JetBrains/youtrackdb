@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.List;
 import org.assertj.core.data.Offset;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -1956,8 +1955,7 @@ public class EdgeTraversalCacheTest {
             PreFilterSkipReason.LINKBAG_TOO_SMALL,
             PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH,
             PreFilterSkipReason.BUILD_FAILED,
-            PreFilterSkipReason.STATS_UNAVAILABLE,
-            PreFilterSkipReason.IN_LIST_SELECTIVITY_TOO_LOW);
+            PreFilterSkipReason.STATS_UNAVAILABLE);
   }
 
   // =========================================================================
@@ -2078,57 +2076,6 @@ public class EdgeTraversalCacheTest {
         .isEqualTo(PreFilterSkipReason.SELECTIVITY_TOO_LOW);
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
     assertThat(et.getPreFilterAppliedCount()).isZero();
-  }
-
-  /**
-   * Variant B safety branch: when the calibrated path is active
-   * (rootSourceRows < MIN_FOR_CLT, in-list sample present) and the
-   * sampled selectivity exceeds the configured threshold, the counter
-   * records IN_LIST_SELECTIVITY_TOO_LOW and returns null. Without this
-   * branch, computeMinNeighborsForBuild collapses to MAX_VALUE on
-   * selectivity ≥ 1.0 and the trigger silently masquerades as
-   * BUILD_NOT_AMORTIZED for the rest of the execution — wasting the
-   * sample work and masking the real diagnostic.
-   *
-   * <p>Class-level selectivity is set to 0.10 (well below the 0.95
-   * threshold, so the class-level REJECT gate does not fire). The
-   * sampled in-list selectivity is injected at 0.99 to model an LDBC
-   * IC2-shaped adjacency-list bias.
-   */
-  @Ignore("EXPERIMENTAL: CLT-fail rollback to 0dd39b3 behavior disables the"
-      + " Variant B in-list calibration branch. Re-enable when Variant B"
-      + " is reintroduced.")
-  @Test
-  public void resolveWithCache_inListSelectivityTooLow_recordsCounter() {
-    var et = createEdgeTraversal();
-    var ridSet = singletonRidSet(10, 1);
-    // Class-level 0.10 passes the SELECTIVITY_TOO_LOW gate.
-    var desc = stubIndexLookup(0.10, 100_000, "Post.date", ridSet);
-    et.setIntersectionDescriptor(desc);
-    // CLT-fail path: rootSourceRows in [0, 30) enables the calibrated
-    // branch. Combined with the injected in-list sample, useCalibratedM
-    // becomes true inside checkIndexLookupAmortization.
-    et.setRootSourceRows(10);
-    // Inject a sampled selectivity above the 0.95 threshold to simulate
-    // a biased adjacency list whose in-list mix is much higher than the
-    // class average.
-    et.setInListSelectivity(0.99);
-    var ctx = new BasicCommandContext();
-
-    var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
-
-    assertThat(result).isNull();
-    assertThat(et.getLastSkipReason())
-        .isEqualTo(PreFilterSkipReason.IN_LIST_SELECTIVITY_TOO_LOW);
-    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
-    assertThat(et.getPreFilterAppliedCount()).isZero();
-    // Sample-based REJECT must NOT cache null — the sample is empirical
-    // and per-execution, so a fresh execution against less biased bags
-    // is free to re-evaluate. Re-calling with the same linkBagSize must
-    // hit the REJECT branch again (skip count grows) rather than a
-    // cached short-circuit.
-    et.resolveWithCache(ctx, LARGE_LINKBAG);
-    assertThat(et.getPreFilterSkippedCount()).isEqualTo(2);
   }
 
   /**

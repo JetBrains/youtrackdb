@@ -151,14 +151,9 @@ public class EdgeTraversal {
    *
    * <p>{@code 30} is the classical CLT rule-of-thumb threshold. For
    * heavy-tail distributions (LDBC SNB) {@code 30} samples is borderline,
-   * but the {@link Mode#DEFERRED_WITH_NET} safety net catches the
-   * remaining risk. Below this threshold the calibrated path (Variant
-   * B — in-list selectivity sample taken upstream in
-   * {@code MatchEdgeTraverser}) drops the trigger to {@code T = m}
-   * with {@code m} computed against the sampled selectivity and the
-   * corrected build cost; the historic path falls back to
-   * {@code T = max(2·forecastN, m)}. Either way the cost of being
-   * wrong is bounded.
+   * but {@link Mode#DEFERRED_WITH_NET} together with the CLT-fail safety
+   * multiplier (see {@link #CLT_FAIL_M_SAFETY_MULTIPLIER}) catches the
+   * remaining risk.
    */
   static final long MIN_FOR_CLT = 30L;
 
@@ -241,51 +236,6 @@ public class EdgeTraversal {
   private double indexLookupSelectivity = Double.NaN;
 
   /**
-   * Sampled in-list selectivity (fraction of link-bag entries passing the
-   * IndexLookup predicate), measured on the first vertex that reaches
-   * {@link #checkIndexLookupAmortization}. Bind-dependent — per execution
-   * a fresh sample is taken (the constructor leaves it at {@code NaN}).
-   *
-   * <p>When set ({@code ≥ 0}) it overrides the class-level
-   * {@link #indexLookupSelectivity} in the {@code m} formula on the
-   * DEFERRED_WITH_NET branch where the CLT confidence gate would
-   * otherwise leave us trusting forecast-based heuristics over real data.
-   *
-   * <p>{@code NaN} — not sampled yet. {@code -1.0} — sampling attempted but
-   * yielded no usable observations (empty bag, all loads failed); the code
-   * then falls back to class-level selectivity. {@code [0, 1]} — valid
-   * sample, used to recalibrate {@code m}.
-   */
-  private double inListSelectivity = Double.NaN;
-
-  /**
-   * Number of link-bag entries to sample when calibrating the in-list
-   * selectivity. K=30 is the classical CLT rule-of-thumb sample size; the
-   * binomial standard error of a hit-rate estimate at K=30 is roughly 9pp,
-   * comfortably below the IC2/IC4 separation (~70% vs ~3%).
-   */
-  static final int IN_LIST_SAMPLE_SIZE = 30;
-
-  /**
-   * Multiplier applied to {@code m} on the calibrated-m path to correct the
-   * implicit underestimation of build cost {@code B} in
-   * {@link #computeMinNeighborsForBuild}. The base formula assumes
-   * {@code B = estimatedSize × scan_cost}, which models build cost as one
-   * bitmap-probe per entry. In reality the build performs B-tree traversal,
-   * key deserialization, and RoaringBitmap insertion per entry —
-   * roughly {@code 50-100×} more expensive than a simple probe. Without
-   * this correction, the cost-model break-even fires far earlier than the
-   * real volume at which the build pays off, leading to IC2-shaped
-   * regressions.
-   *
-   * <p>Applied only on the calibrated path (sampled in-list selectivity
-   * + CLT-fail) so existing CLT-pass behavior is unchanged. The base
-   * formula stays the historical reference point for the BUILD_EAGER
-   * decision when CLT confidence is established.
-   */
-  static final double BUILD_PER_ENTRY_MULTIPLIER = 10.0;
-
-  /**
    * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
    * descriptor. Resolved from {@link #forecastN} vs the runtime-computed
    * {@code m} on the first {@code resolveWithCache} call, then memoized for
@@ -305,16 +255,13 @@ public class EdgeTraversal {
      * on first vertex but maintain the runtime accumulator with an
      * adaptive trigger:
      * <ul>
-     *   <li>Calibrated path (Variant B — in-list selectivity sampled
-     *       on a CLT-fail path): {@code T = m} with {@code m} computed
-     *       against the sampled selectivity and the corrected build
-     *       cost ({@link #BUILD_PER_ENTRY_MULTIPLIER}). The
-     *       {@code 2·forecastN} floor is dropped because the
-     *       calibrated cost-model break-even is trustworthy
-     *       per-query.</li>
-     *   <li>Historic path (no sample, or CLT-pass without eager
-     *       build): {@code T = max(2·forecastN, m)} — the
-     *       belt-and-braces floor stays as a safety net against
+     *   <li>CLT-fail (rootSourceRows in {@code [0, MIN_FOR_CLT)}):
+     *       {@code T = m · CLT_FAIL_M_SAFETY_MULTIPLIER}. The histogram
+     *       inputs feeding {@code m} are noisy at small root-lineage
+     *       sample sizes, so we inflate the trigger to force the
+     *       accumulator to observe many vertices before committing.</li>
+     *   <li>CLT-pass and forecast-absent: {@code T = max(2·forecastN, m)}
+     *       — the belt-and-braces floor stays as a safety net against
      *       forecast under-estimates.</li>
      * </ul>
      */
@@ -552,25 +499,6 @@ public class EdgeTraversal {
   /** Returns the memoized amortization mode (test/PROFILE visibility). */
   Mode getMode() {
     return mode;
-  }
-
-  /** Returns {@code true} once the in-list selectivity sample has been taken. */
-  boolean isInListSampled() {
-    return !Double.isNaN(inListSelectivity);
-  }
-
-  /** Returns the sampled in-list selectivity, or {@code NaN} when not sampled. */
-  double getInListSelectivity() {
-    return inListSelectivity;
-  }
-
-  /**
-   * Records the in-list selectivity sample taken from the first vertex's
-   * link bag. {@code -1.0} means sampling produced no usable result
-   * (callers fall back to the class-level selectivity).
-   */
-  void setInListSelectivity(double sample) {
-    this.inListSelectivity = sample;
   }
 
   public boolean isConsumed() {
@@ -1076,16 +1004,12 @@ public class EdgeTraversal {
    * {@link Mode#BUILD_EAGER} (materialise from neighbor 1) and
    * {@link Mode#DEFERRED_WITH_NET} (keep an accumulator with safety-net
    * trigger). The mode is memoized on the {@link EdgeTraversal} instance
-   * for the rest of the execution. The trigger formula adapts to
-   * whether an in-list selectivity sample was taken upstream: calibrated
-   * path {@code T = m}, historic path {@code T = max(2·forecastN, m)}
-   * — see {@link Mode#DEFERRED_WITH_NET} for the full rationale.
+   * for the rest of the execution. The DEFERRED_WITH_NET trigger
+   * branches on the CLT confidence gate — see
+   * {@link Mode#DEFERRED_WITH_NET} for the full rationale.
    *
    * <p>Returns {@link AmortizationDecision#REJECT} when class-level
-   * selectivity is too high (cache null permanently) or when the
-   * sampled in-list selectivity is too high
-   * ({@link PreFilterSkipReason#IN_LIST_SELECTIVITY_TOO_LOW}, not cached
-   * because the sample is per-execution empirical data),
+   * selectivity is too high (cache null permanently),
    * {@link AmortizationDecision#DEFER} when
    * {@link Mode#DEFERRED_WITH_NET} accumulator has not yet crossed
    * the trigger (return null without caching), or
@@ -1133,14 +1057,6 @@ public class EdgeTraversal {
     // Compute the break-even m for the mode decision and the
     // DEFERRED_WITH_NET trigger. Cheap — depends on estimatedSize and the
     // cached class-level selectivity.
-    //
-    // EXPERIMENTAL rollback: Variant B (in-list calibration) and Variant
-    // B+ (BUILD_PER_ENTRY_MULTIPLIER) are disabled. On the CLT-fail path
-    // we restore the 0dd39b3 (16 Apr 2026) behavior — pure class-level
-    // cost model + DEFER accumulator with trigger T = m, no in-list
-    // sample. That branch state did not regress IC2; the calibration
-    // layers added on top did. CLT-pass keeps the historic
-    // T = max(2·forecastN, m) belt-and-braces.
     double loadToScanRatio = currentLoadToScanRatio();
     double m = computeMinNeighborsForBuild(
         estimatedSize, loadToScanRatio, indexLookupSelectivity);
@@ -1224,11 +1140,9 @@ public class EdgeTraversal {
    * decision sites in {@link #checkIndexLookupAmortization}: the
    * BUILD_EAGER gate ({@code forecastN > ceil(m)}) and the
    * {@code DEFERRED_WITH_NET} safety-net trigger. The trigger formula
-   * adapts to the calibration state — historic path uses
-   * {@code T = max(2·forecastN, m)}, calibrated path (Variant B —
-   * in-list selectivity sample present) collapses to {@code T = m}
-   * after applying {@link #BUILD_PER_ENTRY_MULTIPLIER} to correct the
-   * implicit underestimation of build cost {@code B}.
+   * branches on the CLT confidence gate — CLT-pass uses
+   * {@code T = max(2·forecastN, m)}, CLT-fail uses
+   * {@code T = m · CLT_FAIL_M_SAFETY_MULTIPLIER}.
    *
    * <p>Boundary handling:
    * <ul>
@@ -1345,7 +1259,7 @@ public class EdgeTraversal {
     copy.rootSourceRows = rootSourceRows;
     copy.profilingEnabled = profilingEnabled;
     // Cache, cachedSkipReasons, accumulatedLinkBagTotal,
-    // indexLookupSelectivity, inListSelectivity, mode, metric references,
+    // indexLookupSelectivity, mode, metric references,
     // and pre-filter counters are intentionally not copied — stale data
     // from a previous execution must not leak into a new plan instance.
     // The constructor and field initializers reset them to their correct
