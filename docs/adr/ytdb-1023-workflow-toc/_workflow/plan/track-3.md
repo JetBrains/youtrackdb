@@ -18,6 +18,7 @@ Build `.claude/scripts/measure-read-share.py` — worktree-scoped, lifetime wind
 - [x] 2026-05-28T17:39Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-29T02:54Z [ctx=safe] Step 1 complete (commit 5cfd07ef)
 - [x] 2026-05-29T03:00Z [ctx=info] Step 2 complete (commit ac0fac3f)
+- [x] 2026-05-29T03:15Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
