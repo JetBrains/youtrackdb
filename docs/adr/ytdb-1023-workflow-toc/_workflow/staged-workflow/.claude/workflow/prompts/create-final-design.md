@@ -66,6 +66,7 @@ authoritative source for edge cases.
 **Step 3 — Produce the two final artifacts.**
 
 ### Ephemeral identifier rule (applies to BOTH artifacts)
+<!-- roles=final-designer phases=4 summary="Strip working-file identifiers from both committed artifacts; the authoritative rule lives in a dedicated file." -->
 
 `design-final.md` and `adr.md` are the **only** workflow files that
 survive merge into `develop`. Every other workflow file —
@@ -76,8 +77,8 @@ at the end of Phase 4 (Step 6 below) before the PR is merged. Anything
 these final artifacts say must survive that deletion.
 
 **The authoritative rule, forbidden/allowed lists, and rewrite examples
-live in [`../ephemeral-identifier-rule.md`](../ephemeral-identifier-rule.md).**
-Read that file and apply it to both artifacts. (The §2.3 stub in
+live in ephemeral-identifier-rule.md:final-designer:4.**
+Read that file and apply it to both artifacts. (The `§2.3` stub in
 `../conventions-execution.md` is a quick recap pointing at the same
 file.)
 
@@ -102,11 +103,12 @@ Re-scan both artifacts before the commit step with the pre-commit
 gate regex. Phase 4 commits go directly via this skill rather than
 through the implementer sub-agent, so the gate is run by hand here
 under the "ad-hoc commits outside the workflow" branch of
-[`../ephemeral-identifier-rule.md`](../ephemeral-identifier-rule.md)
-§"Self-check before commit" (also restated in the §2.3 stub of
+ephemeral-identifier-rule.md:final-designer:4
+`§"Self-check before commit"` (also restated in the `§2.3` stub of
 `../conventions-execution.md`).
 
 ### Artifact 1: Final Design Document (`design-final.md`)
+<!-- roles=final-designer phases=4 summary="Produce the final design reflecting the actual implementation: verify diagrams against code, then use edit-design." -->
 
 Produce `docs/adr/<dir-name>/design-final.md` (the top-level final
 artifact, not under `_workflow/`) reflecting the **actual
@@ -115,8 +117,8 @@ concept-first Overview, Core Concepts vocabulary primer (when the doc
 has Parts or ≥3 new domain terms), Class Design, Workflow, per-section
 TL;DR + mechanism overview + edge cases + References footer. The
 canonical structure template lives in
-[`../design-document-rules.md`](../design-document-rules.md) §
-Structure; do **not** restate it here.
+design-document-rules.md:final-designer:4
+`§ Structure`; do **not** restate it here.
 
 **Sub-step A — Verification protocol (before invoking the skill).**
 Build verification tables to ensure every diagram element traces to
@@ -148,7 +150,7 @@ they are working notes that ensure accuracy.
 tables in hand, route the artifact creation through the mutation
 discipline. Do **not** call `Write` / `Edit` directly on
 `design-final.md` — invoke
-[`.claude/skills/edit-design/SKILL.md`](../../skills/edit-design/SKILL.md)
+edit-design/SKILL.md:final-designer:4
 with:
 
 - `mutation_kind`: `phase4-creation`
@@ -193,7 +195,7 @@ Rules (these are enforced by the discipline; listed here for orientation):
 all work and ask the user for a session refresh (see
 `workflow.md` §Context Consumption Check). Write a handoff file at
 `docs/adr/<dir-name>/_workflow/handoff-phase4.md` per
-[`mid-phase-handoff.md`](../mid-phase-handoff.md): `design-final.md`
+mid-phase-handoff.md:orchestrator:4: `design-final.md`
 is on disk but `adr.md` is not, so the next session resumes at the
 ADR step without re-reading every episode or re-writing the
 final-design content. The same applies to mid-`adr.md` pauses;
@@ -202,6 +204,7 @@ handoff. If the file does not exist or the command fails, this is
 **not an error** — treat as `safe` and continue.
 
 ### Artifact 2: ADR (`adr.md`)
+<!-- roles=final-designer phases=4 summary="Write the ADR from the plan adjusted for actual outcomes, aggregating step and track episodes; append telemetry last." -->
 
 Write `docs/adr/<dir-name>/adr.md` — a post-implementation Architecture
 Decision Record derived from `implementation-plan.md`, adjusted for actual
@@ -312,10 +315,10 @@ regenerating it against a different snapshot.
 Workflow-modifying plans accumulate every `.claude/workflow/**` and
 `.claude/skills/**` edit under `<dir-name>/_workflow/staged-workflow/`
 throughout Phase B and Phase C per
-[`../conventions.md`](../conventions.md) §1.7; this step copies the
+conventions.md:final-designer:4 `§1.7`; this step copies the
 staged subtree onto the live tree in one commit before the
 final-artifacts commit. The promotion is additive only per
-`../conventions.md` §1.7(e); plans that need to delete live workflow
+`../conventions.md` `§1.7(e)`; plans that need to delete live workflow
 files land the deletion outside staging. Non-workflow-modifying plans
 have no staged subtree on disk and the step is a silent no-op for them
 — Phase 4 stays in its two-commit shape.
@@ -330,7 +333,7 @@ Before copying, the step runs a divergence sanity check against
 `origin/develop` carries workflow commits this branch has not absorbed
 via rebase, so `cp -r` would silently overwrite live changes that
 already exist on `develop`'s side — the rebase-precedes-promotion rule
-in `../conventions.md` §1.7(f). The step halts with a
+in `../conventions.md` `§1.7(f)`. The step halts with a
 manual-reconciliation instruction in that case; the user rebases the
 branch onto current `origin/develop` and restarts Phase 4.
 
@@ -358,7 +361,7 @@ fi
 The commit message prefix
 `Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
 matches the implementer-rules live-workflow-path gate's allow-clause
-verbatim per `../conventions.md` §1.7(b)/(e) and
+verbatim per `../conventions.md` `§1.7(b)/(e)` and
 `../implementer-rules.md` § *Pre-commit gate, live-workflow-path
 check*. Any deviation from this prefix causes the gate to refuse the
 commit. The cleanup commit in Step 6 below removes the staged subtree
@@ -408,7 +411,7 @@ git commit -m "Remove workflow scaffolding"
 git push
 ```
 
-This deletes the plan, design.md, design-mechanics.md, every track
+This deletes the plan, `design.md`, `design-mechanics.md`, every track
 file under `plan/`, and the design-mutations log in one commit.
 The squash-merge folds this deletion together with the rest of the
 branch's history; on `develop`, the final state is the two (or three)
