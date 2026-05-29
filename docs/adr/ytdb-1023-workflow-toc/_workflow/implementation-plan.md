@@ -246,7 +246,7 @@ flowchart TD
 
 - [ ] Track 4: Universal annotation rollout + cross-ref link conversion (49 files)
   > Author per-section TOC + annotations for every in-scope file (49 total: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, 7 workflow-referencing skill files; ~600 annotations, all author-written), and convert every Markdown link to an in-scope `.md` target into a bare `name.md:roles:phases` cross-file ref, backtick-wrapping references to non-annotatable targets, per D13. `workflow-reindex.py --write` scaffolds the TOC tables and auto-stamps in-file refs; the author hand-writes per-section `roles=`, `phases=`, `summary=` and the cross-file suffixes. Lands as a logical batch group (squash-merge collapses anyway) so the schema becomes universally applicable.
-  > **Scope:** ~6 steps covering workflow root (two heading-balanced batches with annotation + link conversion), prompts, skills, the link-conversion pass over the first batch's already-annotated files, and a final full-set reindex `--check` green run + house-style sweep.
+  > **Scope:** ~6 steps covering the reindex fence-exclusion + §1.8 schema fix, workflow root (two heading-balanced batches with annotation + link conversion), prompts, skills, the link-conversion pass over the first batch's already-annotated files, and a final full-set reindex `--check` green run + house-style sweep.
   > **Depends on:** Track 1, Track 2
   > **Cross-ref widening (D13):** Track 4 Step 2 found `workflow-reindex.py` rule_6 flags every non-backticked, non-fenced bare `name.md` token (Markdown link targets and bare prose mentions), so the Step 6 green `--check` is unreachable while workflow docs carry plain links. D13 (inline replan) widens the cross-file suffix convention to all workflow docs and prompts and backtick-wraps non-annotatable targets; no script change. Steps 3-6 fold the link-conversion pass into the annotation procedure; see `plan/track-4.md`.
   > **From Track 3 review (WB1):** `rule_4` flagging the fenced `adr.md`-template headings inside `prompts/create-final-design.md` is subsumed by Step 1's fence-exclusion (rules 2/3/4 skip fenced headings and delimiters per `conventions.md §1.8(e)`). The Step 6 full-set green `--check` confirms it; no separate `rule_4` carve-out is needed.
@@ -257,9 +257,13 @@ flowchart TD
   > **Depends on:** Track 1, Track 2, Track 4
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — re-validated at iteration 1 after the D13 inline replan
 
-**Reset by inline replan (Track 4 — D13 cross-ref widening, 2026-05-29).** The prior review passed (consistency iteration 3, structural iteration 2); its mechanical fixes (CR3–CR6, CR8, CR10, S1–S3) and escalated design resolutions (CR1, CR2, CR7, CR9, S4, S5) are already baked into the plan, and the full prior audit summary is preserved in git history. The reset routes the next `/execute-tracks` session through State 0 to re-validate the revised plan (the D13 widening, the reconciled D6/D8/D9/D10/I7, and the re-decomposed Track 4 steps) per `inline-replanning.md` step 6.
+**Auto-fixed (mechanical)**: S6 (suggestion) added the reindex fence-exclusion + §1.8 schema fix to Track 4's Scope coverage list, which under-named its 6-step roster.
+
+**Escalated (design decisions)**: none.
+
+**Re-validation context (D13 cross-ref widening, 2026-05-29).** This State 0 pass re-ran after the Track 4 inline replan reset the gate. Consistency passed at iteration 1 with no findings: the D13 widening is carried consistently across staged `conventions.md §1.8(e)`, the live `workflow-reindex.py` rule 6, the reconciled D6/D8/D9/D10/I7, and the re-decomposed Track 4 steps; the three known design.md drifts stay Phase-4-deferred and surfaced no new contradiction. Structural passed at iteration 1 (S6 above). The prior pre-replan audit (consistency iteration 3, structural iteration 2) is preserved in git history.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
