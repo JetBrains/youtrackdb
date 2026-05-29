@@ -1297,6 +1297,20 @@ appending `§X.Y(z)` after the filename (`conventions.md§1.6(c):...`);
 the cross-vs-in-file split is on the file boundary, not on the
 presence of the sub-section anchor.
 
+**Basename collision — the bare form is the workflow-root file.** One
+basename today is shared by a `.claude/workflow/` root file and a
+`.claude/workflow/prompts/` prompt: `structural-review.md`. The bare ref
+`structural-review.md:roles:phases` resolves to the workflow-root file
+(the review-protocol doc); the prompt is referenced with the `prompts/`
+prefix (`prompts/structural-review.md:roles:phases`). This applies the
+path-relative rule above to the collision: the bare basename is the
+workflow-root anchor's form, and the `prompts/` prefix is the prompt's.
+`workflow-reindex.py`'s cross-file lookup assigns the bare key to the
+workflow-root file when a prompts namesake exists, so the two forms
+resolve to distinct targets. A basename owned only by a prompt (no
+workflow-root namesake) keeps its bare key, so an existing bare prompt
+ref still resolves.
+
 **Why the hand-vs-auto split.** A cross-file citer often cares about a
 narrow slice of the target's role/phase set, not the full set;
 hand-writing the suffix lets the citer record the audience this
