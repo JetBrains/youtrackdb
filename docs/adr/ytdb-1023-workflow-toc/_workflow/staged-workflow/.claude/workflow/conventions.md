@@ -84,7 +84,7 @@ during Phase 3 execution.
 | **Phase enum** | The closed 8-value set of workflow-phase tokens (`0`, `1`, `2`, `3A`, `3B`, `3C`, `4`, `any`) used in per-section annotations and cross-reference suffixes. Inline-replanning, review-mode passes, and `edit-design` mutations reuse existing phase tokens (often as a union) rather than carving out separate tokens; `/migrate-workflow` and `/review-workflow-pr` sit outside the phase taxonomy and use `phases=any`. Full list in §1.8:any:any. |
 | **Section annotation** | The one-line HTML comment `<!-- roles=<comma-list> phases=<comma-list> summary="<one-line>" -->` placed immediately after every annotated `##` or `###` heading. Carries the section's role and phase audience plus a ≤120-char summary; the TOC region's summary cell reads from `summary="..."` verbatim. Comma-separated lists carry no spaces. Required at the same density on `### ` as on `## ` (one literal-heading exception: the bootstrap-block heading `## Reading workflow files (TOC protocol)`). Format definition in §1.8:any:any. |
 | **TOC region** | The Markdown table between the literal `<!--Document index start-->` and `<!--Document index end-->` comment delimiters, sitting directly under a workflow doc's H1. Columns are fixed at `Section | Roles | Phases | Summary`; rows map 1:1 to every `^## ` and `^### ` heading (bootstrap-block heading exempted). `workflow-reindex.py --write` rebuilds the table from per-section annotations; authors do not maintain it by hand. Format definition in §1.8:any:any. |
-| **Cross-reference convention** | The `roles:phases` suffix on workflow-doc references that lets a reader filter before opening (cross-file refs) or before jumping to a section (in-file refs). Cross-file refs in SKILL.md startup read-lists and `.claude/agents/*.md` files use the full `name.md:roles:phases` form and are hand-written; in-file `§X.Y(z):roles:phases` refs inside a workflow doc are auto-stamped by `workflow-reindex.py --write` from the target heading's annotation. The reindex script subset-validates cross-file suffixes against the target. Format, examples, and drift-detection rules in §1.8:any:any. |
+| **Cross-reference convention** | The `roles:phases` suffix on workflow-doc references that lets a reader filter before opening (cross-file refs) or before jumping to a section (in-file refs). Cross-file refs in every in-scope file — workflow docs, prompts, SKILL.md startup read-lists, and `.claude/agents/*.md` files — use the full `name.md:roles:phases` form and are hand-written; references to non-annotatable targets are backtick-wrapped instead. In-file `§X.Y(z):roles:phases` refs inside a workflow doc are auto-stamped by `workflow-reindex.py --write` from the target heading's annotation. The reindex script subset-validates cross-file suffixes against the target. Format, examples, and drift-detection rules in §1.8:any:any. |
 | **Bootstrap block** | The ~30-line instruction block placed between the frontmatter (when present) and the H1 of every workflow-related system prompt (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` — 38 files total). The block names the agent's role and embeds enough of the TOC-aware reading protocol that a freshly spawned sub-agent applies the filter from its first Read instead of paying the full-file cost to bootstrap itself from `conventions.md §1.8`. Block body and scope live in `design.md §"Bootstrap protocol for agent system prompts"` during Phase 1 and in `design-final.md` after the Phase 4 squash-merge; the reindex script's presence check is rule 7. |
 
 ---
@@ -1234,14 +1234,45 @@ the TOC by hand.
 
 A workflow-doc reference carries a `roles:phases` suffix so the
 reader can filter before opening (cross-file refs) or before jumping
-to the cited section (in-file refs). Cross-file refs (in SKILL.md
-startup read-lists and in `.claude/agents/*.md` files) use the full
+to the cited section (in-file refs). Cross-file refs use the full
 `name.md:roles:phases` form and are **hand-written**. In-file refs
 (`§X.Y` and `§X.Y(z)` inside a workflow doc) use the shorter
 `§X.Y(z):roles:phases` form and are **auto-stamped** by
 `workflow-reindex.py --write` from the target heading's annotation.
-`CLAUDE.md` is out of scope (general-purpose project guide, not
-workflow-specific).
+
+**Scope: every cross-file reference in an in-scope file carries the
+suffix, not only agent files and SKILL.md read-lists.** A cross-file
+reference to an in-scope annotated target — from any
+`.claude/workflow/` doc, any `.claude/workflow/prompts/` prompt, a
+SKILL.md startup read-list, or a `.claude/agents/*.md` file — uses the
+suffixed form. A Markdown link to an in-scope target
+(`[workflow.md](workflow.md)`, `[conventions.md §1.6](conventions.md)`)
+is converted to the bare suffixed form
+(`workflow.md:orchestrator:2,3A,3B,3C`,
+`conventions.md§1.6:migrator:3A,3B,3C,4`); the link is not retained,
+because the suffix is the load-on-demand filter and a link target
+cannot carry a suffix without breaking the link.
+
+**Non-annotatable targets are backtick-wrapped, not suffixed.** A
+reference whose target carries no section annotations has no annotation
+to derive or validate a suffix against: `CLAUDE.md` (general-purpose
+project guide, out of scope), `MEMORY.md`, `design.md`,
+`design-mechanics.md`, the Phase 4 final artifacts (`design-final.md`,
+`adr.md`), `.claude/output-styles/house-style.md`, and any
+`.claude/agents/*.md` file cited *as a target* (agent files carry no
+per-section annotations). Wrap such a reference in an inline-backtick
+span (`` `CLAUDE.md` ``, `` `house-style.md` ``); the backtick
+exclusion below exempts it from the suffix requirement with no script
+change.
+
+**The reindex script's rule 6 flags every non-backticked, non-fenced
+bare `name.md` token that lacks a suffix.** This breadth is the
+intended contract, not an over-match. A plain `name.md` mention in
+prose or a Markdown link target resolves one of two ways: to an
+in-scope annotated target (convert it to the bare suffixed form) or to
+a non-annotatable target (backtick-wrap it). Fenced blocks and
+inline-backtick spans are excluded, so example text and backtick-wrapped
+non-annotatable targets pass without a suffix.
 
 Format examples:
 
@@ -1266,16 +1297,19 @@ appending `§X.Y(z)` after the filename (`conventions.md§1.6(c):...`);
 the cross-vs-in-file split is on the file boundary, not on the
 presence of the sub-section anchor.
 
-**Why the hand-vs-auto split.** Cross-file refs are fewer per file
-(typically one startup read-list per SKILL.md plus a small outgoing-
-ref set per agent file) and the citer often cares about a narrow
-slice of the target's role/phase set, not the full set; hand-writing
-the suffix lets the citer record what they care about. In-file refs
-are common, the target's annotation lives in the same file (so
-resolving the suffix is mechanical and unambiguous), and the citer
-almost always means "the target's full annotation" rather than a
-narrow slice, so auto-stamping eliminates author burden and keeps the
-suffix in sync with target drift mechanically.
+**Why the hand-vs-auto split.** A cross-file citer often cares about a
+narrow slice of the target's role/phase set, not the full set;
+hand-writing the suffix lets the citer record the audience this
+reference serves. The widened scope above means workflow docs and
+prompts now carry many cross-file refs, not the small per-file set
+agent files do, but the narrow-slice expressiveness is what still
+motivates hand-writing them rather than auto-deriving the target's full
+annotation at every site. In-file refs are common, the target's
+annotation lives in the same file (so resolving the suffix is
+mechanical and unambiguous), and the citer almost always means "the
+target's full annotation" rather than a narrow slice, so auto-stamping
+eliminates author burden and keeps the suffix in sync with target drift
+mechanically.
 
 **Cross-file drift detection.** The reindex script subset-validates
 each cross-file ref's suffix against the target heading's current

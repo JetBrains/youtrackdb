@@ -68,7 +68,7 @@ flowchart TD
 - **Schema layer (Track 1)** — `conventions.md §1.8` is the foundation. Locks the role enum (15 values), phase enum (8 values), per-section annotation idiom, TOC region format, and cross-reference convention. Every other component reads from it.
 - **Reindex script + audit agent (Track 2)** — `workflow-reindex.py` is the mechanical Python script that scrapes annotations, rebuilds TOCs, and validates enum tokens. Modes: `--check` (CI / pre-commit) and `--write` (author rebuild). The `review-workflow-context-budget` agent absorbs the audit at PR review time.
 - **Telemetry script (Track 3)** — `measure-read-share.py` runs once per Phase 4 ADR creation, from the worktree only. Computes a percentages-only Read% snapshot over the worktree's transcript lifetime; embeds the output in `adr.md`. Updates `prompts/create-final-design.md` to invoke it.
-- **Annotated content (Track 4)** — single-commit-style universal rollout of TOC + per-section annotations across 49 files. ~600 annotations, all author-written.
+- **Annotated content (Track 4)** — single-commit-style universal rollout of TOC + per-section annotations across 49 files (~600 annotations, all author-written), plus conversion of every Markdown link to an in-scope `.md` target into a bare `name.md:roles:phases` cross-file ref and backtick-wrapping of non-annotatable targets (D13).
 - **Tail (Track 5)** — Bootstrap block insertion across 38 system-prompt files (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md`) plus the `:roles:phases` cross-reference suffix sweep on agent files and SKILL.md startup read-lists. `CLAUDE.md` is intentionally out of scope (general-purpose project guide, not workflow-specific). Migration replay verification on two active branches closes the acceptance criterion.
 
 #### D1: Lock the enum at 15 roles + 8 phases
@@ -112,6 +112,7 @@ flowchart TD
 - **Risks/Caveats**: structural asymmetry in the codebase (some `.md` files carry TOC, some don't). Mitigated by the schema enumerating which file paths get TOC annotations and which carry the bootstrap.
 - **Implemented in**: Track 5
 - **Full design**: design.md §"Files and surfaces out of scope" (exclusion 1), design.md §"Bootstrap protocol for agent system prompts" → §"Scope and uniformity"
+- **Revised by D13**: the cross-file `:roles:phases` suffix is no longer agent-file-exclusive — D13 widens it to every in-scope workflow doc and prompt. D6's agent-file scope (refs-only sweep, no per-section annotations, bootstrap block) is unchanged.
 
 #### D7: Migration replay is a no-op for this plan; verification confirms drift-gate normalization
 
@@ -128,6 +129,7 @@ flowchart TD
 - **Risks/Caveats**: ~30 lines of system-prompt overhead per file × 38 files. Negligible against the YTDB-1023 Read-share baseline (51.9% of session context). A bigger risk is drift — a future role/phase rename would leave bootstrap blocks stale. Mitigated by the reindex script's rule 7 (presence check; literal heading match).
 - **Implemented in**: Track 5
 - **Full design**: design.md §"Bootstrap protocol for agent system prompts"
+- **Note (D13):** D13's widening reinforces D8 — once workflow docs and prompts carry cross-file suffixes, a spawned sub-agent needs the bootstrap block to apply the filter from its first Read. The bootstrap scope (38 system-prompt files) is unchanged.
 
 #### D9: In-file `§X.Y(z)` references auto-stamped by the reindex script with target-derived suffix
 
@@ -136,6 +138,7 @@ flowchart TD
 - **Risks/Caveats**: drift after a target's annotation edit is bounded by the next CI run; `workflow-reindex.py --write` is the one-step fix. A typo in the section anchor (`§1.6(d)` when only `(a)-(c)` exist) lands as an unresolved-ref blocker rather than silently auto-stamping the wrong heading. Author confusion between hand-vs-auto: the design's Cross-reference convention spells out cross-file vs in-file as the split, with `§X.Y(z)` shape allowed in both forms.
 - **Implemented in**: Track 1 (convention in `conventions.md §1.8`), Track 2 (auto-stamp implementation in `workflow-reindex.py`)
 - **Full design**: design.md §"Cross-reference convention" → §"In-file reference auto-stamping", design.md §"Reindex script" → §"Validation rules" rule 8
+- **Revised by D13**: D9's hand-written-cross-file rule now covers cross-file refs in all workflow docs and prompts, not only agent files / SKILL read-lists. The in-file auto-stamping mechanism (D9's subject) is unchanged.
 
 #### D10: Subset-validate cross-file ref suffixes against target annotations
 
@@ -144,6 +147,7 @@ flowchart TD
 - **Risks/Caveats**: false negative for the "citer is too narrow" case (a valid subset that no longer matches the citer's intent) — mechanically undetectable, stays a human-review concern. Sub-section refs resolve to that section's annotation directly; file-level refs without a section anchor resolve to the union of every section's annotations in the target file. The CI error names both sides so the author chooses whether to widen the citer or restore the target.
 - **Implemented in**: Track 2 (subset check extension to rule 6 in `workflow-reindex.py`)
 - **Full design**: design.md §"Reindex script" → §"Validation rules" rule 6, design.md §"Cross-reference convention" → §"In-file reference auto-stamping" (the "Cross-file drift detection" bold paragraph inside)
+- **Revised by D13**: the rule 6 subset check now validates cross-file refs in all workflow docs and prompts. Non-annotatable targets (no annotation to validate against) are backtick-wrapped and excluded rather than suffixed.
 
 #### D11: Track 2 introduces the `WC / WP / WI / WH / WB / WS` finding-prefix family on the six `review-workflow-*` agents
 
@@ -161,6 +165,14 @@ flowchart TD
 - **Implemented in**: Track 2 (Step 1 — bootstrap probe in discovery code; Step 2 — rule 5 reads bootstrap output for enum-token validation)
 - **Full design**: design.md §"Reindex script" → §"Discovery mechanism" (consumes the same staged-aware path the bootstrap probe enumerates), conventions.md §1.7(d) (the reads-precedence rule whose scope this DR extends)
 
+#### D13: Cross-file `:roles:phases` suffix convention applies to all workflow docs and prompts (widened during Track 4)
+
+- **Alternatives considered**: narrow-rescope rule_6 so its "missing suffix" check fires only on agent files + SKILL.md startup read-lists (the original D6/D8 scope), leaving workflow-doc/prompt prose and Markdown links unflagged; a script-side allowlist of non-annotatable targets so links to them pass without a suffix and without backticks.
+- **Rationale**: Track 4 Step 2 found `workflow-reindex.py` rule_6 flags every non-backticked, non-fenced bare `name.md` token — Markdown link targets, link text, and bare prose mentions — so the Step 6 full-set green `--check` is unreachable while workflow docs carry plain links. The chosen fix converts every Markdown link to an in-scope `.md` target in workflow docs and prompts into the bare `name.md:roles:phases` form, so the load-on-demand filter (the core YTDB-1023 goal) rides at every cross-file reference site, not only agent files. References to non-annotatable targets (`CLAUDE.md`, `MEMORY.md`, `design.md`, `design-mechanics.md`, the Phase 4 final artifacts, `output-styles/house-style.md`, and `.claude/agents/*.md` cited as a target) are backtick-wrapped; the existing §1.8(e) inline-backtick exclusion exempts them with no script change. rule_6 keeps its broad behavior as the intended contract.
+- **Risks/Caveats**: a large conversion across the in-scope workflow docs and prompts, and the loss of clickable Markdown links between workflow docs (the suffixed bare ref replaces the link). Reopens Track 1 §1.8(e) (schema widening, landed in the inline-replan commit) and Step 2's 9 already-annotated files (a link-conversion pass). A converted cross-file ref to a not-yet-annotated target stays rule_6-RED until the target is annotated; the full green lands at Step 6. The script-allowlist alternative was rejected to avoid a third script reopen and a drift-prone maintained list; narrow-rescope was rejected because it discards the filter at every workflow-doc ref site.
+- **Implemented in**: Track 1 §1.8(e) (revised — inline-replan commit), Track 4 (revised Steps — link-conversion folded into the annotation steps plus a pass over Step 2's files)
+- **Full design**: design.md §"Cross-reference convention" reconciliation deferred to Phase 4 `design-final.md` — the frozen Phase-1 narrative still scopes the suffix to agent files + SKILL read-lists, and §"Files and surfaces out of scope" exclusion 1 frames the suffix as an agent-file sweep; both widen at `design-final.md`. conventions.md §1.8(e) carries the live contract.
+
 ### Invariants
 
 - I1 — Every annotated `##`/`###` heading is followed by exactly one annotation comment on the next line.
@@ -169,7 +181,7 @@ flowchart TD
 - I4 — `measure-read-share.py` never emits absolute token counts. Output is percentages only, plus session and file count.
 - I5 — Every in-scope system-prompt file (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md`) carries the bootstrap block (literal heading `## Reading workflow files (TOC protocol)`) at the top, between frontmatter and main body. The reindex script's rule 7 enforces presence.
 - I6 — Every in-file `§X.Y` and `§X.Y(z)` reference carries a `:roles:phases` suffix matching the target heading's current annotation. `workflow-reindex.py --write` is the sole writer; drift (annotation changed, suffix stale) and plain refs both fail CI under rule 8.
-- I7 — Every cross-file `name.md:roles:phases` reference's roles and phases are subsets of the target heading's current annotation. Citer-not-a-subset fails CI under rule 6 (subset check). Equality is not required — narrower is the design contract.
+- I7 — Every cross-file `name.md:roles:phases` reference's roles and phases are subsets of the target heading's current annotation. Citer-not-a-subset fails CI under rule 6 (subset check). Equality is not required — narrower is the design contract. The convention applies to cross-file refs in all in-scope workflow docs and prompts (D13); a reference to a non-annotatable target is backtick-wrapped and carries no suffix, so rule 6 excludes it.
 
 ### Integration Points
 
@@ -183,7 +195,7 @@ flowchart TD
 - Cross-repo / cross-project telemetry aggregation. Published ADR section reports this worktree only.
 - Annotations on Phase 4 final artifacts (`design-final.md`, `adr.md`). The scheme covers ephemeral `_workflow/**` artifacts not at all; durable post-merge artifacts don't carry annotations.
 - Backward-compatible support for un-annotated workflow files after rollout. Every in-scope file MUST carry the schema after Track 4 lands.
-- `CLAUDE.md` cross-reference suffix application. CLAUDE.md is a general-purpose project guide loaded by every session regardless of role or phase; the file-level filter does not apply. The §1.8 schema, the cross-reference convention, and the bootstrap block all skip CLAUDE.md by design.
+- `CLAUDE.md` cross-reference suffix application. CLAUDE.md is a general-purpose project guide loaded by every session regardless of role or phase; the file-level filter does not apply. The §1.8 schema, the cross-reference convention, and the bootstrap block all skip CLAUDE.md by design. Under D13, a workflow-doc reference *to* `CLAUDE.md` is backtick-wrapped as a non-annotatable target — CLAUDE.md itself stays outside the suffix convention while rule 6 stays green.
 - Bootstrap block on non-workflow-related skill files (e.g., `ai-tells`, `run-jmh-benchmarks-hetzner`, `profile-jmh-regressions`). Those skills do not Read files under `.claude/workflow/` or `.claude/skills/` at runtime; the bootstrap would be inert text. Scope is limited to the 7 workflow-referencing SKILL.md files enumerated in Track 5.
 
 ## Checklist
@@ -232,11 +244,12 @@ flowchart TD
   >
   > **Strategy refresh:** CONTINUE — no plan rewrites needed. Track 3's cross-track signals already land as plan corrections or tactical decomposition detail: WB1 (the `rule_4` fenced-block carve-out in `workflow-reindex.py`) is on Track 4's entry from commit `c024e3c618`; the `--no-verify` interim and the `## 99.1 Demo section` carve-out are Track 4 decomposition concerns; the two `design.md` drift sites route to Phase 4 design-synthesis. No Decision Record, Architecture Note, Goal, or Constraint is weakened, and no new inter-track dependency surfaced.
 
-- [ ] Track 4: Universal annotation rollout (49 files)
-  > Author per-section TOC + annotations for every in-scope file (49 total: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, 7 workflow-referencing skill files; ~600 annotations, all author-written). `workflow-reindex.py --write` scaffolds the TOC tables; the author hand-corrects per-section `roles=`, `phases=`, `summary=`. Lands as a single logical batch (or a small adjacent group; squash-merge collapses anyway) so the schema becomes universally applicable at one commit.
-  > **Scope:** ~6 steps covering workflow root (split into two batches by file count), prompts, skills, validation pass, and a final reindex `--check` green run.
+- [ ] Track 4: Universal annotation rollout + cross-ref link conversion (49 files)
+  > Author per-section TOC + annotations for every in-scope file (49 total: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, 7 workflow-referencing skill files; ~600 annotations, all author-written), and convert every Markdown link to an in-scope `.md` target into a bare `name.md:roles:phases` cross-file ref, backtick-wrapping references to non-annotatable targets, per D13. `workflow-reindex.py --write` scaffolds the TOC tables and auto-stamps in-file refs; the author hand-writes per-section `roles=`, `phases=`, `summary=` and the cross-file suffixes. Lands as a logical batch group (squash-merge collapses anyway) so the schema becomes universally applicable.
+  > **Scope:** ~6 steps covering workflow root (two heading-balanced batches with annotation + link conversion), prompts, skills, the link-conversion pass over the first batch's already-annotated files, and a final full-set reindex `--check` green run + house-style sweep.
   > **Depends on:** Track 1, Track 2
-  > **From Track 3 review (WB1):** the final reindex `--check` green run must resolve how `rule_4` treats the fenced `adr.md`-template headings inside `prompts/create-final-design.md` (e.g. `Summary`, `Goals`, … `Token usage telemetry`). These are final-artifact template content, out of scope for annotations per `conventions.md §1.6(f)` and the Non-Goals, yet `rule_4` flags them as un-annotated headings. The fix is a `workflow-reindex.py` `rule_4` fenced-code-block carve-out (reopening Track 2's script), not author annotations. Track 3's Phase C `Review fix:` removed one such heading (the telemetry section's literal heading became a comment placeholder), so the count is one lower than Track 3 Step 2's episode recorded.
+  > **Cross-ref widening (D13):** Track 4 Step 2 found `workflow-reindex.py` rule_6 flags every non-backticked, non-fenced bare `name.md` token (Markdown link targets and bare prose mentions), so the Step 6 green `--check` is unreachable while workflow docs carry plain links. D13 (inline replan) widens the cross-file suffix convention to all workflow docs and prompts and backtick-wraps non-annotatable targets; no script change. Steps 3-6 fold the link-conversion pass into the annotation procedure; see `plan/track-4.md`.
+  > **From Track 3 review (WB1):** `rule_4` flagging the fenced `adr.md`-template headings inside `prompts/create-final-design.md` is subsumed by Step 1's fence-exclusion (rules 2/3/4 skip fenced headings and delimiters per `conventions.md §1.8(e)`). The Step 6 full-set green `--check` confirms it; no separate `rule_4` carve-out is needed.
 
 - [ ] Track 5: Bootstrap block + agent files refs sweep + migration verification
   > Insert the bootstrap protocol block (~30 lines, per design §"Bootstrap protocol for agent system prompts") at the top of 38 system prompts: 7 SKILL.md files, 11 `.claude/workflow/prompts/*.md`, and 20 `.claude/agents/*.md`. Apply the `name:roles:phases` cross-reference suffix to outgoing workflow-doc refs in the 20 agent files and to SKILL.md startup read-lists. Then verify `/migrate-workflow` replays cleanly onto at least two active branches per the acceptance criterion — expected to be a stamp-rewrite-only normalization since this plan doesn't change `_workflow/**` artifact shape.
@@ -244,26 +257,9 @@ flowchart TD
   > **Depends on:** Track 1, Track 2, Track 4
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed: consistency at iteration 3, structural at iteration 2
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
-**Auto-fixed (mechanical)**:
-- CR3: file count corrected 30→31 (plan + design + track-4).
-- CR4: prompts count corrected 9→11, cascading to 46→49 totals.
-- CR5: `.githooks/pre-commit` framing "extend, not new" in track-2.md (partial — CR8 closed remaining sites).
-- CR6: D6 gained the `**Full design**` link.
-- CR8: pre-commit-hook framing rewrite completed across four remaining sites (design.md §"CI gate semantics" TL;DR + §"Pre-commit hook" subsection, implementation-plan.md Integration Points, track-2.md Interfaces in-scope set).
-- CR10: design.md §"Agent-side absorption" gained parenthetical naming D11 as WB-prefix introduction source; §"CI gate semantics" References footer gained the D11 cite.
-- S1: phase enum value count corrected 10→8 at `### Constraints` and Component Map Schema-layer bullet.
-- S2: Track 2 and Track 4 plan-file intro paragraphs compressed to ≤3 sentences.
-- S3: Track 5 `**Depends on:**` widened from Track 4 only to Track 1, Track 2, Track 4.
-
-**Escalated (design decisions)**:
-- CR1: telemetry invocation hook point — user picked Step 3 §"Artifact 2: ADR".
-- CR2: orphan TELE → CMD edge in design.md Mermaid — user picked drop entirely.
-- CR7: WB<N> per-finding prefix — user picked introduce; D11 added motivating the prefix.
-- CR9: D11 missing `**Full design**` link — user picked anchor at design.md §"CI gate semantics" → §"Agent-side absorption".
-- S4: D3 numbering gap — user picked add one-line breadcrumb between D2 and D4 pointing at `design-mutations.md` Mutation 2.
-- S5: Track 4 plan-file annotation for Track 3 execution-order coupling — user rejected (`**Depends on:**` carries structural deps only).
+**Reset by inline replan (Track 4 — D13 cross-ref widening, 2026-05-29).** The prior review passed (consistency iteration 3, structural iteration 2); its mechanical fixes (CR3–CR6, CR8, CR10, S1–S3) and escalated design resolutions (CR1, CR2, CR7, CR9, S4, S5) are already baked into the plan, and the full prior audit summary is preserved in git history. The reset routes the next `/execute-tracks` session through State 0 to re-validate the revised plan (the D13 widening, the reconciled D6/D8/D9/D10/I7, and the re-decomposed Track 4 steps) per `inline-replanning.md` step 6.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
