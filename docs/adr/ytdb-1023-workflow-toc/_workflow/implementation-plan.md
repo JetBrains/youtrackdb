@@ -266,9 +266,13 @@ flowchart TD
   > **Depends on:** Track 1, Track 2, Track 4
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1 (D14 re-validation)
 
-Reset by the D14 inline replan (`build_file_lookup` staged-aware, 2026-05-29). The next `/execute-tracks` re-runs State 0 against the revised plan (new Step 3 + D14) and overwrites this section with a fresh audit summary. The prior D13 re-validation audit is preserved in git history.
+**Auto-fixed (mechanical)**: CR1 — a `track-4.md` Decision Log line cited the deferred batch-1 link-conversion as "Step 6"; appended a cross-reference noting the D14 replan renumbered it to Step 7. Additive annotation on a dated historical log entry; no current-state section changed.
+
+**Escalated (design decisions)**: CR2 and S1 (the same item, raised by both reviews) — `design.md` §"Cross-reference convention" and §"Discovery mechanism" still carry the pre-D13/pre-D14 narrow agent-files framing. No action: the plan already defers this reconciliation to Phase 4 `design-final.md` (recorded in the D13 and D14 "Full design" lines and the deferred-drift basket). The deferral stands; no open choice remained for the user.
+
+**D14 verification**: the three current-state claims D14 rests on all verified MATCHES against the live `.claude/scripts/workflow-reindex.py` — `build_file_lookup` keys on bare basename with first-match-wins (L1154-1165), `IN_SCOPE_GLOBS` lists live before staged so a converted ref resolves live-first and stays subset-RED permanently (L118-145), and the §1.8 enum bootstrap probe's multi-staged exit-2 guard exists and is reusable by the new Step 3 (L880-885). DR cross-references (D13↔D14 supersession clause, D6/D8/D9/D10 "Revised by D13", the I7 staged-resolution note) are coherent, and the Track 4 renumber (new HIGH Step 3; old Steps 3-6 → 4-7) is integral across every current-state track-file section. Prior D13 re-validation audit is preserved in git history.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
