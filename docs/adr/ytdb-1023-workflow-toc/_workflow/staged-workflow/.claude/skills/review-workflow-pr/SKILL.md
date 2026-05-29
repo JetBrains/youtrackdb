@@ -1,0 +1,221 @@
+---
+name: review-workflow-pr
+description: "Review a workflow-style PR's design, plan, and track files in research-mode Q&A; auto-records observations and submits a line-anchored review via gh api. TRIGGER when: user asks to review a workflow PR or run /review-workflow-pr. SKIP: non-workflow PRs without docs/adr/<dir>/_workflow/."
+argument-hint: "[pr-number-or-url-or-ref]"
+user-invocable: true
+---
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Invocation contract | pr-reviewer | any | The three accepted argument shapes and the single-turn greeting-then-investigate handshake at invocation. |
+| §Preflight | pr-reviewer | any | Resolve the PR argument, fetch head SHA and changed files, verify the local checkout before loading artifacts. |
+| §Artifact discovery | pr-reviewer | any | Resolve the plan directory, enumerate canonical and optional artifacts, abort on a missing required file. |
+| §Research mode | pr-reviewer | any | Reviewer-driven Q&A over loaded artifacts: free-form questions, auto-recorded observations, lazy doc loading. |
+| §Sub-agent dispatch — DR audit | pr-reviewer | any | Spawn the DR-audit sub-agent on request, translate its findings into observations, log one entry per spawn. |
+| §Wrap-up and submission | pr-reviewer | any | Render and prune observations, re-verify the head SHA, compose the payload, confirm, then POST the review. |
+| §Handoff and resume | pr-reviewer | any | Reviewer-driven checkpoint to /tmp and resume: write triggers, file format, HEAD re-verification, cleanup. |
+
+<!--Document index end-->
+
+A reviewer invokes `/review-workflow-pr <PR>` against a PR they have already
+checked out, lands in research-mode Q&A against the verified workflow
+artifacts, and at wrap-up submits a single line-anchored review back to the
+PR.
+
+> **House style for chat-scale prose.** User-facing prose produced from this
+> file (status updates, observation entries, prune-table rendering, the final
+> stub message) follows the AI-tell subset of
+> `house-style.md`: `## Banned vocabulary`,
+> `## Banned sentence patterns`, `## Banned analysis patterns`, and
+> `### Em-dash discipline`. Structural rules (`§ BLUF lead`, the ≤200-word
+> section cap, `§ Document-shape rules`) do not apply to chat-scale prose.
+> See conventions.md:pr-reviewer:any `§1.5`
+> for the workflow-level anchor and tier mapping.
+
+## Invocation contract
+<!-- roles=pr-reviewer phases=any summary="The three accepted argument shapes and the single-turn greeting-then-investigate handshake at invocation." -->
+
+`/review-workflow-pr $ARGUMENTS` accepts three argument shapes (a PR number such as `42`, a PR URL like `https://github.com/owner/repo/pull/42`, or a branch name such as `feature/foo`) and defaults to the current branch's PR when `$ARGUMENTS` is empty. The shape is resolved by `## Preflight`; this section is the contract the reviewer sees at invocation time.
+
+The handshake is single-turn. On the same turn that runs preflight and artifact discovery, the skill emits a one-line greeting naming the PR number, head SHA, and resolved `<dir>`, then asks what to investigate. The reviewer's next message is the first research-mode question; no separate acknowledgment is required. When preflight or discovery fails, the skill emits the error and exits without entering research mode.
+
+See `## Preflight` for the mechanical resolution.
+
+## Preflight
+<!-- roles=pr-reviewer phases=any summary="Resolve the PR argument, fetch head SHA and changed files, verify the local checkout before loading artifacts." -->
+
+The skill resolves the PR, fetches its head SHA and changed files, and confirms the local checkout matches before loading any artifact.
+
+**Resolve `$ARGUMENTS`.** Accepts a PR number (`42`), a PR URL, or a branch name. When empty, the skill targets the current branch's PR.
+
+**Fetch PR metadata.** Run `gh pr view <ref> --json headRefOid,number,files` to read the head SHA, PR number, and the changed-files array (each element carries `path`, `additions`, `deletions`, `changeType`; the skill reads `.path`). Run `gh repo view --json nameWithOwner` separately to resolve owner/repo for the API path.
+
+**Verify local HEAD.** Run `git rev-parse HEAD` and compare against `headRefOid`. On match, proceed to artifact discovery.
+
+**HEAD-SHA mismatch.** Abort and print both the expected and local SHAs along with the remediation: `gh pr checkout <ref>`. The command typically creates a named local branch tracking the PR head; only `--detach` produces a detached HEAD, and `git rev-parse HEAD` returns the head SHA in either case.
+
+**Non-zero `gh pr view` exit.** When no PR exists for the current branch or the ref does not resolve, surface the command's stderr and tell the reviewer to either pass an explicit PR number or URL as `$ARGUMENTS` or open a PR first.
+
+## Artifact discovery
+<!-- roles=pr-reviewer phases=any summary="Resolve the plan directory, enumerate canonical and optional artifacts, abort on a missing required file." -->
+
+The skill resolves `<dir>`, enumerates the canonical workflow artifacts under `docs/adr/<dir>/_workflow/`, acknowledges any companion files, and aborts when a required file is missing. The skill is read-only against everything it finds: it never edits the artifacts under review.
+
+**Resolve `<dir>`.** Default to the current branch name from `git branch --show-current`, matching the `/create-plan` default. When `docs/adr/<branch>/_workflow/` does not exist in the local checkout, fall back to the list-and-pick path: enumerate every `docs/adr/*/_workflow/` directory that contains an `implementation-plan.md`, present the names, and ask the reviewer to pick one. Use the picked name as `<dir>`.
+
+**Enumerate canonical artifacts.** Required under `docs/adr/<dir>/_workflow/`:
+
+- `implementation-plan.md`
+- `design.md`
+
+Optional, load only when present:
+
+- `design-mechanics.md` (length-triggered per `.claude/workflow/conventions.md` `§1.2`)
+- `plan/track-*.md` (one file per planned track)
+
+**Acknowledge companion files.** List `design-mutations.md` (present whenever `design.md` has been mutated) and any transient `handoff-*.md` for visibility. Do not load them into the review context unless the reviewer asks.
+
+**Missing canonical file.** When `implementation-plan.md` or `design.md` is missing under the resolved `<dir>`, abort with an error naming both expected paths and pointing the reviewer at the list-and-pick fallback.
+
+## Research mode
+<!-- roles=pr-reviewer phases=any summary="Reviewer-driven Q&A over loaded artifacts: free-form questions, auto-recorded observations, lazy doc loading." -->
+
+The skill enters research-mode Q&A driven by the reviewer once preflight and artifact discovery succeed. The reviewer drives the conversation; the skill answers questions about the loaded artifacts, auto-records observations when its own analysis surfaces a gap, and loads workflow rule files on demand.
+
+**Session-start prelude.** After preflight and artifact discovery, the skill greets the reviewer with a one-line summary naming the PR number, the head SHA, and the resolved `<dir>`, then asks what to investigate. The prelude carries one warning: `Observations live in this conversation only. A /clear mid-session loses them unless you ask the skill to checkpoint`. The reviewer triggers a checkpoint with any of `checkpoint`, `save state`, or `we're about to /clear`; the skill writes the handoff file per `## Handoff and resume` below and prints the resulting `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` path on one line so the reviewer can confirm it landed.
+
+**Free-form Q&A.** No fixed walkthrough order. The reviewer drives; the skill answers questions about any loaded artifact using `Read`, `Grep`, and `Bash`. The skill asks clarifying questions when a question is ambiguous and answers from artifacts already loaded rather than re-fetching the workflow rubric for routine Q&A.
+
+**Observation auto-recording.** When the skill's own analysis surfaces an issue mid-conversation, it records a structured observation with `path` (an artifact path under `_workflow/`), `line` (or a start/end range), `body` (one paragraph naming the gap and grounding it in the cited file or section), and `source` (`skill-analysis`). When a sub-agent returns findings, the skill translates each finding into one observation tagged with the sub-agent's name. When the reviewer asks the skill to record something directly, `source` is `reviewer`. After each new observation the skill prints a one-line confirmation: index, `path:line`, source, and the first 80 chars of the body.
+
+**Observation list operations.** The reviewer can drop an observation by index (`drop 3`) or by source tag (`drop reviewer`); the skill confirms the drop with the surviving list size. Observations are immutable in place — to revise one, drop the old entry and record a new one.
+
+The orchestrator also maintains a `dispatchLog` (defined in `### Sub-agent dispatch — DR audit` below): an in-conversation append-only list of `{sub-agent name, ISO-8601 UTC timestamp, one-line summary}` entries, one per spawn. The observation list and the `dispatchLog` are the two conversation-state structures the skill carries forward across turns; both live in this conversation by default, and a mid-session `/clear` discards them unless the reviewer explicitly checkpoints first per `## Handoff and resume` below.
+
+**Workflow-doc trigger conditions.** Load lazily on the named trigger; do not preload.
+
+- `.claude/workflow/conventions.md` when the reviewer asks about plan file structure, scope indicators, or naming conventions.
+- `.claude/workflow/research.md` when the reviewer asks about research-mode conventions or wants the canonical rubric.
+- `.claude/workflow/design-document-rules.md` when the reviewer asks whether a design section has the right shape (TL;DR, mechanism overview, edge cases, References footer).
+- `.claude/workflow/planning.md` when the reviewer asks about Decision Record format expectations.
+
+**Scope rule for code-file questions.** When the reviewer asks about code files in the PR (paths not under `docs/adr/<dir>/_workflow/`), the skill answers using `Read` and `Grep` but does not record observations against those files. For Java symbol-reference questions (callers, overrides, find-usages, "is X still used?"), use mcp-steroid PSI find-usages when reachable; fall back to `Grep` only when mcp-steroid is unreachable and flag the result as grep-only in the answer. The observation list scope stays workflow-artifact-only.
+
+### Sub-agent dispatch — DR audit
+<!-- roles=pr-reviewer phases=any summary="Spawn the DR-audit sub-agent on request, translate its findings into observations, log one entry per spawn." -->
+
+The skill spawns the DR-audit sub-agent on the reviewer's request to audit the Decision Records in the loaded `implementation-plan.md`. The sub-agent returns a structured findings block; the orchestrator translates each finding into one observation and appends an entry to the in-conversation `dispatchLog`.
+
+**Trigger phrases.** Treat any of the following from the reviewer as the cue to spawn DR audit: `audit the DRs`, `audit the decision records`, `check the decision records`, `check the DRs`, `run the DR audit`. Match case-insensitively against the reviewer's full message, allowing surrounding whitespace and punctuation. Substring matches inside longer prose do not fire; if uncertain, ask one clarifying question.
+
+**Spawn call.** Dispatch via the Agent tool with `subagent_type: "dr-audit"`. The agent's prompt body lives at `.claude/agents/dr-audit.md` (registered as a project-scoped sub-agent like every other in-skill dispatch target; the agent's frontmatter declares its model, so do not override `model` from the dispatch call). Pass `plan_path` as the first line of the prompt in the form `plan_path: <value>` so the sub-agent can parse it before any other input. The sub-agent reads `design.md` on its own when a Decision Record cites `**Full design**: design.md §...`; the orchestrator does not pre-pass `design.md`. The literal call shape, with `plan_path` interpolated:
+
+```
+Agent({
+  subagent_type: "dr-audit",
+  prompt: "plan_path: docs/adr/<dir>/_workflow/implementation-plan.md"
+})
+```
+
+The sub-agent's inputs are Markdown only (`implementation-plan.md` and optionally `design.md`); no PSI / Java reference-accuracy questions arise inside this audit, so the grep-vs-PSI rule (`.claude/workflow/conventions.md` `§1.4`) does not apply.
+
+**Sub-agent dispatch failure.** Every outcome other than the sub-agent returning a well-formed `## Summary` plus optional `## Findings` block is a dispatch failure, not a translation failure. Apply the following rules in order, before the **Finding-to-observation translation** block runs:
+
+- The sub-agent returns no parsable `## Summary` block, or returns prose without the structured schema: do not append a `dispatchLog` entry, do not translate any findings, surface a one-line error to the reviewer naming the failure shape (for example `dr-audit returned no Summary block; nothing recorded`), and offer to retry.
+- `## Summary` is present but `decisions_audited` or `findings_count` is missing or non-numeric: record as a soft failure. Surface the malformation to the reviewer, do not translate findings, and do not append a `dispatchLog` entry.
+- An individual `### F<i>` block is missing one of the required fields (`decision`, `category`, `plan_line`, `quote`, `body`): drop that finding only, append a `dispatchLog` entry covering the remaining well-formed findings, and warn the reviewer with the dropped finding's available fields (or its raw text when every field is absent).
+- A `### F<i>` block carries a non-integer or zero `plan_line`: fall through to the existing **No explicit file citation** anchoring rule below.
+- The spawn itself errors (network, tool error, sub-agent crashes mid-stream): record as a dispatch failure, do not append a `dispatchLog` entry, and offer to retry.
+
+**Finding-to-observation translation.** Parse the sub-agent's `## Findings` blocks. For each `### F<i>` block, extract `decision`, `category`, `plan_line`, `quote`, and `body`. Build one observation `{path, line, body, source}` where `path` is the `plan_path` echoed in the sub-agent's `## Summary`, `line` is the integer `plan_line` from the finding, `body` is the finding's `body` paragraph (verbatim, no rewrap), and `source` is the literal string `dr-audit`. Append each observation to the running list via the auto-recording rules in `## Research mode` above; the one-line confirmation prints the same way it does for `skill-analysis` observations.
+
+Three anchoring edge cases override the verbatim mapping:
+
+- **No explicit file citation.** When a finding's `plan_line` is absent or non-positive, anchor the observation at the artifact the sub-agent was reviewing (the `plan_path` echoed in `## Summary`) at the nearest `##` heading line at or above the implied location. The source tag stays `dr-audit`.
+- **Quoted prose edited since the sub-agent's read.** When the finding's `quote` does not match the current content at `plan_line`, search the artifact for the literal `quote` string and use the matched line if exactly one match is found. When zero or multiple matches are found, record the observation at the sub-agent's reported `plan_line` and prepend `[STALE: verify line]` to the body so the reviewer sees the flag at prune time.
+- **Reviewer wants a broader cold-read.** A request for design cold-read (as opposed to DR audit) is out of scope here. Tell the reviewer to invoke the existing cold-read flow as a separate skill in the same session; that skill's output does not flow back into this observation list automatically.
+
+**`dispatchLog` structure.** The orchestrator maintains a single in-conversation `dispatchLog`: an ordered list of `{sub-agent name, timestamp, summary}` entries. `sub-agent name` is the literal sub-agent identifier (`dr-audit`); `timestamp` is the ISO-8601 UTC instant at spawn time (e.g., `2026-05-21T13:45Z`), obtained via `Bash` by running `date -u +"%Y-%m-%dT%H:%MZ"` immediately before the spawn call so the recorded timestamp reflects the real spawn instant rather than a hallucinated value; `summary` echoes the sub-agent's `## Summary` block as a one-line digest (`decisions_audited=<N>, findings_count=<N>`). Append one entry on every sub-agent spawn, including spawns that return zero findings. The `## Handoff and resume` → **Dispatch-log re-presentation.** sub-block reads `dispatchLog` on resume to label each `sub-agent name` as `not run`, `ran, no findings`, or `ran, <N> findings recorded`; the reviewer decides whether to re-spend on the audit. Repeated spawns append a second entry; the same sub-block treats the latest entry per `sub-agent name` as the authoritative `last run`, per `## Handoff and resume` → **Resume reload.**. Second-spawn findings are appended verbatim to the observation list and may duplicate first-spawn observations; the reviewer is expected to prune duplicates at wrap-up.
+
+## Wrap-up and submission
+<!-- roles=pr-reviewer phases=any summary="Render and prune observations, re-verify the head SHA, compose the payload, confirm, then POST the review." -->
+
+The skill renders the observation list, accepts prune commands, composes the JSON payload for the `pulls/{N}/reviews` endpoint, asks for one final confirmation, and POSTs the bulk line-anchored review back to the PR. This section documents the wrap-up trigger, the table render and prune commands, the 50-entry pre-flight warning, the head-SHA re-fetch, the one-line confirmation prompt, the POST and review-URL print, the empty observation list branch, the payload composer, and the path / line validation that runs before the POST. On the next wrap-up trigger word the head-SHA re-fetch, 50-entry warning, and confirmation prompt all run again from scratch; cached state from a cancelled attempt is discarded.
+
+**Wrap-up trigger words.** Treat any one of `wrap up`, `done`, `submit`, or `finish` from the reviewer as the wrap-up cue. The reviewer's last message must consist of only the trigger word or phrase plus optional surrounding whitespace and punctuation (e.g., `wrap up`, `Done.`, `submit!`); match case-insensitively. Substring matches inside longer prose do not fire wrap-up; if uncertain, ask the reviewer to confirm wrap-up before rendering. The trigger word must appear exactly once; multiple trigger words in the same message (e.g., `Done. Submit!`) trigger the "ask the reviewer to confirm wrap-up" clarification path rather than firing immediately.
+
+**Non-empty observation list.** Render the list as a numbered Markdown table with four columns: index (1-based), `path:line` (or `path:start-end` for range observations), `source` (the tag set during auto-recording: `skill-analysis`, `reviewer`, or the sub-agent name), and `body` (first 120 chars). Escape `|`, `\`, and backticks in cell bodies; replace literal newlines with `<br>` so the cell stays valid Markdown. Truncate at 120 characters with a trailing ellipsis; do not let a cell exceed one visual line. Observations carrying the `[STALE: verify line]` prefix are rendered with the prefix visible in the body column; the 120-char truncation preserves the leading prefix. After the table, prompt the reviewer to prune the list or confirm submission.
+
+**Prune commands.** Accept `drop`-verb commands operating on the numbered table: `drop 3, 7` (drop the entries at the named indices), `drop all from dr-audit` (drop every entry whose `source` matches the named tag), and `keep all` (skip pruning and proceed straight to confirmation). Bare numeric arguments always reference the displayed index column, never a source tag. A sub-agent named with a numeric-looking identifier still resolves through the `drop all from <tag>` form, not the bare-number form. Reject unrecognized verbs by re-printing the table and reminding the reviewer of the three accepted shapes. After each successful `drop`, re-render the table with the new indices so subsequent commands refer to the visible list.
+
+Edge-case handling for malformed `drop` input: out-of-range indices report the offending number and the rest of the `drop` list still processes; unknown source tags drop zero entries and print a one-line warning naming the unknown tag and the known tags; `drop` with no arguments is rejected like an unrecognized verb; comma and whitespace separators in the index list are both accepted (`drop 3, 7`, `drop 3 7`, and `drop 3,7` all parse the same); negative indices are rejected as out-of-range; `drop all from <known-tag>` when zero observations carry that tag is a no-op with a confirming one-line message.
+
+**50-entry pre-flight warning.** When the pruned list has more than 50 entries at the point the reviewer signals they are done pruning (any wrap-up trigger word repeated, or an explicit `submit`), print a warning naming the count (for example `52 observations will be posted as inline comments. Confirm to proceed.`) and ask the reviewer to confirm before composing the JSON payload. A negative or unclear answer returns the reviewer to prune mode without re-rendering the table; an affirmative answer proceeds.
+
+**Head-SHA re-fetch.** Re-fetch the head SHA via `gh pr view <ref> --json headRefOid -q .headRefOid` immediately before composing the payload. When the re-fetched SHA matches the value cached during `## Preflight`, proceed to the confirmation prompt below. When it differs, follow `design.md` §"HEAD-SHA verification": print the cached SHA and the new SHA and ask the reviewer to choose between (a) refresh and re-verify line numbers against the new content, or (b) abort the submission and re-checkout. The default safe path is abort; on abort, the observation list survives so the reviewer can re-run wrap-up after `gh pr checkout <ref>` brings the local tree back to the PR head. On option (a), run the refresh procedure step-by-step: re-fetch `gh pr view <ref> --json files,headRefOid` and the `.files[].path` cache (re-applying the 100-entry pagination fallback from **Path validation** below when the cached list has exactly 100 entries); re-run **Path validation** and **Line validation** against the new diff for every surviving observation; mark every newly-stale observation by prepending `[STALE: verify line]` to its body field; update the cached SHA to the re-fetched value; re-render the prune table when any observation flipped to stale; then return to the **Confirmation prompt** below.
+
+**Confirmation prompt.** After the head-SHA check clears and the JSON payload has been composed per the **Submission payload composer** sub-block below, print one line summarizing the submission and asking for confirmation: `REQUEST_CHANGES with 12 comments to PR <N>?` for the non-empty branch, or `APPROVE PR <N> with no inline comments?` for the empty branch. A negative or unclear answer cancels and returns the reviewer to prune mode with the observation list intact. An affirmative answer proceeds to POST.
+
+**POST and URL.** On confirmation, POST the composed payload via `gh api -X POST /repos/{owner}/{repo}/pulls/{N}/reviews --input -` (the JSON body is fed on stdin). On a successful response, parse `.html_url` from the response and print it on one line so the reviewer can open the submitted review in a browser, then delete the handoff file at `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` if it exists so a re-invocation against this PR starts clean (this is the only path that auto-deletes the handoff; see `## Handoff and resume` → **Cleanup discipline** for the persistence rules on every other branch). On a non-zero exit, surface the `gh api` stderr and keep the observation list intact so the reviewer can retry without re-running the audit. The cached head SHA reverts to the session-start value so the next wrap-up trigger re-runs the head-SHA re-fetch from scratch. On a `422 Unprocessable Entity` response from GitHub, parse the response body for every offending comment index (GitHub may report multiple validation failures in a single submission), prepend `[REJECTED: <reason from GitHub>]` to each affected observation's body, re-render the prune table so the rejected entries appear alongside the rest of the list, and return to prune mode. On other non-zero exits (network errors, 5xx, rate limits, auth lapses), return to prune mode unchanged.
+
+**Empty observation list.** Skip the table render, the prune step, and the 50-entry warning. Still run the head-SHA re-fetch above before composing the payload. A mid-session push invalidates the cached SHA whether or not observations were recorded. Show the empty-branch confirmation prompt (`APPROVE PR <N> with no inline comments?`) and on confirmation POST the `APPROVE` payload composed per the **Submission payload composer** sub-block below (one-line body `All workflow artifacts review clean.`, no `comments[]` field on the JSON object). Print the resulting `.html_url` on success.
+
+**Submission payload composer.** Build the JSON body the `pulls/{N}/reviews` endpoint expects: `commit_id`, `body`, `event`, and `comments[]`. `commit_id` is the head SHA verified at session start; the wrap-up flow re-fetches it via `gh pr view --json headRefOid` and revalidates against the cached value immediately before composing the payload, per `design.md` §"HEAD-SHA verification". `event` is `APPROVE` when the pruned observation list is empty and `REQUEST_CHANGES` when any observation remains; the auto-generated `body` is a one-paragraph summary (for the non-empty case, the observation count and source mix, for example `8 observations recorded from DR audit. See inline comments below.`; for the empty case, the one-line `All workflow artifacts review clean.`). Each surviving single-line observation becomes one `comments[]` element shaped `{path, line, side: "RIGHT", body}`: `path` and `line` are the observation's anchored values, `body` is the observation body verbatim. Range observations (`path:start-end`) emit `{path, start_line, line, side: "RIGHT", body}` instead, where `start_line` is the range start and `line` is the range end, matching GitHub's multi-line review-comment shape. Omit the `comments[]` array entirely on the empty-list `APPROVE` branch.
+
+**Path validation.** For every comment in `comments[]`, confirm `path` is in the PR's changed file set. The skill already fetched `.files[].path` via `gh pr view --json files` during `## Preflight`; use the cached list. When the cached list has exactly 100 entries, the gh CLI has silently truncated the array (upstream cap, `cli/cli#5368`); re-fetch the full list via `gh api repos/{owner}/{repo}/pulls/{N}/files --paginate -q '.[] | {path: .filename, changeType: .status}'` and use that result. Each entry from the fallback carries `path` (the filename) and `changeType` (one of `ADDED`, `MODIFIED`, `RENAMED`, `COPIED`, `CHANGED`, `REMOVED`); preserve both fields for the line-validation step below.
+
+**Line validation.** For every comment, confirm `line` falls within the file's PR diff or current content. Parse the file's diff hunks from `gh pr diff`. When `gh pr diff` errors or returns empty, fall back to the per-file `patch` field returned by `gh api repos/{owner}/{repo}/pulls/{N}/files --paginate` as a backup hunk source. When both fail, abort submission with a one-line error naming the failing command; the observation list survives and the reviewer can retry after `gh auth status` / network recovery. With a usable hunk source in hand, apply the validation rules in this order: (1) when the file's `changeType` is `ADDED`, every line of the current file content is a valid `line` target; (2) when the file's `changeType` is `MODIFIED`, `RENAMED`, `COPIED`, or `CHANGED`, only the added or modified lines reported by the diff hunks are valid targets; (3) a `line` outside both the diff hunks and the current file content marks the observation as stale; (4) when the file's `changeType` is `REMOVED`, no `line` is a valid comment target with `side=RIGHT`, so mark every observation against a removed file as stale so the reviewer can drop or re-anchor it at prune time (do not add `side=LEFT` support; that broadens scope beyond this track). Marking an observation as stale means prepending the literal string `[STALE: verify line]` to its body field; this is the same mechanism used in the `### Sub-agent dispatch — DR audit` anchoring edge case for sub-agent findings that lost their citation line. Stale observations are surfaced to the reviewer at prune time (when the numbered observation table is rendered for `drop` commands) rather than silently dropped; the reviewer chooses to drop them or re-anchor to a valid line.
+
+## Handoff and resume
+<!-- roles=pr-reviewer phases=any summary="Reviewer-driven checkpoint to /tmp and resume: write triggers, file format, HEAD re-verification, cleanup." -->
+
+The reviewer can checkpoint a session to `/tmp` and resume from a fresh shell without losing the observation list, the sub-agent dispatch log, or the verified head SHA. Checkpointing is reviewer-driven only; the skill never auto-writes on context-pressure polling, pre-dispatch events, or submission-failure fallback.
+
+Two flows: A is the reviewer-driven checkpoint write (**Write trigger.**, **Write path.**, **File format.**, **Post-write announcement.**); B is the resume on re-invocation (**Resume discovery.**, **Resume reload.**, **HEAD re-verification.**, **Dispatch-log re-presentation.**). **Cleanup discipline.** binds both.
+
+**Write trigger.** Treat any of `checkpoint`, `save state`, or `we're about to /clear` from the reviewer as the cue to write the handoff file. Match case-insensitively against the reviewer's full message, allowing surrounding whitespace and punctuation. Substring matches inside longer prose do not fire; if uncertain, ask one clarifying question before writing. On an unclear answer to the clarifying question, default to not firing and interpret the prompt as if the trigger never appeared; the reviewer can re-issue an unambiguous trigger explicitly. When the trigger fires before `## Preflight` resolves `<N>` (or before `## Artifact discovery` resolves `<dir>`), the write fails with a one-line message naming the missing input (for example `Cannot checkpoint: PR number not resolved yet`) and leaves the in-memory state untouched. The trigger may fire any number of times in a session; each successful write overwrites the same path so the file always reflects the latest state. After every successful trigger, ask the reviewer `Any notes to carry over?` as a single conversational turn; the reviewer's next response is written into section 6 of the handoff (an empty or skip-style response leaves section 6 as a single blank line). The inline shape `checkpoint <prose>` is also accepted; the `<prose>` after the trigger word becomes section 6 directly with no follow-up prompt.
+
+**Write path.** Always `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md`, where `<N>` is the PR number resolved at preflight and `$PPID` is the parent shell PID. The PR-keyed prefix and the PID suffix together satisfy the concurrent-agent file-isolation rule from the user-global `CLAUDE.md`: two reviewers handing off different PRs from the same shell never collide on `<N>`, and two shells handing off the same PR never collide on `$PPID`. Resolve `$PPID` to a number via Bash (`echo $PPID`) at write time; the file is written via `Write` with the fully-resolved numeric path so the on-disk filename carries the integer PID, not the literal `$PPID` token. The post-write announcement prints the resolved numeric path.
+
+**File format.** Write a Markdown document with six sections in this order, matching `design.md` §"Handoff and resume". Sections follow workflow state order; the audit log lands before user output:
+
+1. **PR context.** Number, owner/repo, head SHA at session start.
+2. **Local checkout.** Path (`pwd` output), HEAD at handoff time (`git rev-parse HEAD`).
+3. **Workflow directory.** `<dir>` resolved at preflight, the artifact paths enumerated by `## Artifact discovery` (`implementation-plan.md`, `design.md`, any `design-mechanics.md`, every `plan/track-*.md`).
+4. **Sub-agent dispatch log.** The `dispatchLog` from `### Sub-agent dispatch — DR audit` as-written: one entry per spawn, in order, including spawns that returned zero findings. Do not auto-dedup repeated spawns of the same `sub-agent name`; resume reads the latest entry per name as the authoritative "last run" but preserves earlier entries so the reviewer sees the spawn history.
+5. **Observation list.** One numbered entry per observation in the live conversation order, each carrying `path:line` (or `path:start-end` for range observations), `source` tag, and the full `body` field verbatim (no truncation; the wrap-up table truncates to 120 chars for display, but the persisted state must round-trip the full body). Observations carrying a `[STALE: verify line]` or `[REJECTED: <reason>]` prefix in their body keep the prefix on write; resume re-presents it at wrap-up. Observation entries do not persist `changeType`; the wrap-up `**Path validation.**` step re-derives it from the current `gh pr view --json files` response after resume.
+6. **Reviewer notes.** Free-form prose worth carrying over. When the reviewer has typed no explicit notes, write the header followed by a single empty line so resume sees an intentionally-empty section rather than a parse error.
+
+The persisted head SHA in section 1 is the session-start *snapshot* used at resume only for HEAD-drift detection. The in-memory wrap-up head-SHA cache (the one that reverts to session-start on POST failure per the **POST and URL** sub-block above) is NOT persisted; resume re-derives it from a fresh `gh pr view` at preflight.
+
+**Post-write announcement.** After the write succeeds, print the resulting `/tmp/claude-code-review-workflow-pr-<N>-$PPID.md` path on one line so the reviewer can confirm the file landed. On any write error (full disk, permission denial, path collision), surface the OS-level error message on one line and leave the in-memory state untouched so the reviewer can retry.
+
+**Resume discovery.** On every `/review-workflow-pr <N>` invocation, after `## Preflight` resolves the PR number but before `## Artifact discovery` loads anything, glob `/tmp/claude-code-review-workflow-pr-<N>-*.md` (PR-keyed prefix, PID wildcard so a new shell with a different `$PPID` still finds the file). The glob result drives a three-way branch:
+
+- **Zero matches.** No prior checkpoint for this PR. Proceed as a fresh session without any resume prompt; the rest of preflight and artifact discovery runs as usual.
+- **One match.** Print the path on one line and offer to resume. The reviewer must confirm explicitly before the resume reload runs; a negative or unclear answer proceeds as a fresh session and leaves the file in place so a later invocation can still pick it up.
+- **Multiple matches.** Rare: prior sessions for the same PR that closed without a successful submission. List every candidate as a numbered table with two columns (the full path and the file's mtime in ISO-8601 UTC), sorted newest-first by mtime. The mtime is the last successful checkpoint write for that PR's handoff (`**Write trigger.**` overwrites the same path on every fire, so mtime reflects the most recent write). Recommend the newest entry by default and ask the reviewer to confirm. The reviewer can pick an older entry by index when they want to resume from an earlier state (e.g., the newest checkpoint captured a corrupted prune); the prompt names that path explicitly so the older choice is deliberate. A negative or unclear answer proceeds as a fresh session and leaves every candidate file in place. After the reviewer picks one candidate, the unpicked siblings stay in `/tmp` until the host reaps them (typically at reboot). The skill does not auto-delete unpicked candidates on multi-match resolution; the reviewer can remove them manually if desired.
+
+**Resume reload.** Once the reviewer confirms a handoff file at the discovery prompt above, re-read the chosen path and parse the six sections in the documented order (PR context, Local checkout, Workflow directory, Sub-agent dispatch log, Observation list, Reviewer notes). On any parse failure (missing required section header, missing required field in sections 1–5 such as PR context's head SHA or Local checkout's HEAD, section out of order, unparseable observation entry, file truncated by a host crash mid-write), name the failure shape and the file path on one line, then ask the reviewer to choose between (a) discard the handoff and proceed as a fresh session, or (b) abort so the reviewer can inspect or hand-edit the file before re-invoking. Default on no-answer is abort. Before restoring state, cross-check section 1's PR number against the filename's `<N>` and against the current `gh pr view` output; on any mismatch, surface all three values and ask the reviewer to choose between proceeding anyway, aborting, or discarding the handoff. The PR context section's head SHA is the session-start *snapshot* used here for HEAD-drift detection only; the in-memory wrap-up head-SHA cache (the one that reverts to session-start on POST failure per the **POST and URL** sub-block above) is NOT persisted in the handoff and is re-derived from a fresh `gh pr view` at preflight. Restore the observation list and the `dispatchLog` verbatim from sections 5 and 4 respectively, preserving any `[STALE: verify line]` or `[REJECTED: <reason>]` prefixes on observation bodies. Reviewer notes from section 6 are surfaced as a one-line summary at resume confirmation; they do not feed into the observation list. Before entering research mode, compare the persisted `<dir>` from section 3 against `git branch --show-current`; on mismatch, surface both and ask the reviewer to choose which `<dir>` to use. For each artifact path recorded in section 3, check existence on disk before entering research mode and abort with the missing path naming the divergence. After reload, run `## Artifact discovery` against the workflow directory recorded in section 3, then enter research mode. When `## Artifact discovery` aborts after a resume reload (workflow directory no longer exists, or canonical files are missing), the restored observation list and `dispatchLog` survive in memory but the session does not enter research mode; the reviewer's next step is to re-checkout the PR head or pick a different `<dir>` and re-invoke.
+
+**HEAD re-verification.** Compare the persisted session-start head SHA from section 1 against the current `git rev-parse HEAD`. On match, the resume proceeds straight into research mode. On mismatch, print both SHAs and ask the reviewer to choose between three options, surfacing each consequence in the prompt rather than only the choice label:
+
+- **Refresh observations.** Reuse the wrap-up `**Head-SHA re-fetch.**` refresh procedure verbatim (the one documented above for the in-session wrap-up path); do not invent a parallel resume-specific procedure. The procedure re-fetches `gh pr view <ref> --json files,headRefOid` and re-runs `**Path validation.**` and `**Line validation.**` against the new diff for every observation, prepending `[STALE: verify line]` to any observation whose anchor no longer resolves. After the refresh procedure completes, enter research mode and skip the `**Confirmation prompt.**` step that the wrap-up version jumps to (resume is not a wrap-up trigger).
+- **Abort + re-checkout.** Exit research mode and tell the reviewer to run `gh pr checkout <ref>` to bring the local tree back to the PR head. The in-memory state from the just-resumed session is preserved across the abort, so the reviewer can re-checkpoint before `/clear` if they want a fresh snapshot of the restored state.
+- **Proceed without revalidation.** Skip the refresh and enter research mode against the new HEAD. Acknowledge the risk in the prompt: observation `line` values reference the saved-HEAD file content, but the wrap-up `**Line validation.**` step runs against the new HEAD, so most or all observations may be marked `[STALE: verify line]` at wrap-up.
+
+The default safe path is **Refresh observations**; the prompt names it as the recommendation but does not auto-pick it.
+
+**Dispatch-log re-presentation.** After reload, surface the `dispatchLog` state to the reviewer as one of three distinct cases so they can decide whether to re-run any audit:
+
+- **Missing entry.** No `dispatchLog` entry for a given `sub-agent name` means the audit never ran to completion in the checkpointed session (the spawn either errored before the sub-agent returned a well-formed `## Summary` block, or no spawn was ever attempted, per `### Sub-agent dispatch — DR audit` → `**Sub-agent dispatch failure.**`). Re-presentation labels this as `not run`.
+- **Entry with `findings_count=0`.** The audit ran to completion and returned zero findings, per the **`dispatchLog` structure** rule above that appends one entry on every spawn including zero-finding spawns. Re-presentation labels this as `ran, no findings`.
+- **Entry with `findings_count>0`.** The audit ran and returned findings; the corresponding observations are already in the restored list from section 5. Re-presentation labels this as `ran, <N> findings recorded`.
+
+Replay the `dispatchLog` entries as-written; do not auto-dedup repeated spawns of the same `sub-agent name`. The latest entry per `sub-agent name` is treated as the authoritative `last run` for the summary line, but earlier entries are preserved in the restored log so the reviewer sees the spawn history (the same no-auto-dedup rule the in-session writer applies per the **`dispatchLog` structure** rule above).
+
+**Cleanup discipline.** The handoff file persists across resume reloads. Re-reading the file does not delete it, so an interrupted resume can be re-run against the same handoff. The file is deleted only on a successful `gh api` POST per the wrap-up flow above (`**POST and URL.**` deletes the handoff on the `.html_url`-returning success branch). On any failure path (submission rejected by GitHub with a non-422 exit, reviewer cancels at the confirmation prompt, `/clear` without an explicit submit, host reboots mid-session) the file persists until the next successful submission against this PR or until the reviewer deletes it manually. Cleanup is per-PR: a successful POST against the current PR deletes only that PR's handoff; handoffs from other PRs in the same shell are out of scope and stay in `/tmp` until the host reaps them.
+
+On a `422 Unprocessable Entity` POST result, the wrap-up flow tags every offending observation with `[REJECTED: <reason>]` in memory, re-renders the prune table, and returns to prune mode (per `**POST and URL.**` above), but the handoff file is not auto-updated to reflect the mutation. After tagging, print one line to the reviewer naming the rejected indices: `Observations N1, N2, ... tagged [REJECTED]; re-checkpoint with 'save state' if you plan to /clear before retry.` (a single index renders without the comma list). The reviewer must re-checkpoint explicitly to persist the rejection state across sessions; otherwise the resume re-presents the pre-422 body and the reviewer has to re-derive the rejection state from the failed POST's GitHub response.
