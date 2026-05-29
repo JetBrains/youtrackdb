@@ -7,9 +7,17 @@ on:
     # Run at 2 AM CET (1 AM UTC)
     - cron: '0 1 * * *'
 
+# Concurrency policy is trigger-dependent:
+#   - push / schedule: cancel-in-progress=false. A new run does NOT kill the
+#     running build; it becomes "pending" and starts only after the current
+#     build finishes. GitHub keeps at most one pending run per group, so a
+#     burst of pushes collapses to the latest commit — the queued run checks
+#     out the develop tip, so it always tests the last change.
+#   - workflow_dispatch: cancel-in-progress=true. A manual trigger cancels the
+#     in-progress (and any pending) run and starts immediately.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 permissions:
   contents: write
