@@ -12,6 +12,7 @@ Author per-section TOC + annotations for every in-scope file: 31 under `.claude/
 ## Progress
 - [x] 2026-05-29T03:51Z [ctx=warning] Review + decomposition complete (Technical + Risk + Adversarial reviews PASS iter-1; 6 steps decomposed; 2 design decisions resolved)
 - [ ] Step implementation
+- [x] 2026-05-29T04:50Z [ctx=info] Step 1 complete (commit 39d517c5c8) — dim review PASS iter-2 (5 agents; WC1/WI1 blocker fixed + 4 lower findings)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -20,6 +21,9 @@ Author per-section TOC + annotations for every in-scope file: 31 under `.claude/
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 
+- 2026-05-29T04:50Z Step 1 discovered: `design.md` still anchors the TOC "directly under the H1" at lines 20, 75, 285, which drifts from the implemented three-shape anchor schema — carry to Phase 4 design-synthesis (`design-final.md`) alongside the Track 3 design.md drift items. See Episodes §Step 1.
+- 2026-05-29T04:50Z Step 1 discovered: the gap-scan accepts a non-fenced bootstrap block plus blank lines before the TOC delimiter under all three anchor shapes, so Track 5 can place `## Reading workflow files (TOC protocol)` above the TOC region on H1, after-frontmatter, and top-of-file files alike. See Episodes §Step 1.
+
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
@@ -27,6 +31,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
 - **(Phase A) Fence-fix scope kept in Track 4.** The Phase A reviews ran `workflow-reindex.py` and found the parser counts fenced `##`/`###` headings and TOC delimiters as real (rules 2/3/4 ignore `compute_fenced_lines`; ~156 fenced headings in 20 files). The approved WB1 plan note ("rule_4 carve-out in `create-final-design.md`") was both mis-scoped (rules 2/3/4, not rule_4; 20 files, not 1) and mis-sequenced (prerequisite for Step 1, since `conventions.md` is annotated first). User chose to keep the widened fix in Track 4 as a front-loaded HIGH-risk step rather than ESCALATE to a Track 2 reopen. The `## 99.1 Demo section` annotate-vs-carve-out question resolves to carve-out, handled by the same parser fix.
 - **(Phase A) H1-less skill files: TOC after frontmatter.** 5 of the 7 in-scope skill files (`edit-design`, `migrate-workflow`, `code-review`, `review-workflow-pr`, `review-plan`) have real `##` sections but no document H1, which §1.8(d)'s "directly under H1" rule did not anticipate. User chose to anchor the TOC immediately after the frontmatter block (over adding an H1 title or dropping skills to refs-only). Step 1 amends §1.8(d) + rule_2 accordingly; Track 5 inserts the bootstrap block above the TOC.
 - **(Phase A) `--write` does not scaffold TOC regions.** Confirmed by reading `_rebuild_toc_region`: it rebuilds an existing delimiter pair, returning None when none exists. The per-file procedure now hand-places delimiters first, then runs `--write` to fill the table and auto-stamp in-file refs.
+- **(Step 1, scope-refinement) Third TOC anchor shape added — top-of-file.** Dimensional review found 10 of the 11 prompts are prose-first (no real H1, no frontmatter), a shape the step's two-anchor plan did not cover and rule_2 silently accepted. The chosen convention extends the Phase A "anchor at the natural structural top" decision: such files anchor the TOC at the top of the file (delimiter as first content). §1.8(d) and rule_2 now enforce all three shapes (under-H1 / after-frontmatter / top-of-file) with stated H1-over-frontmatter-over-top precedence. See Episodes §Step 1.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -93,7 +98,7 @@ Step sequencing (full roster in `## Concrete Steps`):
 Each annotated section needs: `roles=` (which agent types load it), `phases=` (which workflow phases pull it), `summary="..."` (≤120 chars, house-style compliant).
 
 ## Concrete Steps
-1. Fence-exclusion in the reindex parser + §1.8 schema correctness: thread `compute_fenced_lines` into `parse_headings`, `parse_toc_region`, and the rule_2 delimiter count so rules 2/3/4 skip headings and TOC delimiters inside fenced blocks; add §1.8(e) prose stating fenced headings and TOC delimiters are excluded (today only refs are); add the §1.8(d) after-frontmatter TOC-anchor rule for H1-less files plus the matching rule_2 anchor logic; regression tests under `.claude/scripts/tests/`. Reopens `workflow-reindex.py` (live path) and staged `conventions.md` §1.8. — risk: high (architecture: reopens the reindex validation gate + the §1.8 schema that all of Track 4 and every future workflow-modifying branch depend on; a parser bug silently passes wrong annotations through CI)  [ ]
+1. Fence-exclusion in the reindex parser + §1.8 schema correctness: thread `compute_fenced_lines` into `parse_headings`, `parse_toc_region`, and the rule_2 delimiter count so rules 2/3/4 skip headings and TOC delimiters inside fenced blocks; add §1.8(e) prose stating fenced headings and TOC delimiters are excluded (today only refs are); add the §1.8(d) after-frontmatter TOC-anchor rule for H1-less files plus the matching rule_2 anchor logic; regression tests under `.claude/scripts/tests/`. Reopens `workflow-reindex.py` (live path) and staged `conventions.md` §1.8. — risk: high (architecture: reopens the reindex validation gate + the §1.8 schema that all of Track 4 and every future workflow-modifying branch depend on; a parser bug silently passes wrong annotations through CI)  [x] commit: 39d517c5c8
 2. Annotate workflow-root batch 1, heading-count-balanced and anchored by `conventions.md` + the next most-referenced/largest root files. Hand-place TOC delimiters + per-section annotations → `--write` (fills TOC, auto-stamps in-file refs) → `--check --files <batch>` → commit `--no-verify`. — risk: medium (annotation semantic accuracy: roles/phases assignment and summary house-style are judgment calls `--check` cannot fully validate; Phase C focal point)  [ ]
 3. Annotate workflow-root batch 2 (remaining root files). Same procedure. — risk: medium (annotation semantic accuracy; Phase C focal point)  [ ]
 4. Annotate the 11 prompts under `.claude/workflow/prompts/`, including staged `create-final-design.md` (whose fenced `adr.md`-template headings Step 1's fix now skips). Same procedure. — risk: medium (annotation semantic accuracy; Phase C focal point)  [ ]
@@ -104,6 +109,20 @@ Each annotated section needs: `roles=` (which agent types load it), `phases=` (w
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 39d517c5c8, 2026-05-29T04:50Z [ctx=info]
+**What was done:** Threaded `compute_fenced_lines` into `parse_headings`, `parse_toc_region`, the rule_2 delimiter count, and `find_first_h1_line`, so rules 2/3/4 and `--write` skip `##`/`###` headings and `<!--Document index ...-->` delimiters inside fenced code blocks. Added the §1.8(d) after-frontmatter TOC anchor for H1-less skill files plus the matching rule_2 anchor logic (`find_first_h1_line` + `find_frontmatter_close_line`). Added §1.8(e) fenced-content-exclusion prose to staged `conventions.md`. The dimensional review (5 workflow-review agents, PASS at iteration 2) drove a `Review fix:` commit `39d517c5c8` that closed the WC1/WI1 blocker and four lower findings. Final state: 94/94 reindex tests pass.
+
+**What was discovered:** The 11 prompt files split three ways by TOC anchor, not the two the step anticipated. Only `design-review.md` carries a real H1; the other 10 are prose-first with no H1 and no YAML frontmatter (including `create-final-design.md`, whose only `# ` is the fenced `adr.md`-template heading the new fence-aware `find_first_h1_line` correctly skips). rule_2's third branch had silently accepted any TOC placement for that shape, so `--check` could not have guarded Step 4's placement of those TOCs. The fix added a third anchor shape — top-of-file — to both §1.8(d) and rule_2, with the under-H1 and top-of-file branches sharing one gap-scan code path (`gap_start_idx = 0` vs the H1 line) so bootstrap-block tolerance and fence skipping apply uniformly. Separately, `design.md` still describes the TOC as anchored "directly under the H1" at three sites (lines 20, 75, 285), which now drifts from the implemented three-shape schema — a Phase 4 design-synthesis reconciliation item.
+
+**What changed from the plan:** Step 1's scope grew by one anchor shape. The step description named only the H1-less-with-frontmatter case (the 5 skill files); the prose-first-no-frontmatter case surfaced during dimensional review and was folded into the same step. This sharpens the anchor placement Steps 4 and 5 must follow: TOC under the H1 for workflow docs and `design-review.md`, after the frontmatter close for the 5 H1-less skill files, and at the top of the file for the other 10 prompts.
+
+**Key files:**
+- `.claude/scripts/workflow-reindex.py` (modified)
+- `.claude/scripts/tests/test_workflow_reindex.py` (modified)
+- `docs/adr/ytdb-1023-workflow-toc/_workflow/staged-workflow/.claude/workflow/conventions.md` (modified, §1.8(d)/(e))
+
+**Critical context:** rule_2 now enforces TOC placement positionally (previously it did no positional check for the third shape), so every annotation step must place each file's TOC at its correct anchor or rule_2 fires. Initial commit `8bcb1792f3`; review-fix commit `39d517c5c8`.
 
 ## Validation and Acceptance
 
