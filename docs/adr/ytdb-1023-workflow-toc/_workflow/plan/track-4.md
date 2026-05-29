@@ -10,7 +10,7 @@ After this track lands, every in-scope workflow doc and skill file carries a TOC
 Author per-section TOC + annotations for every in-scope file: 31 under `.claude/workflow/`, 11 under `.claude/workflow/prompts/`, and 7 workflow-referencing skill files. ~600 annotations, all author-written. Run `workflow-reindex.py --write` to scaffold TOC tables, then hand-correct per-section `roles=`, `phases=`, `summary=`. Land in a single logical batch so the schema becomes universally applicable on one commit (or a small adjacent group; squash-merge collapses anyway).
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-05-29T03:51Z [ctx=warning] Review + decomposition complete (Technical + Risk + Adversarial reviews PASS iter-1; 6 steps decomposed; 2 design decisions resolved)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -24,11 +24,21 @@ at Phase 1. -->
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
 
+- **(Phase A) Fence-fix scope kept in Track 4.** The Phase A reviews ran `workflow-reindex.py` and found the parser counts fenced `##`/`###` headings and TOC delimiters as real (rules 2/3/4 ignore `compute_fenced_lines`; ~156 fenced headings in 20 files). The approved WB1 plan note ("rule_4 carve-out in `create-final-design.md`") was both mis-scoped (rules 2/3/4, not rule_4; 20 files, not 1) and mis-sequenced (prerequisite for Step 1, since `conventions.md` is annotated first). User chose to keep the widened fix in Track 4 as a front-loaded HIGH-risk step rather than ESCALATE to a Track 2 reopen. The `## 99.1 Demo section` annotate-vs-carve-out question resolves to carve-out, handled by the same parser fix.
+- **(Phase A) H1-less skill files: TOC after frontmatter.** 5 of the 7 in-scope skill files (`edit-design`, `migrate-workflow`, `code-review`, `review-workflow-pr`, `review-plan`) have real `##` sections but no document H1, which §1.8(d)'s "directly under H1" rule did not anticipate. User chose to anchor the TOC immediately after the frontmatter block (over adding an H1 title or dropping skills to refs-only). Step 1 amends §1.8(d) + rule_2 accordingly; Track 5 inserts the bootstrap block above the TOC.
+- **(Phase A) `--write` does not scaffold TOC regions.** Confirmed by reading `_rebuild_toc_region`: it rebuilds an existing delimiter pair, returning None when none exists. The per-file procedure now hand-places delimiters first, then runs `--write` to fill the table and auto-stamp in-file refs.
+
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 1 (7 findings — 3 blocker, 3 should-fix, 1 suggestion; all accepted and folded into Step 1 + the corrected procedure/decomposition).
+- [x] Risk: PASS at iteration 1 (5 findings — 0 blocker, 3 should-fix, 2 suggestion; all accepted, mostly into Idempotence and the per-batch `--check` rule).
+- [x] Adversarial: PASS at iteration 1 (5 findings — 1 blocker, 2 should-fix, 2 suggestion; all accepted; file counts 31+11+7=49 verified exact).
+
+All three reviews converged on one root cause: the reindex parser counts fenced headings/delimiters as real, so the track cannot reach a green `--check` by authoring alone. Findings were concrete, script-verified facts (re-confirmed directly against staged `conventions.md` §1.8 and the skill-file H1 reality), so they were accepted wholesale and incorporated into the decomposition rather than re-litigated across iterations; the corrected track file is the durable trace. Two findings needed user decisions (fence-fix scope, H1-less TOC placement) — resolved in the Decision Log above. Carried to Track 5: the H1-adjacency hand-off (Track 5's bootstrap block sits above Track 4's after-frontmatter TOC in H1-less files). Carried to Phase C: annotation semantic accuracy (roles/phases/summary) on Steps 2-6 is the focal-point concern `--check` cannot fully validate.
 
 ## Context and Orientation
 
@@ -65,29 +75,30 @@ All 49 enumerated above. Staged copies under `_workflow/staged-workflow/.claude/
 
 ## Plan of Work
 
-The track lands in six steps grouped by file batch:
+Phase A revised the original six-batch plan after the track reviews ran `workflow-reindex.py` against the staged files and found that its parser treats `##`/`###` headings and `<!--Document index…-->` delimiters **inside fenced code blocks** as real (rules 2/3/4 never consult `compute_fenced_lines`; only rules 6/8 do). About 156 fenced headings span 20 of the 49 in-scope files — including `conventions.md` (annotated first) and 5 skill files — so a green `--check` is unreachable by authoring alone. The fence-exclusion fix in the reindex script, and the §1.8 schema clarifications it rests on, become Step 1 rather than a final cleanup. This reopens Track 2's script and Track 1's schema (the prior "No code paths change" framing no longer holds; see `## Interfaces and Dependencies`).
 
-1. **Workflow root, first half (~15 files).** Annotate the largest / most-referenced files first: `conventions.md`, `workflow.md`, `step-implementation.md`, `track-code-review.md`, `conventions-execution.md`, `track-review.md`, `implementer-rules.md`, `design-document-rules.md`, `planning.md`, `review-iteration.md`, `self-improvement-reflection.md`, `implementation-review.md`, `workflow-drift-check.md`, `structural-review.md`, `plan-slim-rendering.md`. For each: run `workflow-reindex.py --write` to scaffold the TOC, then author per-section `roles=`, `phases=`, `summary=` decisions.
-2. **Workflow root, second half (~15 files).** Annotate the remaining 15 root files. Same procedure.
-3. **Prompts (11 files).** Annotate every prompt under `.claude/workflow/prompts/`. Prompts are typically shorter than rules; faster batch.
-4. **Skills (7 files).** Annotate the 7 workflow-referencing skill files. Skill files have a specific shape (frontmatter + skill prose); the annotation idiom applies after the frontmatter block.
-5. **Validation pass.** Run `python3 .claude/scripts/workflow-reindex.py --check` against the full file set. Fix any findings (mostly enum-token typos, TOC drift). Iterate until clean.
-6. **House-style sweep.** Run a final pass against the annotation summary text — every `summary="..."` must follow house style (no banned vocabulary). Re-run the reindex check; close the track.
+**Corrected per-file procedure.** `--write` rebuilds an existing TOC region; it does not create one. For each file: (1) hand-place the `<!--Document index start-->` / `<!--Document index end-->` delimiter pair at the file's TOC anchor — directly under H1 for workflow docs and prompts, immediately after the frontmatter block for H1-less skill files per the §1.8(d) after-frontmatter rule Step 1 adds; (2) hand-write each `##`/`###` section's annotation comment; (3) run `workflow-reindex.py --write` to populate the TOC table body and auto-stamp in-file `§X.Y(z)` refs (rule 8); (4) run `workflow-reindex.py --check --files <batch>` for incremental signal. Files with no real (non-fenced) `##` headings carry no TOC region per §1.8(d) — `create-plan` and `execute-tracks` SKILL.md after fence exclusion.
 
-The annotation work is repetitive but author-driven. Each section needs:
-- `roles=` — which agent types load this section.
-- `phases=` — which workflow phases pull this section.
-- `summary="..."` — one-line description, ≤120 chars, house-style compliant.
+**The `--no-verify` window.** The reindex pre-commit hook stays RED across the un-migrated tree until the rollout completes, so intermediate step commits use `git commit --no-verify`. Because `--no-verify` bypasses every pre-commit gate (not only reindex), each step runs `--check --files <batch>` manually before committing to recover per-batch signal; Step 6 is the single full-set green `--check`.
 
-Phase A may split this track if step count grows past 7 — splitting at the natural boundary (root vs. prompts vs. skills) makes the most sense.
+**Cross-ref ordering.** Rule 6 (cross-file subset) and rule 8 (in-file auto-stamp) both need the target's annotation to exist, so refs from an early batch to a not-yet-annotated target fail mid-rollout and clear only at Step 6's green run. The batches front-load the most-referenced targets (`conventions.md`, `workflow.md`) to keep the dangling-ref window small.
+
+Step sequencing (full roster in `## Concrete Steps`):
+- Step 1 (HIGH) is the parser + schema prerequisite and must land before any annotation step.
+- Steps 2-3 split the 31 workflow-root files by heading count, not file count (`conventions.md` alone carries ~54 headings), so each batch is a comparable hand-authoring and review unit.
+- Step 4 covers the 11 prompts, including the already-staged `create-final-design.md`.
+- Step 5 covers the 7 skill files (after-frontmatter TOC for the 5 H1-less ones; no TOC for the 2 with no real headings).
+- Step 6 is the full-set `--check` green run plus the house-style sweep on every `summary="..."`.
+
+Each annotated section needs: `roles=` (which agent types load it), `phases=` (which workflow phases pull it), `summary="..."` (≤120 chars, house-style compliant).
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+1. Fence-exclusion in the reindex parser + §1.8 schema correctness: thread `compute_fenced_lines` into `parse_headings`, `parse_toc_region`, and the rule_2 delimiter count so rules 2/3/4 skip headings and TOC delimiters inside fenced blocks; add §1.8(e) prose stating fenced headings and TOC delimiters are excluded (today only refs are); add the §1.8(d) after-frontmatter TOC-anchor rule for H1-less files plus the matching rule_2 anchor logic; regression tests under `.claude/scripts/tests/`. Reopens `workflow-reindex.py` (live path) and staged `conventions.md` §1.8. — risk: high (architecture: reopens the reindex validation gate + the §1.8 schema that all of Track 4 and every future workflow-modifying branch depend on; a parser bug silently passes wrong annotations through CI)  [ ]
+2. Annotate workflow-root batch 1, heading-count-balanced and anchored by `conventions.md` + the next most-referenced/largest root files. Hand-place TOC delimiters + per-section annotations → `--write` (fills TOC, auto-stamps in-file refs) → `--check --files <batch>` → commit `--no-verify`. — risk: medium (annotation semantic accuracy: roles/phases assignment and summary house-style are judgment calls `--check` cannot fully validate; Phase C focal point)  [ ]
+3. Annotate workflow-root batch 2 (remaining root files). Same procedure. — risk: medium (annotation semantic accuracy; Phase C focal point)  [ ]
+4. Annotate the 11 prompts under `.claude/workflow/prompts/`, including staged `create-final-design.md` (whose fenced `adr.md`-template headings Step 1's fix now skips). Same procedure. — risk: medium (annotation semantic accuracy; Phase C focal point)  [ ]
+5. Annotate the 7 workflow-referencing skill files: after-frontmatter TOC for the 5 H1-less ones (`edit-design`, `migrate-workflow`, `code-review`, `review-workflow-pr`, `review-plan`); no TOC region for the 2 with no real headings (`create-plan`, `execute-tracks`). Same procedure. — risk: medium (annotation semantic accuracy + first exercise of the after-frontmatter TOC anchor; Phase C focal point)  [ ]
+6. Full-set `workflow-reindex.py --check` green run across all 49 files plus a house-style sweep on every `summary="..."`; fix residual enum/TOC/cross-ref findings; confirm a final clean `--check`. — risk: medium (cross-cutting verification gate + house-style judgment; Phase C focal point)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -98,9 +109,10 @@ Phase 1; Phase A does not populate. -->
 
 After this track lands:
 
-- Every in-scope file (49 total) carries a TOC region directly under H1.
-- Every `^##` heading in every in-scope file is followed by an annotation comment.
-- `python3 .claude/scripts/workflow-reindex.py --check` exits 0 across the full file set.
+- Every in-scope file with at least one real (non-fenced) `^##` heading carries exactly one TOC region — directly under H1 for files that have one, immediately after the frontmatter block for the H1-less skill files. Files with no real `^##` headings carry no TOC region (§1.8(d)).
+- Every real (non-fenced) `^##`/`^###` heading in every in-scope file is followed by an annotation comment; headings inside fenced code blocks are not annotated and not counted.
+- `python3 .claude/scripts/workflow-reindex.py --check` exits 0 across the full file set, with no false positives on fenced headings/delimiters (the `## 99.1 Demo section` worked example and the `create-final-design.md` `adr.md`-template headings are skipped, not annotated).
+- Step 1's regression tests pass: a fenced `## Heading` (both ``` and `~~~`) yields no rule_2/3/4 finding and no `--write` TOC row, a real heading still does, and an H1-less file with an after-frontmatter TOC validates.
 - Annotation summary text passes house-style review (no banned vocabulary, ≤120 chars, plain prose).
 - TOC tables match the per-section annotations 1:1 (rebuildable by `--write` with no diff).
 
@@ -110,8 +122,12 @@ After this track lands:
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+- **Step 1 must precede every annotation step.** Resuming into Step 2+ presupposes the fence-exclusion + H1-less-anchor fix has landed; running an annotation batch's `--check` against the un-patched script produces spurious rule_2/3/4 findings. A resume that finds Step 1 incomplete restarts from Step 1.
+- **Each step is one commit and independently revertable.** `git revert <step-commit>` rolls a batch back without disturbing earlier batches; re-running the batch reproduces the same staged content.
+- **`--write` is idempotent.** Re-running it on an already-annotated file rebuilds the same TOC table and re-stamps the same in-file refs (no diff on a clean file), so resuming a partially-done batch is safe.
+- **Staging isolation bounds partial-completion damage.** Annotation edits land under `_workflow/staged-workflow/`; the live `.claude/workflow/**` paths stay at develop state until Phase 4 promotion, so a half-annotated staged tree cannot break the live workflow machinery the branch itself runs on. The one live-path change is Step 1's `workflow-reindex.py` edit, guarded by its regression tests.
+- **Mid-rollout `--check` is expected RED.** Cross-file (rule 6) and in-file (rule 8) refs to not-yet-annotated targets fail until Step 6's full-set run; this is the normal interim state, not a recovery trigger.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
@@ -132,11 +148,11 @@ All 49 files enumerated above. Staged copies under `_workflow/staged-workflow/`.
 
 ### Inter-track dependencies
 
-- **Depends on Track 1.** The schema in `conventions.md §1.8` must exist before authors can write annotations to it.
-- **Depends on Track 2.** The reindex script must exist for `--write` scaffolding and `--check` validation.
+- **Depends on Track 1, and reopens it.** The schema in `conventions.md §1.8` must exist before authors can write annotations to it; Step 1 additionally amends §1.8(d) (after-frontmatter TOC anchor for H1-less files) and §1.8(e) (fenced headings/delimiters excluded).
+- **Depends on Track 2, and reopens it.** The reindex script must exist for `--write` and `--check`; Step 1 fixes its fenced-heading/delimiter parsing (rules 2/3/4) and adds the H1-less anchor logic, with regression tests added to Track 2's suite.
 - **Depends on Track 3** in execution order (not structurally). Track 3 lands first so `prompts/create-final-design.md` already carries the telemetry-invocation block when Track 4 annotates it.
 - **Unblocks Track 5.** Cross-reference suffixes in the 20 agent files point AT files whose role/phase tags exist; while the suffix is technically forward-resolvable, landing Track 4 first keeps the schema's surface coherent at every commit.
 
 ### Library/function signatures touched
 
-None — this track is per-section annotation authoring in Markdown files. No code paths change.
+Step 1 edits `.claude/scripts/workflow-reindex.py` (a live-path change, not §1.7 staging): it threads `compute_fenced_lines` into `parse_headings`, `parse_toc_region`, and the rule_2 delimiter count so rules 2/3/4 skip fenced headings/delimiters, and it teaches rule_2 the after-frontmatter TOC anchor for H1-less files. This reopens Track 2's script and its test suite under `.claude/scripts/tests/` (regression tests for both behaviors are required per the track reviews). Step 1 also edits staged `conventions.md` §1.8(d)/(e) — Track 1's schema. Steps 2-6 are per-section annotation authoring in Markdown only; no further code paths change.
