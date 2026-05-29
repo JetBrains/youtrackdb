@@ -17,6 +17,7 @@ import importlib.util
 import os
 import pathlib
 import sys
+import urllib.request
 
 _MODULE_PATH = pathlib.Path(__file__).with_name("youtrack-fixed-notifier.py")
 _spec = importlib.util.spec_from_file_location("notifier", _MODULE_PATH)
@@ -184,11 +185,16 @@ def test_extract_issue_ids_boundaries():
 
 def test_extract_issue_ids_skips_reverts():
     """A revert commit must not re-mark the reverted issue as fixed: a subject
-    beginning with 'Revert ' is skipped entirely (the canonical git/GitHub
-    revert subject is 'Revert "<original>"'). A title that merely contains the
-    word 'revert' later is unaffected."""
+    beginning with 'revert ' (matched case-insensitively) is skipped entirely.
+    Covers the canonical git/GitHub form ('Revert "<original>"') and a
+    hand-written lower-case revert. A title that merely contains the word
+    'revert' later is unaffected."""
     check("revert title skipped",
           notifier.extract_issue_ids(['Revert "YTDB-5: fix a bug"']) == [])
+    # The match is case-insensitive, so a hand-written lower-case revert subject
+    # is skipped too.
+    check("lower-case revert title skipped",
+          notifier.extract_issue_ids(['revert "YTDB-6: fix a bug"']) == [])
     # A revert alongside a genuine fix in the same range: only the fix counts.
     check("revert skipped, real fix kept",
           notifier.extract_issue_ids(
@@ -260,6 +266,47 @@ def test_get_issue_state_parsing():
     ).get_issue_state("YTDB-1")
     check("missing isResolved -> unresolved",
           open_value["state"] == "Open" and not open_value["is_resolved"])
+
+
+# --- YouTrackClient construction -------------------------------------------
+
+
+def test_client_timeout_configured():
+    """YouTrackClient carries a per-request timeout so an unresponsive YouTrack
+    server fails the CI step fast instead of hanging for the full runner budget:
+    the default is 30s and an explicit value overrides it."""
+    default = notifier.YouTrackClient("https://example.test", "token")
+    check("default request timeout is 30s", default.timeout == 30)
+    custom = notifier.YouTrackClient("https://example.test", "token", timeout=5)
+    check("explicit timeout overrides default", custom.timeout == 5)
+
+
+# --- _AuthStrippingRedirectHandler (token-leak guard) ----------------------
+
+
+def test_redirect_strips_auth_cross_host():
+    """The redirect handler is a token-leak guard: on a cross-host 30x it drops
+    the Authorization header so the Bearer token is never forwarded to another
+    host, while keeping non-secret headers; on a same-host redirect it keeps
+    Authorization so the retried request still authenticates."""
+    handler = notifier._AuthStrippingRedirectHandler()
+    req = urllib.request.Request(
+        "https://youtrack.jetbrains.com/api/issues/YTDB-1",
+        headers={"Authorization": "Bearer SECRET", "Accept": "application/json"},
+        method="GET",
+    )
+    cross = handler.redirect_request(
+        req, fp=None, code=302, msg="Found", headers={},
+        newurl="https://evil.example.com/x")
+    check("cross-host redirect strips Authorization",
+          not cross.has_header("Authorization"))
+    check("cross-host redirect keeps non-secret headers",
+          cross.has_header("Accept"))
+    same = handler.redirect_request(
+        req, fp=None, code=302, msg="Found", headers={},
+        newurl="https://youtrack.jetbrains.com/api/other")
+    check("same-host redirect keeps Authorization",
+          same.has_header("Authorization"))
 
 
 # --- process_issue ---------------------------------------------------------
@@ -406,6 +453,38 @@ def test_main_partial_failure_exit_code():
           client.set_fixed == ["YTDB-1", "YTDB-3"])
     check("partial failure -> both healthy issues commented",
           client.comments == [("YTDB-1", "Fixed in v9"), ("YTDB-3", "Fixed in v9")])
+
+
+def test_main_handles_network_oserror():
+    """A network-level OSError (e.g. the socket TimeoutError raised when the
+    request timeout fires) is caught like any other per-issue failure: the issue
+    is recorded as failed and the run exits 1, while the remaining healthy issues
+    are still updated rather than the whole run crashing. Guards the broadened
+    `except (YouTrackError, OSError, ValueError)` — a bare urllib.error.URLError
+    catch would have let this TimeoutError abort the run."""
+    built = {}
+
+    class TimingOutClient(FakeClient):
+        def get_issue_state(self, issue_id):
+            if issue_id == "YTDB-2":
+                raise TimeoutError("timed out")
+            return {"found": True, "state": "Open", "is_resolved": False}
+
+    def fake_client_factory(base_url, token):
+        built["client"] = TimingOutClient({})
+        return built["client"]
+
+    with _patched_attr(notifier, "is_ancestor", lambda *a, **k: True), \
+            _patched_attr(notifier, "get_commit_titles",
+                          lambda *a, **k: ["YTDB-1: a", "YTDB-2: b", "YTDB-3: c"]), \
+            _patched_attr(notifier, "YouTrackClient", fake_client_factory), \
+            _env("YOUTRACK_TOKEN", "dummy-token"):
+        rc = notifier.main(["--from-sha", "aaa", "--to-sha", "bbb", "--version", "v9"])
+
+    client = built["client"]
+    check("network OSError -> exit 1", rc == 1)
+    check("network OSError -> healthy issues still updated",
+          client.set_fixed == ["YTDB-1", "YTDB-3"])
 
 
 def main():

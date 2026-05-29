@@ -18,9 +18,11 @@ Issue references are matched as `YTDB-<n>` (case-insensitive) anywhere in
 a commit title, which covers all the shapes the repo produces:
 `YTDB-123: ...`, `[YTDB-123] ...`, and the comma-separated pair
 `YTDB-123, YTDB-456: ...`. Duplicate references across the range are
-processed once. A commit whose subject begins with `Revert ` is skipped:
-reverting a change undoes it, so it must not re-mark the reverted issue as
-fixed (git and GitHub both produce the canonical `Revert "<subject>"` form).
+processed once. A commit whose subject begins with `revert ` (matched
+case-insensitively) is skipped: reverting a change undoes it, so it must not
+re-mark the reverted issue as fixed (git and GitHub produce the canonical
+`Revert "<subject>"` form; the case-insensitive match also catches a
+hand-written lower-case revert).
 
 A single bad issue (network error, transition rejected) does not abort
 the run: the failure is logged and the script exits non-zero at the end
@@ -91,10 +93,12 @@ def extract_issue_ids(titles):
     seen_set = set()
     for title in titles:
         # A revert undoes a change, so a "Revert "...""  commit must not
-        # re-mark the reverted issue as fixed. Skip the canonical git/GitHub
-        # revert subject; a title that merely contains the word later (e.g.
-        # "YTDB-7: revert the cache flag") is unaffected.
-        if title.lstrip().startswith("Revert "):
+        # re-mark the reverted issue as fixed. Skip a subject beginning with
+        # "revert " (case-insensitive): this is the canonical git/GitHub revert
+        # form and also catches a hand-written lower-case revert. A title that
+        # merely contains the word later (e.g. "YTDB-7: revert the cache flag")
+        # is unaffected.
+        if title.lstrip().lower().startswith("revert "):
             continue
         for match in ISSUE_RE.finditer(title):
             issue_id = "YTDB-" + match.group(1)
@@ -158,15 +162,17 @@ class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
             old_host = urllib.parse.urlsplit(req.full_url).netloc
             new_host = urllib.parse.urlsplit(newurl).netloc
             if old_host != new_host:
-                # Request stores header keys capitalized ("Authorization").
-                new_req.headers.pop("Authorization", None)
+                # remove_header drops the key from both `headers` and
+                # `unredirected_hdrs`, case-insensitively — the robust way to
+                # strip a header from a Request.
+                new_req.remove_header("Authorization")
         return new_req
 
 
 class YouTrackClient:
     """Thin REST wrapper over the YouTrack issue + comment endpoints."""
 
-    def __init__(self, base_url, token):
+    def __init__(self, base_url, token, timeout=30):
         # Refuse to send the Bearer token over a non-TLS connection.
         scheme = urllib.parse.urlsplit(base_url).scheme
         if scheme != "https":
@@ -176,6 +182,10 @@ class YouTrackClient:
             )
         self.base_url = base_url.rstrip("/")
         self.token = token
+        # Per-request socket timeout (seconds). urllib has no default timeout,
+        # so an unresponsive YouTrack server would otherwise hang the CI step
+        # for the full runner budget; fail fast instead.
+        self.timeout = timeout
         # Own opener so a cross-host redirect cannot forward the token.
         self._opener = urllib.request.build_opener(_AuthStrippingRedirectHandler())
 
@@ -190,7 +200,7 @@ class YouTrackClient:
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
-            with self._opener.open(req) as resp:
+            with self._opener.open(req, timeout=self.timeout) as resp:
                 payload = resp.read().decode("utf-8")
                 return resp.status, (json.loads(payload) if payload else None)
         except urllib.error.HTTPError as exc:
@@ -324,10 +334,14 @@ def main(argv=None):
     for issue_id in issue_ids:
         try:
             outcome = process_issue(client, issue_id, args.version, args.dry_run)
-        except (YouTrackError, urllib.error.URLError, ValueError) as exc:
-            # ValueError also covers a malformed (non-JSON) 200 body, whose
-            # json.loads failure propagates out of _request. One bad issue is
-            # recorded and the loop continues to the next.
+        except (YouTrackError, OSError, ValueError) as exc:
+            # OSError is the broad network bucket: it covers a urllib URLError,
+            # a refused/reset connection, a DNS failure, and the socket-level
+            # TimeoutError raised when the request timeout fires — so none of
+            # them crashes the run and skips the remaining issues. ValueError
+            # also covers a malformed (non-JSON) 200 body, whose json.loads
+            # failure propagates out of _request. One bad issue is recorded and
+            # the loop continues to the next.
             failures.append(issue_id)
             print(f"  FAILED  {issue_id}: {_truncate(exc)}", file=sys.stderr)
             continue
