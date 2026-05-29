@@ -3223,6 +3223,165 @@ def test_bootstrap_block_between_anchor_and_toc_is_allowed() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Top-of-file TOC anchor for prose-first files (§1.8(d) shape 3).
+#
+# Ten of the eleven prompts open directly with prose — no real
+# (non-fenced) H1 and no leading YAML frontmatter. Their TOC anchors to
+# the top of the file: the `<!--Document index start-->` delimiter is
+# the first content, before any leading prose.
+# ---------------------------------------------------------------------------
+
+
+def test_prose_first_file_with_top_of_file_toc_validates() -> None:
+    """A prose-first file (no H1, no frontmatter) with a top-of-file TOC validates clean."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | reviewer-technical | 3A | Real section. |
+
+            <!--Document index end-->
+
+            This prompt opens with prose, no H1 and no frontmatter.
+
+            ## 1 Real
+            <!-- roles=reviewer-technical phases=3A summary="Real section." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/prompts/prose-first.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [
+            f
+            for f in findings
+            if f.rule == "rule_2" and f.path.endswith("/prose-first.md")
+        ]
+        assert not rule2, f"top-of-file TOC should validate; got {rule2}"
+
+
+def test_prose_first_file_with_toc_below_prose_fails_anchor() -> None:
+    """A prose-first file with leading prose before the TOC fails the rule_2 anchor check."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            This prompt opens with prose that pushes the TOC down the file.
+
+            More intro prose.
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | reviewer-technical | 3A | Real section. |
+
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=reviewer-technical phases=3A summary="Real section." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/prompts/prose-first.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [
+            f
+            for f in findings
+            if f.rule == "rule_2" and f.path.endswith("/prose-first.md")
+        ]
+        assert any("top of file" in f.explanation for f in rule2), (
+            f"TOC below leading prose should fail the top-of-file anchor; got {rule2}"
+        )
+
+
+def test_prose_first_file_with_bootstrap_then_top_toc_validates() -> None:
+    """A prose-first file with a bootstrap block then a TOC at the top validates (gap-tolerance)."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap block body that teaches the TOC reading protocol.
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | reviewer-technical | 3A | Real section. |
+
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=reviewer-technical phases=3A summary="Real section." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/prompts/prose-first.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [
+            f
+            for f in findings
+            if f.rule == "rule_2" and f.path.endswith("/prose-first.md")
+        ]
+        assert not rule2, (
+            f"bootstrap block then top-of-file TOC should validate; got {rule2}"
+        )
+
+
+def test_fenced_bootstrap_heading_in_gap_not_accepted() -> None:
+    """A fenced bootstrap-heading literal plus real prose in the gap still fails the anchor check.
+
+    The gap scan must skip fenced lines, so a fenced occurrence of the
+    bootstrap heading is never mistaken for the real bootstrap block;
+    the real (non-fenced) prose after it is then an anchor violation.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            ```markdown
+            ## Reading workflow files (TOC protocol)
+            ```
+
+            Real prose after a fenced bootstrap-heading literal.
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | orchestrator | 3B | Real section. |
+
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=orchestrator phases=3B summary="Real section." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/prompts/demo.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [f for f in findings if f.rule == "rule_2" and f.path.endswith("/demo.md")]
+        assert any("not anchored at the H1" in f.explanation for f in rule2), (
+            f"fenced bootstrap literal must not be accepted as the bootstrap block; got {rule2}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -3507,6 +3666,23 @@ def main() -> int:
         (
             "bootstrap block between anchor and TOC is allowed",
             test_bootstrap_block_between_anchor_and_toc_is_allowed,
+        ),
+        # Top-of-file TOC anchor for prose-first files (§1.8(d) shape 3).
+        (
+            "prose-first file with top-of-file TOC validates",
+            test_prose_first_file_with_top_of_file_toc_validates,
+        ),
+        (
+            "prose-first file with TOC below prose fails anchor",
+            test_prose_first_file_with_toc_below_prose_fails_anchor,
+        ),
+        (
+            "prose-first file with bootstrap then top TOC validates",
+            test_prose_first_file_with_bootstrap_then_top_toc_validates,
+        ),
+        (
+            "fenced bootstrap heading in gap not accepted",
+            test_fenced_bootstrap_heading_in_gap_not_accepted,
         ),
     ]
     for name, fn in tests:

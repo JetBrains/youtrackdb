@@ -1077,24 +1077,52 @@ headings carries no TOC region (no rows to enumerate); the reindex
 script's rule 2 accepts an omitted TOC for such files. See design.md
 §"Files and surfaces out of scope" Exclusion 6 for the rationale.
 
-**TOC anchor.** The region sits at one of two anchors, and only blank
+**TOC anchor.** The region sits at one of three anchors, and only blank
 lines (or the bootstrap block, which precedes the TOC on files that
 carry one) may separate the anchor from the `<!--Document index start-->`
 delimiter:
 
-- **Directly under the document H1** (`# Title`) for files that carry
-  an H1 — the workflow docs and the 11 prompts.
+- **Directly under the document H1** (`# Title`) for files that carry a
+  real (non-fenced) H1 — the workflow docs, plus the one prompt
+  (`design-review.md`) that opens with an H1.
 - **Immediately after the leading YAML frontmatter block** (the closing
-  `---` of the `---`-delimited metadata block) for H1-less files. Five
-  of the seven in-scope skill files (`edit-design`, `migrate-workflow`,
-  `code-review`, `review-workflow-pr`, `review-plan`) carry real `^## `
-  sections but no document H1, so the "directly under H1" anchor does
-  not apply; their TOC anchors to the frontmatter close instead.
+  `---` of the `---`-delimited metadata block) for H1-less files that
+  carry frontmatter. Five of the seven in-scope skill files
+  (`edit-design`, `migrate-workflow`, `code-review`, `review-workflow-pr`,
+  `review-plan`) carry real `^## ` sections but no document H1, so the
+  "directly under H1" anchor does not apply; their TOC anchors to the
+  frontmatter close instead.
+- **At the top of the file** (the `<!--Document index start-->`
+  delimiter is the first content, before any leading prose) for
+  prose-first files with neither a real H1 nor leading frontmatter. Ten
+  of the eleven prompts are this shape: they open directly with prose
+  and have no YAML metadata block. `create-final-design.md` is among
+  them — its only `# ` line is the fenced `adr.md`-template heading,
+  which the fence exclusion skips, so it counts as H1-less and uses the
+  top-of-file anchor.
+
+**Anchor precedence.** When a file carries both leading frontmatter and
+a real (non-fenced) H1, the H1 is the anchor; frontmatter is the
+fallback only for H1-less files, and the top-of-file anchor is the
+fallback only when neither is present. No in-scope file carries both
+today, but §1.8 is the durable contract, so the precedence is stated
+explicitly.
+
+**Bootstrap block in the gap.** Once the bootstrap heading
+(`## Reading workflow files (TOC protocol)`) appears in the anchor→TOC
+gap, the remainder of the gap up to the delimiter is treated as
+bootstrap-block body and is not re-validated — the bootstrap block's
+prose may contain anything. Before the bootstrap heading appears, only
+blank lines are permitted; any other non-blank content is an anchor
+violation.
 
 The reindex script's rule 2 enforces the anchor: it locates the first
-non-fenced H1, falling back to the frontmatter close for H1-less files,
-and flags a TOC region separated from that anchor by anything other
-than blank lines or the bootstrap block.
+non-fenced H1, falling back to the frontmatter close for H1-less files
+that carry frontmatter, and falling back to the top of the file for
+prose-first files with neither. It flags a TOC region separated from
+that anchor by anything other than blank lines or the bootstrap block.
+Fenced `##`/H1 lines and a fenced bootstrap-heading literal in the gap
+are skipped, consistent with the fence exclusion in (e).
 
 Column order is fixed: `Section | Roles | Phases | Summary`. The
 summary cell reads from the section's annotation `summary="..."`
@@ -1215,7 +1243,11 @@ reindex script's heading parser, TOC-region parser, and rule 2's
 delimiter count all skip fenced lines, so rules 2, 3, and 4 never fire
 on a fenced heading or a fenced delimiter, and `--write` never emits a
 TOC row for a fenced heading. Authors do not annotate fenced headings
-and do not wrap them in TOC rows.
+and do not wrap them in TOC rows. Fence detection follows CommonMark
+rules — a fence is any run of three or more backticks or tildes, with
+or without an info string (e.g. ```` ```markdown ````), and the closer
+must use the same character and be at least as long as the opener — so
+info-string fences and longer fences are excluded identically.
 
 ### (f) Read-decision flow
 

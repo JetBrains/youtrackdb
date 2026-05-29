@@ -758,25 +758,27 @@ def find_first_h1_line(
 def find_frontmatter_close_line(lines: Sequence[str]) -> Optional[int]:
     """Return the 1-based line number of a leading YAML frontmatter block's closing `---`.
 
-    A frontmatter block is recognised only when the file's first
-    non-blank line is exactly `---`; the block then runs to the next
-    line that is exactly `---`. Returns the 1-based line number of that
-    closing delimiter, or None when the file has no leading frontmatter
-    block (no opening `---`, or an unterminated one). The frontmatter
+    A frontmatter block is recognised only when the file's literal first
+    line (line 1, index 0) is exactly `---`; the block then runs to the
+    next line that is exactly `---`. Returns the 1-based line number of
+    that closing delimiter, or None when the file has no leading
+    frontmatter block (line 1 is not `---`, or the opener is
+    unterminated).
+
+    Requiring the opener at index 0 (rather than the first non-blank
+    line) makes the `---`-as-thematic-break ambiguity unreachable: a
+    YAML frontmatter block is a document-level construct that, by
+    definition, occupies line 1, whereas a thematic break appears mid-
+    document after other content. In-scope files satisfy this cleanly —
+    H1-less SKILL.md files open with genuine `---` frontmatter on line 1,
+    and `_workflow/**` staged artifacts open with the line-1 workflow-sha
+    stamp comment (never `---`), so neither is misread. The frontmatter
     fence is not a CommonMark code fence, so this scan is independent of
     the `compute_fenced_lines` mask.
     """
-    first_content_idx: Optional[int] = None
-    for idx, line in enumerate(lines):
-        if line.strip() == "":
-            continue
-        first_content_idx = idx
-        break
-    if first_content_idx is None:
+    if not lines or lines[0].strip() != _FRONTMATTER_FENCE:
         return None
-    if lines[first_content_idx].strip() != _FRONTMATTER_FENCE:
-        return None
-    for idx in range(first_content_idx + 1, len(lines)):
+    for idx in range(1, len(lines)):
         if lines[idx].strip() == _FRONTMATTER_FENCE:
             return idx + 1
     return None
@@ -1357,20 +1359,35 @@ def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
                 explanation=f"file has {start_count} TOC regions; exactly one is required",
             )
         ]
-    # Anchor check (§1.8(d)). Find the expected anchor line: the H1 if
-    # the file has one, else the frontmatter close for H1-less files.
-    anchor_line = find_first_h1_line(parsed.lines, parsed.fenced_lines)
-    anchor_kind = "H1"
-    if anchor_line is None:
-        anchor_line = find_frontmatter_close_line(parsed.lines)
-        anchor_kind = "frontmatter block"
-    if anchor_line is None:
-        # No H1 and no frontmatter block to anchor against. The schema
-        # does not define an anchor for this shape; do not invent one —
-        # rule 2 accepts the region's presence and leaves anchor
-        # placement to author review.
-        return []
-    # The TOC must come after the anchor, never before it.
+    # Anchor check (§1.8(d)). Three anchor shapes, tried in precedence
+    # order: a real (non-fenced) document H1 wins; else the leading YAML
+    # frontmatter close for H1-less-but-frontmatter files; else the top
+    # of the file for prose-first files with neither. `gap_start_idx` is
+    # the 0-based index of the first line that may sit in the
+    # anchor→TOC gap (the line after the anchor, or line 0 for the
+    # top-of-file shape).
+    h1_line = find_first_h1_line(parsed.lines, parsed.fenced_lines)
+    if h1_line is not None:
+        # H1 takes precedence over frontmatter when a file carries both
+        # (no in-scope file does today; §1.8(d) is the durable contract).
+        anchor_kind = "H1"
+        anchor_line = h1_line  # 1-based
+        gap_start_idx = h1_line  # gap starts on the line after the H1
+    else:
+        fm_close = find_frontmatter_close_line(parsed.lines)
+        if fm_close is not None:
+            anchor_kind = "frontmatter block"
+            anchor_line = fm_close
+            gap_start_idx = fm_close  # gap starts after the closing `---`
+        else:
+            # Prose-first file: neither a real H1 nor leading frontmatter.
+            # The anchor is the top of the file — the TOC delimiter must
+            # be the first content, before any leading prose.
+            anchor_kind = "top of file"
+            anchor_line = 0
+            gap_start_idx = 0
+    # The TOC must come after the anchor, never before it. (Trivially
+    # satisfied for the top-of-file shape where gap_start_idx == 0.)
     if parsed.toc.start_line <= anchor_line:
         return [
             Finding(
@@ -1387,14 +1404,21 @@ def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
     # blank lines and the bootstrap block (`## Reading workflow files
     # (TOC protocol)` heading plus its body). The bootstrap block, when
     # present, sits above the TOC region per §"Bootstrap protocol" →
-    # §"Block placement and stability". Any other prose or heading
-    # between the anchor and the TOC is an anchor violation.
+    # §"Block placement and stability". Once a non-fenced bootstrap
+    # heading appears, the remainder of the gap up to the delimiter is
+    # treated as bootstrap-block body and not re-validated (§1.8(d)). Any
+    # other non-blank content before the bootstrap heading is an anchor
+    # violation. Fenced lines are skipped so a fenced `##`/heading or a
+    # fenced bootstrap-heading literal in the gap is never mistaken for
+    # real content (consistent with the fence exclusion every other
+    # heading/delimiter consumer in this script applies).
     #
-    # `anchor_line` and `parsed.toc.start_line` are 1-based; the gap is
-    # the 0-based slice [anchor_line, start_line - 1).
-    gap = parsed.lines[anchor_line : parsed.toc.start_line - 1]
-    for line in gap:
-        stripped = line.strip()
+    # `gap_start_idx` and `parsed.toc.start_line` map to the 0-based
+    # slice [gap_start_idx, start_line - 1).
+    for idx in range(gap_start_idx, parsed.toc.start_line - 1):
+        if idx < len(parsed.fenced_lines) and parsed.fenced_lines[idx]:
+            continue
+        stripped = parsed.lines[idx].strip()
         if stripped == "":
             continue
         if stripped == BOOTSTRAP_BLOCK_HEADING:
@@ -1408,7 +1432,7 @@ def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
                 line=parsed.toc.start_line,
                 rule="rule_2",
                 explanation=(
-                    f"TOC region is not anchored immediately after the {anchor_kind} "
+                    f"TOC region is not anchored at the {anchor_kind} "
                     f"(line {anchor_line}); only blank lines and the bootstrap block "
                     "may separate them"
                 ),
