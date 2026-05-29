@@ -1,0 +1,307 @@
+# Inline Replanning (ESCALATE)
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §When ESCALATE triggers | orchestrator | 3A,3C | The triggers that route to inline replanning: deep amendments, broken assumptions, unfixable step failures. |
+| §Process | orchestrator | 3A,3C | Stop, assess, propose a revised plan (PSI-backed, via edit-design), preview-review, then resume or exit. |
+| §Updating plan and track files | orchestrator | 3A,3C | Per-case rule for which on-disk file carries a revised track description by the track's current status. |
+
+<!--Document index end-->
+
+When the Track Pre-Flight gate (or any other ESCALATE trigger below)
+produces ESCALATE, you handle replanning directly — you have all the
+context: every track episode, the full plan file, and architecture
+notes.
+
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:any:any `§1.5` for the workflow-level anchor and tier mapping.
+
+## When ESCALATE triggers
+<!-- roles=orchestrator phases=3A,3C summary="The triggers that route to inline replanning: deep amendments, broken assumptions, unfixable step failures." -->
+
+- Track Pre-Flight Panel 1 (strategy assessment) returns ESCALATE
+  and the user accepts (see track-review.md:orchestrator:3A
+  § Track Pre-Flight step 1)
+- Track Pre-Flight review mode produces an `ESCALATE` action item,
+  or the user picks **Escalate now** on the Mixed-set policy panel
+  (see review-mode.md:orchestrator:3A,3C § ESCALATE detection and
+  § Mixed-set policy) — i.e., the requested change touches Decision
+  Records, Architecture Notes, Goals, Constraints, **adds** a new
+  track, crosses cross-track interaction surfaces, or the user
+  describes it as "fundamental rework" (deep-amendment list in
+  `track-review.md` § Track Pre-Flight step 4). **Removing** a
+  remaining track is light (`SKIP_TRACK`) and does not trigger
+  inline replanning.
+- Cross-track impact monitoring detects a fundamental assumption failure
+- A step failure affects the track's approach at a level additional commits
+  cannot fix
+
+## Process
+<!-- roles=orchestrator phases=3A,3C summary="Stop, assess, propose a revised plan (PSI-backed, via edit-design), preview-review, then resume or exit." -->
+
+**1. Stop** — do not start new steps.
+
+**2. Assess** — present the full situation to the user:
+
+- All track episodes so far (completed tracks)
+- Partial progress from any incomplete track (step episodes)
+- What assumptions broke and why
+- Which remaining tracks are affected and how
+- What Decision Records are weakened or invalidated
+
+If `pending_escalate_description` is set in conversation context
+when inline-replanning fires from a Track Pre-Flight or Track
+Completion gate (captured by a Strip-and-apply earlier in the same
+session per review-mode.md:orchestrator:3A,3C § Mixed-set policy),
+read the stashed text as the user-supplied deep-change description
+for this Assess. Do not prompt the user to re-state it. Clear the
+slot after consumption.
+
+**3. Propose** — draft a revised plan:
+
+- New or modified tracks for remaining work
+- Updated architecture notes (Component Map, Decision Records with revision
+  notes, Invariants, Integration Points)
+- Reordered dependencies based on what was learned
+- Removed tracks that are no longer needed
+- Clear rationale for each change
+
+**Tooling — PSI for code references in the revised plan.** Replans
+routinely add new claims about the codebase (a Component Map entry
+names a class, a Decision Record cites a method, an Invariant points
+at an enforcement site, an Integration Point names callers). Those
+are reference-accuracy facts and must be verified through mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy via
+`steroid_execute_code`, not grep, when the mcp-steroid MCP server is
+reachable per the SessionStart hook — same rule as Phase 1 planning
+(see planning.md:planner:1 §"Tooling — PSI-backed Component
+Map and integration points" and conventions.md:any:any `§1.4`
+*Tooling discipline*). Run `steroid_list_projects` once before
+the first symbol audit; do not re-probe. Fall back to grep with an
+explicit reference-accuracy caveat in any plan claim that depends on
+a symbol search only when mcp-steroid is unreachable. Silent grep
+misses become Phase A surprises in the revised tracks.
+
+When the replan is triggered by a discovery in an already-completed
+track ("we changed X, but Y still depends on the old contract") or
+needs to scope new tracks against the upward call chain of a
+low-level signature, load the **`call-hierarchy`** recipe (see
+conventions.md:any:any `§1.4` *Recipes*). Multi-hop
+impact at the depth of "callers of callers of X" is exactly the
+question grep cannot answer reliably and is the most common reason
+inline-replan estimates underscope.
+
+Decision Record revisions follow this format:
+```markdown
+#### D3: <Decision title> (revised after Track N)
+- **Original decision**: <what was decided in planning>
+- **What changed**: <discovery that invalidated it>
+- **Revised decision**: <new approach>
+- **Alternatives considered**: <what else was on the table>
+- **Rationale**: <why this revision>
+- **Risks/Caveats**: <known downsides>
+- **Implemented in**: Track M (revised), Track P (new)
+```
+
+**File-location mechanics.** Each proposed track revision lands in a
+specific file on disk depending on the track's current status. See
+[§Updating plan and track files](#updating-plan-and-track-files) below
+for the authoritative rule per case.
+
+**Design coherence.** When the revision invalidates a Decision
+Record's `**Full design**` link, adds a new design section, or
+renames an existing one, the design changes go through the
+mutation discipline defined in
+design-document-rules.md:planner,final-designer:1,3A,3C,4 § Mutation
+discipline — one atomic action that bundles `(apply edit →
+auto-review → bounded iterate → present)`. Do not directly Edit
+`design.md` mid-replan; invoke the mutation action so the
+auto-review gate (mechanical checks + cold-read sub-agent) fires.
+The structural review in step 4 below validates the plan; the
+design's own narrative quality is owned by the mutation action.
+
+**Working/sync vs direct mutation.** Pick the mutation kind based
+on the size of the inline-replanning revision (see
+`design-document-rules.md` § Two-mode editing — working vs sync):
+
+- For a single targeted change (one bullet, one section rename,
+  one section add), use the direct mutation kinds — `content-edit`,
+  `section-add`, `section-rename`, etc. Full discipline runs in
+  one shot; the inline-replan completes in one mutation.
+- For a multi-section revision **on a design that already has a
+  `design-mechanics.md` companion**, follow the working/sync loop:
+  `mechanics-edit` rounds for the substantive changes, ending in a
+  `design-sync` to re-publish `design.md`. This keeps `design.md`
+  stable as a review reference while the agent works through the
+  multi-section revision. The working/sync loop is **only** valid
+  when `design-mechanics.md` exists at the time of the
+  inline-replan — `mechanics-edit` mutates that file, and there's
+  no equivalent on a `design.md`-only design.
+- For a multi-section revision **on a `design.md`-only design**
+  (no mechanics companion), either run a sequence of direct
+  mutations (`content-edit` / `section-add` / `section-rename` —
+  each one is its own atomic action with full discipline), or, if
+  the revision is large enough that the design genuinely now needs
+  long-form mechanism content, first run a `length-trigger-crossing`
+  to create the mechanics companion and then drop into the
+  working/sync loop.
+
+**Invocation:** use the `edit-design` skill
+(`edit-design/SKILL.md`),
+not direct `Edit` / `Write` calls.
+
+**4. Review (advisory preview)** — spawn a sub-agent to run the
+structural review protocol from Phase 2 (see `structural-review.md`)
+on the revised plan. This is a fail-fast preview, **not the gate** —
+the definitive gate is the State 0 re-run on the next
+`/execute-tracks` session, which runs consistency + structural
+together (see implementation-review.md:orchestrator,reviewer-plan:2
+§ Replanning). The preview exists so you don't end the session and
+clear context only to learn on the next invocation that the revision
+was structurally broken. The invocation passes `plan_path` +
+`plan_dir` per the path-passing rule in
+`review-plan/SKILL.md`. The sub-agent receives the
+full plan file including both completed track episodes and the
+proposed revisions, plus the track-file directory so pending-track
+details (each track's `## Purpose / Big Picture` plus the
+detail sections — `## Context and Orientation`, `## Plan of Work`,
+`## Interfaces and Dependencies`) are reachable.
+
+**5. Iterate** — if the preview finds structural blockers, revise and
+re-preview. Maximum 3 iterations. Consistency findings (phantom
+references, flow-trace mismatches) are **not** surfaced by this
+preview — they will appear in the next-session State 0 re-run.
+
+**6. Resume or exit:**
+
+- **Review PASS** — update the plan file with the revised plan **and
+  reset the `## Plan Review` section** to
+  `- [ ] Plan review (consistency + structural) — autonomous; runs as
+  the first phase of /execute-tracks`. The reset routes the next
+  `/execute-tracks` session through State 0, which re-runs Phase 2
+  against the revised plan and catches any consistency drift the
+  replan introduced (see
+  implementation-review.md:orchestrator,reviewer-plan:2 § Replanning
+  for the contract). Then commit and push the workflow changes
+  immediately so the next implementer spawn doesn't lose them via
+  `git reset --hard HEAD`:
+
+  ```bash
+  git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+          docs/adr/<dir-name>/_workflow/plan/track-*.md
+  git commit -m "Inline replan after Track <N>"
+  git push
+  ```
+
+  Stage only the paths that the revision actually touched (the
+  enumeration in
+  [§Updating plan and track files](#updating-plan-and-track-files)
+  tells you which files apply per case). Any `design.md` /
+  `design-mechanics.md` changes from step 3 land via the
+  `edit-design` skill, which writes a separate
+  `<plan-dir>/_workflow/design-mutations.md` log entry — include those
+  files in the commit too if they were touched.
+
+  This is a Workflow update commit (single-commit-per-replan; per
+  the table in `commit-conventions.md` § Commit type prefixes).
+  Resume orphan-detection treats it as scaffolding and does not
+  count it toward any `[x]` step. End the session after the push;
+  the next `/execute-tracks` session enters State 0, re-runs Phase 2
+  against the revised plan, then resumes track execution.
+
+- **Blockers persist after 3 iterations** — the plan is fundamentally broken
+  at a level that incremental revision cannot fix. Advise the user to restart
+  from Phase 1 (`/create-plan`) with accumulated episodes as input context.
+
+---
+
+## Updating plan and track files
+<!-- roles=orchestrator phases=3A,3C summary="Per-case rule for which on-disk file carries a revised track description by the track's current status." -->
+
+When a revision drafted during step 3 of [§Process](#process) lands —
+whether during the propose step itself or after review passes — each
+affected track must be written to its authoritative file location. The
+"Section lifecycle" table in conventions-execution.md:orchestrator,decomposer:3A,3B,3C `§2.1` is the
+authority for non-inline-replan phases (Phase 1 write, Phase A,
+Phase C after collapse, Skipped at or before Phase A); this section is
+the authority for inline-replan revisions. If the two ever diverge, a
+future plan correction must resync them.
+
+Enumerate by case — each case names the plan status at the moment of
+revision and the file(s) that carry the new description:
+
+1. **New track.** Add a thin checklist entry (title + intro paragraph +
+   `**Scope:**` + optional `**Depends on:**`) to
+   `implementation-plan.md`, and create a new `plan/track-N.md` track
+   file in the canonical 14-section ExecPlan shape (see
+   conventions-execution.md:orchestrator,decomposer:3A,3B,3C `§2.1` *Track
+   file content* for the full template: 12 OpenAI sections,
+   `## Episodes`, `## Base commit`). The intro paragraph lands in
+   `## Purpose / Big Picture`; the track-level detail prose splits
+   across `## Context and Orientation` (current state and the
+   pre-revision baseline), `## Plan of Work` (step sequencing,
+   constraints, ordering rationale), and `## Interfaces and
+   Dependencies` (interactions with other tracks and files). The
+   track-level acceptance criteria land in `## Validation and
+   Acceptance` (per-step EARS/Gherkin lines start as Phase A
+   placeholders). Any track-level Mermaid diagram lands in
+   `## Context and Orientation`. `## Progress` starts with the four
+   pre-seeded phase checkpoints (`- [ ] Review + decomposition`,
+   `- [ ] Step implementation`, `- [ ] Track-level code review`,
+   `- [ ] Track completion`) so the State C resume protocol in
+   `workflow.md` can read them as phase markers; the other
+   continuous-log sections (`## Surprises & Discoveries`,
+   `## Decision Log`, `## Outcomes & Retrospective`, `## Episodes`)
+   start empty (HTML-comment placeholders are fine); the
+   deferred-sibling-Move sections start with the standard
+   reserved-slot HTML comments per D6/D10. `## Base commit` records
+   the SHA at which the new track will start executing, typically
+   `HEAD` at the time of the inline-replan commit.
+
+2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
+   reviews recorded yet). Update the track file's `## Purpose / Big
+   Picture` (intro paragraph), `## Context and Orientation` (current
+   state and pre-revision baseline, plus any track-level Mermaid
+   diagram), `## Plan of Work` (step sequencing, constraints,
+   ordering rationale), `## Interfaces and Dependencies`
+   (interactions with other tracks and files), and `## Validation and
+   Acceptance` (track-level acceptance criteria; per-step EARS/Gherkin
+   lines remain Phase A placeholders). The plan-file checklist entry
+   keeps its intro paragraph, `**Scope:**`, and `**Depends on:**`
+   unchanged unless the intro itself is being revised.
+
+3. **Revising a mid-execution track** (status `[ ]` with Phase A
+   reviews recorded and/or steps decomposed in the track file; the
+   execution workflow never sets `[>]` on a track). Update the track
+   file's `## Purpose / Big Picture` (intro paragraph), `## Context
+   and Orientation` (current state and pre-revision baseline, plus
+   any track-level Mermaid diagram), `## Plan of Work` (step
+   sequencing, constraints, ordering rationale), `## Interfaces and
+   Dependencies` (interactions with other tracks and files), and
+   `## Validation and Acceptance` (track-level acceptance criteria;
+   per-step EARS/Gherkin lines remain Phase A placeholders).
+   If the revision changes the intro paragraph, update the plan-file
+   checklist entry's intro paragraph to match.
+
+4. **Revising a completed track** (status `[x]`). This is rare — code
+   for `[x]` tracks is already merged, so a revision typically means
+   one of: (a) the revision actually describes a new follow-up track,
+   or (b) a documentation-only correction to the plan entry's intro
+   paragraph or Track episode. **Pause and ask the user** before
+   proceeding. The existing `[x]` status does not change; any new
+   scope becomes a new track (case 1).
+
+5. **Revising a skipped track** (status `[~]`). Update the plan entry.
+   Skipped tracks never retain a track file after the skip (see
+   `track-skip.md` step 3), so the plan entry is the only
+   authoritative location. Per `track-skip.md`'s "Track-file deletion
+   is terminal" warning, a reader un-skipping a `[~]` track must
+   re-author the description from scratch — the deleted track file is
+   not a recovery source after skip, and the revision here is the
+   re-authoring.
+
+6. **Removing a track.** Remove the plan entry and delete the track
+   file at `plan/track-N.md` if it still exists. (If the track had
+   already been skipped, its track file was deleted then; case 6
+   becomes a no-op for the track file.)
