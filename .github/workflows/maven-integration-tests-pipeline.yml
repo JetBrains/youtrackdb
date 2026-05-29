@@ -461,11 +461,17 @@ jobs:
       - name: Mark fixed issues in YouTrack
         env:
           YOUTRACK_TOKEN: ${{ secrets.YOUTRACK_TOKEN }}
+          # Pass run inputs through env rather than interpolating ${{ }} into the
+          # run: shell, so a value can never be expanded as shell syntax (the
+          # GitHub-recommended pattern for untrusted-or-derived expansions).
+          FROM_SHA: ${{ needs.check-changes.outputs.last_success_sha }}
+          TO_SHA: ${{ needs.check-changes.outputs.current_sha }}
+          DEPLOYED_VERSION: ${{ needs.deploy.outputs.version }}
         run: |
           python3 .github/scripts/youtrack-fixed-notifier.py \
-            --from-sha "${{ needs.check-changes.outputs.last_success_sha }}" \
-            --to-sha "${{ needs.check-changes.outputs.current_sha }}" \
-            --version "${{ needs.deploy.outputs.version }}"
+            --from-sha "$FROM_SHA" \
+            --to-sha "$TO_SHA" \
+            --version "$DEPLOYED_VERSION"
 
   notify-failure:
     name: Notify build failure on Zulip

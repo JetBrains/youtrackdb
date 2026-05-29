@@ -18,7 +18,9 @@ Issue references are matched as `YTDB-<n>` (case-insensitive) anywhere in
 a commit title, which covers all the shapes the repo produces:
 `YTDB-123: ...`, `[YTDB-123] ...`, and the comma-separated pair
 `YTDB-123, YTDB-456: ...`. Duplicate references across the range are
-processed once.
+processed once. A commit whose subject begins with `Revert ` is skipped:
+reverting a change undoes it, so it must not re-mark the reverted issue as
+fixed (git and GitHub both produce the canonical `Revert "<subject>"` form).
 
 A single bad issue (network error, transition rejected) does not abort
 the run: the failure is logged and the script exits non-zero at the end
@@ -45,6 +47,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 DEFAULT_BASE_URL = "https://youtrack.jetbrains.com"
@@ -62,6 +65,20 @@ SKIPPED_RESOLVED = "skipped_resolved"
 WOULD_UPDATE = "would_update"
 UPDATED = "updated"
 
+# Cap on how much of a YouTrack response body we put into an error message.
+# Those messages are printed to a public-by-default CI log, and an API error
+# body can echo back request context; GitHub's secret masking only redacts the
+# exact token string, not adjacent content, so we keep the logged slice small.
+_MAX_ERROR_DETAIL = 200
+
+
+def _truncate(detail, limit=_MAX_ERROR_DETAIL):
+    """Shorten a server response body for safe, bounded CI logging."""
+    text = str(detail)
+    if len(text) > limit:
+        return f"{text[:limit]}... [{len(text)} chars, truncated]"
+    return text
+
 
 def extract_issue_ids(titles):
     """Return the unique YTDB issue IDs across the given commit titles.
@@ -73,12 +90,40 @@ def extract_issue_ids(titles):
     seen = []
     seen_set = set()
     for title in titles:
+        # A revert undoes a change, so a "Revert "...""  commit must not
+        # re-mark the reverted issue as fixed. Skip the canonical git/GitHub
+        # revert subject; a title that merely contains the word later (e.g.
+        # "YTDB-7: revert the cache flag") is unaffected.
+        if title.lstrip().startswith("Revert "):
+            continue
         for match in ISSUE_RE.finditer(title):
             issue_id = "YTDB-" + match.group(1)
             if issue_id not in seen_set:
                 seen_set.add(issue_id)
                 seen.append(issue_id)
     return seen
+
+
+def is_ancestor(from_sha, to_sha, repo_dir):
+    """Return True only if `from_sha` is reachable as an ancestor of `to_sha`.
+
+    This guards the range diff against a rewritten develop. If the recorded
+    last-success SHA is no longer an ancestor of the deployed SHA — develop was
+    rebased/force-pushed and the old SHA was garbage-collected, or it now sits
+    on an abandoned line of history — then `git log from..to` would either fail
+    with an unknown-object error (exit 128) or silently compute the
+    `merge-base(from,to)..to` range and mark the wrong set of issues fixed.
+    `git merge-base --is-ancestor` distinguishes the three cases by exit code:
+    0 = ancestor, 1 = reachable but not an ancestor, 128 = unknown object. Only
+    exit 0 is safe to diff, so anything else is treated as "do not run".
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", from_sha, to_sha],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
 
 
 def get_commit_titles(from_sha, to_sha, repo_dir):
@@ -97,12 +142,42 @@ class YouTrackError(Exception):
     """A non-recoverable error talking to the YouTrack REST API."""
 
 
+class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Strip the Authorization header on a cross-host redirect.
+
+    `urllib` follows redirects automatically and, by default, re-sends every
+    original request header — including `Authorization: Bearer <token>` — to
+    the redirect target. A 30x from the YouTrack host to a different host would
+    otherwise forward the token to that host. We keep the header on a same-host
+    redirect and drop it the moment the host changes.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            old_host = urllib.parse.urlsplit(req.full_url).netloc
+            new_host = urllib.parse.urlsplit(newurl).netloc
+            if old_host != new_host:
+                # Request stores header keys capitalized ("Authorization").
+                new_req.headers.pop("Authorization", None)
+        return new_req
+
+
 class YouTrackClient:
     """Thin REST wrapper over the YouTrack issue + comment endpoints."""
 
     def __init__(self, base_url, token):
+        # Refuse to send the Bearer token over a non-TLS connection.
+        scheme = urllib.parse.urlsplit(base_url).scheme
+        if scheme != "https":
+            raise ValueError(
+                f"base-url must be https (got {scheme or 'no scheme'!r}); "
+                "refusing to send the YouTrack token in cleartext."
+            )
         self.base_url = base_url.rstrip("/")
         self.token = token
+        # Own opener so a cross-host redirect cannot forward the token.
+        self._opener = urllib.request.build_opener(_AuthStrippingRedirectHandler())
 
     def _request(self, method, path, body=None):
         url = f"{self.base_url}{path}"
@@ -115,7 +190,7 @@ class YouTrackClient:
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req) as resp:
+            with self._opener.open(req) as resp:
                 payload = resp.read().decode("utf-8")
                 return resp.status, (json.loads(payload) if payload else None)
         except urllib.error.HTTPError as exc:
@@ -134,11 +209,18 @@ class YouTrackClient:
         if status == 404:
             return {"found": False, "state": None, "is_resolved": False}
         if status >= 400 or not isinstance(data, dict):
-            raise YouTrackError(f"GET {issue_id} returned {status}: {data}")
-        for field in data.get("customFields", []):
+            raise YouTrackError(f"GET {issue_id} returned {status}: {_truncate(data)}")
+        # `or []` covers both an absent key and an explicit null; the per-field
+        # isinstance guards tolerate a null array entry or a non-object value
+        # so an abnormal payload yields "unresolved" rather than crashing the
+        # whole run with a TypeError/AttributeError that bypasses the caller's
+        # per-issue handler.
+        for field in data.get("customFields") or []:
+            if not isinstance(field, dict):
+                continue
             if field.get("name") == "State":
                 value = field.get("value")
-                if not value:
+                if not isinstance(value, dict) or not value:
                     return {"found": True, "state": None, "is_resolved": False}
                 return {
                     "found": True,
@@ -152,7 +234,7 @@ class YouTrackClient:
         path = f"/api/issues/{issue_id}/comments?fields=id"
         status, data = self._request("POST", path, {"text": text})
         if status >= 400:
-            raise YouTrackError(f"comment on {issue_id} returned {status}: {data}")
+            raise YouTrackError(f"comment on {issue_id} returned {status}: {_truncate(data)}")
 
     def set_state_fixed(self, issue_id):
         path = f"/api/issues/{issue_id}?fields=id"
@@ -167,14 +249,15 @@ class YouTrackClient:
         }
         status, data = self._request("POST", path, body)
         if status >= 400:
-            raise YouTrackError(f"set State on {issue_id} returned {status}: {data}")
+            raise YouTrackError(f"set State on {issue_id} returned {status}: {_truncate(data)}")
 
 
 def process_issue(client, issue_id, version, dry_run):
     """Apply the fixed-notification policy to a single issue.
 
-    Returns one of the module-level outcome constants. Raises on a hard
-    API error so the caller can record it as a failure.
+    Returns one of the module-level outcome constants. Propagates
+    `YouTrackError` from the client on a hard API error so the caller can
+    record the issue as a failure and continue with the rest.
     """
     info = client.get_issue_state(issue_id)
     if not info["found"]:
@@ -204,6 +287,17 @@ def main(argv=None):
         print("No from-sha given (no prior successful deploy); nothing to do.")
         return 0
 
+    # If develop was rewritten, the recorded last-success SHA may no longer be
+    # an ancestor of the deployed SHA. Diffing such a range would crash or
+    # silently compute the wrong commit set (see is_ancestor), so skip cleanly.
+    if not is_ancestor(args.from_sha, args.to_sha, args.repo_dir):
+        print(
+            f"from-sha {args.from_sha} is not an ancestor of {args.to_sha} "
+            "(history rewritten or SHA unreachable); nothing to do.",
+            file=sys.stderr,
+        )
+        return 0
+
     titles = get_commit_titles(args.from_sha, args.to_sha, args.repo_dir)
     issue_ids = extract_issue_ids(titles)
     print(
@@ -230,9 +324,12 @@ def main(argv=None):
     for issue_id in issue_ids:
         try:
             outcome = process_issue(client, issue_id, args.version, args.dry_run)
-        except (YouTrackError, urllib.error.URLError) as exc:
+        except (YouTrackError, urllib.error.URLError, ValueError) as exc:
+            # ValueError also covers a malformed (non-JSON) 200 body, whose
+            # json.loads failure propagates out of _request. One bad issue is
+            # recorded and the loop continues to the next.
             failures.append(issue_id)
-            print(f"  FAILED  {issue_id}: {exc}", file=sys.stderr)
+            print(f"  FAILED  {issue_id}: {_truncate(exc)}", file=sys.stderr)
             continue
         counts[outcome] += 1
         if outcome == NOT_FOUND:
