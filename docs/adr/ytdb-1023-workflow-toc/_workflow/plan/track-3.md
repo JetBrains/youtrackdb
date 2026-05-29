@@ -16,12 +16,15 @@ Build `.claude/scripts/measure-read-share.py` — worktree-scoped, lifetime wind
 - [ ] Track completion
 
 - [x] 2026-05-28T17:39Z [ctx=info] Review + decomposition complete
+- [x] 2026-05-29T02:54Z [ctx=safe] Step 1 complete (commit 5cfd07ef)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 
+- Session count = top-level transcripts directly under the worktree folder; transcript-file count = every jsonl walked (subagents included). These feed the rendered `N=<sessions> across <transcripts>` line that Step 2's Phase 4 prompt edit and this plan's own Phase 4 ADR embedding surface. See Episodes §Step 1.
+- Durable-content label caveat: the script's docstrings cannot cite workflow-internal invariant/decision labels (`I4`, `D4`) — the ephemeral-identifier pre-commit gate rejects them. Step 2's prompt edit and Phase 4 prose must name the constraint (percentages-only / publication-safety) instead. See Episodes §Step 1.
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
@@ -92,13 +95,26 @@ Step 2 modifies a file under `.claude/workflow/prompts/`, which routes through t
 
 ## Concrete Steps
 
-1. Build `measure-read-share.py` end-to-end with tests — worktree detection (`.git` file-vs-directory), recursive `**/*.jsonl` walk under the canonicalised `~/.claude/projects/<encoded-cwd>/`, tool_use_id index, bucket tally per the design.md record-and-block table, `uuid` dedup, repo-relative path normalisation, 1-decimal largest-remainder rounding, atomic buffer-then-print render, two distinct skip notices, stand-alone runner test file under `.claude/scripts/tests/test_measure_read_share.py` — risk: medium (new production tooling whose output ships in every future ADR; the publication-safety constraint I4 plus the path-PII normalisation are tests-can-catch-but-need-explicit-review-attention surfaces; no HIGH triggers)  [ ]
+1. Build `measure-read-share.py` end-to-end with tests — worktree detection (`.git` file-vs-directory), recursive `**/*.jsonl` walk under the canonicalised `~/.claude/projects/<encoded-cwd>/`, tool_use_id index, bucket tally per the design.md record-and-block table, `uuid` dedup, repo-relative path normalisation, 1-decimal largest-remainder rounding, atomic buffer-then-print render, two distinct skip notices, stand-alone runner test file under `.claude/scripts/tests/test_measure_read_share.py` — risk: medium (new production tooling whose output ships in every future ADR; the publication-safety constraint I4 plus the path-PII normalisation are tests-can-catch-but-need-explicit-review-attention surfaces; no HIGH triggers)  [x]  commit: 5cfd07ef
 2. Update `prompts/create-final-design.md` Step 3 §"Artifact 2: ADR" to append a `## Token usage telemetry` H2 after `## Key Discoveries`, with the canonical bash invocation (`python3 .claude/scripts/measure-read-share.py`) — the agent runs the script after writing the rest of `adr.md`, captures stdout, appends the captured Markdown as the final section; skip-notice paths emit the same H2 with the explanatory body so the prompt does not branch on the script's exit code — risk: low (single-file additive prompt edit; behaviour change is mechanical "run script, paste output"; failure mode is a missing section in `adr.md`, non-load-bearing)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 5cfd07ef, 2026-05-29T02:54Z [ctx=safe]
+**What was done:** Built `.claude/scripts/measure-read-share.py` end-to-end plus its stand-alone test runner at `.claude/scripts/tests/test_measure_read_share.py`. The script detects worktree-vs-main via the `.git` file-vs-directory shape (file = linked worktree = measure; directory = main checkout = skip; missing = no checkout = skip), resolves the transcript folder via `Path.cwd().resolve()` with a raw-cwd fallback, walks `**/*.jsonl` recursively so sub-agent transcripts under `<stem>/subagents/` are counted, builds a `tool_use_id → (tool_name, file_path)` index in a first pass so out-of-order `tool_result` lines resolve, tallies six buckets with a `char/4` token approximation, dedups by `uuid`, and renders a tool-mix table (largest-remainder rounding to exactly 100.0%) plus a repo-relative top-N file table (`--top=N`, default 10) with a generated-by footer. Four notices cover the non-measuring paths: main-checkout skip, no-transcripts skip, no-checkout skip, and a mid-walk parse-error notice; render is atomic (buffer then print) and exits 0 on parse failure so the ADR commit still succeeds. All 26 tests pass.
+
+**What was discovered:** Real on-disk transcripts carry more record types than the design's skip-list enumerated (`permission-mode`, `custom-title`, `agent-name` beyond the listed `mode` / `last-prompt` / `pr-link` / `file-history-snapshot` / `system`). The implementer used an allow-list (`assistant` / `user` / `attachment` tallied, everything else skipped) rather than the design's skip-list — same net effect for the enumerated types, robust as the harness adds new metadata records. The `tool_use` input key is `input` (design prose writes `tool_input`), with `file_path` nested under it. Session count means top-level transcripts directly under the worktree folder; transcript-file count is every jsonl walked — these feed the `N=<sessions> across <transcripts>` line that Step 2's Phase 4 prompt and this plan's own Phase 4 ADR embedding surface.
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/scripts/measure-read-share.py` (new)
+- `.claude/scripts/tests/test_measure_read_share.py` (new)
+
+**Critical context:** The ephemeral-identifier pre-commit gate flagged three invariant-label citations (`I4`) in docstrings; the implementer rewrote them to name the constraint (percentages-only / publication-safety) without the workflow-internal label. Step 2's prompt edit and any reviewer prose in durable content must likewise avoid `I4` / `D4` labels.
 
 ## Validation and Acceptance
 
