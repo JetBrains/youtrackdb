@@ -330,11 +330,11 @@ jobs:
     # than the Hetzner CPX42 nodes).
     #
     # Non-blocking during soak period: this job is excluded from the
-    # needs: of deploy, save-test-counts, and the ci-status blocking
-    # check, so a macOS failure does not block merge or deploy. The
-    # notify-failure/notify-fixed jobs still observe it so the team
-    # sees macOS regressions. Promote to blocking once the leg is
-    # proven stable on develop.
+    # needs: of save-test-counts and the ci-status blocking check, so a
+    # macOS failure does not block the build. The notify-failure/
+    # notify-fixed jobs still observe it so the team sees macOS
+    # regressions. Promote to blocking once the leg is proven stable on
+    # develop.
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -710,56 +710,6 @@ jobs:
           cat /tmp/test-counts/test-counts.json
 
   # ------------------------------------------------------------------
-  # JOB 6: DEPLOY
-  # Runs only if all Test jobs pass. Uses JDK 21
-  # ------------------------------------------------------------------
-  deploy:
-    # test-macos intentionally excluded: non-blocking during soak period.
-    needs: [ detect-changes, test-linux, test-windows ]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && needs.detect-changes.outputs.should_build == 'true'
-
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v6
-
-      - name: Set Short SHA and Timestamp
-        id: vars
-        run: |
-          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "timestamp=$(date -u +'%Y%m%d.%H%M%S')" >> $GITHUB_OUTPUT
-
-      - name: Set up JDK 21 settings
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-          overwrite-settings: false
-      - name: Maven deploy
-        #1. Deploy to Maven Central as -dev-SNAPSHOT
-        #2. Deploy to Maven Central with -TIMESTAMP-SHA-dev-SNAPSHOT suffix (sortable by date)
-        run: |
-          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -DskipTests -Dspotless.check.skip=true -B
-          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -DskipTests=true -Dspotless.check.skip=true -B
-        env:
-          # Credentials mapped to environment variables
-          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
-          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
-          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
-
-      - name: Annotate deployed versions
-        run: |
-          VERSION_SNAPSHOT=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -q -DforceStdout)
-          VERSION_SHA=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -q -DforceStdout)
-          echo "::notice title=Maven Artifact Deployed::${VERSION_SNAPSHOT}"
-          echo "::notice title=Maven Artifact Deployed::${VERSION_SHA}"
-        env:
-          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
-          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
-
-  # ------------------------------------------------------------------
   # GATE JOB: CI STATUS
   # Always runs — reports success when build is skipped or all jobs pass.
   # Configure this as the single required status check in branch protection.
@@ -819,7 +769,7 @@ jobs:
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ detect-changes, test-linux, test-windows, test-macos, deploy ]
+    needs: [ detect-changes, test-linux, test-windows, test-macos ]
     if: >-
       failure() &&
       needs.detect-changes.outputs.should_build == 'true' &&
@@ -857,8 +807,8 @@ jobs:
   notify-fixed:
     name: Notify build fixed on Zulip
     # test-macos intentionally excluded during soak: a "fixed" signal should
-    # fire when Linux/Windows/deploy recover even if macOS is still flaky.
-    needs: [ detect-changes, test-linux, test-windows, deploy ]
+    # fire when Linux/Windows recover even if macOS is still flaky.
+    needs: [ detect-changes, test-linux, test-windows ]
     if: >-
       always() &&
       needs.detect-changes.outputs.should_build == 'true' &&

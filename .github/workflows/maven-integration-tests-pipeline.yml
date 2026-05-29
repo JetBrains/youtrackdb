@@ -232,12 +232,12 @@ jobs:
     #
     # Non-blocking during soak period: this job is excluded from the
     # needs: of merge-to-main (so a macOS failure does not block the
-    # develop→main promotion) and from notify-fixed (so "build fixed"
-    # still fires when Linux/Windows/merge recover). notify-failure
-    # still observes macOS so the team sees regressions, and the CI
-    # Fix Agent is auto-dispatched on macOS failures too so the agent
-    # can attempt a fix. Promote to blocking once the leg is proven
-    # stable on develop.
+    # develop→main promotion), deploy (so it does not block artifact
+    # publishing), and notify-fixed (so "build fixed" still fires when
+    # Linux/Windows/merge recover). notify-failure still observes macOS
+    # so the team sees regressions, and the CI Fix Agent is
+    # auto-dispatched on macOS failures too so the agent can attempt a
+    # fix. Promote to blocking once the leg is proven stable on develop.
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -331,9 +331,67 @@ jobs:
           git merge origin/develop --ff-only
           git push origin main
 
+  # ------------------------------------------------------------------
+  # JOB: DEPLOY
+  # Publishes artifacts to Maven Central, gated on the integration
+  # tests passing. Runs on develop pushes and manual dispatch only
+  # (skipped on the nightly schedule). Parallel to merge-to-main; both
+  # depend on test-linux + test-windows. Uses JDK 21.
+  # ------------------------------------------------------------------
+  deploy:
+    name: Deploy Artifacts
+    # test-macos intentionally excluded: non-blocking during soak period.
+    needs: [ test-linux, test-windows ]
+    if: success() && github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          # Always publish develop. A workflow_dispatch run must not be able to
+          # publish an arbitrary branch or tag to Maven Central under the
+          # project's coordinates, so the ref is pinned regardless of trigger.
+          ref: 'develop'
+
+      - name: Set Short SHA and Timestamp
+        id: vars
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +'%Y%m%d.%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK 21 settings
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          overwrite-settings: false
+      - name: Maven deploy
+        #1. Deploy to Maven Central as -dev-SNAPSHOT
+        #2. Deploy to Maven Central with -TIMESTAMP-SHA-dev-SNAPSHOT suffix (sortable by date)
+        run: |
+          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -DskipTests -Dspotless.check.skip=true -B
+          mvn -s .github/workflows/settings.xml clean deploy -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -DskipTests=true -Dspotless.check.skip=true -B
+        env:
+          # Credentials mapped to environment variables
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Annotate deployed versions
+        run: |
+          VERSION_SNAPSHOT=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -q -DforceStdout)
+          VERSION_SHA=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -q -DforceStdout)
+          echo "::notice title=Maven Artifact Deployed::${VERSION_SNAPSHOT}"
+          echo "::notice title=Maven Artifact Deployed::${VERSION_SHA}"
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ test-linux, test-windows, test-macos, merge-to-main ]
+    needs: [ test-linux, test-windows, test-macos, merge-to-main, deploy ]
     if: >-
       always() &&
       github.event_name != 'workflow_dispatch' &&
@@ -341,7 +399,8 @@ jobs:
         needs.test-linux.result == 'failure' ||
         needs.test-windows.result == 'failure' ||
         needs.test-macos.result == 'failure' ||
-        needs.merge-to-main.result == 'failure'
+        needs.merge-to-main.result == 'failure' ||
+        needs.deploy.result == 'failure'
       )
     runs-on: ubuntu-latest
     steps:
@@ -377,7 +436,12 @@ jobs:
     name: Notify build fixed on Zulip
     # test-macos intentionally excluded during soak: a "fixed" signal should
     # fire when Linux/Windows/merge recover even if macOS is still flaky.
-    needs: [ test-linux, test-windows, merge-to-main ]
+    # deploy IS included so a deploy failure suppresses the "fixed" signal —
+    # we must never report "build fixed" while artifact publishing is broken
+    # (a deploy-only failure already triggers notify-failure). deploy is
+    # skipped on the nightly schedule, but a skipped need does not make
+    # success() false, so the fixed signal still fires on scheduled runs.
+    needs: [ test-linux, test-windows, merge-to-main, deploy ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
