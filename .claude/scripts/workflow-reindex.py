@@ -1185,6 +1185,31 @@ def _is_workflow_prompt(logical: str) -> bool:
     return logical.startswith(".claude/workflow/prompts/")
 
 
+# A skill file's logical path is `.claude/skills/<dir>/SKILL.md`. The
+# directory-prefixed cross-file key is `<dir>/SKILL.md` (the ref shape
+# §1.8(e) prescribes — the path relative to the `.claude/skills/` anchor).
+_SKILL_FILE_RE = re.compile(r"^\.claude/skills/(?P<dir>[^/]+)/SKILL\.md$")
+
+
+def _skill_dir_key(logical: str) -> Optional[str]:
+    """Return the `<skill-dir>/SKILL.md` cross-file key for a skill file, else None.
+
+    A skill file lives at `.claude/skills/<dir>/SKILL.md`; its cross-file
+    ref target form is `<dir>/SKILL.md` (the path relative to the
+    `.claude/skills/` anchor, per §1.8(e)). Keying on the logical
+    `.claude/...` path (staged prefix already stripped by the caller) means
+    a staged skill copy and its live namesake collapse onto the same key,
+    so staged precedence applies exactly as it does for workflow docs and
+    prompts. Bare `SKILL.md` is never a valid cross-file target (ambiguous
+    across the skill anchors), so this directory-prefixed key is the only
+    way a SKILL.md ref resolves.
+    """
+    match = _SKILL_FILE_RE.match(logical)
+    if match is None:
+        return None
+    return f"{match.group('dir')}/SKILL.md"
+
+
 def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     """Build a lookup table from cross-file ref `name.md` shapes to parsed files.
 
@@ -1194,9 +1219,13 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     - `conventions.md` → `.claude/workflow/conventions.md`
     - `prompts/technical-review.md` → `.claude/workflow/prompts/technical-review.md`
     - `step-implementation.md` → `.claude/workflow/step-implementation.md`
-    - SKILL.md is never named bare in a cross-file ref (it would be
-      ambiguous across 7 anchors); SKILL.md targets are linked by
-      directory prefix when needed.
+    - `edit-design/SKILL.md` → `.claude/skills/edit-design/SKILL.md`.
+      SKILL.md is never named bare in a cross-file ref (it would be
+      ambiguous across the skill anchors); a SKILL.md target is reached
+      through its `<skill-dir>/SKILL.md` directory-prefixed key (§1.8(e):
+      the path is relative to the `.claude/skills/` anchor). The bare
+      `SKILL.md` key the loop still records (all skill files collide on
+      it) stays first-match-wins and is never a valid cross-file target.
 
     Staged-copy precedence. The reads-precedence rule in `conventions.md`
     §1.7(d) — staged copy authoritative when present, established for the
@@ -1332,6 +1361,14 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
         # matched on the logical path so staged prompt copies also key here.
         if logical.startswith(".claude/workflow/prompts/"):
             _record(f"prompts/{Path(logical).name}", pf, is_bare_key=False)
+        # `<skill-dir>/SKILL.md` key for files under `.claude/skills/`,
+        # matched on the logical path so staged skill copies also key here.
+        # The bare `SKILL.md` key (recorded above) stays first-match-wins;
+        # this directory-prefixed key is the only resolvable SKILL.md target
+        # form (§1.8(e)).
+        skill_key = _skill_dir_key(logical)
+        if skill_key is not None:
+            _record(skill_key, pf, is_bare_key=False)
     return lookup
 
 

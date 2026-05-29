@@ -2230,6 +2230,340 @@ def test_build_file_lookup_bare_workflow_root_override_then_staged_upgrade() -> 
             )
 
 
+# ---------------------------------------------------------------------------
+# build_file_lookup — `<skill-dir>/SKILL.md` directory-prefixed key.
+#
+# A SKILL.md cross-file target is referenced by its `<skill-dir>/SKILL.md`
+# form (the path relative to the `.claude/skills/` anchor, §1.8(e)). The
+# earlier lookup recorded only a bare `SKILL.md` collision key and the
+# `prompts/<name>` key, never the directory-prefixed key, so an
+# `edit-design/SKILL.md` ref resolved to None and failed rule 6 permanently.
+# These tests lock the new key: it resolves end-to-end through rule 6,
+# follows the same live-only / staged-precedence rules as workflow docs and
+# prompts, leaves the bare `SKILL.md` collision and the `prompts/` /
+# bare-workflow-root keys untouched, and halts on a genuine multi-staged
+# duplicate.
+# ---------------------------------------------------------------------------
+
+
+def test_build_file_lookup_skill_dir_key_resolves() -> None:
+    """Each skill file contributes a `<skill-dir>/SKILL.md` key resolving to itself.
+
+    Two distinct skill files (`edit-design`, `create-plan`) each get their
+    own directory-prefixed key. Under the earlier lookup neither key
+    existed, so a SKILL.md cross-file ref resolved to None.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        edit_design = _write_in_scope_file(
+            root, ".claude/skills/edit-design/SKILL.md", _annotated_target_body()
+        )
+        create_plan = _write_in_scope_file(
+            root, ".claude/skills/create-plan/SKILL.md", _annotated_target_body()
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "edit-design/SKILL.md"
+        ].path == edit_design.relative_to(root).as_posix(), (
+            "edit-design/SKILL.md must resolve to the edit-design skill file, got "
+            f"{lookup.get('edit-design/SKILL.md')}"
+        )
+        assert lookup[
+            "create-plan/SKILL.md"
+        ].path == create_plan.relative_to(root).as_posix(), (
+            "create-plan/SKILL.md must resolve to the create-plan skill file, got "
+            f"{lookup.get('create-plan/SKILL.md')}"
+        )
+
+
+def test_rule_6_skill_dir_ref_subset_passes_against_annotation() -> None:
+    """End-to-end: a `<skill-dir>/SKILL.md` ref subset-validates against the skill's annotation.
+
+    Mirrors the real ref `edit-design/SKILL.md:final-designer:4` in
+    `create-final-design.md`: a workflow prompt cites the skill file by its
+    directory-prefixed form, and the citer's `final-designer:4` slice is a
+    subset of the skill file's annotation union. With the directory-prefixed
+    key the ref resolves and rule 6 emits no finding for it.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Skill target: a single §4 section annotated final-designer/4, so a
+        # `final-designer:4` citer is a valid subset.
+        skill_body = textwrap.dedent(
+            """\
+            # Edit Design skill
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §4.1 Apply | final-designer | 4 | Apply an edit. |
+
+            <!--Document index end-->
+
+            ## 4.1 Apply
+            <!-- roles=final-designer phases=4 summary="Apply an edit." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(
+            root, ".claude/skills/edit-design/SKILL.md", skill_body
+        )
+        # Citer: a workflow doc carrying the converted ref in plain prose.
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 4 | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=4 summary="A." -->
+
+            See edit-design/SKILL.md:final-designer:4 for the edit discipline.
+            """
+        )
+        _write_conventions(root)
+        _write_in_scope_file(root, ".claude/workflow/citer.md", citer)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        # No unresolved-target and no subset finding for the skill ref.
+        assert not any(
+            "edit-design/SKILL.md" in f.explanation for f in rule6
+        ), (
+            "edit-design/SKILL.md ref must resolve and subset-pass, got "
+            f"{[f.explanation for f in rule6]}"
+        )
+
+
+def test_rule_6_skill_dir_ref_unresolved_without_target() -> None:
+    """A `<skill-dir>/SKILL.md` ref to an absent skill file is an unresolved-target finding.
+
+    Confirms the key is genuinely required for resolution (not a silent
+    pass): when the target skill file is not in the in-scope set, rule 6
+    reports the ref as unresolved rather than letting it slip through.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        citer = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 4 | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=4 summary="A." -->
+
+            See edit-design/SKILL.md:final-designer:4 for the edit discipline.
+            """
+        )
+        _write_conventions(root)
+        _write_in_scope_file(root, ".claude/workflow/citer.md", citer)
+        findings = MODULE.validate(root)
+        rule6 = [f for f in findings if f.rule == "rule_6"]
+        assert any(
+            "edit-design/SKILL.md" in f.explanation and "not in the in-scope" in f.explanation
+            for f in rule6
+        ), (
+            "an edit-design/SKILL.md ref with no target skill file must be "
+            f"reported as unresolved, got {[f.explanation for f in rule6]}"
+        )
+
+
+def test_build_file_lookup_skill_dir_key_live_only() -> None:
+    """On a branch with no staged skill copy the skill key stays pure-live (forward-safe).
+
+    The develop / non-workflow-modifying-branch case: the live skill file is
+    the only candidate, so the `<skill-dir>/SKILL.md` key resolves to it.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live = _write_in_scope_file(
+            root, ".claude/skills/edit-design/SKILL.md", _annotated_target_body()
+        )
+        parsed = [MODULE.parse_file(live, root)]
+        lookup = MODULE.build_file_lookup(parsed)
+        chosen = lookup.get("edit-design/SKILL.md")
+        assert chosen is not None, "edit-design/SKILL.md key missing from lookup"
+        assert chosen.path == ".claude/skills/edit-design/SKILL.md", (
+            f"expected the live skill copy with no staged subtree, got {chosen.path}"
+        )
+
+
+def test_build_file_lookup_skill_dir_key_prefers_staged() -> None:
+    """A staged skill copy wins the `<skill-dir>/SKILL.md` key over its live namesake.
+
+    Keying on the logical `.claude/...` path collapses a staged skill copy
+    and its live namesake onto one key, so staged precedence (§1.7(d))
+    applies exactly as it does for workflow docs and prompts. A converted
+    SKILL.md ref then validates against the branch's authored (staged)
+    annotation, not the un-annotated develop-state live copy. Asserted
+    order-independent.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live = _write_in_scope_file(
+            root, ".claude/skills/edit-design/SKILL.md", _unannotated_target_body()
+        )
+        staged = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/skills/edit-design/SKILL.md"),
+            _annotated_target_body(),
+        )
+        parsed = [MODULE.parse_file(live, root), MODULE.parse_file(staged, root)]
+        lookup = MODULE.build_file_lookup(parsed)
+        chosen = lookup.get("edit-design/SKILL.md")
+        assert chosen is not None, "edit-design/SKILL.md key missing from lookup"
+        assert chosen.path == staged.relative_to(root).as_posix(), (
+            f"staged skill copy must win the directory-prefixed key, got {chosen.path}"
+        )
+        lookup_rev = MODULE.build_file_lookup([MODULE.parse_file(staged, root), MODULE.parse_file(live, root)])
+        assert lookup_rev["edit-design/SKILL.md"].path == chosen.path, (
+            "staged precedence on the skill key must not depend on parse order"
+        )
+
+
+def test_build_file_lookup_bare_skill_md_not_a_cross_file_target() -> None:
+    """Bare `SKILL.md` stays first-match-wins and is never a valid cross-file target.
+
+    All skill files collide on the bare `SKILL.md` key, which is ambiguous
+    across the anchors, so it must stay first-match-wins (no workflow-root
+    override, no staged-vs-live logic special to it). The directory-prefixed
+    keys remain the only resolvable SKILL.md targets, and a bare `SKILL.md`
+    cross-file ref is rejected by `check_rule_6` as out-of-scope path shape
+    (it never carries a directory prefix). This test pins the lookup half:
+    the bare key resolves to the first skill in glob order and the two
+    directory-prefixed keys coexist with it.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # create-plan sorts before edit-design under the glob, so it seeds
+        # the bare key first-match-wins.
+        _write_in_scope_file(
+            root, ".claude/skills/create-plan/SKILL.md", _annotated_target_body()
+        )
+        _write_in_scope_file(
+            root, ".claude/skills/edit-design/SKILL.md", _annotated_target_body()
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        lookup = MODULE.build_file_lookup(parsed)
+        assert lookup[
+            "SKILL.md"
+        ].path == ".claude/skills/create-plan/SKILL.md", (
+            "bare SKILL.md must stay first-match-wins (create-plan sorts "
+            f"first), got {lookup.get('SKILL.md')}"
+        )
+        # Both directory-prefixed keys exist and resolve to their own files.
+        assert (
+            lookup["create-plan/SKILL.md"].path
+            == ".claude/skills/create-plan/SKILL.md"
+        )
+        assert (
+            lookup["edit-design/SKILL.md"].path
+            == ".claude/skills/edit-design/SKILL.md"
+        )
+
+
+def test_build_file_lookup_skill_key_leaves_prompt_and_root_keys_intact() -> None:
+    """Adding the skill key does not disturb the `prompts/` or bare-workflow-root keys.
+
+    A regression guard that the directory-prefixed skill key is orthogonal
+    to the `prompts/<name>` key and the bare-workflow-root override: a
+    fixture carrying a skill file, a prompt, and a colliding workflow-root /
+    `prompts/` pair must still resolve every prior key as before.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_in_scope_file(
+            root, ".claude/skills/edit-design/SKILL.md", _annotated_target_body()
+        )
+        _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/technical-review.md",
+            _annotated_target_body(),
+        )
+        _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/structural-review.md",
+            _annotated_target_body(),
+        )
+        _write_in_scope_file(
+            root, ".claude/workflow/structural-review.md", _annotated_target_body()
+        )
+        parsed = MODULE.parse_in_scope_files(root)
+        lookup = MODULE.build_file_lookup(parsed)
+        # Directory-prefixed skill key.
+        assert (
+            lookup["edit-design/SKILL.md"].path
+            == ".claude/skills/edit-design/SKILL.md"
+        )
+        # prompts/<name> key — unaffected.
+        assert (
+            lookup["prompts/technical-review.md"].path
+            == ".claude/workflow/prompts/technical-review.md"
+        )
+        # Bare-basename workflow-root override — unaffected: the bare
+        # structural-review.md key still resolves to the workflow-root doc.
+        assert (
+            lookup["structural-review.md"].path
+            == ".claude/workflow/structural-review.md"
+        )
+        assert (
+            lookup["prompts/structural-review.md"].path
+            == ".claude/workflow/prompts/structural-review.md"
+        )
+
+
+def test_build_file_lookup_multiple_staged_skill_copies_halts() -> None:
+    """Two staged copies of one skill file halt with exit 2 (ambiguity guard preserved).
+
+    The `<skill-dir>/SKILL.md` key reuses the same `_record` path as the
+    workflow-doc and prompt keys, so the multi-staged ambiguity guard fires
+    for it too: two plan dirs each staging `edit-design/SKILL.md` is a
+    genuine one-target-two-plan-dirs duplicate and must raise
+    `AmbiguousBootstrapProbeError` rather than silently pick one. Pins that
+    the new key did not bypass the guard.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        staged_a = _write_in_scope_file(
+            root,
+            _staged_rel("plan-a", ".claude/skills/edit-design/SKILL.md"),
+            _annotated_target_body(),
+        )
+        staged_b = _write_in_scope_file(
+            root,
+            _staged_rel("plan-b", ".claude/skills/edit-design/SKILL.md"),
+            _annotated_target_body(),
+        )
+        parsed = [
+            MODULE.parse_file(staged_a, root),
+            MODULE.parse_file(staged_b, root),
+        ]
+        raised = False
+        try:
+            MODULE.build_file_lookup(parsed)
+        except MODULE.AmbiguousBootstrapProbeError:
+            raised = True
+        assert raised, (
+            "two staged copies of one skill file must raise "
+            "AmbiguousBootstrapProbeError"
+        )
+
+
 def test_cli_check_exit_2_on_multiple_staged_copies() -> None:
     """The `--check` CLI converts the multi-staged ambiguity raise to exit 2.
 
@@ -4286,6 +4620,38 @@ def main() -> int:
         (
             "build_file_lookup bare workflow-root override then staged upgrade",
             test_build_file_lookup_bare_workflow_root_override_then_staged_upgrade,
+        ),
+        (
+            "build_file_lookup skill-dir key resolves",
+            test_build_file_lookup_skill_dir_key_resolves,
+        ),
+        (
+            "rule_6 skill-dir ref subset passes against annotation",
+            test_rule_6_skill_dir_ref_subset_passes_against_annotation,
+        ),
+        (
+            "rule_6 skill-dir ref unresolved without target",
+            test_rule_6_skill_dir_ref_unresolved_without_target,
+        ),
+        (
+            "build_file_lookup skill-dir key live-only",
+            test_build_file_lookup_skill_dir_key_live_only,
+        ),
+        (
+            "build_file_lookup skill-dir key prefers staged",
+            test_build_file_lookup_skill_dir_key_prefers_staged,
+        ),
+        (
+            "build_file_lookup bare SKILL.md not a cross-file target",
+            test_build_file_lookup_bare_skill_md_not_a_cross_file_target,
+        ),
+        (
+            "build_file_lookup skill key leaves prompt and root keys intact",
+            test_build_file_lookup_skill_key_leaves_prompt_and_root_keys_intact,
+        ),
+        (
+            "build_file_lookup multiple staged skill copies halts",
+            test_build_file_lookup_multiple_staged_skill_copies_halts,
         ),
         (
             "CLI --check exit 2 on multiple staged copies",
