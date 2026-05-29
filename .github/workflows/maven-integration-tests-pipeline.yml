@@ -31,6 +31,10 @@ jobs:
     # Define outputs so the next job can read them
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
+      # Range boundaries for the YouTrack fixed-notifier: the SHA this run
+      # tested/deployed, and the SHA of the previous successful deploy.
+      current_sha: ${{ steps.check.outputs.current_sha }}
+      last_success_sha: ${{ steps.check.outputs.last_success_sha }}
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -65,6 +69,11 @@ jobs:
 
           echo "Current SHA: $CURRENT_SHA"
           echo "Last Success SHA: $LAST_SUCCESS_SHA"
+
+          # Expose both SHAs so the post-deploy update-youtrack job can
+          # diff the commit range "since the last successful deploy".
+          echo "current_sha=$CURRENT_SHA" >> $GITHUB_OUTPUT
+          echo "last_success_sha=$LAST_SUCCESS_SHA" >> $GITHUB_OUTPUT
 
           # 4. Compare
           if [ "$CURRENT_SHA" == "$LAST_SUCCESS_SHA" ]; then
@@ -352,6 +361,10 @@ jobs:
     needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    # The timestamped coordinate is the uniquely addressable artifact just
+    # published; update-youtrack quotes it in the "Fixed in <version>" comment.
+    outputs:
+      version: ${{ steps.deployed.outputs.version }}
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -388,14 +401,77 @@ jobs:
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
       - name: Annotate deployed versions
+        id: deployed
         run: |
           VERSION_SNAPSHOT=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -q -DforceStdout)
           VERSION_SHA=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dchangelist=-dev-SNAPSHOT -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -q -DforceStdout)
           echo "::notice title=Maven Artifact Deployed::${VERSION_SNAPSHOT}"
           echo "::notice title=Maven Artifact Deployed::${VERSION_SHA}"
+          # Hand the timestamped coordinate to the update-youtrack job.
+          echo "version=${VERSION_SHA}" >> "$GITHUB_OUTPUT"
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+  # ------------------------------------------------------------------
+  # JOB: UPDATE-YOUTRACK
+  # After a successful deploy, walk the commits "since the last
+  # successful deploy" and, for every YTDB issue referenced in a commit
+  # title, post a "Fixed in <version>" comment and move the issue to the
+  # Fixed state. Issues already in a resolved state are skipped, so a
+  # Verified/Closed issue is never re-opened and re-runs are idempotent.
+  #
+  # Push-only: a manual workflow_dispatch deploys an artifact but must not
+  # mutate the issue tracker (it may target an arbitrary develop commit,
+  # and the range math assumes the linear push history). Skipped entirely
+  # on the first run / when no prior successful deploy exists, and when
+  # the current commit equals the last successful one.
+  #
+  # A failure here does NOT fire the build-failure siren and does NOT
+  # dispatch the CI Fix Agent (a sync failure is operational — token /
+  # API / rejected transition — not a code or test bug the agent can
+  # fix), nor does it suppress the "build fixed" signal. Instead the
+  # dedicated notify-youtrack-failure job below pages 'ci status' at low
+  # severity, and the job's own red status shows in the Actions UI.
+  # ------------------------------------------------------------------
+  update-youtrack:
+    name: Mark fixed issues in YouTrack
+    needs: [ check-changes, deploy ]
+    if: >-
+      success() &&
+      github.event_name == 'push' &&
+      needs.check-changes.outputs.last_success_sha != '' &&
+      needs.check-changes.outputs.last_success_sha != needs.check-changes.outputs.current_sha
+    runs-on: ubuntu-latest
+    # Least privilege: the only write target is YouTrack (via YOUTRACK_TOKEN).
+    # checkout needs read access to clone the range; nothing here uses the
+    # GITHUB_TOKEN write scopes granted at the workflow level.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          # Pin to the exact commit this run deployed so the range end
+          # matches the published artifact, and fetch full history so the
+          # last-success SHA is reachable for the git-log diff.
+          ref: ${{ needs.check-changes.outputs.current_sha }}
+          fetch-depth: 0
+
+      - name: Mark fixed issues in YouTrack
+        env:
+          YOUTRACK_TOKEN: ${{ secrets.YOUTRACK_TOKEN }}
+          # Pass run inputs through env rather than interpolating ${{ }} into the
+          # run: shell, so a value can never be expanded as shell syntax (the
+          # GitHub-recommended pattern for untrusted-or-derived expansions).
+          FROM_SHA: ${{ needs.check-changes.outputs.last_success_sha }}
+          TO_SHA: ${{ needs.check-changes.outputs.current_sha }}
+          DEPLOYED_VERSION: ${{ needs.deploy.outputs.version }}
+        run: |
+          python3 .github/scripts/youtrack-fixed-notifier.py \
+            --from-sha "$FROM_SHA" \
+            --to-sha "$TO_SHA" \
+            --version "$DEPLOYED_VERSION"
 
   notify-failure:
     name: Notify build failure on Zulip
@@ -439,6 +515,35 @@ jobs:
             Integration tests or merge failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
             :robot: Automated fix agent has been dispatched and is investigating...
+
+  notify-youtrack-failure:
+    name: Notify YouTrack sync failure on Zulip
+    needs: [ update-youtrack ]
+    # The deploy itself succeeded; only the post-deploy YouTrack issue
+    # sync (comment + State transition) failed. This is operational —
+    # token expired or under-scoped, YouTrack API down, or a State
+    # transition rejected — not a code/test regression, so we page at low
+    # severity (:warning:) and never dispatch the CI Fix Agent. always()
+    # is required so this job still runs after its dependency failed;
+    # update-youtrack only runs on push, so its result is 'failure' only
+    # in that context (it is 'skipped' on dispatch / schedule).
+    if: always() && needs.update-youtrack.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip/send-message@v2
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **YOUTRACK SYNC FAILED** :warning:
+            Deploy succeeded, but marking fixed issues in YouTrack failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} (repo ${{ github.repository }}). Likely a token/permissions issue, a YouTrack API outage, or a rejected State transition — the build and published artifact are fine and no code fix is needed. Re-running the workflow retries the commit range; already-resolved issues are skipped, so successfully-updated issues are not touched twice.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
   notify-fixed:
     name: Notify build fixed on Zulip
