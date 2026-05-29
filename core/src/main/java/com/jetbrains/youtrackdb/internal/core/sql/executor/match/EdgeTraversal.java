@@ -163,6 +163,34 @@ public class EdgeTraversal {
   static final long MIN_FOR_CLT = 30L;
 
   /**
+   * Safety multiplier applied to the cost-model break-even {@code m} on the
+   * CLT-fail path ({@code rootSourceRows ∈ [0, MIN_FOR_CLT)}). When the
+   * root-lineage sample size is too small to invoke the Central Limit
+   * Theorem, the histogram-based inputs that feed {@code m} (selectivity,
+   * estimated index hits, fan-out propagation) are themselves noisy: a
+   * single high-degree starting vertex can land the per-vertex link-bag
+   * above {@code m} on the first observation and immediately trip the
+   * build for queries where the build never amortises (LDBC IC2 is the
+   * canonical example — first friend's {@code in_HAS_CREATOR} link bag
+   * dwarfs {@code m}, the build fires, and the remaining work is too
+   * short to recover the cost). Inflating the trigger by this factor
+   * forces the accumulator to observe many vertices before committing,
+   * which gives the build a fair chance to amortise across actual usage.
+   *
+   * <p>Why a constant rather than a function of {@code rootSourceRows}:
+   * the trustworthy successor is a deviation-based estimator — scale
+   * {@code m} by {@code 1 + k·CoV} where {@code CoV = σ/μ} is the
+   * coefficient of variation of the per-vertex link-bag distribution for
+   * the source class. With that statistic in hand, the multiplier becomes
+   * adaptive: tight distributions (low {@code CoV}) collapse it toward 1,
+   * heavy-tailed ones (high {@code CoV}) inflate it. Until per-class
+   * link-bag variance is collected we use {@code 15}, calibrated
+   * empirically on LDBC SF1 to undo the IC2 regression while preserving
+   * the IC3/IC4/IC9 prefilter gains.
+   */
+  static final double CLT_FAIL_M_SAFETY_MULTIPLIER = 15.0;
+
+  /**
    * Whether the owning query is in PROFILE mode. Controls whether the
    * one-shot {@link System#nanoTime()} pair around {@code desc.resolve()}
    * in {@link #materializeAndCache} fires. Cost when off: zero (the pair
@@ -1151,10 +1179,14 @@ public class EdgeTraversal {
     // DEFERRED_WITH_NET: accumulate and check the trigger.
     //
     // CLT-fail (rootSourceRows >= 0 && rootSourceRows < MIN_FOR_CLT):
-    // experimental rollback to 0dd39b3 — T = m, pure class-level cost
-    // model, no `2·forecastN` floor. The forecast cannot be trusted at
-    // that sample size, so adding it to the trigger only inflates the
-    // accumulator threshold without statistical justification.
+    // T = m · CLT_FAIL_M_SAFETY_MULTIPLIER. The histogram-based inputs
+    // feeding m are noisy at small root-lineage sample sizes, so we
+    // inflate the trigger to force the accumulator to observe many
+    // vertices before committing to the build. Without this inflation a
+    // single high-degree starting vertex can trip the build on the first
+    // observation for queries where it never amortises (the LDBC IC2
+    // regression). See javadoc on CLT_FAIL_M_SAFETY_MULTIPLIER for the
+    // deviation-based successor that should replace this constant.
     //
     // CLT-pass (rootSourceRows >= MIN_FOR_CLT) and forecast-absent
     // (rootSourceRows == -1): historic belt-and-braces trigger
@@ -1164,7 +1196,7 @@ public class EdgeTraversal {
     boolean cltFail = rootSourceRows >= 0 && rootSourceRows < MIN_FOR_CLT;
     double trigger;
     if (cltFail) {
-      trigger = m;
+      trigger = m * CLT_FAIL_M_SAFETY_MULTIPLIER;
     } else {
       long f = forecastN < 0 ? 0L : forecastN;
       trigger = Math.max(2.0 * f, m);
