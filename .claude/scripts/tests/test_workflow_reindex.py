@@ -2156,6 +2156,80 @@ def test_build_file_lookup_staged_root_wins_bare_over_staged_prompt_any_order() 
             )
 
 
+def test_build_file_lookup_bare_workflow_root_override_then_staged_upgrade() -> None:
+    """The bare-key winner survives a staged upgrade after the workflow-root override.
+
+    Compositional regression lock for the two distinct bare-key transitions
+    chained on one logical target. On a workflow-modifying branch the
+    in-scope set can carry all three of: a live workflow-root copy, a live
+    `prompts/` namesake, and a staged copy of that same workflow-root doc.
+
+    Two separate branches in `build_file_lookup` must fire in sequence for
+    the bare key:
+
+    1. The §1.8(e) basename-collision override displaces the recorded
+       prompt with the workflow-root doc (the prompt loses the bare key but
+       keeps its `prompts/<name>` key).
+    2. The §1.7(d) staged-precedence branch then upgrades the bare key from
+       the live workflow-root copy to the STAGED copy of that same logical
+       target — but only because step 1 recorded the workflow-root doc's
+       logical path as the winner. The staged-precedence branch fires on
+       "same logical target as the recorded winner"; if a future refactor
+       dropped or mis-set the winner bookkeeping the override writes when it
+       displaces the prompt, the staged upgrade would silently fail to fire
+       and the bare key would resolve to the un-annotated live copy with no
+       other test catching it.
+
+    The `prompts/` key must stay on the live prompt throughout (no staged
+    prompt copy exists here). The fixture lists the live prompt first to
+    mirror the discovery glob sort order (the `prompts/` segment sorts
+    before the bare basename), and the assertion is repeated with the
+    workflow-root copies reversed to pin order-independence.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live_root = _write_in_scope_file(
+            root, ".claude/workflow/structural-review.md", _unannotated_target_body()
+        )
+        live_prompt = _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/structural-review.md",
+            _annotated_target_body(),
+        )
+        staged_root = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/structural-review.md"),
+            _annotated_target_body(),
+        )
+        live_root_pf = MODULE.parse_file(live_root, root)
+        live_prompt_pf = MODULE.parse_file(live_prompt, root)
+        staged_root_pf = MODULE.parse_file(staged_root, root)
+        # Glob order is prompt-first, then live-before-staged for the root
+        # copies; the reversed-root variant pins that the chained override +
+        # staged upgrade do not depend on which root copy parses first.
+        for order in (
+            [live_prompt_pf, live_root_pf, staged_root_pf],
+            [live_prompt_pf, staged_root_pf, live_root_pf],
+        ):
+            lookup = MODULE.build_file_lookup(order)
+            assert lookup[
+                "structural-review.md"
+            ].path == staged_root.relative_to(root).as_posix(), (
+                "bare structural-review.md must resolve to the STAGED "
+                "workflow-root copy: the workflow-root override claims the "
+                "bare key from the prompt, then staged precedence upgrades it "
+                f"from the live root to the staged root, got "
+                f"{lookup['structural-review.md'].path}"
+            )
+            assert lookup[
+                "prompts/structural-review.md"
+            ].path == live_prompt.relative_to(root).as_posix(), (
+                "prompts/structural-review.md must resolve to the live prompt "
+                "(no staged prompt copy exists in this fixture), got "
+                f"{lookup['prompts/structural-review.md'].path}"
+            )
+
+
 def test_cli_check_exit_2_on_multiple_staged_copies() -> None:
     """The `--check` CLI converts the multi-staged ambiguity raise to exit 2.
 
@@ -4208,6 +4282,10 @@ def main() -> int:
         (
             "build_file_lookup staged root wins bare over staged prompt any order",
             test_build_file_lookup_staged_root_wins_bare_over_staged_prompt_any_order,
+        ),
+        (
+            "build_file_lookup bare workflow-root override then staged upgrade",
+            test_build_file_lookup_bare_workflow_root_override_then_staged_upgrade,
         ),
         (
             "CLI --check exit 2 on multiple staged copies",
