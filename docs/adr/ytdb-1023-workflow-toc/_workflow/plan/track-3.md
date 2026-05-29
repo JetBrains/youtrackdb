@@ -11,7 +11,7 @@ Build `.claude/scripts/measure-read-share.py` — worktree-scoped, lifetime wind
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
