@@ -586,25 +586,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
         // Link bag too small for pre-filter to be worthwhile.
         edge.recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
       } else {
-        // Variant B (in-list calibration): when the CLT confidence gate
-        // fails, sample the actual per-bag selectivity from the first
-        // vertex's link bag. The sampled value feeds back into the m
-        // formula inside checkIndexLookupAmortization so the DEFERRED
-        // trigger uses real per-query cost-balance instead of class-level
-        // averages.
-        var idx = edge.getIntersectionDescriptor();
-        var indexLookup = idx instanceof RidFilterDescriptor.IndexLookup il
-            ? il
-            : (idx instanceof RidFilterDescriptor.Composite c
-                ? c.findIndexLookup() : null);
-        if (indexLookup != null && !edge.isInListSampled()
-            && edge.getRootSourceRows() >= 0
-            && edge.getRootSourceRows() < EdgeTraversal.MIN_FOR_CLT) {
-          double sample = TraversalPreFilterHelper.sampleInListSelectivity(
-              pfli, indexLookup.indexDescriptor(), ctx,
-              EdgeTraversal.IN_LIST_SAMPLE_SIZE);
-          edge.setInListSelectivity(sample);
-        }
+        // EXPERIMENTAL rollback: Variant B in-list sample disabled —
+        // checkIndexLookupAmortization now uses class-level selectivity
+        // unconditionally and falls back to 0dd39b3 DEFER semantics on
+        // the CLT-fail path.
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
         // ridSet == null → skip reason already set by resolveWithCache().
         // IndexLookup selectivity is class-level (constant per query) — if

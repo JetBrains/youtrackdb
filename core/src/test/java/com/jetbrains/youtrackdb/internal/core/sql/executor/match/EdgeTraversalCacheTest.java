@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.List;
 import org.assertj.core.data.Offset;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -2094,6 +2095,9 @@ public class EdgeTraversalCacheTest {
    * sampled in-list selectivity is injected at 0.99 to model an LDBC
    * IC2-shaped adjacency-list bias.
    */
+  @Ignore("EXPERIMENTAL: CLT-fail rollback to 0dd39b3 behavior disables the"
+      + " Variant B in-list calibration branch. Re-enable when Variant B"
+      + " is reintroduced.")
   @Test
   public void resolveWithCache_inListSelectivityTooLow_recordsCounter() {
     var et = createEdgeTraversal();

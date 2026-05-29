@@ -1102,51 +1102,20 @@ public class EdgeTraversal {
       return AmortizationDecision.REJECT;
     }
 
-    // Compute the break-even m for both the mode decision and the
+    // Compute the break-even m for the mode decision and the
     // DEFERRED_WITH_NET trigger. Cheap — depends on estimatedSize and the
-    // cached selectivity.
+    // cached class-level selectivity.
     //
-    // Variant B (in-list calibration): when the CLT confidence gate fails
-    // (rootSourceRows < MIN_FOR_CLT) and a per-edge sample was taken
-    // upstream (MatchEdgeTraverser.applyPreFilter), use the measured
-    // in-list selectivity in place of the class-level value. The class-level
-    // figure averages across the whole class and is misleading when
-    // adjacency lists are biased subsets (LDBC IC2: friends' link bags are
-    // recent-biased — in-list ~70% vs class-level ~1%). Calibrating m
-    // against the actual per-bag mix produces a break-even that matches
-    // runtime cost-balance.
+    // EXPERIMENTAL rollback: Variant B (in-list calibration) and Variant
+    // B+ (BUILD_PER_ENTRY_MULTIPLIER) are disabled. On the CLT-fail path
+    // we restore the 0dd39b3 (16 Apr 2026) behavior — pure class-level
+    // cost model + DEFER accumulator with trigger T = m, no in-list
+    // sample. That branch state did not regress IC2; the calibration
+    // layers added on top did. CLT-pass keeps the historic
+    // T = max(2·forecastN, m) belt-and-braces.
     double loadToScanRatio = currentLoadToScanRatio();
-    boolean useCalibratedM = rootSourceRows >= 0 && rootSourceRows < MIN_FOR_CLT
-        && !Double.isNaN(inListSelectivity) && inListSelectivity >= 0;
-    double effectiveSelectivity = useCalibratedM
-        ? inListSelectivity : indexLookupSelectivity;
-    // Variant B safety: class-level selectivity already passed the REJECT
-    // gate above, but the empirical sample can still come back above the
-    // threshold when adjacency lists are heavily biased subsets of the
-    // class (e.g. LDBC IC2 friend-of recent-message bias). Reject early
-    // with a dedicated skip reason instead of letting m collapse to
-    // MAX_VALUE and silently masquerading as BUILD_NOT_AMORTIZED for the
-    // remainder of the execution. Not cached: the sample is per-execution
-    // empirical data, not a class-level invariant, so a fresh execution
-    // is free to re-evaluate.
-    if (useCalibratedM
-        && inListSelectivity
-            > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
-      recordPreFilterSkip(PreFilterSkipReason.IN_LIST_SELECTIVITY_TOO_LOW);
-      return AmortizationDecision.REJECT;
-    }
     double m = computeMinNeighborsForBuild(
-        estimatedSize, loadToScanRatio, effectiveSelectivity);
-    if (useCalibratedM) {
-      // Variant B+ (B-fix): correct the implicit B = estimatedSize ×
-      // scan_cost underestimation. Real build_per_entry is roughly
-      // 50-100× the bitmap-probe cost (B-tree descent + key
-      // deserialization + bitmap insertion). Apply only on the
-      // calibrated path so CLT-pass behavior stays at the historical
-      // formula — the cost-model has been tuned for that regime over
-      // multiple LDBC benchmark cycles.
-      m *= BUILD_PER_ENTRY_MULTIPLIER;
-    }
+        estimatedSize, loadToScanRatio, indexLookupSelectivity);
 
     // Decide mode on first call. BUILD_EAGER requires both:
     //   1. rootSourceRows >= MIN_FOR_CLT — CLT confidence in forecastN
@@ -1179,17 +1148,22 @@ public class EdgeTraversal {
       return AmortizationDecision.PROCEED;
     }
 
-    // DEFERRED_WITH_NET: accumulate and check the adaptive safety-net
-    // trigger.
+    // DEFERRED_WITH_NET: accumulate and check the trigger.
     //
-    // When the in-list sample calibrated m above (Variant B), the trigger
-    // collapses to T = m — the cost-model break-even is now trustworthy
-    // per-query, so the `2·forecastN` belt-and-braces floor is dropped.
-    // Otherwise the historic trigger T = max(2·forecastN, m) keeps the
-    // safety net for cases where neither forecast nor m can be trusted.
+    // CLT-fail (rootSourceRows >= 0 && rootSourceRows < MIN_FOR_CLT):
+    // experimental rollback to 0dd39b3 — T = m, pure class-level cost
+    // model, no `2·forecastN` floor. The forecast cannot be trusted at
+    // that sample size, so adding it to the trigger only inflates the
+    // accumulator threshold without statistical justification.
+    //
+    // CLT-pass (rootSourceRows >= MIN_FOR_CLT) and forecast-absent
+    // (rootSourceRows == -1): historic belt-and-braces trigger
+    // T = max(2·forecastN, m) — the floor handles cases where m is small
+    // but the forecast says many vertices will be visited.
     accumulatedLinkBagTotal += linkBagSize;
+    boolean cltFail = rootSourceRows >= 0 && rootSourceRows < MIN_FOR_CLT;
     double trigger;
-    if (useCalibratedM) {
+    if (cltFail) {
       trigger = m;
     } else {
       long f = forecastN < 0 ? 0L : forecastN;
