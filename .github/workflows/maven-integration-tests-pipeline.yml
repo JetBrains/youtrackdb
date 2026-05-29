@@ -348,7 +348,10 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
+          # Always publish develop. A workflow_dispatch run must not be able to
+          # publish an arbitrary branch or tag to Maven Central under the
+          # project's coordinates, so the ref is pinned regardless of trigger.
+          ref: 'develop'
 
       - name: Set Short SHA and Timestamp
         id: vars
@@ -433,10 +436,12 @@ jobs:
     name: Notify build fixed on Zulip
     # test-macos intentionally excluded during soak: a "fixed" signal should
     # fire when Linux/Windows/merge recover even if macOS is still flaky.
-    # deploy intentionally excluded: it is skipped on the nightly schedule
-    # (deploy runs on push/dispatch only), and a skipped need under the
-    # success() gate would suppress the fixed signal on scheduled runs.
-    needs: [ test-linux, test-windows, merge-to-main ]
+    # deploy IS included so a deploy failure suppresses the "fixed" signal —
+    # we must never report "build fixed" while artifact publishing is broken
+    # (a deploy-only failure already triggers notify-failure). deploy is
+    # skipped on the nightly schedule, but a skipped need does not make
+    # success() false, so the fixed signal still fires on scheduled runs.
+    needs: [ test-linux, test-windows, merge-to-main, deploy ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
