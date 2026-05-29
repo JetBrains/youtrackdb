@@ -12,13 +12,14 @@ Build `.claude/scripts/measure-read-share.py` — worktree-scoped, lifetime wind
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-05-28T17:39Z [ctx=info] Review + decomposition complete
 - [x] 2026-05-29T02:54Z [ctx=safe] Step 1 complete (commit 5cfd07ef)
 - [x] 2026-05-29T03:00Z [ctx=info] Step 2 complete (commit ac0fac3f)
 - [x] 2026-05-29T03:15Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-05-29T03:15Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -51,6 +52,9 @@ summary at Phase C. -->
 - A9 — design.md §"Standing infrastructure properties" claims "every future ADR carries it"; the historical record shows only ~28% of ADRs reference token-economic concepts. The rationale survives in spirit (the telemetry doubles as an audit trail of session shape) but the framing in §"Standing infrastructure properties" overcommits.
 - A13 — D4's "open-source repo, privacy posture" framing does not survive scrutiny (YTDB-1023 itself publishes absolute token counts on public YouTrack). The real cost of absolute counts is non-comparability across worktrees, not privacy. Re-cast D4's rationale at Phase 4.
 - A15 — `char-count / 4` diverges from API-reported `usage.input_tokens` by ~10-20%. Either document the divergence in the rendered footer, or adopt the API-reported method `session-stats.py` already implements. Cite as methodology note in design-final.md.
+
+- [x] Track-level code review iteration 1 complete (1/3): workflow-only diff, so the baseline group was skipped and six `review-workflow-*` agents ran against the cumulative track diff. 18 raw findings synthesised to 7 in-scope + 6 deferred. The implementer's `Review fix:` commit `d00cd91f25` applied all 7; gate-check re-ran the three dimensions with fixes (hook-safety, prompt-design, instruction-completeness) — all VERIFIED, zero regressions, zero new findings. PASS at iteration 1.
+- Track complete: one review-fix commit, no failed iterations. In-scope fixes: the telemetry script's top-files normalisation now resolves `repo_root` so symlinked worktrees render repo-relative rows (the headline correctness fix, plus a regression test that fails without it), a per-file index-scope docstring correction, the executable bit, and four refinements to the staged Phase 4 prompt (heading-duplication trap, shell-level fail-open, exhaustive skip-cause list, resume idempotency). Deferred: the rule_4 fenced-`adr.md`-template-heading question routes to Track 4 (final-artifact template headings are out of scope for annotations per `conventions.md §1.6(f)`); two design.md framing gaps (the 2-vs-4 skip-notice template under-count and a stale "configurable per prompt" placement line) route to Phase 4 `design-final.md`; three house-style nits in this file's own immutable episode prose are left as-is per the episode-immutability rule.
 
 ## Context and Orientation
 
