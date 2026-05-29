@@ -240,6 +240,54 @@ def test_resolve_transcript_dir_symlinked_cwd_resolve_then_fallback() -> None:
         assert "Skipped" not in out, "resolve() should have found the folder via the symlink target"
 
 
+def test_symlinked_cwd_top_files_row_is_repo_relative() -> None:
+    """Symlinked worktree root: the top-files row must be repo-relative, not <outside-worktree>.
+
+    Reproduces the repo_root-resolution bug directly. The cwd handed to
+    build_output is the SYMLINK; the transcript records a Read whose
+    file_path is the RESOLVED absolute path (which is how the harness
+    stores file_path values). When render_section uses the unresolved
+    symlink cwd as repo_root, normalise_path's relative_to raises and every
+    Read row degrades to <outside-worktree>. With repo_root resolved to the
+    symlink target, the row renders as the repo-relative path. The fixture
+    is built so the row would be useless (<outside-worktree>) without the
+    fix: the symlink target differs textually from the symlink path.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        real = tmp_root / "real-worktree"
+        real.mkdir()
+        (real / ".git").write_text("gitdir: x\n")
+        link = tmp_root / "link-worktree"
+        try:
+            link.symlink_to(real, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return  # symlinks unsupported on this host; skip silently
+        # Guard: only meaningful if the resolved path differs from the
+        # symlink path textually (otherwise the bug cannot manifest).
+        if str(real.resolve()) == str(link):
+            return
+        projects = tmp_root / "projects"
+        tdir = projects / MODULE.encode_cwd(real.resolve())
+        # file_path is the RESOLVED absolute path under the symlink target,
+        # matching how transcripts store Read targets.
+        resolved_file = str((real / "deep" / "doc.md").resolve())
+        write_jsonl(
+            tdir / "session.jsonl",
+            [_assistant_tool_use("u1", "t1", "Read", resolved_file),
+             _user_tool_result("u2", "t1", "x" * 80)],
+        )
+        out = MODULE.build_output(link, top_n=10, projects_root=projects)
+        assert "## Token usage telemetry" in out
+        assert "<outside-worktree>" not in out, (
+            "repo_root must be resolved so the resolved-absolute Read path "
+            "maps to a repo-relative row, not <outside-worktree>"
+        )
+        assert "deep/doc.md" in out, (
+            "the Read file should render as its repo-relative path"
+        )
+
+
 def test_resolve_transcript_dir_raw_fallback() -> None:
     """When only the raw-cwd-named folder exists, the fallback finds it."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -625,6 +673,7 @@ def main() -> int:
         ("skip notices are distinct", test_skip_notices_are_distinct),
         ("empty transcript folder -> no-transcripts skip", test_resolve_transcript_dir_empty_folder_no_transcripts),
         ("symlinked cwd resolve-then-fallback", test_resolve_transcript_dir_symlinked_cwd_resolve_then_fallback),
+        ("symlinked cwd top-files row is repo-relative", test_symlinked_cwd_top_files_row_is_repo_relative),
         ("raw-cwd fallback resolution", test_resolve_transcript_dir_raw_fallback),
         ("recursive walk includes subagents", test_recursive_walk_includes_subagents),
         ("tool_use -> tool_result lookup out of order", test_tool_use_result_lookup_out_of_order),

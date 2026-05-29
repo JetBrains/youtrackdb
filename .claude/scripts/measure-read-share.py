@@ -255,7 +255,10 @@ def tally_file(
 
     A first pass over the file builds the ``tool_use_id`` index so that
     out-of-order lines (a ``tool_result`` appearing before its
-    ``tool_use`` in file order, or in a different file) still resolve.
+    ``tool_use`` in file order) still resolve. The index is rebuilt per
+    file, so a cross-file ``tool_result`` (one whose ``tool_use`` lives in
+    a different transcript) does not resolve and folds into the OTHER
+    bucket; in practice tool_use/tool_result pairs always stay in one file.
     Raises TranscriptParseError on a malformed JSON line so the caller can
     emit the atomic-render skip notice.
     """
@@ -542,7 +545,12 @@ def build_output(cwd: Path, top_n: int, projects_root: Path = PROJECTS_ROOT) -> 
         read_files=read_files,
         session_count=session_count,
         file_count=file_count,
-        repo_root=cwd,
+        # Resolve the root so it matches the resolved absolute file_path
+        # values stored in transcripts. resolve_transcript_dir already
+        # canonicalises via cwd.resolve(); aligning the two here keeps
+        # normalise_path from tagging every Read <outside-worktree> on a
+        # symlinked worktree root.
+        repo_root=cwd.resolve(),
         encoded_dir_name=transcript_dir.name,
         top_n=top_n,
     )

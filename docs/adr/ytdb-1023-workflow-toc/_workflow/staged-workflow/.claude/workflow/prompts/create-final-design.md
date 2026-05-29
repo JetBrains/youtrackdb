@@ -250,10 +250,13 @@ episodes are the primary source (ground truth); track episodes provide
 strategic framing. Include discoveries that would affect future work in
 the same area, even if they seem minor at the step level.>
 
-## Token usage telemetry
-<Pasted verbatim from the script output produced by the invocation below.
-Always present, even on the skip paths — the script emits the same H2 with
-an explanatory body when it cannot measure. Do not hand-write this section.>
+<!-- Telemetry section placeholder. The ENTIRE section — the
+`## Token usage telemetry` heading AND its body — is the verbatim stdout of
+`measure-read-share.py`, pasted by the invocation block below. Do NOT write
+the heading by hand and do NOT reproduce this placeholder as a literal
+heading: the script's first output line is the heading. Always present, even
+on the skip paths — the script emits the same H2 with an explanatory body
+when it cannot measure. See the invocation block below. -->
 ```
 
 Rules:
@@ -276,14 +279,33 @@ python3 .claude/scripts/measure-read-share.py
 
 Capture the script's stdout and append it unchanged as the last section of
 `adr.md`. The script prints a complete `## Token usage telemetry` H2 with
-its body — do not re-add the heading or edit the rows. The output is
-publication-safe by construction (percentages-only, repo-relative paths;
-the only absolute numbers are the session and transcript counts). Always
-paste whatever the script prints: when the script cannot measure (run from
-the main checkout rather than a worktree, or an empty transcript folder) it
-emits the SAME `## Token usage telemetry` H2 with an explanatory skip body
-and exits 0. The prompt therefore does NOT branch on the script's exit code
-— there is exactly one path: run it, paste the output.
+its body, so its stdout IS the whole section: do not write the heading by
+hand and do not edit the rows. The output is publication-safe by
+construction (percentages-only, repo-relative paths; the only absolute
+numbers are the session and transcript counts). Always paste whatever the
+script prints: when the script cannot produce a measurement — any case
+where it skips rather than measures, including run from the main checkout,
+not running inside a git checkout, an empty transcript folder, or an
+unparseable transcript — it emits the SAME `## Token usage telemetry` H2
+with an explanatory skip body and exits 0. The prompt therefore does NOT
+branch on the script's exit code — once `python3` parses and runs the
+script there is exactly one path: run it, paste the output.
+
+One exception covers the script never running at all. If the command fails
+at the shell level — a non-zero shell exit with empty stdout, e.g. `python3`
+is unavailable or the script file is missing — there is no stdout to paste.
+In that case write a one-line `## Token usage telemetry` section recording
+that telemetry was unavailable because the script could not be invoked, and
+continue. Do not block the `adr.md` commit on it; the section stays present
+either way.
+
+Run the telemetry step exactly once, after every other `adr.md` section is
+final (it is the only Step 3 sub-instruction with a hard run-last ordering,
+so the snapshot reflects the finished ADR). On a resumed or re-run Step 3,
+if a `## Token usage telemetry` section already exists from a prior partial
+run, replace that section rather than appending a second one — and if the
+ADR is otherwise complete, leave the existing section as is rather than
+regenerating it against a different snapshot.
 
 **Step 4 — Promote staged workflow changes (workflow-modifying plans only).**
 
