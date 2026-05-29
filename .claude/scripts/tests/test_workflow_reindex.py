@@ -2900,6 +2900,329 @@ def test_cli_write_exit_2_on_unresolved_ref() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fence-exclusion in the heading / TOC parser (rules 2/3/4).
+#
+# Before this fix, `parse_headings`, `parse_toc_region`, and rule_2's
+# start-delimiter count treated `##`/`###` headings and
+# `<!--Document index ...-->` delimiters inside fenced code blocks as
+# real. These tests pin the corrected behaviour: fenced headings and
+# fenced delimiters are pedagogical text and must not be counted.
+# ---------------------------------------------------------------------------
+
+
+def test_fenced_heading_excluded_from_parse_headings_backtick() -> None:
+    """A `## Heading` inside a ```-fenced block is not collected as a real heading."""
+    lines = textwrap.dedent(
+        """\
+        # Title
+
+        ```markdown
+        ## Fenced demo heading
+        ### (a) Fenced sub-heading
+        ```
+
+        ## Real heading
+        """
+    ).splitlines()
+    fenced = MODULE.compute_fenced_lines(lines)
+    headings = MODULE.parse_headings(lines, fenced)
+    texts = [h.text for h in headings]
+    assert texts == ["Real heading"], (
+        f"only the non-fenced heading should be collected; got {texts}"
+    )
+
+
+def test_fenced_heading_excluded_from_parse_headings_tilde() -> None:
+    """A `## Heading` inside a ~~~-fenced block is not collected as a real heading."""
+    lines = textwrap.dedent(
+        """\
+        # Title
+
+        ~~~
+        ## Fenced demo heading
+        ~~~
+
+        ## Real heading
+        """
+    ).splitlines()
+    fenced = MODULE.compute_fenced_lines(lines)
+    headings = MODULE.parse_headings(lines, fenced)
+    texts = [h.text for h in headings]
+    assert texts == ["Real heading"], (
+        f"only the non-fenced heading should be collected; got {texts}"
+    )
+
+
+def test_fenced_toc_delimiters_excluded_from_parse_toc_region() -> None:
+    """`<!--Document index ...-->` delimiters inside a fence are not a real TOC region."""
+    lines = textwrap.dedent(
+        """\
+        # Title
+
+        ```markdown
+        <!--Document index start-->
+        | Section | Roles | Phases | Summary |
+        <!--Document index end-->
+        ```
+
+        Just prose, no real headings.
+        """
+    ).splitlines()
+    fenced = MODULE.compute_fenced_lines(lines)
+    toc = MODULE.parse_toc_region(lines, fenced)
+    assert toc is None, f"fenced delimiters must not form a TOC region; got {toc}"
+
+
+def test_rule_2_3_4_no_finding_on_fenced_heading() -> None:
+    """A fenced `## Heading` yields no rule_2/3/4 finding (it is not a real section).
+
+    The file's only real heading is annotated and has a matching TOC
+    row; the fenced demonstration heading must be ignored entirely so
+    the file validates clean.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | orchestrator | 3B | Real section. |
+
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=orchestrator phases=3B summary="Real section." -->
+
+            A fenced documentation example follows; its heading is not real:
+
+            ```markdown
+            ## 99.1 Demo section
+            <!-- roles=orchestrator phases=3B summary="demo." -->
+            ```
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        offending = [
+            f
+            for f in findings
+            if f.path.endswith("/demo.md") and f.rule in ("rule_2", "rule_3", "rule_4")
+        ]
+        assert not offending, (
+            f"fenced heading should produce no rule_2/3/4 finding; got {offending}"
+        )
+
+
+def test_real_heading_still_requires_toc_row_and_annotation() -> None:
+    """A real (non-fenced) heading still triggers rule_3/rule_4 when unlisted/unannotated.
+
+    Guards against the fence-exclusion fix over-reaching and silencing
+    findings on genuine sections.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | orchestrator | 3B | Real section. |
+
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=orchestrator phases=3B summary="Real section." -->
+
+            Body.
+
+            ## 2 Unlisted
+
+            Body with no annotation and no TOC row.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        findings = MODULE.validate(root)
+        rule3 = [f for f in findings if f.rule == "rule_3" and f.path.endswith("/demo.md")]
+        rule4 = [f for f in findings if f.rule == "rule_4" and f.path.endswith("/demo.md")]
+        assert any("§2 Unlisted" in f.explanation for f in rule3), (
+            f"real unlisted heading should trigger rule_3; got {rule3}"
+        )
+        assert any("'2 Unlisted'" in f.explanation for f in rule4), (
+            f"real unannotated heading should trigger rule_4; got {rule4}"
+        )
+
+
+def test_write_omits_fenced_heading_from_toc() -> None:
+    """`--write` does not emit a TOC row for a heading inside a fenced block."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            <!--Document index start-->
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=orchestrator phases=3B summary="Real section." -->
+
+            ```markdown
+            ## 99.1 Demo section
+            <!-- roles=orchestrator phases=3B summary="demo." -->
+            ```
+            """
+        )
+        target = _write_in_scope_file(root, ".claude/workflow/demo.md", body)
+        MODULE.apply_write_plan(MODULE.compute_write_plan(root))
+        rebuilt = target.read_text(encoding="utf-8")
+        assert "| §1 Real |" in rebuilt, "real heading should appear in the rebuilt TOC"
+        assert "§99.1 Demo section" not in rebuilt, (
+            f"fenced heading must not appear in the TOC; got:\n{rebuilt}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# H1-less after-frontmatter TOC anchor (§1.8(d), rule_2).
+# ---------------------------------------------------------------------------
+
+
+def test_frontmatter_close_detection() -> None:
+    """`find_frontmatter_close_line` returns the closing `---` of a leading YAML block."""
+    lines = textwrap.dedent(
+        """\
+        ---
+        name: edit-design
+        user-invocable: false
+        ---
+
+        Body.
+        """
+    ).splitlines()
+    assert MODULE.find_frontmatter_close_line(lines) == 4, (
+        f"expected close at line 4; got {MODULE.find_frontmatter_close_line(lines)}"
+    )
+    assert MODULE.find_first_h1_line(lines, MODULE.compute_fenced_lines(lines)) is None
+
+
+def test_h1_less_file_with_after_frontmatter_toc_validates() -> None:
+    """An H1-less SKILL.md whose TOC sits right after the frontmatter block validates clean."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            ---
+            name: edit-design
+            description: "x"
+            user-invocable: false
+            ---
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §Modes | orchestrator | 3B | Operational modes. |
+
+            <!--Document index end-->
+
+            ## Modes
+            <!-- roles=orchestrator phases=3B summary="Operational modes." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/skills/edit-design/SKILL.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [
+            f for f in findings if f.rule == "rule_2" and f.path.endswith("/SKILL.md")
+        ]
+        assert not rule2, f"after-frontmatter TOC should validate; got {rule2}"
+
+
+def test_h1_less_file_with_misplaced_toc_fails_anchor() -> None:
+    """An H1-less file with prose between the frontmatter and the TOC fails the anchor check."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            ---
+            name: edit-design
+            user-invocable: false
+            ---
+
+            Some intro prose that pushes the TOC away from the frontmatter.
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §Modes | orchestrator | 3B | Operational modes. |
+
+            <!--Document index end-->
+
+            ## Modes
+            <!-- roles=orchestrator phases=3B summary="Operational modes." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/skills/edit-design/SKILL.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [
+            f for f in findings if f.rule == "rule_2" and f.path.endswith("/SKILL.md")
+        ]
+        assert any("frontmatter block" in f.explanation for f in rule2), (
+            f"misplaced TOC should fail the anchor check; got {rule2}"
+        )
+
+
+def test_bootstrap_block_between_anchor_and_toc_is_allowed() -> None:
+    """The bootstrap block may sit between the H1 (anchor) and the TOC region."""
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Demo
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap block body that teaches the TOC reading protocol.
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §1 Real | orchestrator | 3B | Real section. |
+
+            <!--Document index end-->
+
+            ## 1 Real
+            <!-- roles=orchestrator phases=3B summary="Real section." -->
+
+            Body.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/prompts/demo.md", body)
+        findings = MODULE.validate(root)
+        rule2 = [f for f in findings if f.rule == "rule_2" and f.path.endswith("/demo.md")]
+        assert not rule2, (
+            f"bootstrap block before the TOC should be allowed; got {rule2}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -3145,6 +3468,45 @@ def main() -> int:
         (
             "CLI --write exit 2 on unresolved ref",
             test_cli_write_exit_2_on_unresolved_ref,
+        ),
+        # Fence-exclusion in the heading / TOC parser (rules 2/3/4).
+        (
+            "fenced heading excluded from parse_headings (backtick)",
+            test_fenced_heading_excluded_from_parse_headings_backtick,
+        ),
+        (
+            "fenced heading excluded from parse_headings (tilde)",
+            test_fenced_heading_excluded_from_parse_headings_tilde,
+        ),
+        (
+            "fenced TOC delimiters excluded from parse_toc_region",
+            test_fenced_toc_delimiters_excluded_from_parse_toc_region,
+        ),
+        (
+            "rule_2/3/4 no finding on fenced heading",
+            test_rule_2_3_4_no_finding_on_fenced_heading,
+        ),
+        (
+            "real heading still requires TOC row + annotation",
+            test_real_heading_still_requires_toc_row_and_annotation,
+        ),
+        (
+            "--write omits fenced heading from TOC",
+            test_write_omits_fenced_heading_from_toc,
+        ),
+        # H1-less after-frontmatter TOC anchor (§1.8(d), rule_2).
+        ("frontmatter close detection", test_frontmatter_close_detection),
+        (
+            "H1-less file with after-frontmatter TOC validates",
+            test_h1_less_file_with_after_frontmatter_toc_validates,
+        ),
+        (
+            "H1-less file with misplaced TOC fails anchor",
+            test_h1_less_file_with_misplaced_toc_fails_anchor,
+        ),
+        (
+            "bootstrap block between anchor and TOC is allowed",
+            test_bootstrap_block_between_anchor_and_toc_is_allowed,
         ),
     ]
     for name, fn in tests:

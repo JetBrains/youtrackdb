@@ -1070,13 +1070,31 @@ reindex script's exemption is a pure literal-text match (location-independent).
 ### (d) TOC region format
 
 A Markdown table between literal `<!--Document index start-->` and
-`<!--Document index end-->` comment delimiters, sitting directly under
-the H1. The TOC's section list maps 1:1 to every `^## ` and `^### `
-heading in the file (the bootstrap heading is the sole exception, as
-above). A file with no `^## ` headings carries no TOC region (no rows
-to enumerate); the reindex script's rule 2 accepts an omitted TOC for
-such files. See design.md §"Files and surfaces out of scope" Exclusion 6
-for the rationale.
+`<!--Document index end-->` comment delimiters. The TOC's section list
+maps 1:1 to every `^## ` and `^### ` heading in the file (the bootstrap
+heading is the sole exception, as above). A file with no `^## `
+headings carries no TOC region (no rows to enumerate); the reindex
+script's rule 2 accepts an omitted TOC for such files. See design.md
+§"Files and surfaces out of scope" Exclusion 6 for the rationale.
+
+**TOC anchor.** The region sits at one of two anchors, and only blank
+lines (or the bootstrap block, which precedes the TOC on files that
+carry one) may separate the anchor from the `<!--Document index start-->`
+delimiter:
+
+- **Directly under the document H1** (`# Title`) for files that carry
+  an H1 — the workflow docs and the 11 prompts.
+- **Immediately after the leading YAML frontmatter block** (the closing
+  `---` of the `---`-delimited metadata block) for H1-less files. Five
+  of the seven in-scope skill files (`edit-design`, `migrate-workflow`,
+  `code-review`, `review-workflow-pr`, `review-plan`) carry real `^## `
+  sections but no document H1, so the "directly under H1" anchor does
+  not apply; their TOC anchors to the frontmatter close instead.
+
+The reindex script's rule 2 enforces the anchor: it locates the first
+non-fenced H1, falling back to the frontmatter close for H1-less files,
+and flags a TOC region separated from that anchor by anything other
+than blank lines or the bootstrap block.
 
 Column order is fixed: `Section | Roles | Phases | Summary`. The
 summary cell reads from the section's annotation `summary="..."`
@@ -1184,6 +1202,20 @@ same file (typo, removed section) is also a CI blocker under rule 8;
 `--write` halts on unresolved anchors rather than auto-stamping the
 wrong target — the author hand-edits the citing prose to point at a
 real heading.
+
+**Fenced content is excluded from every rule.** The fence + inline-
+backtick exclusion is not limited to cross-reference suffixes. A
+`^## ` or `^### ` heading and a `<!--Document index start-->` /
+`<!--Document index end-->` delimiter that sit inside a fenced code
+block (a ```` ``` ````- or `~~~`-delimited block) are pedagogical text,
+not real structure: the worked example in (g) shows a fenced
+`## 99.1 Demo section` and a fenced TOC region, and `create-final-design.md`
+embeds the `adr.md`-template headings inside a fenced block. The
+reindex script's heading parser, TOC-region parser, and rule 2's
+delimiter count all skip fenced lines, so rules 2, 3, and 4 never fire
+on a fenced heading or a fenced delimiter, and `--write` never emits a
+TOC row for a fenced heading. Authors do not annotate fenced headings
+and do not wrap them in TOC rows.
 
 ### (f) Read-decision flow
 

@@ -152,6 +152,17 @@ TOC_START_DELIMITER = "<!--Document index start-->"
 TOC_END_DELIMITER = "<!--Document index end-->"
 
 
+# H1 heading (`# Title`). The TOC anchor for files that carry an H1
+# (workflow docs and prompts) sits directly under it per §1.8(d).
+_H1_RE = re.compile(r"^# (.+?)\s*$")
+
+# YAML frontmatter fence (`---` on its own line). H1-less skill files
+# (SKILL.md with a YAML metadata block but no document title) anchor
+# their TOC immediately after the closing frontmatter `---` per the
+# §1.8(d) after-frontmatter rule.
+_FRONTMATTER_FENCE = "---"
+
+
 # ---------------------------------------------------------------------------
 # Heading and annotation regexes.
 #
@@ -599,15 +610,32 @@ def parse_annotation(line: str, line_no: int) -> Optional[Annotation]:
 # ---------------------------------------------------------------------------
 
 
-def parse_headings(lines: Sequence[str]) -> List[Heading]:
+def parse_headings(
+    lines: Sequence[str], fenced: Optional[Sequence[bool]] = None
+) -> List[Heading]:
     """Walk the file and collect every `^## ` and `^### ` heading + its annotation.
 
     Lines are accessed 0-indexed inside the function; the `line` field
     on each `Heading` and `Annotation` is 1-based to match editor /
     error-output convention.
+
+    `fenced` is the per-line "inside a fenced code block" mask from
+    `compute_fenced_lines`. When supplied, `^## ` / `^### ` lines inside
+    a fence are skipped — a heading written inside a fenced code block
+    (a documentation example such as §1.8(g)'s `## 99.1 Demo section`
+    or `create-final-design.md`'s fenced `adr.md`-template headings) is
+    pedagogical text, not a real section, so it carries no annotation
+    and no TOC row (rules 3/4 must not fire on it). When `fenced` is
+    None the function falls back to treating every line as non-fenced,
+    which preserves the pre-fence-exclusion behaviour for callers that
+    do not yet compute the mask.
     """
     headings: List[Heading] = []
     for idx, line in enumerate(lines):
+        if fenced is not None and idx < len(fenced) and fenced[idx]:
+            # Heading inside a fenced code block — pedagogical, not a
+            # real section. Skip per §1.8(e).
+            continue
         m2 = _H2_RE.match(line)
         m3 = _H3_RE.match(line)
         if m2 is None and m3 is None:
@@ -640,7 +668,9 @@ def parse_headings(lines: Sequence[str]) -> List[Heading]:
 # ---------------------------------------------------------------------------
 
 
-def parse_toc_region(lines: Sequence[str]) -> Optional[TocRegion]:
+def parse_toc_region(
+    lines: Sequence[str], fenced: Optional[Sequence[bool]] = None
+) -> Optional[TocRegion]:
     """Find the TOC region between the delimiter comments.
 
     A file with no `<!--Document index start-->` line returns None;
@@ -653,9 +683,23 @@ def parse_toc_region(lines: Sequence[str]) -> Optional[TocRegion]:
     the TOC-presence rule catches; this parser returns the first
     complete region it finds and lets the rule fire on the
     duplicates.
+
+    `fenced` is the per-line "inside a fenced code block" mask from
+    `compute_fenced_lines`. When supplied, delimiter lines inside a
+    fence are ignored — the `<!--Document index start-->` /
+    `<!--Document index end-->` literals inside a fenced documentation
+    example (such as §1.8(g)'s worked example) are pedagogical text,
+    not a real TOC region, so the parser must not latch onto them. When
+    `fenced` is None every line counts, preserving the pre-fence-
+    exclusion behaviour.
     """
+    def _is_fenced(idx: int) -> bool:
+        return fenced is not None and idx < len(fenced) and fenced[idx]
+
     start_line: Optional[int] = None
     for idx, line in enumerate(lines):
+        if _is_fenced(idx):
+            continue
         if line.strip() == TOC_START_DELIMITER:
             start_line = idx + 1
             break
@@ -663,6 +707,8 @@ def parse_toc_region(lines: Sequence[str]) -> Optional[TocRegion]:
         return None
     end_line: Optional[int] = None
     for idx in range(start_line, len(lines)):
+        if _is_fenced(idx):
+            continue
         if lines[idx].strip() == TOC_END_DELIMITER:
             end_line = idx + 1
             break
@@ -679,6 +725,64 @@ def parse_toc_region(lines: Sequence[str]) -> Optional[TocRegion]:
 
 
 # ---------------------------------------------------------------------------
+# TOC-anchor helpers (§1.8(d)).
+#
+# Two anchor shapes are valid for a TOC region:
+#   - Directly under the document H1 (`# Title`) — workflow docs and
+#     prompts, which all carry an H1.
+#   - Immediately after the YAML frontmatter block (`---` ... `---`) —
+#     H1-less SKILL.md files that carry a metadata block but no document
+#     title. 5 of the 7 in-scope skill files (edit-design, migrate-
+#     workflow, code-review, review-workflow-pr, review-plan) are this
+#     shape; §1.8(d)'s original "directly under H1" rule did not
+#     anticipate them.
+# ---------------------------------------------------------------------------
+
+
+def find_first_h1_line(
+    lines: Sequence[str], fenced: Optional[Sequence[bool]] = None
+) -> Optional[int]:
+    """Return the 1-based line number of the first non-fenced `# ` H1, or None.
+
+    Fenced H1 lines (a `# Title` inside a documentation example) are
+    skipped via the same fence mask the heading parser uses.
+    """
+    for idx, line in enumerate(lines):
+        if fenced is not None and idx < len(fenced) and fenced[idx]:
+            continue
+        if _H1_RE.match(line):
+            return idx + 1
+    return None
+
+
+def find_frontmatter_close_line(lines: Sequence[str]) -> Optional[int]:
+    """Return the 1-based line number of a leading YAML frontmatter block's closing `---`.
+
+    A frontmatter block is recognised only when the file's first
+    non-blank line is exactly `---`; the block then runs to the next
+    line that is exactly `---`. Returns the 1-based line number of that
+    closing delimiter, or None when the file has no leading frontmatter
+    block (no opening `---`, or an unterminated one). The frontmatter
+    fence is not a CommonMark code fence, so this scan is independent of
+    the `compute_fenced_lines` mask.
+    """
+    first_content_idx: Optional[int] = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "":
+            continue
+        first_content_idx = idx
+        break
+    if first_content_idx is None:
+        return None
+    if lines[first_content_idx].strip() != _FRONTMATTER_FENCE:
+        return None
+    for idx in range(first_content_idx + 1, len(lines)):
+        if lines[idx].strip() == _FRONTMATTER_FENCE:
+            return idx + 1
+    return None
+
+
+# ---------------------------------------------------------------------------
 # File parser entry point.
 # ---------------------------------------------------------------------------
 
@@ -688,9 +792,14 @@ def parse_file(path: Path, repo_root: Path) -> ParsedFile:
     with open(path, "r", encoding="utf-8") as f:
         lines = f.read().splitlines()
     rel = path.resolve().relative_to(repo_root.resolve()).as_posix()
-    headings = parse_headings(lines)
-    toc = parse_toc_region(lines)
+    # Compute the fence mask first so heading and TOC-region parsing can
+    # exclude `##`/`###` headings and `<!--Document index ...-->`
+    # delimiters that sit inside fenced code blocks (§1.8(e)). Rules
+    # 2/3/4 inherit the exclusion through the parsed structures; rules
+    # 6/8 consult `fenced_lines` directly.
     fenced = compute_fenced_lines(lines)
+    headings = parse_headings(lines, fenced)
+    toc = parse_toc_region(lines, fenced)
     return ParsedFile(
         path=rel,
         abs_path=path,
@@ -1202,7 +1311,19 @@ def check_rule_1_stamp_present(parsed: ParsedFile) -> List[Finding]:
 
 
 def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
-    """Rule 2: exactly one TOC region under H1; empty TOC accepted for files without `^## ` headings."""
+    """Rule 2: exactly one TOC region at the correct anchor; empty TOC accepted for files without `^## ` headings.
+
+    The anchor is one of two shapes per §1.8(d):
+    - directly under the document H1 (`# Title`) for files that carry
+      an H1 (workflow docs, prompts);
+    - immediately after the leading YAML frontmatter block for H1-less
+      SKILL.md files.
+
+    "Directly under" / "immediately after" is checked loosely: the only
+    content permitted between the anchor and the TOC start delimiter is
+    blank lines. Prose or another heading between the anchor and the TOC
+    is an anchor violation.
+    """
     h2_headings = [h for h in parsed.headings if h.level == 2 and not h.is_bootstrap]
     has_headings = len(h2_headings) > 0
     if parsed.toc is None:
@@ -1218,7 +1339,15 @@ def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
         return []
     # Detect a second `<!--Document index start-->` delimiter that the
     # parser silently dropped — multiple TOC regions are a CI failure.
-    start_count = sum(1 for line in parsed.lines if line.strip() == TOC_START_DELIMITER)
+    # Count only non-fenced delimiters: a `<!--Document index start-->`
+    # literal inside a fenced documentation example (such as §1.8(g)'s
+    # worked example) is pedagogical text, not a real region.
+    start_count = sum(
+        1
+        for idx, line in enumerate(parsed.lines)
+        if line.strip() == TOC_START_DELIMITER
+        and not (idx < len(parsed.fenced_lines) and parsed.fenced_lines[idx])
+    )
     if start_count > 1:
         return [
             Finding(
@@ -1226,6 +1355,63 @@ def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
                 line=parsed.toc.start_line,
                 rule="rule_2",
                 explanation=f"file has {start_count} TOC regions; exactly one is required",
+            )
+        ]
+    # Anchor check (§1.8(d)). Find the expected anchor line: the H1 if
+    # the file has one, else the frontmatter close for H1-less files.
+    anchor_line = find_first_h1_line(parsed.lines, parsed.fenced_lines)
+    anchor_kind = "H1"
+    if anchor_line is None:
+        anchor_line = find_frontmatter_close_line(parsed.lines)
+        anchor_kind = "frontmatter block"
+    if anchor_line is None:
+        # No H1 and no frontmatter block to anchor against. The schema
+        # does not define an anchor for this shape; do not invent one —
+        # rule 2 accepts the region's presence and leaves anchor
+        # placement to author review.
+        return []
+    # The TOC must come after the anchor, never before it.
+    if parsed.toc.start_line <= anchor_line:
+        return [
+            Finding(
+                path=parsed.path,
+                line=parsed.toc.start_line,
+                rule="rule_2",
+                explanation=(
+                    f"TOC region precedes the {anchor_kind} (line {anchor_line}); "
+                    "it must be anchored immediately after it"
+                ),
+            )
+        ]
+    # Between the anchor and the TOC start, the only permitted content is
+    # blank lines and the bootstrap block (`## Reading workflow files
+    # (TOC protocol)` heading plus its body). The bootstrap block, when
+    # present, sits above the TOC region per §"Bootstrap protocol" →
+    # §"Block placement and stability". Any other prose or heading
+    # between the anchor and the TOC is an anchor violation.
+    #
+    # `anchor_line` and `parsed.toc.start_line` are 1-based; the gap is
+    # the 0-based slice [anchor_line, start_line - 1).
+    gap = parsed.lines[anchor_line : parsed.toc.start_line - 1]
+    for line in gap:
+        stripped = line.strip()
+        if stripped == "":
+            continue
+        if stripped == BOOTSTRAP_BLOCK_HEADING:
+            # Everything from the bootstrap heading onward in the gap is
+            # bootstrap-block body — accept the remainder and stop scanning.
+            break
+        # Non-blank, non-bootstrap content before any bootstrap heading.
+        return [
+            Finding(
+                path=parsed.path,
+                line=parsed.toc.start_line,
+                rule="rule_2",
+                explanation=(
+                    f"TOC region is not anchored immediately after the {anchor_kind} "
+                    f"(line {anchor_line}); only blank lines and the bootstrap block "
+                    "may separate them"
+                ),
             )
         ]
     return []
