@@ -156,3 +156,6 @@ All 49 files enumerated above. Staged copies under `_workflow/staged-workflow/`.
 ### Library/function signatures touched
 
 Step 1 edits `.claude/scripts/workflow-reindex.py` (a live-path change, not §1.7 staging): it threads `compute_fenced_lines` into `parse_headings`, `parse_toc_region`, and the rule_2 delimiter count so rules 2/3/4 skip fenced headings/delimiters, and it teaches rule_2 the after-frontmatter TOC anchor for H1-less files. This reopens Track 2's script and its test suite under `.claude/scripts/tests/` (regression tests for both behaviors are required per the track reviews). Step 1 also edits staged `conventions.md` §1.8(d)/(e) — Track 1's schema. Steps 2-6 are per-section annotation authoring in Markdown only; no further code paths change.
+
+## Base commit
+5aa5917da7d8a57c78bcf2fe530c58686a07c3e0
