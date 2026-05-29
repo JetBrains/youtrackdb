@@ -145,6 +145,18 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
 )
 
 
+# Staged-subtree path prefix (conventions.md §1.7(a)). A staged copy of a
+# workflow file lives under `docs/adr/<dir-name>/_workflow/staged-workflow/`
+# and mirrors its live `.claude/...` relative path byte-for-byte beneath
+# that prefix. Stripping the prefix collapses a staged copy and its live
+# namesake onto the same logical `.claude/...` path, which is how the
+# cross-file resolver matches a `name.md` reference to either copy and the
+# staged-copy probe detects when both are present.
+_STAGED_SUBTREE_PREFIX_RE = re.compile(
+    r"^docs/adr/[^/]+/_workflow/staged-workflow/"
+)
+
+
 # ---------------------------------------------------------------------------
 # TOC region delimiters (conventions.md §1.8(d)).
 # ---------------------------------------------------------------------------
@@ -1134,6 +1146,24 @@ def subset_with_any_wildcard(
 # ---------------------------------------------------------------------------
 
 
+def _logical_workflow_path(pf: ParsedFile) -> str:
+    """Return the file's logical `.claude/...` path with any staged prefix stripped.
+
+    A staged copy lives at
+    `docs/adr/<dir>/_workflow/staged-workflow/.claude/...` and mirrors its
+    live `.claude/...` relative path beneath that prefix (§1.7(a)).
+    Stripping the prefix collapses a staged copy and its live namesake
+    onto the same logical path so the cross-file resolver can match a
+    `name.md` reference to either copy and prefer the staged one.
+    """
+    return _STAGED_SUBTREE_PREFIX_RE.sub("", pf.path)
+
+
+def _is_staged(pf: ParsedFile) -> bool:
+    """Return True iff the file is a staged copy under the §1.7(a) subtree."""
+    return _STAGED_SUBTREE_PREFIX_RE.match(pf.path) is not None
+
+
 def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
     """Build a lookup table from cross-file ref `name.md` shapes to parsed files.
 
@@ -1147,21 +1177,70 @@ def build_file_lookup(parsed: Sequence[ParsedFile]) -> Dict[str, ParsedFile]:
       ambiguous across 7 anchors); SKILL.md targets are linked by
       directory prefix when needed.
 
-    The lookup returns the first matching file when multiple files share
-    a basename; this is fine for the current scope (no cross-directory
-    basename collisions in the workflow set).
+    Staged-copy precedence. The reads-precedence rule in `conventions.md`
+    §1.7(d) — staged copy authoritative when present, established for the
+    §1.8 enum bootstrap probe — extends here to cross-file-ref target
+    resolution. On a workflow-modifying branch the in-scope
+    set contains both the un-annotated live copy of a target and its
+    annotated staged copy under
+    `docs/adr/<dir>/_workflow/staged-workflow/.claude/...`. A converted
+    cross-file ref must subset-validate against the branch's authored
+    annotation, which is the staged copy — so when both a live and a
+    staged copy resolve to the same key, the staged copy wins. On a
+    non-workflow-modifying branch (develop, or a branch with no staged
+    subtree) no staged copy exists and the lookup stays pure-live, so
+    behaviour is unchanged.
+
+    Keys are derived from each file's logical `.claude/...` path (staged
+    prefix stripped), so a staged prompt and its live namesake both
+    contribute the `prompts/<basename>` key — keying on the raw staged
+    path would have hidden the `prompts/` form for staged prompts.
+
+    Multi-staged ambiguity guard. If two distinct staged copies of one
+    logical target are present (two plan dirs each carrying a
+    staged-workflow subtree, say), the script cannot tell which annotation
+    a converted ref should validate against, so it halts with
+    `AmbiguousBootstrapProbeError` (CLI exit 2) — the same guard the §1.8
+    enum bootstrap probe uses for a duplicated staged `conventions.md`.
+    Two live copies of one logical key never occur (the live globs and the
+    filesystem both forbid it); the guard fires only on staged duplicates.
     """
+    # Resolve per key with staged precedence. The live copy seeds each key
+    # and a staged copy overrides it; a second staged copy for the same key
+    # is the ambiguous case the guard rejects.
     lookup: Dict[str, ParsedFile] = {}
+    staged_keys: set = set()
+
+    def _record(key: str, pf: ParsedFile) -> None:
+        staged = _is_staged(pf)
+        if key not in lookup:
+            lookup[key] = pf
+            if staged:
+                staged_keys.add(key)
+            return
+        if not staged:
+            # A live copy never displaces an already-chosen entry: a staged
+            # winner stays, and a second live copy for one key cannot occur.
+            return
+        if key in staged_keys:
+            # Two staged copies resolve to the same logical target — halt
+            # rather than silently picking one (§1.8 enum-probe guard reuse).
+            raise AmbiguousBootstrapProbeError(
+                f"Multiple staged copies resolve to cross-file ref key {key!r} — "
+                f"target resolution is ambiguous:\n  {lookup[key].path}\n  {pf.path}"
+            )
+        # Staged copy overrides the live entry already recorded for this key.
+        lookup[key] = pf
+        staged_keys.add(key)
+
     for pf in parsed:
+        logical = _logical_workflow_path(pf)
         # Bare filename keys: `step-implementation.md`, `conventions.md`.
-        basename = pf.abs_path.name
-        if basename not in lookup:
-            lookup[basename] = pf
-        # `prompts/X.md` keys for files under `.claude/workflow/prompts/`.
-        if pf.path.startswith(".claude/workflow/prompts/"):
-            sub_key = f"prompts/{basename}"
-            if sub_key not in lookup:
-                lookup[sub_key] = pf
+        _record(Path(logical).name, pf)
+        # `prompts/X.md` keys for files under `.claude/workflow/prompts/`,
+        # matched on the logical path so staged prompt copies also key here.
+        if logical.startswith(".claude/workflow/prompts/"):
+            _record(f"prompts/{Path(logical).name}", pf)
     return lookup
 
 

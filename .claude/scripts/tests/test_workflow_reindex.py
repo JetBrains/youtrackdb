@@ -1655,6 +1655,308 @@ def test_rule_6_ref_in_inline_backticks_excluded() -> None:
 
 
 # ---------------------------------------------------------------------------
+# build_file_lookup — staged-aware cross-file-ref target resolution.
+#
+# On a workflow-modifying branch the in-scope set carries both the
+# un-annotated live copy of a target and its annotated staged copy. A
+# converted cross-file ref must subset-validate against the staged copy
+# (the branch's authored annotation), not the live one. These tests lock
+# the staged-copy precedence, the pure-live fallback on a branch with no
+# staged subtree, and the multi-staged-ambiguity exit-2 guard.
+# ---------------------------------------------------------------------------
+
+
+# A fully-annotated target body the staged copy carries: one well-formed
+# §1.6 section the converted ref validates against.
+def _annotated_target_body() -> str:
+    return textwrap.dedent(
+        """\
+        # Target
+
+        <!--Document index start-->
+
+        | Section | Roles | Phases | Summary |
+        |---|---|---|---|
+        | §1.6 Foo | orchestrator,implementer | 3B | Foo. |
+
+        <!--Document index end-->
+
+        ## 1.6 Foo
+        <!-- roles=orchestrator,implementer phases=3B summary="Foo." -->
+
+        Body.
+        """
+    )
+
+
+# The same target before annotation: the live copy a workflow-modifying
+# branch leaves at develop state. No TOC region, no annotation comment —
+# nothing a converted ref could subset-validate against.
+def _unannotated_target_body() -> str:
+    return textwrap.dedent(
+        """\
+        # Target
+
+        ## 1.6 Foo
+
+        Body.
+        """
+    )
+
+
+def _staged_rel(plan: str, claude_rel: str) -> str:
+    """Repo-relative path of a staged copy mirroring `claude_rel` under `plan`."""
+    return (
+        f"docs/adr/{plan}/_workflow/staged-workflow/{claude_rel}"
+    )
+
+
+def test_build_file_lookup_prefers_staged_over_live() -> None:
+    """When both a live and a staged copy of one target exist, the staged copy wins.
+
+    Scenario: the live `target.md` is the un-annotated develop-state copy,
+    the staged `target.md` carries the branch's annotation. The lookup
+    must return the staged ParsedFile so a converted ref validates against
+    the authored annotation rather than the empty live copy.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live = _write_in_scope_file(
+            root, ".claude/workflow/target.md", _unannotated_target_body()
+        )
+        staged = _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        parsed = [
+            MODULE.parse_file(live, root),
+            MODULE.parse_file(staged, root),
+        ]
+        lookup = MODULE.build_file_lookup(parsed)
+        chosen = lookup.get("target.md")
+        assert chosen is not None, "target.md key missing from lookup"
+        assert chosen.path == _staged_rel(
+            "some-plan", ".claude/workflow/target.md"
+        ), f"expected staged copy to win, got {chosen.path}"
+        # Glob order is live-before-staged, so seeding live first then
+        # overriding with staged is the path under test — assert it does
+        # not depend on parse order by also trying the reversed list.
+        lookup_rev = MODULE.build_file_lookup(list(reversed(parsed)))
+        assert lookup_rev["target.md"].path == chosen.path, (
+            "staged precedence must not depend on parse order"
+        )
+
+
+def test_build_file_lookup_prefers_staged_prompt_over_live() -> None:
+    """Staged precedence also covers the `prompts/<name>.md` key.
+
+    The earlier basename-only lookup keyed the `prompts/` form off the raw
+    staged path, so a staged prompt never produced the `prompts/<name>.md`
+    key. Keying
+    off the logical `.claude/...` path (staged prefix stripped) fixes that
+    and lets a staged prompt copy win the `prompts/<name>.md` key too.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live = _write_in_scope_file(
+            root,
+            ".claude/workflow/prompts/technical-review.md",
+            _unannotated_target_body(),
+        )
+        staged = _write_in_scope_file(
+            root,
+            _staged_rel(
+                "some-plan", ".claude/workflow/prompts/technical-review.md"
+            ),
+            _annotated_target_body(),
+        )
+        parsed = [MODULE.parse_file(live, root), MODULE.parse_file(staged, root)]
+        lookup = MODULE.build_file_lookup(parsed)
+        for key in ("technical-review.md", "prompts/technical-review.md"):
+            assert key in lookup, f"expected key {key!r} in lookup, got {sorted(lookup)}"
+            assert lookup[key].path == staged.relative_to(root).as_posix(), (
+                f"staged prompt copy must win key {key!r}, got {lookup[key].path}"
+            )
+
+
+def test_build_file_lookup_live_only_when_no_staged_copy() -> None:
+    """On a branch with no staged subtree the lookup stays pure-live (forward-safe).
+
+    This is the develop / non-workflow-modifying-branch case: no staged
+    copy exists, so the live copy is the only candidate and behaviour is
+    unchanged from the earlier basename-only lookup.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        live = _write_in_scope_file(
+            root, ".claude/workflow/target.md", _annotated_target_body()
+        )
+        parsed = [MODULE.parse_file(live, root)]
+        lookup = MODULE.build_file_lookup(parsed)
+        chosen = lookup.get("target.md")
+        assert chosen is not None, "target.md key missing from lookup"
+        assert chosen.path == ".claude/workflow/target.md", (
+            f"expected the live copy with no staged subtree, got {chosen.path}"
+        )
+
+
+def test_build_file_lookup_multiple_staged_copies_halts() -> None:
+    """Two staged copies of one logical target halt with exit 2 (ambiguity guard).
+
+    Reuses the §1.8 enum-probe's multi-staged guard: when two plan dirs
+    each stage the same target, the script cannot tell which annotation a
+    converted ref should validate against, so it raises
+    `AmbiguousBootstrapProbeError` (CLI exit 2) rather than silently
+    picking one.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        staged_a = _write_in_scope_file(
+            root,
+            _staged_rel("plan-a", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        staged_b = _write_in_scope_file(
+            root,
+            _staged_rel("plan-b", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        parsed = [MODULE.parse_file(staged_a, root), MODULE.parse_file(staged_b, root)]
+        try:
+            MODULE.build_file_lookup(parsed)
+        except MODULE.AmbiguousBootstrapProbeError as exc:
+            assert "target.md" in str(exc), (
+                f"ambiguity message should name the key, got {exc}"
+            )
+        else:
+            raise AssertionError(
+                "expected AmbiguousBootstrapProbeError for two staged copies of one target"
+            )
+
+
+def test_converted_ref_subset_passes_against_staged_target() -> None:
+    """End-to-end: a converted ref subset-passes against a staged-annotated target.
+
+    The citer is itself a staged file carrying the converted bare-suffixed
+    ref; the live target copy is un-annotated and the staged target copy
+    carries the annotation. With staged-aware resolution rule_6 validates
+    the ref against the staged copy and the subset check passes — the
+    contract that a converted ref on a workflow-modifying branch resolves
+    to its staged copy (`conventions.md` §1.7(d) reads-precedence extended
+    to cross-file-ref resolution). Without the fix the ref would resolve to
+    the empty live copy and the subset check would fail permanently.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Live conventions seeds the bootstrap enums (probe falls back to
+        # live when no staged conventions exists).
+        _write_conventions(root)
+        # Live target: un-annotated develop-state copy.
+        _write_in_scope_file(
+            root, ".claude/workflow/target.md", _unannotated_target_body()
+        )
+        # Staged target: the branch's annotated copy.
+        _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        # Staged citer carrying a converted bare-suffixed ref whose
+        # roles/phases are a strict subset of the staged target's §1.6
+        # annotation (roles=orchestrator,implementer phases=3B).
+        citer_body = textwrap.dedent(
+            """\
+            <!-- workflow-sha: """
+            + ("0" * 40)
+            + """ -->
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6:implementer:3B for the detail.
+            """
+        )
+        _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/citer.md"),
+            citer_body,
+        )
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert not rule6, (
+            "converted ref should subset-pass against the staged-annotated "
+            f"target, got rule_6 findings: {rule6}"
+        )
+
+
+def test_converted_ref_fails_subset_against_staged_target() -> None:
+    """The staged copy is the comparison set: an over-broad converted ref fails.
+
+    Companion to the subset-pass test. The citer claims a role the staged
+    target's §1.6 annotation does not grant (`migrator` ∉
+    {orchestrator,implementer}), so rule_6 fires — confirming the subset
+    check compares against the staged copy's annotation, not the empty
+    live copy (which would yield a different finding shape).
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root, ".claude/workflow/target.md", _unannotated_target_body()
+        )
+        _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/target.md"),
+            _annotated_target_body(),
+        )
+        citer_body = textwrap.dedent(
+            """\
+            <!-- workflow-sha: """
+            + ("0" * 40)
+            + """ -->
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            See target.md§1.6:migrator:3B for the detail.
+            """
+        )
+        _write_in_scope_file(
+            root,
+            _staged_rel("some-plan", ".claude/workflow/citer.md"),
+            citer_body,
+        )
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert any(
+            "roles" in f.explanation and "subset" in f.explanation for f in rule6
+        ), f"expected a role-subset finding against the staged target, got {rule6}"
+
+
+# ---------------------------------------------------------------------------
 # Rule 7 — bootstrap block presence.
 # ---------------------------------------------------------------------------
 
@@ -3500,6 +3802,30 @@ def main() -> int:
         (
             "rule_6 ref in inline backticks excluded",
             test_rule_6_ref_in_inline_backticks_excluded,
+        ),
+        (
+            "build_file_lookup prefers staged over live",
+            test_build_file_lookup_prefers_staged_over_live,
+        ),
+        (
+            "build_file_lookup prefers staged prompt over live",
+            test_build_file_lookup_prefers_staged_prompt_over_live,
+        ),
+        (
+            "build_file_lookup live-only when no staged copy",
+            test_build_file_lookup_live_only_when_no_staged_copy,
+        ),
+        (
+            "build_file_lookup multiple staged copies halts",
+            test_build_file_lookup_multiple_staged_copies_halts,
+        ),
+        (
+            "converted ref subset-passes against staged target",
+            test_converted_ref_subset_passes_against_staged_target,
+        ),
+        (
+            "converted ref fails subset against staged target",
+            test_converted_ref_fails_subset_against_staged_target,
         ),
         (
             "rule_7 missing bootstrap fails for SKILL.md",
