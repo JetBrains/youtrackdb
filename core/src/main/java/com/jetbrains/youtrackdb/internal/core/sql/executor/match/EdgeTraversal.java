@@ -151,8 +151,14 @@ public class EdgeTraversal {
    *
    * <p>{@code 30} is the classical CLT rule-of-thumb threshold. For
    * heavy-tail distributions (LDBC SNB) {@code 30} samples is borderline,
-   * but in combination with the {@link Mode#DEFERRED_WITH_NET} safety net
-   * {@code T = max(2·forecastN, m)} the cost of being wrong is bounded.
+   * but the {@link Mode#DEFERRED_WITH_NET} safety net catches the
+   * remaining risk. Below this threshold the calibrated path (Variant
+   * B — in-list selectivity sample taken upstream in
+   * {@code MatchEdgeTraverser}) drops the trigger to {@code T = m}
+   * with {@code m} computed against the sampled selectivity and the
+   * corrected build cost; the historic path falls back to
+   * {@code T = max(2·forecastN, m)}. Either way the cost of being
+   * wrong is bounded.
    */
   static final long MIN_FOR_CLT = 30L;
 
@@ -267,10 +273,22 @@ public class EdgeTraversal {
      */
     BUILD_EAGER,
     /**
-     * Forecast says build does not pay off (or no forecast). Cache null on
-     * first vertex but maintain the runtime accumulator with trigger
-     * {@code T = max(2·forecastN, m)} as a safety net for the case where the
-     * forecast under-estimated reality.
+     * Forecast says build does not pay off (or no forecast). Cache null
+     * on first vertex but maintain the runtime accumulator with an
+     * adaptive trigger:
+     * <ul>
+     *   <li>Calibrated path (Variant B — in-list selectivity sampled
+     *       on a CLT-fail path): {@code T = m} with {@code m} computed
+     *       against the sampled selectivity and the corrected build
+     *       cost ({@link #BUILD_PER_ENTRY_MULTIPLIER}). The
+     *       {@code 2·forecastN} floor is dropped because the
+     *       calibrated cost-model break-even is trustworthy
+     *       per-query.</li>
+     *   <li>Historic path (no sample, or CLT-pass without eager
+     *       build): {@code T = max(2·forecastN, m)} — the
+     *       belt-and-braces floor stays as a safety net against
+     *       forecast under-estimates.</li>
+     * </ul>
      */
     DEFERRED_WITH_NET
   }
@@ -1029,13 +1047,20 @@ public class EdgeTraversal {
    * <p>On the first vertex this method decides between
    * {@link Mode#BUILD_EAGER} (materialise from neighbor 1) and
    * {@link Mode#DEFERRED_WITH_NET} (keep an accumulator with safety-net
-   * trigger {@code T = max(2·forecastN, m)}). The mode is memoized on the
-   * {@link EdgeTraversal} instance for the rest of the execution.
+   * trigger). The mode is memoized on the {@link EdgeTraversal} instance
+   * for the rest of the execution. The trigger formula adapts to
+   * whether an in-list selectivity sample was taken upstream: calibrated
+   * path {@code T = m}, historic path {@code T = max(2·forecastN, m)}
+   * — see {@link Mode#DEFERRED_WITH_NET} for the full rationale.
    *
-   * <p>Returns {@link AmortizationDecision#REJECT} when selectivity is too
-   * high (cache null permanently), {@link AmortizationDecision#DEFER} when
+   * <p>Returns {@link AmortizationDecision#REJECT} when class-level
+   * selectivity is too high (cache null permanently) or when the
+   * sampled in-list selectivity is too high
+   * ({@link PreFilterSkipReason#IN_LIST_SELECTIVITY_TOO_LOW}, not cached
+   * because the sample is per-execution empirical data),
+   * {@link AmortizationDecision#DEFER} when
    * {@link Mode#DEFERRED_WITH_NET} accumulator has not yet crossed
-   * {@code T} (return null without caching), or
+   * the trigger (return null without caching), or
    * {@link AmortizationDecision#PROCEED} when the caller should fall through
    * to materialise.
    */
@@ -1189,11 +1214,15 @@ public class EdgeTraversal {
    *
    * <p>{@code m = estimatedSize / (loadToScanRatio · (1 − s))}
    *
-   * <p>This is a pure cost-model break-even. It is reused unchanged by
-   * both decision sites in {@link #checkIndexLookupAmortization}: the
+   * <p>This is a pure cost-model break-even. It is reused by both
+   * decision sites in {@link #checkIndexLookupAmortization}: the
    * BUILD_EAGER gate ({@code forecastN > ceil(m)}) and the
-   * {@code DEFERRED_WITH_NET} safety-net trigger
-   * ({@code T = max(2·forecastN, m)}).
+   * {@code DEFERRED_WITH_NET} safety-net trigger. The trigger formula
+   * adapts to the calibration state — historic path uses
+   * {@code T = max(2·forecastN, m)}, calibrated path (Variant B —
+   * in-list selectivity sample present) collapses to {@code T = m}
+   * after applying {@link #BUILD_PER_ENTRY_MULTIPLIER} to correct the
+   * implicit underestimation of build cost {@code B}.
    *
    * <p>Boundary handling:
    * <ul>
@@ -1204,13 +1233,13 @@ public class EdgeTraversal {
    *       selectivity: never build. The formula degenerates without a
    *       valid {@code s} — we cannot bound the build cost {@code B},
    *       which the design's bounded-loss contract requires before
-   *       committing to BUILD_EAGER or computing the safety-net trigger
-   *       {@code T = max(2·forecast, m)}. Callers above this method
-   *       (the stateful {@link #checkIndexLookupAmortization} and the
-   *       stateless {@link #evaluateIndexLookupAmortization}) also
-   *       short-circuit on this case for diagnostic reasons — this
-   *       return value is the defensive default if either ever forgets
-   *       to.)</li>
+   *       committing to BUILD_EAGER or computing the
+   *       {@code DEFERRED_WITH_NET} safety-net trigger. Callers above
+   *       this method (the stateful {@link #checkIndexLookupAmortization}
+   *       and the stateless {@link #evaluateIndexLookupAmortization})
+   *       also short-circuit on this case for diagnostic reasons —
+   *       this return value is the defensive default if either ever
+   *       forgets to.)</li>
    *   <li>{@code selectivity >= 1.0} → {@link Double#MAX_VALUE} (never
    *       build — no filtering benefit when all records match)</li>
    *   <li>Normal case → {@code estimatedSize / (loadToScanRatio ·
