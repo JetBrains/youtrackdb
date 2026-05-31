@@ -141,9 +141,11 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     # plan-scoped and only contains files the author chose to stage.
     "docs/adr/*/_workflow/staged-workflow/.claude/workflow/**/*.md",
     "docs/adr/*/_workflow/staged-workflow/.claude/skills/**/SKILL.md",
-    # Dead glob: `conventions.md` §1.7(e) forbids staging agent files — they
-    # are modified live — so this never matches a real file on a workflow-
-    # modifying branch. It is left inert rather than removed: it changes no
+    # Dead glob: agent files fall outside `conventions.md` §1.7(e)'s
+    # stageable-path scope (`.claude/workflow/**` and `.claude/skills/**`
+    # only), so they are modified live — this never matches a real file on a
+    # workflow-modifying branch. It is left inert rather than removed: it
+    # changes no
     # observable behaviour (no staged agent ever exists) and removing it
     # would break the staged-discovery test's assertion. Live agent files
     # enter rules 6 and 7 through the SEPARATE rules-6/7-only citing scope
@@ -1075,13 +1077,14 @@ def discover_bootstrap_scope(repo_root: Path) -> List[Path]:
 # Instead agents enter a SEPARATE citing scope that runs only rule 6
 # (cross-file ref suffix subset) and rule 7 (bootstrap presence) — the two
 # rules that stay live for agents (outgoing workflow-doc refs carry the
-# suffix; each agent carries the bootstrap block). Agents are modified live,
-# not staged, per `conventions.md` §1.7(e), so the scope walks the live
-# `.claude/agents/` directory directly. The dead staged-agents glob in
+# suffix; each agent carries the bootstrap block). Agent files fall outside
+# `conventions.md` §1.7(e)'s stageable-path scope (`.claude/workflow/**` and
+# `.claude/skills/**` only), so they are modified live and the scope walks the
+# live `.claude/agents/` directory directly. The dead staged-agents glob in
 # `IN_SCOPE_GLOBS` (`docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md`)
-# is left inert — §1.7 forbids staging agents, so it never matches a real
-# file on a workflow-modifying branch; removing it would break the
-# staged-discovery test's assertion without changing observable behaviour.
+# is left inert — agents are outside §1.7's stageable-path scope, so it never
+# matches a real file on a workflow-modifying branch; removing it would break
+# the staged-discovery test's assertion without changing observable behaviour.
 #
 # This walk mirrors `discover_bootstrap_scope`'s agent half (rule 7 already
 # consults that set) so the two never drift: the agent citing scope and the
@@ -1095,9 +1098,10 @@ def discover_agent_citing_files(repo_root: Path) -> List[Path]:
     Mirrors the agent slice of `discover_bootstrap_scope`. Returns the live
     agent files in sorted order; missing directory yields an empty list.
     These files are run through rules 6 and 7 only — never rules 1/2/3/4/5/8.
-    Agents are not staged (`conventions.md` §1.7(e)), so only the live
-    directory is walked; a staged copy would be a convention violation and is
-    not discovered.
+    Agent files fall outside `conventions.md` §1.7(e)'s stageable-path scope
+    (`.claude/workflow/**` and `.claude/skills/**` only), so they are modified
+    live and only the live directory is walked; no staged copy is expected or
+    discovered.
     """
     paths: List[Path] = []
     agents_dir = repo_root / ".claude" / "agents"
@@ -2190,7 +2194,8 @@ def validate(
     - **Live agent files** (`.claude/agents/*.md`): only rules 6 and 7
       apply. Agent files carry the bootstrap block and suffix-annotated
       outgoing refs but no TOC, per-section annotations, or workflow-sha
-      stamp — so rules 1/2/3/4/5/8 are gated off for them.
+      stamp (§1.6(f): only `_workflow/**` artifacts are stamped) — so
+      rules 1/2/3/4/5/8 are gated off for them.
       Agents are not in `IN_SCOPE_GLOBS` precisely because that set runs
       the full eight-rule pass; the separate scope below applies the
       per-rule gate.
