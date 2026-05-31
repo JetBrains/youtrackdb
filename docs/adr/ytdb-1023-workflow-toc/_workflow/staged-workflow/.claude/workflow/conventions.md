@@ -1392,7 +1392,9 @@ match in (f). The subset rule here answers whether a reference's
 claimed scope is valid, so a citer's `any` does not widen against a
 narrower target. The reader-side match answers which sections a reader
 opens, so a reader whose own role or phase is `any` is audience-
-agnostic on that axis and considers every row. The two operations
+agnostic on that axis and considers every row; the match also honors a
+row's own `any`, which matches every reader on that axis (the full
+two-sided rule lives in (f)). The two operations
 never conflict: one validates a written reference, the other decides
 what to read.
 
@@ -1439,10 +1441,11 @@ section with a `Read(offset, limit)` call.
 ```mermaid
 flowchart TD
     READ_REF["Agent encounters<br/>name.md:roles:phases<br/>in SKILL.md, prompt, or agent file"]
-    MATCH{"Own role in roles<br/>AND own phase in phases?"}
+    MATCH{"Own role in roles<br/>AND own phase in phases?<br/>(reader's own any on either<br/>axis matches every ref)"}
     SKIP["Skip — no open"]
     OPEN["Open file"]
     READ_TOC["Read TOC region<br/>(start to end delimiter,<br/>not a fixed line count)"]
+    READ_FULL["Read file in full"]
     SECTION_MATCH{"Section row matches?<br/>(reader's own any on either<br/>axis matches every row)"}
     SKIP_SECTION["Skip section,<br/>continue scan"]
     JUMP["Read with offset<br/>jump to §X.Y"]
@@ -1452,15 +1455,23 @@ flowchart TD
     MATCH -->|no| SKIP
     MATCH -->|yes| OPEN
     OPEN --> READ_TOC
+    READ_TOC -->|no TOC region| READ_FULL
     READ_TOC --> SECTION_MATCH
+    READ_FULL --> DONE
     SECTION_MATCH -->|no| SKIP_SECTION
     SECTION_MATCH -->|yes| JUMP
     JUMP --> DONE
 ```
 
 The load-bearing properties: the file-level filter avoids the open
-when neither role nor phase matches; the TOC filter avoids the
-full-section read when the section's role+phase doesn't match.
+when neither role nor phase matches, with the same `any` expansion as
+the section level (the reader's own `any` on either axis matches every
+ref, and a ref whose own roles or phases is `any` matches the reader);
+the TOC filter avoids the full-section read when the section's
+role+phase doesn't match. When the opened file carries no TOC region
+(a file with no `## ` headings carries none, per (d)), there is nothing
+to match against, so the reader reads the file in full rather than
+filtering.
 
 The reader reads the TOC region from the `<!--Document index start-->`
 delimiter to the `<!--Document index end-->` delimiter rather than a

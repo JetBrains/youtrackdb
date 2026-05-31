@@ -8,14 +8,14 @@ model: opus
 
 When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
 
-1. Read the TOC region — from `<!--Document index start-->` to `<!--Document index end-->`. On large files like `conventions.md` this exceeds 30 lines; read to the closing delimiter rather than stopping at a fixed count.
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (files with no `## ` headings carry none, per `§1.8(d)`), read the file in full.
 2. Match TOC rows where Roles contains your role (or your role is `any`, or the row's Roles is `any`) AND Phases contains your phase (or your phase is `any`, or the row's Phases is `any`).
 3. Use `Read(offset, limit)` to read only matched sections.
 
 Your role: reviewer-dim-step,reviewer-dim-track.
 Your phase: 3B,3C.
 
-Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See conventions.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
