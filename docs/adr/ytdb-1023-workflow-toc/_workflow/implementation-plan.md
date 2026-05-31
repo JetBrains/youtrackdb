@@ -69,7 +69,7 @@ flowchart TD
 - **Reindex script + audit agent (Track 2)** — `workflow-reindex.py` is the mechanical Python script that scrapes annotations, rebuilds TOCs, and validates enum tokens. Modes: `--check` (CI / pre-commit) and `--write` (author rebuild). The `review-workflow-context-budget` agent absorbs the audit at PR review time.
 - **Telemetry script (Track 3)** — `measure-read-share.py` runs once per Phase 4 ADR creation, from the worktree only. Computes a percentages-only Read% snapshot over the worktree's transcript lifetime; embeds the output in `adr.md`. Updates `prompts/create-final-design.md` to invoke it.
 - **Annotated content (Track 4)** — single-commit-style universal rollout of TOC + per-section annotations across 49 files (~600 annotations, all author-written), plus conversion of every Markdown link to an in-scope `.md` target into a bare `name.md:roles:phases` cross-file ref and backtick-wrapping of non-annotatable targets (D13).
-- **Tail (Track 5)** — Bootstrap block insertion across 38 system-prompt files (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md`) plus the `:roles:phases` cross-reference suffix sweep on agent files and SKILL.md startup read-lists. `CLAUDE.md` is intentionally out of scope (general-purpose project guide, not workflow-specific). Migration replay verification on two active branches closes the acceptance criterion.
+- **Tail (Track 5)** — A HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6/7 validate the 20 live agent files, then bootstrap block insertion across 38 system-prompt files (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md`) plus the `:roles:phases` cross-reference suffix sweep on agent files and SKILL.md startup read-lists. `CLAUDE.md` is intentionally out of scope (general-purpose project guide, not workflow-specific). The in-branch verification is a static D7-premise check plus local `--check` and telemetry smokes; the two-branch `/migrate-workflow` replay closes the acceptance criterion as a post-merge procedure (D18), not an in-track commit.
 
 #### D1: Lock the enum at 15 roles + 8 phases
 
@@ -315,9 +315,13 @@ flowchart TD
   > **From Track 5 Phase A review:** the agent refs sweep must use whole-file `name.md:roles:phases` plus a separate backticked `§X.Y` for any sub-section pin (the combined cross-file-with-subsection form fails rule 8 in live prose), must not claim an H4-only token in a whole-file suffix (the rule 6 union is `##`/`###` only), and must backtick-wrap — not suffix — references to non-annotatable or out-of-in-scope targets (`.claude/docs/*` such as `architecture.md` / `testing-details.md` / `mcp-steroid/skills.md`, `house-style.md`, `design*.md`, the Phase 4 final artifacts, `CLAUDE.md`, `MEMORY.md`, and any agent-file-as-target). The dominant agent ref — the house-style `conventions.md §1.5` header in 19 of 20 agents — is a sub-section pin and takes the whole-file-plus-backticked-`§1.5` form. The `--check` green is staged-scoped plus the D17 live-agent scope on rules 2/3/4/5/6/7/8; the 49 rule_1 missing-stamp findings on staged copies are documented Phase-4 promotion residue, not defects.
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1 (re-validation after the Track 5 Phase A inline replan, D17 + D18)
 
-> Reset by the Track 5 Phase A inline replan (D17 + D18) for re-validation. The prior D16 re-validation summary is in git history at commit `64597efa88`.
+**Auto-fixed (mechanical)**: CR1 — the Component Map "Tail (Track 5)" bullet still asserted in-branch closure of the two-branch acceptance gate ("Migration replay verification on two active branches closes the acceptance criterion"), contradicting D18. Reframed to lead with the D17 reindex agent-scope fix and to scope the two-branch `/migrate-workflow` replay as a post-merge acceptance procedure (D18), with the in-branch verification limited to a static D7-premise check plus local `--check` and telemetry smokes.
+
+**Escalated (design decisions)**: none.
+
+> Re-validation provenance: this pass re-checked the D17 + D18 inline-replan material (commit `2f6b366c3d`). The prior D16 re-validation summary is in git history at commit `64597efa88`.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
