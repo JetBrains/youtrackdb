@@ -27,7 +27,7 @@ Author per-section TOC + annotations for every in-scope file: 31 under `.claude/
 - [x] 2026-05-31T06:26Z [ctx=info] Step 9 complete (commit cd435f9412) — deferred batch-1 link conversion (8 of 9 files carried links); full-set staged `--check` green on rules 2/3/4/5/6/8 (the 49 rule_1 staged-stamp findings are the Phase-4 reconcile residue). Track 4 Phase B complete.
 - [x] 2026-05-31T08:24Z [ctx=warning] Track-level code review iteration 1 fix applied (1/3 iterations) — Review fix commit e57b0b2068 (M1-M4, M6-M9 applied; M5 rejected; M10-M12 deferred). Gate-check fan-out NOT yet run — paused for context refresh at 33% (warning).
 - [x] 2026-05-31T10:57Z [ctx=info] Track-level code review iteration 1 gate-check PASS (1/3) — WP1, WI1-WI5, WS2, WH4 all VERIFIED; 0 STILL OPEN, 0 REGRESSION, 0 new findings. Review loop complete at iteration 1.
-- [ ] Track completion
+- [x] 2026-05-31T11:02Z [ctx=warning] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -80,6 +80,7 @@ summary at Phase C. -->
 All three reviews converged on one root cause: the reindex parser counts fenced headings/delimiters as real, so the track cannot reach a green `--check` by authoring alone. Findings were concrete, script-verified facts (re-confirmed directly against staged `conventions.md` §1.8 and the skill-file H1 reality), so they were accepted wholesale and incorporated into the decomposition rather than re-litigated across iterations; the corrected track file is the durable trace. Two findings needed user decisions (fence-fix scope, H1-less TOC placement) — resolved in the Decision Log above. Carried to Track 5: the H1-adjacency hand-off (Track 5's bootstrap block sits above Track 4's after-frontmatter TOC in H1-less files). Carried to Phase C: annotation semantic accuracy (roles/phases/summary) on Steps 2-6 is the focal-point concern `--check` cannot fully validate.
 
 - [x] Track-level code review iteration 1: PASS at iteration 1/3. Workflow-only cumulative diff (53 files, all under `.claude/` or `docs/adr/`) → baseline group skipped; six `review-workflow-*` dimensional reviewers ran against the diff. 12 synthesised findings: 8 applied in `Review fix: e57b0b2068` (M1-M4, M6-M9), 1 rejected (M5 — the flagged `summary=` was at the ≤120 cap; reviewers byte-miscounted the multi-byte `§`), 3 deferred (M10/M11 live-script hardening, episode-note only; M12 → Track 5 plan correction). The gate-check fan-out covered the four dimensions whose findings were applied (prompt-design WP1, instruction-completeness WI1-WI5, writing-style WS2, hook-safety WH4) and returned all-VERIFIED with 0 regressions and 0 new findings. Mechanical state at PASS: scoped `--check` over all 49 staged in-scope files green on rules 2/3/4/5/6/8; reindex suite 117/117; coverage gate n/a (workflow-only diff).
+- Track complete: Phase C closed at iteration 1/3 with zero unresolved findings and zero regressions. M12 routed to Track 5 via plan correction (commit e78e936752); M10/M11 left as live-script episode notes. The strategic summary is recorded as the Track 4 episode in `implementation-plan.md`. Track 4 marked `[x]` on user approval.
 
 ## Context and Orientation
 
