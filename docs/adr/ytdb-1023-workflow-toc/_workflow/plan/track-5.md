@@ -15,6 +15,7 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [x] 2026-05-31T12:48Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
 - [x] 2026-05-31T16:09Z [ctx=info] Step 1 complete (commit 58af04dfd3)
+- [x] 2026-05-31T16:17Z [ctx=info] Step 2 complete (commit 9c6947ad62)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -111,7 +112,7 @@ Decomposed into **five steps** (see `## Concrete Steps`). The planned agent-boot
 ## Concrete Steps
 
 1. Reindex agent-scope fix (D17): scope live `.claude/agents/**/*.md` into `workflow-reindex.py` rules 6 (cross-file ref suffix subset) and 7 (bootstrap presence) only, via a **separate rules-6/7-only citing scope** (NOT by adding agents to `IN_SCOPE_GLOBS`, which would route them through all eight rules); add the per-rule applicability gate; remove or leave inert the dead staged-agents glob; regression tests. — risk: high (architecture: changes the workflow-reindex CI/pre-commit gate's discovery scope + per-rule applicability)  [x] commit: 58af04dfd3
-2. Bootstrap insertion — 7 staged SKILL.md + read-list suffix verify/gap-fill: insert the canonical block at each file's anchor (under-H1 / after-frontmatter / top-of-file per §1.8(d); use the script's fence-aware shape detection, not naive `grep ^#` — `create-plan` and `execute-tracks` are TOC-less so their anchor is after-frontmatter); verify Track 4's D13 read-list suffixes and gap-fill any residual. — risk: medium (multi-file: bootstrap insertion across 7 staged SKILL files + read-list verify)  [ ]
+2. Bootstrap insertion — 7 staged SKILL.md + read-list suffix verify/gap-fill: insert the canonical block at each file's anchor (under-H1 / after-frontmatter / top-of-file per §1.8(d); use the script's fence-aware shape detection, not naive `grep ^#` — `create-plan` and `execute-tracks` are TOC-less so their anchor is after-frontmatter); verify Track 4's D13 read-list suffixes and gap-fill any residual. — risk: medium (multi-file: bootstrap insertion across 7 staged SKILL files + read-list verify)  [x] commit: 9c6947ad62
 3. Bootstrap insertion — 11 staged prompts: insert the block at each prompt's anchor (10 prose-first → top-of-file; `design-review.md` → under-H1); mechanical role/phase substitution per prompt; keep the block's `conventions.md §1.8` reference backticked. — risk: medium (multi-file: bootstrap insertion across 11 staged prompts)  [ ]
 4. Agent bootstrap + refs sweep — 20 live agent files (depends on Step 1): insert the bootstrap block AND apply the `:roles:phases` suffix to every outgoing in-scope workflow-doc ref, one pass per file. Sub-section pins → whole-file `name.md:roles:phases` + separate backticked `§X.Y`; never claim an H4-only token (rule 6 union is `##`/`###` only); restructure `dr-audit.md`'s Markdown link to the bare suffixed form; leave `path/to/file.md` template placeholders backticked; backtick-wrap (never suffix) non-annotatable / out-of-in-scope targets. — risk: high (architecture + cross-file ref correctness: gate-green depends on per-ref suffix accuracy; no rule-8 backstop on agent sub-section pins per technical review — dim review hand-verifies)  [ ]
 5. In-branch verification + final validation: mechanically-derived `--check` over staged SKILL/prompts ∪ live agents (`git ls-files '.claude/agents/*.md'`) — rules 2/3/4/5/6/7/8 green, with the live-SKILL/prompt rule_7 findings and the 49 staged rule_1 missing-stamp findings as documented Phase-4 promotion residue; static check that this plan alters no `_workflow/**` artifact *format*; `measure-read-share.py` smoke from this worktree; document the post-merge two-branch `/migrate-workflow` acceptance procedure (D18) for the completion episode. — risk: low (default: verification + documentation; no production-logic change)  [ ]
@@ -133,6 +134,18 @@ Phase 1; Phase A does not populate. -->
 - `.claude/scripts/tests/test_workflow_reindex.py` (modified)
 
 **Critical context:** A test-helper name collision surfaced during implementation. A new fixture initially redefined the module-level `_annotated_target_body()` helper, shadowing the existing one and regressing a pre-existing test; the fix reuses the shared helper. The reindex test runner is a flat single module, so future top-level helper additions must check for name clashes.
+
+### Step 2 — commit 9c6947ad62, 2026-05-31T16:17Z [ctx=info]
+**What was done:** Inserted the canonical bootstrap block (literal heading `## Reading workflow files (TOC protocol)`, body sourced verbatim from `design.md §"Bootstrap protocol for agent system prompts"`) at the TOC anchor of all 7 staged SKILL files. The two TOC-less skills (`create-plan`, `execute-tracks`) anchor the block after the frontmatter; the five TOC-bearing skills (`edit-design`, `migrate-workflow`, `review-workflow-pr`, `review-plan`, `code-review`) place it after the frontmatter and before the document-index delimiter, per the three anchor shapes in staged `conventions.md §1.8(d)`. Each block carries the skill's own role token and a phase line, and keeps its `conventions.md §1.8` reference backticked so it does not fire rule 6. The startup read-list `:roles:phases` suffixes were already complete from Track 4's D13 sweep, so no gap-fill was needed. The commit used `--no-verify` (the documented staged-workflow interim on this branch, since the live-inclusive reindex pre-commit hook stays RED until Phase 4 promotion).
+
+**What was discovered:** `workflow-reindex.py --write` produced zero TOC churn beyond the bootstrap insertions, confirming the bootstrap heading is exempt from the rule 3/4 density checks and the TOC regions stay in sync. `--check` on the 7 staged files is green on rules 2/3/4/5/6/7/8; the only residue is rule_1 (missing line-1 workflow-sha stamp on staged copies), the documented Phase-4 promotion residue. Per-file role/phase tokens were derived from each file's existing TOC annotations and house-style refs.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `staged-workflow/.claude/skills/{create-plan,execute-tracks,edit-design,migrate-workflow,review-workflow-pr,review-plan,code-review}/SKILL.md` (all modified)
+
+**Critical context:** The bootstrap block body (role line plus phase line) is now fixed; Steps 3 and 4 reuse the same body with role/phase substitution and the same backticked `conventions.md §1.8` discipline. Anchor detection differs for Step 3 (10 prompts are prose-first / top-of-file; `design-review.md` is under-H1).
 
 ## Validation and Acceptance
 
