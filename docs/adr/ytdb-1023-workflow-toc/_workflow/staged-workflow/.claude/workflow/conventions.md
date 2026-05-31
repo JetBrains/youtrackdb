@@ -1441,15 +1441,15 @@ section with a `Read(offset, limit)` call.
 ```mermaid
 flowchart TD
     READ_REF["Agent encounters<br/>name.md:roles:phases<br/>in SKILL.md, prompt, or agent file"]
-    MATCH{"Own role in roles<br/>AND own phase in phases?<br/>(reader's own any on either<br/>axis matches every ref)"}
+    MATCH{"Any of own roles in roles<br/>AND any of own phases in phases?<br/>(reader's own any on either<br/>axis matches every ref)"}
     SKIP["Skip — no open"]
     OPEN["Open file"]
     READ_TOC["Read TOC region<br/>(start to end delimiter,<br/>not a fixed line count)"]
     READ_FULL["Read file in full"]
-    SECTION_MATCH{"Section row matches?<br/>(reader's own any on either<br/>axis matches every row)"}
-    SKIP_SECTION["Skip section,<br/>continue scan"]
+    SECTION_MATCH{"Section row matches?<br/>(any of own roles in row's roles<br/>AND any of own phases in row's<br/>phases; reader's own any on either<br/>axis matches every row)"}
+    SKIP_SECTION["Skip section"]
     JUMP["Read with offset<br/>jump to §X.Y"]
-    DONE["Act on section content"]
+    DONE["Act on section content<br/>(or nothing if all rows skipped)"]
 
     READ_REF --> MATCH
     MATCH -->|no| SKIP
@@ -1460,6 +1460,8 @@ flowchart TD
     READ_FULL --> DONE
     SECTION_MATCH -->|no| SKIP_SECTION
     SECTION_MATCH -->|yes| JUMP
+    SKIP_SECTION -->|more rows| SECTION_MATCH
+    SKIP_SECTION -->|all rows skipped| DONE
     JUMP --> DONE
 ```
 
@@ -1469,20 +1471,29 @@ the section level (the reader's own `any` on either axis matches every
 ref, and a ref whose own roles or phases is `any` matches the reader);
 the TOC filter avoids the full-section read when the section's
 role+phase doesn't match. When the opened file carries no TOC region
-(a file with no `## ` headings carries none, per (d)), there is nothing
-to match against, so the reader reads the file in full rather than
-filtering.
+(a file whose only `## ` heading is the bootstrap block carries none,
+per (d)), there is nothing to match against, so the reader reads the
+file in full rather than filtering.
 
 The reader reads the TOC region from the `<!--Document index start-->`
 delimiter to the `<!--Document index end-->` delimiter rather than a
 fixed line count, because a large file's TOC (e.g. this section's own
-file) runs well past the first 20–30 lines. The TOC match expands the
+file) runs well past the first 20–30 lines. The match on each axis is
+any-of, not all-of: a multi-hat reader (set-valued roles or phases,
+such as `reviewer-dim-step,reviewer-dim-track` over `3B,3C`) matches a
+row when **any** of its roles is in the row's roles **and any** of its
+phases is in the row's phases, so the reader opens any section relevant
+to any of its hats. The TOC match expands the
 reader's own `any` on either axis: a reader whose role is `any`
 considers every row's roles, and a reader whose phase is `any`
 considers every row's phases (independently per axis). A row's own
 `any` in either field also matches every reader, as `target={any}`
 does for cross-file refs. This reader-side `any` expansion is distinct
 from the citer-side subset rule in (e); see the wildcard note there.
+When a TOC region exists but no row matches the reader's roles or
+phases, the file holds nothing for that reader — it reads no section
+and stops, rather than reading the file in full (the read-full branch
+is reserved for the no-TOC-region case above).
 
 For in-file refs the file-level match is trivially satisfied (the
 agent is already in the file); the reader skips the OPEN and READ_TOC
@@ -1529,8 +1540,10 @@ Three properties to read off the example:
   `Summary` cell reads from the annotation's `summary="..."` field
   verbatim too.
 - The TOC region's delimiters are literal HTML comments. A reader
-  scanning the first ~20 lines of a workflow file finds the table
-  between them.
+  scans from the `<!--Document index start-->` delimiter to the
+  `<!--Document index end-->` delimiter to find the table between them,
+  not a fixed line count (a large file's TOC runs well past the first
+  20–30 lines).
 
 ### (h) References
 <!-- roles=any phases=any summary="Decision-record pointers and design-doc cross-links for this section." -->
