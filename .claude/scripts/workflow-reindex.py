@@ -1522,16 +1522,22 @@ def check_rule_1_stamp_present(parsed: ParsedFile) -> List[Finding]:
 def check_rule_2_toc_region(parsed: ParsedFile) -> List[Finding]:
     """Rule 2: exactly one TOC region at the correct anchor; empty TOC accepted for files without `^## ` headings.
 
-    The anchor is one of two shapes per §1.8(d):
-    - directly under the document H1 (`# Title`) for files that carry
-      an H1 (workflow docs, prompts);
+    The anchor is one of three shapes per §1.8(d), tried in precedence
+    order (H1 > frontmatter > top-of-file):
+    - directly under the document H1 (`# Title`) for files that carry a
+      real (non-fenced) H1 (workflow docs, plus the one prompt that
+      opens with an H1);
     - immediately after the leading YAML frontmatter block for H1-less
-      SKILL.md files.
+      files that carry frontmatter (the frontmatter-bearing skill files);
+    - at the top of the file (the TOC delimiter is the first content)
+      for prose-first files with neither a real H1 nor leading
+      frontmatter (the H1-less prompts).
 
-    "Directly under" / "immediately after" is checked loosely: the only
-    content permitted between the anchor and the TOC start delimiter is
-    blank lines. Prose or another heading between the anchor and the TOC
-    is an anchor violation.
+    "Directly under" / "immediately after" / "at the top" is checked
+    loosely: the only content permitted between the anchor and the TOC
+    start delimiter is blank lines (or the bootstrap block, when
+    present). Prose or another heading between the anchor and the TOC is
+    an anchor violation.
     """
     h2_headings = [h for h in parsed.headings if h.level == 2 and not h.is_bootstrap]
     has_headings = len(h2_headings) > 0

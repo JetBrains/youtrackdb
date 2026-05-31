@@ -1146,7 +1146,13 @@ Field rules:
 
 Comma-separated lists carry no spaces (`roles=orchestrator,implementer`,
 not `roles=orchestrator, implementer`). The reindex script's regex
-enforces the no-space rule. An out-of-enum token in `roles=`,
+enforces the no-space rule.
+
+An annotated heading's text and its `summary="..."` must not contain a
+literal `|`. The TOC writer emits the row as
+`| {section} | {roles} | {phases} | {summary} |` with no pipe-escaping,
+so a literal `|` in either field splits the row and fires rule 3. Fence
+the heading if a pipe is unavoidable. An out-of-enum token in `roles=`,
 `phases=`, or a cross-file ref's suffix is a CI blocker under rule 5;
 the fix is either replace the token with an in-enum value or land a
 workflow-format commit adding the new token to (a) or (b) per the
@@ -1221,7 +1227,11 @@ Column order is fixed: `Section | Roles | Phases | Summary`. The
 summary cell reads from the section's annotation `summary="..."`
 field verbatim. `workflow-reindex.py --write` rebuilds the TOC table
 from the per-section annotation comments; the author does not maintain
-the TOC by hand.
+the TOC by hand. The author hand-places the empty
+`<!--Document index start-->` / `<!--Document index end-->` delimiter
+pair at the correct anchor first; `--write` fills and maintains the
+table body but does not create the region from scratch (it returns
+without action when no delimiter pair exists).
 
 - Section cell carries the heading text prefixed with `§`, with the
   `## ` / `### ` Markdown markers stripped (e.g., the heading
@@ -1242,9 +1252,9 @@ to the cited section (in-file refs). Cross-file refs use the full
 
 **Scope: every cross-file reference in an in-scope file carries the
 suffix, not only agent files and `SKILL.md` read-lists.** A cross-file
-reference to an in-scope annotated target — from any
+reference to an in-scope annotated target (from any
 `.claude/workflow/` doc, any `.claude/workflow/prompts/` prompt, a
-`SKILL.md` startup read-list, or a `.claude/agents/*.md` file — uses the
+`SKILL.md` startup read-list, or a `.claude/agents/*.md` file) uses the
 suffixed form. A Markdown link to an in-scope target
 (`[workflow.md](workflow.md)`, `[conventions.md §1.6](conventions.md)`)
 is converted to the bare suffixed form
@@ -1264,6 +1274,11 @@ per-section annotations). Wrap such a reference in an inline-backtick
 span (`` `CLAUDE.md` ``, `` `house-style.md` ``); the backtick
 exclusion below exempts it from the suffix requirement with no script
 change.
+
+`CLAUDE.md` is additionally script-exempt from the missing-suffix check
+even when not backtick-wrapped (the broad rule 6 contract carries this
+one carve-out); a bare `MEMORY.md` is not. Backtick-wrapping remains
+the recommended uniform treatment for all non-annotatable targets.
 
 **The reindex script's rule 6 flags every non-backticked, non-fenced
 bare `name.md` token that lacks a suffix.** This breadth is the
@@ -1296,6 +1311,15 @@ which file they are in. Cross-file refs may pin a sub-section by
 appending `§X.Y(z)` after the filename (`conventions.md§1.6(c):...`);
 the cross-vs-in-file split is on the file boundary, not on the
 presence of the sub-section anchor.
+
+The `name.md§X.Y(z):roles:phases` cross-file-with-subsection form
+validates only inside a fenced or inline-backtick span. In live
+(non-fenced, non-backticked) prose the in-file ref scanner matches the
+`§X.Y(z):roles:phases` tail independently of the `name.md` prefix and
+resolves `§X.Y(z)` against the citing file's own headings, so the form
+halts `--write` or fails rule 8. A live-prose sub-section pointer uses
+the whole-file form `name.md:roles:phases` (sub-section pinning is
+optional) plus a separate inline-backticked `§X.Y` token.
 
 **Basename collision — the bare form is the workflow-root file.** One
 basename today is shared by a `.claude/workflow/` root file and a
@@ -1337,7 +1361,10 @@ The check does not catch citer-too-narrow drift (a valid subset that
 no longer matches the citer's intent), which stays a human-review
 concern. Sub-section refs resolve to that section's annotation
 directly; file-level refs without a section anchor resolve to the
-union of every section's annotations in the target file. Refs inside
+union of every section's annotations in the target file. Annotation
+density and that whole-file role/phase union cover `##` and `###`
+headings only: `####` and deeper headings are not annotated, not in the
+TOC, and do not contribute to a whole-file ref's union. Refs inside
 fenced code blocks (including the worked example in (g)) **and refs
 inside inline backtick spans** (e.g., ``the form `§1.6(c):migrator,orchestrator:3A,3B,3C,4` is
 rewritten``) are excluded from validation; the same exclusion applies

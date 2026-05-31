@@ -4,14 +4,14 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Detection | orchestrator,planner | 2,3A | The two-phase detection bash: classify artifacts as stamped/unstamped, then fold or short-circuit to a drift signal. |
-| §No-drift normalization | orchestrator,planner | 2,3A | Collapse multiple stamps that fold to one BASE_SHA into a single normalization commit, guarded by a strict diff shape. |
-| §Skip conditions | orchestrator,planner | 2,3A | Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first. |
-| §Resolutions | orchestrator,planner | 2,3A | On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default. |
-| §Migrate now | orchestrator,planner | 2,3A | End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline. |
-| §Defer | orchestrator,planner | 2,3A | Continue this session and record a deferred-drift todo recited at session end. |
-| §Suppress | orchestrator,planner | 2,3A | Continue this session and silence the drift residue with no session-end reminder. |
-| §After the choice | orchestrator,planner | 2,3A | The chosen resolution holds for the session; Migrate ends it, Defer/Suppress continue startup. |
+| §Detection | orchestrator,planner | 1,2,3A | The two-phase detection bash: classify artifacts as stamped/unstamped, then fold or short-circuit to a drift signal. |
+| §No-drift normalization | orchestrator,planner | 1,2,3A | Collapse multiple stamps that fold to one BASE_SHA into a single normalization commit, guarded by a strict diff shape. |
+| §Skip conditions | orchestrator,planner | 1,2,3A | Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first. |
+| §Resolutions | orchestrator,planner | 1,2,3A | On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default. |
+| §Migrate now | orchestrator,planner | 1,2,3A | End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline. |
+| §Defer | orchestrator,planner | 1,2,3A | Continue this session and record a deferred-drift todo recited at session end. |
+| §Suppress | orchestrator,planner | 1,2,3A | Continue this session and silence the drift residue with no session-end reminder. |
+| §After the choice | orchestrator,planner | 1,2,3A | The chosen resolution holds for the session; Migrate ends it, Defer/Suppress continue startup. |
 
 <!--Document index end-->
 
@@ -43,7 +43,7 @@ re-invoke `/migrate-workflow` from this worktree.
 ---
 
 ## Detection
-<!-- roles=orchestrator,planner phases=2,3A summary="The two-phase detection bash: classify artifacts as stamped/unstamped, then fold or short-circuit to a drift signal." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="The two-phase detection bash: classify artifacts as stamped/unstamped, then fold or short-circuit to a drift signal." -->
 
 The Detection bash has two phases. **Phase 1** walks the active plan's
 `_workflow/**` artifacts and classifies each as stamped or unstamped
@@ -201,7 +201,7 @@ regex that `conventions.md` `§1.6(a1)` explicitly rejects
 ---
 
 ## No-drift normalization
-<!-- roles=orchestrator,planner phases=2,3A summary="Collapse multiple stamps that fold to one BASE_SHA into a single normalization commit, guarded by a strict diff shape." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Collapse multiple stamps that fold to one BASE_SHA into a single normalization commit, guarded by a strict diff shape." -->
 
 Fires only when Phase 2 reports the empty `git log` (no drift) but
 `STAMPED_SHAS` carries more than one distinct SHA — the active plan's
@@ -332,7 +332,7 @@ drift signal.
 ---
 
 ## Skip conditions
-<!-- roles=orchestrator,planner phases=2,3A summary="Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first." -->
 
 Three silent-skip conditions short-circuit before the prompt fires.
 Skip #1 and Skip #2 evaluate pre-Detection (cheap on-disk reads, no
@@ -375,7 +375,7 @@ falls through to the three-resolution prompt below.
 ---
 
 ## Resolutions
-<!-- roles=orchestrator,planner phases=2,3A summary="On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default." -->
 
 When drift surfaces (non-empty detection output and no skip
 condition matched), print the commit count, the short stamp-base SHA,
@@ -425,7 +425,7 @@ these substitutions verbatim; the Defer state-shape paragraph in
 particular points at the same rule.
 
 ### Migrate now
-<!-- roles=orchestrator,planner phases=2,3A summary="End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline." -->
 
 End the current session and instruct the user to re-invoke the
 migration skill from this worktree:
@@ -458,7 +458,7 @@ Step 1.5 fires before Step 2's aim prompt and before Step 1b's
 research, no plan files, no draft PR.
 
 ### Defer
-<!-- roles=orchestrator,planner phases=2,3A summary="Continue this session and record a deferred-drift todo recited at session end." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Continue this session and record a deferred-drift todo recited at session end." -->
 
 Continue this session. Record the deferred-drift count so the
 end-of-turn protocol can recite it at session end. Per-phase work
@@ -501,7 +501,7 @@ invocations and double-report against the next session's gate
 re-prompt, so the marker stays in-conversation only.
 
 ### Suppress
-<!-- roles=orchestrator,planner phases=2,3A summary="Continue this session and silence the drift residue with no session-end reminder." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Continue this session and silence the drift residue with no session-end reminder." -->
 
 Continue this session. Do **not** record the deferred-drift count.
 The session-end summary does not mention drift at all. Use this
@@ -515,7 +515,7 @@ ignore for now" versus "remind me at session end".
 ---
 
 ## After the choice
-<!-- roles=orchestrator,planner phases=2,3A summary="The chosen resolution holds for the session; Migrate ends it, Defer/Suppress continue startup." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="The chosen resolution holds for the session; Migrate ends it, Defer/Suppress continue startup." -->
 
 The user's choice applies for the remainder of the session; no
 re-check is required in the normal startup flow. After Migrate now,

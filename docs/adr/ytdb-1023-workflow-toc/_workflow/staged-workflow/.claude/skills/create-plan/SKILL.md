@@ -33,7 +33,7 @@ it. Otherwise, default to `$(git branch --show-current)`.
 **Ordering:** this step depends on the `<dir-name>` resolver above being complete and Step 1b's `mkdir` not yet having run — see the trailing paragraph below for the gate's Skip-#1 rationale.
 
 Invoke the drift gate defined in
-workflow-drift-check.md:planner:2,3A.
+workflow-drift-check.md:planner:1.
 The gate is shared with `/execute-tracks`; its intro names both callers
 and its body is caller-symmetric, so this step is a thin orchestration
 handoff rather than a re-statement of the bash. Run the gate's
