@@ -14,6 +14,7 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 ## Progress
 - [x] 2026-05-31T12:48Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
+- [x] 2026-05-31T16:09Z [ctx=info] Step 1 complete (commit 58af04dfd3)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -21,6 +22,8 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- Step 1 live smoke set the agent `--check` baseline that Steps 4/5 drive to green: every agent is rule_6 (un-swept refs) plus rule_7 (missing bootstrap) RED, and the per-rule gate bounds findings to rule_6×3 plus rule_7×20 (no rule-4 blast radius). `dr-audit.md` is the one non-uniform agent — its Markdown-link ref needs restructuring to the bare suffixed form (not a plain suffix), and its `implementation-plan.md` ref needs backtick-wrapping. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -107,7 +110,7 @@ Decomposed into **five steps** (see `## Concrete Steps`). The planned agent-boot
 
 ## Concrete Steps
 
-1. Reindex agent-scope fix (D17): scope live `.claude/agents/**/*.md` into `workflow-reindex.py` rules 6 (cross-file ref suffix subset) and 7 (bootstrap presence) only, via a **separate rules-6/7-only citing scope** (NOT by adding agents to `IN_SCOPE_GLOBS`, which would route them through all eight rules); add the per-rule applicability gate; remove or leave inert the dead staged-agents glob; regression tests. — risk: high (architecture: changes the workflow-reindex CI/pre-commit gate's discovery scope + per-rule applicability)  [ ]
+1. Reindex agent-scope fix (D17): scope live `.claude/agents/**/*.md` into `workflow-reindex.py` rules 6 (cross-file ref suffix subset) and 7 (bootstrap presence) only, via a **separate rules-6/7-only citing scope** (NOT by adding agents to `IN_SCOPE_GLOBS`, which would route them through all eight rules); add the per-rule applicability gate; remove or leave inert the dead staged-agents glob; regression tests. — risk: high (architecture: changes the workflow-reindex CI/pre-commit gate's discovery scope + per-rule applicability)  [x] commit: 58af04dfd3
 2. Bootstrap insertion — 7 staged SKILL.md + read-list suffix verify/gap-fill: insert the canonical block at each file's anchor (under-H1 / after-frontmatter / top-of-file per §1.8(d); use the script's fence-aware shape detection, not naive `grep ^#` — `create-plan` and `execute-tracks` are TOC-less so their anchor is after-frontmatter); verify Track 4's D13 read-list suffixes and gap-fill any residual. — risk: medium (multi-file: bootstrap insertion across 7 staged SKILL files + read-list verify)  [ ]
 3. Bootstrap insertion — 11 staged prompts: insert the block at each prompt's anchor (10 prose-first → top-of-file; `design-review.md` → under-H1); mechanical role/phase substitution per prompt; keep the block's `conventions.md §1.8` reference backticked. — risk: medium (multi-file: bootstrap insertion across 11 staged prompts)  [ ]
 4. Agent bootstrap + refs sweep — 20 live agent files (depends on Step 1): insert the bootstrap block AND apply the `:roles:phases` suffix to every outgoing in-scope workflow-doc ref, one pass per file. Sub-section pins → whole-file `name.md:roles:phases` + separate backticked `§X.Y`; never claim an H4-only token (rule 6 union is `##`/`###` only); restructure `dr-audit.md`'s Markdown link to the bare suffixed form; leave `path/to/file.md` template placeholders backticked; backtick-wrap (never suffix) non-annotatable / out-of-in-scope targets. — risk: high (architecture + cross-file ref correctness: gate-green depends on per-ref suffix accuracy; no rule-8 backstop on agent sub-section pins per technical review — dim review hand-verifies)  [ ]
@@ -117,6 +120,19 @@ Decomposed into **five steps** (see `## Concrete Steps`). The planned agent-boot
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 58af04dfd3, 2026-05-31T16:09Z [ctx=info]
+**What was done:** Landed the D17 reindex agent-scope fix in `workflow-reindex.py`. A new `discover_agent_citing_files` helper adds the 20 live `.claude/agents/*.md` files to a separate rules-6/7-only citing scope (it mirrors the agent slice of `discover_bootstrap_scope`, which rule 7 already consults). The `validate` loop now parses agent files and runs only rule 6 (cross-file ref suffix subset) and rule 7 (bootstrap presence) on them; a per-rule applicability gate keeps rules 1/2/3/4/5/8 structurally unreachable for agents. Agents stay out of `IN_SCOPE_GLOBS` by design, since that set drives the full eight-rule pass and `compute_write_plan`. The dead staged-agents glob in `IN_SCOPE_GLOBS` was left inert with a marking comment (removing it would break an existing staged-discovery test without changing behavior). Seven regression tests cover the five required assertions plus a present-bootstrap positive and a non-subset rule-6 case; the full suite is 124/124 green. The step-level dimensional review (consistency, hook-safety, context-budget; baseline group skipped on the workflow-only diff) passed. `Review fix: 38f3e815f8` applied two consistency suggestions: WC1 softened the script's overstated "§1.7(e) forbids staging agents" comment at three sites to "agent files fall outside §1.7(e)'s stageable-path scope, so they are modified live", and WC2 added a §1.6(f) anchor to the rule-1 agent-gating rationale. The consistency gate-check verified both at iteration 2.
+
+**What was discovered:** The live smoke confirms the intended flip. `--check --files .claude/agents/dr-audit.md` now exits 1 with rule_7 (missing bootstrap) plus rule_6 findings, where it exited 0 with zero findings before the fix. Full-tree agent findings are bounded to rule_6×3 plus rule_7×20; the per-rule gate prevents the roughly 360-finding rule-4 blast radius the `IN_SCOPE_GLOBS` alternative would have produced. `--write` leaves all 20 agent files byte-identical (TOC-inert). For Step 4 within this track, `dr-audit.md` is the one non-uniform agent. Its `[conventions.md §1.5 ...](../workflow/conventions.md)` Markdown link fires rule_6 twice (the bare link-text `conventions.md` plus the unresolvable `workflow/conventions.md` target), so Step 4 must restructure it to the bare suffixed form rather than merely suffix it; its `implementation-plan.md` reference targets a non-in-scope artifact and must be backtick-wrapped. The `review-workflow-*` agents' `path/to/file.md` placeholders stay backticked, since suffixing them creates phantom refs.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `.claude/scripts/workflow-reindex.py` (modified)
+- `.claude/scripts/tests/test_workflow_reindex.py` (modified)
+
+**Critical context:** A test-helper name collision surfaced during implementation. A new fixture initially redefined the module-level `_annotated_target_body()` helper, shadowing the existing one and regressing a pre-existing test; the fix reuses the shared helper. The reindex test runner is a flat single module, so future top-level helper additions must check for name clashes.
 
 ## Validation and Acceptance
 
