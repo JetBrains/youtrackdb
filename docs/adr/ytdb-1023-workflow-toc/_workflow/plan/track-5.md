@@ -192,3 +192,7 @@ belong to one specific step. Per-step episode content lives in
 
 - `workflow-reindex.py` discovery/validation internals (D17, Step 1): a **separate rules-6/7-only citing scope** for live `.claude/agents/**` (mirroring the existing `discover_bootstrap_scope` set that rule 7 already consults) plus a per-rule applicability gate in the `validate` loop — NOT an addition to `IN_SCOPE_GLOBS`, which would route agents through all eight rules and over-fire rules 2/3/4/5/8. The exact function names are an implementation detail of Step 1; no public signature changes.
 - Otherwise this track is bootstrap-block insertion and text substitution in Markdown files plus the in-branch verification smokes and the documented post-merge `/migrate-workflow` procedure.
+
+## Base commit
+
+b722c11e6ed7766b3e1f3b309a9f64b2139fb64f
