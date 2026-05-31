@@ -229,7 +229,7 @@ flowchart TD
 - **Alternatives considered**: leave the match rule as-is and accept that `any`-axis readers under-read (defeats the load-on-demand goal for the two standalone agents and any future `any`-axis role); fix only the `design.md` source and let the 38 files drift until Phase 4 (ships the wrong instruction on the branch, breaks the universal-rollout contract).
 - **Risks/Caveats**: the corrected body is wordier. Rule 7 still validates presence only, so future body drift stays gate-invisible — unchanged exposure (documented in D8). The re-propagation re-edits the staged Steps 2-3 output and the live Step 4 commit `09e2e0c521`; those steps' insertion mechanics stand, only the shared body changes.
 - **Implemented in**: Track 5 (new bootstrap-body-correction step; `design.md` body corrected in the inline-replan commit via `edit-design`)
-- **Full design**: design.md §"Bootstrap protocol for agent system prompts"; conventions.md §1.8(e) (wildcard distinction), §1.8(f) (read-decision flow)
+- **Full design**: design.md §"Bootstrap protocol for agent system prompts" (corrected body); conventions.md §1.8(e) (wildcard distinction), §1.8(f) (read-decision flow). The design.md §"Cross-reference convention" Read-decision-flow diagram still depicts the pre-D19 cross-file flow (the `READ_TOC` node's fixed `~20 lines` read window; the `MATCH`/`SECTION_MATCH` nodes' no-`any`-wildcard match rule) and joins the Phase 4 `design-final.md` deferred-drift basket with the D13/D14/D15/D16 §"Cross-reference convention" / §"Discovery mechanism" reconciliations.
 
 ### Invariants
 
@@ -327,7 +327,11 @@ flowchart TD
   > **From Track 5 Step 4 dim review (D19 inline replan):** Step 4's HIGH-risk dim review found the bootstrap block body carries inherited gaps in all 38 files and the frozen `design.md` — the reader-side match rule under-matches a reader whose own role or phase is `any` (`pr-reviewer`, `dr-audit`); the "first ~30 lines" read window truncates `conventions.md`'s ~80-line TOC; the closing line over-asserts that every inline ref carries a suffix. D19 corrects the body, and a new HIGH-risk bootstrap-body-correction step re-propagates it across all 38 files and aligns staged `conventions.md §1.8(e)/(f)`. The house-style `§1.5` reference takes the uniform whole-file-suffix-plus-backticked-`§1.5` form on all 20 agents (the form `dr-audit` and the SKILLs already use, validated by rule 6). The 11 prompts keep the fully-backticked `§1.5` span from Track 4, so the prompt-vs-SKILL/agent `§1.5` form differs — a Phase 4 `design-final.md` deferred-drift candidate, not an in-track fix.
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1 (D19 re-validation)
+
+**Auto-fixed (mechanical)**: S1 — design.md §"Cross-reference convention" Read-decision-flow diagram still shows the pre-D19 read-window and match-rule; itemized into the Phase 4 `design-final.md` deferred-drift basket via D19's `**Full design**` line (suggestion severity; the canonical §"Bootstrap protocol" body is already D19-corrected, so execution is unaffected).
+
+**Escalated (design decisions)**: none. Consistency review returned zero findings; structural review returned one suggestion (S1, above).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
