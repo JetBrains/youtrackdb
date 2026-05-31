@@ -262,14 +262,14 @@ Embedded at the top of each in-scope file (right after the YAML frontmatter, bef
 
 When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
 
-1. Read the first ~30 lines (TOC region between `<!--Document index start-->` and `<!--Document index end-->`).
-2. Match TOC rows where Roles contains your role AND Phases contains your phase.
+1. Read the TOC region — from `<!--Document index start-->` to `<!--Document index end-->`. On large files like `conventions.md` this exceeds 30 lines; read to the closing delimiter rather than stopping at a fixed count.
+2. Match TOC rows where Roles contains your role (or your role is `any`, or the row's Roles is `any`) AND Phases contains your phase (or your phase is `any`, or the row's Phases is `any`).
 3. Use `Read(offset, limit)` to read only matched sections.
 
 Your role: <role token from §1.8 role enum>.
 Your phase: <fixed for agent files and prompts; auto-resume-derived for SKILL.md>.
 
-Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening.
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
 ```
 
 Per-file variation: the role token is fixed for agent files (e.g., `reviewer-dim-step` in every dim-step agent) and for prompts (e.g., `reviewer-technical` in `prompts/technical-review.md`). For SKILL.md the phase line names how the orchestrator derives its current phase (e.g., "Your phase: determined by the auto-resume State in `workflow.md` § Startup Protocol").
@@ -294,6 +294,7 @@ The reindex script's rule 7 (new): every in-scope SKILL.md, `.claude/workflow/pr
 
 ### Edge cases / Gotchas
 
+- The step-2 reader-side match expands the reader's own `any` on either axis: an `any`-role or `any`-phase reader considers every TOC row. This differs from the one-way citer-side cross-reference subset rule in §"Cross-reference convention", where a citer's `any` never widens against a narrower target. The reader-side match answers which sections to open; the citer-side subset rule answers whether a reference's claimed scope is valid.
 - An agent file that genuinely never Reads a workflow file at runtime still carries the block per the uniformity rule. The ~30-line cost is negligible against the YTDB-1023 Read-share baseline.
 - A new in-scope file added after rollout must carry the block before its first commit. The reindex script catches the omission at CI time.
 - The block's role and phase tokens are the author's responsibility; the reindex script does not validate the tokens against the locked enum at this site. An out-of-enum token surfaces when an annotation or cross-ref elsewhere uses the same token and fails the existing rule 5 check.
