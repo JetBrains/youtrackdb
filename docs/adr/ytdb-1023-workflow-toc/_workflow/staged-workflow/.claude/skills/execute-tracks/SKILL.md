@@ -5,6 +5,19 @@ argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the first ~30 lines (TOC region between `<!--Document index start-->` and `<!--Document index end-->`).
+2. Match TOC rows where Roles contains your role AND Phases contains your phase.
+3. Use `Read(offset, limit)` to read only matched sections.
+
+Your role: orchestrator.
+Your phase: determined by the auto-resume State in `workflow.md` § Startup Protocol.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening.
+
 Read and follow the workflow for Phase 3 (Execution).
 
 > **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:orchestrator:2,3A,3B,3C,4 `§1.5` for the workflow-level anchor and tier mapping.

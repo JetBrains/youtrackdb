@@ -5,6 +5,19 @@ argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the first ~30 lines (TOC region between `<!--Document index start-->` and `<!--Document index end-->`).
+2. Match TOC rows where Roles contains your role AND Phases contains your phase.
+3. Use `Read(offset, limit)` to read only matched sections.
+
+Your role: orchestrator or reviewer-plan (whichever invoked this skill).
+Your phase: 2 (Plan Review).
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening.
+
 <!--Document index start-->
 
 | Section | Roles | Phases | Summary |
