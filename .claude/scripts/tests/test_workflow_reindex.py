@@ -1133,13 +1133,14 @@ def test_rule_5d_any_token_accepted_in_roles_and_phases() -> None:
 
 
 def _two_file_cross_ref_setup(root: Path, citer_body: str, target_body: str) -> None:
-    """Write a target conventions.md and a citing file under .claude/agents/.
+    """Write a §1.8 conventions.md plus an in-scope target and citer.
 
-    The fixture uses an `.claude/agents/` file as the citer because rule
-    6 applies to cross-file refs in agent files and SKILL.md. Agents are
-    not in the in-scope-glob set by default — to make the rule fire on
-    the agent file we instead place the citer under `.claude/workflow/`
-    so the in-scope discovery picks it up.
+    Both the target and the citer live under `.claude/workflow/` so the
+    `IN_SCOPE_GLOBS` discovery picks them up and runs the full eight-rule
+    pass on the citer (these rule-6 tests want a workflow-doc citer, not
+    an agent citer). The rules-6/7-only agent citing scope is covered by
+    the dedicated agent-scope tests with their own fixture setup
+    (`_agent_cross_ref_setup`).
     """
     _write_conventions(root)
     _write_in_scope_file(root, ".claude/workflow/target.md", target_body)
@@ -4454,6 +4455,322 @@ def test_fenced_bootstrap_heading_in_gap_not_accepted() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Live agent files enter a SEPARATE rules-6/7-only citing scope.
+#
+# Agent files (`.claude/agents/*.md`) are loaded as sub-agent system
+# prompts; the Read tool never opens them, so per-section annotations
+# would save no Read-tool tokens — the schema keeps agents refs-only.
+# They are therefore deliberately NOT in `IN_SCOPE_GLOBS` — routing them
+# through the full eight-rule pass would fire rules 1/2/3/4/5/8 on files
+# the schema exempts. A separate citing scope runs only rule 6 (cross-file
+# ref suffix subset) and rule 7 (bootstrap presence) on the 20 live agents.
+#
+# These tests build a hermetic fixture tree with a §1.8 conventions.md,
+# an annotated in-scope target the agent ref resolves against, and one
+# or more `.claude/agents/*.md` files, then assert that:
+#   1. a missing bootstrap heading on an agent → rule 7 fires;
+#   2. a non-subset / missing-suffix agent ref → rule 6 fires;
+#   3. an agent's in-prose `§X.Y` → NO rule-8 finding;
+#   4. an agent with un-annotated `##` headings → NO rule-2 and NO
+#      rule-4 finding (the 360-vs-20 blast-radius case);
+#   5. `--write` leaves agent files TOC-inert (no TOC region injected).
+# ---------------------------------------------------------------------------
+
+
+def _write_agent_file(root: Path, name: str, body: str) -> Path:
+    """Write `body` to `root/.claude/agents/<name>`, creating parents."""
+    return _write_in_scope_file(root, f".claude/agents/{name}", body)
+
+
+def _agent_cross_ref_setup(root: Path, agent_bodies: dict) -> None:
+    """Write conventions.md, an annotated in-scope target, and agent files.
+
+    `agent_bodies` maps `<name>.md` to the agent file body. The target
+    is `.claude/workflow/target.md` (the resolvable cross-file ref
+    target the agents cite). It reuses the shared `_annotated_target_body`
+    fixture, whose §1.6 file-level union is `roles=orchestrator,implementer
+    phases=3B` — so a ref of `target.md:orchestrator:3B` subset-passes and
+    a ref claiming `reviewer-technical` is a non-subset violation.
+    """
+    _write_conventions(root)
+    _write_in_scope_file(root, ".claude/workflow/target.md", _annotated_target_body())
+    for name, body in agent_bodies.items():
+        _write_agent_file(root, name, body)
+
+
+def test_d17_agent_missing_bootstrap_heading_fires_rule_7() -> None:
+    """An agent file without the bootstrap heading fires rule 7 (presence check).
+
+    Scenario: a live agent file carrying a correctly-suffixed outgoing
+    ref but no `## Reading workflow files (TOC protocol)` heading.
+    Expected: rule 7 fires (the agent is in the bootstrap-presence scope
+    via the agent citing scope); rule 6 stays clean (the ref is valid).
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Suffix matches the target's annotation exactly, so rule 6 is
+        # clean — isolating the rule-7 missing-bootstrap signal.
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            This agent cites target.md:orchestrator:3B in its body.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent})
+        findings = MODULE.validate(root)
+        agent_findings = _findings_for_path(findings, ".claude/agents/demo-agent.md")
+        rule7 = [f for f in agent_findings if f.rule == "rule_7"]
+        assert rule7, (
+            "expected rule_7 to fire on an agent missing the bootstrap heading; "
+            f"got {agent_findings}"
+        )
+        # The valid suffixed ref must not produce a rule-6 finding.
+        rule6 = [f for f in agent_findings if f.rule == "rule_6"]
+        assert not rule6, f"valid agent ref should not fire rule_6; got {rule6}"
+
+
+def test_d17_agent_present_bootstrap_heading_no_rule_7() -> None:
+    """An agent file WITH the bootstrap heading produces no rule-7 finding.
+
+    Scenario: same as above but with the literal bootstrap heading
+    present. Expected: rule 7 stays silent (presence satisfied).
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap body teaching the TOC-aware reading protocol.
+
+            This agent cites target.md:orchestrator:3B in its body.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent})
+        findings = MODULE.validate(root)
+        agent_findings = _findings_for_path(findings, ".claude/agents/demo-agent.md")
+        rule7 = [f for f in agent_findings if f.rule == "rule_7"]
+        assert not rule7, (
+            f"agent with the bootstrap heading should not fire rule_7; got {rule7}"
+        )
+
+
+def test_d17_agent_missing_suffix_ref_fires_rule_6() -> None:
+    """A bare (un-suffixed) cross-file ref in an agent fires rule 6.
+
+    Scenario: a live agent file citing a bare `target.md` with no
+    `:roles:phases` suffix. Expected: rule 6 fires (missing-suffix), the
+    same way it fires on workflow-doc citers — the agent citing scope
+    brings agent files into rule 6's reach.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            See target.md for the cross-file convention details.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent})
+        findings = MODULE.validate(root)
+        agent_findings = _findings_for_path(findings, ".claude/agents/demo-agent.md")
+        rule6 = [f for f in agent_findings if f.rule == "rule_6"]
+        assert any(
+            "target.md" in f.explanation and "missing" in f.explanation for f in rule6
+        ), f"expected rule_6 missing-suffix finding on the agent ref; got {agent_findings}"
+
+
+def test_d17_agent_non_subset_ref_fires_rule_6() -> None:
+    """An agent ref claiming a role the target does not grant fires rule 6 (subset check).
+
+    Scenario: the target's file-level union is `roles=orchestrator`; the
+    agent cites `target.md:reviewer-technical:3B`. Expected: rule 6 fires
+    on the role subset violation — the subset check applies to agent
+    citers exactly as it does to workflow-doc citers.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            This agent cites target.md:reviewer-technical:3B in its body.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent})
+        findings = MODULE.validate(root)
+        agent_findings = _findings_for_path(findings, ".claude/agents/demo-agent.md")
+        rule6 = [f for f in agent_findings if f.rule == "rule_6"]
+        assert any(
+            "not a subset" in f.explanation for f in rule6
+        ), f"expected rule_6 subset-violation finding on the agent ref; got {agent_findings}"
+
+
+def test_d17_agent_in_prose_section_ref_no_rule_8() -> None:
+    """An agent's in-prose `§X.Y` reference produces NO rule-8 finding.
+
+    Rule 8 (in-file ref auto-stamp) does NOT apply to agent files — they
+    carry no per-section annotations to auto-stamp against. The per-rule
+    applicability gate must keep rule 8 off agents even when an
+    agent body contains a bare `§X.Y` token that would trip rule 8 on a
+    workflow doc.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            The house-style rule lives in conventions.md §1.5 and applies here.
+
+            This agent cites target.md:orchestrator:3B in its body.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent})
+        findings = MODULE.validate(root)
+        agent_findings = _findings_for_path(findings, ".claude/agents/demo-agent.md")
+        rule8 = [f for f in agent_findings if f.rule == "rule_8"]
+        assert not rule8, (
+            "rule_8 must not fire on an agent's in-prose §X.Y reference "
+            f"(it does not apply to agent files); got {rule8}"
+        )
+
+
+def test_d17_agent_unannotated_headings_no_rule_2_no_rule_4() -> None:
+    """An agent with un-annotated `##` headings fires NEITHER rule 2 NOR rule 4.
+
+    This is the 360-vs-20 blast-radius case: without the per-rule
+    applicability gate, every un-annotated `##`/`###` heading across the
+    20 agents would emit a rule-4 finding (~360 total) plus a rule-2
+    missing-TOC finding per file (20). The gate keeps rules 2 and 4 off
+    agent files entirely (agents are refs-only: no TOC, no per-section
+    annotations).
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # Several plain `##`/`###` headings, none annotated, and no TOC
+        # region — exactly the shape a real agent system prompt has.
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap body.
+
+            ## Role
+
+            You review code.
+
+            ## Output format
+
+            ### Findings
+
+            One finding per line.
+
+            This agent cites target.md:orchestrator:3B in its body.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent})
+        findings = MODULE.validate(root)
+        agent_findings = _findings_for_path(findings, ".claude/agents/demo-agent.md")
+        rule2 = [f for f in agent_findings if f.rule == "rule_2"]
+        rule4 = [f for f in agent_findings if f.rule == "rule_4"]
+        assert not rule2, (
+            "rule_2 (missing TOC) must not fire on an agent file with "
+            f"un-annotated headings; got {rule2}"
+        )
+        assert not rule4, (
+            "rule_4 (missing annotation) must not fire on an agent file's "
+            f"un-annotated headings — the blast-radius gate; got {rule4}"
+        )
+        # Sanity: rules 1, 3, 5, 8 are likewise gated off; only rules 6/7
+        # may appear. Here the ref is valid and the bootstrap is present,
+        # so the agent should be entirely clean.
+        gated_off = [
+            f
+            for f in agent_findings
+            if f.rule in {"rule_1", "rule_2", "rule_3", "rule_4", "rule_5", "rule_8"}
+            or f.rule.startswith("rule_5")
+        ]
+        assert not gated_off, (
+            "only rules 6/7 may fire on an agent file; got gated-off "
+            f"findings {gated_off}"
+        )
+
+
+def test_d17_write_leaves_agent_files_toc_inert() -> None:
+    """`--write` injects no TOC region into an agent file (agents are TOC-inert).
+
+    Agents stay out of `IN_SCOPE_GLOBS`, so `compute_write_plan` never
+    parses or rewrites them. The agent file's bytes must be unchanged
+    after a full `--write` pass, and no `<!--Document index start-->`
+    delimiter may appear in it.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent_body = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap body.
+
+            ## Role
+
+            You review code. This agent cites target.md:orchestrator:3B.
+            """
+        )
+        _agent_cross_ref_setup(root, {"demo-agent.md": agent_body})
+        agent_path = root / ".claude" / "agents" / "demo-agent.md"
+        before = agent_path.read_text(encoding="utf-8")
+        # Drive --write through compute_write_plan / apply_write_plan
+        # against the fixture root (main() uses the module-global
+        # REPO_ROOT, so call the functions directly with the fixture root).
+        plan = MODULE.compute_write_plan(root)
+        MODULE.apply_write_plan(plan)
+        after = agent_path.read_text(encoding="utf-8")
+        assert after == before, (
+            "--write must leave agent files byte-identical (TOC-inert); "
+            "the file changed"
+        )
+        assert MODULE.TOC_START_DELIMITER not in after, (
+            "--write must not inject a TOC region into an agent file; "
+            "a TOC delimiter appeared"
+        )
+        # The agent path must not even be in the write plan's keyspace.
+        assert ".claude/agents/demo-agent.md" not in plan, (
+            "agent file leaked into the --write plan keyspace; agents must "
+            "stay out of IN_SCOPE_GLOBS"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -4847,6 +5164,34 @@ def main() -> int:
         (
             "fenced bootstrap heading in gap not accepted",
             test_fenced_bootstrap_heading_in_gap_not_accepted,
+        ),
+        (
+            "agent-scope: missing bootstrap heading fires rule_7",
+            test_d17_agent_missing_bootstrap_heading_fires_rule_7,
+        ),
+        (
+            "agent-scope: bootstrap heading present, no rule_7",
+            test_d17_agent_present_bootstrap_heading_no_rule_7,
+        ),
+        (
+            "agent-scope: missing-suffix ref fires rule_6",
+            test_d17_agent_missing_suffix_ref_fires_rule_6,
+        ),
+        (
+            "agent-scope: non-subset ref fires rule_6",
+            test_d17_agent_non_subset_ref_fires_rule_6,
+        ),
+        (
+            "agent-scope: in-prose §X.Y produces no rule_8",
+            test_d17_agent_in_prose_section_ref_no_rule_8,
+        ),
+        (
+            "agent-scope: un-annotated headings: no rule_2, no rule_4",
+            test_d17_agent_unannotated_headings_no_rule_2_no_rule_4,
+        ),
+        (
+            "agent-scope: --write leaves agent files TOC-inert",
+            test_d17_write_leaves_agent_files_toc_inert,
         ),
     ]
     for name, fn in tests:

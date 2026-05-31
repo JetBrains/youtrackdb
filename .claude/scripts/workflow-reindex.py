@@ -141,6 +141,15 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     # plan-scoped and only contains files the author chose to stage.
     "docs/adr/*/_workflow/staged-workflow/.claude/workflow/**/*.md",
     "docs/adr/*/_workflow/staged-workflow/.claude/skills/**/SKILL.md",
+    # Dead glob: `conventions.md` §1.7(e) forbids staging agent files — they
+    # are modified live — so this never matches a real file on a workflow-
+    # modifying branch. It is left inert rather than removed: it changes no
+    # observable behaviour (no staged agent ever exists) and removing it
+    # would break the staged-discovery test's assertion. Live agent files
+    # enter rules 6 and 7 through the SEPARATE rules-6/7-only citing scope
+    # in `discover_agent_citing_files`, never through `IN_SCOPE_GLOBS`
+    # (which would route them through all eight rules and over-fire rules
+    # 2/3/4/5/8 — see that function's docstring).
     "docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md",
 )
 
@@ -1041,6 +1050,56 @@ def discover_bootstrap_scope(repo_root: Path) -> List[Path]:
         for p in sorted(prompts_dir.glob("*.md")):
             if p.is_file():
                 paths.append(p)
+    agents_dir = repo_root / ".claude" / "agents"
+    if agents_dir.is_dir():
+        for p in sorted(agents_dir.glob("*.md")):
+            if p.is_file():
+                paths.append(p)
+    return paths
+
+
+# ---------------------------------------------------------------------------
+# Live agent-file citing scope — rules 6 and 7 only.
+#
+# Agent files (`.claude/agents/*.md`) are loaded as sub-agent system prompts;
+# the Read tool never opens them, so per-section annotations would save no
+# Read-tool tokens — the schema therefore keeps agents refs-only. They are
+# deliberately NOT in `IN_SCOPE_GLOBS`: routing them through the full
+# `validate` loop would fire rules 1/2/3/4/5/8 — demanding a workflow-sha
+# stamp (rule 1), a TOC region (rule 2), TOC/annotation parity (rules 3/4),
+# enum-token wellformedness (rule 5), and in-file ref auto-stamps (rule 8)
+# on files the schema exempts. Rule 4 alone would emit ~360 false findings
+# across the 20 agents (every un-annotated `##`/`###` heading) versus rule
+# 2's 20.
+#
+# Instead agents enter a SEPARATE citing scope that runs only rule 6
+# (cross-file ref suffix subset) and rule 7 (bootstrap presence) — the two
+# rules that stay live for agents (outgoing workflow-doc refs carry the
+# suffix; each agent carries the bootstrap block). Agents are modified live,
+# not staged, per `conventions.md` §1.7(e), so the scope walks the live
+# `.claude/agents/` directory directly. The dead staged-agents glob in
+# `IN_SCOPE_GLOBS` (`docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md`)
+# is left inert — §1.7 forbids staging agents, so it never matches a real
+# file on a workflow-modifying branch; removing it would break the
+# staged-discovery test's assertion without changing observable behaviour.
+#
+# This walk mirrors `discover_bootstrap_scope`'s agent half (rule 7 already
+# consults that set) so the two never drift: the agent citing scope and the
+# bootstrap scope's agent slice are the same 20 files.
+# ---------------------------------------------------------------------------
+
+
+def discover_agent_citing_files(repo_root: Path) -> List[Path]:
+    """Enumerate live `.claude/agents/*.md` files for the rules-6/7-only scope.
+
+    Mirrors the agent slice of `discover_bootstrap_scope`. Returns the live
+    agent files in sorted order; missing directory yields an empty list.
+    These files are run through rules 6 and 7 only — never rules 1/2/3/4/5/8.
+    Agents are not staged (`conventions.md` §1.7(e)), so only the live
+    directory is walked; a staged copy would be a convention violation and is
+    not discovered.
+    """
+    paths: List[Path] = []
     agents_dir = repo_root / ".claude" / "agents"
     if agents_dir.is_dir():
         for p in sorted(agents_dir.glob("*.md")):
@@ -2123,18 +2182,44 @@ def validate(
 ) -> List[Finding]:
     """Run every applicable rule against the in-scope file set.
 
+    Two citing scopes are validated:
+
+    - **In-scope workflow files** (`IN_SCOPE_GLOBS`): all eight rules
+      apply. These are workflow docs, prompts, the 7 workflow-referencing
+      SKILL.md files, and their staged copies.
+    - **Live agent files** (`.claude/agents/*.md`): only rules 6 and 7
+      apply. Agent files carry the bootstrap block and suffix-annotated
+      outgoing refs but no TOC, per-section annotations, or workflow-sha
+      stamp — so rules 1/2/3/4/5/8 are gated off for them.
+      Agents are not in `IN_SCOPE_GLOBS` precisely because that set runs
+      the full eight-rule pass; the separate scope below applies the
+      per-rule gate.
+
     `files_filter` is the optional `--files` scope. When provided, the
-    validator parses every in-scope file (so cross-file refs can resolve
-    targets that fall outside the filter) but only emits findings for
-    citing files whose repo-relative path appears in the filter set.
-    Paths in `files_filter` that are not in scope are silently dropped
-    per design.md §"Validation rules" → "Discovery-glob filter".
+    validator parses every in-scope file AND every agent file (so
+    cross-file refs can resolve targets that fall outside the filter) but
+    only emits findings for citing files whose repo-relative path appears
+    in the filter set. Paths in `files_filter` that are not in either
+    scope are silently dropped per design.md §"Validation rules" →
+    "Discovery-glob filter".
 
     Returns a list of findings sorted by (path, line, rule).
     """
     enums = load_bootstrap_enums(repo_root)
     parsed_files = parse_in_scope_files(repo_root)
     parsed_by_path = {pf.path: pf for pf in parsed_files}
+    # Live agent files form a separate citing scope (rules 6/7 only).
+    # They are parsed for cross-file ref scanning and bootstrap presence but
+    # are NOT added to the file_lookup keyspace: an agent file is never a
+    # valid cross-file ref TARGET (an agent-file-as-target is backtick-
+    # wrapped, not suffixed), so building the lookup from the in-scope set
+    # alone keeps agent basenames out of the target keyspace. The lookup
+    # the agents' rule-6 scan consults is the in-scope workflow lookup, which
+    # is exactly the set of valid suffix targets.
+    parsed_agent_files = [
+        parse_file(p, repo_root) for p in discover_agent_citing_files(repo_root)
+    ]
+    parsed_agent_by_path = {pf.path: pf for pf in parsed_agent_files}
     file_lookup = build_file_lookup(parsed_files)
     bootstrap_paths = frozenset(
         p.resolve().relative_to(repo_root.resolve()).as_posix()
@@ -2142,17 +2227,19 @@ def validate(
     )
     if files_filter is not None:
         # Normalise to repo-relative POSIX paths and silently drop
-        # out-of-scope entries.
+        # out-of-scope entries (neither in-scope nor an agent file).
         scoped: List[str] = []
         for raw in files_filter:
             normalised = _normalise_file_path(raw, repo_root)
             if normalised is None:
                 continue
-            if normalised in parsed_by_path:
+            if normalised in parsed_by_path or normalised in parsed_agent_by_path:
                 scoped.append(normalised)
         target_paths: FrozenSet[str] = frozenset(scoped)
     else:
-        target_paths = frozenset(parsed_by_path.keys())
+        target_paths = frozenset(parsed_by_path.keys()) | frozenset(
+            parsed_agent_by_path.keys()
+        )
     findings: List[Finding] = []
     for pf in parsed_files:
         if pf.path not in target_paths:
@@ -2165,6 +2252,15 @@ def validate(
         findings.extend(check_rule_6_cross_file_refs(pf, file_lookup))
         findings.extend(check_rule_7_bootstrap_block(pf, bootstrap_paths))
         findings.extend(check_rule_8_in_file_refs(pf))
+    # Agent files: rules 6 and 7 only (the per-rule applicability gate).
+    # Rules 1/2/3/4/5/8 are deliberately omitted — they do not apply to
+    # agent files (the schema keeps agents refs-only: no stamp, no TOC, no
+    # per-section annotations, no in-file auto-stamping).
+    for pf in parsed_agent_files:
+        if pf.path not in target_paths:
+            continue
+        findings.extend(check_rule_6_cross_file_refs(pf, file_lookup))
+        findings.extend(check_rule_7_bootstrap_block(pf, bootstrap_paths))
     findings.sort(key=lambda f: (f.path, f.line, f.rule))
     return findings
 
