@@ -16,6 +16,8 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [ ] Step implementation
 - [x] 2026-05-31T16:09Z [ctx=info] Step 1 complete (commit 58af04dfd3)
 - [x] 2026-05-31T16:17Z [ctx=info] Step 2 complete (commit 9c6947ad62)
+- [x] 2026-05-31T16:25Z [ctx=warning] Step 3 complete (commit e2d2853354)
+- [ ] 2026-05-31T16:25Z [ctx=warning] Paused before Step 4 (HIGH-risk fan-out) for context refresh — Steps 1-3 done, Steps 4-5 remain
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -113,7 +115,7 @@ Decomposed into **five steps** (see `## Concrete Steps`). The planned agent-boot
 
 1. Reindex agent-scope fix (D17): scope live `.claude/agents/**/*.md` into `workflow-reindex.py` rules 6 (cross-file ref suffix subset) and 7 (bootstrap presence) only, via a **separate rules-6/7-only citing scope** (NOT by adding agents to `IN_SCOPE_GLOBS`, which would route them through all eight rules); add the per-rule applicability gate; remove or leave inert the dead staged-agents glob; regression tests. — risk: high (architecture: changes the workflow-reindex CI/pre-commit gate's discovery scope + per-rule applicability)  [x] commit: 58af04dfd3
 2. Bootstrap insertion — 7 staged SKILL.md + read-list suffix verify/gap-fill: insert the canonical block at each file's anchor (under-H1 / after-frontmatter / top-of-file per §1.8(d); use the script's fence-aware shape detection, not naive `grep ^#` — `create-plan` and `execute-tracks` are TOC-less so their anchor is after-frontmatter); verify Track 4's D13 read-list suffixes and gap-fill any residual. — risk: medium (multi-file: bootstrap insertion across 7 staged SKILL files + read-list verify)  [x] commit: 9c6947ad62
-3. Bootstrap insertion — 11 staged prompts: insert the block at each prompt's anchor (10 prose-first → top-of-file; `design-review.md` → under-H1); mechanical role/phase substitution per prompt; keep the block's `conventions.md §1.8` reference backticked. — risk: medium (multi-file: bootstrap insertion across 11 staged prompts)  [ ]
+3. Bootstrap insertion — 11 staged prompts: insert the block at each prompt's anchor (10 prose-first → top-of-file; `design-review.md` → under-H1); mechanical role/phase substitution per prompt; keep the block's `conventions.md §1.8` reference backticked. — risk: medium (multi-file: bootstrap insertion across 11 staged prompts)  [x] commit: e2d2853354
 4. Agent bootstrap + refs sweep — 20 live agent files (depends on Step 1): insert the bootstrap block AND apply the `:roles:phases` suffix to every outgoing in-scope workflow-doc ref, one pass per file. Sub-section pins → whole-file `name.md:roles:phases` + separate backticked `§X.Y`; never claim an H4-only token (rule 6 union is `##`/`###` only); restructure `dr-audit.md`'s Markdown link to the bare suffixed form; leave `path/to/file.md` template placeholders backticked; backtick-wrap (never suffix) non-annotatable / out-of-in-scope targets. — risk: high (architecture + cross-file ref correctness: gate-green depends on per-ref suffix accuracy; no rule-8 backstop on agent sub-section pins per technical review — dim review hand-verifies)  [ ]
 5. In-branch verification + final validation: mechanically-derived `--check` over staged SKILL/prompts ∪ live agents (`git ls-files '.claude/agents/*.md'`) — rules 2/3/4/5/6/7/8 green, with the live-SKILL/prompt rule_7 findings and the 49 staged rule_1 missing-stamp findings as documented Phase-4 promotion residue; static check that this plan alters no `_workflow/**` artifact *format*; `measure-read-share.py` smoke from this worktree; document the post-merge two-branch `/migrate-workflow` acceptance procedure (D18) for the completion episode. — risk: low (default: verification + documentation; no production-logic change)  [ ]
 
@@ -146,6 +148,18 @@ Phase 1; Phase A does not populate. -->
 - `staged-workflow/.claude/skills/{create-plan,execute-tracks,edit-design,migrate-workflow,review-workflow-pr,review-plan,code-review}/SKILL.md` (all modified)
 
 **Critical context:** The bootstrap block body (role line plus phase line) is now fixed; Steps 3 and 4 reuse the same body with role/phase substitution and the same backticked `conventions.md §1.8` discipline. Anchor detection differs for Step 3 (10 prompts are prose-first / top-of-file; `design-review.md` is under-H1).
+
+### Step 3 — commit e2d2853354, 2026-05-31T16:25Z [ctx=warning]
+**What was done:** Inserted the canonical bootstrap block (literal heading `## Reading workflow files (TOC protocol)`, the same body Step 2 used, sourced from `design.md §"Bootstrap protocol for agent system prompts"`) into all 11 staged prompts under `staged-workflow/.claude/workflow/prompts/`, with per-prompt role/phase tokens drawn from the staged `conventions.md §1.8` enums. Placement follows §1.8(d): the 10 prose-first prompts take the top-of-file anchor (block before the existing TOC region, or at the literal top of `create-final-design.md`, which has no TOC region), and `design-review.md` takes the under-H1 anchor. The block keeps its `conventions.md §1.8` reference backticked. `--check` over the 11 staged paths is green on rules 2/3/4/5/6/7, with only the rule_1 missing-stamp residue. Committed `--no-verify` per the staged-workflow interim.
+
+**What was discovered:** `create-final-design.md` carries no TOC region and no real `##` headings (its only heading-like lines sit inside the fenced `adr.md` template, which the fence exclusion skips), so it is the one prose-first prompt where the bootstrap block sits at the literal top of file with the prose body directly below. A negative-control check confirmed the rule-5 enum source is the staged `conventions.md` (an injected out-of-enum token fires rule_5d and the message names the staged path), so the D14/D15 staged-aware lookup is active for prompt validation. The bootstrap block's own role/phase lines are not enum-validated by the script; they were hand-checked against §1.8.
+
+**What changed from the plan:** none.
+
+**Key files:**
+- `staged-workflow/.claude/workflow/prompts/{adversarial-review,consistency-gate-verification,consistency-review,create-final-design,design-review,dimensional-review-gate-check,review-gate-verification,risk-review,structural-gate-verification,structural-review,technical-review}.md` (all modified)
+
+**Critical context:** Step 4 (next session) reuses the same block body but with the agent anchor shape (after frontmatter, no TOC region — agents carry no per-section annotations per D6) and adds the refs-only `:roles:phases` suffix sweep that prompts did not need (Track 4 handled prompt cross-file refs). If a live agent maps to the Phase A review-gate verifier, reuse the multi-role token set `orchestrator,reviewer-technical,reviewer-risk,reviewer-adversarial` used on `review-gate-verification.md`.
 
 ## Validation and Acceptance
 
