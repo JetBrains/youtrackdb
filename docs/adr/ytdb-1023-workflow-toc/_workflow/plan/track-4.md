@@ -25,8 +25,11 @@ Author per-section TOC + annotations for every in-scope file: 31 under `.claude/
 - [x] 2026-05-29T16:03Z [ctx=info] Step 7 complete (commit ba57ed6913) — D16 `<skill-dir>/SKILL.md` lookup key; dim review PASS iter-1 (consistency/hook-safety/context-budget; workflow-only → baseline skipped; one deferred suggestion WC1); 117/117 reindex tests.
 - [x] 2026-05-29T16:30Z [ctx=info] Step 8 complete (commit 8fbd2e8aef) — 7 skill files staged + annotated (69 annotations across the 5 H1-less files; 2 heading-less files carry no TOC) + links converted; medium-risk, no dim review; rules 2/3/4/5/8 green on the batch, `edit-design/SKILL.md:final-designer:4` inbound ref clears.
 - [x] 2026-05-31T06:26Z [ctx=info] Step 9 complete (commit cd435f9412) — deferred batch-1 link conversion (8 of 9 files carried links); full-set staged `--check` green on rules 2/3/4/5/6/8 (the 49 rule_1 staged-stamp findings are the Phase-4 reconcile residue). Track 4 Phase B complete.
-- [ ] Track-level code review
+- [x] 2026-05-31T08:24Z [ctx=warning] Track-level code review iteration 1 fix applied (1/3 iterations) — Review fix commit e57b0b2068 (M1-M4, M6-M9 applied; M5 rejected; M10-M12 deferred). Gate-check fan-out NOT yet run — paused for context refresh at 33% (warning).
 - [ ] Track completion
+
+**PAUSED 2026-05-31 at Phase C iteration 1 (fix committed, gate-check fan-out pending) pending gate-check verification + track completion**
+- Handoff: handoff-track-4-phaseC.md
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
