@@ -13,7 +13,7 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 
 ## Progress
 - [x] 2026-05-31T12:48Z [ctx=info] Review + decomposition complete
-- [ ] Step implementation
+- [x] Step implementation
 - [x] 2026-05-31T16:09Z [ctx=info] Step 1 complete (commit 58af04dfd3)
 - [x] 2026-05-31T16:17Z [ctx=info] Step 2 complete (commit 9c6947ad62)
 - [x] 2026-05-31T16:25Z [ctx=warning] Step 3 complete (commit e2d2853354)
@@ -23,6 +23,7 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [ ] 2026-05-31T17:44Z [ctx=warning] Inline replan (D19) plan/track edits applied (D19 + D8 note + Track 5 note + roster Step 5 added + verification → Step 6 + Plan Review reset); PAUSED for context refresh before the `edit-design` design.md mutation + structural preview + final replan commit
 - [x] 2026-05-31T18:10Z [ctx=info] Inline replan (D19) complete: design.md bootstrap body corrected via edit-design (Mutation 12: mechanical PASS after fixing 2 pre-existing dangling-ref blockers, cold-read PASS, 1 pre-existing should-fix carried as known debt); advisory structural-review preview PASS; handoff resolved. Next: State 0 re-validation, then Phase B Step 5.
 - [x] 2026-05-31T19:24Z [ctx=warning] Step 5 complete (commit a7b7575e04, Review fix 21c3c5fe91)
+- [x] 2026-05-31T19:47Z [ctx=info] Step 6 complete (verification — no code commit)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -33,6 +34,7 @@ at Phase 1. -->
 
 - Step 1 live smoke set the agent `--check` baseline that Steps 4/5 drive to green: every agent is rule_6 (un-swept refs) plus rule_7 (missing bootstrap) RED, and the per-rule gate bounds findings to rule_6×3 plus rule_7×20 (no rule-4 blast radius). `dr-audit.md` is the one non-uniform agent — its Markdown-link ref needs restructuring to the bare suffixed form (not a plain suffix), and its `implementation-plan.md` ref needs backtick-wrapping. See Episodes §Step 1.
 - Step 5 dim review surfaced a next-layer bootstrap-body gap below D19 (file-level `any` under-match; missing no-TOC read-window complement), fixed in-step across the 38 files plus staged `conventions.md §1.8(e)/(f)` with the frozen `design.md §"Bootstrap protocol"` deferred to Phase 4 (joins the S1 deferred-drift basket). Cross-cutting lesson for future bootstrap-body edits: a bare cross-file `§X.Y(z)` anchor in the block trips reindex rule_8 on staged SKILL/prompt copies but passes on live agents (rule_8 is agent-exempt), so backtick-wrap any such anchor and run the scoped `--check` over the staged copies, not only agents. See Episodes §Step 5.
+- Step 6 reconciled the three rule_1 residue counts in the track text to one Phase-4-residue class at different scopes: 49 = the full 49-file staged-workflow tree, 18 = the mechanically-derived in-scope set (7 staged SKILL + 11 staged prompts; the 20 live agents are rule_1-exempt by the D17 gate). The Step 5 episode's "19 staged rule_1" was an off-by-one against 18. Phase 4's `adr.md` residue note should cite the "49 full-tree / 18 in-scope-set" pair. See Episodes §Step 6.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -127,7 +129,7 @@ Decomposed into **six steps** (see `## Concrete Steps`). The planned agent-boots
 3. Bootstrap insertion — 11 staged prompts: insert the block at each prompt's anchor (10 prose-first → top-of-file; `design-review.md` → under-H1); mechanical role/phase substitution per prompt; keep the block's `conventions.md §1.8` reference backticked. — risk: medium (multi-file: bootstrap insertion across 11 staged prompts)  [x] commit: e2d2853354
 4. Agent bootstrap + refs sweep — 20 live agent files (depends on Step 1): insert the bootstrap block AND apply the `:roles:phases` suffix to every outgoing in-scope workflow-doc ref, one pass per file. Sub-section pins → whole-file `name.md:roles:phases` + separate backticked `§X.Y`; never claim an H4-only token (rule 6 union is `##`/`###` only); restructure `dr-audit.md`'s Markdown link to the bare suffixed form; leave `path/to/file.md` template placeholders backticked; backtick-wrap (never suffix) non-annotatable / out-of-in-scope targets. — risk: high (architecture + cross-file ref correctness: gate-green depends on per-ref suffix accuracy; no rule-8 backstop on agent sub-section pins per technical review — dim review hand-verifies)  [x] commit: 09e2e0c521
 5. Bootstrap-body correction (D19, inline replan) — re-propagate the corrected bootstrap block body (reader-side `any`-axis match-rule expansion, delimiter-bounded read window, backtick-ref note) across all 38 files (7 staged SKILL + 11 staged prompts + 20 live agents) sourced from the corrected `design.md §"Bootstrap protocol for agent system prompts"`; align staged `conventions.md §1.8(f)` read-decision flow and add the `§1.8(e)` reader-`any`-vs-citer-`any` distinction; apply WC1 (the house-style `§1.5` ref takes the whole-file-suffix + backticked-`§1.5` form on all 20 agents) and WP3 (mirror the phase-`any` gloss on `dr-audit.md` / `pr-reviewer.md`); re-run the staged + live-agent `workflow-reindex.py --check` green (rules 2/3/4/5/6/7/8; the 49 staged rule_1 missing-stamp findings stay documented Phase-4 residue). — risk: high (cross-file body + schema correctness across 38 files plus a staged `§1.8` edit; rule 7 is presence-only so the body fix is gate-invisible — dim review hand-verifies)  [x] commit: a7b7575e04
-6. In-branch verification + final validation: mechanically-derived `--check` over staged SKILL/prompts ∪ live agents (`git ls-files '.claude/agents/*.md'`) — rules 2/3/4/5/6/7/8 green, with the live-SKILL/prompt rule_7 findings and the 49 staged rule_1 missing-stamp findings as documented Phase-4 promotion residue; static check that this plan alters no `_workflow/**` artifact *format*; `measure-read-share.py` smoke from this worktree; document the post-merge two-branch `/migrate-workflow` acceptance procedure (D18) for the completion episode. — risk: low (default: verification + documentation; no production-logic change)  [ ]
+6. In-branch verification + final validation: mechanically-derived `--check` over staged SKILL/prompts ∪ live agents (`git ls-files '.claude/agents/*.md'`) — rules 2/3/4/5/6/7/8 green, with the live-SKILL/prompt rule_7 findings and the 49 staged rule_1 missing-stamp findings as documented Phase-4 promotion residue; static check that this plan alters no `_workflow/**` artifact *format*; `measure-read-share.py` smoke from this worktree; document the post-merge two-branch `/migrate-workflow` acceptance procedure (D18) for the completion episode. — risk: low (default: verification + documentation; no production-logic change)  [x]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -196,6 +198,23 @@ Phase 1; Phase A does not populate. -->
 - `staged-workflow/.claude/workflow/conventions.md` — `§1.8(e)/(f)` alignment
 
 **Critical context:** For Step 6 and Phase 4: the scoped `workflow-reindex.py --check` (staged SKILL plus staged prompts ∪ `git ls-files '.claude/agents/*.md'`) is green on rules 2/3/4/5/6/7/8; the residue is 19 staged `rule_1` missing-stamp findings (documented Phase-4 promotion residue) and zero live-agent leak. Any future edit to the shared bootstrap body must run the scoped `--check` over the staged copies, not only agents (rule_8 is gated off for those files), and must backtick-wrap any cross-file `§X.Y(z)` anchor it introduces.
+
+### Step 6 — verification (no code commit), 2026-05-31T19:47Z [ctx=info]
+**What was done:** Ran the four read-only final-validation checks. No tracked file changed and no commit landed, the expected outcome per `## Idempotence and Recovery` ("Step 6: read-only checks, re-runnable with no side effects").
+
+(1) Scoped `workflow-reindex.py --check --files` over the mechanically-derived in-scope set (7 staged SKILL copies, 11 staged prompt copies, unioned with `git ls-files '.claude/agents/*.md'` for the 20 live agents; 38 files) returns rules 2/3/4/5/6/7/8 green. The only findings are 18 rule_1 missing-stamp findings on the staged SKILL and prompt copies, the documented Phase-4 promotion residue that clears when staged copies gain their line-1 workflow-sha stamp. Zero live-agent leak: no finding on any `.claude/agents/` path, confirming the D17 per-rule applicability gate keeps rules 1/2/3/4/5/8 unreachable for agents.
+
+(2) Static D7-premise check over `b722c11e6e..HEAD` (16 commits): every touched path sits under `.claude/` (live agents plus the reindex script) or this plan's own `docs/adr/ytdb-1023-workflow-toc/` dir. No commit touches another plan's `_workflow/**`, and none alters the `_workflow/**` artifact format (section names, mandatory artifacts, step-file schema). So `/migrate-workflow` replay is a content no-op for this plan.
+
+(3) `measure-read-share.py` smoke from this worktree runs cleanly (exit 0) and emits a percentages section, not a skip notice. I4 holds: shares only, no absolute token counts, no absolute paths.
+
+(4) Documented the post-merge two-branch `/migrate-workflow` acceptance procedure (D18) for the track-completion episode: after this plan squash-merges to develop, the user runs `/migrate-workflow` in a fresh session on two candidate branches rebased onto post-plan develop, confirming clean completion (a stamp-rewrite-only normalization or a silent skip). Candidate pool: `ytdb-612-rollback-log`, `read-cache-concurrency-bug`, `ytdb-614-property-map`, `failed-wal-recovery`; the two picks and the outcome resolve post-merge and land in the Track 5 completion episode and Phase 4 `adr.md`.
+
+**What was discovered:** The three rule_1 counts in the track text denote one Phase-4-residue class at different scopes: 49 is the full 49-file staged-workflow tree (every staged `.md` lacks the line-1 stamp pre-promotion), 18 is the mechanically-derived in-scope set (7 staged SKILL plus 11 staged prompts; the 20 live agents are rule_1-exempt by the D17 gate). The Step 5 episode's "19 staged rule_1" (Episodes §Step 5) was an off-by-one against the precise in-scope count of 18; per episode immutability it stands, corrected here. Phase 4's `adr.md` residue note should cite the "49 full-tree / 18 in-scope-set" pair.
+
+**Key files:** none (read-only verification; no file created or modified).
+
+**Critical context:** For Phase 4 promotion, an unscoped full-tree `--check` clears the 49 staged rule_1 missing-stamp findings; the live SKILL and prompt rule_7 findings (live copies stay develop-state until promotion) are the other half of that transition. The reusable in-branch verification invocation is the scoped `--check --files <staged SKILL ∪ staged prompts ∪ git ls-files '.claude/agents/*.md'>`; an unscoped full-tree `--check` stays RED until Phase 4 by design.
 
 ## Validation and Acceptance
 
