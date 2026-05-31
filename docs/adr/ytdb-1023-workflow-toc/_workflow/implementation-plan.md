@@ -132,6 +132,7 @@ flowchart TD
 - **Implemented in**: Track 5
 - **Full design**: design.md §"Bootstrap protocol for agent system prompts"
 - **Note (D13):** D13's widening reinforces D8 — once workflow docs and prompts carry cross-file suffixes, a spawned sub-agent needs the bootstrap block to apply the filter from its first Read. The bootstrap scope (38 system-prompt files) is unchanged.
+- **Note (D19):** D19 corrects the bootstrap block body — the reader-side `any`-axis expansion in the step-2 match rule, the delimiter-bounded read window, and the backtick-ref half-sentence. D8's 38-file embedding scope and presence-only rule-7 enforcement are unchanged.
 
 #### D9: In-file `§X.Y(z)` references auto-stamped by the reindex script with target-derived suffix
 
@@ -219,6 +220,16 @@ flowchart TD
 - **Risks/Caveats**: the real acceptance verification lands after merge, outside the `/execute-tracks` session graph, so it relies on the user running the documented procedure. Bounded by the issue closeout. D7's no-op premise is itself checked in-branch (static), so a surprise artifact-shape change would surface before merge.
 - **Implemented in**: Track 5 (in-branch dry-run plus premise check); post-merge acceptance procedure documented in the Track 5 completion episode and Phase 4 `adr.md`.
 - **Full design**: design.md §"Migration replay semantics" (already frames "post-plan develop"; no mutation needed) and §"Verification on two branches"; conventions.md §1.6 (drift range), `workflow-drift-check.md` (the gate's develop-independence this DR turns on).
+
+#### D19: Bootstrap block reader-side match rule expands the reader's own `any`; read window is delimiter-bounded
+
+- **What changed**: Track 5 Step 4's HIGH-risk dimensional review found the bootstrap block body (canonical source `design.md §"Bootstrap protocol for agent system prompts"`, propagated to all 38 system-prompt files and restated in `conventions.md §1.8(f)`) carries three body-level gaps the reindex gate cannot catch (rule 7 is presence-only): (a) the step-2 match rule "Roles contains your role AND Phases contains your phase" has no clause for a reader whose own role or phase is the wildcard `any`, so `pr-reviewer:any` / `dr-audit:any` match only rows that are both `roles=any` AND `phases=any` and skip every role- or phase-specific section; (b) step 1 hardcodes "first ~30 lines", but `conventions.md`'s TOC region is ~80 lines, so a literal reader truncates it; (c) the closing line over-asserts that every inline ref carries a suffix, ignoring backtick-wrapped non-annotatable refs.
+- **Revised decision**: the step-2 match rule expands a wildcard on either side — "Roles contains your role (or your role is `any`, or the row's Roles is `any`) AND Phases contains your phase (or your phase is `any`, or the row's Phases is `any`)". Step 1 keys the read on the `<!--Document index start-->`/`<!--Document index end-->` delimiters, not a fixed line count. The closing line gains a half-sentence: backtick-wrapped refs carry no suffix. The fix lands in the canonical `design.md` body (inline-replan commit, via `edit-design`), in `conventions.md §1.8(f)`, and across all 38 propagated files.
+- **Reader-`any` vs citer-`any` are distinct operations**: §1.8(e)'s cross-ref subset rule stays one-way — a *citer*'s `any` does not widen against a narrower target. The reader-side TOC match answers "which sections should I open?", so a reader whose own role or phase is `any` is audience-agnostic on that axis and considers every row. §1.8(e) gains a one-line pointer to (f) so the two do not read as contradictory.
+- **Alternatives considered**: leave the match rule as-is and accept that `any`-axis readers under-read (defeats the load-on-demand goal for the two standalone agents and any future `any`-axis role); fix only the `design.md` source and let the 38 files drift until Phase 4 (ships the wrong instruction on the branch, breaks the universal-rollout contract).
+- **Risks/Caveats**: the corrected body is wordier. Rule 7 still validates presence only, so future body drift stays gate-invisible — unchanged exposure (documented in D8). The re-propagation re-edits the staged Steps 2-3 output and the live Step 4 commit `09e2e0c521`; those steps' insertion mechanics stand, only the shared body changes.
+- **Implemented in**: Track 5 (new bootstrap-body-correction step; `design.md` body corrected in the inline-replan commit via `edit-design`)
+- **Full design**: design.md §"Bootstrap protocol for agent system prompts"; conventions.md §1.8(e) (wildcard distinction), §1.8(f) (read-decision flow)
 
 ### Invariants
 
@@ -313,15 +324,10 @@ flowchart TD
   > **Depends on:** Track 1, Track 2, Track 4
   > **From Track 4 review (M12 / consistency WC1):** Track 5's bootstrap-insertion steps must place the block at each file's TOC anchor and word the placement to cover all three anchor shapes: under-H1, after-frontmatter, and top-of-file (prose-first). The staged `conventions.md` glossary `Bootstrap block` row and invariant I5 here currently say the block sits "between frontmatter and H1", which is inaccurate for the top-of-file shape (no H1, no frontmatter). The glossary/I5 prose fix rides the Phase 4 `design-final.md` deferred-drift basket, but the Track 5 insertion procedure must not inherit the two-shape wording.
   > **From Track 5 Phase A review:** the agent refs sweep must use whole-file `name.md:roles:phases` plus a separate backticked `§X.Y` for any sub-section pin (the combined cross-file-with-subsection form fails rule 8 in live prose), must not claim an H4-only token in a whole-file suffix (the rule 6 union is `##`/`###` only), and must backtick-wrap — not suffix — references to non-annotatable or out-of-in-scope targets (`.claude/docs/*` such as `architecture.md` / `testing-details.md` / `mcp-steroid/skills.md`, `house-style.md`, `design*.md`, the Phase 4 final artifacts, `CLAUDE.md`, `MEMORY.md`, and any agent-file-as-target). The dominant agent ref — the house-style `conventions.md §1.5` header in 19 of 20 agents — is a sub-section pin and takes the whole-file-plus-backticked-`§1.5` form. The `--check` green is staged-scoped plus the D17 live-agent scope on rules 2/3/4/5/6/7/8; the 49 rule_1 missing-stamp findings on staged copies are documented Phase-4 promotion residue, not defects.
+  > **From Track 5 Step 4 dim review (D19 inline replan):** Step 4's HIGH-risk dim review found the bootstrap block body carries inherited gaps in all 38 files and the frozen `design.md` — the reader-side match rule under-matches a reader whose own role or phase is `any` (`pr-reviewer`, `dr-audit`); the "first ~30 lines" read window truncates `conventions.md`'s ~80-line TOC; the closing line over-asserts that every inline ref carries a suffix. D19 corrects the body, and a new HIGH-risk bootstrap-body-correction step re-propagates it across all 38 files and aligns staged `conventions.md §1.8(e)/(f)`. The house-style `§1.5` reference takes the uniform whole-file-suffix-plus-backticked-`§1.5` form on all 20 agents (the form `dr-audit` and the SKILLs already use, validated by rule 6). The 11 prompts keep the fully-backticked `§1.5` span from Track 4, so the prompt-vs-SKILL/agent `§1.5` form differs — a Phase 4 `design-final.md` deferred-drift candidate, not an in-track fix.
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1 (re-validation after the Track 5 Phase A inline replan, D17 + D18)
-
-**Auto-fixed (mechanical)**: CR1 — the Component Map "Tail (Track 5)" bullet still asserted in-branch closure of the two-branch acceptance gate ("Migration replay verification on two active branches closes the acceptance criterion"), contradicting D18. Reframed to lead with the D17 reindex agent-scope fix and to scope the two-branch `/migrate-workflow` replay as a post-merge acceptance procedure (D18), with the in-branch verification limited to a static D7-premise check plus local `--check` and telemetry smokes.
-
-**Escalated (design decisions)**: none.
-
-> Re-validation provenance: this pass re-checked the D17 + D18 inline-replan material (commit `2f6b366c3d`). The prior D16 re-validation summary is in git history at commit `64597efa88`.
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

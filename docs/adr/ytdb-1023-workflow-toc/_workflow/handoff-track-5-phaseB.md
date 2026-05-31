@@ -1,75 +1,73 @@
-# Handoff: Phase B (Track 5) — inline replan after Step 4 dim review (bootstrap-body gaps)
+# Handoff: Phase B (Track 5) — inline replan PARTIALLY APPLIED, paused before the design.md mutation
 
 **Paused:** 2026-05-31
-**Phase:** B (Track 5, Step 4 — ESCALATE mid-dim-review)
-**Context level at pause:** safe (user-requested pause to run the inline replan in a fresh session, not a context-pressure pause)
+**Phase:** B (Track 5) — mid inline-replan (ESCALATE resolution in progress)
+**Context level at pause:** warning (38%) — paused at a clean boundary before `edit-design` would tip context into critical
 **Branch:** ytdb-1023-workflow-toc
-**HEAD:** 09e2e0c521 "Bootstrap + refs sweep across 20 live agent files"
-**Unpushed:** 0 commits
+**HEAD at pause:** the "Pause inline replan" commit this handoff ships with
+**Unpushed:** 0 commits (pushed at pause)
 
 ## Why this handoff exists
 
-Step 4's HIGH-risk dimensional review surfaced inherited bootstrap-block design gaps. The user chose **ESCALATE → inline replanning**. The replan was not executed this session — the user asked to run it fresh. This handoff carries the dim-review findings and the chosen fix so the next session resumes the inline-replanning Process at step 3 (Propose) without re-spawning the five review agents or re-deriving the decision.
+The user confirmed ESCALATE → inline replan (the prior version of this handoff drove that decision; that decision is DONE — do NOT re-present it). The replan's **plan/track edits are applied and committed** in this pause commit. Context hit `warning` (38%) at a clean boundary, and the next unit of work — the `edit-design` mutation on `design.md` — would load a 654-line skill plus 896-line rules plus a cold-read iteration and likely tip context into `critical`. So the replan is paused here with the plan edits durable and the design mutation + preview + final commit pending in a fresh session.
 
-The next session must follow `.claude/workflow/inline-replanning.md` § Process from step 3, using the scope below. Steps 1 (Stop) and 2 (Assess) are already done and captured here.
+This is NOT a fresh ESCALATE. The decision, the scope, WC1, and the structure are all resolved. Resume = finish the mechanical tail of the replan.
 
-## State on disk (verify before acting)
+## What is already DONE (committed in the pause commit — do NOT redo)
 
-- **Step 4 implementer commit `09e2e0c521`** (20 live `.claude/agents/*.md` files): inserted the canonical bootstrap block after frontmatter + swept refs (only `dr-audit.md` needed ref work). SUCCESS, pushed to origin (confirmed ancestor of `@{u}`).
-- **Roster Step 4 is still `[ ]`** in `plan/track-5.md` `## Concrete Steps`. **No Step 4 episode written.** The dim-review loop ran iteration 1 only and was interrupted by ESCALATE before any `FIX_REVIEW_FINDINGS` respawn or gate-check.
-- **Phase B base commit:** `b722c11e6ed7766b3e1f3b309a9f64b2139fb64f` (in `## Base commit`; verified ancestor of HEAD this session).
-- **`step_base_commit` for Step 4** was `7211e09b28d92e1cd7c10fb0ce77410dae7b734d` (HEAD before the Step 4 spawn).
-- Working tree clean. Steps 1-3 complete with paired content+episode commits.
+In `implementation-plan.md`:
+- **D19 added** (after D18, before `### Invariants`): "Bootstrap block reader-side match rule expands the reader's own `any`; read window is delimiter-bounded." Documents the three body fixes + the reader-`any`-vs-citer-`any` distinction.
+- **D8 gained a `- **Note (D19):**` line**.
+- **Track 5 checklist entry** gained a `> **From Track 5 Step 4 dim review (D19 inline replan):**` note (WC1 = suffix all 20; the 11 prompts' fully-backticked `§1.5` is a Phase 4 deferred-drift candidate).
+- **`## Plan Review` reset to `[ ]`** (the audit summary was removed) so the next `/execute-tracks` runs State 0.
 
-## Durable artifacts on disk
+In `plan/track-5.md`:
+- **Concrete Steps roster restructured to 6 steps:** Step 4 flipped to `[x] commit: 09e2e0c521`; **new HIGH-risk Step 5** = "Bootstrap-body correction (D19)"; old verification renumbered to **Step 6**.
+- **Step 4 episode written** (commit 09e2e0c521): bootstrap + refs sweep done; dim review gate-green but found inherited body gaps WP1/WP2/WI2 + record-only WC2/WP4/WB1; ESCALATE → body fix deferred to Step 5.
+- **Renumber swept clean** across Plan of Work sketch note, Phase A sequencing, Idempotence, Interfaces, Validation (verified: every load-bearing `Step N` reference matches the 6-step roster). The Phase-1 sketch items 4/5 are intentionally left under the "roster wins" disclaimer; the append-only historical Progress/Surprises entries are not rewritten.
+- **Decision Log** gained the inline-replan entry.
+- **Progress** gained the Step 4-complete + replan-paused entries; the PAUSED marker is updated to this pause.
 
-- `docs/adr/ytdb-1023-workflow-toc/_workflow/plan/track-5.md` — Steps 1-3 episodes; Step 4 roster line `[ ]`, no episode.
-- `.claude/agents/*.md` (20 files) — carry the bootstrap block (with the gap-carrying body) as committed in `09e2e0c521`.
-- Staged Steps 2-3 bootstrap blocks: `_workflow/staged-workflow/.claude/skills/*/SKILL.md` (7) and `_workflow/staged-workflow/.claude/workflow/prompts/*.md` (11) — same gap-carrying body.
+## What REMAINS (the resume work, in order)
 
-## Pending action (already decided: ESCALATE)
+1. **`edit-design` content-edit on `design.md`** (MANDATORY — do NOT direct-Edit; inline-replanning rule). `design-mechanics.md` is absent → design.md-only → direct `content-edit`. Target: `design.md §"Bootstrap protocol for agent system prompts"` → `### Bootstrap block content` fenced block (was lines ~260-273). Replace the fenced block body with the **exact corrected body** below. Optionally add a one-line `### Edge cases / Gotchas` bullet noting the reader-side `any` expansion (the cross-ref subset rule in §"Cross-reference convention" stays one-way; reader-side TOC matching expands the reader's own `any`). `edit-design` runs its own apply→auto-review→present; it edits `design.md` + appends to `design-mutations.md` and does NOT commit (you commit).
 
-Execute the inline replan to fix the bootstrap block body across the whole rollout. The user already chose ESCALATE; on resume, recap the situation, confirm the user still wants it (they may redirect), then run `inline-replanning.md` § Process steps 3-6.
+   **EXACT corrected fenced body to write into `### Bootstrap block content`:**
 
-## Dim-review findings (verbatim — do NOT re-spawn the 5 review agents)
+   ````markdown
+   ```markdown
+   ## Reading workflow files (TOC protocol)
 
-Five workflow-review agents ran against `09e2e0c521~1..09e2e0c521` (workflow-only diff → baseline skipped; hook-safety not fired — no hooks/scripts/settings touched). **Gate status: GREEN** — `workflow-reindex.py --check` exits 0 on all 20 live agents (rules 6/7 fire per D17; rules 2/3/4 suppressed; all role/phase tokens valid enum members; bootstrap blocks present; no agent gained a TOC region; writing-style clean).
+   When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
 
-### Class 2 — ESCALATE scope (inherited design-body gaps, present in all 38 files + frozen `design.md`)
+   1. Read the TOC region — from `<!--Document index start-->` to `<!--Document index end-->`. On large files like `conventions.md` this exceeds 30 lines; read to the closing delimiter rather than stopping at a fixed count.
+   2. Match TOC rows where Roles contains your role (or your role is `any`, or the row's Roles is `any`) AND Phases contains your phase (or your phase is `any`, or the row's Phases is `any`).
+   3. Use `Read(offset, limit)` to read only matched sections.
 
-- **WP1 / WI1 (blocker / should-fix) — `any`-wildcard under-match.** The bootstrap block's step-2 match rule ("Match TOC rows where Roles contains your role AND Phases contains your phase") has no clause for a reader whose own role/phase is the wildcard `any`. A reader declaring `Your phase: any.` (dr-audit, pr-reviewer) under-matches: per staged `conventions.md §1.8(e)` the `any` wildcard is one-way (a *target* `any` widens to any citer; a *citer/reader* `any` does not widen). Empirically verified against staged conventions.md: most TOC rows carry specific phases (`3A`, `3B,3C`, `1,2`), only ~13-37 rows carry `phases=any`; and the role token `pr-reviewer` appears in ZERO section annotations — so a `pr-reviewer:any` reader following the block literally matches only rows that are both `roles=any` AND `phases=any` (schema/glossary), skipping every role- or phase-specific section. The block never teaches the reader to expand its own `any`, and §1.8(f)'s read-decision flow carries the same gap. **Chosen fix (user-selected):** step 2 becomes — "Match TOC rows where Roles contains your role (or your role is `any`, or the row's Roles is `any`) AND Phases contains your phase (or your phase is `any`, or the row's Phases is `any`)." Apply to `design.md §"Bootstrap protocol"` body + `conventions.md §1.8(f)` read-decision flow + all 38 files.
-- **WP2 (should-fix) — read-window.** Step 1 hardcodes "Read the first ~30 lines (TOC region ...)". `conventions.md`'s TOC region is ~80 lines (75 rows + H1 + delimiters); a reader taking "first ~30 lines" literally truncates the TOC and may miss the §1.8 / §1.5 rows it filters for. The fixed count also conflicts with the delimiter-bounded phrasing in the same sentence (and the design's flowchart says "~20 lines"). **Fix:** drop the fixed count; key the read on the delimiters — e.g. "Read from `<!--Document index start-->` to `<!--Document index end-->` (the TOC region; on large files like `conventions.md` this exceeds 30 lines — read to the closing delimiter)."
-- **WI2 (suggestion) — backtick-ref handling.** The closing block line ("Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening") over-asserts: backtick-wrapped non-annotatable refs (e.g. `` `house-style.md` ``, `` `CLAUDE.md` ``) carry no suffix. **Fix:** append a half-sentence — "backtick-wrapped refs carry no suffix; open or skip them at your discretion."
+   Your role: <role token from §1.8 role enum>.
+   Your phase: <fixed for agent files and prompts; auto-resume-derived for SKILL.md>.
 
-These three are rooted in the canonical body at `design.md §"Bootstrap protocol for agent system prompts"` and are present identically in the 18 staged Step 2-3 files (committed) and the 20 Step 4 agents. The reindex gate does not validate block-body content (rule 7 is presence-only), so they are gate-invisible.
+   Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+   ```
+   ````
 
-### Class 1 — Step-4-local fixes (apply during the replan's re-propagation step; not design decisions)
+   The three changes vs the current (gap-carrying) body: step 1 keys the read on the delimiters (not "first ~30 lines"); step 2 expands a wildcard on either axis; the closing line gains the backtick-ref half-sentence.
 
-- **WC1 (should-fix) — house-style ref uniformity.** `dr-audit.md` now renders the house-style §1.5 ref as the suffixed `conventions.md:pr-reviewer:any` + separate backticked `§1.5`, while the other 19 agents keep the fully-backticked span `` `.claude/workflow/conventions.md §1.5 ...` `` (no suffix). The split is a consequence of differing source forms (dr-audit had a Markdown *link* D13 mandates converting; the 19 had pre-existing backticked spans §1.8(e) excludes). The Track 5 plan entry's literal wording says all 19 take the "whole-file-plus-backticked-`§1.5` form" (suffixed); Track 4's prompts keep it backticked; Track 4's SKILLs use the suffixed form. **Decision needed in the replan:** pick ONE form for the agent class and apply to all 20. Recommended: backtick-wrap `dr-audit`'s §1.5 ref to match the 19 (and Track 4 prompts) — the house-style disclaimer is a meta-mention, not a runtime TOC-Read target, so the filter benefit there is marginal; uniformity is the win. Also correct the Step 4 episode's `what_changed_from_plan` to record that the 19-agent house-style ref took the backticked-span form (a deviation from the plan entry's literal "suffixed" wording).
-- **WP3 (suggestion) — phase-any gloss.** The `any`-using SKILLs wrote `Your phase: any (PR review sits outside the phase taxonomy).` / `... (migration sits outside the phase taxonomy).`; the agent blocks wrote bare `Your phase: any.`. Mirror the gloss on `dr-audit.md` and `pr-reviewer.md` for cross-file consistency with the sibling SKILLs.
+2. **Advisory structural-review preview** (inline-replanning Process step 4): spawn the structural-review sub-agent on the revised plan (`plan_path` = implementation-plan.md, `plan_dir` = the plan dir) per `review-plan/SKILL.md` path-passing. This is a fail-fast PREVIEW, not the gate — the real gate is the State 0 re-run next session. Inject the workflow-modifying-branch staged-read guidance + the Markdown-not-Java/PSI scoping (recurring YTDB-1038 friction). Max 3 iterations; consistency findings are NOT surfaced here (they appear in the State 0 re-run).
 
-### Record-only (no code change; fold into the Step 4 episode's "What was discovered")
+3. **Final replan commit** (inline-replanning Process step 6): stage `design.md` + `design-mutations.md` (the plan/track files are already committed) and commit `Inline replan after Track 5 Step 4 (D19) — complete design mutation`. Then **resolve THIS handoff**: delete `handoff-track-5-phaseB.md`, remove the PAUSED marker from `track-5.md` Progress, remove the MEMORY.md bullets carrying this handoff's filename, and include those in the same commit (MEMORY.md is user-global, a separate non-repo Write). Push.
 
-- **WC2 / WP4 (suggestion) — role-fit note.** `code-reviewer.md` and `test-quality-reviewer.md` are mapped to `reviewer-dim-step,reviewer-dim-track` / `3B,3C` though they are standalone user-invoked agents, not part of the workflow dim-review fan-out (`/code-review` dispatches `review-*` agents by name, never these two). The 15-value role enum has no generic "code reviewer" token, so this is a forced-but-defensible fit; the role's only runtime effect is the agent's own read-filtering. No change required; note it so a future reader does not mistake them for fan-out members.
-- **WB1 (suggestion) — inert overhead accepted.** The ~13-line block is per-spawn overhead with no offsetting Read-savings for the baseline code-review agents (they review Java diffs, not workflow rules). Below any flag threshold; the plan deliberately bootstraps the whole agent set uniformly. Accept as-is.
+4. **End session.** The next `/execute-tracks` enters State 0 (Plan Review `[ ]`) → re-runs consistency + structural against the revised plan.
 
-## Proposed replan scope (for the Propose step — refine with fresh context)
+## Decisions already locked (do NOT re-ask)
 
-The fix spans a completed track's staged output and the frozen design, so it is genuinely ESCALATE-class:
-
-1. **New Decision Record** (e.g. `D19`) documenting the bootstrap-protocol fix: `any`-wildcard expansion (both reader-side and target-side) in the step-2 match rule, the delimiter-bounded read window (WP2), and the backtick-ref handling note (WI2). Alternatives/rationale/risks per the `inline-replanning.md` DR-revision format.
-2. **`design.md §"Bootstrap protocol for agent system prompts"`** — revise the canonical body via the **`edit-design` skill** (mutation discipline; do NOT direct-Edit `design.md`). The body is design.md-only here (no `design-mechanics.md` companion exists — confirm), so use direct `content-edit` mutation(s).
-3. **Staged `conventions.md §1.8(f)` read-decision flow** (and any §1.8 location that restates the reader-side match rule, e.g. §1.8(d) bootstrap-body example) — apply the same `any`-expansion clause. NOTE: §1.8 is Track 1 (`[x]`) staged output. Editing it is inline-replanning "revising a completed track" (case 4) territory, but everything is staged/pre-merge, and Track 5 already edits staged files — the replan must decide whether to treat this as a Track 5 step or a documented Track 1 re-touch. The glossary "Role enum" row, I5 invariant, and the `Bootstrap block` glossary row may also need wording (the placement wording is already in the Phase-4 deferred-drift basket per M12; the `any`-semantics is new).
-4. **Re-propagation step (HIGH-risk)** — apply the corrected bootstrap body to all 38 files: 18 staged (7 SKILL + 11 prompts, Steps 2-3 `[x]`) + 20 live agents (Step 4, commit `09e2e0c521`). Fold in the Class-1 WC1 + WP3 fixes on the agent side. The 18 staged Step 2-3 files cannot be folded into Step 4 (different steps, already `[x]`), so the re-propagation likely needs its own step or a re-scope; the Propose step designs the exact step structure.
-5. **Disposition of `09e2e0c521`:** keep it (the insertion mechanics are correct; only the shared body content needs fixing). The re-propagation re-edits the 20 agents to the corrected body. Decide whether Step 4 is marked done (episode it) with a new body-fix step following, or re-scoped to carry the corrected body. The 18 staged files needing the same fix argue for a dedicated re-propagation step over folding into Step 4.
-6. **Reset `## Plan Review` to `[ ]`** per `inline-replanning.md` step 6 so the next `/execute-tracks` re-runs State 0 (consistency + structural) against the revised plan. Commit the replan as a single "Inline replan after Track 5 Step 4" Workflow-update commit; push.
-
-Affected DRs to cross-check: **D8** (bootstrap embedded in every system prompt — body content changes, 38-file scope unchanged; add a revision note pointing at the new DR), **D6** (agent files refs-only + bootstrap — unchanged), and the new DR. Run the advisory structural-review preview (step 4) before committing.
+- **WC1 (user-confirmed): suffix all 20 agents.** The house-style `§1.5` ref uses the whole-file-suffix + backticked-`§1.5` form (`conventions.md:<role>:<phase>` `` `§1.5 ...` ``) on all 20 agents — dr-audit's existing form, validated by rule 6. NOT the fully-backticked span (that would skip an annotatable target). This is Step 5 work, not replan work.
+- **Structure (user-approved): Step 4 `[x]` + new Step 5 + verification → Step 6.** The §1.8(e)/(f) edit is Step 5 work, framed as continued staged authoring within Track 5 (pre-merge, not a post-merge completed-track revision).
+- **edit-design only touches `design.md`** in the replan. The 38-file re-propagation + staged `conventions.md §1.8(e)/(f)` + WC1 + WP3 are **Step 5** (a future Phase B session, after State 0 passes), not replan work.
 
 ## Resume notes
 
-- **Do NOT redo:** the five dim-review agent spawns (findings captured verbatim above); the Step 4 implementer spawn (commit `09e2e0c521` is on disk and pushed); the role/phase enum verification (all tokens valid; `pr-reviewer` absent from annotations is the WP1 root, not a typo).
-- **Workflow-modifying branch:** reads of `.claude/workflow/**` and `.claude/skills/**` follow staged-first precedence; the staged `conventions.md` carries §1.8, the live copy is develop-state. Writes to `.claude/workflow/**` and `.claude/skills/**` route to `_workflow/staged-workflow/`; `.claude/agents/**` is written live. When spawning any review/implementer sub-agent, inject the staged-read guidance and the Markdown-not-Java/PSI scoping (the recurring YTDB-1038 friction).
-- **`edit-design` for `design.md`:** the bootstrap-body revision MUST go through the `edit-design` skill's mutation discipline (apply → auto-review → iterate → present), not a direct Edit.
-- **On resume:** recap the ESCALATE situation to the user, confirm they still want the replan (allow redirect), then execute `inline-replanning.md` § Process steps 3-6.
-- **slim-plan snapshot** was at `/tmp/claude-code-plan-slim-862.md` (PID-scoped; regenerate next session).
+- **Do NOT redo:** the plan/track edits (committed); the dim-review findings (captured in the Step 4 episode + D19); the WC1 / structure / ESCALATE decisions (user-confirmed).
+- **Workflow-modifying branch:** reads of `.claude/workflow/**` / `.claude/skills/**` follow staged-first precedence. `design.md` is at `_workflow/design.md` (a plan artifact, edited live — NOT staged). When spawning the structural-preview sub-agent, inject staged-read guidance + Markdown-not-Java/PSI scoping.
+- **design-mechanics.md is ABSENT** → design.md-only → direct `content-edit` (confirmed this session).
+- **Reflection** for the replan session: run at end of the session that completes the replan (or already partially captured — the IDE-modal-blocking-apply-patch friction this session is an environment issue, not workflow-process; likely 0 dev-workflow issues, dup of the existing YTDB-1038 staged-read pattern).
