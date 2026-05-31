@@ -37,14 +37,14 @@ Phase C is a **two-actor phase**, mirroring Phase B's split:
   plan corrections, compile the track episode, present results to
   the user, mark the track `[x]` upon approval.
 - The **implementer** (a fresh sub-agent spawned per iteration that
-  has fixes to apply, see [`implementer-rules.md`](implementer-rules.md))
+  has fixes to apply, see implementer-rules.md:implementer:3B,3C)
   performs sub-steps 1–3 of fix application — read the cumulative
   track diff and the synthesised findings, apply the fixes, run
   tests + Spotless + the coverage gate, stage and commit a
   `Review fix:` commit. The implementer's output is the same
   structured handoff used at `level=step`, with `level=track`
   selecting the variant defined in
-  [`implementer-rules.md`](implementer-rules.md) §Inputs and
+  implementer-rules.md:implementer:3B,3C §Inputs and
   §Return contract.
 
 After all steps are committed, review the full track diff using sub-agents.
@@ -64,7 +64,7 @@ one step adds a producer, another adds a consumer, and only the
 cumulative diff shows whether they actually meet. Those are
 reference-accuracy questions and route through mcp-steroid PSI
 find-usages rather than grep when the IDE is reachable, per the rule
-in [`conventions.md`](conventions.md) `§1.4` *Tooling discipline* (run
+in conventions.md:any:any `§1.4` *Tooling discipline* (run
 `steroid_list_projects` once at session start; do not re-probe). The
 canonical sub-agent context block below already embeds the PSI
 instruction — keep it intact when customising. When mcp-steroid is
@@ -80,7 +80,7 @@ inspection set with the diff to surface semantic issues that Spotless
 and the coverage gate can't catch — redundant casts, atomic-on-
 volatile, suspicious `equals`/`hashCode`, format-string mismatches,
 thread-unsafe statics. Use the **`inspect-and-fix`** recipe (see
-[`conventions.md`](conventions.md) `§1.4` *Recipes*); intersect the
+conventions.md:any:any `§1.4` *Recipes*); intersect the
 findings with `git diff {base_commit}..HEAD --name-only` so the
 report scopes to the cumulative track diff. **Report findings, never
 auto-apply.** Roll any inspection findings into the synthesised
@@ -111,7 +111,7 @@ there is no cross-step interaction to catch.
 2. Skip directly to **Track Completion** (below) in the same session.
 
 If the single step is `risk: medium` or `risk: low`, step-level review
-was skipped per [`risk-tagging.md`](risk-tagging.md), so track-level
+was skipped per risk-tagging.md:decomposer,implementer,orchestrator:3A,3B,3C, so track-level
 review must run. Proceed to **Multi-Step Tracks** below; the single
 step is treated as the entire diff.
 
@@ -121,14 +121,14 @@ step is treated as the entire diff.
 <!-- roles=orchestrator phases=3C summary="The full review fan-out path for tracks with several steps." -->
 
 Select review agents based on code characteristics (see
-[`review-agent-selection.md`](review-agent-selection.md)), then spawn them
+review-agent-selection.md:orchestrator:3A,3B,3C), then spawn them
 in parallel. Baseline agents (4) run unless the diff is workflow-only or
 `docs-only`+workflow (see the baseline-skip override in
 `review-agent-selection.md`); conditional agents and workflow-review
 agents are added based on the track description and changed files across
-the full diff. See [`code-review-protocol.md`](code-review-protocol.md)
+the full diff. See code-review-protocol.md:orchestrator:3A,3B,3C
 for the two-tier protocol overview and
-[`review-iteration.md`](review-iteration.md) for iteration limits,
+review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C for iteration limits,
 finding ID prefixes, and gate format.
 
 All selected reviews run against the same diff
@@ -192,7 +192,7 @@ of the changes.
 
    Commit the track-file edit as a Workflow update commit before
    continuing (per
-   [`commit-conventions.md`](commit-conventions.md) § Commit type
+   commit-conventions.md:implementer,orchestrator:3A,3B,3C § Commit type
    prefixes — "Workflow update" row) so the draft PR records the
    recompute. Use `$ACTUAL_BASE` as `{base_commit}` for every
    subsequent step in Phase C (review sub-agent spawns, the diff
@@ -213,7 +213,7 @@ of the changes.
    ```
 
    The script implements the rule from
-   [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
+   plan-slim-rendering.md:orchestrator:3B,3C; do not re-derive
    the transform inline. **Always pass `--out` explicitly** with
    `$PPID` — the orchestrator's PID inside its bash shell. The script
    does not auto-derive this path because, when invoked via the Bash
@@ -381,7 +381,7 @@ the agent `## Input` spec, which expects a file path uniformly.
 and `/tmp/claude-code-track-{N}-files-$PPID.txt`, where `$PPID` is the
 orchestrator's PID through its bash shell (the same `$PPID` suffix
 convention used by the plan-slim snapshot — see
-[`plan-slim-rendering.md`](plan-slim-rendering.md); the `{N}` segment
+plan-slim-rendering.md:orchestrator:3B,3C; the `{N}` segment
 additionally scopes the file to the current track so resume
 diagnostics that list multiple tracks' tmp files stay unambiguous).
 The unique-suffix requirement from project-level `CLAUDE.md`
@@ -413,7 +413,7 @@ The main agent substitutes `{PPID}`, `{dir-name}`, `{N}`, and
 ### Agent selection and launching
 <!-- roles=orchestrator phases=3C summary="Choosing which reviewers to run and dispatching them." -->
 
-Select agents per [`review-agent-selection.md`](review-agent-selection.md).
+Select agents per review-agent-selection.md:orchestrator:3A,3B,3C.
 Use the track description and `git diff {base_commit}..HEAD --name-only` to
 determine which conditional agents to include alongside the baseline.
 
@@ -436,7 +436,7 @@ synthesis.
 
 After all selected sub-agents complete, produce a unified findings list
 by running the canonical procedure in
-[`finding-synthesis-recipe.md`](finding-synthesis-recipe.md). The recipe
+finding-synthesis-recipe.md:orchestrator:3B,3C. The recipe
 covers:
 
 1. **Deduplication** by pivot order (`file:line` → issue shape →
@@ -444,7 +444,7 @@ covers:
    showing a 5-way cross-dimension merge.
 2. **Severity assignment** against the standard `blocker` /
    `should-fix` / `suggestion` scale defined in
-   [`review-iteration.md`](review-iteration.md) §Severity levels,
+   review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C §Severity levels,
    including the rules for downgrading or upgrading singletons whose
    stated impact does not match the agent's assigned severity.
 3. **Bucketing** into in-scope this iteration, deferred to next
@@ -458,7 +458,7 @@ covers:
 The recipe also covers gate-check synthesis (mapping `VERIFIED` /
 `REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION` verdicts and folding
 any `New findings` into the next iteration's input) — that is the same
-procedure routed from [`review-iteration.md`](review-iteration.md)
+procedure routed from review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C
 §Gate-check synthesis routing.
 
 Present the synthesised findings list to proceed to the review loop.
@@ -484,7 +484,7 @@ orchestrator never edits source files itself in Phase C.
    the highest-severity subset that fits the budget (typical safe
    shape: 8–12 findings touching ≤ 6–8 files, leaving room for
    targeted re-runs of the touched test classes per
-   [`implementer-rules.md`](implementer-rules.md) §Pacing
+   implementer-rules.md:implementer:3B,3C §Pacing
    long-running tasks → "Prefer targeted `-Dtest=…` re-runs"). The
    remaining findings re-surface in iteration 2's gate-check
    fan-out and consume an iteration counter normally — they are not
@@ -504,7 +504,7 @@ orchestrator never edits source files itself in Phase C.
      `mode=FIX_REVIEW_FINDINGS`, `base_commit` (read from the step
      file's `## Base commit`), and the iteration's in-scope findings
      as `findings`. Use the prompt template in
-     [`step-implementation.md`](step-implementation.md) §Implementer
+     step-implementation.md:orchestrator:3B §Implementer
      Prompt Template — the same template both phases share. See
      §Implementer Spawns below for the per-iteration variable inputs.
    - **Dispatch on the structured return:**
@@ -523,7 +523,7 @@ orchestrator never edits source files itself in Phase C.
      `RESULT_MISSING` path covers implementers that exited mid-flight
      without emitting the contract block — typically due to
      message-budget exhaustion or a tool-call crash; per
-     [`implementer-rules.md`](implementer-rules.md) §Return contract,
+     implementer-rules.md:implementer:3B,3C §Return contract,
      silent exit is forbidden, but the orchestrator must still be
      able to recover when it happens.
    - On `SUCCESS`: the implementer has already pushed a `Review fix:`
@@ -532,7 +532,7 @@ orchestrator never edits source files itself in Phase C.
      gate check.
    - **Update the Progress section** on disk to record the completed
      iteration. Read the statusline per
-     [`episode-format-reference.md`](episode-format-reference.md)
+     episode-format-reference.md:orchestrator:3A,3B,3C
      §Sub-step 0 — fall back to `unknown` on missing file. Capture the
      current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
      running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to the
@@ -543,7 +543,7 @@ orchestrator never edits source files itself in Phase C.
      `design.md` §"Continuous-log discipline" subsection
      *Mandatory `[ctx=<level>]` field*. Commit and push the Progress
      update as a Workflow update commit (per
-     [`commit-conventions.md`](commit-conventions.md) § Commit type
+     commit-conventions.md:implementer,orchestrator:3A,3B,3C § Commit type
      prefixes — "Workflow update" row).
    - Spawn **fresh sub-agents** to verify (gate check) — only re-run the
      review dimension(s) that had open findings. For example, if only
@@ -559,7 +559,7 @@ orchestrator never edits source files itself in Phase C.
      § Sub-agents → § "Pre-staged diff and changed-files list").
    - **Use the compact gate-check prompt template, not the dimensional
      review prompt.** Spawn each re-checked agent with the prompt at
-     [`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md),
+     prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C,
      substituting:
      - `{dimension}` — the agent's review type (e.g., `Bugs & Concurrency`, `Test behavior`)
      - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
@@ -569,7 +569,7 @@ orchestrator never edits source files itself in Phase C.
 
      The template enforces the ≤ 60-line budget, the forbidden-section
      list, and the verdict-only output format. See
-     [`review-iteration.md`](review-iteration.md) §"Dimensional-review
+     review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C §"Dimensional-review
      gate-check budget" for the YTDB-696 rationale, the verdict-handling
      rules (VERIFIED / REJECTED / MOOT / STILL OPEN / REGRESSION), and
      the §Gate-check synthesis routing. Re-using the full
@@ -578,7 +578,7 @@ orchestrator never edits source files itself in Phase C.
      cause of mid-Phase-C session pauses.
    - **After collecting all gate-check returns, run them through
      §Synthesis** before composing the next iteration's implementer
-     input (per [`review-iteration.md`](review-iteration.md)
+     input (per review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C
      §Gate-check synthesis routing). Treat
      `REGRESSION` verdicts as blocker-severity carry-forwards with
      `revert-or-repair` guidance; treat `REJECTED` and `MOOT`
@@ -591,12 +591,12 @@ orchestrator never edits source files itself in Phase C.
      `warning` (≥30%) or `critical` (≥40%), do NOT start the next
      iteration. Save all work (update Progress section with current
      iteration count, commit) and ask the user for a session refresh
-     (see workflow.md §Context Consumption Check). If the pause leaves
+     (see workflow.md:any,final-designer,orchestrator,planner:any,2,3A,3B,3C,4 §Context Consumption Check). If the pause leaves
      Phase C mid-flight (for example, gate-checks already PASSed but
      track-completion approval is still pending, or iteration N has
      committed `Review fix:` but iteration N+1's gate-check sub-agents
      have not run), write a handoff file per
-     [`mid-phase-handoff.md`](mid-phase-handoff.md). The handoff
+     mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4. The handoff
      captures the iteration count, the gate-check outcomes, and the
      verbatim track-completion summary to re-present, so the next
      session does not re-spawn reviewer / gate-check sub-agents whose
@@ -627,7 +627,7 @@ orchestrator never edits source files itself in Phase C.
 6. When all reviews pass (or max iterations reached), append a
    track-completion entry to the track file's `## Progress` section.
    Read the statusline per
-   [`episode-format-reference.md`](episode-format-reference.md)
+   episode-format-reference.md:orchestrator:3A,3B,3C
    §Sub-step 0 — fall back to `unknown` on missing file. Capture the
    current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
    running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to the
@@ -647,13 +647,13 @@ orchestrator never edits source files itself in Phase C.
 
 Each Phase C implementer spawn uses `subagent_type: "general-purpose"`
 and `model: "opus"` — the same as every Phase B implementer spawn (see
-[`risk-tagging.md`](risk-tagging.md) §"Risk levels — quick reference"
+risk-tagging.md:decomposer,implementer,orchestrator:3A,3B,3C §"Risk levels — quick reference"
 for the rationale: Sonnet's reliability on multi-step implementation
 work is below the threshold this workflow requires, and the model is
 not allocated by risk tag).
 
 Use the **shared Implementer Prompt Template** in
-[`step-implementation.md`](step-implementation.md) §Implementer Prompt
+step-implementation.md:orchestrator:3B §Implementer Prompt
 Template — the static prefix is identical across both levels. Phase C
 populates the variable section as follows:
 
@@ -672,12 +672,12 @@ same rulebook used at `level=step`. The contract differences for
 track-level work (cumulative diff target, no `RISK_UPGRADE_REQUESTED`,
 `FIX_NOTES` instead of `EPISODE_DRAFT`, no orchestrator-side
 rollback on `FAILED`) are documented inline in
-[`implementer-rules.md`](implementer-rules.md). The orchestrator does
+implementer-rules.md:implementer:3B,3C. The orchestrator does
 not need to load that file; the implementer reads it on every spawn.
 
 Each implementer's `Review fix:` commit is pushed by the implementer
 itself (per the per-commit push rule in
-[`commit-conventions.md`](commit-conventions.md) § Push every commit).
+commit-conventions.md:implementer,orchestrator:3A,3B,3C § Push every commit).
 The Ephemeral identifier rule applies to durable content (source code,
 tests, comments) but not to branch-only commit messages — the
 implementer may cite finding IDs in its `Review fix:` commit subject
@@ -695,7 +695,7 @@ to the user rather than running a handler, plus a fifth
 `RESULT_MISSING` recovery path for the case where the implementer
 exited mid-flight without emitting the contract block at all. None
 of the five paths roll back prior `Review fix:` commits — see
-[`implementer-rules.md`](implementer-rules.md) §"Mode-specific scope
+implementer-rules.md:implementer:3B,3C §"Mode-specific scope
 of the local revert" `level=track` row for the rationale (prior
 iterations' fixes have already passed their gate check; a failed
 iteration does not invalidate them).
@@ -704,14 +704,14 @@ iteration does not invalidate them).
 <!-- roles=orchestrator phases=3C summary="Handling a successful fix iteration." -->
 
 The implementer's `Review fix:` commit is on disk and pushed to
-`origin` per [`implementer-rules.md`](implementer-rules.md) §Return
+`origin` per implementer-rules.md:implementer:3B,3C §Return
 contract; `result.COMMIT` is its SHA. `result.FIX_NOTES` carries the
 implementer's per-iteration notes (which findings were addressed,
 which were skipped, what was discovered).
 
 **Defensive push check.** Before stashing notes and proceeding,
 assert that the `Review fix:` commit (`result.COMMIT`) is on
-`origin` per [`defensive-push-check.md`](defensive-push-check.md).
+`origin` per defensive-push-check.md:orchestrator:3B,3C.
 The check short-circuits when no upstream is set, asserts ancestry
 against `@{u}`, and auto-recovers via `git push` if the implementer
 skipped the push.
@@ -725,7 +725,7 @@ Progress update + gate-check fan-out per the review loop above.
 
 Triggered when `result.RESULT == DESIGN_DECISION_NEEDED`. The
 implementer has run the snapshot-and-diff revert sequence per
-[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+implementer-rules.md:implementer:3B,3C §Detection rules, so
 the working tree is clean at HEAD (no commit was produced).
 `result.DESIGN_DECISION` is populated.
 
@@ -734,7 +734,7 @@ this point is a contract violation; surface the discrepancy to the
 user instead of proceeding.
 
 1. Present `result.DESIGN_DECISION` to the user via
-   [`design-decision-escalation.md`](design-decision-escalation.md).
+   design-decision-escalation.md:implementer,orchestrator:3A,3B,3C.
 2. On user response, respawn the implementer with:
    - `level=track`
    - `mode=WITH_GUIDANCE`
@@ -746,7 +746,7 @@ user instead of proceeding.
    The original `findings:` list is **intentionally not** carried
    into the `WITH_GUIDANCE` respawn — `findings:` is populated only
    in `mode=FIX_REVIEW_FINDINGS` per the matrix in
-   [`implementer-rules.md`](implementer-rules.md) §Inputs. The
+   implementer-rules.md:implementer:3B,3C §Inputs. The
    user's `Guidance:` is decisive about what to do with the
    surfaced design question; the implementer does not need the
    raw findings list to apply the chosen alternative. If the
@@ -768,16 +768,16 @@ Triggered when `result.RESULT == FAILED`. `result.FAILURE` carries
 `result.FAILURE.failure_class == push_only`, the `Review fix:`
 commit content is fine — content work succeeded, the commit landed
 at HEAD, and only `git push` failed (see
-[`implementer-rules.md`](implementer-rules.md) §Return contract).
+implementer-rules.md:implementer:3B,3C §Return contract).
 The clean-tree-at-HEAD assumption below does **not** apply; the
 `Review fix:` commit is at HEAD by design.
 
 Skip the failure-recording flow entirely. Instead:
 
 1. Route the push failure per
-   [`commit-conventions.md`](commit-conventions.md) § Push failure
+   commit-conventions.md:implementer,orchestrator:3A,3B,3C § Push failure
    handling — `non-fast-forward` triggers
-   [`branch-divergence-check.md`](branch-divergence-check.md) (gated
+   branch-divergence-check.md:orchestrator:2,3A,3B,3C (gated
    to first per-session rejection); other shapes record-and-continue.
 2. After the gate (or record-and-continue), run `git push` from the
    orchestrator to publish the existing `Review fix:` commit.
@@ -794,13 +794,13 @@ Skip the failure-recording flow entirely. Instead:
 The numbered steps below apply only to the default
 `failure_class: content` path. In that path the implementer has run
 the snapshot-and-diff revert sequence per
-[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+implementer-rules.md:implementer:3B,3C §Detection rules, so
 the working tree is clean at HEAD and no `Review fix:` commit was
 produced this iteration.
 
 Verify `git status` is clean before continuing. A dirty tree at this
 point is a contract violation, but per
-[`implementer-rules.md`](implementer-rules.md) §Return contract this
+implementer-rules.md:implementer:3B,3C §Return contract this
 violation is **expected** when the implementer hit a budget-pressure
 exit and prioritised emitting `RESULT: FAILED` over completing the
 revert sequence. **Route a dirty tree at FAILED through the same
@@ -813,7 +813,7 @@ authoritative inputs to the user's choice — do not discard them. If
 
 1. **Record the failure** — append a failure entry to the track
    file's `## Progress` section. Read the statusline per
-   [`episode-format-reference.md`](episode-format-reference.md)
+   episode-format-reference.md:orchestrator:3A,3B,3C
    §Sub-step 0 — fall back to `unknown` on missing file. Capture the
    current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
    running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to
@@ -826,7 +826,7 @@ authoritative inputs to the user's choice — do not discard them. If
    `impact_on_remaining_findings`, `recommended_action`) verbatim in
    the commit message body so the git history preserves the failure
    context for the draft PR — review findings are not persisted to a
-   separate file (per [`track-review.md`](track-review.md) §Phase A,
+   separate file (per track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A §Phase A,
    the durable trace is track-file edits plus the workflow-update
    commit).
 2. **Exit the iteration loop.** Do not respawn the implementer for
@@ -835,12 +835,12 @@ authoritative inputs to the user's choice — do not discard them. If
    "If blockers persist after 3 iterations, note them" branch).
 3. If `recommended_action: escalate`, present the situation to the
    user and consider entering ESCALATE per
-   [`inline-replanning.md`](inline-replanning.md). For `retry`, the
+   inline-replanning.md:orchestrator:3A,3C. For `retry`, the
    recommendation reduces to "no further automatic attempts at this
    set of findings"; the user decides whether to re-spawn with
    guidance or accept the unfixed state at track completion.
    `recommended_action: split` is **forbidden at `level=track`** per
-   [`implementer-rules.md`](implementer-rules.md) §Fundamental
+   implementer-rules.md:implementer:3B,3C §Fundamental
    failure — if surfaced, treat as a contract violation: present the
    return block verbatim to the user (do not respawn) alongside the
    same options ESCALATE / accept-as-unfixed.
@@ -849,12 +849,12 @@ authoritative inputs to the user's choice — do not discard them. If
 <!-- roles=orchestrator phases=3C summary="A risk-upgrade return at track level is a contract violation." -->
 
 `RESULT: RISK_UPGRADE_REQUESTED` is **forbidden at `level=track`**
-per [`implementer-rules.md`](implementer-rules.md) §"Risk upgrade
+per implementer-rules.md:implementer:3B,3C §"Risk upgrade
 required (level=step only)". If a Phase C implementer returns this
 value, treat it as a contract violation: surface the return block
 verbatim to the user, do not respawn automatically, and let the
 user decide whether to enter ESCALATE
-([`inline-replanning.md`](inline-replanning.md)) or to proceed to
+(inline-replanning.md:orchestrator:3A,3C) or to proceed to
 track completion with the iteration's findings unfixed.
 
 ### `handle_result_missing(result_text)` (contract violation, recovery required)
@@ -862,7 +862,7 @@ track completion with the iteration's findings unfixed.
 
 The implementer's return text contains **no parsable `RESULT:` block**
 (or the block is truncated mid-field). This is a contract violation
-per [`implementer-rules.md`](implementer-rules.md) §Return contract —
+per implementer-rules.md:implementer:3B,3C §Return contract —
 the implementer is required to emit a RESULT block before any exit,
 including context/budget exhaustion. The most common causes are:
 
@@ -900,7 +900,7 @@ manual and requires user approval — do not auto-respawn.
      parent);
    - a runaway `pgrep -f "surefire"` poll loop whose own shell
      command line matches the search pattern, so the loop never
-     exits — see [`implementer-rules.md`](implementer-rules.md)
+     exits — see implementer-rules.md:implementer:3B,3C
      §Pacing long-running tasks → forbidden self-referential
      pgrep. Untouched, this loop runs forever and consumes a CPU.
 
@@ -925,7 +925,7 @@ manual and requires user approval — do not auto-respawn.
 
    - **Re-spawn finalizer.** Clean the tree on the implementer's
      behalf (run the snapshot-and-diff revert sequence per
-     [`implementer-rules.md`](implementer-rules.md) §Detection
+     implementer-rules.md:implementer:3B,3C §Detection
      rules — the implementer never reached its own revert path,
      so the orchestrator owns the cleanup this once), then
      re-spawn a fresh implementer with the original findings. **If
@@ -940,13 +940,13 @@ manual and requires user approval — do not auto-respawn.
      is in a position to verify them itself. The orchestrator
      stages explicit paths (no `git add -A`), runs Spotless +
      targeted tests of the touched test classes (per
-     [`implementer-rules.md`](implementer-rules.md) §Pacing
+     implementer-rules.md:implementer:3B,3C §Pacing
      long-running tasks → "Prefer targeted `-Dtest=…` re-runs")
      + the coverage gate, commits as `Review fix: <subject>` per
-     [`commit-conventions.md`](commit-conventions.md), and
+     commit-conventions.md:implementer,orchestrator:3A,3B,3C, and
      proceeds to the gate-check fan-out as if the iteration had
      returned `SUCCESS`. **Apply the test-additive carve-out** from
-     [`implementer-rules.md`](implementer-rules.md) §Pacing
+     implementer-rules.md:implementer:3B,3C §Pacing
      long-running tasks → "Test-additive spawns skip the
      coverage-profile build entirely": when
      `git diff origin/develop -- '**/src/main/**'` is empty for the
@@ -1065,7 +1065,7 @@ proceed directly to track completion **in the same session**.
    any `Review fix:` commits a prior-session implementer may have
    landed before the orchestrator could re-render. This subsumes
    the mid-Apply-crash + session-restart case (see
-   [`review-mode.md`](review-mode.md) § State and resume).
+   review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C § State and resume).
 
 2. **Present track results to the user** (do NOT write to plan file yet):
    - Track episode (compiled but not yet persisted)
@@ -1081,16 +1081,16 @@ proceed directly to track completion **in the same session**.
 
 3. **Wait for user response.** Use `AskUserQuestion` with three
    one-step options per the approval-panel contract in
-   [`review-mode.md`](review-mode.md) § Approval-panel contract:
+   review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C § Approval-panel contract:
 
    - **Approve** — proceed to step 4 with whatever fix-finding
      work the review-mode loop has accumulated (none on the first
      render, or one or more `Review fix:` commits on HEAD if
      earlier rounds applied `FIX_FINDING` items).
    - **Review mode** — enter the conversational refinement loop
-     per [`review-mode.md`](review-mode.md) § Flow.
+     per review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C § Flow.
    - **ESCALATE** — trigger inline replanning per
-     [`inline-replanning.md`](inline-replanning.md).
+     inline-replanning.md:orchestrator:3A,3C.
 
    **Review mode side effects.** The user drops observations
    across as many chat turns as they want; the orchestrator
@@ -1106,7 +1106,7 @@ proceed directly to track completion **in the same session**.
    items are answered inline in chat as they came in (no Apply
    side effect). `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK` /
    `CLARIFY` are not available on Completion (see
-   [`review-mode.md`](review-mode.md) § Action types).
+   review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C § Action types).
 
    **Completion outcome mapping.** For what each implementer
    return status (`SUCCESS` / `FAILED` / `DESIGN_DECISION` /
@@ -1115,7 +1115,7 @@ proceed directly to track completion **in the same session**.
    the design-decision escalation flow, and the
    `commit-as-is / re-spawn / discard` sub-panel for
    `RESULT_MISSING` — see
-   [`review-mode.md`](review-mode.md) § Completion FIX_FINDING
+   review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C § Completion FIX_FINDING
    outcome mapping. Completion FIX_FINDING does **not** reuse
    §Phase C Implementer Handlers above; the spec lives at the
    review-mode callsite because the four outcomes feed the
@@ -1139,7 +1139,7 @@ proceed directly to track completion **in the same session**.
    present — though that line is never yet on disk at Phase C collapse
    time; the next session's Track Pre-Flight gate appends it when
    Panel 1 (strategy assessment) clears (see
-   [`track-review.md`](track-review.md) § Track Pre-Flight step 6).
+   track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A § Track Pre-Flight step 6).
 
    **Always drop**: the `**Scope:**` line and the `**Depends on:**`
    line.
@@ -1189,7 +1189,7 @@ proceed directly to track completion **in the same session**.
    code-review sub-agent prompt by tens of thousands of tokens. The
    intro paragraph plus track episode is sufficient strategic context
    for reviewers of later tracks. For how sub-agents render the plan,
-   see [`plan-slim-rendering.md`](plan-slim-rendering.md).
+   see plan-slim-rendering.md:orchestrator:3B,3C.
 
 5. **Commit and push the track-completion changes** as a single
    Workflow update commit. The plan-file edit (track episode + `[x]`
@@ -1206,7 +1206,7 @@ proceed directly to track completion **in the same session**.
 
    This commit is registered as scaffolding in the resume orphan
    detection (see
-   [`step-implementation-recovery.md`](step-implementation-recovery.md)
+   step-implementation-recovery.md:orchestrator:3B
    §Resume-side commit-pattern reference — entry 5, "Other Workflow
    update commits"). It does **not** contribute to any `[x]` step's
    expected commit set.

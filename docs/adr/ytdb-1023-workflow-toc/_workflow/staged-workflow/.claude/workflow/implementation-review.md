@@ -26,7 +26,7 @@
 | §Audit trail | orchestrator | 2 | Where the review decisions are recorded for later reference. |
 | §1. The `## Plan Review` section in the plan file | orchestrator | 2 | Recording the review outcome in the plan file's review section. |
 | §2. The workflow-update commit | orchestrator | 2 | Committing the review result as a workflow-update commit. |
-| §Mutation discipline for design.md fixes | orchestrator,reviewer-design | 2 | Routing design-doc fixes through the mutation discipline. |
+| §Mutation discipline for `design.md` fixes | orchestrator,reviewer-design | 2 | Routing design-doc fixes through the mutation discipline. |
 | §Replanning | orchestrator | 2 | When a Phase 2 finding forces a return to planning. |
 | §Completion | orchestrator | 2 | Closing Phase 2 and handing off to track execution. |
 
@@ -71,7 +71,7 @@ does **not** separately review the narrative quality of `design.md`
 (per-section shape, top-level caps, consolidation form, D/S code
 discipline, length-trigger compliance, etc.). Those checks are
 gated at **write time** by the design-mutation action defined in
-[`design-document-rules.md`](design-document-rules.md) § Mutation
+design-document-rules.md:final-designer,planner,reviewer-design:1,3A,3C,4 § Mutation
 discipline — every modification to `design.md` runs the
 mechanical checks + cold-read sub-agent before the change stands.
 Phase 2's Consistency Review still verifies design ↔ code ↔ plan
@@ -143,7 +143,7 @@ the orchestrator does after the flow completes:
 
 **Resolve active handoffs first.** If
 `docs/adr/<dir-name>/_workflow/handoff-state0.md` exists, complete
-[`mid-phase-handoff.md`](mid-phase-handoff.md) §Resume protocol
+mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 §Resume protocol
 (including the resolution commit) BEFORE running the clean-tree check
 below. The resolution commit deletes the handoff file and the PAUSED
 marker line in `implementation-plan.md`, so leaving it for after the
@@ -184,7 +184,7 @@ verify code references, call flows, and class relationships.
 Because the consistency review's findings are factual claims about the
 code (a method exists / does not exist, a flow has these participants,
 this class has these callers), they are reference-accuracy questions
-under the rule in [`conventions.md`](conventions.md) `§1.4` *Tooling
+under the rule in conventions.md:any:any `§1.4` *Tooling
 discipline*. When mcp-steroid is reachable per the SessionStart hook,
 the verification routes through the IntelliJ PSI rather than grep —
 preflight via `steroid_list_projects`, and instruct the consistency
@@ -218,7 +218,7 @@ the plan.
 ### Sub-agent prompt
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="Prompt template for the consistency review sub-agent." -->
 
-**Prompt file:** [`prompts/consistency-review.md`](prompts/consistency-review.md)
+**Prompt file:** prompts/consistency-review.md:reviewer-plan:2
 
 The prompt embeds the **intent-axis pre-screen** (current-state vs.
 target-state) and the **classification rules** (see §Mechanical vs.
@@ -229,7 +229,7 @@ field, not on severity.
 ### Gate verification
 <!-- roles=orchestrator phases=2 summary="Confirming the consistency reviewer's PASS is well-formed." -->
 
-**Prompt file:** [`prompts/consistency-gate-verification.md`](prompts/consistency-gate-verification.md)
+**Prompt file:** prompts/consistency-gate-verification.md:reviewer-plan:2
 
 ### Autonomous orchestration loop
 <!-- roles=orchestrator phases=2 summary="The iterate-until-PASS loop the orchestrator runs autonomously." -->
@@ -274,7 +274,7 @@ passed but structural review has not run, or an iteration's
 mechanical fixes are applied but the gate sub-agent has not yet been
 spawned), write a handoff file at
 `docs/adr/<dir-name>/_workflow/handoff-state0.md` per
-[`mid-phase-handoff.md`](mid-phase-handoff.md). Capture the iteration
+mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4. Capture the iteration
 count, which classifier passes are done, and the verbatim list of
 mechanical fixes that landed so the next session does not re-run them.
 
@@ -315,17 +315,17 @@ SCOPE INDICATORS, and CONSISTENCY) lives in that track's track file
 inline in the plan file; the structural review reads the track files
 alongside the plan.
 
-**Full details:** [`structural-review.md`](structural-review.md)
+**Full details:** structural-review.md:orchestrator,reviewer-plan:2,3A,3C
 
 ### Sub-agent prompt
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="Prompt template for the consistency review sub-agent." -->
 
-**Prompt file:** [`prompts/structural-review.md`](prompts/structural-review.md)
+**Prompt file:** prompts/structural-review.md:reviewer-plan:2
 
 ### Gate verification
 <!-- roles=orchestrator phases=2 summary="Confirming the consistency reviewer's PASS is well-formed." -->
 
-**Prompt file:** [`prompts/structural-gate-verification.md`](prompts/structural-gate-verification.md)
+**Prompt file:** prompts/structural-gate-verification.md:reviewer-plan:2
 
 ### Autonomous orchestration loop
 <!-- roles=orchestrator phases=2 summary="The iterate-until-PASS loop the orchestrator runs autonomously." -->
@@ -433,12 +433,12 @@ plan/design claim along the **intent axis**:
 
 - **Current-state claim** — the plan/design says something about code
   that should already exist (Component Map describing a current
-  module's role, design.md class diagram describing pre-existing
+  module's role, `design.md` class diagram describing pre-existing
   classes, Architecture Notes referencing today's SPI). Discrepancies
   here become findings.
 - **Target-state claim** — the plan/design says something about code
   a `[ ]` track will create (`**What**:` bullets in the track's step
-  file, forward-looking Decision Records, design.md sections
+  file, forward-looking Decision Records, `design.md` sections
   describing the post-implementation state). The current code
   naturally won't match — this is **not a finding** unless the target
   is unreachable from the current code (in which case the finding is
@@ -506,16 +506,16 @@ This is a single Workflow update commit per the table in
 
 ---
 
-## Mutation discipline for design.md fixes
+## Mutation discipline for `design.md` fixes
 <!-- roles=orchestrator,reviewer-design phases=2 summary="Routing design-doc fixes through the mutation discipline." -->
 
 Every fix that touches `design.md` (or `design-mechanics.md`) routes
-through the `edit-design` skill — see [`design-document-rules.md`](design-document-rules.md)
+through the `edit-design` skill — see design-document-rules.md:final-designer,planner,reviewer-design:1,3A,3C,4
 § Mutation discipline. The skill applies the mechanical checks +
 cold-read sub-agent gate before the change stands.
 
 The autonomous flow handles this by invoking `edit-design` for each
-design.md mechanical fix; the cold-read sub-agent is the safety net
+`design.md` mechanical fix; the cold-read sub-agent is the safety net
 for narrative breakage. If the cold-read rejects the mutation, the
 orchestrator escalates that specific fix to the user (effectively
 re-classifying it from `mechanical` to `design-decision`).

@@ -65,7 +65,7 @@ design document.
 |---|---|
 | `implementation-plan.md` | Goals, constraints, the **decisions themselves** (alternatives / rationale / risks / where-implemented / link-to-design), the Component Map (topology + short intent bullets), short invariant statements, short integration-point bullets, the track checklist. **Strategic, scannable, loaded every session.** |
 | `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; references footer. **Loaded only when referenced; serves both human reviewers and execution agents.** |
-| `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in design.md's mechanism overview. **Created only when design.md exceeds the length trigger; cross-referenced from design.md's References footer.** |
+| `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in `design.md`'s mechanism overview. **Created only when `design.md` exceeds the length trigger; cross-referenced from `design.md`'s References footer.** |
 | `plan/track-N.md` `## Purpose / Big Picture` | Per-track intro paragraph that names the track, its BLUF outcome, and the ADDED/MODIFIED/REMOVED triad (sibling Move 2 reserved slot). Track-level concrete deliverables and edit detail belong here together with the three sections below. |
 | `plan/track-N.md` `## Context and Orientation` | Per-track static context: the files, classes, methods, and subsystems the track touches; ordering constraints relative to other tracks; pre-existing invariants the track must respect. |
 | `plan/track-N.md` `## Plan of Work` | Per-track approach prose: how the track delivers its outcome at a step-shape level (not per-step detail — that lives under `## Concrete Steps`). Any track-level Mermaid diagram lives here. |
@@ -180,11 +180,11 @@ final state.
 
 **Concrete invocation.** The design-doc mutation action is
 implemented as the `edit-design` skill at
-[`.claude/skills/edit-design/SKILL.md`](../../.claude/skills/edit-design/SKILL.md).
+edit-design/SKILL.md:final-designer,orchestrator,planner:1,3A,3C,4.
 The mechanical checks half is the script at
 [`.claude/scripts/design-mechanical-checks.py`](../../.claude/scripts/design-mechanical-checks.py).
 The cold-read half is the sub-agent prompt at
-[`prompts/design-review.md`](prompts/design-review.md). When the
+prompts/design-review.md:reviewer-design:1,4. When the
 agent needs to modify `design.md` or `design-mechanics.md`, it
 invokes the skill — not raw `Edit` / `Write`.
 
@@ -201,7 +201,7 @@ separate exercise and is not required.
 <!-- roles=reviewer-design phases=1,3A,3C,4 summary="How much of the doc the cold-read reviewer reads per mutation kind." -->
 
 In the table below, the `--target` column reads as a function of whether a
-`design-mechanics.md` companion exists. "design.md only" designs use
+`design-mechanics.md` companion exists. "`design.md` only" designs use
 `--target=design`; designs that also touch mechanics (because the seeding
 or rename or rewrite spans both files) use `--target=both`. Mutation kinds
 whose `--target` depends on this condition are written as
@@ -212,7 +212,7 @@ time.
 |---|---|---|---|
 | `phase1-creation` (initial seed) | `design.md` only when mechanics is not needed; both files when the design will exceed the length trigger or already plans for a mechanics companion | `design \| both` | **Whole-doc** on `design.md` (mechanics is exempt — it's agent-targeted long-form) |
 | `mechanics-edit` (working-mode edit) | mechanics only | `mechanics` | **NONE** — cold-read deferred to next `design-sync` |
-| `design-sync` (re-distill design.md from current mechanics) | both files | `both` | **Whole-doc** on `design.md`, plus mechanics-link sweep |
+| `design-sync` (re-distill `design.md` from current mechanics) | both files | `both` | **Whole-doc** on `design.md`, plus mechanics-link sweep |
 | `content-edit` within an existing section | `design.md` | `design` | **Bounded** — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
 | `section-add` | `design.md` | `design` | **Bounded** — new section + Overview + (when present) Core Concepts + structure roadmap (for placement check) |
 | `section-remove` | `design.md` (+ plan / track-file ref cleanup) | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
@@ -251,8 +251,8 @@ context to disambiguate.
 | Per-section shape compliance | Per `^## ` section (excluding shape-exempt: Overview, Core Concepts, Class Design, Workflow, Part-level TL;DR): TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); References footer present (`### References` or `\*\*References\.\*\*` near section end) |
 | Top-level cap | Flat count of `^## ` ≤ 15 always; when `# Part N` headings exist, an additional per-Part cap of ≤ 8 sections (warn at > 6) applies on top of the flat 15 |
 | Per-section length cap | Each `^## ` section ≤ 300 lines, three-tier severity: 201-300 lines is a `suggestion` (warn — long-form material is creeping in); 301-400 is `should-fix` (over the soft cap); >400 is a `blocker` (sections over 400 lines almost always have long-form material that must move to `design-mechanics.md`). Honors `--scope=bounded`: when bounded, only the changed section is checked — pre-existing legacy oversize sections are not backfilled. |
-| D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside `### References` / `**References.**` blocks and table rows. Honors `--scope=bounded` on the design.md side: only asides whose line falls within the changed section's range are flagged. (Mechanics-side asides, when `--target=mechanics` or `--target=both`, always run whole-doc — `--changed-section` describes a design.md section, not a mechanics section.) |
-| `dsc-ai-tell` AI-tell detection | Detects nine `house-style.md` patterns whose textual fingerprint is reliable enough to flag mechanically: Tier-1 vocabulary base words (`§ Tier 1`), negative parallelism `not X, but Y` constructions (`§ Banned sentence patterns`), em-dash density at 3+ per paragraph or 2 unpaired em dashes carrying a sentence terminator in the middle segment (`§ Em-dash discipline`), Title Case H2+ headings (`§ Title Case headings forbidden` — `# `-level headings are skipped because they are document titles), signposting openers (`§ Signposting`), copula-led sentences in the documented shape (`§ Copula avoidance`), persuasive authority tropes (`§ Persuasive authority tropes`), hyphenated-pair clusters at 3+ within a paragraph (`§ Hyphenated word-pair overuse`), and fragmented-header chains (`§ Fragmented headers`). Each finding cites `house-style.md § <Section>` in its description so the reader can trace the rule back to its prose. The check is `auto_applicable: false` — every finding requires a human rewrite. Honors `--scope=bounded` on the design.md side in parallel with the D/S parenthetical asides row above: only paragraphs whose line falls within the changed section's range are flagged. |
+| D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside `### References` / `**References.**` blocks and table rows. Honors `--scope=bounded` on the `design.md` side: only asides whose line falls within the changed section's range are flagged. (Mechanics-side asides, when `--target=mechanics` or `--target=both`, always run whole-doc — `--changed-section` describes a `design.md` section, not a mechanics section.) |
+| `dsc-ai-tell` AI-tell detection | Detects nine `house-style.md` patterns whose textual fingerprint is reliable enough to flag mechanically: Tier-1 vocabulary base words (`§ Tier 1`), negative parallelism `not X, but Y` constructions (`§ Banned sentence patterns`), em-dash density at 3+ per paragraph or 2 unpaired em dashes carrying a sentence terminator in the middle segment (`§ Em-dash discipline`), Title Case H2+ headings (`§ Title Case headings forbidden` — `# `-level headings are skipped because they are document titles), signposting openers (`§ Signposting`), copula-led sentences in the documented shape (`§ Copula avoidance`), persuasive authority tropes (`§ Persuasive authority tropes`), hyphenated-pair clusters at 3+ within a paragraph (`§ Hyphenated word-pair overuse`), and fragmented-header chains (`§ Fragmented headers`). Each finding cites `house-style.md § <Section>` in its description so the reader can trace the rule back to its prose. The check is `auto_applicable: false` — every finding requires a human rewrite. Honors `--scope=bounded` on the `design.md` side in parallel with the D/S parenthetical asides row above: only paragraphs whose line falls within the changed section's range are flagged. |
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% Jaccard overlap on custom sub-headings → flag for consolidation. Pairs above the threshold are merged via union-find so a near-duplicate cluster (e.g. 5 sections sharing `### Inputs / ### Algorithm / ### Outputs` plus one with an extra `### Edge Cases`) flags as a single same-shape group. |
 | `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the References footer, but the script flags any unresolved reference regardless of how the line is prefixed. |
@@ -293,8 +293,8 @@ shape per entry is:
 **Iterations**: 1 of 3 (PASS) | 3 of 3 (BLOCKER REMAINS)
 ```
 
-The skill ([`edit-design/SKILL.md`](../../.claude/skills/edit-design/SKILL.md)
-§ Step 7) is the **canonical** writer and adds qualifiers the minimum
+The skill (edit-design/SKILL.md:final-designer,orchestrator,planner:1,3A,3C,4
+`§ Step 7`) is the **canonical** writer and adds qualifiers the minimum
 above does not show — file-basename suffix in the header (`design.md`
 vs `design-final.md`), the `target=` flag on the mechanical-checks
 line, a `SKIPPED` value for cold-read on `mechanics-edit`, and a
@@ -314,7 +314,7 @@ last sync point and walk every `mechanics-edit` since then.
 
 The cold-read half of the auto-review is implemented by the
 prompt at
-[`prompts/design-review.md`](prompts/design-review.md). The
+prompts/design-review.md:reviewer-design:1,4. The
 prompt instructs a fresh sub-agent to read the design document
 without context, answer comprehension questions, and report
 structural findings. The mutation action invokes it once per
@@ -370,7 +370,7 @@ Phase 1.3  design-sync         ── re-distill design.md from current
    └─→ back to Phase 1.2 or out to Phase 2 when stable.
 ```
 
-**Why the split exists.** During iteration, distilling design.md
+**Why the split exists.** During iteration, distilling `design.md`
 on every mechanics tweak is expensive (cold-read fires per change)
 and produces churn in the human-facing summary. Working mode lets
 mechanics evolve freely under cheap mechanical checks; sync
@@ -383,7 +383,7 @@ understand the design, then issues feedback against it. The
 agent processes feedback by editing `mechanics`, not `design.md`.
 
 **Sync trigger — hybrid.** Sync runs when **either**:
-- The user explicitly requests it ("update design.md", "run
+- The user explicitly requests it ("update `design.md`", "run
   design-sync", "publish the polished version", or any phrasing
   that conveys intent), **or**
 - The working-mode counter reaches `N=5` and the agent
@@ -409,12 +409,12 @@ current state of `design-mechanics.md`:
   in every track file under `plan/`.
 
 The sync's cold-read sub-agent gets an extended instruction:
-*"Verify that every TL;DR and mechanism overview in design.md
+*"Verify that every TL;DR and mechanism overview in `design.md`
 accurately summarizes the current mechanics file's content for
 the same-named section."* It also runs the Human-reader
 cold-read additions (audience-fit, glossary-introduction,
 why-before-what, navigability — see
-[`prompts/design-review.md`](prompts/design-review.md)
+prompts/design-review.md:reviewer-design:1,4
 § Human-reader cold-read additions), since the rewritten
 Overview is a freshly human-facing artifact that can drift in
 vocabulary or audience fit while mechanics evolves between
@@ -456,8 +456,8 @@ The Overview carries, in order:
    the subsystems that change as a consequence of the core change.
 5. **Companion-file pointer** (when `design-mechanics.md` exists)
    — a 2-3 line note on the section-name convention, the
-   directionality rule (cross-refs go `design.md →
-   design-mechanics.md`, never the reverse), and which artifacts
+   directionality rule (cross-refs go `design.md` →
+   `design-mechanics.md`, never the reverse), and which artifacts
    (typically diagrams) appear in both files.
 6. **Document-structure roadmap** — one sentence summarizing what
    the rest of the doc covers, in order. ("The rest of this
@@ -631,8 +631,8 @@ The fully-detailed mechanism for each instance lives in
 `design-mechanics.md` under its **original** section name, so
 `implementation-plan.md`'s per-D `**Full design**` references
 remain stable across the consolidation. The plan's link points
-at the design.md Part 5 sub-section for the TL;DR, which footers
-out to design-mechanics.md for the deep dive.
+at the `design.md` Part 5 sub-section for the TL;DR, which footers
+out to `design-mechanics.md` for the deep dive.
 
 This form is what prevents the "9 sibling sections that all repeat
 the same shape" anti-pattern.
@@ -663,8 +663,8 @@ footer template above and on standalone inline lines). This
 stability is what keeps `implementation-plan.md`'s per-D
 `**Full design**` references resolvable across the split.
 
-**Cross-references go one direction:** `design.md →
-design-mechanics.md`, never the reverse. `design-mechanics.md`
+**Cross-references go one direction:** `design.md` →
+`design-mechanics.md`, never the reverse. `design-mechanics.md`
 must be self-contained for the agent reader who lands on a
 specific mechanism without needing to flip back.
 
@@ -707,8 +707,8 @@ name the D-codes because they are the subject. Use sparingly.
 <!-- roles=planner,final-designer phases=1,4 summary="Keeping section names stable so cross-references survive edits." -->
 
 Renames and consolidations break references. When `design.md` or
-`design-mechanics.md` is restructured, every `**Full design**:
-design.md §"<section name>"` line in `implementation-plan.md`
+`design-mechanics.md` is restructured, every
+`**Full design**: design.md §"<section name>"` line in `implementation-plan.md`
 and in every `plan/track-N.md` track file that references the old
 name **MUST be updated in the same commit** that renames the section.
 Same rule for any file that cross-links to the design document.

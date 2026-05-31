@@ -56,7 +56,7 @@ Shared formats, rules, and glossary used by all phases of the workflow.
 
 For execution-specific conventions (episodes, commit format, code review,
 complexity tiers, decomposition rules), see
-[`conventions-execution.md`](conventions-execution.md) — loaded only
+conventions-execution.md:decomposer,final-designer,implementer,orchestrator:3A,3B,3C,4 — loaded only
 during Phase 3 execution.
 
 ---
@@ -75,17 +75,17 @@ during Phase 3 execution.
 | **Session** | One invocation of `/execute-tracks`. Handles one sub-phase (A, B, or C) of one track. Sessions are separated by context clearing. Episodes bridge context across sessions. The only exception: the Track Pre-Flight gate + Phase A share a single session. |
 | **Sub-agent** | A spawned agent for self-contained tasks — review (technical/risk/adversarial, dimensional code review, test quality review) where fresh perspective matters, or implementation (Phase B per-step implementer) where context absorption matters. The orchestrator retains session-level state. |
 | **Orchestrator** | The session-level agent driving `/execute-tracks`. In Phase B owns sub-steps 4–7 of step implementation and all session-level decisions (cross-track impact, escalation, episode synthesis, context-level session-end gate). Distinct from the implementer. |
-| **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See [`implementer-rules.md`](implementer-rules.md). |
+| **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See implementer-rules.md:implementer:3B,3C. |
 | **Track file** | `plan/track-N.md` — the per-track ExecPlan working file. Created during Phase 1 alongside `implementation-plan.md` with the four Phase 1 track-level sections populated (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) plus any track-level Mermaid diagram; the remaining sections are filled by Phase A → C. See `conventions-execution.md §2.1` *Track file content* for the full 14-section ExecPlan shape and the workflow-specific `## Base commit` sibling. Lives under `_workflow/plan/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
-| **Mid-phase handoff** | An on-disk file `_workflow/handoff-*.md` written when a session pauses with un-derivable mid-phase state (research notes, verbatim re-present text, partial reviews). Distinct from the implementer-return "handoff" — see [`mid-phase-handoff.md`](mid-phase-handoff.md) for the protocol. Resolved and deleted on resume; otherwise removed by the Phase 4 cleanup commit. |
+| **Mid-phase handoff** | An on-disk file `_workflow/handoff-*.md` written when a session pauses with un-derivable mid-phase state (research notes, verbatim re-present text, partial reviews). Distinct from the implementer-return "handoff" — see mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 for the protocol. Resolved and deleted on resume; otherwise removed by the Phase 4 cleanup commit. |
 | **Workflow-SHA stamp** | The HTML comment `<!-- workflow-sha: <40-char SHA> -->` written on line 1 of each `_workflow/**` artifact, recording the workflow-format commit reachable from HEAD at the moment of artifact creation. Drift detection and migration replay both read it; the H1 title starts on line 2. Full rule, canonical parser idioms, range definition, and unstamped-artifact protocol live in §1.6:orchestrator,planner,migrator,final-designer:1,2,3A,3B,3C,4. |
-| **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the workflow format encoded in commits reachable from HEAD (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks` by the gate at [`workflow-drift-check.md`](workflow-drift-check.md); the migration itself is owned by the `/migrate-workflow` skill. |
+| **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the workflow format encoded in commits reachable from HEAD (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks` by the gate at workflow-drift-check.md:orchestrator,planner:2,3A; the migration itself is owned by the `/migrate-workflow` skill. |
 | **Role enum** | The closed 15-value set of agent-role tokens (`any`, `orchestrator`, `planner`, `implementer`, `decomposer`, `final-designer`, `migrator`, `pr-reviewer`, `reviewer-technical`, `reviewer-risk`, `reviewer-adversarial`, `reviewer-plan`, `reviewer-design`, `reviewer-dim-step`, `reviewer-dim-track`) used in per-section annotations and cross-reference suffixes. Closed at rollout; new roles require a workflow-format commit. Full list with per-value descriptions in §1.8:any:any. |
 | **Phase enum** | The closed 8-value set of workflow-phase tokens (`0`, `1`, `2`, `3A`, `3B`, `3C`, `4`, `any`) used in per-section annotations and cross-reference suffixes. Inline-replanning, review-mode passes, and `edit-design` mutations reuse existing phase tokens (often as a union) rather than carving out separate tokens; `/migrate-workflow` and `/review-workflow-pr` sit outside the phase taxonomy and use `phases=any`. Full list in §1.8:any:any. |
 | **Section annotation** | The one-line HTML comment `<!-- roles=<comma-list> phases=<comma-list> summary="<one-line>" -->` placed immediately after every annotated `##` or `###` heading. Carries the section's role and phase audience plus a ≤120-char summary; the TOC region's summary cell reads from `summary="..."` verbatim. Comma-separated lists carry no spaces. Required at the same density on `### ` as on `## ` (one literal-heading exception: the bootstrap-block heading `## Reading workflow files (TOC protocol)`). Format definition in §1.8:any:any. |
 | **TOC region** | The Markdown table between the literal `<!--Document index start-->` and `<!--Document index end-->` comment delimiters, sitting directly under a workflow doc's H1. Columns are fixed at `Section | Roles | Phases | Summary`; rows map 1:1 to every `^## ` and `^### ` heading (bootstrap-block heading exempted). `workflow-reindex.py --write` rebuilds the table from per-section annotations; authors do not maintain it by hand. Format definition in §1.8:any:any. |
-| **Cross-reference convention** | The `roles:phases` suffix on workflow-doc references that lets a reader filter before opening (cross-file refs) or before jumping to a section (in-file refs). Cross-file refs in every in-scope file — workflow docs, prompts, SKILL.md startup read-lists, and `.claude/agents/*.md` files — use the full `name.md:roles:phases` form and are hand-written; references to non-annotatable targets are backtick-wrapped instead. In-file `§X.Y(z):roles:phases` refs inside a workflow doc are auto-stamped by `workflow-reindex.py --write` from the target heading's annotation. The reindex script subset-validates cross-file suffixes against the target. Format, examples, and drift-detection rules in §1.8:any:any. |
-| **Bootstrap block** | The ~30-line instruction block placed between the frontmatter (when present) and the H1 of every workflow-related system prompt (7 SKILL.md, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` — 38 files total). The block names the agent's role and embeds enough of the TOC-aware reading protocol that a freshly spawned sub-agent applies the filter from its first Read instead of paying the full-file cost to bootstrap itself from `conventions.md §1.8`. Block body and scope live in `design.md §"Bootstrap protocol for agent system prompts"` during Phase 1 and in `design-final.md` after the Phase 4 squash-merge; the reindex script's presence check is rule 7. |
+| **Cross-reference convention** | The `roles:phases` suffix on workflow-doc references that lets a reader filter before opening (cross-file refs) or before jumping to a section (in-file refs). Cross-file refs in every in-scope file — workflow docs, prompts, `SKILL.md` startup read-lists, and `.claude/agents/*.md` files — use the full `name.md:roles:phases` form and are hand-written; references to non-annotatable targets are backtick-wrapped instead. In-file `§X.Y(z):roles:phases` refs inside a workflow doc are auto-stamped by `workflow-reindex.py --write` from the target heading's annotation. The reindex script subset-validates cross-file suffixes against the target. Format, examples, and drift-detection rules in §1.8:any:any. |
+| **Bootstrap block** | The ~30-line instruction block placed between the frontmatter (when present) and the H1 of every workflow-related system prompt (7 `SKILL.md`, 11 `.claude/workflow/prompts/*.md`, 20 `.claude/agents/*.md` — 38 files total). The block names the agent's role and embeds enough of the TOC-aware reading protocol that a freshly spawned sub-agent applies the filter from its first Read instead of paying the full-file cost to bootstrap itself from `conventions.md §1.8`. Block body and scope live in `design.md §"Bootstrap protocol for agent system prompts"` during Phase 1 and in `design-final.md` after the Phase 4 squash-merge; the reindex script's presence check is rule 7. |
 
 ---
 
@@ -172,7 +172,7 @@ the §1.1:any:any glossary row "Workflow-SHA stamp" gives the one-line definitio
 
 The on-disk shape of `_workflow/**` may shift between sessions when
 workflow-format commits land on `develop` while the branch runs. The
-session-start gate at [`workflow-drift-check.md`](workflow-drift-check.md)
+session-start gate at workflow-drift-check.md:orchestrator,planner:2,3A
 detects such drift at every `/create-plan` (D9) and `/execute-tracks`
 startup and routes the user through the `/migrate-workflow` skill to
 realign.
@@ -215,12 +215,12 @@ realign.
 
 The `## Plan Review` section is the State 0 marker the
 `/execute-tracks` startup protocol reads (see
-[`workflow.md`](workflow.md) §Startup Protocol). When the entry is
+workflow.md:orchestrator,planner,final-designer:2,3A,3B,3C,4 §Startup Protocol). When the entry is
 `[ ]` (or the section is missing entirely on a pre-existing plan),
 `/execute-tracks` loads `implementation-review.md` and runs the
 autonomous plan review before any track work begins. After the
 review passes, the section is overwritten with the audit summary
-(see [`implementation-review.md`](implementation-review.md) §Audit
+(see implementation-review.md:orchestrator,reviewer-plan,reviewer-design:2 §Audit
 trail for the format) and the entry becomes `[x]`. A user may
 manually re-set the entry to `[ ]` (or invoke `/review-plan`) after
 inline replanning to force a re-validation.
@@ -238,9 +238,9 @@ extra complexity.
 so each section of the plan file obeys a length budget. Targets:
 plan-file total ~1,500 lines / ~30K tokens; DR ≤ ~30 lines; invariant
 ≤ ~5; integration-point bullet ≤ ~3; component intent bullet ≤ ~5.
-See [`planning.md`](planning.md) § Architecture Notes format for the
+See planning.md:planner,reviewer-plan:0,1,2 § Architecture Notes format for the
 per-section budgets and rationale, and
-[`structural-review.md`](structural-review.md) § Bloat checks for how
+structural-review.md:orchestrator,reviewer-plan:2,3A,3C § Bloat checks for how
 the structural review enforces them.
 
 ### Track file content (`plan/track-N.md`)
@@ -312,7 +312,7 @@ code review. Severity levels: **blocker** / **should-fix** / **suggestion**
 / **skip** (track reviews only — recommends skipping the entire track).
 
 **Full protocol** (iteration limits, finding ID prefixes, finding format,
-gate verification output): [`review-iteration.md`](review-iteration.md) —
+gate verification output): review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C —
 load when running a review loop.
 
 ---
@@ -470,7 +470,7 @@ authoritative source for the trigger list and use cases.
 <!-- roles=any phases=any summary="House-style tiers: full style for Markdown and prose, AI-tell subset for code comments and tests." -->
 
 Every prose surface in this repo follows the rules in
-[`.claude/output-styles/house-style.md`](../output-styles/house-style.md).
+`.claude/output-styles/house-style.md`.
 That file is the single declarative source: BLUF lead, banned
 vocabulary, banned sentence patterns, banned analysis patterns,
 punctuation and typography, structural rules, and document-shape rules
@@ -1167,7 +1167,7 @@ A Markdown table between literal `<!--Document index start-->` and
 maps 1:1 to every `^## ` and `^### ` heading in the file (the bootstrap
 heading is the sole exception, as above). A file with no `^## `
 headings carries no TOC region (no rows to enumerate); the reindex
-script's rule 2 accepts an omitted TOC for such files. See design.md
+script's rule 2 accepts an omitted TOC for such files. See `design.md`
 §"Files and surfaces out of scope" Exclusion 6 for the rationale.
 
 **TOC anchor.** The region sits at one of three anchors, and only blank
@@ -1241,10 +1241,10 @@ to the cited section (in-file refs). Cross-file refs use the full
 `workflow-reindex.py --write` from the target heading's annotation.
 
 **Scope: every cross-file reference in an in-scope file carries the
-suffix, not only agent files and SKILL.md read-lists.** A cross-file
+suffix, not only agent files and `SKILL.md` read-lists.** A cross-file
 reference to an in-scope annotated target — from any
 `.claude/workflow/` doc, any `.claude/workflow/prompts/` prompt, a
-SKILL.md startup read-list, or a `.claude/agents/*.md` file — uses the
+`SKILL.md` startup read-list, or a `.claude/agents/*.md` file — uses the
 suffixed form. A Markdown link to an in-scope target
 (`[workflow.md](workflow.md)`, `[conventions.md §1.6](conventions.md)`)
 is converted to the bare suffixed form
@@ -1395,7 +1395,7 @@ info-string fences and longer fences are excluded identically.
 <!-- roles=any phases=any summary="How an agent filters on file-level then section-level roles+phases before reading." -->
 
 The flowchart below covers the cross-file case: an agent encounters a
-`name.md:roles:phases` reference (in SKILL.md, a prompt, or an agent
+`name.md:roles:phases` reference (in `SKILL.md`, a prompt, or an agent
 file), file-level-matches against its own role and phase, opens,
 TOC-matches against per-section roles+phases, and jumps to the cited
 section with a `Read(offset, limit)` call.
@@ -1437,14 +1437,14 @@ in-file path is a special case where the file-level decision is moot.
 
 The fenced block below shows a fully-annotated heading and its
 corresponding TOC row. The block is a documentation example, not a
-real TOC region in this file (conventions.md itself does not yet
+real TOC region in this file (`conventions.md` itself does not yet
 carry a real TOC region; Track 4's universal rollout introduces TOC
 regions across every in-scope workflow file in a single coordinated
 pass). The example heading `## 99.1 Demo section` is a constructed
 demonstration anchor so the fenced block does not collide with any
 real heading earlier in this file. The `<!-- workflow-sha: ... -->`
 line is a `_workflow/**` artifact concern per §1.6:orchestrator,planner,migrator,final-designer:1,2,3A,3B,3C,4 and live workflow
-files like conventions.md never carry it; the example omits it for
+files like conventions.md:any:any never carry it; the example omits it for
 the same reason.
 
 ```markdown

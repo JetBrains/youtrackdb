@@ -77,8 +77,8 @@ treatment in track-level review remain risk-tag-driven.
 
 The implementer-model column is informational — it documents the
 model used by the Phase B orchestrator's spawn template. The operative
-source is [`step-implementation.md`](step-implementation.md)
-§Implementer Prompt Template, which hard-codes `model: "opus"`
+source is step-implementation.md:orchestrator:3B
+`§Implementer Prompt Template`, which hard-codes `model: "opus"`
 regardless of the step's risk tag (the orchestrator does not look the
 model up from this column at spawn time). Because every row resolves
 to `opus`, the `low → high` upgrade path (see §"Phase B upgrade"
@@ -224,7 +224,7 @@ If implementing a step reveals that the change is more invasive than
 the plan suggested (e.g., the "trivial refactor" turned out to require
 lock ordering changes), the implementer flags the upgrade by returning
 `RESULT: RISK_UPGRADE_REQUESTED` (per
-[`implementer-rules.md`](implementer-rules.md) §Detection rules).
+implementer-rules.md:implementer:3B,3C `§Detection rules`).
 
 The orchestrator's response depends on **when** the upgrade surfaces:
 
@@ -233,8 +233,8 @@ The orchestrator's response depends on **when** the upgrade surfaces:
   rewrites the inline `risk:` field on the `## Concrete Steps`
   roster line and respawns from `mode=INITIAL` BEFORE running the
   dimensional review for that step. See
-  [`step-implementation-recovery.md`](step-implementation-recovery.md)
-  §`apply_upgrade_then_decide`.
+  step-implementation-recovery.md:orchestrator:3B
+  `§apply_upgrade_then_decide`.
 - **Post-commit** (during a `mode=FIX_REVIEW_FINDINGS` respawn — the
   upgrade surfaces only when applying review findings) — the
   orchestrator rolls back the original implementer commit and any
@@ -244,8 +244,8 @@ The orchestrator's response depends on **when** the upgrade surfaces:
   full dim-review pressure from the start at the new risk level — not
   stacked on top of an implementation that was already reviewed under
   the old tag. See
-  [`step-implementation-recovery.md`](step-implementation-recovery.md)
-  §`rollback_and_upgrade`.
+  step-implementation-recovery.md:orchestrator:3B
+  `§rollback_and_upgrade`.
 
 In both cases, `medium → high` auto-applies; `low → high` pauses
 for user confirmation. Upgrades are recorded in the step's risk note
@@ -285,4 +285,4 @@ the step failed); the inline `risk:` field stays in place and is
 locked once implementation lands. Per-step episode content lives in
 `## Episodes ### Step N — commit <SHA>, <ISO> [ctx=<level>]` blocks,
 joined to the roster line by step number (see
-[`episode-format-reference.md`](episode-format-reference.md)).
+episode-format-reference.md:orchestrator:3A,3B,3C).

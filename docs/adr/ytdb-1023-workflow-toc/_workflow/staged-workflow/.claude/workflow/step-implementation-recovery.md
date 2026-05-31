@@ -41,7 +41,7 @@ implementation):
   {base_commit}..HEAD` output.
 
 It is **loaded on demand** by the Phase B orchestrator. The happy path
-in [`step-implementation.md`](step-implementation.md) handles all
+in step-implementation.md:orchestrator:3B handles all
 `SUCCESS` returns, the step completion gate, the per-step orchestration
 loop, the dimensional review fan-out, the cross-track impact check,
 episode production, and Phase B completion.
@@ -81,7 +81,7 @@ the track file on disk:
 
 1. Scan `git log --oneline {base_commit}..HEAD` and classify each
    commit by subject prefix and the paths it touches (per
-   [`commit-conventions.md`](commit-conventions.md) § Commit type
+   commit-conventions.md:implementer,orchestrator:3A,3B,3C § Commit type
    prefixes). Each `[x]` step in the track file is expected to
    contribute exactly **three** kinds of commit, in order:
 
@@ -109,7 +109,7 @@ the track file on disk:
      appear anywhere in the log between or before `[x]` steps.
      End-of-session self-improvement reflection produces no commit
      — its output goes directly to YouTrack (see
-     [`self-improvement-reflection.md`](self-improvement-reflection.md)).
+     self-improvement-reflection.md:orchestrator,planner:any).
 
    For K `[x]` steps, the expected per-step set is K × (1
    implementer + N `Review fix:` + 1 episode), plus any number of
@@ -131,7 +131,7 @@ the track file on disk:
    Progress entry in 7.2, optional Surprises in 7.3, optional
    Decision Log in 7.4) and may be interrupted partway through. Per
    the invariant in
-   [`step-implementation.md`](step-implementation.md) sub-step 7.1,
+   step-implementation.md:orchestrator:3B sub-step 7.1,
    the roster `[ ]`→`[x]` flip is the primary marker for "episode
    written"; missing Progress entries can be reconstructed from the
    Episodes block. Before staging the dirty tree, run this check:
@@ -188,7 +188,7 @@ the track file on disk:
    - If no `[!]` entry exists, write it now (reconstruct the
      `FAILURE` fields from the prose explanation in the revert body
      plus the git log of the reverted commits). Read the statusline
-     per [`episode-format-reference.md`](episode-format-reference.md)
+     per episode-format-reference.md:orchestrator:3A,3B,3C
      §Sub-step 0 — fall back to `unknown` on missing file. Capture the
      current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
      running `date -u +%Y-%m-%dT%H:%MZ`, and use this same `<ISO>` for
@@ -267,7 +267,7 @@ potentially creating duplicate or conflicting commits.
 When Phase B resumes and detects orphan code commits, it scans
 `git log --oneline {base_commit}..HEAD` and uses these patterns
 (the authoring side of the same patterns lives in
-[`commit-conventions.md`](commit-conventions.md) § Commit type
+commit-conventions.md:implementer,orchestrator:3A,3B,3C § Commit type
 prefixes):
 
 1. **`Revert step:` commits** — the previous session rolled the step
@@ -302,7 +302,7 @@ prefixes):
    production. Phase B Resume **never** encounters Phase C-fix
    `Review fix:` commits because Phase B Resume only runs while a
    `[ ]` step exists, and Phase C cannot have started yet. Phase C
-   resume is owned by [`track-code-review.md`](track-code-review.md);
+   resume is owned by track-code-review.md:orchestrator,reviewer-dim-track:3C;
    it reads the Progress section's iteration count, treats the
    current HEAD as the gate-check target, and does not need to
    classify orphan commits since the orchestrator never edits
@@ -341,7 +341,7 @@ section's iteration count rather than orphan detection.
 <!-- roles=orchestrator phases=3B summary="Dispatch table for each non-success implementer return." -->
 
 Triggered from the `match result.RESULT` dispatch in
-[`step-implementation.md`](step-implementation.md) §Per-Step
+step-implementation.md:orchestrator:3B §Per-Step
 Orchestration Loop when the implementer returns one of the three
 non-`SUCCESS` results. These three handlers fire in **pre-commit**
 modes (`mode=INITIAL` or `mode=WITH_GUIDANCE`); the equivalent
@@ -353,7 +353,7 @@ post-commit dispatch (from `mode=FIX_REVIEW_FINDINGS`) is in
 
 Triggered when `result.RESULT == DESIGN_DECISION_NEEDED`. The
 implementer has run the snapshot-and-diff revert sequence per
-[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+implementer-rules.md:implementer:3B,3C §Detection rules, so
 the working tree is clean at `step_base_commit` (no commit was
 produced, and no untracked files were left behind).
 `result.DESIGN_DECISION` is populated with `context`, `alternatives`,
@@ -365,7 +365,7 @@ user instead of proceeding.
 
 1. Present `result.DESIGN_DECISION` (alternatives + trade-offs +
    recommendation) to the user via the existing escalation protocol
-   in [`design-decision-escalation.md`](design-decision-escalation.md).
+   in design-decision-escalation.md:implementer,orchestrator:3A,3B,3C.
 2. On user response, respawn the implementer with:
    - `mode=WITH_GUIDANCE`
    - `Guidance:` set to the user's chosen alternative + any
@@ -382,7 +382,7 @@ user instead of proceeding.
 Triggered when `result.RESULT == RISK_UPGRADE_REQUESTED`. The
 implementer has flagged that the step is more invasive than its
 tagged risk and has run the snapshot-and-diff revert sequence per
-[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+implementer-rules.md:implementer:3B,3C §Detection rules, so
 the working tree is clean at `step_base_commit` (no commit was
 produced, and no untracked files were left behind).
 `result.RISK_UPGRADE` carries `from`, `to`, `category`, and
@@ -398,7 +398,7 @@ user instead of proceeding.
    same line in the form `override: upgraded mid-Phase-B (<short
    reason from result.RISK_UPGRADE.evidence>)`. The decomposer-time
    category stays on the line for traceability. Downgrades are not
-   permitted — see [`risk-tagging.md`](risk-tagging.md) §Override
+   permitted — see risk-tagging.md:decomposer,implementer,orchestrator:3A,3B,3C §Override
    rules.
 2. **Approval flow:**
    - `medium → high`: auto-apply (no user prompt). Note the
@@ -432,7 +432,7 @@ Triggered when `result.RESULT == FAILED` from `mode=INITIAL` or
 `result.FAILURE.failure_class == push_only`, the step's content is
 fine — Sub-steps 1–2 succeeded, the commit landed at HEAD, and only
 `git push` failed (see
-[`implementer-rules.md`](implementer-rules.md) §Return contract).
+implementer-rules.md:implementer:3B,3C §Return contract).
 The working tree is **not** clean at `step_base_commit` in this case
 (the implementer's commit is at HEAD by design); the snapshot-and-diff
 revert assumption documented below does **not** apply.
@@ -440,16 +440,16 @@ revert assumption documented below does **not** apply.
 Skip the `[!]` write and retry/split inserts entirely. Instead:
 
 1. Route the push failure per
-   [`commit-conventions.md`](commit-conventions.md) § Push failure
+   commit-conventions.md:implementer,orchestrator:3A,3B,3C § Push failure
    handling — `non-fast-forward` triggers
-   [`branch-divergence-check.md`](branch-divergence-check.md) (gated
+   branch-divergence-check.md:orchestrator:2,3A,3B,3C (gated
    to first per-session rejection); other shapes record-and-continue.
 2. After the gate (or record-and-continue), run `git push` from the
    orchestrator to publish the implementer's commit.
 3. If the orchestrator's push succeeds, `result.COMMIT` is now on
    `origin`. Synthesise the success path: treat the return as if the
    implementer had emitted `SUCCESS`, then run `on_success(step,
-   result)` ([`step-implementation.md`](step-implementation.md))
+   result)` (step-implementation.md:orchestrator:3B)
    from the top so the dimensional review loop, gate checks, and
    episode write all happen on the now-pushed commit.
 4. If the orchestrator's push still fails after the gate, escalate
@@ -471,7 +471,7 @@ so the working tree is clean at `step_base_commit`.
    steps:**`, `**Key files:**`), and flip the matching `## Concrete
    Steps` roster line from `[ ]` to `[!]`.
 2. **Append a failed-step Progress entry.** Read the statusline per
-   [`episode-format-reference.md`](episode-format-reference.md)
+   episode-format-reference.md:orchestrator:3A,3B,3C
    §Sub-step 0 — fall back to `unknown` on missing file. Capture the
    current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
    running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for
@@ -491,7 +491,7 @@ so the working tree is clean at `step_base_commit`.
 
 The implementer never escalates directly; it returns `FAILED` with
 `recommended_action: escalate`, and the orchestrator decides whether
-to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
+to enter ESCALATE per inline-replanning.md:orchestrator:3A,3C.
 
 ### `handle_result_missing(step, result_text)` (contract violation, recovery required)
 <!-- roles=orchestrator phases=3B summary="Recovering when the implementer returns no parsable result block." -->
@@ -499,7 +499,7 @@ to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
 Triggered when the implementer's return text contains **no parsable
 `RESULT:` block** (or the block is truncated mid-field). This is a
 contract violation per
-[`implementer-rules.md`](implementer-rules.md) §Return contract — the
+implementer-rules.md:implementer:3B,3C §Return contract — the
 implementer is required to emit a `RESULT` block before any exit,
 including context/budget exhaustion. The same handler covers both the
 top-level dispatch from `step-implementation.md` §Per-Step
@@ -507,7 +507,7 @@ Orchestration Loop (the implementer's first spawn never produced a
 return block) and the inner `match fix_result.RESULT` dispatch inside
 the dim-review loop (a `FIX_REVIEW_FINDINGS` respawn exited without a
 block). This procedure mirrors
-[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+track-code-review.md:orchestrator,reviewer-dim-track:3C §Phase C Implementer
 Handlers → `handle_result_missing`, adapted for the step level.
 
 The most common causes are message-budget exhaustion mid-iteration, a
@@ -531,7 +531,7 @@ manual and requires user approval — do not auto-respawn.
    and terminate orphaned PIDs with `kill -TERM <pid>`. Wait a few
    seconds for graceful cleanup, then escalate to `kill -KILL <pid>`
    only if they survive. See
-   [`implementer-rules.md`](implementer-rules.md) §Pacing long-running
+   implementer-rules.md:implementer:3B,3C §Pacing long-running
    tasks → forbidden self-referential pgrep for the runaway-loop
    shape.
 
@@ -558,7 +558,7 @@ manual and requires user approval — do not auto-respawn.
 
    - **Re-spawn finalizer.** Clean the tree on the implementer's
      behalf (run the snapshot-and-diff revert sequence per
-     [`implementer-rules.md`](implementer-rules.md) §Detection rules
+     implementer-rules.md:implementer:3B,3C §Detection rules
      — the implementer never reached its own revert path, so the
      orchestrator owns the cleanup this once), then re-spawn a fresh
      implementer with the original inputs. For a `mode=INITIAL` /
@@ -576,7 +576,7 @@ manual and requires user approval — do not auto-respawn.
      paths (no `git add -A`), runs Spotless + targeted tests of the
      touched test classes + the coverage gate, and commits. The
      commit subject follows
-     [`commit-conventions.md`](commit-conventions.md): the implementer
+     commit-conventions.md:implementer,orchestrator:3A,3B,3C: the implementer
      commit subject for `mode=INITIAL` / `mode=WITH_GUIDANCE` spawns,
      or `Review fix: <subject>` for `mode=FIX_REVIEW_FINDINGS` respawns.
      Then proceed to the next sub-step that would have fired on a
@@ -667,7 +667,7 @@ position.
 prior `Review fix:` commits in the same dim-review loop) without
 auto-committing each revert. The orchestrator then commits once with
 the `Revert step:` prefix per
-[`commit-conventions.md`](commit-conventions.md). After the revert
+commit-conventions.md:implementer,orchestrator:3A,3B,3C. After the revert
 commit, HEAD's tree state matches `step_base_commit` — the new HEAD
 becomes the next step's `step_base_commit` for any respawn that
 follows.
@@ -700,13 +700,13 @@ mechanical fix can address. `fix_result.FAILURE` carries
 `fix_result.FAILURE.failure_class == push_only`, the `Review fix:`
 commit content is fine — Sub-step 1's work succeeded, the commit
 landed locally, and only `git push` failed (see
-[`implementer-rules.md`](implementer-rules.md) §Return contract).
+implementer-rules.md:implementer:3B,3C §Return contract).
 Skip the rollback entirely. Instead:
 
 1. Route the push failure per
-   [`commit-conventions.md`](commit-conventions.md) § Push failure
+   commit-conventions.md:implementer,orchestrator:3A,3B,3C § Push failure
    handling — `non-fast-forward` triggers
-   [`branch-divergence-check.md`](branch-divergence-check.md) (gated
+   branch-divergence-check.md:orchestrator:2,3A,3B,3C (gated
    to first per-session rejection); other shapes record-and-continue.
 2. After the divergence gate completes (or record-and-continue), run
    `git push` from the orchestrator to publish the existing
@@ -714,7 +714,7 @@ Skip the rollback entirely. Instead:
 3. If the orchestrator's push succeeds, treat the iteration as
    successful — `result.COMMIT` is now on `origin`. Resume the
    dimensional review loop in
-   [`step-implementation.md`](step-implementation.md) §Sub-step 4 as
+   step-implementation.md:orchestrator:3B §Sub-step 4 as
    if the implementer had returned `SUCCESS`: the new `Review fix:`
    commit becomes the diff target for the next gate-check iteration
    (re-run only the dimension(s) with open findings, max 3 iterations
@@ -752,7 +752,7 @@ implementer already finished and validated.
    attempt that failed; the `why_it_failed` field captures the
    underlying reason.
 3. **Append a failed-step Progress entry.** Read the statusline per
-   [`episode-format-reference.md`](episode-format-reference.md)
+   episode-format-reference.md:orchestrator:3A,3B,3C
    §Sub-step 0 — fall back to `unknown` on missing file. Capture the
    current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
    running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for
@@ -789,7 +789,7 @@ implementation. `fix_result.DESIGN_DECISION` carries `context`,
    so we start the next attempt from a clean slate.
 2. **Present** `fix_result.DESIGN_DECISION` (alternatives + trade-offs
    + recommendation) to the user via the existing escalation protocol
-   in [`design-decision-escalation.md`](design-decision-escalation.md).
+   in design-decision-escalation.md:implementer,orchestrator:3A,3B,3C.
    Include in the prose that this decision surfaced **post-commit
    during dim review**, so the user understands the rollback context.
 3. On user response, capture the new HEAD as `step_base_commit` and
@@ -800,7 +800,7 @@ implementation. `fix_result.DESIGN_DECISION` carries `context`,
    - `exploration_notes_echo` set to
      `fix_result.DESIGN_DECISION.exploration_notes`
 4. The respawn's result re-enters the top-level `match result.RESULT`
-   dispatch in [`step-implementation.md`](step-implementation.md)
+   dispatch in step-implementation.md:orchestrator:3B
    §Per-Step Orchestration Loop.
 
 ### `rollback_and_upgrade(step, fix_result, step_base_commit)`
@@ -824,7 +824,7 @@ revealed the step is more invasive than its tagged risk.
    form `override: upgraded mid-Phase-B during dim review (<short
    reason from fix_result.RISK_UPGRADE.evidence>)`. The
    decomposer-time category stays for traceability. Downgrades are
-   not permitted — see [`risk-tagging.md`](risk-tagging.md) §Override
+   not permitted — see risk-tagging.md:decomposer,implementer,orchestrator:3A,3B,3C §Override
    rules.
 3. **Approval flow** (same as `apply_upgrade_then_decide`):
    - `medium → high`: auto-apply (no user prompt). Note the
@@ -880,12 +880,12 @@ the retry/split protocol below. See those handlers for the detail.
 For the `content` path the orchestrator handles the rest. The writes
 follow the same D12 canonical statusline-read-then-write order as
 the success path (see
-[`episode-format-reference.md`](episode-format-reference.md) §The
+episode-format-reference.md:orchestrator:3A,3B,3C §The
 four-section write checklist):
 
 1. **Write the failed episode** to the track file from
    `result.FAILURE`. Read the statusline per
-   [`episode-format-reference.md`](episode-format-reference.md)
+   episode-format-reference.md:orchestrator:3A,3B,3C
    §Sub-step 0 — fall back to `unknown` on missing file. Capture the
    current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
    running `date -u +%Y-%m-%dT%H:%MZ`; use this same `<ISO>` for both
@@ -894,7 +894,7 @@ four-section write checklist):
    with the failed-step fields (`**What was attempted:**`,
    `**Why it failed:**`, `**Impact on remaining steps:**`,
    `**Key files:**`) — see
-   [`episode-format-reference.md`](episode-format-reference.md)
+   episode-format-reference.md:orchestrator:3A,3B,3C
    §Failed-step Episodes block for the full template. Then append a
    continuous-log Progress entry
    `- [!] <ISO> [ctx=<level>] Step N failed — see Episodes §Step N (FAILED)`
@@ -911,7 +911,7 @@ four-section write checklist):
      numbered `[ ]` roster lines to `## Concrete Steps` immediately
      after it, each carrying an inline `risk: <tag>`.
    - `escalate` — present the situation to the user and consider
-     entering ESCALATE per [`inline-replanning.md`](inline-replanning.md).
+     entering ESCALATE per inline-replanning.md:orchestrator:3A,3C.
 3. **Append a continuous-log Progress entry naming the inserted
    rows** so a resume reader can reconstruct the retry / split
    without re-deriving from the Concrete Steps diff. The continuous-
@@ -1023,5 +1023,5 @@ cannot address):
 - Present the situation to the user with full context (affected
   steps, what was tried, the underlying issue).
 - Recommend **ESCALATE** if the approach is fundamentally wrong
-  (see [`inline-replanning.md`](inline-replanning.md)).
+  (see inline-replanning.md:orchestrator:3A,3C).
 - The user decides how to proceed.

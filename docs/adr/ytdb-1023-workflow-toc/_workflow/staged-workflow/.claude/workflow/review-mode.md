@@ -33,12 +33,12 @@
 
 Shared protocol for refining a gate decision through normal
 conversation. Both Track Pre-Flight (see
-[`track-review.md`](track-review.md) § Track Pre-Flight) and Track
-Completion (see [`track-code-review.md`](track-code-review.md)
+track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A § Track Pre-Flight) and Track
+Completion (see track-code-review.md:orchestrator,reviewer-dim-track:3C
 § Track Completion) load this when the user picks **Review mode**
 on the gate's approval panel.
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md `§1.5` Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:any:any `§1.5` for the workflow-level anchor and tier mapping.
 
 ## What review mode does
 <!-- roles=orchestrator,reviewer-plan,reviewer-dim-track phases=2,3A,3C summary="Refines a gate decision through a conversational accept/edit loop." -->
@@ -108,7 +108,7 @@ user signals completion.
 - **Review mode**: enter the conversational refinement loop
   below.
 - **ESCALATE**: route to
-  [`inline-replanning.md`](inline-replanning.md).
+  inline-replanning.md:orchestrator:3A,3C.
 
 Pre-Flight's Panel 1 ESCALATE sub-panel (Accept escalation /
 Override, see `track-review.md` § Track Pre-Flight step 1) is
@@ -442,7 +442,7 @@ For each type:
 
 - `EDIT_PLAN` / `EDIT_STEP_DESC`: apply via `Edit` (single site)
   or `steroid_apply_patch` (>2 sites).
-- `SKIP_TRACK`: run the full [`track-skip.md`](track-skip.md)
+- `SKIP_TRACK`: run the full track-skip.md:orchestrator:3A
   § Process for `track_index` — write the `[~]` marker plus
   `**Skipped:** <reason>` line in the plan entry, then delete
   `plan/track-<index>.md`. Track-file deletion is terminal per
@@ -548,7 +548,7 @@ never in mid-conversation messages.
 |---|---|---|---|
 | `QUESTION` | Question text + orchestrator's answer (resolved at accumulation time by reading conversation context, git log, step / track episodes, plan file, and source code as needed; surfaced inline as plain chat) | None — already answered inline | Both gates |
 | `EDIT_PLAN` | Path + anchor + new text. Light edits to a remaining track's plan-file entry: title, intro paragraph, scope indicators, or reorder of remaining `[ ]` tracks | Apply via `Edit` for single-site text changes (title, intro, scope) or via `steroid_apply_patch` for >2 sites **and for any reorder** (a move is a remove + insert pair and must land atomically — two chained `Edit` calls are not atomic). See `track-review.md` § Track Pre-Flight step 4 | Pre-Flight only |
-| `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full [`track-skip.md`](track-skip.md) § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `plan/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
+| `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full track-skip.md:orchestrator:3A § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `plan/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
 | `EDIT_STEP_DESC` | Path + anchor + new text. Light edits to the upcoming track's track file's four Phase 1 track-level sections (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) including any embedded `mermaid` diagram | Apply via `Edit` / `steroid_apply_patch` as above | Pre-Flight only |
 | `CLARIFY` | Note text targeting the upcoming track | Appended to the in-conversation clarifications buffer; persisted to the track file's `### Clarifications` subsection on the gate's final Approve per `track-review.md` § Track Pre-Flight step 6 | Pre-Flight only |
 | `FIX_FINDING` | `{location, issue, proposed fix}` triple | Collected into a synthesised findings list; on Apply completion, a fresh implementer is spawned with `level=track`, `mode=FIX_REVIEW_FINDINGS` per `track-code-review.md` § Track Completion step 3 | Completion only |
@@ -577,7 +577,7 @@ construct the FQN from package context when the user supplied only
 a short name — `findClass` returns null on bare short names.
 
 The verification mechanism is the orchestrator-side complement to
-the pre-write rule in [`track-review.md`](track-review.md)
+the pre-write rule in track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A
 § Pre-write rule. Review mode is the **interactive** counterpart —
 when a name fails to resolve, the orchestrator asks the user in
 chat for clarification before the item enters the buffer, instead
@@ -815,7 +815,7 @@ the case I just noticed").
 
 Completion `FIX_FINDING` Apply spawns an implementer with
 `level=track`, `mode=FIX_REVIEW_FINDINGS` per
-[`track-code-review.md`](track-code-review.md) § Track Completion
+track-code-review.md:orchestrator,reviewer-dim-track:3C § Track Completion
 step 3. This section defines what each of the four implementer
 return statuses means for review-mode's three-option re-render at
 Completion.
@@ -855,7 +855,7 @@ directly:
   ESCALATE.
 - **`DESIGN_DECISION`** (implementer returned a deferred design
   decision rather than a fix). Invoke
-  [`design-decision-escalation.md`](design-decision-escalation.md)
+  design-decision-escalation.md:implementer,orchestrator:3A,3B,3C
   to walk the user through the alternatives. Treat the chosen
   alternative as a new `FIX_FINDING` and re-enter the Review-mode
   loop with that item pre-seeded in the accumulation buffer — the
@@ -911,7 +911,7 @@ split by gate:
   re-render **always** re-reads `git diff {base_commit}..HEAD`
   and re-compiles the track episode against the current HEAD
   before presenting the three-option panel — see
-  [`track-code-review.md`](track-code-review.md) § Track Completion
+  track-code-review.md:orchestrator,reviewer-dim-track:3C § Track Completion
   step 3 for the rule and its single code path shared between
   initial render, post-Apply re-render, and resume. This subsumes
   the prior-session-orphan-commit case.
