@@ -18,8 +18,12 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [x] 2026-05-31T16:17Z [ctx=info] Step 2 complete (commit 9c6947ad62)
 - [x] 2026-05-31T16:25Z [ctx=warning] Step 3 complete (commit e2d2853354)
 - [ ] 2026-05-31T16:25Z [ctx=warning] Paused before Step 4 (HIGH-risk fan-out) for context refresh — Steps 1-3 done, Steps 4-5 remain
+- [ ] 2026-05-31T17:08Z [ctx=warning] Step 4 implementer committed (09e2e0c521); HIGH-risk dim review (5 agents) gate-green but surfaced inherited bootstrap-body gaps (WP1/WP2/WI2); user chose ESCALATE → inline replan (deferred to fresh session). Step 4 roster stays `[ ]` — loop interrupted, no episode.
 - [ ] Track-level code review
 - [ ] Track completion
+
+**PAUSED 2026-05-31 at Phase B Step 4 (dim review found inherited bootstrap-body gaps WP1/WP2/WI2; user chose ESCALATE) pending inline replan**
+- Handoff: handoff-track-5-phaseB.md
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
