@@ -24,8 +24,12 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [x] 2026-05-31T18:10Z [ctx=info] Inline replan (D19) complete: design.md bootstrap body corrected via edit-design (Mutation 12: mechanical PASS after fixing 2 pre-existing dangling-ref blockers, cold-read PASS, 1 pre-existing should-fix carried as known debt); advisory structural-review preview PASS; handoff resolved. Next: State 0 re-validation, then Phase B Step 5.
 - [x] 2026-05-31T19:24Z [ctx=warning] Step 5 complete (commit a7b7575e04, Review fix 21c3c5fe91)
 - [x] 2026-05-31T19:47Z [ctx=info] Step 6 complete (verification — no code commit)
+- [x] 2026-05-31T20:23Z [ctx=warning] Track-level code review iteration 1 fixes applied (Review fix 16ed654728); gate-check fan-out pending — paused for context refresh
 - [ ] Track-level code review
 - [ ] Track completion
+
+**PAUSED 2026-05-31 at Phase C iteration-1 fixes-applied pending gate-check fan-out + track completion**
+- Handoff: docs/adr/ytdb-1023-workflow-toc/_workflow/handoff-track-5-phaseC.md
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
