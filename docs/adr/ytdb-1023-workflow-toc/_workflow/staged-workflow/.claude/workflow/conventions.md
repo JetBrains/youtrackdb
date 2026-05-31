@@ -1387,6 +1387,15 @@ explicit role list is the intended audience, and a citer claiming
 `any` against a narrowed target would silently overclaim the
 target's scope.
 
+This citer-side rule is one-way and distinct from the reader-side TOC
+match in (f). The subset rule here answers whether a reference's
+claimed scope is valid, so a citer's `any` does not widen against a
+narrower target. The reader-side match answers which sections a reader
+opens, so a reader whose own role or phase is `any` is audience-
+agnostic on that axis and considers every row. The two operations
+never conflict: one validates a written reference, the other decides
+what to read.
+
 **In-file drift detection.** When a target heading's annotation
 changes, every in-file ref to that heading goes stale until the next
 `--write` rewrites them. The reindex script's rule 8 flags stamped
@@ -1433,8 +1442,8 @@ flowchart TD
     MATCH{"Own role in roles<br/>AND own phase in phases?"}
     SKIP["Skip — no open"]
     OPEN["Open file"]
-    READ_TOC["Read TOC region<br/>(first ~20 lines)"]
-    SECTION_MATCH{"Section row<br/>matches role+phase?"}
+    READ_TOC["Read TOC region<br/>(start to end delimiter,<br/>not a fixed line count)"]
+    SECTION_MATCH{"Section row matches?<br/>(reader's own any on either<br/>axis matches every row)"}
     SKIP_SECTION["Skip section,<br/>continue scan"]
     JUMP["Read with offset<br/>jump to §X.Y"]
     DONE["Act on section content"]
@@ -1452,6 +1461,17 @@ flowchart TD
 The load-bearing properties: the file-level filter avoids the open
 when neither role nor phase matches; the TOC filter avoids the
 full-section read when the section's role+phase doesn't match.
+
+The reader reads the TOC region from the `<!--Document index start-->`
+delimiter to the `<!--Document index end-->` delimiter rather than a
+fixed line count, because a large file's TOC (e.g. this section's own
+file) runs well past the first 20–30 lines. The TOC match expands the
+reader's own `any` on either axis: a reader whose role is `any`
+considers every row's roles, and a reader whose phase is `any`
+considers every row's phases (independently per axis). A row's own
+`any` in either field also matches every reader, as `target={any}`
+does for cross-file refs. This reader-side `any` expansion is distinct
+from the citer-side subset rule in (e); see the wildcard note there.
 
 For in-file refs the file-level match is trivially satisfied (the
 agent is already in the file); the reader skips the OPEN and READ_TOC

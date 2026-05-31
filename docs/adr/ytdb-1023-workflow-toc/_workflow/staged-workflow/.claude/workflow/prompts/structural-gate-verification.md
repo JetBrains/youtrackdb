@@ -2,14 +2,14 @@
 
 When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
 
-1. Read the first ~30 lines (TOC region between `<!--Document index start-->` and `<!--Document index end-->`).
-2. Match TOC rows where Roles contains your role AND Phases contains your phase.
+1. Read the TOC region — from `<!--Document index start-->` to `<!--Document index end-->`. On large files like `conventions.md` this exceeds 30 lines; read to the closing delimiter rather than stopping at a fixed count.
+2. Match TOC rows where Roles contains your role (or your role is `any`, or the row's Roles is `any`) AND Phases contains your phase (or your phase is `any`, or the row's Phases is `any`).
 3. Use `Read(offset, limit)` to read only matched sections.
 
 Your role: reviewer-plan.
 Your phase: 2.
 
-Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening.
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
 
 <!--Document index start-->
 
