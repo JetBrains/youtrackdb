@@ -28,9 +28,6 @@ Author per-section TOC + annotations for every in-scope file: 31 under `.claude/
 - [x] 2026-05-31T08:24Z [ctx=warning] Track-level code review iteration 1 fix applied (1/3 iterations) — Review fix commit e57b0b2068 (M1-M4, M6-M9 applied; M5 rejected; M10-M12 deferred). Gate-check fan-out NOT yet run — paused for context refresh at 33% (warning).
 - [ ] Track completion
 
-**PAUSED 2026-05-31 at Phase C iteration 1 (fix committed, gate-check fan-out pending) pending gate-check verification + track completion**
-- Handoff: handoff-track-4-phaseC.md
-
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
