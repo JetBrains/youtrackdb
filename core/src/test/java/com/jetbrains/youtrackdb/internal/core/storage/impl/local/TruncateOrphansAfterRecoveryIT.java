@@ -263,6 +263,7 @@ public class TruncateOrphansAfterRecoveryIT {
         .as(".pcl file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize after fabrication")
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
+    forceDirtyReopen(storagePath);
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
@@ -366,6 +367,7 @@ public class TruncateOrphansAfterRecoveryIT {
         .as(".cpm file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize after fabrication")
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
+    forceDirtyReopen(storagePath);
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
@@ -663,6 +665,7 @@ public class TruncateOrphansAfterRecoveryIT {
     assertThat(sizeAfterFabrication)
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
+    forceDirtyReopen(storagePath);
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
@@ -782,6 +785,7 @@ public class TruncateOrphansAfterRecoveryIT {
         .as(".grb file size must grow by exactly ORPHAN_PAGE_COUNT * pageSize after fabrication")
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
+    forceDirtyReopen(storagePath);
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
@@ -925,6 +929,7 @@ public class TruncateOrphansAfterRecoveryIT {
             + " after fabrication")
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
+    forceDirtyReopen(storagePath);
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var session = youTrackDB.open(
@@ -1025,6 +1030,32 @@ public class TruncateOrphansAfterRecoveryIT {
         .findFirst()
         .orElseThrow(() -> new AssertionError(
             "No " + extension + " file found for class prefix '" + prefix + "'"));
+  }
+
+  /**
+   * Forces the next open of the storage at {@code storagePath} onto the WAL-replay
+   * (dirty) recovery path by deleting the {@code dirty.fl} / {@code dirty.flb} clean-shutdown
+   * markers a graceful close left behind.
+   *
+   * <p>These scenarios fabricate an orphan tail on a gracefully-closed file and then reopen.
+   * A graceful close clears the dirty markers, so without this step the reopen is clean
+   * ({@code wereDataRestoredAfterOpen == false}). The open-time orphan pass is gated on that
+   * flag, so on a clean reopen it does not run and the truncate assertions below would never
+   * see the orphan tail removed. Deleting the markers reproduces the same on-disk signal the
+   * WAL-replay harness in {@code LocalPaginatedStorageRestoreFromWALIT} relies on (it copies
+   * every storage file except {@code dirty.fl}): on the next open
+   * {@code DiskStorage.checkIfStorageDirty} finds no marker, re-creates it as dirty, and
+   * {@code recoverIfNeeded} replays the WAL and sets {@code wereDataRestoredAfterOpen}. The
+   * data files were fully flushed by the graceful close, so the replay redoes already-applied
+   * page operations and does not touch the fabricated orphan tail; the gated recovery pass is
+   * what truncates it.
+   *
+   * <p>{@code dirty.flb} is the backup copy {@code StorageStartupMetadata} consults when the
+   * primary marker is missing, so both are removed to keep the dirty signal unambiguous.
+   */
+  private static void forceDirtyReopen(java.nio.file.Path storagePath) throws java.io.IOException {
+    java.nio.file.Files.deleteIfExists(storagePath.resolve("dirty.fl"));
+    java.nio.file.Files.deleteIfExists(storagePath.resolve("dirty.flb"));
   }
 
   @After
