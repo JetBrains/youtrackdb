@@ -19,6 +19,7 @@ staged-path normalization rule strips the prefix before the globs run.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T13:05Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-01T13:26Z [ctx=safe] Step 1 complete (commit a2cd449)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -151,7 +152,7 @@ Ordering and invariants:
    prefix pass through unchanged. Both staged edits land in the same commit
    (S1). — risk: medium (review-selection infrastructure: changes which
    workflow reviewers launch on staged paths; multi-file mirror pair; no HIGH
-   code triggers apply)  [ ]
+   code triggers apply)  [x] commit: a2cd449
 2. Add one staged-path worked example to `review-agent-selection.md`
    §Examples — workflow-machinery override, showing a staged path normalizing
    and the three glob-gated reviewers launching alongside the always-run
@@ -165,6 +166,38 @@ Ordering and invariants:
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit a2cd449, 2026-06-01T13:26Z [ctx=safe]
+**What was done:** Added a staged-path normalization preamble to the
+agent-selection logic in both mirror copies. In `review-agent-selection.md`
+it heads §Workflow-machinery override; in `code-review/SKILL.md` it heads
+Step 5d. The preamble strips the anchored
+`docs/adr/<any-dir>/_workflow/staged-workflow/` prefix from a changed path
+and matches the captured `.claude/…` remainder before the per-agent globs
+run, so a staged file evaluates exactly as its live counterpart would. A
+path not matching the exact anchored prefix passes through unchanged,
+including one that merely contains `.claude/` lower down. The gap is stated
+verbatim: only the three glob-gated reviewers (`review-workflow-prompt-design`,
+`-instruction-completeness`, `-hook-safety`) miss on staged paths;
+consistency and context-budget always run; writing-style already fires via
+`docs/adr/**/*.md`. Both edits landed in one commit and the single canonical
+`<!-- Last sync-checked … -->` date in §Maintenance was bumped to 2026-06-01
+(S1 satisfied; SKILL.md carries no sync stamp).
+
+**What was discovered:** The §Maintenance sync stamp carried a pre-existing
+forbidden ephemeral identifier in its reason parenthetical (`Track 1 Step 3`).
+The bump replaced it with the allowed issue ID plus a descriptive phrase, so
+the eventual Phase 4 promotion target is clean. The ephemeral-identifier
+pre-commit gate did not flag the original because the staged copy lives under
+`docs/adr/*/_workflow/**`, which the gate excludes. Separately, the
+branch-only commit-message body picked up a literal `\xc2\xa7`-for-`§`
+rendering artifact from a bash heredoc escaping leak; it is squashed away on
+merge and does not touch any staged file, gate, or durable artifact, so it was
+left as-is (the rulebook bans `--amend`).
+
+**Key files:**
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/review-agent-selection.md` (new — staged copy)
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md` (new — staged copy)
 
 ## Validation and Acceptance
 
