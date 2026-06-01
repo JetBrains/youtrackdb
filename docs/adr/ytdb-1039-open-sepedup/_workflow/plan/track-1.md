@@ -20,6 +20,7 @@ cache only when it did.
 - [x] 2026-06-01T11:36Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T12:05Z [ctx=safe] Step 1 complete (commit 909ee97829ee695aabc13ee4fa8a9923f3f82ca0)
 - [x] 2026-06-01T12:47Z [ctx=info] Step 2 complete (commit 6828bfce30a60ce25529969ab1b3ed0b2963dc28, dim-review PASS iter 2)
+- [x] 2026-06-01T13:40Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
