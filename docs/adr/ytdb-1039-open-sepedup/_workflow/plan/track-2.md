@@ -21,7 +21,8 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
 - [x] 2026-06-01T15:50Z [ctx=info] Step 2 complete (commit 1f0c3e0e3e; dim-review PASS iter 2)
 - [x] 2026-06-01T16:15Z [ctx=info] Step 3 complete (commit 597c1c08aa; dim-review PASS iter 2)
-- [ ] 2026-06-01T16:23Z [ctx=info] Step 4 implementer turn ended without a RESULT block (clean tree, no commit); recovering by resuming the same agent per user choice (RESULT_MISSING — consumes one attempt)
+- [x] 2026-06-01T16:23Z [ctx=info] Step 4 implementer turn ended without a RESULT block (clean tree, no commit); recovered by resuming the same agent per user choice (RESULT_MISSING — consumed one attempt)
+- [x] 2026-06-01T16:46Z [ctx=info] Step 4 complete (commit d955c194a1; medium, no dim-review; recovered from RESULT_MISSING)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -46,6 +47,13 @@ at Phase 1. -->
   amendments land under `docs/adr` (durable), so they must restate the
   rollback-zero-footprint invariant in prose and anchor to YTDB-1039, not cite the
   bare labels. See Episodes §Step 3.
+- 2026-06-01T16:46Z Step 4 added a reusable production observation hook: a
+  package-private, null-guarded `AbstractStorage.orphanTruncationDispatchCountForTests`
+  counter (read from same-package tests via an `(AbstractStorage)` cast) that any
+  future open-path test can use to assert whether the orphan pass dispatched. Trap
+  for future open-path tests: Mockito `CALLS_REAL_METHODS` skips field
+  initializers, so the counter is null on a mock — increment sites must null-guard
+  to avoid NPEing mock-based orchestrator tests. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -263,7 +271,7 @@ after `open()`).
 1. Migrate orphan-fabrication tests (`TruncateOrphansAfterRecoveryIT`, `StorageBackupMTRestoreIT`) to a dirty (WAL-replay) reopen so the repair path still runs post-gate — risk: medium (test infrastructure: shared scenario fixtures across two IT files)  [x] commit: acfe1445f7
 2. Gate `AbstractStorage.open():809` on `wereDataRestoredAfterOpen`, rewrite the `:802-808` comment, do not reset the shared field, leave `postProcessIncrementalRestore:1680` unconditional — risk: high (crash-safety/durability: gates the recovery-time orphan pass in AbstractStorage; overturns read-cache-concurrency-bug I6)  [x] commit: 1f0c3e0e3e *(file-independent of Step 3)*
 3. Pin S2 write-path half at `AtomicOperationsManager.endAtomicOperation:320` via `assert` + focused unit test (spy) covering the inbound-error and persist-failure rollback paths — risk: high (override: no production behavior change, but pins the load-bearing Axis A crash-safety premise; warrants the crash-safety dimensional review)  [x] commit: 597c1c08aa *(file-independent of Step 2)*
-4. Crash-injection + clean-reopen regression test: dirty-reopen pass-ran/I6, clean-reopen no-orphan + pass-skipped (observation hook), WARN-on-truncate-failure — risk: medium (test infrastructure: extends shared crash-injection + orphan harnesses)  [ ]
+4. Crash-injection + clean-reopen regression test: dirty-reopen pass-ran/I6, clean-reopen no-orphan + pass-skipped (observation hook), WARN-on-truncate-failure — risk: medium (test infrastructure: extends shared crash-injection + orphan harnesses)  [x] commit: d955c194a1
 5. Documentation corrections: read-cache-concurrency-bug ADR D6/I6 + design-final (preserve-with-scoping), stale `WOWCache.loadOrAdd` Javadoc, unaffected-tests note — risk: low (docs)  [ ]
 
 ## Episodes
@@ -395,6 +403,52 @@ so targeted reruns fall back to foreground `./mvnw`.
 survives merge), so it MUST avoid the "S2" / "Axis A" labels per the
 ephemeral-identifier rule — restate the rollback-zero-footprint invariant in
 prose; the YTDB-1039 issue ID is the allowed durable anchor.
+
+### Step 4 — commit d955c194a1, 2026-06-01T16:46Z [ctx=info]
+**What was done:** Added the crash-injection + clean-reopen regression suite to
+`TruncateOrphansAfterRecoveryIT`, proving the open-time gate is both correct and
+safe across five scenarios: (a) a dirty WAL-replay reopen with a real orphan runs
+the pass and re-establishes `logical <= physical`; (e) an orphan-free dirty
+reopen still dispatches the pass (dispatch follows WAL replay, not orphan
+presence); (b) a rolled-back-then-cleanly-closed session leaves no orphan and
+skips the pass; (d) the dual of the Step 1 fabrication tests proves a clean
+reopen does NOT repair a pre-existing physical orphan (the fabricated tail
+survives); (c) a transient truncate failure is logged as a WARN. The observation
+hook is a package-private, null-guarded dispatch counter on `AbstractStorage`
+(`orphanTruncationDispatchCountForTests`) plus a getter, with the public
+`wereDataRestoredAfterOpen()` as a corroborating signal — file size alone cannot
+distinguish "pass skipped" from "pass ran and truncated nothing". IT 33/33, the
+sibling orchestrator unit test 10/10, changed-line coverage 100%/100%. This step
+recovered from a `RESULT_MISSING` contract violation: the first spawn's turn
+ended mid-exploration with no `RESULT` block (clean tree, no commit), and the
+same agent was resumed per user choice to finish and emit the block.
+
+**What was discovered:** Mockito `CALLS_REAL_METHODS` mocks skip field
+initializers, so the new counter is null on a mock; an unguarded increment NPE'd
+all 10 methods of the off-limits sibling
+`AbstractStorageTruncateOrphansAfterRecoveryTest` (which invokes the real
+`truncateOrphansAfterRecovery` on a mock). A null guard on the increment fixes
+both with zero real-storage behavior change and without modifying the sibling
+test. The dispatch-counter getter is package-private, reachable from the IT only
+via an `(AbstractStorage)` cast (`DiskStorage` is in a different package).
+`slf4j-jdk14` (JUL) is the resolved core test SLF4J binding, so (c) captures the
+orchestrator's WARN via a root-logger JUL handler.
+
+**What changed from the plan:** none. Scenario (c) was realized at the
+orchestrator-catch level via the Mockito harness + JUL capture rather than a real
+`AsyncFile.shrink` failure, which cannot be forced transiently on a healthy file
+— the "least invasive mechanism that works" the plan called for.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/TruncateOrphansAfterRecoveryIT.java` (modified)
+
+**Critical context:** The dispatch counter `orphanTruncationDispatchCountForTests`
+is the canonical observation hook for "did the open-time orphan pass dispatch". It
+counts both the gated `open():809` dispatch and the unconditional
+`postProcessIncrementalRestore:1680` dispatch, and is never reset. Step 5's ADR /
+design-final amendments must keep restating the rollback-zero-footprint invariant
+in prose anchored to YTDB-1039 (no "S2" / "Axis A" labels in durable docs).
 
 ## Validation and Acceptance
 
