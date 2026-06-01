@@ -18,11 +18,19 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T14:27Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-06-01T15:05Z Step 1 discovered: deleting `dirty.fl` + `dirty.flb` before
+  reopen forces a WAL-replay (dirty) reopen of a gracefully-closed DB — the
+  reusable lever for Step 4's dirty-reopen leg. Scoped failsafe IT runs must use
+  `failsafe:integration-test failsafe:verify -P ci-integration-tests
+  -Dit.test=<Class> -DfailIfNoTests=false` (full `verify` exceeds the foreground
+  budget). See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -237,7 +245,7 @@ after `open()`).
 ## Concrete Steps
 <!-- Phase A decomposition — thin numbered roster; per-step episodes live in ## Episodes. -->
 
-1. Migrate orphan-fabrication tests (`TruncateOrphansAfterRecoveryIT`, `StorageBackupMTRestoreIT`) to a dirty (WAL-replay) reopen so the repair path still runs post-gate — risk: medium (test infrastructure: shared scenario fixtures across two IT files)  [ ]
+1. Migrate orphan-fabrication tests (`TruncateOrphansAfterRecoveryIT`, `StorageBackupMTRestoreIT`) to a dirty (WAL-replay) reopen so the repair path still runs post-gate — risk: medium (test infrastructure: shared scenario fixtures across two IT files)  [x] commit: acfe1445f7
 2. Gate `AbstractStorage.open():809` on `wereDataRestoredAfterOpen`, rewrite the `:802-808` comment, do not reset the shared field, leave `postProcessIncrementalRestore:1680` unconditional — risk: high (crash-safety/durability: gates the recovery-time orphan pass in AbstractStorage; overturns read-cache-concurrency-bug I6)  [ ] *(file-independent of Step 3)*
 3. Pin S2 write-path half at `AtomicOperationsManager.endAtomicOperation:320` via `assert` + focused unit test (spy) covering the inbound-error and persist-failure rollback paths — risk: high (override: no production behavior change, but pins the load-bearing Axis A crash-safety premise; warrants the crash-safety dimensional review)  [ ] *(file-independent of Step 2)*
 4. Crash-injection + clean-reopen regression test: dirty-reopen pass-ran/I6, clean-reopen no-orphan + pass-skipped (observation hook), WARN-on-truncate-failure — risk: medium (test infrastructure: extends shared crash-injection + orphan harnesses)  [ ]
@@ -245,6 +253,41 @@ after `open()`).
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
+
+### Step 1 — commit acfe1445f7, 2026-06-01T15:05Z [ctx=safe]
+**What was done:** Migrated the five orphan-fabrication scenarios in
+`TruncateOrphansAfterRecoveryIT` and the open-side fabrication test in
+`StorageBackupMTRestoreIT` to a genuinely-dirty WAL-replay reopen, so the
+open-time orphan pass still runs once Axis A gates it on
+`wereDataRestoredAfterOpen`. A new `forceDirtyReopen` helper deletes the
+`dirty.fl` / `dirty.flb` clean-shutdown markers after fabrication and before
+reopen; the eight clean-shutdown no-op scenarios stay unmodified (they assert no
+shrink across a clean reopen, which holds whether the pass no-ops or is skipped).
+The migrated tests pass green against the current un-gated production code (28/28
++ 3/3, failsafe), so they guard Step 2's gate.
+
+**What was discovered:** The dirty signal is the absence of the `dirty.fl`
+marker, not its contents. With the marker gone, `DiskStorage.checkIfStorageDirty`
+(at `AbstractStorage.open():749`) takes the `!startupMetadata.exists()` branch,
+recreates the marker, and the following `recoverIfNeeded():764` replays the WAL
+and sets `wereDataRestoredAfterOpen=true` before the orphan pass at `:809`.
+`dirty.flb` is the backup marker `StorageStartupMetadata.open()` falls back to,
+so both must be removed to keep the dirty signal unambiguous. This
+delete-the-markers idiom is the reusable lever for Step 4's dirty-reopen leg. Run
+logs confirmed the recovery path fired on every migrated scenario ("was not
+closed properly ... recover from write ahead log" → "Data restore procedure is
+started" → "Storage data recover was completed").
+
+**Key files:**
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/TruncateOrphansAfterRecoveryIT.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/StorageBackupMTRestoreIT.java` (modified)
+
+**Critical context:** Scoped failsafe IT runs must use `./mvnw -pl core
+failsafe:integration-test failsafe:verify -P ci-integration-tests
+-Dit.test=<Class> -DfailIfNoTests=false` after a separate `test-compile` stage.
+The full `verify` lifecycle re-runs the whole core surefire unit phase before
+failsafe and exceeds the 10-minute foreground budget; the goal-scoped invocation
+finishes in under a minute. Steps 2 and 4 re-run these ITs and need this.
 
 ## Validation and Acceptance
 
