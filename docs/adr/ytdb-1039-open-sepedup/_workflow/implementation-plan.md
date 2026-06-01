@@ -159,13 +159,39 @@ flowchart TD
 - The pre-existing torn-write / OS-writeback durability gap (separate ticket; noted in the read-cache-concurrency-bug design-final).
 
 ## Checklist
-- [ ] Track 1: Axis B — skip the read-cache purge on a no-op shrink
+- [x] Track 1: Axis B — skip the read-cache purge on a no-op shrink
   > Make the recovery-time orphan pass O(1) per component when nothing is
   > truncated, so crash recovery on a large-collection database no longer pays
   > the O(N²) `removeByFileId` penalty. Change `WriteCache.shrinkFile` to report
   > whether it physically truncated, and have `LockFreeReadCache.shrinkFile`
-  > purge the read cache only when it did. Detailed description in plan/track-1.md.
-  > **Scope:** ~4-5 steps covering the `WriteCache.shrinkFile` boolean SPI + `WOWCache` impl, the `DirectMemoryOnlyDiskCache` + test-mock updates, the `LockFreeReadCache` conditional purge, and skip-on-no-op + crash-recovery tests.
+  > purge the read cache only when it did.
+  >
+  > **Track episode:**
+  > Shipped Axis B in 2 steps. `WriteCache.shrinkFile` is now `boolean` (true iff
+  > physically shrunk); `LockFreeReadCache.shrinkFile` gates its read-cache purge
+  > (the O(capacity) `removeByFileId` sweep the issue profiled at 97.2% of reopen)
+  > on that flag. `WOWCache` derives the boolean from the same `getFileSize()`
+  > snapshot held under `filesLock.writeLock` that drives its no-op early-return,
+  > so the return is exact with no recomputed TOCTOU compare;
+  > `DirectMemoryOnlyDiskCache` returns false. Invariant S3 (the purge runs iff
+  > the write-cache layer physically truncated) holds and is pinned by a
+  > zero-cost production `assert` in `WOWCache`. Track-level review (11 agents)
+  > passed at iteration 1; reviewers independently confirmed S3, the gate
+  > localization (the unconditional 2-arg `clearFile` for
+  > truncate/close/delete is untouched), and the O(N²)→O(1) claim. End-to-end S3
+  > is already covered by the pre-existing `TruncateOrphansAfterRecoveryIT` (both
+  > the real-truncate and clean-reopen/no-op branches through real `WOWCache`);
+  > the new unit tests add the skipped-purge observation the IT cannot see.
+  >
+  > **For Track 2 (depends on this track):** the crash-injection cost-property
+  > regression test belongs beside `TruncateOrphansAfterRecoveryIT`'s scenarios.
+  > Two failsafe ITs (`AsyncReadCacheTestIT`, `LockFreeReadCacheConcurrentTestIT`)
+  > carry only the return-type signature change — run them via
+  > `verify -P ci-integration-tests`, not surefire `test`. JaCoCo's report goal
+  > binds to `prepare-package`, not `test`, so regenerate `jacoco.xml` via
+  > `package -P coverage` before the changed-line coverage gate.
+  >
+  > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
 
 - [ ] Track 2: Axis A — gate the open-time pass on `wereDataRestoredAfterOpen`
   > Skip the orphan pass entirely on a clean (non-WAL-replay) open so a

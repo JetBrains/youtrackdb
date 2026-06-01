@@ -15,12 +15,13 @@ cache only when it did.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-06-01T11:36Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T12:05Z [ctx=safe] Step 1 complete (commit 909ee97829ee695aabc13ee4fa8a9923f3f82ca0)
 - [x] 2026-06-01T12:47Z [ctx=info] Step 2 complete (commit 6828bfce30a60ce25529969ab1b3ed0b2963dc28, dim-review PASS iter 2)
 - [x] 2026-06-01T13:40Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-01T13:50Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -52,6 +53,20 @@ summary at Phase C. -->
 - [x] Risk: PASS at iteration 2 (4 findings R1-R4, 4 accepted) — R1 blocker is the same mock-instruction error as T1; R2 noted the Mockito `mock(WriteCache.class)` needs no edit; R3 specified the non-vacuous no-op test; R4 corrected the `LockFreeReadCache.shrinkFile` line ref to `:673`.
 - [x] Adversarial: PASS at iteration 2 (4 findings A1-A4, 4 accepted) — S3 verified INFEASIBLE to violate (every path installing an above-target read-cache entry also bumps `getFileSize()` past `targetBytes`); A3 pinned the call-site gate + same-snapshot boolean constraints; A1/A2 enriched the D2 rationale (orchestrator-gate TOCTOU, `removeByStorageId` precedent) in Context without touching the immutable plan-file D2.
 - [x] Gate verification: PASS at iteration 2 (all 9 accepted findings VERIFIED, no regressions; cosmetic N1 wording fixed).
+- [x] Phase C (track-level code review): PASS at iteration 1. 11-agent fan-out
+  (4 baseline + crash-safety/test-crash-safety + performance/test-concurrency
+  + 3 workflow-review on this track file). 4 actionable findings, all fixed and
+  gate-check VERIFIED: TC1 (pin the new `DirectMemoryOnlyDiskCache.shrinkFile`
+  false-return contract with a test), WC1 (recompute the orphaned post-rebase
+  step-commit SHAs cited in this track file), TY2 (zero-cost production `assert
+  file.getFileSize() == targetBytes` in `WOWCache.shrinkFile`), TX1
+  (single-threaded-production-contract Javadoc on `TrackingWriteCache.shrinkFile`).
+  TC1/TY2/TX1 landed in review-fix commit cc339bde1d; WC1 was an orchestrator
+  track-file fix (commits 0a0caf42ca + 298c85a9c5). Dropped as low-value: TB1
+  (boundary test asserts evict-count not page-identity), TC2 (true-branch
+  empty-purge-range), CQ1 (fully-qualified java.util imports match the file
+  convention), CQ2 (duplicated mock comment, no shared base). No findings
+  deferred to other tracks; none unfixed.
 
 ## Context and Orientation
 
