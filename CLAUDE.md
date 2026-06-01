@@ -271,6 +271,11 @@ cat /tmp/claude-code-worktree-cost-$PPID.txt
 ```
 Output example: `wt_cost: $1.85`. The file is absent in the main checkout (no `wt:` figure there). Implementation: `.claude/scripts/statusline-command.sh` detects the worktree and passes `--worktree` / `--worktree-cost-file` to `.claude/scripts/session-stats.py`, which computes the figure and writes the file.
 
+The example output format above MUST stay in sync with:
+- `.claude/scripts/statusline-command.sh` — renders the `wt:$X` figure on the statusline's second line
+- `.claude/scripts/session-stats.py` — computes the figure and writes the `wt_cost:` file
+- `.claude/scripts/tests/test_session_stats.py` — pins both formats with exact-match assertions
+
 ### Recipes
 
 - **Read the current worktree's running cost** — when you want to know the cumulative spend on this worktree before wrapping up or reporting cost, `cat /tmp/claude-code-worktree-cost-$PPID.txt` (the statusline refreshes it each render). Empty result means the cwd is the main checkout or the file has not been written yet this session.

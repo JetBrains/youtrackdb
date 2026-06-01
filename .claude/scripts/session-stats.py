@@ -648,7 +648,7 @@ def main(argv=None):
             _atomic_write_text(
                 pathlib.Path(wt_cost_file), f"wt_cost: ${proj['cost']:.2f}"
             )
-        except OSError:
+        except Exception:  # noqa: BLE001 — publish is best-effort; never break the statusline
             pass
 
     print(format_stats_line(sess, month, proj))
