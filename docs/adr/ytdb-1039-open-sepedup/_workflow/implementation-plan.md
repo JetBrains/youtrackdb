@@ -63,7 +63,7 @@ flowchart TD
     LFRC["LockFreeReadCache.shrinkFile\nconditional purge (Axis B)"]
     WOW["WriteCache / WOWCache.shrinkFile\nreturns truncated:boolean (Axis B)"]
     CLIHM["ConcurrentLongIntHashMap.removeByFileId\n(no longer called on a no-op)"]
-    EAO["AtomicOperationsManager.endAtomicOperation :320\n(Axis A premise anchor — S2)"]
+    EAO["AtomicOperationsManager.endAtomicOperation :323\n(Axis A premise anchor — S2)"]
 
     OPEN -->|gated dispatch| PASS
     PPIR -->|unconditional dispatch| PASS
@@ -85,7 +85,7 @@ flowchart TD
 - **`LockFreeReadCache.shrinkFile`** — call `clearFile`/`removeByFileId` only
   when the write-cache layer returned `truncated == true`. This is the change
   that eliminates the `removeByFileId` hotspot. [Track 1]
-- **`AtomicOperationsManager.endAtomicOperation` (`:320`)** — not modified, but
+- **`AtomicOperationsManager.endAtomicOperation` (`:323`)** — not modified, but
   it is the anchor of invariant S2 (a rolled-back op never enters `commitChanges`).
   Track 2 pins it with an assertion/test so a future refactor cannot silently
   break Axis A's premise. [Track 2]
@@ -110,7 +110,7 @@ flowchart TD
   regression test and the ADR update); loses the cross-clean-cycle retry of a
   best-effort truncation failure (the affected component is already corrupt — see
   design §"Read-cache purge skip" edge cases); premise pinned at
-  `endAtomicOperation:320` via S2.
+  `endAtomicOperation:323` via S2.
 - **Implemented in**: Track 2
 - **Full design**: design.md §"Why the dirty gate is safe"
 
@@ -138,7 +138,7 @@ flowchart TD
   The dirty gate preserves this: the pass still runs on every WAL-replay open,
   which is the only path that can create an orphan.
 - **S2 (Axis A premise).** A rolled-back atomic operation never enters
-  `commitChanges` (anchored at `AtomicOperationsManager.endAtomicOperation:320`),
+  `commitChanges` (anchored at `AtomicOperationsManager.endAtomicOperation:323`),
   so it performs no `AsyncFile` extend, dirties no real cache page, and submits
   no `EnsurePageIsValidInFileTask`. Pinned by an assertion/test in Track 2.
 - **S3 (Axis B correctness).** The `shrinkFile` read-cache purge runs iff the

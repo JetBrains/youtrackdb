@@ -180,6 +180,17 @@ the physical apply on its own.
 - Incremental restore keeps an unconditional dispatch in
   `postProcessIncrementalRestore`: it always replayed pages and must always
   re-establish the invariant.
+- The crash-only premise also rests on reads never extending a file.
+  `WOWCache.loadOrAdd`, reached on the read path through
+  `LockFreeReadCache.doLoad`, does extend for any `pageIndex >= currentSize`.
+  But every production read is bounded below the file's extent (by the
+  component's logical horizon via `getLastPage`/entry point, by physical size
+  for EP-less components, or by a stored page pointer), so a correct component
+  never triggers it. A read reaches an out-of-range index only under a
+  pre-existing `logical > physical` state, which is itself crash-only and
+  repaired by WAL replay. The premise thus reduces to component correctness
+  plus crash recovery, both already in force; the gate neither introduces nor
+  weakens them.
 
 ### References
 

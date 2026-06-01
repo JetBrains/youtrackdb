@@ -21,3 +21,27 @@ structural review at `/execute-tracks` startup provides the whole-doc review.
 **Findings**: none
 
 **Iterations**: 1 of 3 (PASS)
+
+## Mutation 2 — 2026-06-01 — content-edit (design.md)
+
+**Diff summary**: Appended a bullet to §"Why the dirty gate is safe" → "### Edge
+cases / Gotchas" recording the extend-on-read threat-model finding from
+research-phase PSI verification. The crash-only orphan premise also rests on
+reads never extending a file: `WOWCache.loadOrAdd` (reached via
+`LockFreeReadCache.doLoad`) does extend for `pageIndex >= currentSize`, but every
+production read is bounded below the file extent (logical horizon via
+`getLastPage`/entry point, physical size for EP-less components, or a stored page
+pointer), so a correct component never triggers it, and the residual out-of-range
+case is itself crash-only and WAL-repaired. Makes the section TL;DR's implicit
+"reads never extend" assumption explicit and discharges it. Backed by a
+64-call-site sweep of `loadPageForRead` callers (no read-until-null EOF scan).
+
+**Mechanical checks** (target=design): PASS (0 findings)
+**Cold-read** (scope: bounded): PASS (1 suggestion)
+
+**Findings**:
+- suggestion: the new bullet runs ~11 lines vs 2-4 for sibling bullets; within
+  the template-bound exemption for a load-bearing safety argument (not a rule
+  violation). Left as-is — density is appropriate for the argument.
+
+**Iterations**: 1 of 3 (PASS)

@@ -53,7 +53,7 @@ The verification done in research refutes that argument for the disk engine:
   dirty flag, so `isDirty()` reads false even on a crash reopen —
   `wereDataRestoredAfterOpen` is the correct "did this open replay WAL" signal.
 - A rolled-back disk TX leaves zero physical footprint (S2): the physical-apply
-  path runs only inside `commitChanges`, and `AtomicOperationsManager.endAtomicOperation:320`
+  path runs only inside `commitChanges`, and `AtomicOperationsManager.endAtomicOperation:323`
   calls `commitChanges` only `if (!operation.isRollbackInProgress())`. The
   `if (!rollback)` inside `commitChanges` (`:1077`) guards only snapshot-buffer
   flushing, not the physical apply — so the real protection is the caller's skip.
@@ -101,10 +101,15 @@ dispatch. "premise S2" = a rolled-back op never enters `commitChanges`.
    → assert no orphan exists (physical == logical for every EP component) and the
    pass was skipped. Reuse the harnesses in `AbstractStorageTruncateOrphansAfterRecoveryTest`
    / `TruncateOrphansAfterRecoveryIT`.
-4. Update the read-cache-concurrency-bug durable ADR: amend D6/I6 (adr.md) and
-   the design-final "Unconditional, not `isDirty`-gated" bullet (design-final.md)
-   to record that the disk-engine pass is now gated on WAL-replay, with a pointer
-   to YTDB-1039 and the rollback-zero-footprint rationale.
+4. Documentation corrections recording the refined gating:
+   - Amend the read-cache-concurrency-bug durable ADR (D6/I6 in adr.md and the
+     design-final "Unconditional, not `isDirty`-gated" bullet) to record that the
+     disk-engine pass is now gated on WAL-replay, with a pointer to YTDB-1039 and
+     the rollback-zero-footprint rationale.
+   - Fix the stale `WOWCache.loadOrAdd` Javadoc ("no production callers yet, only
+     the dedicated unit tests"): the primitive is wired into production via
+     `LockFreeReadCache.doLoad` from `loadOrAddForWrite`/`loadForRead`, so the
+     comment contradicts the S2 reasoning. Javadoc-only, no behavior change.
 
 Ordering: step 1 is the behavior change; step 3 validates it; steps 2 and 4 can
 follow in any order. Invariant to preserve: S1 (I6 still holds after open()).
@@ -143,7 +148,10 @@ follow in any order. Invariant to preserve: S1 (I6 still holds after open()).
 **In scope (production):**
 - `core/.../storage/impl/local/AbstractStorage.java` — gate at `:809` + comment `:802-808`.
 - `core/.../storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java`
-  — S2 assertion at/near `endAtomicOperation:320` (no behavior change).
+  — S2 assertion at/near `endAtomicOperation:323` (no behavior change).
+- `core/.../storage/cache/local/WOWCache.java` — `loadOrAdd` Javadoc-only correction
+  (stale "no production callers yet" note; the primitive is wired via
+  `LockFreeReadCache.doLoad`). No behavior change.
 
 **In scope (tests + docs):**
 - `AbstractStorageTruncateOrphansAfterRecoveryTest`, `TruncateOrphansAfterRecoveryIT` — crash/clean reopen scenarios.
