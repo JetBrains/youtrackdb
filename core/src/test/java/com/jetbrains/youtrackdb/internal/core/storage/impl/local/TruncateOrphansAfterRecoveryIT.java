@@ -952,16 +952,45 @@ public class TruncateOrphansAfterRecoveryIT {
   // ---------------------------------------------------------------------------
 
   /**
-   * Builds a configuration that selects the given checksum mode and disables the double
-   * write log. The recovery pass itself is checksum-agnostic — it only reads the EP page
-   * (which is valid because the production stack wrote it), then dispatches a shrink
-   * that doesn't read the orphan pages at all — so the mode parameter is the lever for
-   * "did the pass accidentally start reading orphan bodies?" regression detection.
+   * Builds a configuration that selects the given checksum mode, disables the double
+   * write log, and pins one collection per class. The recovery pass itself is
+   * checksum-agnostic: it only reads the EP page (which is valid because the production
+   * stack wrote it), then dispatches a shrink that does not read the orphan pages at all,
+   * so the mode parameter is the lever for "did the pass accidentally start reading orphan
+   * bodies?" regression detection.
+   *
+   * <p>The single-collection pin ({@link GlobalConfiguration#CLASS_COLLECTIONS_COUNT} = 1)
+   * is load-bearing for the {@code .pcl} and {@code .cpm} scenarios. At the default count
+   * (8) a class is backed by eight collections, and the {@code "default"} collection
+   * selection strategy routes every inserted record to {@code collectionIds[0]}, leaving
+   * the other seven {@code .pcl}/{@code .cpm} files empty (state-page {@code fileSize == 0},
+   * one physical page). The scenario helpers select their target file with
+   * {@code files().keySet().stream()...findFirst()}, whose order is the file map's hash
+   * order rather than the insertion target, so they could land on an empty cluster. An
+   * orphan tail fabricated on a logical-empty file trips the recovery pass's intentional
+   * corruption guard ({@code logicalPages == 0 && physical > 1 page} skips the truncate
+   * with a WARN) instead of the truncate path the size assertion expects, producing a
+   * flaky failure that depends only on which collection the hash order surfaced first.
+   * Pinning a single collection guarantees the selected file carries the inserted data
+   * ({@code logicalPages >= 1}), so the truncate path is the one under test.
+   *
+   * <p>The index and SLBB scenarios ({@code .cbt}, {@code $null.cbt}, {@code .grb}) were
+   * never exposed to this race, even though they use the same {@code findFirst()} selection
+   * pattern: an index engine is one structure per class (not multiplied by the collection
+   * count), and its data file always carries real entries, so {@code logicalPages >= 1}; a
+   * SLBB's EP {@code init()} seeds {@code pagesSize} at 1, so even a record-free SLBB reports
+   * {@code logicalPages == 1} and never matches the {@code logicalPages == 0} guard clause.
+   * Only PCV2 and CPMV2 EPs seed their counter at 0, which is the legitimate empty-cluster
+   * state the guard is designed to leave untouched. For those scenarios the pin is therefore
+   * harmless but still useful: with one collection per class there is exactly one matching
+   * file, so the {@code findFirst()} selection is deterministic rather than hash-order
+   * dependent.
    */
   private static BaseConfiguration makeConfig(ChecksumMode checksumMode) {
     var config = new BaseConfiguration();
     config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(), checksumMode.name());
     config.setProperty(GlobalConfiguration.STORAGE_USE_DOUBLE_WRITE_LOG.getKey(), false);
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
     return config;
   }
 
