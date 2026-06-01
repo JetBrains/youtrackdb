@@ -129,6 +129,48 @@ The `AtomicLong.compareAndSet` resolves the multi-thread race: under load severa
 ### References
 - D-records: D18 (time-based heartbeat sampling alongside slow-query gate, AtomicLong CAS for race-free single-emit per window, per-tag rules via `TagRule<Long>`)
 
+## Commit slow-query gating
+
+The gate sits inside `OTelTransactionMetricsListener.writeTransactionCommitted`, not in the YTDB fire site. Same reasoning as the query gate (D16): other transaction listeners registered alongside the OTel one may have their own policy and must continue to see every event; the gate is OTel-specific configuration and lives in the OTel module; `TransactionDetails` already carries the input the gate needs (`executionTimeNanos` arrives as a method parameter; no error state to read because successful commits route through `writeTransactionCommitted` while failed commits route through `writeTransactionFailed` and bypass the gate by construction).
+
+Pseudo-implementation at the top of the callback:
+
+```java
+private final long defaultCommitThresholdNanos;  // populated at SDK init from config
+
+@Override
+public void writeTransactionCommitted(TransactionDetails details,
+                                      long committedAtMillis,
+                                      long executionTimeNanos) {
+  if (defaultCommitThresholdNanos > 0 && executionTimeNanos < defaultCommitThresholdNanos) {
+    return;  // fast successful commit — skip span allocation
+  }
+  // existing span construction (sem-conv attributes, parent context, span.end)
+}
+
+@Override
+public void writeTransactionFailed(TransactionDetails details,
+                                   long failedAtMillis,
+                                   long executionTimeNanos,
+                                   Exception cause) {
+  // unchanged — failed commits always emit, carrying error.type
+}
+```
+
+The `defaultCommitThresholdNanos` final field is initialized at OTel listener construction from `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` multiplied to nanoseconds. Mid-process changes to the global default require an SDK rebuild — same constraint as the query-side threshold default.
+
+### Edge cases / Gotchas
+
+- Default `0` preserves today's always-emit behavior. Every existing test setup that asserts on a commit span continues to pass without configuration change. Hosts that want to drop fast commits configure a positive value explicitly. Contrast with the query gate's default `100` ms, which favors "drop noisy short reads" because read volume is naturally high.
+- A commit whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms commit against a 100 ms threshold passes the gate.
+- Failed commits (`writeTransactionFailed`) bypass the gate unconditionally. The caught cause populates `error.type` and the span status is set to ERROR. A stream of failing commits emits one span per failure regardless of duration.
+- No per-tag override exists in v1. Commits fire at the transaction boundary and have no per-statement query tag context. If operators need per-database or per-host commit thresholds later, the natural extension is a `TagRule<Long>` resolver keyed on `TransactionDetails.getDatabaseName()` and configured via `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_DATABASE_RULES`; the resolver hierarchy already exists (mirrors the query-side `SlowQueryThresholdResolver`), so adding the per-database axis is one row in the OTel listener's gate. Not in v1 scope because no production demand has surfaced.
+- The gate evaluates before any work the listener would otherwise do. No `tracer.spanBuilder(...)`, no attribute reads beyond the method parameter. Gated-out commits pay only the comparison and the listener return. The cost shape matches the query gate's "drop before allocation" property.
+- Custom (non-OTel) `TransactionMetricsListener` implementations are unaffected. The gate lives only in `OTelTransactionMetricsListener`; the listener iteration in the merged-snapshot view (Track 1) still fires every registered listener for every commit. Custom listeners that want their own gating semantics implement it inside their callbacks.
+
+### References
+- D-records: D38 (commit-side slow-query threshold inside OTel listener, error bypass, single global threshold, no per-tag rules in v1)
+
 ## OpenTelemetry logs integration
 
 The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. Track 7 adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, the already-formatted message string, and the optional `Throwable`. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation; the hook surface is not internal-only because a host that wants OTel-independent log routing can register its own.
