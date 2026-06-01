@@ -261,6 +261,20 @@ The thresholds in this section MUST stay in sync with:
 
 If you change a threshold here, grep for the others and update them in the same commit.
 
+## Cost Monitor
+
+The statusline's second line shows session and calendar-month cost. When the cwd is a linked git worktree, it also shows `wt:$X`, the cumulative spend on the *current worktree's project* (every session ever run in this worktree, orchestrator + sub-agents, deduped). The figure sits between the session and month totals: `$0.123 (wt:$1.85 mo:$4.56) …`.
+
+In a worktree that cost is also published to a per-session file, mirroring the context-usage file, so it can be read on demand:
+```bash
+cat /tmp/claude-code-worktree-cost-$PPID.txt
+```
+Output example: `wt_cost: $1.85`. The file is absent in the main checkout (no `wt:` figure there). Implementation: `.claude/scripts/statusline-command.sh` detects the worktree and passes `--worktree` / `--worktree-cost-file` to `.claude/scripts/session-stats.py`, which computes the figure and writes the file.
+
+### Recipes
+
+- **Read the current worktree's running cost** — when you want to know the cumulative spend on this worktree before wrapping up or reporting cost, `cat /tmp/claude-code-worktree-cost-$PPID.txt` (the statusline refreshes it each render). Empty result means the cwd is the main checkout or the file has not been written yet this session.
+
 ## MCP Steroid — IntelliJ IDE Control
 
 When the `localhost-6315` MCP server (mcp-steroid) is connected, its skill guides are exposed as MCP resources and fetched via `steroid_fetch_resource` (resolve the exact `mcp-steroid://` URI from the server's resource list if needed — upstream source: https://github.com/jonnyzzz/mcp-steroid/tree/main/prompts/src/main/prompts/skill). Do NOT vendor or copy these guides into the project — fetch lazily; some are large (the Spring guide is ~100 KB).

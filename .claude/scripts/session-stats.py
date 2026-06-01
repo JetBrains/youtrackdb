@@ -6,10 +6,25 @@ Output (single line, second line of the statusline):
 
   $0.123 (mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  r/5m:5.7x r/1h:-
 
+When invoked with `--worktree` (the statusline adds it whenever the cwd is a
+linked git worktree) a third cost figure for the current worktree's project
+is inserted before the month figure:
+
+  $0.123 (wt:$1.85 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  …
+
 The current session aggregates the orchestrator transcript plus every
-sub-agent transcript under <transcript-stem>/subagents/. The monthly figure
-sums every JSONL transcript anywhere under ~/.claude/projects whose records
-fall in the current calendar month.
+sub-agent transcript under <transcript-stem>/subagents/. The worktree-project
+figure (`wt:`) aggregates *every* session transcript that lives next to the
+current one — i.e. all sessions under ~/.claude/projects/<cwd-slug>/. Because
+a git worktree has its own cwd, it maps to its own project directory, so this
+figure is the cumulative spend of the current worktree across every session
+run in it. The monthly figure sums every JSONL transcript anywhere under
+~/.claude/projects whose records fall in the current calendar month.
+
+With `--worktree-cost-file PATH` the worktree-project cost is also written to
+PATH (the statusline points this at /tmp/claude-code-worktree-cost-<pid>.txt,
+mirroring the context-usage file) so the model can read the running spend on
+the current worktree on demand.
 
 Two non-obvious mechanics, both required to match ccusage:
 
@@ -181,6 +196,31 @@ def _atomic_write_json(target, payload):
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(payload, f)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    os.replace(tmp, target)
+
+
+def _atomic_write_text(target, text):
+    """Atomically write plain `text` to `target` (per-process temp + O_NOFOLLOW
+    0600), mirroring `_atomic_write_json`'s safety properties.
+
+    Used for the worktree-cost publish file. The target lives in /tmp, which is
+    world-writable, so the same defences apply: a per-pid temp name avoids torn
+    interleaving between two concurrent renders, O_NOFOLLOW refuses to open a
+    symlink planted at the temp path, and `os.replace` renames over any symlink
+    at the target without following it. Caller ensures `target.parent` exists.
+    """
+    tmp = target.parent / f"{target.name}.{os.getpid()}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
     except Exception:
         try:
             tmp.unlink()
@@ -455,6 +495,30 @@ def session_totals(transcript_path):
     return _sum_records(merged)
 
 
+def project_totals(transcript_path):
+    """Aggregate every transcript in the current project's directory, deduped.
+
+    The project directory is the parent of the session transcript —
+    ~/.claude/projects/<cwd-slug>/. A recursive glob picks up both the
+    top-level <uuid>.jsonl session files and the nested
+    <uuid>/subagents/agent-*.jsonl sub-agent files; the (msg_id, requestId)
+    dedup in `_sum_records` collapses records shared across them.
+
+    Because a git worktree has its own cwd, it gets its own project directory,
+    so summing this directory yields the cumulative cost of the current
+    worktree across every session ever run in it — not just the live one.
+    """
+    p = pathlib.Path(transcript_path).expanduser()
+    proj_dir = p.parent
+    if not proj_dir.is_dir():
+        return _zero()
+    merged = {}
+    for jsonl in proj_dir.rglob("*.jsonl"):
+        for k, v in aggregate_file(jsonl).items():
+            merged.setdefault(k, v)  # first-wins dedup
+    return _sum_records(merged)
+
+
 def month_totals():
     """Sum every record across all projects whose UTC timestamp is this month.
 
@@ -504,39 +568,90 @@ def fmt_ratio(read, write):
     return f"{read / write:.1f}x"
 
 
-def main():
-    if len(sys.argv) < 2 or not sys.argv[1]:
-        return 0
-    transcript = sys.argv[1]
-    try:
-        sess = session_totals(transcript)
-        month = month_totals()
-    except Exception as exc:  # noqa: BLE001 — never break the statusline
-        print(f"stats error: {exc}", file=sys.stderr)
-        return 0
+def parse_args(argv):
+    """Parse the helper's CLI into (transcript, show_worktree, wt_cost_file).
 
-    # Distinct colours for the two cost figures so they're tellable apart at
-    # a glance: bright cyan = current session (active), bright magenta = month
-    # so far (cumulative). Deliberately avoiding red / yellow / green — those
-    # are reserved for the context-fill bar in statusline-command.sh
-    # (critical / warning / safe). Honour NO_COLOR for non-TTY consumers.
-    if os.environ.get("NO_COLOR"):
-        sess_open = sess_close = mo_open = mo_close = ""
+    Positional arg 0 is the transcript path. `--worktree` turns on the `wt:`
+    figure; `--worktree-cost-file PATH` additionally publishes the cost to
+    PATH and implies `--worktree` (asking to write the file means we need it).
+    """
+    transcript = argv[0] if argv else ""
+    show_worktree = "--worktree" in argv
+    wt_cost_file = None
+    if "--worktree-cost-file" in argv:
+        i = argv.index("--worktree-cost-file")
+        if i + 1 < len(argv):
+            wt_cost_file = argv[i + 1]
+    if wt_cost_file:
+        show_worktree = True
+    return transcript, show_worktree, wt_cost_file
+
+
+def format_stats_line(sess, month, proj=None, no_color=False):
+    """Render the second statusline row.
+
+    When `proj` is given (worktree mode) a `wt:$X` figure for the current
+    worktree's project is inserted ahead of the month figure.
+
+    Distinct colours so the cost figures are tellable apart at a glance:
+    bright cyan = current session (active), bright blue = this worktree's
+    project (cumulative), bright magenta = calendar month across all projects.
+    Deliberately avoiding red / yellow / green — those are reserved for the
+    context-fill bar in statusline-command.sh (critical / warning / safe).
+    Honour NO_COLOR for non-TTY consumers.
+    """
+    if no_color or os.environ.get("NO_COLOR"):
+        sess_open = sess_close = mo_open = mo_close = wt_open = wt_close = ""
     else:
-        sess_open = "\033[1;36m"   # bright cyan
-        mo_open = "\033[1;35m"     # bright magenta
-        sess_close = mo_close = "\033[0m"
+        sess_open = "\033[1;36m"   # bright cyan    — current session
+        wt_open = "\033[1;34m"     # bright blue    — this worktree's project
+        mo_open = "\033[1;35m"     # bright magenta — calendar month, all projects
+        sess_close = mo_close = wt_close = "\033[0m"
 
-    line = (
+    if proj is not None:
+        scope = (
+            f"(wt:{wt_open}${proj['cost']:.2f}{wt_close} "
+            f"mo:{mo_open}${month['cost']:.2f}{mo_close})"
+        )
+    else:
+        scope = f"(mo:{mo_open}${month['cost']:.2f}{mo_close})"
+
+    return (
         f"{sess_open}${sess['cost']:.3f}{sess_close} "
-        f"(mo:{mo_open}${month['cost']:.2f}{mo_close})  "
+        f"{scope}  "
         f"in:{fmt_tokens(sess['in'])} out:{fmt_tokens(sess['out'])} "
         f"read:{fmt_tokens(sess['read'])} w5m:{fmt_tokens(sess['w5'])} "
         f"w1h:{fmt_tokens(sess['w1'])}  "
         f"r/5m:{fmt_ratio(sess['read'], sess['w5'])} "
         f"r/1h:{fmt_ratio(sess['read'], sess['w1'])}"
     )
-    print(line)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or not argv[0]:
+        return 0
+    transcript, show_worktree, wt_cost_file = parse_args(argv)
+    try:
+        sess = session_totals(transcript)
+        month = month_totals()
+        proj = project_totals(transcript) if show_worktree else None
+    except Exception as exc:  # noqa: BLE001 — never break the statusline
+        print(f"stats error: {exc}", file=sys.stderr)
+        return 0
+
+    # Publish the worktree-project cost to a per-session file for on-demand
+    # reading by the model (mirrors the context-usage file the statusline
+    # writes). Best-effort — a write failure must never break the statusline.
+    if wt_cost_file and proj is not None:
+        try:
+            _atomic_write_text(
+                pathlib.Path(wt_cost_file), f"wt_cost: ${proj['cost']:.2f}"
+            )
+        except OSError:
+            pass
+
+    print(format_stats_line(sess, month, proj))
     return 0
 
 
