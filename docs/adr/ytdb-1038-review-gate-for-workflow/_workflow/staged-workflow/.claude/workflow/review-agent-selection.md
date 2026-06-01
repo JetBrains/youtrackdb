@@ -249,6 +249,24 @@ full track diff.
   or `.claude/settings*.json` file is touched). Any matching
   conditional agents (e.g., `review-performance` for the B-tree
   change) join the baseline group with the same Java-only filter.
+- **Staged-path diff on a workflow-modifying plan.** Step edits
+  `docs/adr/<dir>/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md`
+  → the staged-path normalization above strips the
+  `docs/adr/<dir>/_workflow/staged-workflow/` prefix, so the path
+  evaluates as `.claude/skills/code-review/SKILL.md`. The only category
+  is `workflow-machinery` (the staged file is workflow-machinery by the
+  `docs/adr/<dir>/` rule); baseline skipped (case 1). The normalized
+  `.claude/skills/*/SKILL.md` path matches the
+  `review-workflow-prompt-design` and
+  `review-workflow-instruction-completeness` globs, so both launch
+  alongside the always-run `review-workflow-consistency` +
+  `review-workflow-context-budget` pair and
+  `review-workflow-writing-style` (which fires via its
+  `docs/adr/**/*.md` glob against the un-normalized staged path).
+  `review-workflow-hook-safety` does not trigger (no `.claude/hooks/`,
+  `.claude/scripts/`, or `.claude/settings*.json` file is touched).
+  5 agents. Without normalization the two glob-gated reviewers would
+  miss the staged path and fail to launch.
 
 ### Maintenance
 <!-- roles=orchestrator phases=3A,3B,3C summary="The mirrored sections must stay in sync with the /code-review skill; drift is a consistency-review defect." -->
