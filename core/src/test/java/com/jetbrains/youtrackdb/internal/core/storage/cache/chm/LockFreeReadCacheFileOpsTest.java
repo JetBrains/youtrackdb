@@ -373,32 +373,45 @@ public class LockFreeReadCacheFileOpsTest {
   }
 
   /**
-       * {@code shrinkFile(fileId, targetBytes, writeCache)} with {@code targetBytes} at or above the
-       * current physical size is a no-op at the write-back layer: {@code WriteCache.shrinkFile}
-       * truncates nothing and reports {@code false}. The orchestrator must then SKIP the read-cache
-       * purge entirely, leaving every cached page for the file in place — there is nothing to evict
-       * because no page was physically dropped (invariant: the purge runs iff the write-cache layer
-       * truncated).
-       *
-       * <p>The cache is seeded with live entries before the call so the skipped branch is
-       * <b>non-vacuous</b>: an empty cache would leave used-memory at zero regardless of whether the
-       * purge ran, so it could not distinguish "purge skipped" from "purge ran but evicted nothing".
-       * Seeding 5 pages and driving {@link TrackingWriteCache#setShrinkFileReturnValue}{@code (false)}
-       * makes the skip observable three ways: (i) {@code getUsedMemory()} is unchanged (no eviction),
-       * (ii) the captured call-order list records {@code writeCache.shrinkFile} but NO
-       * {@code clearFile.checkCacheOverflow} event (the LFRC range purge never ran — it invokes
-       * {@code checkCacheOverflow} once per evicted entry), and (iii) {@code shrinkFileCount == 1}
-       * (the write-back delegate still fires exactly once). Together with the genuine-truncate tests
-       * above (which drive the {@code true} branch), this gives 100% branch coverage of the new
-       * conditional purge.
-       */
+   * {@code shrinkFile(fileId, targetBytes, writeCache)} with {@code targetBytes} at or above the
+   * current physical size is a no-op at the write-back layer: {@code WriteCache.shrinkFile}
+   * truncates nothing and reports {@code false}. The orchestrator must then SKIP the read-cache
+   * purge entirely, leaving every cached page for the file in place — there is nothing to evict
+   * because no page was physically dropped (invariant: the purge runs iff the write-cache layer
+   * truncated).
+   *
+   * <p><b>Non-vacuity</b> comes from seeding pages that fall INSIDE the range an un-gated purge
+   * would touch — not merely from a non-empty cache. The range purge evicts entries at
+   * {@code pageIndex >= minPageIndex}, where {@code minPageIndex = targetBytes / pageSize}. A
+   * regression that deleted the {@code if (truncated)} guard would restore the unconditional
+   * purge; for the test to catch that, {@code minPageIndex} must sit at or below a seeded page
+   * index so the un-gated purge WOULD evict at least one seeded page. Here {@code targetBytes =
+   * 3 * PAGE_SIZE} gives {@code minPageIndex = 3} against 6 seeded pages (indices 0–5), so an
+   * un-gated purge would drop pages 3, 4, 5. {@link TrackingWriteCache#setShrinkFileReturnValue}
+   * returns the controlled boolean independent of {@code targetBytes}, so the target value is
+   * free to choose; it is chosen to sit below the seeded range precisely so the gate's removal
+   * is observable.
+   *
+   * <p>Driving {@code setShrinkFileReturnValue(false)} makes the skip observable three ways:
+   * (i) {@code getUsedMemory()} is unchanged at 6 pages (no eviction — an un-gated purge would
+   * have dropped pages 3, 4, 5 and left only 3 pages), (ii) the captured call-order list records
+   * {@code writeCache.shrinkFile} but NO {@code clearFile.checkCacheOverflow} event (the LFRC
+   * range purge never ran — it invokes {@code checkCacheOverflow} once per evicted entry), and
+   * (iii) {@code shrinkFileCount == 1} (the write-back delegate still fires exactly once).
+   * Together with the genuine-truncate tests above (which drive the {@code true} branch), this
+   * gives 100% branch coverage of the new conditional purge. The falsifiability of assertion
+   * (i) was confirmed during implementation by temporarily deleting the {@code if (truncated)}
+   * guard and observing this test fail (used memory dropped to 3 pages), then restoring it.
+   */
   @Test
   public void testShrinkFileNoOpSkipsPurgeAndPreservesCacheEntries() throws IOException {
-    // Seed 5 live pages for file 60 so the skipped-purge branch is non-vacuous.
-    for (int i = 0; i < 5; i++) {
-      readCache.releaseFromRead(readCache.loadForRead(60, i, writeCache, false));
+    // Seed 6 live pages (indices 0–5) for file 70 so the skipped-purge branch is non-vacuous:
+    // the chosen target's minPageIndex (3) falls INSIDE this range, so an un-gated purge would
+    // evict pages 3, 4, 5 — observable as a used-memory drop the gate must prevent.
+    for (int i = 0; i < 6; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(70, i, writeCache, false));
     }
-    Assert.assertEquals("sanity: 5 pages in cache", 5L * PAGE_SIZE, readCache.getUsedMemory());
+    Assert.assertEquals("sanity: 6 pages in cache", 6L * PAGE_SIZE, readCache.getUsedMemory());
     Assert.assertEquals("sanity: shrinkFile not called yet", 0, writeCache.shrinkFileCount.get());
 
     // Model the WriteCache pre-flight no-op: targetBytes >= current size truncates nothing,
@@ -409,11 +422,13 @@ public class LockFreeReadCacheFileOpsTest {
         java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
     writeCache.attachCallOrderTracker(callOrder);
 
-    // targetBytes at the current size (5 pages) — a valid no-op target (page-aligned,
-    // non-negative, no overflow), so the orchestrator's argument guards pass and the call
-    // reaches the gated delegate.
-    final long targetBytes = 5L * PAGE_SIZE;
-    readCache.shrinkFile(60, targetBytes, writeCache);
+    // targetBytes = 3 * PAGE_SIZE → minPageIndex = 3, which sits AT/BELOW the seeded range
+    // (pages 0–5): an un-gated purge WOULD evict pages 3, 4, 5. The value is page-aligned,
+    // non-negative, and free of overflow, so the orchestrator's argument guards pass and the
+    // call reaches the gated delegate; setShrinkFileReturnValue(false) controls the boolean
+    // independent of this target.
+    final long targetBytes = 3L * PAGE_SIZE;
+    readCache.shrinkFile(70, targetBytes, writeCache);
 
     // (iii) The write-back delegate still fires exactly once, with the supplied target.
     Assert.assertEquals(
@@ -423,11 +438,14 @@ public class LockFreeReadCacheFileOpsTest {
         "writeCache.shrinkFile must receive the orchestrator's targetBytes verbatim",
         targetBytes, writeCache.lastShrinkTargetBytes);
 
-    // (i) No eviction occurred — all 5 seeded pages remain cached.
+    // (i) No eviction occurred — all 6 seeded pages remain cached. An un-gated purge would have
+    // evicted pages 3, 4, 5 (minPageIndex=3) and left only 3 pages (3 * PAGE_SIZE), so this
+    // assertion discriminates "gate skipped the purge" from "purge ran".
     Assert.assertEquals(
-        "After a no-op shrink (truncated=false), the read cache must be untouched: all 5"
-            + " seeded pages for file 60 must remain",
-        5L * PAGE_SIZE, readCache.getUsedMemory());
+        "After a no-op shrink (truncated=false), the read cache must be untouched: all 6"
+            + " seeded pages for file 70 must remain (an un-gated purge would have dropped"
+            + " pages 3,4,5)",
+        6L * PAGE_SIZE, readCache.getUsedMemory());
 
     // (ii) The LFRC range purge never ran: writeCache.shrinkFile is recorded, but no
     // clearFile.checkCacheOverflow event (which the purge emits once per evicted entry).
@@ -450,11 +468,44 @@ public class LockFreeReadCacheFileOpsTest {
   }
 
   /**
-  * {@code shrinkFile()} on a file with no cached pages must still invoke
-  * {@code writeCache.shrinkFile()} exactly once — the file-system call is the
-  * orchestrator's responsibility regardless of cache state, and a clean shutdown
-  * (no pages cached) is a valid call shape for the recovery pass.
-  */
+   * Single-page-evict boundary test: on a genuine truncate (truncated=true), {@code minPageIndex}
+   * equal to the highest cached page index must evict EXACTLY that highest page and preserve every
+   * page below it. This pins the range filter's {@code pageIndex >= minPageIndex} boundary — a
+   * regression to a strict {@code >} would leave the highest page cached, and a regression to
+   * {@code <=} / off-by-one would over-evict the page below.
+   *
+   * <p>Seeds 4 pages (indices 0–3) for file 41 and shrinks to {@code 3 * PAGE_SIZE} →
+   * {@code minPageIndex = 3}. Only page 3 is at or above the cutoff, so exactly one page is
+   * evicted and pages 0, 1, 2 survive (3 * PAGE_SIZE remain).
+   */
+  @Test
+  public void testShrinkFileEvictsExactlyTheHighestPageAtBoundary() throws IOException {
+    for (int i = 0; i < 4; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(41, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 4 pages in cache", 4L * PAGE_SIZE, readCache.getUsedMemory());
+
+    // Genuine truncate (default return is true); minPageIndex = 3 equals the highest seeded
+    // index, so only page 3 falls in the >= 3 range.
+    readCache.shrinkFile(41, 3L * PAGE_SIZE, writeCache);
+
+    Assert.assertEquals(
+        "writeCache.shrinkFile must be invoked exactly once",
+        1, writeCache.shrinkFileCount.get());
+    Assert.assertEquals(
+        "At the >= boundary, only the highest page (index 3) is evicted; pages 0,1,2 survive",
+        3L * PAGE_SIZE, readCache.getUsedMemory());
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  /**
+   * {@code shrinkFile()} on a file with no cached pages must still invoke
+   * {@code writeCache.shrinkFile()} exactly once — the file-system call is the
+   * orchestrator's responsibility regardless of cache state, and a clean shutdown
+   * (no pages cached) is a valid call shape for the recovery pass.
+   */
   @Test
   public void testShrinkFileOnUncachedFileStillDelegates() throws IOException {
     Assert.assertEquals("sanity: cache is empty", 0, readCache.getUsedMemory());
