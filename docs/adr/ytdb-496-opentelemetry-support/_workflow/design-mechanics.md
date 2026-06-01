@@ -233,7 +233,7 @@ The bridge surfaces two layers: sem-conv DB metrics with names defined by the Op
 |---|---|---|---|
 | `db.client.connection.count` | stable | `ObservableLongUpDownCounter` | active session count read from `DatabaseSessionRegistry` (new in Track 8) |
 | `db.client.operation.duration` | stable | `ObservableDoubleHistogram` | query and commit `executionTimeNanos` aggregated across the last collection period — sourced from the listener fire sites (Track 3 / Track 4), not from `MetricsRegistry`, so no new profiler-side metric is needed |
-| `db.client.response.returned_rows` | experimental | `ObservableDoubleHistogram` | row-count distribution from `QueryDetails.getResultCount(): OptionalLong` (Track 1 adds the accessor; default empty unless the fire site can count rows without buffering the result set — Track 3 / Track 4 populate it from `LocalResultSet` lifecycle hooks when the source already exposes a row count) |
+| `db.client.response.returned_rows` | experimental | `ObservableDoubleHistogram` | row-count distribution from `QueryDetails.getResultCount(): OptionalLong` (Track 1 adds the accessor; Track 4 populates it from the `InstrumentedSqlResultSet` wrapper's per-`next()` row counter, which is correct for both `LocalResultSet` and `CachedResultSetView` inner result-sets per YTDB-820 coordination; Track 3 Gremlin path leaves it empty in v1) |
 
 **YTDB-specific (`youtrackdb.*` namespace):**
 
