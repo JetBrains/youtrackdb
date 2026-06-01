@@ -323,3 +323,10 @@ path it tests benefits from the cheap pass, and the two axes are validated toget
 
 ## Base commit
 6ed334837049ba42972ef34cb80efdd8ade6c95e
+
+Note: recorded base 6ed334837049ba42972ef34cb80efdd8ade6c95e was stale (a
+post-Phase-B rebase onto develop pulled in #1110, rewriting every on-branch
+commit); using actual on-branch parent
+afdb5c2d2fea1afdb35851c3aaf93702ebcef2b2 (the "Phase A review and
+decomposition for Track 1" commit, parent of the "Record Phase B base
+commit" commit) for this Phase C.
