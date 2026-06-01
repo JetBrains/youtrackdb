@@ -14,7 +14,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T14:27Z [ctx=info] Review + decomposition complete
@@ -23,6 +23,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T16:15Z [ctx=info] Step 3 complete (commit 597c1c08aa; dim-review PASS iter 2)
 - [x] 2026-06-01T16:23Z [ctx=info] Step 4 implementer turn ended without a RESULT block (clean tree, no commit); recovered by resuming the same agent per user choice (RESULT_MISSING — consumed one attempt)
 - [x] 2026-06-01T16:46Z [ctx=info] Step 4 complete (commit d955c194a1; medium, no dim-review; recovered from RESULT_MISSING)
+- [x] 2026-06-01T16:55Z [ctx=info] Step 5 complete (commit 5b62ae94ef; low, docs)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -272,7 +273,7 @@ after `open()`).
 2. Gate `AbstractStorage.open():809` on `wereDataRestoredAfterOpen`, rewrite the `:802-808` comment, do not reset the shared field, leave `postProcessIncrementalRestore:1680` unconditional — risk: high (crash-safety/durability: gates the recovery-time orphan pass in AbstractStorage; overturns read-cache-concurrency-bug I6)  [x] commit: 1f0c3e0e3e *(file-independent of Step 3)*
 3. Pin S2 write-path half at `AtomicOperationsManager.endAtomicOperation:320` via `assert` + focused unit test (spy) covering the inbound-error and persist-failure rollback paths — risk: high (override: no production behavior change, but pins the load-bearing Axis A crash-safety premise; warrants the crash-safety dimensional review)  [x] commit: 597c1c08aa *(file-independent of Step 2)*
 4. Crash-injection + clean-reopen regression test: dirty-reopen pass-ran/I6, clean-reopen no-orphan + pass-skipped (observation hook), WARN-on-truncate-failure — risk: medium (test infrastructure: extends shared crash-injection + orphan harnesses)  [x] commit: d955c194a1
-5. Documentation corrections: read-cache-concurrency-bug ADR D6/I6 + design-final (preserve-with-scoping), stale `WOWCache.loadOrAdd` Javadoc, unaffected-tests note — risk: low (docs)  [ ]
+5. Documentation corrections: read-cache-concurrency-bug ADR D6/I6 + design-final (preserve-with-scoping), stale `WOWCache.loadOrAdd` Javadoc, unaffected-tests note — risk: low (docs)  [x] commit: 5b62ae94ef
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
@@ -449,6 +450,46 @@ counts both the gated `open():809` dispatch and the unconditional
 `postProcessIncrementalRestore:1680` dispatch, and is never reset. Step 5's ADR /
 design-final amendments must keep restating the rollback-zero-footprint invariant
 in prose anchored to YTDB-1039 (no "S2" / "Axis A" labels in durable docs).
+
+### Step 5 — commit 5b62ae94ef, 2026-06-01T16:55Z [ctx=info]
+**What was done:** Applied the three documentation corrections. (a) Amended the
+read-cache-concurrency-bug ADR (the "not `isDirty`-gated" Key Discoveries bullet
+plus the I6 invariant note) and the design-final "Unconditional, not
+`isDirty`-gated" design-choice bullet to preserve-with-scoping: the general rule
+still holds for any engine where a clean close can leave a physical orphan (the
+in-memory engine, whose rollback leaves eagerly-installed pages), while the disk
+engine is now WAL-replay-gated per YTDB-1039. The amendment restates the
+rollback-zero-footprint proof in prose (a rolled-back disk transaction never
+enters `commitChanges`, so it leaves no physical extend) and records the one
+bounded best-effort cross-clean-cycle retry the gate gives up. (b) Corrected the
+stale `WOWCache.loadOrAdd` Javadoc ("no production callers yet"); also fixed two
+companion stale "rewiring not landed" claims on the same method's gap-fill and
+one-page-extend branch helpers. (c) Added an unaffected-tests note covering
+`IndexHistogramSpillRecoveryIT` (asserts a fabricated orphan survives reopen; IHM
+has no truncation hook) and `AbstractStorageTruncateOrphansAfterRecoveryTest`
+(calls the orchestrator directly, bypassing `open()`). Spotless clean, core
+compiles; no behavior change, no test added.
+
+**What was discovered:** The plan's "wired via `LockFreeReadCache.doLoad`" was
+imprecise. PSI find-usages on the concrete `WOWCache.loadOrAdd` override returns
+zero non-test callers; the production call site reaches it through the
+`WriteCache` interface at `LockFreeReadCache.doLoad:314` (inside
+`data.compute(...)`). The Javadoc now names `doLoad` (shared by `loadForRead` and
+`loadOrAddForWrite`) as the production caller.
+
+**What changed from the plan:** none. Two companion stale Javadoc claims on the
+same method's branch helpers were corrected alongside the targeted one because
+leaving them would contradict the corrected precondition Javadoc (project
+comment-sync rule). Last step in the track; no future steps affected.
+
+**Key files:**
+- `docs/adr/read-cache-concurrency-bug/adr.md` (modified)
+- `docs/adr/read-cache-concurrency-bug/design-final.md` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCache.java` (modified)
+
+**Critical context:** "I6" in the read-cache-concurrency-bug ADR is an ADR-owned
+invariant ID defined in that same file (allowed durable anchor under the
+ephemeral-identifier rule), not an ephemeral leak — Phase C should not flag it.
 
 ## Validation and Acceptance
 
