@@ -1443,9 +1443,9 @@ public final class WOWCache extends AbstractWriteCache
    *       {@code [currentSize, pageIndex]}, and returns the {@link CachePointer} for the
    *       requested {@code pageIndex} only. The intermediate gap pages are stamped on disk
    *       but not held in the read cache. Like the extend branch, the {@code lockManager}
-   *       shared lock is not taken &mdash; once the cache rewiring step lands, the
-   *       caller's outer {@code data.compute} segment write lock publishes the
-   *       freshly-installed pointer before any concurrent flush could observe it.
+   *       shared lock is not taken: the caller's outer {@code data.compute} segment write
+   *       lock publishes the freshly-installed pointer before any concurrent flush could
+   *       observe it.
    * </ul>
    *
    * <p><b>Totality contract.</b> The method never returns {@code null} for any open,
@@ -1457,11 +1457,12 @@ public final class WOWCache extends AbstractWriteCache
    * also fires when the dispatch prelude itself observes a missing entry for {@code fileId}
    * before {@code loadFileContent} would have a chance to.
    *
-   * <p><b>Caller precondition.</b> The post-rewiring design assumes the segment write lock
-   * for the {@code (fileId, pageIndex)} key is held by the caller (via
-   * {@code LockFreeReadCache.data.compute}). That rewiring lands in a follow-up step of the
-   * cache-primitive work; until it lands, the only callers exercising this method are the
-   * dedicated unit tests (no production callers yet). Lock ordering inside this method:
+   * <p><b>Caller precondition.</b> The caller holds the segment write lock for the
+   * {@code (fileId, pageIndex)} key. The production caller is
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache#doLoad},
+   * shared by {@code loadForRead} and {@code loadOrAddForWrite}, which calls this method from
+   * inside {@code data.compute(fileId, pageIndex, ...)} so the segment write lock is held
+   * across the call. Lock ordering inside this method:
    * acquire {@link #filesLock} read lock; on the load branch additionally acquire the
    * {@code lockManager} shared lock for the {@link PageKey}; the dispatch prelude opens
    * one {@code files.acquire(fileId)} cycle and the chosen branch reuses the same handle
@@ -1594,10 +1595,8 @@ public final class WOWCache extends AbstractWriteCache
    * <p>Allocates one page worth of space in the file (atomic {@code getAndAdd}), submits
    * an idempotent {@link EnsurePageIsValidInFileTask} for the single allocated page,
    * returns a magic-stamped empty {@link CachePointer}. No {@code lockManager} shared
-   * lock is taken: once the cache rewiring step lands, the caller's outer
-   * {@code data.compute} segment write lock publishes the freshly-installed pointer
-   * before any concurrent flush could observe it; until that step lands, the only
-   * callers exercising this branch are the dedicated unit tests.
+   * lock is taken: the caller's outer {@code data.compute} segment write lock publishes
+   * the freshly-installed pointer before any concurrent flush could observe it.
    *
    * <p>The {@code fileClassic} reference is supplied by the dispatch prelude under a
    * single {@code files.acquire(fileId)} handle held across this branch; the helper does

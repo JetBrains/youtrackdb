@@ -336,7 +336,12 @@ range-scoped segment-map primitive.
   pageSize`, i.e., `logical < physical` with logical pinned to zero)
   is treated as a corruption signature WAL replay is designed to
   prevent; the pass logs a WARN and skips truncation rather than
-  silently masking the divergence.
+  silently masking the divergence. YTDB-1039 scopes the disk-engine
+  re-establishment to a WAL-replay (dirty) open; on a clean disk open
+  no orphan can exist, so the pass is skipped and I6 holds vacuously.
+  The invariant itself is unchanged: every EP-equipped component still
+  satisfies `logical <= physical` after `open()` and
+  `postProcessIncrementalRestore` return.
 
 ### Integration Points
 
@@ -509,10 +514,30 @@ range-scoped segment-map primitive.
   left dirty pages in `writeCachePages` and a truncate-then-flush
   ordering would silently re-create the orphan when `flushAllData`
   writes pages past `targetBytes`.
-- `truncateOrphansAfterRecovery` must not be `isDirty`-gated. Orphan
+- `truncateOrphansAfterRecovery` is gated on whether `open()` replayed
+  WAL, not run unconditionally. The general rule still holds for any
+  engine where a clean close can leave a physical orphan: orphan
   creation can survive a crash → clean reopen → clean reclose
-  sequence, so a subsequent open with `isDirty() == false` still
-  needs the pass.
+  sequence, so a subsequent open with `isDirty() == false` still needs
+  the pass. The in-memory engine is the live example, because its
+  rollback leaves eagerly-installed pages in place. YTDB-1039 refined
+  this for the disk engine, where the proof of zero rollback footprint
+  removes the orphan source on a clean open: a rolled-back disk
+  transaction never enters `commitChanges` (the physical apply runs
+  only inside `commitChanges`, and `endAtomicOperation` calls it only
+  when no rollback is in progress), so it leaves no physical extend. A
+  disk orphan therefore requires a crash that made an extend durable
+  while losing the logical advance, and a crash always reopens with WAL
+  replay. The disk gate keys on `wereDataRestoredAfterOpen` (set true
+  only by `recoverIfNeeded`, which runs only on a dirty open), so a
+  gracefully-closed database reopens in O(1) instead of paying a
+  per-component entry-point read. The carve-out costs one bounded
+  best-effort retry: a transient `shrinkFile` truncate failure on an
+  otherwise readable component is no longer re-attempted on the next
+  clean reopen. That loss is bounded-acceptable because the failure is
+  loud (a WARN at the failed reopen) and any later crash re-arms the
+  pass. `DiskStorage.postProcessIncrementalRestore` stays
+  unconditional because it always replayed pages.
 - The uniform `+1` arithmetic
   (`targetBytes = max(pageSize, (epLogicalCounter + 1) * pageSize)`)
   holds because in all four EP-equipped components the counter
