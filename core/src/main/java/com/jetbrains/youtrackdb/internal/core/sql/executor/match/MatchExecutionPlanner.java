@@ -74,6 +74,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -373,6 +374,38 @@ public class MatchExecutionPlanner {
   /** Pattern for validating edge class names as valid identifiers. */
   private static final java.util.regex.Pattern VALID_EDGE_LABEL =
       java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
+  /**
+   * Hard upper bound applied to {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS} when
+   * it is read for plan construction. The chain-fold walk terminates
+   * structurally at the pattern graph's branch points and visited edges, so
+   * any knob value larger than the deepest linear chain a MATCH can encode
+   * is semantically equivalent to this cap — but can poison downstream
+   * arithmetic (int overflow in the walk's bookkeeping) and waste memory on
+   * upfront collection allocations sized to the raw knob value. Realistic
+   * MATCH patterns top out below 30 linear hops; 1000 leaves a 30× margin
+   * while staying far away from any int-overflow threshold.
+   */
+  private static final int MAX_CHAIN_FOLD_HOPS = 1000;
+
+  /**
+   * Tracks the last knob value that triggered an upper-bound clamp warning,
+   * so {@link #clampChainFoldMaxHops} logs at most once per <em>unique</em>
+   * out-of-range value. The sort loop reads the knob once per plan, so for
+   * a server processing thousands of queries with a misconfigured knob we
+   * would otherwise emit thousands of duplicate WARN lines.
+   *
+   * <p>Initialised to {@code 0} as a sentinel: {@code 0} is always in-range
+   * (it is the documented "fold disabled" value) so the clamp helper never
+   * compares an out-of-range raw against it as a stale match.
+   *
+   * <p>An {@link AtomicInteger#getAndSet} pair makes the warning emission
+   * thread-safe — concurrent plan constructions racing on a brand-new
+   * out-of-range value will see exactly one of them swap successfully and
+   * log; the others observe {@code previous == raw} and skip.
+   */
+  private static final AtomicInteger lastWarnedChainFoldKnob =
+      new AtomicInteger(0);
 
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
@@ -1951,6 +1984,24 @@ public class MatchExecutionPlanner {
     Set<PatternNode> visitedNodes = new HashSet<>();
     Set<PatternEdge> visitedEdges = new HashSet<>();
 
+    // Read the chain-fold knob once at the top of plan construction. It is
+    // a hot-path setting consulted by every candidate edge in the sort loop;
+    // re-reading the volatile configuration field per edge would amortize
+    // an O(edges) configuration lookup over the planning phase, and any
+    // mid-plan reconfiguration would split the plan across two knob values.
+    //
+    // {@link #clampChainFoldMaxHops} bounds the value to a safe range and
+    // emits a one-shot WARN if the upper cap actually fires.
+    int chainFoldMaxHops = clampChainFoldMaxHops(
+        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger());
+    // Per-plan structural-detection cache for the chain fold: the answer is
+    // determined by the pattern graph plus the per-plan {@code aliasClasses}
+    // and session, all stable for the lifetime of one plan. The visited-edge
+    // check is dynamic and is performed at each call site separately, so the
+    // cache stores only the structural shape. {@code containsKey} disambiguates
+    // a known-not-chain ({@code null} value) from an uncached entry.
+    Map<PatternEdge, ChainedTarget> chainShapeCache = new HashMap<>();
+
     // Sort the possible root vertices in order of estimated size, since we want to start with a
     // small vertex set.
     List<PairLongObject<String>> rootWeights = new ArrayList<>();
@@ -2005,7 +2056,7 @@ public class MatchExecutionPlanner {
       updateScheduleStartingAt(
           startingNode, visitedNodes, visitedEdges, remainingDependencies,
           resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
-          session);
+          session, chainFoldMaxHops, chainShapeCache);
     }
 
     if (resultingSchedule.size() != pattern.numOfEdges) {
@@ -2014,6 +2065,50 @@ public class MatchExecutionPlanner {
     }
 
     return resultingSchedule;
+  }
+
+  /**
+   * Bounds {@code raw} to {@code [0, MAX_CHAIN_FOLD_HOPS]}, the safe range
+   * for {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS}, and emits a one-shot WARN
+   * the first time a given out-of-range value triggers the upper cap.
+   *
+   * <p>Lower-bound clamp ({@code raw < 0}) is silent — values below zero
+   * are an obvious user error with no meaningful semantics, and the project
+   * convention (see {@link #getHashJoinThreshold}) is silent clamp at the
+   * read site.
+   *
+   * <p>Upper-bound clamp ({@code raw > MAX_CHAIN_FOLD_HOPS}) is logged
+   * because the operator's intent matters here: somebody who set the knob
+   * to e.g. {@code 100_000} probably wanted "fold everything", and a silent
+   * clamp would leave them debugging a fold depth that does not match their
+   * configuration. The warning fires at most once per unique raw value in a
+   * JVM lifetime — concurrent plans racing on the same out-of-range value
+   * agree on a single emitter via {@link AtomicInteger#getAndSet}.
+   *
+   * @param raw the raw knob value as read from {@link GlobalConfiguration}
+   * @return the clamped value, in {@code [0, MAX_CHAIN_FOLD_HOPS]}
+   */
+  static int clampChainFoldMaxHops(int raw) {
+    if (raw > MAX_CHAIN_FOLD_HOPS) {
+      // getAndSet returns the previous sentinel/value; if it equals raw,
+      // we have already warned about this exact value and stay silent.
+      // Otherwise we own the warning for this new out-of-range value.
+      int previous = lastWarnedChainFoldKnob.getAndSet(raw);
+      if (previous != raw) {
+        logger.warn(
+            "QUERY_MATCH_CHAIN_FOLD_MAX_HOPS={} exceeds the supported"
+                + " maximum {}; clamping for plan construction. The chain-fold"
+                + " walk terminates structurally at the pattern graph's branch"
+                + " points, so values above {} are equivalent to {} but risk"
+                + " int overflow in the walk's bookkeeping.",
+            raw, MAX_CHAIN_FOLD_HOPS, MAX_CHAIN_FOLD_HOPS, MAX_CHAIN_FOLD_HOPS);
+      }
+      return MAX_CHAIN_FOLD_HOPS;
+    }
+    // Negative values clamp silently (project convention; see
+    // getHashJoinThreshold). Zero is the documented "fold disabled" value
+    // and passes through unchanged.
+    return Math.max(0, raw);
   }
 
   /**
@@ -2038,7 +2133,9 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      DatabaseSessionEmbedded session) {
+      DatabaseSessionEmbedded session,
+      int chainFoldMaxHops,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
     // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
     // condition
     // than simply visiting all nodes in the query. Consider the following example query:
@@ -2121,6 +2218,21 @@ public class MatchExecutionPlanner {
           cost = applyTargetSelectivity(
               cost, neighbor.alias, entry.getKey(), entry.getValue(),
               aliasClasses, aliasFilters, estimatedRootEntries, session);
+          // Edge-method chain detection: when the current edge is the first hop of
+          // an outE→inV / inE→outV / bothE→bothV sequence (possibly extended into
+          // a multi-hop linear chain), fold each downstream vertex's WHERE and
+          // each subsequent edge step's fan-out into the first edge's cost. The
+          // intermediate edge alias carries no vertex WHERE, so without this
+          // fold the branch sorts as "no selectivity" and loses to broader
+          // branches. Each fold call short-circuits to baseCost when its alias
+          // has no filter/class/row-estimate, so adding more hops does not
+          // double-count when those hops have no filter.
+          if (chainFoldMaxHops >= 1) {
+            cost = applyChainFold(
+                cost, entry.getKey(), neighbor, chainFoldMaxHops, visitedEdges,
+                aliasClasses, aliasFilters, estimatedRootEntries, session,
+                chainShapeCache);
+          }
           cost = applyDepthMultiplier(cost, entry.getKey());
         }
       }
@@ -2232,7 +2344,7 @@ public class MatchExecutionPlanner {
           updateScheduleStartingAt(
               neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
               resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
-              session);
+              session, chainFoldMaxHops, chainShapeCache);
           progress = true;
         }
       }
@@ -2446,6 +2558,15 @@ public class MatchExecutionPlanner {
    * the class from the edge schema's linked vertex property (e.g., {@code HAS_TAG.in}
    * linked to {@code Tag}).
    *
+   * <p>This method is used by the sort loop for single-hop edges such as
+   * {@code .out('X')}. For the edge-method chain pattern {@code .outE('X').inV()}
+   * (and its {@code inE→outV} / {@code bothE→bothV} variants), the sort loop adds
+   * a second, chain-aware call using
+   * {@link #applyTargetSelectivityWithResolvedClass} below, which bypasses
+   * {@link #resolveTargetClass} and applies the downstream vertex's filter on
+   * top of the intermediate edge alias's filter — see the call site in
+   * {@link #updateScheduleStartingAt}.
+   *
    * @param baseCost             the fan-out-based traversal cost from
    *                             {@link #estimateEdgeCost}
    * @param targetAlias          alias of the target (neighbor) node
@@ -2471,7 +2592,71 @@ public class MatchExecutionPlanner {
     if (targetClass == null) {
       return baseCost;
     }
+    return applyClassSelectivity(
+        baseCost, targetAlias, targetClass,
+        aliasFilters, estimatedRootEntries, session);
+  }
 
+  /**
+   * Class-forced sibling of {@link #applyTargetSelectivity} used by the
+   * sort-loop's edge-method chain fold. Bypasses {@link #resolveTargetClass}
+   * — the caller ({@link #updateScheduleStartingAt} via
+   * {@link #resolveChainedTarget}) has already computed the downstream
+   * vertex class using chain-aware precedence (aliasClasses first, then
+   * direction-aware edge-schema derivation), so re-inferring with the outer
+   * edge's direction would pick the wrong endpoint for {@code inE→outV}.
+   *
+   * <p>Short-circuits to {@code baseCost} when {@code preResolvedTargetClass}
+   * is {@code null} (e.g. {@code bothE→bothV} without an explicit
+   * {@code class:} annotation) — matching the behaviour of
+   * {@link #applyTargetSelectivity} when {@link #resolveTargetClass} returns
+   * {@code null}.
+   *
+   * @param baseCost             the fan-out-based traversal cost from
+   *                             {@link #estimateEdgeCost}, already adjusted
+   *                             by the intermediate alias's filter (if any)
+   *                             via the preceding {@link #applyTargetSelectivity}
+   *                             call
+   * @param targetAlias          the downstream vertex alias (from
+   *                             {@link ChainedTarget#effectiveTargetAlias})
+   * @param preResolvedTargetClass class name resolved by the chain helper,
+   *                             or {@code null} when inference failed
+   * @param aliasFilters         alias → WHERE clause mapping
+   * @param estimatedRootEntries estimated cardinality per alias
+   * @param session              database session for schema access
+   * @return adjusted cost
+   */
+  static double applyTargetSelectivityWithResolvedClass(
+      double baseCost,
+      String targetAlias,
+      @Nullable String preResolvedTargetClass,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
+    if (preResolvedTargetClass == null) {
+      return baseCost;
+    }
+    return applyClassSelectivity(
+        baseCost, targetAlias, preResolvedTargetClass,
+        aliasFilters, estimatedRootEntries, session);
+  }
+
+  /**
+   * Shared body of {@link #applyTargetSelectivity} and
+   * {@link #applyTargetSelectivityWithResolvedClass}: given a non-null
+   * target class, look it up in the schema and adjust {@code baseCost} by
+   * either (a) the filter-shape heuristic on the target's WHERE clause, or
+   * (b) the estimated cardinality ratio. All null-guards on the target
+   * class are the callers' responsibility; this helper assumes
+   * {@code targetClass != null}.
+   */
+  private static double applyClassSelectivity(
+      double baseCost,
+      String targetAlias,
+      String targetClass,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null || !schema.existsClass(targetClass)) {
       return baseCost;
@@ -2532,6 +2717,518 @@ public class MatchExecutionPlanner {
     var linkedProp = edgeClass.getPropertyInternal(linkedPropName);
     return (linkedProp != null && linkedProp.getLinkedClass() != null)
         ? linkedProp.getLinkedClass().getName() : null;
+  }
+
+  /**
+   * Describes the downstream vertex that a recognised edge-method chain
+   * (e.g. {@code .outE('X').inV()}) folds onto for cost-model purposes.
+   *
+   * <p>Returned by {@link #resolveChainedTarget}. The planner's sort loop
+   * uses this to apply the downstream vertex's {@code WHERE} selectivity to
+   * the first edge's cost, instead of the synthetic intermediate edge alias
+   * that carries no filter.
+   *
+   * @param effectiveTargetAlias  the downstream vertex alias (the real target
+   *                              of the chain, e.g. {@code tag} in
+   *                              {@code .outE('VIHasTag').inV(){as: tag}})
+   * @param effectiveTargetClass  the downstream vertex class name, or
+   *                              {@code null} when it cannot be inferred
+   *                              (e.g. {@code bothE→bothV} without an
+   *                              explicit {@code class:} annotation)
+   */
+  record ChainedTarget(
+      String effectiveTargetAlias, @Nullable String effectiveTargetClass) {
+  }
+
+  /**
+   * Detects the edge-method chain pattern {@code .outE(X).inV()} (and its
+   * {@code inE→outV} / {@code bothE→bothV} variants) that appears as two
+   * consecutive {@link PatternEdge}s in the pattern graph.
+   *
+   * <p>The pattern graph models {@code .outE('X').inV()} as
+   * <pre>
+   *   source ── outE('X') ──▶ intermediate(edge alias) ── inV() ──▶ target
+   * </pre>
+   * Cost is computed per {@link PatternEdge}. The first edge's target is the
+   * synthetic intermediate alias (no filter, no class), so
+   * {@link #applyTargetSelectivity} returns the base cost unchanged and the
+   * {@code WHERE} on the real downstream vertex never affects scheduling.
+   *
+   * <p>This helper recognises the chain structurally and returns the
+   * downstream vertex so the caller can fold its selectivity into the first
+   * edge's cost. The pattern graph and runtime execution are left untouched.
+   *
+   * <p><b>Structural rule</b> (all must hold):
+   * <ol>
+   *   <li>{@code edge.item} and {@code edge.item.getMethod()} are non-null;</li>
+   *   <li>first edge method name (lower-cased, {@link Locale#ENGLISH}) is
+   *       one of {@code oute}, {@code ine}, {@code bothe};</li>
+   *   <li>{@code neighbor.out} has exactly one edge, and it is not in
+   *       {@code visitedEdges};</li>
+   *   <li>{@code neighbor.in} has exactly one edge, and it <b>is</b>
+   *       {@code edge} (identity comparison — guards against a user-named
+   *       intermediate alias joined from a second MATCH fragment);</li>
+   *   <li>the downstream edge's method name (lower-cased) is {@code inv},
+   *       {@code outv}, or {@code bothv}.</li>
+   * </ol>
+   *
+   * <p><b>Reverse traversals</b> (where {@code neighbor = edge.out}) are
+   * rejected naturally by clause 3 — the reverse neighbor has no
+   * {@code inV}/{@code outV}/{@code bothV} continuation.
+   *
+   * <p>The helper is pure — no schema mutation, no side effects — so it is
+   * unit-testable in isolation.
+   *
+   * @param edge           the candidate first edge of the chain
+   * @param neighbor       the direction-dependent target already computed
+   *                       by the sort loop
+   *                       ({@code entry.getValue() ? edge.in : edge.out})
+   * @param visitedEdges   DFS state — the chain is only detected while the
+   *                       intermediate edge's follow-up is still unscheduled
+   * @param aliasClasses   alias → class map; may be {@code null}, in which
+   *                       case the helper falls directly to the
+   *                       edge-schema-derivation fallback
+   * @param session        database session for schema access; may be
+   *                       {@code null}, in which case the fallback returns
+   *                       {@code null} for the class field
+   * @return the downstream vertex descriptor when the chain signature
+   *         matches, otherwise {@code null}
+   */
+  @Nullable static ChainedTarget resolveChainedTarget(
+      PatternEdge edge,
+      PatternNode neighbor,
+      Set<PatternEdge> visitedEdges,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session) {
+    var shape = detectChainShape(edge, neighbor, aliasClasses, session);
+    if (shape == null) {
+      return null;
+    }
+    // Visited-edge check is dynamic (DFS state); kept separate from
+    // {@link #detectChainShape} so the structural answer can be cached
+    // across plan iterations. {@code detectChainShape} already verified
+    // {@code neighbor.out.size() == 1}, so the iterator access is safe.
+    if (visitedEdges.contains(neighbor.out.iterator().next())) {
+      return null;
+    }
+    return shape;
+  }
+
+  /**
+   * Pure structural part of the chain-detection rule: applies all clauses
+   * of {@link #resolveChainedTarget} except the dynamic visited-edge check.
+   * The result depends only on the pattern graph and the per-plan
+   * {@code aliasClasses} / {@code session}, all stable for the lifetime of
+   * one plan, which makes it safe to cache by {@link PatternEdge} identity
+   * (see the {@code chainShapeCache} threaded through
+   * {@link #updateScheduleStartingAt}).
+   *
+   * <p>Callers that need the visited check (the sort loop, the multi-hop
+   * walk) apply it on top of this helper's result.
+   */
+  @Nullable private static ChainedTarget detectChainShape(
+      PatternEdge edge,
+      PatternNode neighbor,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (edge.item == null || edge.item.getMethod() == null) {
+      return null;
+    }
+    var rawFirstName = edge.item.getMethod().getMethodNameString();
+    // Sort-loop hot path: invoked on every candidate edge, including the very
+    // common single-step methods (.out / .in / .both). Reject those without
+    // allocating a lower-cased copy — String.equalsIgnoreCase short-circuits
+    // on length mismatch, so .out (len 3) vs .outE (len 4) bails out before
+    // any character comparison. Only on a positive match do we cache the
+    // lower-cased canonical form for `inferDownstreamVertexClassFromEdge`.
+    if (rawFirstName == null
+        || (!"outE".equalsIgnoreCase(rawFirstName)
+            && !"inE".equalsIgnoreCase(rawFirstName)
+            && !"bothE".equalsIgnoreCase(rawFirstName))) {
+      return null;
+    }
+
+    if (neighbor.out.size() != 1 || neighbor.in.size() != 1) {
+      return null;
+    }
+    var downstreamEdge = neighbor.out.iterator().next();
+    // Defense-in-depth identity check. The size==1 guard above already
+    // rejects the common fragment-join case (a user reusing {as: e} across
+    // two MATCH fragments makes neighbor.in.size() >= 2). This check pins
+    // the residual case — a pattern graph whose intermediate has a single
+    // incoming edge that is not `edge` — which the DFS does not produce
+    // today but may via future refactorings of pattern construction.
+    if (neighbor.in.iterator().next() != edge) {
+      return null;
+    }
+
+    if (downstreamEdge.item == null || downstreamEdge.item.getMethod() == null) {
+      return null;
+    }
+    var rawSecondName = downstreamEdge.item.getMethod().getMethodNameString();
+    if (rawSecondName == null
+        || (!"inV".equalsIgnoreCase(rawSecondName)
+            && !"outV".equalsIgnoreCase(rawSecondName)
+            && !"bothV".equalsIgnoreCase(rawSecondName))) {
+      return null;
+    }
+
+    // effectiveTargetAlias is the downstream vertex alias — NOT neighbor.alias,
+    // which is the intermediate edge alias and carries no filter.
+    var effectiveTargetAlias = downstreamEdge.in.alias;
+
+    // Class-inference precedence:
+    //   1. aliasClasses.get(effectiveTargetAlias) — the normal path for
+    //      outE→inV / inE→outV because {@code addAliases} pre-populates via
+    //      {@code inferClassFromEdgeSchema}. Also the only path for
+    //      bothE→bothV when the user wrote {class: ...}.
+    //   2. Defensive fallback for while-expression aliases skipped by
+    //      {@code addAliases}'s whileAliases filter: derive from the first
+    //      edge's class name + direction. outE→inV uses the edge class's
+    //      {@code in} linked vertex class; inE→outV uses {@code out};
+    //      bothE→bothV cannot infer (returns null).
+    String effectiveTargetClass = aliasClasses != null
+        ? aliasClasses.get(effectiveTargetAlias) : null;
+    if (effectiveTargetClass == null) {
+      // Precedence-2 fallback: derive class from the edge schema using the
+      // SECOND method (inV/outV/bothV). The vertex step decides which side of
+      // the edge is downstream, regardless of whether we entered via outE,
+      // inE, or bothE — so this mirrors how addAliases.inferClassFromEdgeSchema
+      // resolves a stand-alone inV/outV. bothV cannot be disambiguated from
+      // schema alone and falls through to null.
+      effectiveTargetClass = linkedVertexClassForVertexStep(
+          rawSecondName, extractEdgeClassName(edge.item.getMethod()), session);
+    }
+    return new ChainedTarget(effectiveTargetAlias, effectiveTargetClass);
+  }
+
+  /**
+   * Resolves the linked vertex class for a TinkerPop vertex step ({@code inV},
+   * {@code outV}, {@code bothV}) on a known edge class, using the edge's
+   * {@code in}/{@code out} LINK schema.
+   *
+   * <p>{@code inV} reads the edge's {@code in} linked vertex class (target
+   * side); {@code outV} reads {@code out} (source side); {@code bothV} cannot
+   * be resolved from schema alone and returns {@code null}.
+   *
+   * <p>Shared by {@link #resolveChainedTarget} (precedence-2 fallback during
+   * cost-fold class inference) and the {@code inV}/{@code outV} branch of
+   * {@link #inferClassFromEdgeSchema} (during plan construction in
+   * {@code addAliases}). Centralising the mapping here keeps the two paths in
+   * lock-step: any future addition (e.g. a new vertex-step variant) only
+   * needs editing once.
+   *
+   * @param vertexStepName the vertex step name as read from the parsed
+   *                       method call ({@code inV}/{@code outV}/{@code bothV},
+   *                       case-insensitive); {@code null} returns {@code null}
+   * @param edgeClassName  the edge class whose schema supplies the linked
+   *                       vertex class; {@code null} returns {@code null}
+   * @param session        database session for schema access; {@code null}
+   *                       returns {@code null}
+   * @return the linked vertex class name, or {@code null} when any input is
+   *         missing or the step is {@code bothV}/unrecognized
+   */
+  @Nullable static String linkedVertexClassForVertexStep(
+      @Nullable String vertexStepName,
+      @Nullable String edgeClassName,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (edgeClassName == null || vertexStepName == null) {
+      return null;
+    }
+    String prop;
+    if ("inV".equalsIgnoreCase(vertexStepName)) {
+      prop = "in";
+    } else if ("outV".equalsIgnoreCase(vertexStepName)) {
+      prop = "out";
+    } else {
+      // bothV or any unrecognized step: cannot disambiguate from schema
+      return null;
+    }
+    return lookupLinkedVertexClass(edgeClassName, prop, session);
+  }
+
+  /**
+   * Describes a single sub-chain in a multi-hop linear chain extension. A
+   * sub-chain is one (edge step → vertex step) pair, e.g. {@code outE('B')
+   * → inV()} appearing AFTER an initial {@code outE('A').inV()} that started
+   * the chain. The first sub-chain is handled by the existing single-hop
+   * fold and is not represented here — only the additional hops are.
+   *
+   * @param edgeStep         the {@code outE}/{@code inE}/{@code bothE} step
+   *                         that starts this sub-chain. Its fan-out from
+   *                         {@code edgeStepSourceClass} is multiplied into
+   *                         the running cost (the first edge step is part of
+   *                         {@code estimateEdgeCost}'s baseCost; subsequent
+   *                         steps are not, so we add them here)
+   * @param edgeStepSourceClass class of the vertex feeding {@code edgeStep},
+   *                         used as the cardinality denominator for fan-out
+   *                         estimation. May be {@code null} if class
+   *                         inference failed for the previous hop's
+   *                         downstream vertex
+   * @param intermediateAlias the alias of the intermediate edge alias node
+   *                         (e.g. user's {@code as: e2}). Selectivity is
+   *                         applied to it the same way the first hop does
+   *                         in the sort loop's primary
+   *                         {@code applyTargetSelectivity} call
+   * @param downstreamAlias  the alias of the vertex reached by this hop's
+   *                         vertex step. Its WHERE drives the per-hop
+   *                         selectivity contribution
+   * @param downstreamClass  class of the downstream vertex, or {@code null}
+   *                         when it cannot be inferred
+   */
+  record ChainHop(
+      PatternEdge edgeStep,
+      @Nullable String edgeStepSourceClass,
+      String intermediateAlias,
+      String downstreamAlias,
+      @Nullable String downstreamClass) {
+  }
+
+  /**
+   * Applies the multi-hop chain fold to {@code baseCost} starting from
+   * {@code firstEdge → firstNeighbor}. This is the unified entry point used
+   * by the sort loop: it composes {@link #resolveChainedTarget} (the
+   * single-hop rule) with {@link #walkLinearChainExtension} (the iterative
+   * extension into subsequent linear sub-chains, bounded by
+   * {@code maxHops}).
+   *
+   * <p>For the first hop only the downstream vertex's WHERE selectivity is
+   * applied — the first edge's fan-out is already in {@code baseCost} and
+   * the immediate intermediate alias was folded by the sort loop's primary
+   * {@code applyTargetSelectivity} call before this method runs.
+   *
+   * <p>For each additional hop (hop 2…N): multiply by the edge step's
+   * fan-out, apply the intermediate edge alias's WHERE (rare, only when the
+   * user named it with {@code as:} and gave it a filter), then apply the
+   * downstream vertex's WHERE.
+   *
+   * <p>{@code maxHops} caps the total number of (edge, vertex) sub-chains
+   * folded. Two layers gate the knob: the sort-loop call site skips
+   * {@code applyChainFold} entirely when {@code chainFoldMaxHops < 1} (full
+   * rollback to pre-YTDB-643 behaviour, no allocations), and the inner
+   * {@code maxHops <= 1} short-circuit here returns after the single-hop
+   * fold without entering the multi-hop walk. Either layer alone restricts
+   * the fold to legacy single-hop behaviour for {@code maxHops == 1}; the
+   * outer layer is the only one that can disable the fold completely. Both
+   * layers are intentional defense-in-depth: callers may rely on either.
+   *
+   * <p>{@code chainShapeCache} memoizes the structural part of the chain
+   * detection per first-edge identity, so repeat sort-loop invocations of
+   * the same edge skip the lower-case method-name comparisons and the
+   * schema lookups. The dynamic visited-edge check is performed inline.
+   *
+   * @return the cost adjusted for all detected chain hops up to
+   *         {@code maxHops}; equals {@code baseCost} when no chain is
+   *         detected
+   */
+  private static double applyChainFold(
+      double baseCost,
+      PatternEdge firstEdge,
+      PatternNode firstNeighbor,
+      int maxHops,
+      Set<PatternEdge> visitedEdges,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable Map<String, SQLWhereClause> aliasFilters,
+      @Nullable Map<String, Long> estimatedRootEntries,
+      @Nullable DatabaseSessionEmbedded session,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+    var firstHop = lookupOrDetectChainShape(
+        firstEdge, firstNeighbor, aliasClasses, session, chainShapeCache);
+    if (firstHop == null) {
+      return baseCost;
+    }
+    // detectChainShape verified firstNeighbor.out.size() == 1, so this
+    // iterator yields the chain's vertex-step edge — referenced both for
+    // the visited-edge guard below and as the source of the first hop's
+    // downstream vertex when seeding the multi-hop walk.
+    var firstHopVertexStepEdge = firstNeighbor.out.iterator().next();
+    // Visited-edge check is dynamic and intentionally not cached: a chain
+    // whose downstream edge is already scheduled would double-count its
+    // selectivity through the cached structural answer.
+    if (visitedEdges.contains(firstHopVertexStepEdge)) {
+      return baseCost;
+    }
+    double cost = applyTargetSelectivityWithResolvedClass(
+        baseCost,
+        firstHop.effectiveTargetAlias(),
+        firstHop.effectiveTargetClass(),
+        aliasFilters,
+        estimatedRootEntries,
+        session);
+
+    if (maxHops <= 1) {
+      return cost;
+    }
+
+    // Walk forward from the first hop's downstream vertex into any
+    // additional linear sub-chains, capped at maxHops - 1 extra hops.
+    var extraHops = walkLinearChainExtension(
+        firstHopVertexStepEdge.in,
+        firstHop.effectiveTargetClass(),
+        maxHops - 1,
+        visitedEdges,
+        firstEdge,
+        firstHopVertexStepEdge,
+        aliasClasses,
+        session,
+        chainShapeCache);
+    for (var hop : extraHops) {
+      cost *= estimateMethodFanOut(
+          hop.edgeStep().item.getMethod(),
+          hop.edgeStepSourceClass(),
+          session);
+      // Intermediate edge alias is mostly auto-generated (no WHERE), so this
+      // call is typically a no-op via the no-filter short-circuit. The class
+      // is the EDGE class of this hop's edge step (e.g. 'Friend' for
+      // .outE('Friend'){as: e}); without it, the helper would short-circuit
+      // unconditionally and ignore user-named intermediate aliases that
+      // carry their own WHERE (e.g. {as: e, where: weight > 5}).
+      cost = applyTargetSelectivityWithResolvedClass(
+          cost,
+          hop.intermediateAlias(),
+          extractEdgeClassName(hop.edgeStep().item.getMethod()),
+          aliasFilters,
+          estimatedRootEntries,
+          session);
+      cost = applyTargetSelectivityWithResolvedClass(
+          cost,
+          hop.downstreamAlias(),
+          hop.downstreamClass(),
+          aliasFilters,
+          estimatedRootEntries,
+          session);
+    }
+    return cost;
+  }
+
+  /**
+   * Iteratively extends a linear chain past its first hop. Starts from
+   * {@code currentVertex} (the downstream vertex of the first hop) and
+   * walks forward as long as:
+   * <ul>
+   *   <li>{@code currentVertex.out.size() == 1} (no branch point);</li>
+   *   <li>that single outgoing edge starts another valid sub-chain per
+   *       {@link #resolveChainedTarget}'s structural rule;</li>
+   *   <li>neither edge in the new sub-chain has been visited (back-edge
+   *       guard against pattern loops).</li>
+   * </ul>
+   * Walk terminates as soon as any condition fails, or when
+   * {@code remainingHops} reaches zero. The structural rule handles
+   * fragment-join, branch-point, and visited-edge rejection identically to
+   * the single-hop case.
+   *
+   * <p>Visited tracking uses two disjoint sets to avoid copying the DFS
+   * state: {@code initialVisitedEdges} is consulted read-only for the
+   * back-edge guard against already-scheduled edges, while a small local
+   * {@code chainEdges} set tracks just the edges this walk has crossed
+   * (the first hop's two edges plus each sub-chain's pair). Each
+   * {@code contains} check queries both sets. The walk's loop counter
+   * {@code remainingHops} is upper-bounded by {@code MAX_CHAIN_FOLD_HOPS}
+   * via the knob clamp at the read site, so {@code chainEdges} grows to
+   * at most {@code 2 * MAX_CHAIN_FOLD_HOPS + 2} entries — but in practice
+   * the structural termination at branch points keeps it well under 30
+   * for any realistic MATCH pattern. The caller's DFS-level
+   * {@code visitedEdges} is not mutated.
+   *
+   * @return list of additional hops (may be empty); each hop is one
+   *         (edge step, vertex step) sub-chain
+   */
+  private static List<ChainHop> walkLinearChainExtension(
+      PatternNode currentVertex,
+      @Nullable String currentVertexClass,
+      int remainingHops,
+      Set<PatternEdge> initialVisitedEdges,
+      PatternEdge firstHopEdge,
+      PatternEdge firstHopVertexStepEdge,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+    if (remainingHops <= 0) {
+      return List.of();
+    }
+    // Fast-path: terminal vertices and branch points cannot extend the
+    // chain. Bail out before allocating the chainEdges HashSet — the
+    // common case in pattern graphs whose tail vertex has no outgoing
+    // edges or fans out to multiple neighbors.
+    if (currentVertex.out.size() != 1) {
+      return List.of();
+    }
+    var hops = new ArrayList<ChainHop>();
+    // Default-sized HashSet (capacity 16) is sufficient: the walk
+    // terminates structurally at branch points or visited edges, so
+    // chainEdges typically holds well under 16 entries even for
+    // MAX_CHAIN_FOLD_HOPS-sized knobs. The default knob (10) walks at
+    // most 20 entries, costing one rehash to capacity 32 — negligible
+    // in plan-construction time. Explicit pre-sizing was removed to
+    // eliminate any int-overflow surface in the sizing arithmetic; the
+    // knob is already clamped to [0, MAX_CHAIN_FOLD_HOPS] at the read
+    // site, so every entry in the loop's bookkeeping stays bounded.
+    var chainEdges = new HashSet<PatternEdge>();
+    chainEdges.add(firstHopEdge);
+    chainEdges.add(firstHopVertexStepEdge);
+
+    var sourceClass = currentVertexClass;
+    while (hops.size() < remainingHops) {
+      if (currentVertex.out.size() != 1) {
+        break;
+      }
+      var nextEdgeStep = currentVertex.out.iterator().next();
+      // Two-set check: nextEdgeStep is rejected if it's already in the
+      // DFS schedule (back-edge into scheduled territory) OR already in
+      // this walk (chain loops back on itself).
+      if (initialVisitedEdges.contains(nextEdgeStep)
+          || chainEdges.contains(nextEdgeStep)) {
+        break;
+      }
+      var nextIntermediate = nextEdgeStep.in;
+      // Reuse the structural-detection cache: identical pattern shape and
+      // class-resolution inputs across plan iterations. The visited-edge
+      // check uses the two-set guard rather than the cached value.
+      var nextSubChain = lookupOrDetectChainShape(
+          nextEdgeStep, nextIntermediate, aliasClasses, session, chainShapeCache);
+      if (nextSubChain == null) {
+        break;
+      }
+      // detectChainShape verified nextIntermediate.out.size() == 1.
+      var vertexStepEdge = nextIntermediate.out.iterator().next();
+      if (initialVisitedEdges.contains(vertexStepEdge)
+          || chainEdges.contains(vertexStepEdge)) {
+        break;
+      }
+      chainEdges.add(nextEdgeStep);
+      chainEdges.add(vertexStepEdge);
+
+      hops.add(new ChainHop(
+          nextEdgeStep,
+          sourceClass,
+          nextIntermediate.alias,
+          nextSubChain.effectiveTargetAlias(),
+          nextSubChain.effectiveTargetClass()));
+
+      currentVertex = vertexStepEdge.in;
+      sourceClass = nextSubChain.effectiveTargetClass();
+    }
+    return hops;
+  }
+
+  /**
+   * Cache-aware wrapper around {@link #detectChainShape}. {@code computeIfAbsent}
+   * cannot be used here because we want to memoize {@code null} results
+   * (known-not-chain edges) too; the {@code containsKey}/{@code put} pair
+   * disambiguates a missing entry from a cached negative.
+   */
+  @Nullable private static ChainedTarget lookupOrDetectChainShape(
+      PatternEdge edge,
+      PatternNode neighbor,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+    if (chainShapeCache.containsKey(edge)) {
+      return chainShapeCache.get(edge);
+    }
+    var shape = detectChainShape(edge, neighbor, aliasClasses, session);
+    chainShapeCache.put(edge, shape);
+    return shape;
   }
 
   /**
@@ -4573,13 +5270,12 @@ public class MatchExecutionPlanner {
     }
 
     // inV() / outV(): look up the linked vertex class from the preceding edge.
-    // inV() reads the "in" property; outV() reads the "out" property.
+    // Delegates to the shared helper so this branch stays in lock-step with
+    // resolveChainedTarget's precedence-2 fallback (both resolve a vertex
+    // step against an edge schema; centralising avoids divergent logic).
     if ("inv".equals(dirName) || "outv".equals(dirName)) {
-      if (currentEdgeClass == null) {
-        return null;
-      }
-      var prop = "inv".equals(dirName) ? "in" : "out";
-      return lookupLinkedVertexClass(currentEdgeClass, prop, context);
+      return linkedVertexClassForVertexStep(
+          dirName, currentEdgeClass, context.getDatabaseSession());
     }
 
     // out('X') / in('X'): infer the target vertex class from the edge LINK schema
@@ -4594,20 +5290,30 @@ public class MatchExecutionPlanner {
 
     // out('X') targets the "in" side; in('X') targets the "out" side
     var targetPropName = "out".equals(dirName) ? "in" : "out";
-    return lookupLinkedVertexClass(edgeClassName, targetPropName, context);
+    return lookupLinkedVertexClass(edgeClassName, targetPropName, context.getDatabaseSession());
   }
 
   /**
    * Looks up the linked vertex class from an edge class's LINK property.
+   * Defensive: returns {@code null} if the session or any link in the
+   * schema-lookup chain is missing, so this is the single source of truth
+   * for the "edge-class → linked-vertex-class" resolution (also used by
+   * {@link #inferDownstreamVertexClassFromEdge}).
    *
    * @param edgeClassName the edge class to look up
    * @param propName the property name to read — must be {@code "in"} or {@code "out"}
+   * @param session the database session for schema access; {@code null} yields {@code null}
    * @return the linked class name, or {@code null} if not found
    */
   @Nullable private static String lookupLinkedVertexClass(
-      String edgeClassName, String propName, CommandContext context) {
-    var session = context.getDatabaseSession();
+      String edgeClassName, String propName, @Nullable DatabaseSessionEmbedded session) {
+    if (session == null) {
+      return null;
+    }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return null;
+    }
     var edgeClass = schema.getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
