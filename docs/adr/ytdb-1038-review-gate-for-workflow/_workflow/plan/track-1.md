@@ -17,11 +17,12 @@ staged-path normalization rule strips the prefix before the globs run.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-01T13:05Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-01T13:26Z [ctx=safe] Step 1 complete (commit a2cd449)
 - [x] 2026-06-01T13:31Z [ctx=safe] Step 2 complete (commit 7f171bd)
 - [x] 2026-06-01T13:44Z [ctx=safe] Track-level code review complete: PASS at iteration 1 (5 workflow reviewers; 0 blockers, 0 should-fix, 3 suggestions)
+- [x] 2026-06-01T13:59Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -75,6 +76,17 @@ summary at Phase C. -->
     (normalize) path; an optional negative bullet (a `.claude/` segment
     nested below the staged prefix that does not normalize) would harden the
     boundary.
+- [x] Track completion: the user chose to apply all three suggestions before
+  closing. A `level=track`, `mode=FIX_REVIEW_FINDINGS` implementer applied
+  WP1 (escaped the regex-dot to `(\.claude/…)`), WI1 (extended the
+  writing-style parenthetical to note it fires under either path form), and
+  WP2 (added a negative non-normalizing worked example to §Examples) in
+  Review fix `3c36592`. WP1 and WI1 landed identically in both mirror copies;
+  WP2 touched `review-agent-selection.md` §Examples only. The orchestrator
+  re-verified S1 mirror integrity and promotion fidelity against the live
+  files (deltas show only the intended additions) and confirmed the commit is
+  on origin. Track marked complete; no findings deferred, no plan
+  corrections.
 
 ## Context and Orientation
 

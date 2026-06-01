@@ -203,7 +203,7 @@ flowchart TB
   flagged (separate PR).
 
 ## Checklist
-- [ ] Track 1: Selection-side staging awareness (YTDB-1032)
+- [x] Track 1: Selection-side staging awareness (YTDB-1032)
   > On a workflow-modifying plan the per-agent triggers match the live
   > `.claude/...` path while the change lives under the staged prefix, so
   > `review-workflow-prompt-design`, `-instruction-completeness`, and
@@ -211,7 +211,29 @@ flowchart TB
   > context-budget always run; writing-style already fires via
   > `docs/adr/**/*.md`). A staged-path normalization rule strips the prefix
   > before the globs run. Detailed description in plan/track-1.md.
-  > **Scope:** ~2 steps covering the staged-path normalization rule + mirror sync.
+  >
+  > **Track episode:**
+  > Added the staged-path normalization rule so the review-selection globs
+  > see a staged workflow edit as its live counterpart. The preamble strips
+  > the anchored `docs/adr/<dir>/_workflow/staged-workflow/` prefix from a
+  > changed path before the per-agent globs run. It landed in both mirror
+  > copies (`review-agent-selection.md §Workflow-machinery override` and
+  > `code-review/SKILL.md §5d`) in one commit with the single canonical
+  > sync-date bumped 2026-05-15 → 2026-06-01 (S1), plus positive and
+  > negative staged-path worked examples in `review-agent-selection.md
+  > §Examples`. All edits stage under `_workflow/staged-workflow/` per §1.7;
+  > the live tree promotes at Phase 4. No single changed file can match all
+  > three glob-gated reviewers at once (the SKILL/agents/prompts globs and
+  > the hooks/scripts/settings globs are disjoint), so a worked example
+  > shows two reviewers firing, not three; the Validation criterion's
+  > "three glob-gated reviewers" is a superset framing of the rule.
+  > Track-level review passed at iteration 1 (5 workflow reviewers; 0
+  > blockers, 0 should-fix); three suggestions (regex-dot precision, a
+  > writing-style clarification, a negative worked example) were applied at
+  > completion via Review fix `3c36592`. Independent of Tracks 2 and 3; no
+  > cross-track impact.
+  >
+  > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
 
 - [ ] Track 2: Read-side staged-read caveat (YTDB-1038)
   > Every review and gate prompt names the live `.claude/...` path, so on a
