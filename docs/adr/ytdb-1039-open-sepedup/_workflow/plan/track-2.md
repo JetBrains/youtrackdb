@@ -19,6 +19,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [ ] Track completion
 - [x] 2026-06-01T14:27Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
+- [x] 2026-06-01T15:50Z [ctx=info] Step 2 complete (commit 1f0c3e0e3e; dim-review PASS iter 2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -31,6 +32,13 @@ at Phase 1. -->
   `failsafe:integration-test failsafe:verify -P ci-integration-tests
   -Dit.test=<Class> -DfailIfNoTests=false` (full `verify` exceeds the foreground
   budget). See Episodes §Step 1.
+- 2026-06-01T15:50Z Step 2 review surfaced two Step 4 test strengthenings to fold
+  into Step 4's clean-reopen leg: (a) replace the tautological "allocate-rollback,
+  assert physical==logical" assertion with the dual of the Step 1 fabrication
+  tests — fabricate a physical orphan on a clean-closed file, reopen WITHOUT
+  `forceDirtyReopen`, assert the orphan SURVIVES (pins the gate's defining
+  behavior); (b) add an empty-WAL dirty-reopen test asserting the pass still runs
+  on a dirty-but-orphan-free reopen. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -246,7 +254,7 @@ after `open()`).
 <!-- Phase A decomposition — thin numbered roster; per-step episodes live in ## Episodes. -->
 
 1. Migrate orphan-fabrication tests (`TruncateOrphansAfterRecoveryIT`, `StorageBackupMTRestoreIT`) to a dirty (WAL-replay) reopen so the repair path still runs post-gate — risk: medium (test infrastructure: shared scenario fixtures across two IT files)  [x] commit: acfe1445f7
-2. Gate `AbstractStorage.open():809` on `wereDataRestoredAfterOpen`, rewrite the `:802-808` comment, do not reset the shared field, leave `postProcessIncrementalRestore:1680` unconditional — risk: high (crash-safety/durability: gates the recovery-time orphan pass in AbstractStorage; overturns read-cache-concurrency-bug I6)  [ ] *(file-independent of Step 3)*
+2. Gate `AbstractStorage.open():809` on `wereDataRestoredAfterOpen`, rewrite the `:802-808` comment, do not reset the shared field, leave `postProcessIncrementalRestore:1680` unconditional — risk: high (crash-safety/durability: gates the recovery-time orphan pass in AbstractStorage; overturns read-cache-concurrency-bug I6)  [x] commit: 1f0c3e0e3e *(file-independent of Step 3)*
 3. Pin S2 write-path half at `AtomicOperationsManager.endAtomicOperation:320` via `assert` + focused unit test (spy) covering the inbound-error and persist-failure rollback paths — risk: high (override: no production behavior change, but pins the load-bearing Axis A crash-safety premise; warrants the crash-safety dimensional review)  [ ] *(file-independent of Step 2)*
 4. Crash-injection + clean-reopen regression test: dirty-reopen pass-ran/I6, clean-reopen no-orphan + pass-skipped (observation hook), WARN-on-truncate-failure — risk: medium (test infrastructure: extends shared crash-injection + orphan harnesses)  [ ]
 5. Documentation corrections: read-cache-concurrency-bug ADR D6/I6 + design-final (preserve-with-scoping), stale `WOWCache.loadOrAdd` Javadoc, unaffected-tests note — risk: low (docs)  [ ]
@@ -288,6 +296,57 @@ failsafe:integration-test failsafe:verify -P ci-integration-tests
 The full `verify` lifecycle re-runs the whole core surefire unit phase before
 failsafe and exceeds the 10-minute foreground budget; the goal-scoped invocation
 finishes in under a minute. Steps 2 and 4 re-run these ITs and need this.
+
+### Step 2 — commit 1f0c3e0e3e, 2026-06-01T15:50Z [ctx=info]
+**What was done:** Gated the recovery-time orphan-truncation pass dispatch at
+`AbstractStorage.open()` on `if (wereDataRestoredAfterOpen)` (gate in commit
+`5ae34d58`, comment-attribution review fix in `1f0c3e0e3e`). A gracefully-closed
+disk database that replays no WAL now skips the pass entirely, so reopen cost no
+longer scales with collection count. The preceding comment was rewritten to carry
+the full rationale: disk orphans are crash-only (a rolled-back transaction leaves
+zero physical footprint, and no correct production read extends a file outside
+crash recovery); the pass runs whenever WAL replay happened; the field, not a
+re-read `isDirty()`, is the signal because `recoverIfNeeded -> flushAllData ->
+clearStorageDirty` clears the dirty flag before the dispatch; the field is shared
+with `IndexManagerEmbedded.autoRecreateIndexesAfterCrash`, set once and never
+reset, so it is left alone on close; the gate drops the best-effort
+cross-clean-cycle retry of a transient truncate failure, bounded-acceptable
+because that failure is loud (WARN) and re-armed by any later crash.
+`DiskStorage.postProcessIncrementalRestore:1680` stays unconditional. The only
+production change is the gate + comment in `AbstractStorage.java`; the Step 1
+guard ITs stay green (29/29) and changed-line coverage is 100%/100% across both
+gate branches. Step-level dimensional review (7 agents) passed at iteration 2
+after one crash-safety should-fix (comment attributed the truncate-`IOException`
+swallow to the per-component `verifyAndTruncateOrphans`, which propagates it; the
+swallow is in the orchestrator `truncateOrphansAfterRecovery`).
+
+**What was discovered:** PSI confirmed the field has exactly one write site
+(`recoverIfNeeded:4702`, never reset) and one other production consumer of the
+getter (`IndexManagerEmbedded.autoRecreateIndexesAfterCrash:541`), matching the
+Phase A do-not-reset decision. Review surfaced two Step 4 test-design
+strengthenings (out of scope here, carried forward): (a) the planned clean-reopen
+assertion (allocate-rollback-clean-close, assert `physical == logical`) is a
+tautology against the gate's own premise; add the dual of the Step 1 fabrication
+tests instead — fabricate a physical orphan on a gracefully-closed file, reopen
+WITHOUT `forceDirtyReopen`, and assert the orphan tail SURVIVES, which pins the
+gate's defining behavior and fails if a future change re-runs the pass on the
+clean path; (b) add an empty-WAL dirty-reopen boundary test that forces a dirty
+reopen of an orphan-free DB and asserts the pass WAS dispatched and
+`physical == logical`, pinning "dirty implies pass runs" independent of orphan
+presence. Coverage tooling: the full core unit suite under `-P coverage` exceeds
+the foreground budget on this host; a curated open-path unit subset under
+`package -P coverage` regenerates `jacoco.xml` in budget, and `coverage-gate.py`
+merges unit + IT reports, so both gate branches were covered by the unit subset
+alone.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+
+**Critical context:** Step 5's planned ADR amendment (overturning
+read-cache-concurrency-bug D6/I6) must mirror the corrected wording: the
+orchestrator `truncateOrphansAfterRecovery` swallows the truncate `IOException`
+with a WARN, while the per-component `verifyAndTruncateOrphans` propagates it. Do
+not re-import the old inverted phrasing.
 
 ## Validation and Acceptance
 
