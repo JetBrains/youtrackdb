@@ -333,3 +333,6 @@ after `open()`).
 - **Depends on Track 1** — the crash-recovery path exercised by the regression
   test runs the cheap (Axis B) pass; sequencing Track 1 first lands the
   guaranteed win before the riskier gate and validates both axes together.
+
+## Base commit
+9f136a7e21875e5ad0580e1edf7bf5ded94207f4
