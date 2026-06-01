@@ -313,6 +313,57 @@ def test_project_totals_nonexistent_transcript_does_not_scan_parent() -> None:
         assert out == MODULE._zero(), out
 
 
+def test_streaming_snapshots_in_one_file_keep_max_output() -> None:
+    """Three records sharing one (msg_id, requestId) — the streaming snapshot
+    sequence output_tokens = 1, 1, 276 — must collapse to the largest (276), the
+    completed turn, not the first partial (1) and not their sum (278). A second,
+    distinct turn (output_tokens = 100) confirms unrelated keys are untouched.
+    Regression for first-occurrence dedup, which kept a mid-stream partial and
+    undercounted output — the priciest token."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp) / "cache"
+        proj = Path(tmp) / "project"
+        write_jsonl(
+            proj / "session.jsonl",
+            [
+                _assistant_usage("m1", "r1", out_t=1),
+                _assistant_usage("m1", "r1", out_t=1),
+                _assistant_usage("m1", "r1", out_t=276),
+                _assistant_usage("m2", "r2", out_t=100),
+            ],
+        )
+        with _patched(CACHE_DIR=cache):
+            out = MODULE.project_totals(str(proj / "session.jsonl"))
+        # m1 -> 276 (final snapshot), m2 -> 100; first-wins would give 101, no
+        # dedup would give 378.
+        assert out["out"] == 376, out["out"]
+        out_price = MODULE.FALLBACK_PRICES[MODEL]["out"]  # $25 / 1M
+        assert _approx(out["cost"], 376 * out_price / 1_000_000), out["cost"]
+
+
+def test_streaming_final_snapshot_wins_across_cache_reads() -> None:
+    """A streaming turn's partial snapshot can be consumed in one render and its
+    final snapshot in a later render, because the incremental byte-offset cache
+    splits them: aggregate_file persists the partial, then re-reads only the
+    appended bytes next time. The final (larger-output) snapshot must win on the
+    second read. Regression for first-occurrence dedup, which locked in the
+    cached partial and ignored the completed count forever."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp) / "cache"
+        f = Path(tmp) / "session.jsonl"
+        # Render 1: only the partial snapshot exists yet.
+        write_jsonl(f, [_assistant_usage("m1", "r1", out_t=1)])
+        with _patched(CACHE_DIR=cache):
+            recs1 = MODULE.aggregate_file(f)
+            assert recs1["m1:r1"][3] == 1, recs1["m1:r1"]  # payload[3] = output
+            # Render 2: the final snapshot is appended (file grows), so the
+            # next aggregate_file reads only the new line and merges it in.
+            with f.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(_assistant_usage("m1", "r1", out_t=276)) + "\n")
+            recs2 = MODULE.aggregate_file(f)
+        assert recs2["m1:r1"][3] == 276, recs2["m1:r1"]
+
+
 # ---------------------------------------------------------------------------
 # _atomic_write_text.
 # ---------------------------------------------------------------------------
@@ -397,6 +448,8 @@ def main() -> int:
         ("project_totals sessions + subagents deduped", test_project_totals_aggregates_sessions_and_subagents),
         ("project_totals missing dir -> zero", test_project_totals_missing_dir_is_zero),
         ("project_totals nonexistent file w/ existing parent -> zero", test_project_totals_nonexistent_transcript_does_not_scan_parent),
+        ("streaming snapshots in one file keep max output", test_streaming_snapshots_in_one_file_keep_max_output),
+        ("streaming final snapshot wins across cache reads", test_streaming_final_snapshot_wins_across_cache_reads),
         ("atomic_write_text writes + overwrites", test_atomic_write_text_writes_and_overwrites),
         ("main worktree writes file + shows wt", test_main_worktree_writes_cost_file_and_shows_wt),
         ("main no worktree omits wt + no file", test_main_no_worktree_omits_wt_and_writes_no_file),

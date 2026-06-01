@@ -32,16 +32,21 @@ Two non-obvious mechanics, both required to match ccusage:
      can contain April records, and vice versa, so the monthly bucket is
      decided per record using its own `timestamp` field.
 
-  2. **(message.id, requestId) dedup.** ~40% of records appear in multiple
-     transcripts (sub-agent transcripts duplicate their parent's records, and
-     forked sessions share message IDs). Without dedup the cost is inflated
-     several-fold.
+  2. **(message.id, requestId) dedup, max-output wins.** ~40% of records appear
+     in multiple transcripts (sub-agent transcripts duplicate their parent's
+     records, and forked sessions share message IDs). Without dedup the cost is
+     inflated several-fold. Within a single transcript the same key also recurs
+     as streaming snapshots whose output_tokens grows from a partial value to
+     the final count; collapsing a key to its *largest*-output snapshot matches
+     ccusage, which reports the completed turn. Keeping the first snapshot
+     instead undercut output — the priciest token — by ~15% over a month.
 
 Per-file totals are cached under ~/.cache/claude-code-stats/transcripts/<sha1>.json
 keyed by (mtime, size). Each cache entry stores a {record_id: bucket_data}
-map; cross-file merge uses first-occurrence-wins (`setdefault`). The mtime/size
-cache key guarantees colliding entries already hold identical content, so
-the choice between first- and last-wins is immaterial for correctness.
+map; both the in-file and cross-file merge keep the larger-output payload per
+key (see `_keep_larger_output`). Max is order-independent, so a key's partial
+and final snapshots reconcile correctly even when they fall in different read
+chunks across renders (the incremental byte-offset cache) or in different files.
 """
 from __future__ import annotations
 
@@ -89,7 +94,9 @@ PRICING_FETCH_TIMEOUT = 2.0
 CACHE_DIR = pathlib.Path.home() / ".cache" / "claude-code-stats" / "transcripts"
 # Bump on layout / dedup changes; older cache files are silently re-read
 # from scratch and the stale entries are unlinked lazily by _load_cache.
-CACHE_VERSION = 6
+# v7: dedup keeps the max-output_tokens snapshot (was first-occurrence); caches
+# written under v6 hold partial-output payloads and must be rebuilt.
+CACHE_VERSION = 7
 PROJECTS_ROOT = pathlib.Path.home() / ".claude" / "projects"
 
 
@@ -376,6 +383,29 @@ def _store_cache(cache_file, payload):
         pass
 
 
+def _keep_larger_output(records, rid, payload):
+    """Merge `payload` into `records[rid]`, keeping the snapshot whose
+    output_tokens (payload index 3) is larger.
+
+    Claude Code writes a streaming assistant turn as several records sharing one
+    (msg_id, requestId): output_tokens grows from a partial value (often 1) to
+    the final count, while the other token fields are fixed at request time. The
+    completed record is also byte-copied across transcripts (orchestrator +
+    sub-agent + forked sessions). ccusage reports the final (largest) snapshot,
+    so we keep the max-output payload to match its monthly figure. Keeping the
+    *first* snapshot instead — the previous behaviour — locked in the partial
+    output count and undercut the priciest token by ~15% over a month.
+
+    Using max (not first- or last-seen) is order-independent, so the result is
+    correct whether the partial and final snapshots arrive in the same read, in
+    different read chunks across renders (the incremental byte-offset cache may
+    already hold the partial when the final arrives), or in different files.
+    """
+    prev = records.get(rid)
+    if prev is None or payload[3] > prev[3]:
+        records[rid] = payload
+
+
 def aggregate_file(path):
     """Return {record_id: [month, model, in, out, read, w5, w1]} for one file.
 
@@ -435,11 +465,10 @@ def aggregate_file(path):
         if rec is None:
             continue
         rid, payload = rec
-        # First-occurrence wins, matching ccusage. Streaming responses emit
-        # multiple snapshots of the same (msg_id, requestId) with growing
-        # output_tokens; we deliberately keep the earliest snapshot so the
-        # cost figure aligns with ccusage's number.
-        records.setdefault(rid, payload)
+        # Keep the largest-output snapshot of each (msg_id, requestId) so the
+        # partial counts emitted mid-stream don't undercount output. See
+        # _keep_larger_output for why max (not first/last) is the right rule.
+        _keep_larger_output(records, rid, payload)
 
     _store_cache(cache_file, {
         "v": CACHE_VERSION,
@@ -486,12 +515,12 @@ def session_totals(transcript_path):
         return _zero()
     merged = {}
     for k, v in aggregate_file(p).items():
-        merged.setdefault(k, v)
+        _keep_larger_output(merged, k, v)
     sub_dir = p.parent / p.stem / "subagents"
     if sub_dir.is_dir():
         for sub in sub_dir.glob("agent-*.jsonl"):
             for k, v in aggregate_file(sub).items():
-                merged.setdefault(k, v)  # first-wins dedup
+                _keep_larger_output(merged, k, v)  # max-output dedup
     return _sum_records(merged)
 
 
@@ -521,7 +550,7 @@ def project_totals(transcript_path):
     merged = {}
     for jsonl in proj_dir.rglob("*.jsonl"):
         for k, v in aggregate_file(jsonl).items():
-            merged.setdefault(k, v)  # first-wins dedup
+            _keep_larger_output(merged, k, v)  # max-output dedup
     return _sum_records(merged)
 
 
@@ -554,7 +583,7 @@ def month_totals():
                 continue
             for k, v in aggregate_file(jsonl).items():
                 if v[0] == cur_month:
-                    merged.setdefault(k, v)
+                    _keep_larger_output(merged, k, v)  # max-output dedup
     return _sum_records(merged)
 
 
