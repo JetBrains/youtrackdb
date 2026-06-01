@@ -45,3 +45,22 @@ case is itself crash-only and WAL-repaired. Makes the section TL;DR's implicit
   violation). Left as-is — density is appropriate for the argument.
 
 **Iterations**: 1 of 3 (PASS)
+
+## Mutation 3 — 2026-06-01 — content-edit (design.md)
+
+**Diff summary**: Corrected the test-mock count from "six" to "five" in two
+places — §"Overview" ("two implementations and six test mocks" → "five test
+mocks") and §"Read-cache purge skip" → "### Edge cases / Gotchas" ("The six test
+`WriteCache` mocks" → "The five test"). PSI `OverridingMethodsSearch` on
+`WriteCache.shrinkFile` confirms exactly 5 test mocks override it (2 production +
+5 test = 7 overriders); the prior "6" was an off-by-one. Phase 2 consistency
+review finding CR1; the matching "6 → 5" corrections in the plan and both track
+files were applied via apply-patch in the same review pass. Pure count
+correction — no scope, architecture, or behavioral change.
+
+**Mechanical checks** (target=design): PASS (0 findings)
+**Cold-read** (scope: bounded): PASS (0 findings)
+
+**Findings**: none
+
+**Iterations**: 1 of 3 (PASS)

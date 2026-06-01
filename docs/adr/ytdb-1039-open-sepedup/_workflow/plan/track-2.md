@@ -53,7 +53,7 @@ The verification done in research refutes that argument for the disk engine:
   dirty flag, so `isDirty()` reads false even on a crash reopen —
   `wereDataRestoredAfterOpen` is the correct "did this open replay WAL" signal.
 - A rolled-back disk TX leaves zero physical footprint (S2): the physical-apply
-  path runs only inside `commitChanges`, and `AtomicOperationsManager.endAtomicOperation:323`
+  path runs only inside `commitChanges`, and `AtomicOperationsManager.endAtomicOperation:320`
   calls `commitChanges` only `if (!operation.isRollbackInProgress())`. The
   `if (!rollback)` inside `commitChanges` (`:1077`) guards only snapshot-buffer
   flushing, not the physical apply — so the real protection is the caller's skip.
@@ -148,7 +148,7 @@ follow in any order. Invariant to preserve: S1 (I6 still holds after open()).
 **In scope (production):**
 - `core/.../storage/impl/local/AbstractStorage.java` — gate at `:809` + comment `:802-808`.
 - `core/.../storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java`
-  — S2 assertion at/near `endAtomicOperation:323` (no behavior change).
+  — S2 assertion at/near `endAtomicOperation:320` (no behavior change).
 - `core/.../storage/cache/local/WOWCache.java` — `loadOrAdd` Javadoc-only correction
   (stale "no production callers yet" note; the primitive is wired via
   `LockFreeReadCache.doLoad`). No behavior change.

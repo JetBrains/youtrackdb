@@ -25,7 +25,7 @@ the pass dispatch. A `boolean` return on `WriteCache.shrinkFile` lets the
 read-cache layer skip its hash-map purge when nothing was truncated.
 
 What else changes: the `open()` dispatch site gains the gate; the `shrinkFile`
-SPI return type ripples to its two implementations and six test mocks; the
+SPI return type ripples to its two implementations and five test mocks; the
 read-cache-concurrency-bug ADR (whose D6/I6 recorded the pass as unconditional)
 is amended to record the refined gating. The incremental-restore dispatch stays
 unconditional, and the in-memory engine is unaffected.
@@ -263,7 +263,7 @@ drop pages.
 
 - The argument-validity guards in `LockFreeReadCache.shrinkFile` stay above the
   delegate, so a malformed target still fails fast before any truncate.
-- The six test `WriteCache` mocks override `shrinkFile`; each returns `false`
+- The five test `WriteCache` mocks override `shrinkFile`; each returns `false`
   under the new contract. None drives a real disk truncate.
 - `ConcurrentLongIntHashMap.removeByFileId` is unchanged. It is simply no longer
   called on a no-op; its own structure stays as-is because genuine orphans are

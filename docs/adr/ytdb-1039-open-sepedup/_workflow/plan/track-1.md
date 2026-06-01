@@ -80,7 +80,7 @@ guarded call in the read-cache orchestration.
    `WOWCache.shrinkFile` to return `false` at the `fileSize <= targetBytes`
    early-return and `true` after a real truncate.
 2. Update the other `WriteCache` implementors: `DirectMemoryOnlyDiskCache.shrinkFile`
-   returns `false` (no physical store), and each of the 6 in-tree test
+   returns `false` (no physical store), and each of the 5 in-tree test
    `WriteCache` mocks returns `false` (PSI-confirmed list in
    `## Interfaces and Dependencies`).
 3. In `LockFreeReadCache.shrinkFile`, capture the boolean from
@@ -137,7 +137,7 @@ layer truncated.
 - `core/.../storage/cache/chm/LockFreeReadCache.java` — `shrinkFile` conditional purge.
 
 **In scope (tests):**
-- `WOWCacheShrinkFileTest`, `LockFreeReadCacheFileOpsTest`, and the 6 test
+- `WOWCacheShrinkFileTest`, `LockFreeReadCacheFileOpsTest`, and the 5 test
   `WriteCache` mocks that override `shrinkFile` (PSI-confirmed): the inner mocks
   in `LockFreeReadCacheOptimisticTest` (`PageFrameWriteCache`),
   `LockFreeReadCacheFileOpsTest` (`TrackingWriteCache`),
