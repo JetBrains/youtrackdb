@@ -1,12 +1,36 @@
 # Mid-Phase Handoff Protocol
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §When this protocol fires | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Fire a handoff at warning/critical context when WIP has not yet landed in durable files; examples and counter-examples. |
+| §File location | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The handoff file path, the per-phase naming convention, multi-pause handling, and collision-suffix rules. |
+| §Detection at session start | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Both startup commands list handoffs early; the file is the authoritative pause signal over the in-file marker. |
+| §Secondary marker (defense-in-depth) | orchestrator | 2,3A,3B,3C,4 | Leave a greppable **PAUSED line in the natural progress file as a defense-in-depth pointer to the handoff. |
+| §`MEMORY.md` cross-reference | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Add or update a per-branch memory-index entry after writing the handoff; it is supplemental to the on-disk file. |
+| §Templates | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header plus the research-shaped and decision-shaped body templates; pick by pause shape, not phase. |
+| §Header (both templates) | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header fields: paused date, phase, context level, branch, HEAD, unpushed count. |
+| §Research-shaped body (Phase 0 / 1, ad-hoc interludes) | orchestrator,planner | 0,1,3A,3B | The research-shaped body: investigating, ruled-out, most-promising lead, open questions, raw notes, resume notes. |
+| §Decision-shaped body (State 0, Phase A / B / C / 4) | orchestrator | 2,3A,3B,3C,4 | The decision-shaped body: durable artifacts, pending decision, verbatim re-present text, resume notes. |
+| §Phase-specific "do NOT redo" defaults | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Per-phase starting points for the Do-NOT-redo line so resume does not repeat landed work. |
+| §Author protocol — writing the handoff at pause time | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The numbered author steps: ensure _workflow, pick filename, write, mark, memory-index, commit, push, reflect, tell user. |
+| §Resume protocol | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Stop, sort handoffs newest-first, verify artifacts, present each body, resolve, then run normal state evaluation. |
+| §Per-handoff loop | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Process handoffs one at a time newest-first: verify artifacts, present the body, resolve, delete the durable pointers. |
+| §Stale-handoff resolution | orchestrator,planner | 0,1,2,3A,3B,3C,4 | When artifact verification fails, present the missing items and the Discard / Proceed / Abort options (Abort default). |
+| §Forbidden actions while unresolved | orchestrator,planner | 0,1,2,3A,3B,3C,4 | While a handoff is unresolved: do not re-spawn sub-agents or re-run the context check; the file beats the marker. |
+| §Symmetry table — where each phase typically pauses | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Per-phase likely pause points; State A mid-panel pauses are out of scope and land as Phase A pauses. |
+| §See also | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Pointers to the startup protocol, context-consumption check, inline gates, and the recovery/commit-convention docs. |
+
+<!--Document index end-->
+
 A handoff file bridges a paused workflow session and its successor
 when the current phase has work-in-progress that has not yet landed
 in the durable plan / step / design files. Without it, the next
 session re-runs sub-agents, gate-checks, reviewer iterations, or
 research already on disk.
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:any:any `§1.5` for the workflow-level anchor and tier mapping.
 
 Loaded on-demand by:
 - the context-consumption gate in `workflow.md` and the inline gates
@@ -18,6 +42,7 @@ Loaded on-demand by:
   one or more `handoff-*.md` files are detected in `_workflow/`.
 
 ## When this protocol fires
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Fire a handoff at warning/critical context when WIP has not yet landed in durable files; examples and counter-examples." -->
 
 Trigger: a context-consumption check returns `warning` (≥30%) or
 `critical` (≥40%) **and** either
@@ -47,6 +72,7 @@ Examples that **do** need a handoff:
 - a Phase 4 pause with `design-final.md` half-written.
 
 ## File location
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="The handoff file path, the per-phase naming convention, multi-pause handling, and collision-suffix rules." -->
 
 ```
 docs/adr/<dir-name>/_workflow/handoff-<phase-slug>[-<discriminator>].md
@@ -90,6 +116,7 @@ The author protocol below has an unconditional Step 0 that creates
 mid-Phase-0 pause before `/create-plan`'s own Step 1b has run.
 
 ## Detection at session start
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Both startup commands list handoffs early; the file is the authoritative pause signal over the in-file marker." -->
 
 Both `/create-plan` and `/execute-tracks` MUST run this check early
 in their startup protocol, before any state evaluation. For
@@ -119,13 +146,14 @@ the next `/execute-tracks` invocation; `/review-plan` itself does not
 need a handoff-detection step at the top of its skill instructions.
 
 ## Secondary marker (defense-in-depth)
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Leave a greppable **PAUSED line in the natural progress file as a defense-in-depth pointer to the handoff." -->
 
 In addition to writing the handoff file, leave a single line marker
 inside the natural progress-tracking file for the phase:
 
 | Phase | Marker location |
 |---|---|
-| 0 / 1 | none — `implementation-plan.md` may not exist yet during early Phase 0, and the handoff file + MEMORY.md cross-reference are sufficient signals |
+| 0 / 1 | none — `implementation-plan.md` may not exist yet during early Phase 0, and the handoff file + `MEMORY.md` cross-reference are sufficient signals |
 | 2 (State 0) | beneath `## Plan Review` heading in `implementation-plan.md` |
 | A / B / C | track file Progress section (`plan/track-N.md`) |
 | 4 | beneath `## Final Artifacts` heading in `implementation-plan.md` |
@@ -143,10 +171,11 @@ the resume protocol misses the `ls handoff-*.md` check, a follow-up
 `grep -rn '^\*\*PAUSED ' docs/adr/<dir-name>/_workflow/` recovers the
 pointer.
 
-## MEMORY.md cross-reference
+## `MEMORY.md` cross-reference
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Add or update a per-branch memory-index entry after writing the handoff; it is supplemental to the on-disk file." -->
 
-After writing the handoff file, add or update a MEMORY.md entry under
-the current branch. MEMORY.md is user-global, not project-local — it
+After writing the handoff file, add or update a `MEMORY.md` entry under
+the current branch. `MEMORY.md` is user-global, not project-local — it
 lives at `~/.claude/projects/<project>/memory/MEMORY.md` and is
 auto-loaded on every session start.
 
@@ -161,21 +190,22 @@ auto-loaded on every session start.
   reading it. (handoff: `<handoff-filename>`)
 ```
 
-**Multiple handoffs on the same branch** — if a `## Branch:
-<branch-name>` heading already exists in MEMORY.md, append the two
+**Multiple handoffs on the same branch** — if a
+`## Branch: <branch-name>` heading already exists in `MEMORY.md`, append the two
 bullets under the existing heading rather than creating a duplicate.
 Every bullet pair carries its handoff filename in a parenthetical so
 the resume protocol can remove only the bullets belonging to the
 resolved handoff. Do NOT create a second `## Branch:` heading for the
 same branch.
 
-The MEMORY.md entry is supplemental: the authoritative signal is the
+The `MEMORY.md` entry is supplemental: the authoritative signal is the
 handoff file under `_workflow/`. The cross-reference exists because
-MEMORY.md is auto-loaded on every session start, so the orchestrator
+`MEMORY.md` is auto-loaded on every session start, so the orchestrator
 still notices the pause if the `ls handoff-*.md` check is
 accidentally skipped.
 
 ## Templates
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="The shared handoff header plus the research-shaped and decision-shaped body templates; pick by pause shape, not phase." -->
 
 Both templates share a common header. Pick the body that matches the
 pause's shape, not just its phase:
@@ -190,6 +220,7 @@ pause's shape, not just its phase:
   redirect) and the verbatim re-present text must survive `/clear`.
 
 ### Header (both templates)
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="The shared handoff header fields: paused date, phase, context level, branch, HEAD, unpushed count." -->
 
 ```markdown
 # Handoff: <phase> — <short scope>
@@ -203,10 +234,10 @@ pause's shape, not just its phase:
 ```
 
 If `git rev-list --count @{u}..HEAD` fails (no upstream set, or
-detached HEAD), write `<no upstream — see workflow.md §What to do
-before ending a session>` on the **Unpushed:** line.
+detached HEAD), write `<no upstream — see workflow.md §What to do before ending a session>` on the **Unpushed:** line.
 
 ### Research-shaped body (Phase 0 / 1, ad-hoc interludes)
+<!-- roles=orchestrator,planner phases=0,1,3A,3B summary="The research-shaped body: investigating, ruled-out, most-promising lead, open questions, raw notes, resume notes." -->
 
 ```markdown
 ## What I was investigating
@@ -231,6 +262,7 @@ file excerpts, intermediate conclusions, half-formed designs>
 ```
 
 ### Decision-shaped body (State 0, Phase A / B / C / 4)
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="The decision-shaped body: durable artifacts, pending decision, verbatim re-present text, resume notes." -->
 
 ```markdown
 ## Durable artifacts on disk
@@ -251,6 +283,7 @@ reasoning chain is not re-derived under high context pressure>
 ```
 
 ## Phase-specific "do NOT redo" defaults
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Per-phase starting points for the Do-NOT-redo line so resume does not repeat landed work." -->
 
 Use these as the starting point for the `Do NOT redo` line. Add
 case-specific items as needed.
@@ -265,6 +298,7 @@ case-specific items as needed.
 | 4 | sections of `design-final.md` / `adr.md` already on disk |
 
 ## Author protocol — writing the handoff at pause time
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="The numbered author steps: ensure _workflow, pick filename, write, mark, memory-index, commit, push, reflect, tell user." -->
 
 When the context-consumption check returns `warning` or `critical` and
 the trigger conditions in §When this protocol fires are met:
@@ -285,13 +319,13 @@ the trigger conditions in §When this protocol fires are met:
 3. **Add the secondary PAUSED marker** to the natural progress-
    tracking file (see §Secondary marker table). Skip this step for
    Phase 0 / 1 and ad-hoc interludes — those rows have no marker.
-4. **Add or update the MEMORY.md cross-reference** for this branch
-   per §MEMORY.md cross-reference (append under existing branch
+4. **Add or update the `MEMORY.md` cross-reference** for this branch
+   per §`MEMORY.md` cross-reference (append under existing branch
    heading if one is already present).
 5. **Commit all changes together** with a bare imperative message,
    e.g. `Pause Phase C for context refresh — write handoff`. Stage
    explicit paths only (the handoff file, the marker host file if
-   applicable, and the MEMORY.md update); never `git add -A`.
+   applicable, and the `MEMORY.md` update); never `git add -A`.
 5a. **If the commit fails** (pre-commit hook rejection, dirty
     unrelated paths picked up by the hook): fix the underlying
     issue, re-stage, and create a **new** commit. Do NOT `--amend`
@@ -317,8 +351,10 @@ the trigger conditions in §When this protocol fires are met:
    for Phase 0 / 1) — the handoff file will drive the resume.
 
 ## Resume protocol
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Stop, sort handoffs newest-first, verify artifacts, present each body, resolve, then run normal state evaluation." -->
 
 ### Per-handoff loop
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Process handoffs one at a time newest-first: verify artifacts, present the body, resolve, delete the durable pointers." -->
 
 When startup detects one or more `handoff-*.md` files, the
 orchestrator MUST:
@@ -350,7 +386,7 @@ orchestrator MUST:
    - Delete the handoff file.
    - Remove the matching PAUSED marker line from the step / plan
      file (skip if the marker row was "none" for this phase).
-   - Remove the MEMORY.md cross-reference bullets that carry this
+   - Remove the `MEMORY.md` cross-reference bullets that carry this
      handoff's filename in their parenthetical. If they were the
      last bullets under the `## Branch:` heading, remove the
      heading too.
@@ -362,7 +398,7 @@ orchestrator MUST:
      produce a separate resolution commit. The Phase 4 cleanup
      commit (Step 6 of `create-final-design.md`) `git rm -r`s
      `_workflow/` and removes the handoff file, PAUSED marker host
-     (the plan file), and MEMORY.md entry in the same commit.
+     (the plan file), and `MEMORY.md` entry in the same commit.
    - **Phase 4 promotion pause site** (workflow-modifying plans
      only): Phase 4 is a resumable pause site between the
      promote-staged-workflow commit and the final-artifacts commit
@@ -371,7 +407,7 @@ orchestrator MUST:
      final-artifacts commit and copies the staged subtree onto the
      live tree; a pause window opens between the two. On resume,
      the `[ -d "$STAGED_DIR/.claude" ]` guard in that same Step 4
-     handles re-entry idempotently per `conventions.md` §1.7(j)
+     handles re-entry idempotently per `conventions.md` `§1.7(j)`
      *Aborted-promotion resume semantics*: when the next session
      re-enters Phase 4 with the promotion already on disk, `cp -r`
      runs again against the already-promoted live tree as a no-op
@@ -388,13 +424,14 @@ orchestrator MUST:
    continue.
 
 ### Stale-handoff resolution
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="When artifact verification fails, present the missing items and the Discard / Proceed / Abort options (Abort default)." -->
 
 If durable-artifact verification fails on a handoff, present the
 missing items and ask the user to pick one of:
 
 | Option | What it means | When to pick it |
 |---|---|---|
-| **Discard handoff** | Delete the file + marker + MEMORY.md bullets without resolving the underlying work. Move on to the next handoff in the mtime-sorted list. | The handoff is stale and the missing artifact is irrelevant — e.g., the work was redone differently and the in-flight notes are obsolete. |
+| **Discard handoff** | Delete the file + marker + `MEMORY.md` bullets without resolving the underlying work. Move on to the next handoff in the mtime-sorted list. | The handoff is stale and the missing artifact is irrelevant — e.g., the work was redone differently and the in-flight notes are obsolete. |
 | **Proceed anyway** | Keep the handoff authoritative; the missing artifact is the next-session work the handoff is supposed to drive. Continue with §Per-handoff loop step 3. | The missing artifact is exactly what the handoff says is left to do (e.g., a not-yet-written commit named in "Next action on resume"). |
 | **Abort** *(default)* | End the session without resolving any handoffs. The user investigates manually and re-runs the session. | The missing artifact is unexpected and not covered by either of the above. |
 
@@ -403,6 +440,7 @@ problem. On Discard, the next handoff in the list is processed; on
 Abort, the session ends and no further handoffs are touched.
 
 ### Forbidden actions while unresolved
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="While a handoff is unresolved: do not re-spawn sub-agents or re-run the context check; the file beats the marker." -->
 
 The orchestrator MUST NOT, while a handoff is unresolved:
 
@@ -416,6 +454,7 @@ The orchestrator MUST NOT, while a handoff is unresolved:
   reason to ignore the handoff.
 
 ## Symmetry table — where each phase typically pauses
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Per-phase likely pause points; State A mid-panel pauses are out of scope and land as Phase A pauses." -->
 
 | Phase | Session command | Likely pause points |
 |---|---|---|
@@ -435,6 +474,7 @@ between completing State A and starting Phase A, the pause lands as
 a Phase A pause and uses the Phase A row above.
 
 ## See also
+<!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Pointers to the startup protocol, context-consumption check, inline gates, and the recovery/commit-convention docs." -->
 
 - `workflow.md` § Startup Protocol (Auto-Resume) — runs the
   `ls handoff-*.md` check before state evaluation

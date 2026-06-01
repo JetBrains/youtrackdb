@@ -5,6 +5,33 @@ argument-hint: "[pr-number-or-url-or-ref]"
 user-invocable: true
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: pr-reviewer.
+Your phase: any (PR review sits outside the phase taxonomy).
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Invocation contract | pr-reviewer | any | The three accepted argument shapes and the single-turn greeting-then-investigate handshake at invocation. |
+| §Preflight | pr-reviewer | any | Resolve the PR argument, fetch head SHA and changed files, verify the local checkout before loading artifacts. |
+| §Artifact discovery | pr-reviewer | any | Resolve the plan directory, enumerate canonical and optional artifacts, abort on a missing required file. |
+| §Research mode | pr-reviewer | any | Reviewer-driven Q&A over loaded artifacts: free-form questions, auto-recorded observations, lazy doc loading. |
+| §Sub-agent dispatch — DR audit | pr-reviewer | any | Spawn the DR-audit sub-agent on request, translate its findings into observations, log one entry per spawn. |
+| §Wrap-up and submission | pr-reviewer | any | Render and prune observations, re-verify the head SHA, compose the payload, confirm, then POST the review. |
+| §Handoff and resume | pr-reviewer | any | Reviewer-driven checkpoint to /tmp and resume: write triggers, file format, HEAD re-verification, cleanup. |
+
+<!--Document index end-->
+
 A reviewer invokes `/review-workflow-pr <PR>` against a PR they have already
 checked out, lands in research-mode Q&A against the verified workflow
 artifacts, and at wrap-up submits a single line-anchored review back to the
@@ -13,14 +40,15 @@ PR.
 > **House style for chat-scale prose.** User-facing prose produced from this
 > file (status updates, observation entries, prune-table rendering, the final
 > stub message) follows the AI-tell subset of
-> `.claude/output-styles/house-style.md`: `## Banned vocabulary`,
+> `house-style.md`: `## Banned vocabulary`,
 > `## Banned sentence patterns`, `## Banned analysis patterns`, and
 > `### Em-dash discipline`. Structural rules (`§ BLUF lead`, the ≤200-word
 > section cap, `§ Document-shape rules`) do not apply to chat-scale prose.
-> See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md)
+> See conventions.md:pr-reviewer:any `§1.5`
 > for the workflow-level anchor and tier mapping.
 
 ## Invocation contract
+<!-- roles=pr-reviewer phases=any summary="The three accepted argument shapes and the single-turn greeting-then-investigate handshake at invocation." -->
 
 `/review-workflow-pr $ARGUMENTS` accepts three argument shapes (a PR number such as `42`, a PR URL like `https://github.com/owner/repo/pull/42`, or a branch name such as `feature/foo`) and defaults to the current branch's PR when `$ARGUMENTS` is empty. The shape is resolved by `## Preflight`; this section is the contract the reviewer sees at invocation time.
 
@@ -29,6 +57,7 @@ The handshake is single-turn. On the same turn that runs preflight and artifact 
 See `## Preflight` for the mechanical resolution.
 
 ## Preflight
+<!-- roles=pr-reviewer phases=any summary="Resolve the PR argument, fetch head SHA and changed files, verify the local checkout before loading artifacts." -->
 
 The skill resolves the PR, fetches its head SHA and changed files, and confirms the local checkout matches before loading any artifact.
 
@@ -43,6 +72,7 @@ The skill resolves the PR, fetches its head SHA and changed files, and confirms 
 **Non-zero `gh pr view` exit.** When no PR exists for the current branch or the ref does not resolve, surface the command's stderr and tell the reviewer to either pass an explicit PR number or URL as `$ARGUMENTS` or open a PR first.
 
 ## Artifact discovery
+<!-- roles=pr-reviewer phases=any summary="Resolve the plan directory, enumerate canonical and optional artifacts, abort on a missing required file." -->
 
 The skill resolves `<dir>`, enumerates the canonical workflow artifacts under `docs/adr/<dir>/_workflow/`, acknowledges any companion files, and aborts when a required file is missing. The skill is read-only against everything it finds: it never edits the artifacts under review.
 
@@ -55,7 +85,7 @@ The skill resolves `<dir>`, enumerates the canonical workflow artifacts under `d
 
 Optional, load only when present:
 
-- `design-mechanics.md` (length-triggered per `.claude/workflow/conventions.md` §1.2)
+- `design-mechanics.md` (length-triggered per `.claude/workflow/conventions.md` `§1.2`)
 - `plan/track-*.md` (one file per planned track)
 
 **Acknowledge companion files.** List `design-mutations.md` (present whenever `design.md` has been mutated) and any transient `handoff-*.md` for visibility. Do not load them into the review context unless the reviewer asks.
@@ -63,6 +93,7 @@ Optional, load only when present:
 **Missing canonical file.** When `implementation-plan.md` or `design.md` is missing under the resolved `<dir>`, abort with an error naming both expected paths and pointing the reviewer at the list-and-pick fallback.
 
 ## Research mode
+<!-- roles=pr-reviewer phases=any summary="Reviewer-driven Q&A over loaded artifacts: free-form questions, auto-recorded observations, lazy doc loading." -->
 
 The skill enters research-mode Q&A driven by the reviewer once preflight and artifact discovery succeed. The reviewer drives the conversation; the skill answers questions about the loaded artifacts, auto-records observations when its own analysis surfaces a gap, and loads workflow rule files on demand.
 
@@ -86,6 +117,7 @@ The orchestrator also maintains a `dispatchLog` (defined in `### Sub-agent dispa
 **Scope rule for code-file questions.** When the reviewer asks about code files in the PR (paths not under `docs/adr/<dir>/_workflow/`), the skill answers using `Read` and `Grep` but does not record observations against those files. For Java symbol-reference questions (callers, overrides, find-usages, "is X still used?"), use mcp-steroid PSI find-usages when reachable; fall back to `Grep` only when mcp-steroid is unreachable and flag the result as grep-only in the answer. The observation list scope stays workflow-artifact-only.
 
 ### Sub-agent dispatch — DR audit
+<!-- roles=pr-reviewer phases=any summary="Spawn the DR-audit sub-agent on request, translate its findings into observations, log one entry per spawn." -->
 
 The skill spawns the DR-audit sub-agent on the reviewer's request to audit the Decision Records in the loaded `implementation-plan.md`. The sub-agent returns a structured findings block; the orchestrator translates each finding into one observation and appends an entry to the in-conversation `dispatchLog`.
 
@@ -100,7 +132,7 @@ Agent({
 })
 ```
 
-The sub-agent's inputs are Markdown only (`implementation-plan.md` and optionally `design.md`); no PSI / Java reference-accuracy questions arise inside this audit, so the grep-vs-PSI rule (`.claude/workflow/conventions.md` §1.4) does not apply.
+The sub-agent's inputs are Markdown only (`implementation-plan.md` and optionally `design.md`); no PSI / Java reference-accuracy questions arise inside this audit, so the grep-vs-PSI rule (`.claude/workflow/conventions.md` `§1.4`) does not apply.
 
 **Sub-agent dispatch failure.** Every outcome other than the sub-agent returning a well-formed `## Summary` plus optional `## Findings` block is a dispatch failure, not a translation failure. Apply the following rules in order, before the **Finding-to-observation translation** block runs:
 
@@ -121,6 +153,7 @@ Three anchoring edge cases override the verbatim mapping:
 **`dispatchLog` structure.** The orchestrator maintains a single in-conversation `dispatchLog`: an ordered list of `{sub-agent name, timestamp, summary}` entries. `sub-agent name` is the literal sub-agent identifier (`dr-audit`); `timestamp` is the ISO-8601 UTC instant at spawn time (e.g., `2026-05-21T13:45Z`), obtained via `Bash` by running `date -u +"%Y-%m-%dT%H:%MZ"` immediately before the spawn call so the recorded timestamp reflects the real spawn instant rather than a hallucinated value; `summary` echoes the sub-agent's `## Summary` block as a one-line digest (`decisions_audited=<N>, findings_count=<N>`). Append one entry on every sub-agent spawn, including spawns that return zero findings. The `## Handoff and resume` → **Dispatch-log re-presentation.** sub-block reads `dispatchLog` on resume to label each `sub-agent name` as `not run`, `ran, no findings`, or `ran, <N> findings recorded`; the reviewer decides whether to re-spend on the audit. Repeated spawns append a second entry; the same sub-block treats the latest entry per `sub-agent name` as the authoritative `last run`, per `## Handoff and resume` → **Resume reload.**. Second-spawn findings are appended verbatim to the observation list and may duplicate first-spawn observations; the reviewer is expected to prune duplicates at wrap-up.
 
 ## Wrap-up and submission
+<!-- roles=pr-reviewer phases=any summary="Render and prune observations, re-verify the head SHA, compose the payload, confirm, then POST the review." -->
 
 The skill renders the observation list, accepts prune commands, composes the JSON payload for the `pulls/{N}/reviews` endpoint, asks for one final confirmation, and POSTs the bulk line-anchored review back to the PR. This section documents the wrap-up trigger, the table render and prune commands, the 50-entry pre-flight warning, the head-SHA re-fetch, the one-line confirmation prompt, the POST and review-URL print, the empty observation list branch, the payload composer, and the path / line validation that runs before the POST. On the next wrap-up trigger word the head-SHA re-fetch, 50-entry warning, and confirmation prompt all run again from scratch; cached state from a cancelled attempt is discarded.
 
@@ -149,6 +182,7 @@ Edge-case handling for malformed `drop` input: out-of-range indices report the o
 **Line validation.** For every comment, confirm `line` falls within the file's PR diff or current content. Parse the file's diff hunks from `gh pr diff`. When `gh pr diff` errors or returns empty, fall back to the per-file `patch` field returned by `gh api repos/{owner}/{repo}/pulls/{N}/files --paginate` as a backup hunk source. When both fail, abort submission with a one-line error naming the failing command; the observation list survives and the reviewer can retry after `gh auth status` / network recovery. With a usable hunk source in hand, apply the validation rules in this order: (1) when the file's `changeType` is `ADDED`, every line of the current file content is a valid `line` target; (2) when the file's `changeType` is `MODIFIED`, `RENAMED`, `COPIED`, or `CHANGED`, only the added or modified lines reported by the diff hunks are valid targets; (3) a `line` outside both the diff hunks and the current file content marks the observation as stale; (4) when the file's `changeType` is `REMOVED`, no `line` is a valid comment target with `side=RIGHT`, so mark every observation against a removed file as stale so the reviewer can drop or re-anchor it at prune time (do not add `side=LEFT` support; that broadens scope beyond this track). Marking an observation as stale means prepending the literal string `[STALE: verify line]` to its body field; this is the same mechanism used in the `### Sub-agent dispatch — DR audit` anchoring edge case for sub-agent findings that lost their citation line. Stale observations are surfaced to the reviewer at prune time (when the numbered observation table is rendered for `drop` commands) rather than silently dropped; the reviewer chooses to drop them or re-anchor to a valid line.
 
 ## Handoff and resume
+<!-- roles=pr-reviewer phases=any summary="Reviewer-driven checkpoint to /tmp and resume: write triggers, file format, HEAD re-verification, cleanup." -->
 
 The reviewer can checkpoint a session to `/tmp` and resume from a fresh shell without losing the observation list, the sub-agent dispatch log, or the verified head SHA. Checkpointing is reviewer-driven only; the skill never auto-writes on context-pressure polling, pre-dispatch events, or submission-failure fallback.
 

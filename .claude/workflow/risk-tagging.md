@@ -1,5 +1,30 @@
 # Risk-Tagging for Step Decomposition
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Where this file is loaded | decomposer,orchestrator | 3A,3B | When the risk-tagging rules are read. |
+| §Risk levels — quick reference | decomposer,orchestrator | 3A,3B | The low/medium/high levels and what each implies for review. |
+| §HIGH-risk triggers | decomposer | 3A | Conditions that force a step to high risk. |
+| §Concurrency | decomposer | 3A | Concurrency changes that trigger high risk. |
+| §Crash-safety / Durability | decomposer | 3A | Crash-safety and durability changes that trigger high risk. |
+| §Public API | decomposer | 3A | Public-API or serialized-form changes that trigger high risk. |
+| §Security | decomposer | 3A | Security-sensitive changes that trigger high risk. |
+| §Architecture / cross-component coordination | decomposer | 3A | Architectural or cross-component changes that trigger high risk. |
+| §Performance hot path | decomposer | 3A | Hot-path performance changes that trigger high risk. |
+| §MEDIUM-risk triggers | decomposer | 3A | Conditions that put a step at medium risk. |
+| §LOW-risk default | decomposer | 3A | The default low-risk classification for routine steps. |
+| §Tests-only steps | decomposer | 3A | Risk handling for steps that add only tests. |
+| §Override rules | decomposer,orchestrator | 3A,3B | How and when a risk tag may be overridden. |
+| §Decomposer-time override | decomposer | 3A | Overriding the computed risk during decomposition. |
+| §User override at Phase A end | orchestrator | 3A | Letting the user adjust a risk tag at the end of Pre-Flight. |
+| §Phase B upgrade | orchestrator,implementer | 3B | Upgrading a step's risk when implementation reveals more scope. |
+| §Risk locking | orchestrator | 3B,3C | Locking risk tags at the end of step implementation. |
+| §Track-file format | decomposer,orchestrator | 3A | How the risk tag is written on the step roster line. |
+
+<!--Document index end-->
+
 Each step in a track gets a risk tag — `low`, `medium`, or `high` —
 assigned by the decomposer at Phase A and locked once the step is
 implemented. The tag controls whether Phase B runs step-level dimensional
@@ -15,6 +40,7 @@ with tests plus track-level review, and the Phase B context cost isn't
 justified.
 
 ## Where this file is loaded
+<!-- roles=decomposer,orchestrator phases=3A,3B summary="When the risk-tagging rules are read." -->
 
 - **Phase A (`track-review.md`)** — loaded when the decomposer assigns
   risk per step. Primary reader.
@@ -32,6 +58,7 @@ justified.
   knowledge of the underlying criteria is needed.
 
 ## Risk levels — quick reference
+<!-- roles=decomposer,orchestrator phases=3A,3B summary="The low/medium/high levels and what each implies for review." -->
 
 | Level | Implementer model | Step-level review (sub-step 4) | Track-level review treatment |
 |---|---|---|---|
@@ -50,8 +77,8 @@ treatment in track-level review remain risk-tag-driven.
 
 The implementer-model column is informational — it documents the
 model used by the Phase B orchestrator's spawn template. The operative
-source is [`step-implementation.md`](step-implementation.md)
-§Implementer Prompt Template, which hard-codes `model: "opus"`
+source is step-implementation.md:orchestrator:3B
+`§Implementer Prompt Template`, which hard-codes `model: "opus"`
 regardless of the step's risk tag (the orchestrator does not look the
 model up from this column at spawn time). Because every row resolves
 to `opus`, the `low → high` upgrade path (see §"Phase B upgrade"
@@ -65,10 +92,12 @@ B/C orchestrators themselves also run on Opus — review and
 orchestration capacity is not allocated by step tag.
 
 ## HIGH-risk triggers
+<!-- roles=decomposer phases=3A summary="Conditions that force a step to high risk." -->
 
 A step is `high` if it does ANY of the following.
 
 ### Concurrency
+<!-- roles=decomposer phases=3A summary="Concurrency changes that trigger high risk." -->
 - Introduces or modifies synchronization (locks, atomics, volatile,
   memory barriers)
 - Changes lock acquisition order, lock scope, or which thread holds a lock
@@ -80,6 +109,7 @@ A step is `high` if it does ANY of the following.
 - Modifies happens-before relationships or publication ordering
 
 ### Crash-safety / Durability
+<!-- roles=decomposer phases=3A summary="Crash-safety and durability changes that trigger high risk." -->
 - Modifies WAL records, WAL replay, or recovery code
 - Changes page-level operations, atomic operation boundaries, or
   page-level consistency rules
@@ -91,6 +121,7 @@ A step is `high` if it does ANY of the following.
 - Adds or modifies double-write log behavior
 
 ### Public API
+<!-- roles=decomposer phases=3A summary="Public-API or serialized-form changes that trigger high risk." -->
 - Adds, removes, or changes signatures of types in
   `com.jetbrains.youtrackdb.api.*`
 - Changes interfaces or abstract classes that have public-API
@@ -99,6 +130,7 @@ A step is `high` if it does ANY of the following.
 - Changes the serialized form of any public type
 
 ### Security
+<!-- roles=decomposer phases=3A summary="Security-sensitive changes that trigger high risk." -->
 - Touches authentication, authorization, or permission logic
 - Handles user-supplied input at a system boundary (network, file path,
   query string)
@@ -108,18 +140,21 @@ A step is `high` if it does ANY of the following.
 - Modifies cryptographic operations or key handling
 
 ### Architecture / cross-component coordination
+<!-- roles=decomposer phases=3A summary="Architectural or cross-component changes that trigger high risk." -->
 - Changes interfaces between major modules (core ↔ server, core ↔ driver)
 - Modifies Component Map relationships listed in the plan
 - Introduces a new abstraction layer or moves a load-bearing one
 - Adds a new SPI registration or modifies how an existing SPI is loaded
 
 ### Performance hot path
+<!-- roles=decomposer phases=3A summary="Hot-path performance changes that trigger high risk." -->
 - Changes the record-read or index-read path
 - Changes the query-execution inner loop
 - Introduces or removes allocation in a known hot path
 - Modifies cache lookup, hashing, or eviction logic
 
 ## MEDIUM-risk triggers
+<!-- roles=decomposer phases=3A summary="Conditions that put a step at medium risk." -->
 
 A step is `medium` if no HIGH trigger fires AND it has any of:
 
@@ -135,6 +170,7 @@ A step is `medium` if no HIGH trigger fires AND it has any of:
   paths) that aren't covered by a HIGH trigger
 
 ## LOW-risk default
+<!-- roles=decomposer phases=3A summary="The default low-risk classification for routine steps." -->
 
 A step is `low` if no HIGH or MEDIUM trigger fires. Typical cases:
 - Pure refactoring with provable behavior preservation (extract method,
@@ -149,6 +185,7 @@ A step is `low` if no HIGH or MEDIUM trigger fires. Typical cases:
 - Spotless / formatting fixes
 
 ## Tests-only steps
+<!-- roles=decomposer phases=3A summary="Risk handling for steps that add only tests." -->
 
 A step that ONLY adds or modifies tests (no production code change) is
 at most `medium`. It is `medium` only if it touches shared test
@@ -159,8 +196,10 @@ If a step adds production code AND its tests in one commit, rate by the
 production code.
 
 ## Override rules
+<!-- roles=decomposer,orchestrator phases=3A,3B summary="How and when a risk tag may be overridden." -->
 
 ### Decomposer-time override
+<!-- roles=decomposer phases=3A summary="Overriding the computed risk during decomposition." -->
 The decomposer applies the criteria above and may override the result
 with a written reason in the step's risk note. Two specific cases:
 
@@ -174,16 +213,18 @@ with a written reason in the step's risk note. Two specific cases:
   class). Requires a written justification in the risk note.
 
 ### User override at Phase A end
+<!-- roles=orchestrator phases=3A summary="Letting the user adjust a risk tag at the end of Pre-Flight." -->
 After the decomposer writes the track file, the user reviews the step
 list and may change any risk tag before approving. This is the primary
 safety net for criteria-application errors.
 
 ### Phase B upgrade
+<!-- roles=orchestrator,implementer phases=3B summary="Upgrading a step's risk when implementation reveals more scope." -->
 If implementing a step reveals that the change is more invasive than
 the plan suggested (e.g., the "trivial refactor" turned out to require
 lock ordering changes), the implementer flags the upgrade by returning
 `RESULT: RISK_UPGRADE_REQUESTED` (per
-[`implementer-rules.md`](implementer-rules.md) §Detection rules).
+implementer-rules.md:implementer:3B,3C `§Detection rules`).
 
 The orchestrator's response depends on **when** the upgrade surfaces:
 
@@ -192,8 +233,8 @@ The orchestrator's response depends on **when** the upgrade surfaces:
   rewrites the inline `risk:` field on the `## Concrete Steps`
   roster line and respawns from `mode=INITIAL` BEFORE running the
   dimensional review for that step. See
-  [`step-implementation-recovery.md`](step-implementation-recovery.md)
-  §`apply_upgrade_then_decide`.
+  step-implementation-recovery.md:orchestrator:3B
+  `§apply_upgrade_then_decide`.
 - **Post-commit** (during a `mode=FIX_REVIEW_FINDINGS` respawn — the
   upgrade surfaces only when applying review findings) — the
   orchestrator rolls back the original implementer commit and any
@@ -203,8 +244,8 @@ The orchestrator's response depends on **when** the upgrade surfaces:
   full dim-review pressure from the start at the new risk level — not
   stacked on top of an implementation that was already reviewed under
   the old tag. See
-  [`step-implementation-recovery.md`](step-implementation-recovery.md)
-  §`rollback_and_upgrade`.
+  step-implementation-recovery.md:orchestrator:3B
+  `§rollback_and_upgrade`.
 
 In both cases, `medium → high` auto-applies; `low → high` pauses
 for user confirmation. Upgrades are recorded in the step's risk note
@@ -214,12 +255,14 @@ step has been planned at a given risk level, neither implementer nor
 orchestrator can self-relax review pressure.
 
 ### Risk locking
+<!-- roles=orchestrator phases=3B,3C summary="Locking risk tags at the end of step implementation." -->
 After a step is implemented (committed + episode written), the risk tag
 is locked. Track-level review reads the locked risk tags and treats
 `medium` and `high` as focal points when reviewing the cumulative track
 diff.
 
 ## Track-file format
+<!-- roles=decomposer,orchestrator phases=3A summary="How the risk tag is written on the step roster line." -->
 
 Each step in `plan/track-N.md` is a thin numbered roster line in
 the `## Concrete Steps` section (per D9 — no nested blockquote). The
@@ -242,4 +285,4 @@ the step failed); the inline `risk:` field stays in place and is
 locked once implementation lands. Per-step episode content lives in
 `## Episodes ### Step N — commit <SHA>, <ISO> [ctx=<level>]` blocks,
 joined to the roster line by step number (see
-[`episode-format-reference.md`](episode-format-reference.md)).
+episode-format-reference.md:orchestrator:3A,3B,3C).

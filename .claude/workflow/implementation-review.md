@@ -1,5 +1,37 @@
 # Implementation Review (Phase 2)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Overview | orchestrator,reviewer-plan | 2 | What Phase 2 plan review covers and when it runs. |
+| §How to run | orchestrator | 2 | Entry points and preconditions for launching the review. |
+| §Precondition (both entry points) | orchestrator | 2 | State that must hold before either entry point starts. |
+| §Step 1: Consistency Review | orchestrator,reviewer-plan | 2 | The consistency pass: contradictions, missing links, mismatched counts. |
+| §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
+| §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
+| §Gate verification | orchestrator | 2 | Confirming the consistency reviewer's PASS is well-formed. |
+| §Autonomous orchestration loop | orchestrator | 2 | The iterate-until-PASS loop the orchestrator runs autonomously. |
+| §Review output | reviewer-plan | 2 | Shape of the consistency review report. |
+| §Step 2: Structural Review | orchestrator,reviewer-plan | 2 | The structural pass: section shape, budgets, bloat. |
+| §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
+| §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
+| §Gate verification | orchestrator | 2 | Confirming the consistency reviewer's PASS is well-formed. |
+| §Autonomous orchestration loop | orchestrator | 2 | The iterate-until-PASS loop the orchestrator runs autonomously. |
+| §Review output | reviewer-plan | 2 | Shape of the consistency review report. |
+| §Mechanical vs. design-decision classifier | orchestrator | 2 | Deciding whether a finding the orchestrator can fix or must escalate. |
+| §`mechanical` — orchestrator applies the fix without asking | orchestrator | 2 | Fixes the orchestrator applies directly with no user input. |
+| §`design-decision` — orchestrator escalates to the user | orchestrator | 2 | Findings that change design and require user choice. |
+| §Intent-axis pre-screen (consistency review only) | orchestrator,reviewer-plan | 2 | A pre-screen on the consistency pass to separate intent drift from wording. |
+| §Audit trail | orchestrator | 2 | Where the review decisions are recorded for later reference. |
+| §1. The `## Plan Review` section in the plan file | orchestrator | 2 | Recording the review outcome in the plan file's review section. |
+| §2. The workflow-update commit | orchestrator | 2 | Committing the review result as a workflow-update commit. |
+| §Mutation discipline for `design.md` fixes | orchestrator,reviewer-design | 2 | Routing design-doc fixes through the mutation discipline. |
+| §Replanning | orchestrator | 2 | When a Phase 2 finding forces a return to planning. |
+| §Completion | orchestrator | 2 | Closing Phase 2 and handing off to track execution. |
+
+<!--Document index end-->
+
 > **Loaded on-demand.** This document is read only when the
 > `/execute-tracks` startup protocol detects **State 0** (the plan
 > file's `## Plan Review` checklist entry is `[ ]`), or when the user
@@ -8,6 +40,7 @@
 > length carries no per-session cost.
 
 ## Overview
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="What Phase 2 plan review covers and when it runs." -->
 
 Phase 2 validates the plan before track execution begins. It runs **autonomously** —
 the orchestrator applies mechanical fixes itself and escalates only **design-level**
@@ -38,7 +71,7 @@ does **not** separately review the narrative quality of `design.md`
 (per-section shape, top-level caps, consolidation form, D/S code
 discipline, length-trigger compliance, etc.). Those checks are
 gated at **write time** by the design-mutation action defined in
-[`design-document-rules.md`](design-document-rules.md) § Mutation
+design-document-rules.md:final-designer,planner,reviewer-design:1,3A,3C,4 § Mutation
 discipline — every modification to `design.md` runs the
 mechanical checks + cold-read sub-agent before the change stands.
 Phase 2's Consistency Review still verifies design ↔ code ↔ plan
@@ -84,6 +117,7 @@ flowchart TD
 ```
 
 ## How to run
+<!-- roles=orchestrator phases=2 summary="Entry points and preconditions for launching the review." -->
 
 Phase 2 has two entry points:
 
@@ -105,10 +139,11 @@ the orchestrator does after the flow completes:
   fresh iteration count), commits, ends the session.
 
 ### Precondition (both entry points)
+<!-- roles=orchestrator phases=2 summary="State that must hold before either entry point starts." -->
 
 **Resolve active handoffs first.** If
 `docs/adr/<dir-name>/_workflow/handoff-state0.md` exists, complete
-[`mid-phase-handoff.md`](mid-phase-handoff.md) §Resume protocol
+mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 §Resume protocol
 (including the resolution commit) BEFORE running the clean-tree check
 below. The resolution commit deletes the handoff file and the PAUSED
 marker line in `implementation-plan.md`, so leaving it for after the
@@ -140,6 +175,7 @@ ignore (the audit-trail `git add` is path-scoped to the files above).
 ---
 
 ## Step 1: Consistency Review
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="The consistency pass: contradictions, missing links, mismatched counts." -->
 
 Checks that the design document, implementation plan, and actual codebase
 are aligned. Unlike structural review, this step **reads the codebase** to
@@ -148,7 +184,7 @@ verify code references, call flows, and class relationships.
 Because the consistency review's findings are factual claims about the
 code (a method exists / does not exist, a flow has these participants,
 this class has these callers), they are reference-accuracy questions
-under the rule in [`conventions.md`](conventions.md) §1.4 *Tooling
+under the rule in conventions.md:any:any `§1.4` *Tooling
 discipline*. When mcp-steroid is reachable per the SessionStart hook,
 the verification routes through the IntelliJ PSI rather than grep —
 preflight via `steroid_list_projects`, and instruct the consistency
@@ -158,6 +194,7 @@ fall back to grep with explicit reference-accuracy caveats in the
 findings.
 
 ### What it checks
+<!-- roles=reviewer-plan phases=2 summary="Consistency dimensions the reviewer inspects." -->
 
 - **Design ↔ Code**: class diagrams match real classes, workflow diagrams
   match real call flows, complex-part sections describe actual behavior
@@ -179,8 +216,9 @@ Orientation`. The consistency review reads the track files alongside
 the plan.
 
 ### Sub-agent prompt
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="Prompt template for the consistency review sub-agent." -->
 
-**Prompt file:** [`prompts/consistency-review.md`](prompts/consistency-review.md)
+**Prompt file:** prompts/consistency-review.md:reviewer-plan:2
 
 The prompt embeds the **intent-axis pre-screen** (current-state vs.
 target-state) and the **classification rules** (see §Mechanical vs.
@@ -189,10 +227,12 @@ carries a `Classification` field — the orchestrator routes on that
 field, not on severity.
 
 ### Gate verification
+<!-- roles=orchestrator phases=2 summary="Confirming the consistency reviewer's PASS is well-formed." -->
 
-**Prompt file:** [`prompts/consistency-gate-verification.md`](prompts/consistency-gate-verification.md)
+**Prompt file:** prompts/consistency-gate-verification.md:reviewer-plan:2
 
 ### Autonomous orchestration loop
+<!-- roles=orchestrator phases=2 summary="The iterate-until-PASS loop the orchestrator runs autonomously." -->
 
 ```
 Iteration 1 (full review):
@@ -234,11 +274,12 @@ passed but structural review has not run, or an iteration's
 mechanical fixes are applied but the gate sub-agent has not yet been
 spawned), write a handoff file at
 `docs/adr/<dir-name>/_workflow/handoff-state0.md` per
-[`mid-phase-handoff.md`](mid-phase-handoff.md). Capture the iteration
+mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4. Capture the iteration
 count, which classifier passes are done, and the verbatim list of
 mechanical fixes that landed so the next session does not re-run them.
 
 ### Review output
+<!-- roles=reviewer-plan phases=2 summary="Shape of the consistency review report." -->
 
 Findings ride in the orchestrator's conversation context for the
 iteration loop; plan and design fixes are applied via Edit / edit-design
@@ -255,11 +296,13 @@ record, and the durable trace is:
 ---
 
 ## Step 2: Structural Review
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="The structural pass: section shape, budgets, bloat." -->
 
 Runs **automatically** after the consistency review passes. Validates
 plan-internal structure without reading the codebase.
 
 ### What it checks
+<!-- roles=reviewer-plan phases=2 summary="Consistency dimensions the reviewer inspects." -->
 
 Dependency ordering, track sizing, scope indicators, architecture notes
 completeness, design document structure, decision traceability, internal
@@ -272,17 +315,20 @@ SCOPE INDICATORS, and CONSISTENCY) lives in that track's track file
 inline in the plan file; the structural review reads the track files
 alongside the plan.
 
-**Full details:** [`structural-review.md`](structural-review.md)
+**Full details:** structural-review.md:orchestrator,reviewer-plan:2,3A,3C
 
 ### Sub-agent prompt
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="Prompt template for the consistency review sub-agent." -->
 
-**Prompt file:** [`prompts/structural-review.md`](prompts/structural-review.md)
+**Prompt file:** prompts/structural-review.md:reviewer-plan:2
 
 ### Gate verification
+<!-- roles=orchestrator phases=2 summary="Confirming the consistency reviewer's PASS is well-formed." -->
 
-**Prompt file:** [`prompts/structural-gate-verification.md`](prompts/structural-gate-verification.md)
+**Prompt file:** prompts/structural-gate-verification.md:reviewer-plan:2
 
 ### Autonomous orchestration loop
+<!-- roles=orchestrator phases=2 summary="The iterate-until-PASS loop the orchestrator runs autonomously." -->
 
 Same shape as the consistency review:
 
@@ -312,6 +358,7 @@ the full structural review instead of the gate check to catch cascading
 issues.
 
 ### Review output
+<!-- roles=reviewer-plan phases=2 summary="Shape of the consistency review report." -->
 
 Same as the consistency review — findings ride in the conversation
 during the loop; the durable trace is the plan-file edits, the gate-PASS
@@ -320,12 +367,14 @@ commit, and the audit-summary entry in `## Plan Review`.
 ---
 
 ## Mechanical vs. design-decision classifier
+<!-- roles=orchestrator phases=2 summary="Deciding whether a finding the orchestrator can fix or must escalate." -->
 
 The classifier lives in the review prompts so the sub-agent emits the
 classification alongside each finding. The orchestrator trusts the
 sub-agent's tag and routes on it.
 
 ### `mechanical` — orchestrator applies the fix without asking
+<!-- roles=orchestrator phases=2 summary="Fixes the orchestrator applies directly with no user input." -->
 
 ALL of these must hold for a consistency finding to classify as
 `mechanical`:
@@ -351,6 +400,7 @@ trim back to the four-bullet form, move long-form material to
 superseded DR, etc.
 
 ### `design-decision` — orchestrator escalates to the user
+<!-- roles=orchestrator phases=2 summary="Findings that change design and require user choice." -->
 
 ANY of these triggers `design-decision`:
 
@@ -376,18 +426,19 @@ The classifier rules belong in the prompt files — the orchestrator
 does not re-classify; it acts on the tag.
 
 ### Intent-axis pre-screen (consistency review only)
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="A pre-screen on the consistency pass to separate intent drift from wording." -->
 
 Before emitting any finding, the consistency sub-agent classifies each
 plan/design claim along the **intent axis**:
 
 - **Current-state claim** — the plan/design says something about code
   that should already exist (Component Map describing a current
-  module's role, design.md class diagram describing pre-existing
+  module's role, `design.md` class diagram describing pre-existing
   classes, Architecture Notes referencing today's SPI). Discrepancies
   here become findings.
 - **Target-state claim** — the plan/design says something about code
   a `[ ]` track will create (`**What**:` bullets in the track's step
-  file, forward-looking Decision Records, design.md sections
+  file, forward-looking Decision Records, `design.md` sections
   describing the post-implementation state). The current code
   naturally won't match — this is **not a finding** unless the target
   is unreachable from the current code (in which case the finding is
@@ -402,10 +453,12 @@ finding.
 ---
 
 ## Audit trail
+<!-- roles=orchestrator phases=2 summary="Where the review decisions are recorded for later reference." -->
 
 Two durable traces survive the autonomous flow:
 
 ### 1. The `## Plan Review` section in the plan file
+<!-- roles=orchestrator phases=2 summary="Recording the review outcome in the plan file's review section." -->
 
 Before Phase 2 runs (or after `/create-plan` produced the initial
 plan), the section reads:
@@ -436,6 +489,7 @@ autonomous flow, then writes the section for the first time at the
 end. Pre-existing plans don't break.
 
 ### 2. The workflow-update commit
+<!-- roles=orchestrator phases=2 summary="Committing the review result as a workflow-update commit." -->
 
 After Phase 2 passes, the orchestrator stages the plan, track files, and
 design files, and commits with the message:
@@ -452,15 +506,16 @@ This is a single Workflow update commit per the table in
 
 ---
 
-## Mutation discipline for design.md fixes
+## Mutation discipline for `design.md` fixes
+<!-- roles=orchestrator,reviewer-design phases=2 summary="Routing design-doc fixes through the mutation discipline." -->
 
 Every fix that touches `design.md` (or `design-mechanics.md`) routes
-through the `edit-design` skill — see [`design-document-rules.md`](design-document-rules.md)
+through the `edit-design` skill — see design-document-rules.md:final-designer,planner,reviewer-design:1,3A,3C,4
 § Mutation discipline. The skill applies the mechanical checks +
 cold-read sub-agent gate before the change stands.
 
 The autonomous flow handles this by invoking `edit-design` for each
-design.md mechanical fix; the cold-read sub-agent is the safety net
+`design.md` mechanical fix; the cold-read sub-agent is the safety net
 for narrative breakage. If the cold-read rejects the mutation, the
 orchestrator escalates that specific fix to the user (effectively
 re-classifying it from `mechanical` to `design-decision`).
@@ -471,6 +526,7 @@ discipline applies to those files.
 ---
 
 ## Replanning
+<!-- roles=orchestrator phases=2 summary="When a Phase 2 finding forces a return to planning." -->
 
 **Not a separate phase.** Replanning is handled within Phase 3
 by the execution agent's ESCALATE flow (see "Inline Replanning
@@ -502,6 +558,7 @@ broken that incremental revision cannot fix it.
 ---
 
 ## Completion
+<!-- roles=orchestrator phases=2 summary="Closing Phase 2 and handing off to track execution." -->
 
 When both reviews pass:
 

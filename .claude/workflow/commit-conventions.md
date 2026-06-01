@@ -1,5 +1,17 @@
 # Commit Message Conventions — Workflow
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Push every commit | orchestrator,implementer | 3A,3B,3C | Push after every commit so the draft PR stays in sync for team visibility and disk-loss backup. |
+| §Push failure handling | orchestrator,implementer | 3A,3B,3C | Distinguish non-fast-forward rejection (route to divergence check) from other failures (record and continue). |
+| §Ephemeral-identifier pre-commit gate | orchestrator,implementer | 3A,3B,3C | Grep the staged diff outside _workflow for forbidden Track/Step/finding-ID labels before commit. |
+| §Commit type prefixes | orchestrator,implementer | 3A,3B,3C | The commit-type prefix table (step, review-fix, revert, workflow, Phase 4) and the branch-only-identifier exemption. |
+| §How these are used on resume | orchestrator | 3B | Pointer to the git log reading rules Phase B Resume uses to classify commits. |
+
+<!--Document index end-->
+
 Extends the project's base commit conventions (see `CLAUDE.md` §Git
 Conventions). These conventions apply during Phase 3 execution and enable
 reliable session resume by making commit types identifiable in `git log`.
@@ -9,10 +21,11 @@ under `docs/adr/<dir-name>/_workflow/` (the plan, design,
 track files, design-mutations log) are committed. Workflow files are
 tracked under `_workflow/` for the branch lifetime and are removed in
 the Phase 4 cleanup commit before the PR is merged. See
-`conventions.md` §1.2 for the directory layout and `workflow.md`
+conventions.md:any:any `§1.2` for the directory layout and workflow.md:orchestrator:2,3A,3B,3C,4
 § Final Artifacts for the cleanup procedure.
 
 ## Push every commit
+<!-- roles=orchestrator,implementer phases=3A,3B,3C summary="Push after every commit so the draft PR stays in sync for team visibility and disk-loss backup." -->
 
 After every commit on the branch — code commits, workflow-file
 commits, episode commits, review-fix commits, revert commits, the
@@ -33,6 +46,7 @@ amend has rewritten history that was already pushed — never plain
 carries no CI cost.
 
 ### Push failure handling
+<!-- roles=orchestrator,implementer phases=3A,3B,3C summary="Distinguish non-fast-forward rejection (route to divergence check) from other failures (record and continue)." -->
 
 After every per-commit `git push`, inspect the exit code and stderr.
 Distinguish two failure shapes; do not silently treat them the same.
@@ -40,7 +54,7 @@ Distinguish two failure shapes; do not silently treat them the same.
 - **Non-fast-forward rejection** (`! [rejected] ... (non-fast-forward)`).
   The branch has diverged from `origin`. On the first occurrence
   in the session, load
-  [`branch-divergence-check.md`](branch-divergence-check.md) and
+  branch-divergence-check.md:orchestrator:2,3A,3B,3C and
   follow it; apply the user's chosen resolution and do not silently
   retry across subsequent commits. The harness git-safety protocol
   forbids unauthorised `--force-with-lease`, so the resolution must
@@ -61,6 +75,7 @@ safety-net intent.
 ---
 
 ## Ephemeral-identifier pre-commit gate
+<!-- roles=orchestrator,implementer phases=3A,3B,3C summary="Grep the staged diff outside _workflow for forbidden Track/Step/finding-ID labels before commit." -->
 
 Before issuing `git commit` on any change that touches paths
 outside `docs/adr/*/_workflow/` and `.claude/workflow/`, run the
@@ -73,14 +88,14 @@ git diff --cached -- ':(exclude)docs/adr/*/_workflow/**' ':(exclude).claude/work
 The `.claude/workflow/**` exclusion mirrors the `_workflow/`
 exclusion: the workflow rule docs themselves cite Track / Step /
 finding-ID examples by necessity (see
-[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4
 §Forbidden), so the gate would always fire on docs-only edits in
 that area.
 
 If the grep returns matches that aren't allowed exceptions (issue
 tracker IDs like `YTDB-NNN`, class / method / field names, file
 paths; see
-[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4
 §Allowed), load that file and rewrite each genuine leak per its
 §"How to rewrite a forbidden reference" section. Re-stage and
 re-run the grep until only allowed exceptions remain.
@@ -90,11 +105,11 @@ Ephemeral iteration counters (`iteration 1`, `round 2`) and
 named-only plan invariants (`Single-authority invariant`,
 `Load-bearing-file rule`) still require a manual eyeball pass
 over the staged diff before commit; see
-[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4
 §Forbidden for the full list.
 
 The implementer sub-agent wires this gate into sub-step 3 of
-[`implementer-rules.md`](implementer-rules.md) (§"Pre-commit gate,
+implementer-rules.md:implementer:3B,3C (§"Pre-commit gate,
 ephemeral-identifier check") so every `/execute-tracks` commit
 runs it automatically. Manual commits outside the workflow (fix-up
 edits, branch hygiene, ad-hoc tweaks) must run the same gate by
@@ -106,6 +121,7 @@ prefixes").
 ---
 
 ## Commit type prefixes
+<!-- roles=orchestrator,implementer phases=3A,3B,3C summary="The commit-type prefix table (step, review-fix, revert, workflow, Phase 4) and the branch-only-identifier exemption." -->
 
 | Commit type | Message pattern | Example |
 |---|---|---|
@@ -127,7 +143,7 @@ once with the `Revert step:` prefix. **Phase C never produces
 iterations on a `FAILED` return; the failed iteration is treated as
 a no-op and the loop exits with the unfixed findings surfaced to the
 user at track completion (see
-[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+track-code-review.md:orchestrator:3C §Phase C Implementer
 Handlers).
 
 The body is load-bearing for Phase B Resume. The **first non-empty
@@ -143,11 +159,11 @@ A blank line separates the slug from a one-sentence prose explanation
 drawn from the relevant `fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}`
 field. The implementer never produces this commit type — it is
 exclusively an orchestrator-side operation. See
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Post-Commit Handlers for the full procedure and resume-dispatch table.
 
 Prose produced by this file follows the project house-style at
-`.claude/output-styles/house-style.md`. Tier A (full house-style:
+`house-style.md`. Tier A (full house-style:
 BLUF lead, banned vocabulary, em-dash discipline, soft section
 length cap with template-bound exemptions, structural rules)
 applies to commit message bodies — the
@@ -156,7 +172,7 @@ applies to the `reason:` slug body lines. The four banned-section
 heading slugs to apply are `## Banned vocabulary`,
 `## Banned sentence patterns`, `## Banned analysis patterns`, and
 `### Em-dash discipline`.
-See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
+See conventions.md:any:any `§1.5` Writing style for Markdown and prose artifacts for the workflow-level pointer.
 
 **Branch-only commit messages may cite workflow-internal identifiers.**
 Individual commit messages on the development branch (`Track N`,
@@ -166,8 +182,8 @@ merge — the squashed commit message is built from the PR title and
 body, not from the individual commit messages, so these references
 do not survive into `develop`. The Ephemeral identifier rule (full
 rule in
-[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md); stub
-in [`conventions-execution.md`](conventions-execution.md) §2.3)
+ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4; stub
+in conventions-execution.md:orchestrator,implementer,decomposer:3A,3B,3C `§2.3`)
 applies to durable content (source code, tests, PR title and body,
 `design-final.md`, `adr.md`). For `Review fix:` commits, prefer
 describing the fix by what changed (behavior, file, or class) over
@@ -175,11 +191,12 @@ citing the finding ID — but a finding-ID reference on the branch
 is permitted when it makes the commit log easier to follow.
 
 ## How these are used on resume
+<!-- roles=orchestrator phases=3B summary="Pointer to the git log reading rules Phase B Resume uses to classify commits." -->
 
 The `git log` reading rules used by Phase B Resume — how to identify
 orphan implementer commits, `Review fix:` commits, episode commits,
 `Revert step:` commits, and scaffolding Workflow update commits —
 live with the resume procedure itself in
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Resume-side commit-pattern reference. They are loaded only when
 Phase B Resume runs.

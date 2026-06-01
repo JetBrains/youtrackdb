@@ -1,3 +1,40 @@
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-plan.
+Your phase: 2.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Workflow Context | reviewer-plan | 2 | Phase 2 consistency review: read code to catch plan/design vs codebase mismatches before execution. |
+| §Intent-axis pre-screen (run BEFORE generating findings) | reviewer-plan | 2 | Classify each claim current-state vs target-state before emitting; a [ ] track's target-state mismatch is not a finding. |
+| §Review Criteria | reviewer-plan | 2 | The four consistency axes checked between plan, design document, and code, plus gap detection. |
+| §DESIGN ↔ CODE CONSISTENCY | reviewer-plan | 2 | Do the design document's class and workflow diagrams match the actual classes and call flows in the code? |
+| §PLAN ↔ CODE CONSISTENCY | reviewer-plan | 2 | Do Architecture Notes, integration points, track references, and invariants in the plan reflect the real codebase? |
+| §DESIGN ↔ PLAN CONSISTENCY | reviewer-plan | 2 | Do the design document's diagrams, decisions, and complexity align with the plan's Component Map, DRs, and scope? |
+| §GAPS | reviewer-plan | 2 | Plan parts with no design coverage, design parts no track covers, and codebase constructs the documents skip. |
+| §How to Review | reviewer-plan | 2 | Read the documents, identify every code reference, verify each via PSI when reachable, trace flows, check for orphans. |
+| §Semi-Formal Reasoning Protocol | reviewer-plan | 2 | Every claim about code behavior needs a documented certificate; no logical jumps from a plausible name. |
+| §Certificate requirements | reviewer-plan | 2 | Ref, flow, and invariant certificate templates each code reference, diagram, and invariant is verified against. |
+| §Rules for certificates | reviewer-plan | 2 | Search every claim, follow calls interprocedurally, document negatives, trace flows; certificates feed findings. |
+| §Output Format | reviewer-plan | 2 | Two-part output: the verification certificates first, then findings derived from non-matching verdicts. |
+| §Part 1: Verification Certificates | reviewer-plan | 2 | The evidence base: all ref, flow, and invariant certificates grouped by consistency axis. |
+| §Part 2: Findings | reviewer-plan | 2 | Findings derived from non-matching certificate verdicts; each cites its certificate and carries a classification. |
+| §Classification rules | reviewer-plan | 2 | Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity. |
+| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Current-state claim, one unambiguous correct rendering, fix preserves plan intent; the orchestrator applies it directly. |
+| §`design-decision` — orchestrator escalates to the user | reviewer-plan | 2 | Missing DR, track contradiction, unimplemented or violated invariant, unreachable target, or ambiguous fix. |
+
+<!--Document index end-->
+
 You are reviewing an implementation plan and its design document for
 consistency with the actual codebase. Unlike the structural review (which
 checks plan-internal quality without reading code), this review reads the
@@ -16,6 +53,7 @@ code to find gaps and inconsistencies between the four artifacts:
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
 ## Workflow Context
+<!-- roles=reviewer-plan phases=2 summary="Phase 2 consistency review: read code to catch plan/design vs codebase mismatches before execution." -->
 
 You are a sub-agent spawned during **Phase 2 (Implementation Review)**,
 which validates the plan before execution begins. Phase 2 has two steps:
@@ -78,6 +116,7 @@ Inputs:
 ---
 
 ## Intent-axis pre-screen (run BEFORE generating findings)
+<!-- roles=reviewer-plan phases=2 summary="Classify each claim current-state vs target-state before emitting; a [ ] track's target-state mismatch is not a finding." -->
 
 Phase 2 runs autonomously: the orchestrator applies your `mechanical`
 findings without asking the user, and only escalates `design-decision`
@@ -92,7 +131,7 @@ design claim along the **intent axis**:
 
 - **Current-state claim** — the plan/design says something about code
   that should already exist at the time of writing (Component Map
-  describing a current module's role, design.md class diagram showing
+  describing a current module's role, `design.md` class diagram showing
   pre-existing classes, Architecture Notes referencing today's SPI, an
   invariant tagged `ENFORCED`). Discrepancies with these become
   findings — emit normally.
@@ -101,7 +140,7 @@ design claim along the **intent axis**:
   `## Purpose / Big Picture` + `## Plan of Work` +
   `## Interfaces and Dependencies` sections, forward-looking
   Decision Records describing the post-implementation shape,
-  design.md sections describing the post-implementation state,
+  `design.md` sections describing the post-implementation state,
   invariants tagged `ASPIRATIONAL`). The current code naturally
   won't match — **do NOT emit a finding** unless the target is
   unreachable from the current code (in which case emit a
@@ -111,7 +150,7 @@ design claim along the **intent axis**:
 
 The same rule already applies to invariants via the
 `ENFORCED / ASPIRATIONAL / VIOLATED` tagging. The pre-screen extends
-it to all design.md / Component Map / track-description claims.
+it to all `design.md` / Component Map / track-description claims.
 
 **How to determine intent for each claim:**
 - If the claim is inside a track file's `## Purpose / Big Picture`,
@@ -123,7 +162,7 @@ it to all design.md / Component Map / track-description claims.
   status — emit findings normally.
 - If the claim is in a Decision Record's "Implemented in: Track N" line
   for a `[ ]` track → target-state.
-- If the claim is in design.md and a `[ ]` track's description names
+- If the claim is in `design.md` and a `[ ]` track's description names
   the same component, class, or flow as something to be created or
   modified → target-state for that aspect; current-state for any
   pre-existing surrounding context.
@@ -137,8 +176,10 @@ finding and the classification rules below will route it correctly.
 ---
 
 ## Review Criteria
+<!-- roles=reviewer-plan phases=2 summary="The four consistency axes checked between plan, design document, and code, plus gap detection." -->
 
 ### DESIGN ↔ CODE CONSISTENCY
+<!-- roles=reviewer-plan phases=2 summary="Do the design document's class and workflow diagrams match the actual classes and call flows in the code?" -->
 
 - Do class diagrams in the design document match the actual classes in the
   codebase? Check: class names, interface names, inheritance/composition
@@ -153,6 +194,7 @@ finding and the classification rules below will route it correctly.
   they describe aspirational/outdated behavior?
 
 ### PLAN ↔ CODE CONSISTENCY
+<!-- roles=reviewer-plan phases=2 summary="Do Architecture Notes, integration points, track references, and invariants in the plan reflect the real codebase?" -->
 
 - Do the Architecture Notes (Component Map, Decision Records) accurately
   reflect the current codebase structure? Check that referenced components,
@@ -167,13 +209,14 @@ finding and the classification rules below will route it correctly.
   pending tracks; to the plan-file entry for completed/skipped tracks.
   Architecture Notes, Component Map, Decision Records, Invariants, and
   Integration Points bullets in this section remain plan-only per
-  `conventions.md` §1.2.)*
+  `conventions.md` `§1.2`.)*
 - Are Invariants listed in the plan consistent with the current code
   behavior? (e.g., if the plan says "histogram updates occur inside WAL
   atomic operations", is that how the current code works, or is that an
   aspiration the tracks need to implement?)
 
 ### DESIGN ↔ PLAN CONSISTENCY
+<!-- roles=reviewer-plan phases=2 summary="Do the design document's diagrams, decisions, and complexity align with the plan's Component Map, DRs, and scope?" -->
 
 - Are the classes/interfaces in the design document's class diagrams
   consistent with the Component Map and Decision Records in the plan?
@@ -194,6 +237,7 @@ finding and the classification rules below will route it correctly.
   but the track scope says "~2 steps", that's suspicious)
 
 ### GAPS
+<!-- roles=reviewer-plan phases=2 summary="Plan parts with no design coverage, design parts no track covers, and codebase constructs the documents skip." -->
 
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior
@@ -213,6 +257,7 @@ finding and the classification rules below will route it correctly.
 ---
 
 ## How to Review
+<!-- roles=reviewer-plan phases=2 summary="Read the documents, identify every code reference, verify each via PSI when reachable, trace flows, check for orphans." -->
 
 **Tooling — PSI is required for symbol verification.** Every claim
 in this review is a reference-accuracy fact about Java code (a class
@@ -277,6 +322,7 @@ real mismatch hidden)? When in doubt, route through PSI.
 ---
 
 ## Semi-Formal Reasoning Protocol
+<!-- roles=reviewer-plan phases=2 summary="Every claim about code behavior needs a documented certificate; no logical jumps from a plausible name." -->
 
 This review requires **structured evidence certificates** for every claim
 about code behavior. You must not assert that a code reference is correct
@@ -285,6 +331,7 @@ or incorrect without documented evidence. This prevents logical jumps
 methods, renamed classes, changed signatures).
 
 ### Certificate requirements
+<!-- roles=reviewer-plan phases=2 summary="Ref, flow, and invariant certificate templates each code reference, diagram, and invariant is verified against." -->
 
 **For every code reference verified** (class, interface, method, SPI,
 file path, configuration parameter), produce a verification entry:
@@ -332,6 +379,7 @@ file path, configuration parameter), produce a verification entry:
 ```
 
 ### Rules for certificates
+<!-- roles=reviewer-plan phases=2 summary="Search every claim, follow calls interprocedurally, document negatives, trace flows; certificates feed findings." -->
 
 - **Every claim requires a search.** Do not assume a class exists because
   its name is plausible. Search for it explicitly using mcp-steroid PSI
@@ -352,20 +400,24 @@ file path, configuration parameter), produce a verification entry:
 ---
 
 ## Output Format
+<!-- roles=reviewer-plan phases=2 summary="Two-part output: the verification certificates first, then findings derived from non-matching verdicts." -->
 
 ### Part 1: Verification Certificates
+<!-- roles=reviewer-plan phases=2 summary="The evidence base: all ref, flow, and invariant certificates grouped by consistency axis." -->
 
 Include all certificate entries (Ref, Flow, Invariant) grouped by review
 criterion (Design ↔ Code, Plan ↔ Code, Design ↔ Plan, Gaps). This is
 the evidence base.
 
 ### Part 2: Findings
+<!-- roles=reviewer-plan phases=2 summary="Findings derived from non-matching certificate verdicts; each cites its certificate and carries a classification." -->
 
 Derived from certificates with non-MATCHES verdicts. Each finding must
 reference the certificate entry that produced it.
 
 For each issue found, produce a finding:
 
+```markdown
 ### Finding CR<N> [blocker|should-fix|suggestion]
 **Certificate**: <Ref/Flow/Invariant entry ID that produced this finding>
 **Location**: <which document and section, plus code location if applicable>
@@ -377,6 +429,7 @@ For each issue found, produce a finding:
 **Justification**: <one-line citation of the rule from §Classification rules
   below — e.g., "current-state claim, single unambiguous correct rendering"
   or "missing DR for non-obvious choice; user has the rationale">
+```
 
 Severity guide:
 - **blocker**: A factual error that would cause the execution agent to make
@@ -390,6 +443,7 @@ Severity guide:
 ---
 
 ## Classification rules
+<!-- roles=reviewer-plan phases=2 summary="Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity." -->
 
 Severity (`blocker | should-fix | suggestion`) tells the user how
 urgent the finding is. **Classification** (`mechanical |
@@ -399,6 +453,7 @@ user. The two axes are orthogonal: a blocker can be mechanical
 extracting a separate track).
 
 ### `mechanical` — orchestrator applies the fix without asking
+<!-- roles=reviewer-plan phases=2 summary="Current-state claim, one unambiguous correct rendering, fix preserves plan intent; the orchestrator applies it directly." -->
 
 ALL of these must hold:
 
@@ -424,6 +479,7 @@ Typical mechanical cases:
   matching the actual module structure.
 
 ### `design-decision` — orchestrator escalates to the user
+<!-- roles=reviewer-plan phases=2 summary="Missing DR, track contradiction, unimplemented or violated invariant, unreachable target, or ambiguous fix." -->
 
 ANY of these triggers `design-decision`:
 

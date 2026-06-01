@@ -1,5 +1,18 @@
 # Ephemeral Identifier Rule — Don't Leak Workflow IDs into Durable Content
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §When to load this file | implementer,orchestrator,final-designer | 3B,3C,4 | Read before authoring durable content (code, tests, Javadoc, final artifacts, PR title/body). |
+| §Where the rule applies | implementer,final-designer | 3B,3C,4 | Source comments, PR title/body, the two Phase 4 final artifacts, and tests; branch-only commit messages are exempt. |
+| §Forbidden | implementer,final-designer | 3B,3C,4 | Forbidden labels: Track/Step/compound labels, finding IDs, iteration counters, named invariants, un-restated DR IDs. |
+| §Allowed (these survive in git or are self-contained) | implementer,final-designer | 3B,3C,4 | Allowed references: file paths, class/method/field names, commit SHAs, ADR-defined DR IDs, issue tracker IDs. |
+| §How to rewrite a forbidden reference | implementer,final-designer | 3B,3C,4 | Replace an ephemeral label with prose, the modified file/class, or the implementing commit SHA; worked examples follow. |
+| §Self-check before commit | implementer | 3B,3C | The hard pre-commit grep gate over staged additions outside _workflow and .claude/workflow. |
+
+<!--Document index end-->
+
 **Authoritative statement.** This is the single source of truth for the
 rule; every phase-specific prompt that touches durable content points
 here.
@@ -15,17 +28,18 @@ and named invariants that live only in the plan. Therefore, **anything
 that survives merge into `develop` must not cite those identifiers**.
 
 ## When to load this file
+<!-- roles=implementer,orchestrator,final-designer phases=3B,3C,4 summary="Read before authoring durable content (code, tests, Javadoc, final artifacts, PR title/body)." -->
 
 Read this file when about to author durable content:
 
 - Implementer is about to write source code, tests, or Javadoc that
   will be committed (see
-  [`implementer-rules.md`](implementer-rules.md)).
+  implementer-rules.md:implementer:3B,3C).
 - Phase C orchestrator is authoring a `Review fix:` commit's code
-  changes (see [`track-code-review.md`](track-code-review.md)).
+  changes (see track-code-review.md:orchestrator:3C).
 - Phase 4 is composing `design-final.md`, `adr.md`, or the PR title
   and body (see
-  [`prompts/create-final-design.md`](prompts/create-final-design.md)).
+  prompts/create-final-design.md:final-designer:4).
 
 The §"Self-check before commit" pre-commit gate below is mandatory
 for the implementer sub-agent on every spawn and required by hand
@@ -34,6 +48,7 @@ zero matches on staged files, the full rule below is not needed
 for that commit.
 
 ## Where the rule applies
+<!-- roles=implementer,final-designer phases=3B,3C,4 summary="Source comments, PR title/body, the two Phase 4 final artifacts, and tests; branch-only commit messages are exempt." -->
 
 - **Source code comments and Javadoc** — the most common leak. Comments
   like `// added per Track 2 Step 1`, `// fixes CQ33`, or `// see
@@ -43,7 +58,7 @@ for that commit.
   of the squashed merge commit (per CLAUDE.md § Git Conventions).
 - **`design-final.md`** and **`adr.md`** — the only workflow files
   that survive merge into `develop`; see
-  [`prompts/create-final-design.md`](prompts/create-final-design.md)
+  prompts/create-final-design.md:final-designer:4
   for Phase-4-specific examples.
 - **Tests, test names, and test descriptions** — committed alongside
   the code.
@@ -67,6 +82,7 @@ IDs in durable content remains, just without a working file to cite
 from.
 
 ## Forbidden
+<!-- roles=implementer,final-designer phases=3B,3C,4 summary="Forbidden labels: Track/Step/compound labels, finding IDs, iteration counters, named invariants, un-restated DR IDs." -->
 
 - Track labels: `Track 1`, `Track N`, `Track N: <title>`
 - Step labels: `Step 1`, `Step N`, `Step M of Track N`
@@ -81,12 +97,13 @@ from.
   "Byte-identity discipline", etc. If the rule matters for a future
   reader of committed content, either restate it in prose or cross-
   reference the stable `.claude/workflow/` location that defines it
-  (e.g. `conventions.md` §1.2, `conventions-execution.md` §2.1).
+  (e.g. `conventions.md` `§1.2`, `conventions-execution.md` `§2.1`).
 - Plan-file Decision Record IDs (`D1`, `D2`, …) that are **not**
   restated in `adr.md`. IDs that ARE restated in `adr.md` are stable
   (the ADR owns them post-implementation) and may be cited.
 
 ## Allowed (these survive in git or are self-contained)
+<!-- roles=implementer,final-designer phases=3B,3C,4 summary="Allowed references: file paths, class/method/field names, commit SHAs, ADR-defined DR IDs, issue tracker IDs." -->
 
 - File paths under the project — source files, workflow docs in
   `.claude/workflow/`, committed artifacts
@@ -97,6 +114,7 @@ from.
 - Issue tracker IDs (e.g. `YTDB-123`) — these survive in the tracker
 
 ## How to rewrite a forbidden reference
+<!-- roles=implementer,final-designer phases=3B,3C,4 summary="Replace an ephemeral label with prose, the modified file/class, or the implementing commit SHA; worked examples follow." -->
 
 Replace the ephemeral label with (a) a prose description of what was
 done, (b) the file/class that was modified, or (c) the commit SHA that
@@ -105,26 +123,24 @@ implemented it.
 Examples:
 
 - ❌ `// added during Track 2 Step 1 to unblock Phase A resume`
-- ✅ `// part of the description-amendment + clarifications-append
-      ordering that keeps Phase A pre-flight resume idempotent`
+- ✅ `// part of the description-amendment + clarifications-append ordering that keeps Phase A pre-flight resume idempotent`
 
 - ❌ `Review fix: address CQ72 (anchor drift in slim rendering)`
-- ✅ `Review fix: restore byte-identical phrasing at the two
-      cross-reference sites in plan-slim-rendering.md`
+- ✅ `Review fix: restore byte-identical phrasing at the two cross-reference sites in plan-slim-rendering.md`
 
 - ❌ `// see Track 4 iteration 1 for context`
-- ✅ `// see commit abc1234 for the follow-up that restored these
-      sites; the first pass missed two of them`
+- ✅ `// see commit abc1234 for the follow-up that restored these sites; the first pass missed two of them`
 
 When in doubt: if a reader on `main` (without the branch, without the
 plan) couldn't resolve the reference, the reference is forbidden.
 
 ## Self-check before commit
+<!-- roles=implementer phases=3B,3C summary="The hard pre-commit grep gate over staged additions outside _workflow and .claude/workflow." -->
 
 The implementer sub-agent runs this as a **hard pre-commit gate**.
-See [`implementer-rules.md`](implementer-rules.md) sub-step 3
+See implementer-rules.md:implementer:3B,3C sub-step 3
 §"Pre-commit gate, ephemeral-identifier check" (and its mirror in
-[`commit-conventions.md`](commit-conventions.md) §"Ephemeral-identifier
+commit-conventions.md:orchestrator,implementer:3A,3B,3C §"Ephemeral-identifier
 pre-commit gate"). For ad-hoc commits outside the workflow, run the
 same grep on staged files yourself. It applies to code, tests, and
 the two Phase 4 artifacts (NOT to commits whose staged paths are

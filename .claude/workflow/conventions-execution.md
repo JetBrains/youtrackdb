@@ -1,36 +1,52 @@
 # Conventions — Execution (Phase 3)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §2.1 Plan File — Execution Additions | orchestrator,decomposer,implementer | 3A,3B,3C | Execution-time additions to the plan file: the 14-section track file shape, lifecycle, and risk/base-commit rules. |
+| §Session state detection | orchestrator | 3A,3B,3C | Moved to the Startup Protocol — the only place where state detection is used. |
+| §Track file content (`plan/track-N.md`) | orchestrator,decomposer | 3A,3B,3C | The 14-section track file template (12 ExecPlan sections plus Episodes and Base commit) and its continuous-log ordering. |
+| §2.2 Episode Formats | orchestrator | 3A,3B,3C | The three episode types (step completion, step failed, track episode) and their field sets; full rules elsewhere. |
+| §2.3 Ephemeral identifier rule — pointer | implementer,final-designer | 3B,3C,4 | Quick recap of the ephemeral-identifier rule plus the pre-commit gate regex; full rule in the dedicated file. |
+| §2.4 Commit messages, code review, complexity, decomposition | orchestrator | 3A,3B,3C | On-demand pointers to commit conventions, the code-review protocol, complexity tiers, and decomposition rules. |
+
+<!--Document index end-->
+
 Execution-specific formats and rules. Loaded only during Phase 3
 (`/execute-tracks`). For core conventions shared across all phases, see
-[`conventions.md`](conventions.md).
+conventions.md:any:any.
 
 ---
 
 ## 2.1 Plan File — Execution Additions
+<!-- roles=orchestrator,decomposer,implementer phases=3A,3B,3C summary="Execution-time additions to the plan file: the 14-section track file shape, lifecycle, and risk/base-commit rules." -->
 
 These subsections extend the plan file structure defined in
-`conventions.md` §1.2.
+`conventions.md` `§1.2`.
 
 The phase-specific plan-entry mutations (collapse-on-completion and
 strategy-refresh-line append) live with their owning phase
 documents — they are not loaded by every Phase 3 session:
 
 - **Track-completion collapse** (Phase C): see
-  [`track-code-review.md`](track-code-review.md) § Track Completion
+  track-code-review.md:orchestrator:3C § Track Completion
   step 4 — the "Always keep" / "Always drop" rule, the track-episode
   fields, and the final on-disk form.
 - **Strategy refresh line** (State A — written by the Track Pre-Flight
   gate when Panel 1 is active): see
-  [`track-review.md`](track-review.md) § Track Pre-Flight step 6
+  track-review.md:orchestrator:3A § Track Pre-Flight step 6
   (Persist amendments + strategy-refresh line) — the line format for
   CONTINUE / ADJUST and the `[~]`-track variant.
 
 ### Session state detection
+<!-- roles=orchestrator phases=3A,3B,3C summary="Moved to the Startup Protocol — the only place where state detection is used." -->
 
 Moved to `workflow.md` §Startup Protocol — the only place where state
 detection is used.
 
 ### Track file content (`plan/track-N.md`)
+<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="The 14-section track file template (12 ExecPlan sections plus Episodes and Base commit) and its continuous-log ordering." -->
 
 Each track file uses the 12-section OpenAI ExecPlan template (verbatim
 section names and order) plus two workflow-specific siblings:
@@ -49,6 +65,7 @@ placeholder comments. Each section's writer/reader split across phases
 is tabulated in the *Section lifecycle* subsection below.
 
 #### Sections in order
+<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="The 14 track-file sections in order, each with its Phase 1 seed content and per-phase writer." -->
 
 1. **`## Purpose / Big Picture`** — Phase 1 writes a one-line BLUF
    stating the user-visible behavior gained after this track lands,
@@ -169,12 +186,13 @@ is tabulated in the *Section lifecycle* subsection below.
     session start; Phase C reads it to compute the cumulative track
     diff. Readers must verify the recorded SHA is a HEAD-ancestor
     before use (the canonical preflight-and-recompute procedure lives
-    at the two reader sites — [`step-implementation.md`](step-implementation.md)
-    §Phase B Startup step 1 and [`track-code-review.md`](track-code-review.md)
+    at the two reader sites — step-implementation.md:orchestrator:3B
+    §Phase B Startup step 1 and track-code-review.md:orchestrator:3C
     §Phase C Startup step 2 — and a stale recompute appends a
     discrepancy note without overwriting the original SHA).
 
 #### Two placeholder kinds coexist on a Phase-1-written track file
+<!-- roles=reviewer-plan,orchestrator phases=2,3A summary="Phase A placeholders vs sibling-Move placeholders; structural review treats both as non-defects." -->
 
 Before Phase A runs, a freshly-written track file carries two distinct
 placeholder kinds. `structural-review.md` treats both as non-defects
@@ -192,6 +210,7 @@ per D6 and D10:
   corresponding Move lands.
 
 #### Section lifecycle
+<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="Per-section writer/reader matrix across Phase 1/A/B/C for each of the 14 track-file sections." -->
 
 | Section | Phase 1 writer | Phase A writer | Phase B writer | Phase C writer | Readers |
 |---|---|---|---|---|---|
@@ -214,16 +233,16 @@ Phase B writes to `## Concrete Steps` (status flip), `## Episodes`
 (new block), and `## Progress` (new entry) in a single commit at
 sub-step 7; the canonical write order is statusline read → Episodes
 block + Concrete Steps roster checkbox flip (one atomic edit per
-[`step-implementation.md`](step-implementation.md) sub-step 7.1 and
-[`episode-format-reference.md`](episode-format-reference.md)
+step-implementation.md:orchestrator:3B sub-step 7.1 and
+episode-format-reference.md:orchestrator:3B,3C
 sub-step 1) → Progress entry → optional Surprises promotion →
 optional Decision Log promotion. Inline replanning (see
-[`inline-replanning.md`](inline-replanning.md)) may
+inline-replanning.md:orchestrator:3A,3C) may
 rewrite `## Concrete Steps`, `## Plan of Work`, and `## Validation and
 Acceptance` mid-execution; otherwise plan-at-start sections are stable
 after Phase A.
 
-The Track Pre-Flight gate (see [`track-review.md`](track-review.md)
+The Track Pre-Flight gate (see track-review.md:orchestrator:3A
 §Track Pre-Flight) may amend `## Purpose / Big Picture`,
 `## Context and Orientation`, and `## Plan of Work` in place and append
 clarifications as a `### Clarifications` subsection to
@@ -237,10 +256,11 @@ framing).
 tracked in git during the branch lifetime so changes are pushed to the
 draft PR for team visibility and disk-loss backup, and removed
 alongside the rest of `_workflow/` in the Phase 4 cleanup commit before
-merge (see `conventions.md` §1.2 for the full lifecycle and
+merge (see `conventions.md` `§1.2` for the full lifecycle and
 `workflow.md` § Final Artifacts for the cleanup procedure).
 
 #### Risk tag, base commit, and the strategic-guide stance
+<!-- roles=orchestrator,decomposer,implementer phases=3A,3B,3C summary="The risk: tag lifecycle, the mandatory [ctx=<level>] field, and the plan-as-strategic-guide stance." -->
 
 The **`risk:` tag** on each `## Concrete Steps` roster line names the
 step's risk level (`low`, `medium`, or `high`) and the triggering
@@ -254,7 +274,7 @@ committed and the episode written, the risk tag is locked. Phase C
 reads the locked tags and treats `medium` and `high` step ranges as
 focal points for the cumulative track diff review. Full criteria,
 override rules, and lifecycle live in
-[`risk-tagging.md`](risk-tagging.md).
+risk-tagging.md:decomposer,orchestrator:3A,3B.
 
 The **`[ctx=<level>]` field** on every `## Progress` entry and every
 `## Episodes` block header (per D12) reflects the orchestrator's
@@ -282,6 +302,7 @@ require escalation.
 ---
 
 ## 2.2 Episode Formats
+<!-- roles=orchestrator phases=3A,3B,3C summary="The three episode types (step completion, step failed, track episode) and their field sets; full rules elsewhere." -->
 
 Three episode types: **step completion** (`[x]`), **step failed** (`[!]`),
 and **track episode** (in plan file after user approval).
@@ -298,20 +319,21 @@ Episodes are immutable once written. Code is committed first, then the
 episode is written to the track file on disk. Episode length is proportional
 to cross-track impact. The labeled-bold-paragraph template is one of the
 template-bound shapes exempt from the house-style soft section length cap —
-see [`house-style.md § Structural rules`](../output-styles/house-style.md)
+see `house-style.md` § Structural rules
 "Section length cap exception" for the exemption clause and the
 padding-based finding criterion that applies to these blocks.
 
 **Full format, rules, and examples:**
-[`episode-format-reference.md`](episode-format-reference.md)
+episode-format-reference.md:orchestrator:3B,3C
 
 ---
 
 ## 2.3 Ephemeral identifier rule — pointer
+<!-- roles=implementer,final-designer phases=3B,3C,4 summary="Quick recap of the ephemeral-identifier rule plus the pre-commit gate regex; full rule in the dedicated file." -->
 
 The full rule (forbidden categories with examples, allowed list,
 rewrite examples, branch-only-commit exemption) lives in
-[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md). Load
+ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4. Load
 that file when about to author durable content — source code, tests,
 Javadoc, PR title/body, `design-final.md`, or `adr.md`.
 
@@ -330,11 +352,11 @@ Allowed: file paths, class/method/field names, commit SHAs,
 
 **The pre-commit gate is not a passive self-check.** The implementer
 sub-agent enforces this rule as a **hard gate** in sub-step 3 of
-[`implementer-rules.md`](implementer-rules.md) (§"Pre-commit gate,
+implementer-rules.md:implementer:3B,3C (§"Pre-commit gate,
 ephemeral-identifier check") before every `git commit` that
 touches paths outside `_workflow/` and `.claude/workflow/`; the
 same gate is mirrored in
-[`commit-conventions.md`](commit-conventions.md) §"Ephemeral-identifier
+commit-conventions.md:orchestrator,implementer:3A,3B,3C §"Ephemeral-identifier
 pre-commit gate" for ad-hoc commits outside `/execute-tracks`. Both
 sites carry the canonical procedure (regex, inspect-then-rewrite
 loop, contract-violation language); this stub does not duplicate
@@ -358,6 +380,7 @@ they are squashed away on merge.
 ---
 
 ## 2.4 Commit messages, code review, complexity, decomposition
+<!-- roles=orchestrator phases=3A,3B,3C summary="On-demand pointers to commit conventions, the code-review protocol, complexity tiers, and decomposition rules." -->
 
 These rules are needed only when their specific phase or action runs — not
 at session startup. Load on demand:
@@ -366,21 +389,21 @@ at session startup. Load on demand:
   conventions. Both code changes and workflow-file changes (under
   `_workflow/`) are committed during the branch lifetime; the
   `_workflow/` directory is removed in the Phase 4 cleanup commit
-  before merge (see §1.2 in `conventions.md` and `workflow.md`
+  before merge (see `§1.2` in `conventions.md` and `workflow.md`
   § Final Artifacts). Every commit is pushed immediately to the
   branch's draft PR for team visibility; see
-  [`commit-conventions.md`](commit-conventions.md) for the push rule
+  commit-conventions.md:orchestrator,implementer:3A,3B,3C for the push rule
   and the execution-specific prefixes (`Review fix:`) used during
-  session resume. The Ephemeral identifier rule (§2.3 stub above; full
-  rule in [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md))
+  session resume. The Ephemeral identifier rule (`§2.3` stub above; full
+  rule in ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4)
   applies to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
   sub-agent reviews, 4 baseline + up to 6 conditional + up to 6
   workflow-review, max 3 iterations):
-  [`code-review-protocol.md`](code-review-protocol.md).
+  code-review-protocol.md:orchestrator:3B,3C.
 - **Complexity tiers** (which pre-execution reviews to run for Simple /
   Moderate / Complex tracks): covered in
-  [`track-review.md`](track-review.md) §Complexity Assessment.
+  track-review.md:orchestrator:3A §Complexity Assessment.
 - **Checklist decomposition rules** (step sizing, cross-cutting concerns,
   parallel step annotation): covered in
-  [`track-review.md`](track-review.md) §Step Decomposition.
+  track-review.md:orchestrator,decomposer:3A §Step Decomposition.

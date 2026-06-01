@@ -1,9 +1,37 @@
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-technical.
+Your phase: 3A.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Workflow Context | reviewer-technical | 3A | Phase A terminology (track, step, episode, Decision Record) and where the track's detail lives during decomposition. |
+| §Semi-Formal Reasoning Protocol | reviewer-technical | 3A | Every codebase claim needs a documented evidence certificate; no assertion without reading the actual code. |
+| §Certificate requirements | reviewer-technical | 3A | Premise, edge-case, and integration certificate templates each track claim is verified against. |
+| §Rules for certificates | reviewer-technical | 3A | Search every premise, follow calls interprocedurally, trace edge cases to completion, document negative results. |
+| §Output Format | reviewer-technical | 3A | Two-part output: the evidence certificates first, then findings derived from them. |
+| §Part 1: Evidence Certificates | reviewer-technical | 3A | The evidence base: all premise, edge-case, and integration certificates in review-criteria order. |
+| §Part 2: Findings | reviewer-technical | 3A | Findings derived from non-confirmed certificates; each cites the certificate that produced it. |
+
+<!--Document index end-->
+
 You are reviewing ONE TRACK of an implementation plan for technical soundness.
 You MUST read the codebase to validate this track's assumptions.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
 ## Workflow Context
+<!-- roles=reviewer-technical phases=3A summary="Phase A terminology (track, step, episode, Decision Record) and where the track's detail lives during decomposition." -->
 
 You are a sub-agent spawned during **Phase A (Review + Decomposition)** of
 the execution workflow. The overall workflow has five phases: Phase 0
@@ -179,6 +207,7 @@ BACKWARD COMPATIBILITY
 - Are migrations needed that the plan doesn't mention?
 
 ## Semi-Formal Reasoning Protocol
+<!-- roles=reviewer-technical phases=3A summary="Every codebase claim needs a documented evidence certificate; no assertion without reading the actual code." -->
 
 This review requires **structured evidence certificates** for every claim
 about the codebase. You must not assert that an API exists, a component
@@ -187,6 +216,7 @@ from reading the actual code. This prevents assumptions like "this
 interface probably has that method" and catches subtle mismatches.
 
 ### Certificate requirements
+<!-- roles=reviewer-technical phases=3A summary="Premise, edge-case, and integration certificate templates each track claim is verified against." -->
 
 **For every component/API assumption verified**, produce:
 
@@ -236,6 +266,7 @@ interface probably has that method" and catches subtle mismatches.
 ```
 
 ### Rules for certificates
+<!-- roles=reviewer-technical phases=3A summary="Search every premise, follow calls interprocedurally, trace edge cases to completion, document negative results." -->
 
 - **Every premise requires a search.** Do not confirm an API exists
   because its name is plausible — and do not confirm a class exists
@@ -260,25 +291,30 @@ interface probably has that method" and catches subtle mismatches.
 ---
 
 ## Output Format
+<!-- roles=reviewer-technical phases=3A summary="Two-part output: the evidence certificates first, then findings derived from them." -->
 
 ### Part 1: Evidence Certificates
+<!-- roles=reviewer-technical phases=3A summary="The evidence base: all premise, edge-case, and integration certificates in review-criteria order." -->
 
 Include all certificate entries (Premise, Edge case, Integration) in
 order of review criteria. This is the evidence base.
 
 ### Part 2: Findings
+<!-- roles=reviewer-technical phases=3A summary="Findings derived from non-confirmed certificates; each cites the certificate that produced it." -->
 
 Derived from certificates. Each finding must reference the certificate
 entry that produced it.
 
 For each issue found, produce a finding:
 
+```markdown
 ### Finding T<N> [blocker|should-fix|suggestion]
 **Certificate**: <Premise/Edge case/Integration entry that produced this>
 **Location**: <where in the track + relevant source file(s)>
 **Issue**: <what's wrong, with evidence from the codebase>
 **Proposed fix**: <concrete change — may include modifying steps,
   updating the track description, adding decision records, etc.>
+```
 
 Severity guide:
 - blocker: Track will fail during execution (wrong API, missing component)

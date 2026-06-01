@@ -1,9 +1,37 @@
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-risk.
+Your phase: 3A.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Workflow Context | reviewer-risk | 3A | Phase A terminology (track, step, episode, Decision Record) and where the track's detail lives during decomposition. |
+| §Semi-Formal Reasoning Protocol | reviewer-risk | 3A | Every risk claim needs a documented certificate tracing the actual code path; no keyword pattern-matching. |
+| §Certificate requirements | reviewer-risk | 3A | Exposure, assumption, and testability certificate templates each risk claim is traced against. |
+| §Rules for certificates | reviewer-risk | 3A | Trace critical paths fully, document existing safeguards, back assumptions with code evidence, prior episodes count. |
+| §Output Format | reviewer-risk | 3A | Two-part output: the evidence certificates first, then findings derived from them. |
+| §Part 1: Evidence Certificates | reviewer-risk | 3A | The evidence base: all exposure, assumption, and testability certificates grouped by review criterion. |
+| §Part 2: Findings | reviewer-risk | 3A | Findings derived from the certificates; each cites the certificate that produced it. |
+
+<!--Document index end-->
+
 You are reviewing ONE TRACK of an implementation plan for risks and
 feasibility. You MUST read the codebase to assess risk realistically.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
 ## Workflow Context
+<!-- roles=reviewer-risk phases=3A summary="Phase A terminology (track, step, episode, Decision Record) and where the track's detail lives during decomposition." -->
 
 You are a sub-agent spawned during **Phase A (Review + Decomposition)** of
 the execution workflow. The overall workflow has five phases: Phase 0
@@ -127,6 +155,7 @@ ROLLBACK & RECOVERY
 - Are there irreversible state changes?
 
 ## Semi-Formal Reasoning Protocol
+<!-- roles=reviewer-risk phases=3A summary="Every risk claim needs a documented certificate tracing the actual code path; no keyword pattern-matching." -->
 
 This review requires **structured evidence certificates** for every risk
 claim. You must not assert that something is risky without tracing the
@@ -135,6 +164,7 @@ pattern-matching on keywords ("WAL" → "must be risky") and catches cases
 where existing safeguards already mitigate the perceived risk.
 
 ### Certificate requirements
+<!-- roles=reviewer-risk phases=3A summary="Exposure, assumption, and testability certificate templates each risk claim is traced against." -->
 
 **For every critical path exposure assessed**, produce:
 
@@ -180,6 +210,7 @@ where existing safeguards already mitigate the perceived risk.
 ```
 
 ### Rules for certificates
+<!-- roles=reviewer-risk phases=3A summary="Trace critical paths fully, document existing safeguards, back assumptions with code evidence, prior episodes count." -->
 
 - **Trace critical paths fully.** Do not claim blast radius without tracing
   the callers. A method that looks critical may be called from only one
@@ -197,25 +228,30 @@ where existing safeguards already mitigate the perceived risk.
 ---
 
 ## Output Format
+<!-- roles=reviewer-risk phases=3A summary="Two-part output: the evidence certificates first, then findings derived from them." -->
 
 ### Part 1: Evidence Certificates
+<!-- roles=reviewer-risk phases=3A summary="The evidence base: all exposure, assumption, and testability certificates grouped by review criterion." -->
 
 Include all certificate entries (Exposure, Assumption, Testability)
 grouped by review criterion. This is the evidence base.
 
 ### Part 2: Findings
+<!-- roles=reviewer-risk phases=3A summary="Findings derived from the certificates; each cites the certificate that produced it." -->
 
 Derived from certificates. Each finding must reference the certificate
 entry that produced it.
 
 For each issue found, produce a finding:
 
+```markdown
 ### Finding R<N> [blocker|should-fix|suggestion]
 **Certificate**: <Exposure/Assumption/Testability entry that produced this>
 **Location**: <where in the track + relevant source/test file(s)>
 **Issue**: <the risk, with likelihood and impact assessment>
 **Proposed fix**: <mitigation — reorder steps, add verification steps,
   note the risk explicitly, etc.>
+```
 
 Severity guide:
 - blocker: High likelihood of failure with no obvious recovery

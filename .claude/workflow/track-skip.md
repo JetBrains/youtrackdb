@@ -1,5 +1,15 @@
 # Track Skip Protocol
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Process | orchestrator | 3A | Confirm with the user, write the skip record, delete the track file, and treat [~] like [x] at Pre-Flight. |
+| §When skip happens during Phase A | orchestrator | 3A | Write the [~] marker and skip record, delete the track file, and continue the session per the Pre-Flight state. |
+| §When skip happens at session start (user override) | orchestrator | 3A | On a session-start skip, write the marker, delete the track file, and continue normal startup for the next track. |
+
+<!--Document index end-->
+
 A track can be skipped (`[~]`) in two situations:
 
 1. **Phase A review recommends skip** — a review sub-agent returns a `skip`
@@ -8,7 +18,7 @@ A track can be skipped (`[~]`) in two situations:
 2. **User requests skip** — the user overrides at session start or during
    the Track Pre-Flight gate (e.g., "skip Track 4, we don't need it
    anymore"). When a skip is requested via a Pre-Flight review-mode
-   `SKIP_TRACK` item (see [`review-mode.md`](review-mode.md)
+   `SKIP_TRACK` item (see review-mode.md:orchestrator:3A,3C
    § Action types — `SKIP_TRACK` carries `{track_index, reason}`
    and on Apply runs the full Process below):
    - If the skip would shift which track is "next", re-render
@@ -21,12 +31,13 @@ A track can be skipped (`[~]`) in two situations:
      the in-progress skip's `**Skipped:**` reason as the just-
      skipped-track signal. Re-render both panels before re-asking.
 
-   See [`track-review.md`](track-review.md) § Track Pre-Flight for
+   See track-review.md:orchestrator:3A § Track Pre-Flight for
    the full panel-rendering contract.
 
 ---
 
 ## Process
+<!-- roles=orchestrator phases=3A summary="Confirm with the user, write the skip record, delete the track file, and treat [~] like [x] at Pre-Flight." -->
 
 1. **Get user confirmation.** A track is never skipped autonomously — the
    agent always presents the rationale and waits for the user to confirm.
@@ -44,11 +55,11 @@ A track can be skipped (`[~]`) in two situations:
    ```
 
    The plan entry holds only the intro paragraph. The track file's
-   `## Purpose / Big Picture` (intro paragraph), `## Context and
-   Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`,
-   and any track-level Mermaid diagram (which lives in `## Context
-   and Orientation`) live in the track file (`plan/track-N.md`) and
-   are removed in step 3 below.
+   `## Purpose / Big Picture` (intro paragraph),
+   `## Context and Orientation`, `## Plan of Work`,
+   `## Interfaces and Dependencies`, and any track-level Mermaid
+   diagram (which lives in `## Context and Orientation`) live in the
+   track file (`plan/track-N.md`) and are removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
    step 4 below — this process step must not diverge from that rule.
@@ -89,7 +100,7 @@ A track can be skipped (`[~]`) in two situations:
    `**Strategy refresh:**` line indefinitely. It is **never trimmed
    by the Phase C collapse pass**: Phase C collapse only runs against
    `[x]` tracks at track completion (see
-   [`track-code-review.md`](track-code-review.md) § Track Completion
+   track-code-review.md:orchestrator:3C § Track Completion
    step 4); skipped tracks bypass that pass entirely. The track
    file's `## Purpose / Big Picture` (intro paragraph), `## Context
    and Orientation`, `## Plan of Work`, `## Interfaces and
@@ -101,6 +112,7 @@ A track can be skipped (`[~]`) in two situations:
 ---
 
 ## When skip happens during Phase A
+<!-- roles=orchestrator phases=3A summary="Write the [~] marker and skip record, delete the track file, and continue the session per the Pre-Flight state." -->
 
 If the skip is decided during Phase A (review sub-agent recommends it and
 user confirms):
@@ -118,6 +130,7 @@ user confirms):
 ---
 
 ## When skip happens at session start (user override)
+<!-- roles=orchestrator phases=3A summary="On a session-start skip, write the marker, delete the track file, and continue normal startup for the next track." -->
 
 If the user says "skip Track N" at session start:
 

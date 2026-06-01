@@ -1,5 +1,34 @@
 # Cold-Read Comprehension Review (Sub-Agent Prompt)
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-design.
+Your phase: 1,4.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
+| §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
+| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
+| §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
+| §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
+| §Structural findings (always check) | reviewer-design | 1,4 | Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics. |
+| §Output format | reviewer-design | 1,4 | The exact comprehension-assessment, mental-model verdict, structural-findings, and suggested-fixes Markdown to emit. |
+| §Severity rubric | reviewer-design | 1,4 | Blocker, should-fix, and suggestion definitions, with the length-tier thresholds that set should-fix vs blocker. |
+| §Tone and depth | reviewer-design | 1,4 | One-sentence answers, cite don't paraphrase, flag insufficiency, no intent-speculation; human-reader rules excepted. |
+
+<!--Document index end-->
+
 Fresh agent reading a design document cold. Assess whether a human
 reviewer could build a working mental model **using only the
 document(s) provided**. Invoked by the design-mutation action
@@ -7,6 +36,7 @@ document(s) provided**. Invoked by the design-mutation action
 iterate / warn / pass.
 
 ## Inputs
+<!-- roles=reviewer-design phases=1,4 summary="The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer." -->
 
 - `design_path` — `design.md`.
 - `design_mechanics_path` (optional) — `design-mechanics.md` when
@@ -25,13 +55,14 @@ iterate / warn / pass.
   carrying `**Full design**` refs; read **only** for link resolution.
 
 ### Mutation-kind specific instructions
+<!-- roles=reviewer-design phases=1,4 summary="Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts." -->
 
 - **`phase1-creation`**: `design.md` and `design-mechanics.md`
-  were just seeded together. The design.md serves both human
+  were just seeded together. The `design.md` serves both human
   readers (the user reviewing the plan, the architect during
   structural review, the PR reviewer reading the draft) and
   agent readers (the implementer executing the plan). Verify
-  (a) the design.md is internally coherent on its own (a fresh
+  (a) the `design.md` is internally coherent on its own (a fresh
   reader can navigate it); (b) every
   `Mechanics: design-mechanics.md §"…"` link resolves to a
   matching section in mechanics. **Plus the Human-reader
@@ -41,7 +72,7 @@ iterate / warn / pass.
   standard whole-doc cold-read**, verify that every TL;DR and
   mechanism overview in `design.md` accurately summarizes the
   current mechanics file's content for the same-named section. If
-  the design.md TL;DR contradicts the mechanics, or names a
+  the `design.md` TL;DR contradicts the mechanics, or names a
   mechanism that mechanics doesn't describe, flag it as a blocker
   — that's exactly what the sync was supposed to fix. **Plus the
   Human-reader cold-read additions (§ below).**
@@ -75,6 +106,7 @@ iterate / warn / pass.
       prose.
 
 ### Human-reader cold-read additions
+<!-- roles=reviewer-design phases=1,4 summary="Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence." -->
 
 Applies to `phase1-creation`, `phase4-creation`, `design-sync`. In
 addition to the standard cold-read, verify:
@@ -89,6 +121,7 @@ rule in § Tone and depth: quote the prose, list undefined terms, name the
 audience the prose fails, and (for navigability) the opaque section.
 
 ## Reading rules
+<!-- roles=reviewer-design phases=1,4 summary="Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand." -->
 
 - **Only the files above** — no source code, prior conversation, or other workflow files.
 - **Bounded scope**: changed section + 1-2 surrounding + `## Overview` + (when present) `## Core Concepts`; open mechanics only for a specific `Mechanics:` link.
@@ -97,6 +130,7 @@ audience the prose fails, and (for navigability) the opaque section.
 - **`house-style.md` reads**: read only the cited `§ <heading>` section using grep + targeted Read (offset/limit). Never load the file whole and never pre-load all cited sections; fetch a section only when a finding is forming.
 
 ## Comprehension questions
+<!-- roles=reviewer-design phases=1,4 summary="Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding." -->
 
 Answer in order; **cite the paragraph(s) you relied on** (quoted
 phrase or section + anchor). Insufficient material is itself a finding.
@@ -121,6 +155,7 @@ phrase or section + anchor). Insufficient material is itself a finding.
    it?** Use the References footer / `Mechanics:` cross-ref.
 
 ## Structural findings (always check)
+<!-- roles=reviewer-design phases=1,4 summary="Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics." -->
 
 - Verify **Edge cases / Gotchas** per `.claude/output-styles/house-style.md § Edge cases sub-section required`.
 - Verify **References footer** per `.claude/output-styles/house-style.md § References footer shape`.
@@ -132,6 +167,7 @@ phrase or section + anchor). Insufficient material is itself a finding.
 - Mechanical checks live in `.claude/scripts/design-mechanical-checks.py`; see `design-document-rules.md § Mechanical checks` for the rule contracts.
 
 ## Output format
+<!-- roles=reviewer-design phases=1,4 summary="The exact comprehension-assessment, mental-model verdict, structural-findings, and suggested-fixes Markdown to emit." -->
 
 Produce exactly the following Markdown, no preamble:
 
@@ -184,6 +220,7 @@ attempt the fix automatically.>
 ```
 
 ## Severity rubric
+<!-- roles=reviewer-design phases=1,4 summary="Blocker, should-fix, and suggestion definitions, with the length-tier thresholds that set should-fix vs blocker." -->
 
 - **blocker** — comprehension fails, mechanical violation corrupts
   cross-refs, or section lacks TL;DR / References footer / shape.
@@ -192,6 +229,7 @@ attempt the fix automatically.>
 - **suggestion** — non-rule-mandated improvement.
 
 ## Tone and depth
+<!-- roles=reviewer-design phases=1,4 summary="One-sentence answers, cite don't paraphrase, flag insufficiency, no intent-speculation; human-reader rules excepted." -->
 
 - One-sentence answers where one suffices. **Exception**: the four Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions).
 - Cite, don't paraphrase.

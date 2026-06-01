@@ -1,15 +1,47 @@
 # Review Mode
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §What review mode does | orchestrator,reviewer-plan,reviewer-dim-track | 2,3A,3C | Refines a gate decision through a conversational accept/edit loop. |
+| §Conversational tone (load-bearing) | orchestrator | 2,3A,3C | The tone the orchestrator must adopt while accumulating observations. |
+| §Approval-panel contract | orchestrator | 2,3A,3C | What the approval panel must show before any change is applied. |
+| §Flow | orchestrator | 2,3A,3C | The end-to-end accumulate-detect-render-execute sequence. |
+| §1. Accumulate observations across turns | orchestrator | 2,3A,3C | Collecting user observations into a buffer over multiple turns. |
+| §Buffer mutation grammar | orchestrator | 2,3A,3C | Grammar for adding, editing, and removing buffered observations. |
+| §2. Detect the completion signal | orchestrator | 2,3A,3C | Recognizing when the user is ready to apply the buffer. |
+| §3. Render the approval panel | orchestrator | 2,3A,3C | Showing the consolidated change set for approval. |
+| §4. Empty buffer at completion signal | orchestrator | 2,3A,3C | Handling a completion signal with nothing buffered. |
+| §5. Execute (only on Apply) | orchestrator | 2,3A,3C | Applying buffered changes only after explicit approval. |
+| §6. Re-render the gate's approval panel | orchestrator | 2,3A,3C | Re-showing the gate panel after changes land. |
+| §Action types | orchestrator | 2,3A,3C | The set of buffered actions: edit plan, edit step, escalate, and others. |
+| §Validation | orchestrator | 2,3A,3C | Checks run before applying buffered actions. |
+| §PSI-verify named classes | orchestrator | 2,3A,3C | Confirming class names in actions resolve via PSI when reachable. |
+| §mcp-steroid state handling | orchestrator | 2,3A,3C | Behavior when the IDE is or is not reachable during validation. |
+| §PSI-verify failure path | orchestrator | 2,3A,3C | What to do when a PSI name check fails. |
+| §Dependency validity for `EDIT_PLAN` reorders | orchestrator | 2,3A,3C | Keeping track dependencies consistent when reordering the plan. |
+| §Anchor-section gate for `EDIT_PLAN` / `EDIT_STEP_DESC` | orchestrator | 2,3A,3C | Requiring a stable anchor section before editing plan or step text. |
+| §Mixed-set policy | orchestrator | 2,3A,3C | Handling a buffer that mixes mechanical and design-decision actions. |
+| §ESCALATE detection | orchestrator | 3A,3C | Spotting an observation that requires inline replanning. |
+| §Question / clarification distinction (Pre-Flight only) | orchestrator | 3A | Separating a user question from an actionable change during Pre-Flight. |
+| §Completion FIX_FINDING outcome mapping | orchestrator | 3C | Mapping a completion-time fix request to a review-finding outcome. |
+| §State and resume | orchestrator | 2,3A,3C | Persisting buffer state so review mode survives a session boundary. |
+| §Off-panel responses | orchestrator | 2,3A,3C | Handling user replies that fall outside the approval panel options. |
+
+<!--Document index end-->
+
 Shared protocol for refining a gate decision through normal
 conversation. Both Track Pre-Flight (see
-[`track-review.md`](track-review.md) § Track Pre-Flight) and Track
-Completion (see [`track-code-review.md`](track-code-review.md)
+track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A § Track Pre-Flight) and Track
+Completion (see track-code-review.md:orchestrator,reviewer-dim-track:3C
 § Track Completion) load this when the user picks **Review mode**
 on the gate's approval panel.
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:any:any `§1.5` for the workflow-level anchor and tier mapping.
 
 ## What review mode does
+<!-- roles=orchestrator,reviewer-plan,reviewer-dim-track phases=2,3A,3C summary="Refines a gate decision through a conversational accept/edit loop." -->
 
 Gives the user a conversational refinement channel after a gate
 presents its results. The user drops observations, questions, or
@@ -24,6 +56,7 @@ observation) is the audit surface that keeps the user able to
 see everything that will happen before it happens.
 
 ## Conversational tone (load-bearing)
+<!-- roles=orchestrator phases=2,3A,3C summary="The tone the orchestrator must adopt while accumulating observations." -->
 
 The orchestrator never narrates the protocol's internal
 structure to the user. The user-facing voice is plain chat;
@@ -59,6 +92,7 @@ type labels (`FIX_FINDING`, `QUESTION`, `ESCALATE`, etc.) and
   approval panel.
 
 ## Approval-panel contract
+<!-- roles=orchestrator phases=2,3A,3C summary="What the approval panel must show before any change is applied." -->
 
 Both gates render their initial approval with the same three
 one-step options. This is the only `AskUserQuestion` call the
@@ -74,7 +108,7 @@ user signals completion.
 - **Review mode**: enter the conversational refinement loop
   below.
 - **ESCALATE**: route to
-  [`inline-replanning.md`](inline-replanning.md).
+  inline-replanning.md:orchestrator:3A,3C.
 
 Pre-Flight's Panel 1 ESCALATE sub-panel (Accept escalation /
 Override, see `track-review.md` § Track Pre-Flight step 1) is
@@ -82,8 +116,10 @@ independent of this contract and unchanged — it is already a
 single one-step decision.
 
 ## Flow
+<!-- roles=orchestrator phases=2,3A,3C summary="The end-to-end accumulate-detect-render-execute sequence." -->
 
 ### 1. Accumulate observations across turns
+<!-- roles=orchestrator phases=2,3A,3C summary="Collecting user observations into a buffer over multiple turns." -->
 
 After the user picks **Review mode**, open the conversation: one
 brief sentence inviting input, no template, no fields, no panel.
@@ -138,6 +174,7 @@ items already in the buffer (during accumulation or after
 Refine), see § Buffer mutation grammar below.
 
 ### Buffer mutation grammar
+<!-- roles=orchestrator phases=2,3A,3C summary="Grammar for adding, editing, and removing buffered observations." -->
 
 A new observation can supersede or remove a prior buffered item
 without going through the panel. The rules apply uniformly
@@ -185,6 +222,7 @@ ESCALATE keyword detection — those fire on what's added, not on
 what's removed.
 
 ### 2. Detect the completion signal
+<!-- roles=orchestrator phases=2,3A,3C summary="Recognizing when the user is ready to apply the buffer." -->
 
 After every user message, check whether it carries a signal that
 the user is done observing. The check runs after classification
@@ -255,6 +293,7 @@ empty the buffer and return to the gate's approval panel
 accumulation loop with the buffer intact.
 
 ### 3. Render the approval panel
+<!-- roles=orchestrator phases=2,3A,3C summary="Showing the consolidated change set for approval." -->
 
 This is the **only** approval panel review mode shows. It renders
 once per round, when § 2 detects a completion signal. The panel
@@ -331,6 +370,7 @@ Off-panel chat replies on this panel route to implicit Refine
 (buffer-preserving) — see § Off-panel responses.
 
 ### 4. Empty buffer at completion signal
+<!-- roles=orchestrator phases=2,3A,3C summary="Handling a completion signal with nothing buffered." -->
 
 If § 2's signal fires when the buffer has no items (the user
 entered review mode and immediately said "apply" / "ok done" /
@@ -352,6 +392,7 @@ but the user gets the audit-trail render and explicitly closes
 the round.
 
 ### 5. Execute (only on Apply)
+<!-- roles=orchestrator phases=2,3A,3C summary="Applying buffered changes only after explicit approval." -->
 
 **Apply preflight (dry-run every item before any side effect).**
 Before running the first side-effecting item, validate each item
@@ -401,7 +442,7 @@ For each type:
 
 - `EDIT_PLAN` / `EDIT_STEP_DESC`: apply via `Edit` (single site)
   or `steroid_apply_patch` (>2 sites).
-- `SKIP_TRACK`: run the full [`track-skip.md`](track-skip.md)
+- `SKIP_TRACK`: run the full track-skip.md:orchestrator:3A
   § Process for `track_index` — write the `[~]` marker plus
   `**Skipped:** <reason>` line in the plan entry, then delete
   `plan/track-<index>.md`. Track-file deletion is terminal per
@@ -452,6 +493,7 @@ amended the plan file. On any such failure:
   drop, or retry on the next round.
 
 ### 6. Re-render the gate's approval panel
+<!-- roles=orchestrator phases=2,3A,3C summary="Re-showing the gate panel after changes land." -->
 
 After Apply completes, the gate rebuilds its presentation from the
 now-updated files and re-renders the three-option approval panel
@@ -496,6 +538,7 @@ stashed description verbatim. The block stays visible across
 subsequent re-renders until the slot clears.
 
 ## Action types
+<!-- roles=orchestrator phases=2,3A,3C summary="The set of buffered actions: edit plan, edit step, escalate, and others." -->
 
 Items the orchestrator classifies user input into. Types are
 internal — they appear in the final approval panel render but
@@ -505,7 +548,7 @@ never in mid-conversation messages.
 |---|---|---|---|
 | `QUESTION` | Question text + orchestrator's answer (resolved at accumulation time by reading conversation context, git log, step / track episodes, plan file, and source code as needed; surfaced inline as plain chat) | None — already answered inline | Both gates |
 | `EDIT_PLAN` | Path + anchor + new text. Light edits to a remaining track's plan-file entry: title, intro paragraph, scope indicators, or reorder of remaining `[ ]` tracks | Apply via `Edit` for single-site text changes (title, intro, scope) or via `steroid_apply_patch` for >2 sites **and for any reorder** (a move is a remove + insert pair and must land atomically — two chained `Edit` calls are not atomic). See `track-review.md` § Track Pre-Flight step 4 | Pre-Flight only |
-| `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full [`track-skip.md`](track-skip.md) § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `plan/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
+| `SKIP_TRACK` | `{track_index, reason}`. `reason` is required and must be non-empty — Panel 1 reads it as the next session's just-skipped signal. If the user did not supply a reason inline, the orchestrator asks for one conversationally before the item enters the buffer | Run the full track-skip.md:orchestrator:3A § Process for `track_index`: mark `[~]`, write `**Skipped:** <reason>` line in the plan entry, delete `plan/track-<index>.md` (terminal per `track-skip.md` step 3). Re-render rules in § 6 above | Pre-Flight only |
 | `EDIT_STEP_DESC` | Path + anchor + new text. Light edits to the upcoming track's track file's four Phase 1 track-level sections (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) including any embedded `mermaid` diagram | Apply via `Edit` / `steroid_apply_patch` as above | Pre-Flight only |
 | `CLARIFY` | Note text targeting the upcoming track | Appended to the in-conversation clarifications buffer; persisted to the track file's `### Clarifications` subsection on the gate's final Approve per `track-review.md` § Track Pre-Flight step 6 | Pre-Flight only |
 | `FIX_FINDING` | `{location, issue, proposed fix}` triple | Collected into a synthesised findings list; on Apply completion, a fresh implementer is spawned with `level=track`, `mode=FIX_REVIEW_FINDINGS` per `track-code-review.md` § Track Completion step 3 | Completion only |
@@ -516,6 +559,7 @@ from what the user said, so the approval panel can show what the
 orchestrator believes the user meant.
 
 ## Validation
+<!-- roles=orchestrator phases=2,3A,3C summary="Checks run before applying buffered actions." -->
 
 Validation runs silently during accumulation. Failures are
 surfaced inline in chat (§ 1 steps 2 and 5) where possible — only
@@ -523,6 +567,7 @@ items the user explicitly chose to keep despite the failure carry
 a `⚠`-warning through to the approval panel.
 
 ### PSI-verify named classes
+<!-- roles=orchestrator phases=2,3A,3C summary="Confirming class names in actions resolve via PSI when reachable." -->
 
 Find-class every production-class name appearing in any
 `EDIT_PLAN`, `EDIT_STEP_DESC`, or `FIX_FINDING` payload via
@@ -532,13 +577,14 @@ construct the FQN from package context when the user supplied only
 a short name — `findClass` returns null on bare short names.
 
 The verification mechanism is the orchestrator-side complement to
-the pre-write rule in [`track-review.md`](track-review.md)
+the pre-write rule in track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A
 § Pre-write rule. Review mode is the **interactive** counterpart —
 when a name fails to resolve, the orchestrator asks the user in
 chat for clarification before the item enters the buffer, instead
 of an autonomous hard-stop.
 
 ### mcp-steroid state handling
+<!-- roles=orchestrator phases=2,3A,3C summary="Behavior when the IDE is or is not reachable during validation." -->
 
 Matches `track-review.md` § Pre-write rule.
 
@@ -549,6 +595,7 @@ Matches `track-review.md` § Pre-write rule.
 | **Unreachable** | Fall back to `find . -name '<ClassName>.java'` and tag the item with a `(grep-fallback)` caveat that survives to the approval panel render. |
 
 ### PSI-verify failure path
+<!-- roles=orchestrator phases=2,3A,3C summary="What to do when a PSI name check fails." -->
 
 If PSI-verify reports a name does not resolve and the proposed
 payload does not explicitly mark it as a class the action creates:
@@ -582,6 +629,7 @@ inline: *"I couldn't find a class named `<name>` — did you mean
   "drop it" outcome).
 
 ### Dependency validity for `EDIT_PLAN` reorders
+<!-- roles=orchestrator phases=2,3A,3C summary="Keeping track dependencies consistent when reordering the plan." -->
 
 For any `EDIT_PLAN` item whose payload reorders the plan
 checklist (changes the position of one or more remaining `[ ]`
@@ -613,6 +661,7 @@ scope indicator edit) skip this check — they do not change the
 order of remaining tracks.
 
 ### Anchor-section gate for `EDIT_PLAN` / `EDIT_STEP_DESC`
+<!-- roles=orchestrator phases=2,3A,3C summary="Requiring a stable anchor section before editing plan or step text." -->
 
 The orchestrator's keyword-based ESCALATE detection
 (§ ESCALATE detection) catches deep amendments by what the user
@@ -670,6 +719,7 @@ The user gets one chance to keep it light, but the panel renders
 the override explicitly so it's visible at Apply time.
 
 ## Mixed-set policy
+<!-- roles=orchestrator phases=2,3A,3C summary="Handling a buffer that mixes mechanical and design-decision actions." -->
 
 If the buffer contains an `ESCALATE` item alongside any other
 items (any `QUESTION` / `EDIT_*` / `SKIP_TRACK` / `CLARIFY` /
@@ -700,6 +750,7 @@ mid-flight to inline replanning, leaving a partial state that is
 hard to interpret on resume.
 
 ## ESCALATE detection
+<!-- roles=orchestrator phases=3A,3C summary="Spotting an observation that requires inline replanning." -->
 
 The orchestrator classifies an item as `ESCALATE` when the user's
 input names any of the deep-amendment categories from
@@ -732,6 +783,7 @@ would land*). The two run in parallel; either is sufficient to
 prompt the conversational pause.
 
 ## Question / clarification distinction (Pre-Flight only)
+<!-- roles=orchestrator phases=3A summary="Separating a user question from an actionable change during Pre-Flight." -->
 
 `QUESTION` and `CLARIFY` are easy to confuse on Pre-Flight. The
 orchestrator splits user input by intent:
@@ -759,10 +811,11 @@ Completion are typically `FIX_FINDING` items ("change X to handle
 the case I just noticed").
 
 ## Completion FIX_FINDING outcome mapping
+<!-- roles=orchestrator phases=3C summary="Mapping a completion-time fix request to a review-finding outcome." -->
 
 Completion `FIX_FINDING` Apply spawns an implementer with
 `level=track`, `mode=FIX_REVIEW_FINDINGS` per
-[`track-code-review.md`](track-code-review.md) § Track Completion
+track-code-review.md:orchestrator,reviewer-dim-track:3C § Track Completion
 step 3. This section defines what each of the four implementer
 return statuses means for review-mode's three-option re-render at
 Completion.
@@ -802,7 +855,7 @@ directly:
   ESCALATE.
 - **`DESIGN_DECISION`** (implementer returned a deferred design
   decision rather than a fix). Invoke
-  [`design-decision-escalation.md`](design-decision-escalation.md)
+  design-decision-escalation.md:implementer,orchestrator:3A,3B,3C
   to walk the user through the alternatives. Treat the chosen
   alternative as a new `FIX_FINDING` and re-enter the Review-mode
   loop with that item pre-seeded in the accumulation buffer — the
@@ -821,6 +874,7 @@ directly:
   than routing as implicit Refine — see § Off-panel responses.
 
 ## State and resume
+<!-- roles=orchestrator phases=2,3A,3C summary="Persisting buffer state so review mode survives a session boundary." -->
 
 Review mode runs entirely in-conversation until **Apply**.
 Crashes during accumulation (§ 1), completion signalling (§ 2),
@@ -857,7 +911,7 @@ split by gate:
   re-render **always** re-reads `git diff {base_commit}..HEAD`
   and re-compiles the track episode against the current HEAD
   before presenting the three-option panel — see
-  [`track-code-review.md`](track-code-review.md) § Track Completion
+  track-code-review.md:orchestrator,reviewer-dim-track:3C § Track Completion
   step 3 for the rule and its single code path shared between
   initial render, post-Apply re-render, and resume. This subsumes
   the prior-session-orphan-commit case.
@@ -867,6 +921,7 @@ carry the state forward per the caller's existing persistence
 rules. Review mode owns no durable state of its own.
 
 ## Off-panel responses
+<!-- roles=orchestrator phases=2,3A,3C summary="Handling user replies that fall outside the approval panel options." -->
 
 `AskUserQuestion` panels can be dismissed without picking an
 option — the user types a chat reply instead. The conversational

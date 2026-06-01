@@ -1,17 +1,40 @@
 # Finding Synthesis Recipe
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Step 1 — Deduplicate across dimensions | orchestrator | 3B,3C | Merge raw findings across reviewer framings using a four-level pivot key (file:line, issue shape, fix shape, severity). |
+| §Pivot order | orchestrator | 3B,3C | Walk raw findings in dimension order, keying on file:line, then issue shape, then fix shape, then strictest severity. |
+| §Worked example — 5-way `Thread.sleep` dedup | orchestrator | 3B,3C | A worked 5-way dedup collapsing one polling-loop site into a single blocker finding row. |
+| §Step 2 — Assign severity to singletons | orchestrator | 3B,3C | Singletons keep their severity unless it conflicts with the standard scale; log an OVERRIDE when up- or downgrading. |
+| §Step 3 — Bucket the deduped list | orchestrator | 3B,3C | Sort each merged finding into in-scope-now, next-iteration, or plan-correction buckets; guidance can override. |
+| §In-scope, this iteration | orchestrator | 3B,3C | All blockers plus correctness/crash-safety/CI-hang should-fixes and small fixes fitting the pre-spawn budget. |
+| §In-scope, next iteration | orchestrator | 3B,3C | Style/naming/boundary should-fixes, cleanup depending on this iteration's fixes, and budget-displaced items. |
+| §Deferred — plan correction or episode note | orchestrator | 3B,3C | Out-of-track suggestions and over-scope refactors route to plan corrections; log a DROP for re-read out-of-scope items. |
+| §Step 4 — Pre-spawn budget check | orchestrator | 3B,3C | The ~15-finding / ~10-file ceiling, the 8–12 target, when to split vs accept a larger spawn, and high-volume handoff. |
+| §Why the headroom matters | orchestrator | 3B,3C | Aim for 8–12 findings touching ≤6–8 files: per-test re-runs, gate-check carry-overs, and message-budget margin. |
+| §Splitting vs accepting a larger spawn | orchestrator | 3B,3C | Split over-12-finding sets by severity, but accept a larger spawn for independent small fixes or atomic refactors. |
+| §High-volume synthesis and handoff | orchestrator | 3B,3C | When the binary split cascades (≳24 findings), let the context-consumption gate fire the handoff, not a user prompt. |
+| §Step 5 — Output format | orchestrator | 3B,3C | The canonical synthesised-findings output: in-scope, deferred, plan-correction sections plus the audit trail. |
+| §Gate-check synthesis | orchestrator | 3B,3C | Map gate-check verdicts to forward/drop actions, fold in New findings, then run Steps 1–4 over the union. |
+| §Verdict-to-action mapping | orchestrator | 3B,3C | VERIFIED/REJECTED/MOOT drop, STILL OPEN forwards verbatim, REGRESSION escalates to blocker and forces FAIL. |
+| §Dedup and termination | orchestrator | 3B,3C | REGRESSION rows never merge and forward standalone; an empty post-Steps-1–4 list returns PASS and exits the loop. |
+
+<!--Document index end-->
+
 Shared procedure for collapsing a multi-agent dimensional review
 fan-out into a single, deduplicated, iteration-ready findings list.
 
 **Load on demand** at every synthesis call site:
 
-- [`track-code-review.md`](track-code-review.md) §Synthesis (Phase C
+- track-code-review.md:orchestrator:3C §Synthesis (Phase C
   track-level review — initial spawn and the post-gate-check
   re-synthesis).
-- [`step-implementation.md`](step-implementation.md) §Per-Step
+- step-implementation.md:orchestrator:3B §Per-Step
   Orchestration Loop sub-step 4(b) (Phase B `risk: high` step-level
   review).
-- [`review-iteration.md`](review-iteration.md) §Gate-check synthesis
+- review-iteration.md:orchestrator:3B,3C §Gate-check synthesis
   routing (re-run on aggregated gate-check `New findings` blocks
   before composing the next implementer input).
 
@@ -20,7 +43,7 @@ Synthesis produces three outputs, in this order:
 1. A unified list of distinct findings, each annotated with the
    dimension(s) that flagged it.
 2. A severity per finding (`blocker` / `should-fix` / `suggestion`,
-   per [`review-iteration.md`](review-iteration.md) §Severity levels).
+   per review-iteration.md:orchestrator:2,3A,3B,3C §Severity levels).
 3. A split into **in-scope this iteration**, **deferred to next
    iteration**, and **plan correction / out-of-track** buckets.
 
@@ -40,6 +63,7 @@ and signal PASS to the caller. Do not respawn the implementer.
 ---
 
 ## Step 1 — Deduplicate across dimensions
+<!-- roles=orchestrator phases=3B,3C summary="Merge raw findings across reviewer framings using a four-level pivot key (file:line, issue shape, fix shape, severity)." -->
 
 When the fan-out is wide (baseline 4 + at least 2 conditional groups,
 typical for any track that touches storage or perf-sensitive paths),
@@ -55,6 +79,7 @@ a slow-test smell (`review-test-structure`), and as poor style
 propose the same fix shape (await the condition instead of polling).
 
 ### Pivot order
+<!-- roles=orchestrator phases=3B,3C summary="Walk raw findings in dimension order, keying on file:line, then issue shape, then fix shape, then strictest severity." -->
 
 Each level breaks ties for the level above. Walk the raw findings
 once in dimension order (baseline first, then conditional, then
@@ -92,6 +117,7 @@ shape for the merge decision.
    the gate-check fan-out re-runs only the implicated reviewers.
 
 ### Worked example — 5-way `Thread.sleep` dedup
+<!-- roles=orchestrator phases=3B,3C summary="A worked 5-way dedup collapsing one polling-loop site into a single blocker finding row." -->
 
 Raw findings, condensed:
 
@@ -126,10 +152,11 @@ needed. The Step 5 output carries M1 as the sole entry in the
 ---
 
 ## Step 2 — Assign severity to singletons
+<!-- roles=orchestrator phases=3B,3C summary="Singletons keep their severity unless it conflicts with the standard scale; log an OVERRIDE when up- or downgrading." -->
 
 Findings that survive Step 1 as singletons keep their original
 severity unless it conflicts with the standard scale in
-[`review-iteration.md`](review-iteration.md) §Severity levels:
+review-iteration.md:orchestrator:2,3A,3B,3C §Severity levels:
 
 - **blocker**: must fix before merge — bugs, security vulns, crash
   safety, data corruption, tests giving false confidence, CI-hang
@@ -151,10 +178,12 @@ log the same `OVERRIDE` entry.
 ---
 
 ## Step 3 — Bucket the deduped list
+<!-- roles=orchestrator phases=3B,3C summary="Sort each merged finding into in-scope-now, next-iteration, or plan-correction buckets; guidance can override." -->
 
 For each merged finding, choose one of three buckets:
 
 ### In-scope, this iteration
+<!-- roles=orchestrator phases=3B,3C summary="All blockers plus correctness/crash-safety/CI-hang should-fixes and small fixes fitting the pre-spawn budget." -->
 
 - All `blocker` findings.
 - `should-fix` findings touching concurrency correctness,
@@ -164,6 +193,7 @@ For each merged finding, choose one of three buckets:
   alongside the items above within the pre-spawn budget (Step 4).
 
 ### In-scope, next iteration
+<!-- roles=orchestrator phases=3B,3C summary="Style/naming/boundary should-fixes, cleanup depending on this iteration's fixes, and budget-displaced items." -->
 
 - `should-fix` findings touching style, naming, boundary cases,
   minor falsifiability tightenings, dead-code removal, or comment
@@ -174,10 +204,11 @@ For each merged finding, choose one of three buckets:
   budget (Step 4).
 
 ### Deferred — plan correction or episode note
+<!-- roles=orchestrator phases=3B,3C summary="Out-of-track suggestions and over-scope refactors route to plan corrections; log a DROP for re-read out-of-scope items." -->
 
 - `suggestion`-severity findings that genuinely belong in a
   different track. Route via
-  [`track-code-review.md`](track-code-review.md) §Plan Corrections
+  track-code-review.md:orchestrator:3C §Plan Corrections
   from Deferred Findings.
 - Structural refactors whose scope exceeds the current track's
   goals (e.g., "extract this 200-line method into a new class
@@ -202,7 +233,7 @@ each merged row and apply the user's bucket override before final
 assignment.
 
 Step-level synthesis (per
-[`step-implementation.md`](step-implementation.md) §Per-Step
+step-implementation.md:orchestrator:3B §Per-Step
 Orchestration Loop sub-step 4(b)) runs before any Review-mode pass
 exists; this override is unreachable there and the default
 bucketing always wins.
@@ -210,13 +241,15 @@ bucketing always wins.
 ---
 
 ## Step 4 — Pre-spawn budget check
+<!-- roles=orchestrator phases=3B,3C summary="The ~15-finding / ~10-file ceiling, the 8–12 target, when to split vs accept a larger spawn, and high-volume handoff." -->
 
 The hard ceiling from
-[`track-code-review.md`](track-code-review.md) §Review loop step 2 is
+track-code-review.md:orchestrator:3C §Review loop step 2 is
 ~15 in-scope findings or ~10 distinct source files per implementer
 spawn.
 
 ### Why the headroom matters
+<!-- roles=orchestrator phases=3B,3C summary="Aim for 8–12 findings touching ≤6–8 files: per-test re-runs, gate-check carry-overs, and message-budget margin." -->
 
 **Aim lower than the ceiling.** Target 8–12 findings touching ≤ 6–8
 files per iteration. The headroom matters because:
@@ -224,7 +257,7 @@ files per iteration. The headroom matters because:
 - The implementer's per-test re-runs scale with the number of
   touched test classes; a 12-file spawn already implies 4–6
   targeted `-Dtest=…` invocations
-  ([`implementer-rules.md`](implementer-rules.md) §Pacing
+  (implementer-rules.md:implementer:3B,3C §Pacing
   long-running tasks → "Prefer targeted `-Dtest=…` re-runs").
 - The gate-check fan-out's per-agent `New findings` cap of ≤ 3
   fills faster when the originating iteration covered more
@@ -235,6 +268,7 @@ files per iteration. The headroom matters because:
   message-budget margin healthy.
 
 ### Splitting vs accepting a larger spawn
+<!-- roles=orchestrator phases=3B,3C summary="Split over-12-finding sets by severity, but accept a larger spawn for independent small fixes or atomic refactors." -->
 
 When the deduped in-scope set exceeds 12 findings, split it: take
 the highest-severity 8–12 items first, displace the rest to
@@ -259,13 +293,14 @@ worse than the over-budget spawn — the partial states between
 iterations would not compile.
 
 ### High-volume synthesis and handoff
+<!-- roles=orchestrator phases=3B,3C summary="When the binary split cascades (≳24 findings), let the context-consumption gate fire the handoff, not a user prompt." -->
 
 When the deduped in-scope set is so large that the binary split
 cascades across iterations (≳24 findings), do not surface a
 decision to the user. The context-consumption gate at the end of
 each iteration is the natural pause point — high-volume synthesis
 drives context pressure into `warning` / `critical`, which fires
-the handoff per [`mid-phase-handoff.md`](mid-phase-handoff.md). The
+the handoff per mid-phase-handoff.md:orchestrator:3B,3C. The
 synthesised list and §Synthesis audit trail are preserved across
 the handoff as work-in-progress; a fresh-context orchestrator on
 resume can decide whether to continue, `ESCALATE`, or route some
@@ -274,6 +309,7 @@ items to plan corrections with cache headroom intact.
 ---
 
 ## Step 5 — Output format
+<!-- roles=orchestrator phases=3B,3C summary="The canonical synthesised-findings output: in-scope, deferred, plan-correction sections plus the audit trail." -->
 
 Present the synthesised list to the caller in this shape. The caller
 classifies further (in-scope subset, plan corrections) per its own
@@ -319,7 +355,7 @@ section; this recipe produces the canonical merged list.
 
 Entry-kind tags (`DROP`, `OVERRIDE`, `OVER-BUDGET`, `REJECTED-VERDICT`)
 are the canonical names cited from elsewhere in this recipe and from
-[`review-iteration.md`](review-iteration.md) §Verdict handling. All
+review-iteration.md:orchestrator:3B,3C §Verdict handling. All
 synthesis decisions that do not appear in the in-scope or deferred
 lists land here.
 
@@ -342,13 +378,15 @@ Omit empty sections; never emit a heading with no content beneath it.
 ---
 
 ## Gate-check synthesis
+<!-- roles=orchestrator phases=3B,3C summary="Map gate-check verdicts to forward/drop actions, fold in New findings, then run Steps 1–4 over the union." -->
 
 When this recipe runs against gate-check returns (per
-[`review-iteration.md`](review-iteration.md) §Gate-check synthesis
+review-iteration.md:orchestrator:3B,3C §Gate-check synthesis
 routing), the inputs are verdicts plus optional `New findings`
 blocks, not raw dimensional findings.
 
 ### Verdict-to-action mapping
+<!-- roles=orchestrator phases=3B,3C summary="VERIFIED/REJECTED/MOOT drop, STILL OPEN forwards verbatim, REGRESSION escalates to blocker and forces FAIL." -->
 
 Map the verdicts as follows before walking Steps 1–4:
 
@@ -361,6 +399,7 @@ Map the verdicts as follows before walking Steps 1–4:
 | `REGRESSION` | Escalate to `blocker` with `revert-or-repair` guidance; carry the regression's `file:line` plus the original finding ID into the next implementer spawn. A `REGRESSION` forces the iteration `FAIL` even if every other verdict is `VERIFIED`. |
 
 ### Dedup and termination
+<!-- roles=orchestrator phases=3B,3C summary="REGRESSION rows never merge and forward standalone; an empty post-Steps-1–4 list returns PASS and exits the loop." -->
 
 `REGRESSION` rows never merge with other rows during Step 1, even
 at the same `file:line`. Their `revert-or-repair` guidance is

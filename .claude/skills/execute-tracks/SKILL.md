@@ -5,9 +5,22 @@ argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: orchestrator.
+Your phase: determined by the auto-resume State in `workflow.md` § Startup Protocol.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
 Read and follow the workflow for Phase 3 (Execution).
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:orchestrator:2,3A,3B,3C,4 `§1.5` for the workflow-level anchor and tier mapping.
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
@@ -53,7 +66,7 @@ The implementation plan is at:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 (every workflow file lives under `_workflow/`; the directory is
 removed in the Phase 4 cleanup commit before merge — see
-`conventions.md` §1.2 and `workflow.md` § Final Artifacts).
+`conventions.md` `§1.2` and `workflow.md` § Final Artifacts).
 
 Follow the startup protocol in `workflow.md`:
 
@@ -86,14 +99,14 @@ Follow the startup protocol in `workflow.md`:
      resume the next incomplete phase:
      - `Review + decomposition` incomplete → resume Phase A
      - Steps incomplete → run Phase B (check for orphan commits from
-       interrupted steps — see step-implementation.md §Phase B Resume)
+       interrupted steps — see step-implementation.md:orchestrator:3B `§Phase B Resume`)
      - Steps done, code review incomplete → run Phase C
      - All phases done → compile track episode, present to user, write
        to plan file only after user approval
    - **State D** (all tracks complete, Phase 4 pending): follow
      `prompts/create-final-design.md` to produce `design-final.md` and
      `adr.md`. Mark the Phase 4 checklist entry `[>]` when starting and
-     `[x]` when the commit lands. See workflow.md §Startup Protocol for
+     `[x]` when the commit lands. See workflow.md:orchestrator:3A,3B,3C `§Startup Protocol` for
      the `[ ]` / `[>]` resume-action table.
 
    State 0 is checked **before** State A/C/D — plan review must

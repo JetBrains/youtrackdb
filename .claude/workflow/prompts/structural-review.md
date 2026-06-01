@@ -1,3 +1,27 @@
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-plan.
+Your phase: 2.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Workflow Context | reviewer-plan | 2 | Phase 2 structural review: plan-quality check (no code read) across plan file, track files, and design document. |
+| §Classification rules | reviewer-plan | 2 | Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity. |
+| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, duplication, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
+| §`design-decision` — orchestrator escalates to the user | reviewer-plan | 2 | Track ordering, sizing, contradiction, missing-DR, and implausible-scope findings the user must resolve. |
+
+<!--Document index end-->
+
 You are reviewing an implementation plan for structural correctness.
 The plan lives in three sets of documents under review: the **plan
 file** (`implementation-plan.md`, strategic context + thin checklist +
@@ -15,6 +39,7 @@ about plan quality, not technical accuracy.
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
 ## Workflow Context
+<!-- roles=reviewer-plan phases=2 summary="Phase 2 structural review: plan-quality check (no code read) across plan file, track files, and design document." -->
 
 You are a sub-agent spawned during **Phase 2 (Implementation Review)**,
 which validates the plan before execution begins. Phase 2 has two steps:
@@ -150,7 +175,7 @@ TRACK SIZING
 
 ARCHITECTURE NOTES *(plan-file only — Component Map, Decision Records,
 Invariants, Integration Points, and Non-Goals all live in the plan per
-`conventions.md` §1.2)*
+`conventions.md` `§1.2`)*
 - Is there a top-level Component Map?
 - Does it include only touched components plus immediate neighbors?
 - Is every component annotated with what changes and why?
@@ -267,6 +292,7 @@ stylistic concern.
 
 For each issue found, produce a finding in this format:
 
+```markdown
 ### Finding S<N> [blocker|should-fix|suggestion]
 **Location**: <where in the plan>
 **Issue**: <what's wrong>
@@ -274,6 +300,7 @@ For each issue found, produce a finding in this format:
 **Classification**: mechanical | design-decision
 **Justification**: <one-line citation of the rule from §Classification
   rules below>
+```
 
 Severity guide:
 - blocker: Plan cannot be executed correctly (dependency cycle, missing track
@@ -289,6 +316,7 @@ Severity guide:
 ---
 
 ## Classification rules
+<!-- roles=reviewer-plan phases=2 summary="Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity." -->
 
 Severity (`blocker | should-fix | suggestion`) tells the user how
 urgent the finding is. **Classification** (`mechanical |
@@ -296,6 +324,7 @@ design-decision`) tells the orchestrator who decides — itself or the
 user. The two axes are orthogonal.
 
 ### `mechanical` — orchestrator applies the fix without asking
+<!-- roles=reviewer-plan phases=2 summary="Bloat, duplication, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking." -->
 
 **All BLOAT findings are `mechanical` by construction.** The fix
 follows the rule mechanically — trim back to the four-bullet form,
@@ -319,6 +348,7 @@ unambiguous edit that doesn't change plan intent — e.g., an obvious
 typo in a track number reference, a missing required heading.
 
 ### `design-decision` — orchestrator escalates to the user
+<!-- roles=reviewer-plan phases=2 summary="Track ordering, sizing, contradiction, missing-DR, and implausible-scope findings the user must resolve." -->
 
 ANY of these triggers `design-decision`:
 

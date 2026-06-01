@@ -1,3 +1,24 @@
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: orchestrator,reviewer-technical,reviewer-risk,reviewer-adversarial.
+Your phase: 3A.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Semi-Formal Verification Protocol | orchestrator,reviewer-technical,reviewer-risk,reviewer-adversarial | 3A | Re-check each Phase A technical/risk/adversarial finding with a verification certificate; emit PASS/FAIL. |
+
+<!--Document index end-->
+
 You are re-checking a track of the plan after fixes were applied.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
@@ -24,6 +45,7 @@ For each finding under re-check:
    and no downstream issue was introduced. Mark as REJECTED.
 
 ## Semi-Formal Verification Protocol
+<!-- roles=orchestrator,reviewer-technical,reviewer-risk,reviewer-adversarial phases=3A summary="Re-check each Phase A technical/risk/adversarial finding with a verification certificate; emit PASS/FAIL." -->
 
 Before verifying any finding whose fix touched the track description,
 re-read the track file's `## Purpose / Big Picture`, `## Context and

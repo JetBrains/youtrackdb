@@ -1,6 +1,21 @@
 # Structural Review (Step 2 of Implementation Review)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Goal | reviewer-plan,orchestrator | 2 | Validate plan structure and completeness (cycles, missing descriptions, contradictions, bloat) without reading code. |
+| §Structural review prompt | reviewer-plan | 2 | Pointer to the structural-review sub-agent prompt file. |
+| §Bloat checks | reviewer-plan | 2 | The per-section bloat budgets (DR/invariant/integration/component length, superseded DRs, duplication) and fixes. |
+| §Gate verification | reviewer-plan | 2 | After fixes, the structural review re-runs via the gate-verification prompt to confirm. |
+| §Review iteration | orchestrator,reviewer-plan | 2 | Up to 3 iterations: auto-apply mechanical fixes, escalate design-decision findings, gate-check until clean. |
+| §Review output | orchestrator,reviewer-plan | 2 | The review is not persisted; mechanical fixes apply to the plan, the durable trace is the gate-PASS audit entry. |
+| §Replanning | orchestrator | 3A,3C | Replanning is not a separate phase; it rides Phase 3's ESCALATE flow with a structural-review preview. |
+
+<!--Document index end-->
+
 ## Goal
+<!-- roles=reviewer-plan,orchestrator phases=2 summary="Validate plan structure and completeness (cycles, missing descriptions, contradictions, bloat) without reading code." -->
 
 Validate the plan's internal structure and completeness across the plan
 file and the track files. This is a lightweight check that does NOT read
@@ -18,7 +33,7 @@ findings are first-class structural defects, not stylistic suggestions.
 
 This runs **automatically** as step 2 of the implementation review
 (Phase 2), after the consistency review passes. See
-[`implementation-review.md`](implementation-review.md) for the full
+implementation-review.md:orchestrator,reviewer-plan:2 for the full
 Phase 2 orchestration.
 
 Technical, risk, and adversarial reviews happen later, adaptively per-track
@@ -26,10 +41,12 @@ during Phase 3, when the execution agent has maximum context about the
 codebase and can benefit from what was learned executing earlier tracks.
 
 ## Structural review prompt
+<!-- roles=reviewer-plan phases=2 summary="Pointer to the structural-review sub-agent prompt file." -->
 
-**Prompt file:** [`prompts/structural-review.md`](prompts/structural-review.md)
+**Prompt file:** prompts/structural-review.md:reviewer-plan:2
 
 ## Bloat checks
+<!-- roles=reviewer-plan phases=2 summary="The per-section bloat budgets (DR/invariant/integration/component length, superseded DRs, duplication) and fixes." -->
 
 The structural review enforces the per-section budgets in
 `planning.md` § Architecture Notes format (which carries both the
@@ -39,7 +56,7 @@ codebase read required — and the findings carry the severities below.
 
 **All bloat findings are classified `mechanical`** by the autonomous
 Phase 2 orchestrator (see
-[`prompts/structural-review.md`](prompts/structural-review.md) §
+prompts/structural-review.md:reviewer-plan:2 §
 Classification rules). The fix follows the rule mechanically — trim
 to the four-bullet form, move long-form material to `design.md`,
 replace the duplicated body with a one-line link, delete the
@@ -72,12 +89,14 @@ not bloat.
   though no individual section is dramatically oversized.
 
 ## Gate verification
+<!-- roles=reviewer-plan phases=2 summary="After fixes, the structural review re-runs via the gate-verification prompt to confirm." -->
 
 After fixes are applied, the structural review re-runs to verify.
 
-**Prompt file:** [`prompts/structural-gate-verification.md`](prompts/structural-gate-verification.md)
+**Prompt file:** prompts/structural-gate-verification.md:reviewer-plan:2
 
 ## Review iteration
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="Up to 3 iterations: auto-apply mechanical fixes, escalate design-decision findings, gate-check until clean." -->
 
 The structural review iterates until clean. Each finding carries a
 `Classification` field (`mechanical | design-decision`) emitted by the
@@ -97,7 +116,7 @@ Iteration 3: Gate check → if still blockers, escalate to user
 
 Max 3 iterations. Finding IDs are cumulative (S1, S2, ... S6, S7).
 Classification rules live in
-[`prompts/structural-review.md`](prompts/structural-review.md)
+prompts/structural-review.md:reviewer-plan:2
 § Classification rules (bloat findings → `mechanical` by construction;
 ordering, sizing, contradiction, decision-traceability findings →
 `design-decision`).
@@ -111,6 +130,7 @@ the full structural review instead of the gate check to catch cascading
 issues.
 
 ## Review output
+<!-- roles=orchestrator,reviewer-plan phases=2 summary="The review is not persisted; mechanical fixes apply to the plan, the durable trace is the gate-PASS audit entry." -->
 
 The structural review is not persisted to disk. Mechanical fixes are
 applied autonomously to `implementation-plan.md` (and the relevant
@@ -119,7 +139,7 @@ design-decision findings ride in the orchestrator's conversation
 context until escalated and resolved. The durable trace is the
 gate-PASS state, the resulting commit, and the audit-summary entry in
 the plan file's `## Plan Review` section (see
-[`implementation-review.md`](implementation-review.md) §Audit trail).
+implementation-review.md:orchestrator,reviewer-plan:2 §Audit trail).
 A typical iteration looks like:
 
 ```
@@ -141,6 +161,7 @@ When the structural review passes, proceed to Phase 3 execution
 ---
 
 ## Replanning
+<!-- roles=orchestrator phases=3A,3C summary="Replanning is not a separate phase; it rides Phase 3's ESCALATE flow with a structural-review preview." -->
 
 **Not a separate phase.** Replanning is handled within Phase 3
 by the execution agent's ESCALATE flow (see "Inline Replanning

@@ -1,5 +1,18 @@
 # Branch Divergence Check
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Detection | orchestrator | 2,3A,3B,3C | How to detect a diverged branch (ahead+behind both non-zero) and when to skip the check. |
+| §Resolutions | orchestrator | 2,3A,3B,3C | Present the three divergence resolutions to the user and wait for an explicit choice. |
+| §Local-authoritative | orchestrator | 2,3A,3B,3C | Force-push the intended local rewrite over a stale remote, never with plain --force. |
+| §Remote-authoritative | orchestrator | 2,3A,3B,3C | Discard local rewrites in favour of origin after confirming local-only commits are unrecoverable. |
+| §Defer | orchestrator | 2,3A,3B,3C | Let the user resolve the divergence manually after the session; per-commit pushes keep failing. |
+| §After the choice | orchestrator | 2,3A,3B,3C | The chosen resolution holds for the session; both rewrite resolutions return to the Startup Protocol. |
+
+<!--Document index end-->
+
 Runs in turn 1 of every `/execute-tracks` session, immediately
 after the auto-resume decision and before any phase work begins.
 A diverged branch left undetected makes every per-commit push fail
@@ -17,6 +30,7 @@ resolution applies for the remainder of the session.
 ---
 
 ## Detection
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="How to detect a diverged branch (ahead+behind both non-zero) and when to skip the check." -->
 
 Run, in order:
 
@@ -49,11 +63,13 @@ the silent-failure case.
 ---
 
 ## Resolutions
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="Present the three divergence resolutions to the user and wait for an explicit choice." -->
 
 Present all three options to the user, with the ahead/behind counts
 already on screen, and wait for an explicit choice.
 
 ### Local-authoritative
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="Force-push the intended local rewrite over a stale remote, never with plain --force." -->
 
 The local rewrite (rebase, squash, amend) is intended and the
 remote is stale. Run once at startup:
@@ -70,6 +86,7 @@ rather than retry blindly — the new remote state may invalidate
 the user's earlier choice.
 
 ### Remote-authoritative
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="Discard local rewrites in favour of origin after confirming local-only commits are unrecoverable." -->
 
 Discard the local rewrites in favour of `origin`. After explicit
 confirmation that local-only commits are unrecoverable:
@@ -86,10 +103,12 @@ commits will be discarded.
 
 After the reset, the auto-resume decision computed earlier in the
 Startup Protocol may no longer match the new HEAD. Re-run the
-Startup Protocol's state-determination step (workflow.md
-§ Startup Protocol step 3) before proceeding.
+Startup Protocol's state-determination step
+(workflow.md:orchestrator:2,3A,3B,3C,4 § Startup Protocol step 3)
+before proceeding.
 
 ### Defer
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="Let the user resolve the divergence manually after the session; per-commit pushes keep failing." -->
 
 The user wants to resolve the divergence manually after the
 session. Per-commit pushes will continue to fail throughout the
@@ -103,6 +122,7 @@ even though it accumulated silently across the session.
 ---
 
 ## After the choice
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="The chosen resolution holds for the session; both rewrite resolutions return to the Startup Protocol." -->
 
 The user's choice applies for the remainder of the session; no
 re-check is required. Mid-session non-fast-forward rejections under

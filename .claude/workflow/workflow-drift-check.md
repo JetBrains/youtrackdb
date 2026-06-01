@@ -1,7 +1,22 @@
 # Workflow Drift Check
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Detection | orchestrator,planner | 1,2,3A | The two-phase detection bash: classify artifacts as stamped/unstamped, then fold or short-circuit to a drift signal. |
+| §No-drift normalization | orchestrator,planner | 1,2,3A | Collapse multiple stamps that fold to one BASE_SHA into a single normalization commit, guarded by a strict diff shape. |
+| §Skip conditions | orchestrator,planner | 1,2,3A | Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first. |
+| §Resolutions | orchestrator,planner | 1,2,3A | On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default. |
+| §Migrate now | orchestrator,planner | 1,2,3A | End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline. |
+| §Defer | orchestrator,planner | 1,2,3A | Continue this session and record a deferred-drift todo recited at session end. |
+| §Suppress | orchestrator,planner | 1,2,3A | Continue this session and silence the drift residue with no session-end reminder. |
+| §After the choice | orchestrator,planner | 1,2,3A | The chosen resolution holds for the session; Migrate ends it, Defer/Suppress continue startup. |
+
+<!--Document index end-->
+
 Runs early in the startup sequence for two callers: `/execute-tracks`
-(turn 1, immediately after the Branch Divergence Check at workflow.md
+(turn 1, immediately after the Branch Divergence Check at `workflow.md`
 § Startup Protocol step 3 and before the handoff scan at step 4) and
 `/create-plan` (between Step 1's workflow-docs read and Step 1a's
 handoff scan). Undetected drift surfaces later as confused reviewers
@@ -18,7 +33,7 @@ against HEAD. The branch is a self-contained capsule (workflow-format
 commits enter the branch's view only when the user explicitly rebases
 or merges `develop`), so the gate ranges against the branch's own
 HEAD and never fetches `develop` independently. The plan dir the
-caller resolved at startup (see `conventions.md` §1.2 and §1.6(g))
+caller resolved at startup (see `conventions.md` `§1.2` and `§1.6(g)`)
 scopes the walk; cross-plan folding is out of scope (D13). Migration
 itself stays in the `/migrate-workflow` skill — the gate detects and
 gates, the skill replays. The skill assumes a fresh session, so the
@@ -28,17 +43,18 @@ re-invoke `/migrate-workflow` from this worktree.
 ---
 
 ## Detection
+<!-- roles=orchestrator,planner phases=1,2,3A summary="The two-phase detection bash: classify artifacts as stamped/unstamped, then fold or short-circuit to a drift signal." -->
 
 The Detection bash has two phases. **Phase 1** walks the active plan's
 `_workflow/**` artifacts and classifies each as stamped or unstamped
-(byte-copied from `conventions.md` §1.6(h) so the drift check and the
+(byte-copied from `conventions.md` `§1.6(h)` so the drift check and the
 migration agree on what "drift" means). **Phase 2** is caller-specific:
 the drift check signals drift unconditionally when any artifact is
 unstamped (no fold, no `git log`); when every artifact is stamped, the
 gate folds the stamp set pairwise through `git merge-base` to derive
 `BASE_SHA` and runs `git log $BASE_SHA..HEAD` against workflow paths.
 
-The Phase 1 walk block, byte-for-byte from `conventions.md` §1.6(h):
+The Phase 1 walk block, byte-for-byte from `conventions.md` `§1.6(h)`:
 
 ```bash
 PLAN_DIR="docs/adr/<resolved-dir-name>"
@@ -61,7 +77,7 @@ done
 ```
 
 The `<resolved-dir-name>` placeholder is the active plan dir the caller
-resolved at startup per `conventions.md` §1.6(g). The walk silently
+resolved at startup per `conventions.md` `§1.6(g)`. The walk silently
 skips artifacts not yet on disk (`design-mechanics.md` before the
 length trigger, any `track-*.md` not yet created), so absent optional
 artifacts contribute neither a stamp nor an unstamped flag.
@@ -154,12 +170,12 @@ The drift gate sees one of five outcomes:
   same silent path before Phase 1 runs.
 - **No artifacts under `$PLAN_DIR/_workflow/`**: the walk matched
   nothing (both `STAMPED_SHAS` and `UNSTAMPED_FILES` are empty). Silent
-  skip per `conventions.md` §1.6(h); the gate exits with no drift to
+  skip per `conventions.md` `§1.6(h)`; the gate exits with no drift to
   report and startup continues to the calling session's next startup
   step.
 - **`git merge-base` failure during the fold**: any failing pair routes
-  to the unstamped short-circuit per `conventions.md` §1.6(c). The gate
-  signals drift and the bootstrap prompt in §1.6(d) covers the failing
+  to the unstamped short-circuit per `conventions.md` `§1.6(c)`. The gate
+  signals drift and the bootstrap prompt in `§1.6(d)` covers the failing
   set alongside any other unstamped artifacts in one batched user
   prompt.
 
@@ -170,21 +186,22 @@ migration side extends the walk with a paired `STAMPED_PAIRS` array
 merge-base-failure recovery can resolve failing SHAs to artifact
 paths; the loop body otherwise stays text-identical between the two
 files. The migration side names the same contract explicitly in its
-Step 2 prose, so a future edit to the §1.6(h) block applies to both
+Step 2 prose, so a future edit to the `§1.6(h)` block applies to both
 files in lockstep with the pairing rows as the only legitimate
 divergence. The range definition (`BASE_SHA..HEAD`, pairwise fold via
 `git merge-base`, merge-base-failure recovery), the canonical parser
 regex (`workflow-sha:` anchor plus `[0-9a-f]{40}` extraction), and the
-active-plan scope rule live in `conventions.md` §1.6(c), §1.6(h), and
-§1.6(a1) respectively. The `design.md` §"Stamp range computation"
+active-plan scope rule live in `conventions.md` `§1.6(c)`, `§1.6(h)`, and
+`§1.6(a1)` respectively. The `design.md` §"Stamp range computation"
 narrative is a soft reference for context but is not the byte-source
 for the bash block above — its walk uses an unanchored `[0-9a-f]{40}`
-regex that `conventions.md` §1.6(a1) explicitly rejects
+regex that `conventions.md` `§1.6(a1)` explicitly rejects
 (false-positives on H1 lines containing a 40-hex run).
 
 ---
 
 ## No-drift normalization
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Collapse multiple stamps that fold to one BASE_SHA into a single normalization commit, guarded by a strict diff shape." -->
 
 Fires only when Phase 2 reports the empty `git log` (no drift) but
 `STAMPED_SHAS` carries more than one distinct SHA — the active plan's
@@ -315,13 +332,14 @@ drift signal.
 ---
 
 ## Skip conditions
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first." -->
 
 Three silent-skip conditions short-circuit before the prompt fires.
 Skip #1 and Skip #2 evaluate pre-Detection (cheap on-disk reads, no
 `git log` needed); Skip #3 evaluates post-Phase-2 (after the fold
 derives `$BASE_SHA` and Phase 2's `git log` returns its result). All
 three scope to the active plan dir (the `$PLAN_DIR` resolved at
-startup per `conventions.md` §1.6(g) and §1.2); cross-plan folding is
+startup per `conventions.md` `§1.6(g)` and `§1.2`); cross-plan folding is
 out of scope (D13). Order matters for fail-fast: check the cheapest
 first:
 
@@ -357,6 +375,7 @@ falls through to the three-resolution prompt below.
 ---
 
 ## Resolutions
+<!-- roles=orchestrator,planner phases=1,2,3A summary="On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default." -->
 
 When drift surfaces (non-empty detection output and no skip
 condition matched), print the commit count, the short stamp-base SHA,
@@ -383,13 +402,13 @@ Pick one (no default).
 Do **not** pick a default. The user must choose one of the three
 resolutions before startup proceeds. Malformed answers (`yes`, `ok`)
 trigger a re-prompt using the same shape. The retry is bounded at
-three attempts per the policy in `conventions.md` §1.6(d); after
+three attempts per the policy in `conventions.md` `§1.6(d)`; after
 three malformed answers the gate halts and the user `/clear`s the
 session.
 
 **Unstamped short-circuit rendering.** When `$UNSTAMPED_FILES` is
 non-empty (the unstamped path or a `git merge-base` failure routed
-there per `conventions.md` §1.6(c)), Phase 2 runs no `git log` and
+there per `conventions.md` `§1.6(c)`), Phase 2 runs no `git log` and
 neither `$BASE_SHA` nor the commit count is derived. The Resolutions
 prompt substitutes:
 
@@ -406,6 +425,7 @@ these substitutions verbatim; the Defer state-shape paragraph in
 particular points at the same rule.
 
 ### Migrate now
+<!-- roles=orchestrator,planner phases=1,2,3A summary="End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline." -->
 
 End the current session and instruct the user to re-invoke the
 migration skill from this worktree:
@@ -420,8 +440,8 @@ triggers the wrong handoff path. Ending the session and asking the
 user to re-invoke is the cleaner boundary.
 
 End the session before the calling session reaches its session-end
-surface: `/execute-tracks` exits before `workflow.md § What to do
-before ending a session` (the only Startup-Protocol-side early exit
+surface: `/execute-tracks` exits before
+`workflow.md § What to do before ending a session` (the only Startup-Protocol-side early exit
 for that caller); `/create-plan` exits before Step 5's commit and
 push (the Migrate-now branch cuts the session short of the recital
 added in Step 5 of `/create-plan`). The calling SKILL appends a
@@ -438,6 +458,7 @@ Step 1.5 fires before Step 2's aim prompt and before Step 1b's
 research, no plan files, no draft PR.
 
 ### Defer
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Continue this session and record a deferred-drift todo recited at session end." -->
 
 Continue this session. Record the deferred-drift count so the
 end-of-turn protocol can recite it at session end. Per-phase work
@@ -451,9 +472,9 @@ user re-runs § Detection's Phase 1 walk plus the Phase 2 `git log` to
 recover subject lines (the variables `$PLAN_DIR`, `$STAMPED_SHAS`,
 and `$BASE_SHA` come from those phases). The session-end recital
 reads the todo title verbatim from the per-caller recital surface:
-`/execute-tracks` reads it at `workflow.md § What to do before
-ending a session`; `/create-plan` reads it at the recital in
-`/create-plan` SKILL.md Step 5 (the commit-push-and-PR step; the
+`/execute-tracks` reads it at
+`workflow.md § What to do before ending a session`; `/create-plan` reads it at the recital in
+`/create-plan` `SKILL.md` Step 5 (the commit-push-and-PR step; the
 recital fires before Step 5 opens the draft PR so the user sees the
 residue in the same session). If TaskCreate is unavailable, hold the
 same two fields in in-context memory and recite the same line shape
@@ -480,6 +501,7 @@ invocations and double-report against the next session's gate
 re-prompt, so the marker stays in-conversation only.
 
 ### Suppress
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Continue this session and silence the drift residue with no session-end reminder." -->
 
 Continue this session. Do **not** record the deferred-drift count.
 The session-end summary does not mention drift at all. Use this
@@ -493,6 +515,7 @@ ignore for now" versus "remind me at session end".
 ---
 
 ## After the choice
+<!-- roles=orchestrator,planner phases=1,2,3A summary="The chosen resolution holds for the session; Migrate ends it, Defer/Suppress continue startup." -->
 
 The user's choice applies for the remainder of the session; no
 re-check is required in the normal startup flow. After Migrate now,
@@ -511,7 +534,7 @@ divergence gate's Remote-authoritative resolution shifts the fork
 point that the divergence gate computes, and the post-reset HEAD
 also moves the drift detection range (`$BASE_SHA..HEAD`) since both
 endpoints can change. The divergence gate currently routes post-reset
-only to workflow.md § Startup Protocol step 3 (the
+only to `workflow.md` § Startup Protocol step 3 (the
 `/execute-tracks`-specific divergence-gate anchor), not back into
 this gate (step 3a); the re-entry contract is one-sided. Until that
 gap closes, an orchestrator resolving Remote-authoritative within an
