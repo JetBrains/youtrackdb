@@ -254,6 +254,10 @@ flowchart TB
   > **Depends on:** Track 2
 
 ## Plan Review
+
+**PAUSED 2026-06-01 at post-Track-1 inline replan pending execution of the Track 4 addition (deferred to a fresh session for context budget)**
+- Handoff: docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/handoff-inline-replan-track4.md
+
 - [x] Plan review (consistency + structural) — passed; consistency at iteration 2, structural at iteration 1
 
 **Auto-fixed (mechanical)**: CR1 — clarified track-1.md Plan of Work step 1
