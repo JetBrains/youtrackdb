@@ -131,25 +131,29 @@ The `AtomicLong.compareAndSet` resolves the multi-thread race: under load severa
 
 ## OpenTelemetry logs integration
 
-The chokepoint is named, finite, and predates this design. `LogManager.installCustomFormatter()` already attaches a `ConsoleHandler` with `AnsiLogFormatter` (line 91-93 of `core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/LogManager.java`); the OTel appender follows the same registration shape against the root JUL logger. The wiring goes through a new package-private `LogManager.installAdditionalHandler(Handler)` accessor that Track 7 adds, so the registration is testable and the OTel module does not reach into JUL directly.
+The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. Track 7 adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, the already-formatted message string, and the optional `Throwable`. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation; the hook surface is not internal-only because a host that wants OTel-independent log routing can register its own.
 
-Severity mapping (JUL → OTel sem-conv `severityNumber`):
+Severity mapping (slf4j `event.Level` → OTel sem-conv `severityNumber`):
 
-| JUL Level | OTel `severityNumber` | OTel `severityText` |
+| slf4j Level | OTel `severityNumber` | OTel `severityText` |
 |---|---|---|
-| `FINEST` / `FINER` | 1 (TRACE) | `TRACE` |
-| `FINE` | 5 (DEBUG) | `DEBUG` |
-| `CONFIG` / `INFO` | 9 (INFO) | `INFO` |
-| `WARNING` | 13 (WARN) | `WARN` |
-| `SEVERE` | 17 (ERROR) | `ERROR` |
+| `TRACE` | 1 | `TRACE` |
+| `DEBUG` | 5 | `DEBUG` |
+| `INFO` | 9 | `INFO` |
+| `WARN` | 13 | `WARN` |
+| `ERROR` | 17 | `ERROR` |
+
+The mapping has no `FATAL` row because slf4j `event.Level` carries no `FATAL` constant (it stops at `ERROR`). The `OPENTELEMETRY_LOGS_MIN_SEVERITY` config accepts `FATAL` for forward compatibility but treats it identically to `ERROR` (severity number 17).
 
 Pseudo-implementation:
 
 ```java
-public final class OTelLogAppender extends java.util.logging.Handler {
+public final class OTelLogAppender implements LogAppenderHook {
   private final Logger otelLogger;
   private final int minSeverityNumber;
   private final ThreadLocal<Boolean> reentrant = ThreadLocal.withInitial(() -> false);
+  private static final java.util.logging.Logger FALLBACK =
+      java.util.logging.Logger.getLogger("io.youtrackdb.otel.appender");
 
   public OTelLogAppender(LoggerProvider provider, Severity minSeverity) {
     this.otelLogger = provider.get("io.youtrackdb");
@@ -157,20 +161,26 @@ public final class OTelLogAppender extends java.util.logging.Handler {
   }
 
   @Override
-  public void publish(LogRecord record) {
+  public void onLog(String requesterName, String dbName,
+                    org.slf4j.event.Level level, String message, Throwable thrown) {
     if (reentrant.get()) return;
-    int severityNumber = mapJulLevelToOtel(record.getLevel());
+    int severityNumber = mapSlf4jLevelToOtel(level);
     if (severityNumber < minSeverityNumber) return;
 
     reentrant.set(true);
     try {
       LogRecordBuilder builder = otelLogger.logRecordBuilder()
           .setSeverity(Severity.fromSeverityNumber(severityNumber))
-          .setSeverityText(record.getLevel().getName())
-          .setObservedTimestamp(record.getInstant())
-          .setBody(formatMessage(record));
+          .setSeverityText(level.name())
+          .setObservedTimestamp(Instant.now())
+          .setBody(message);
 
-      Throwable thrown = record.getThrown();
+      if (requesterName != null) {
+        builder.setAttribute(AttributeKey.stringKey("code.namespace"), requesterName);
+      }
+      if (dbName != null) {
+        builder.setAttribute(AttributeKey.stringKey("db.namespace"), dbName);
+      }
       if (thrown != null) {
         builder.setAttribute(AttributeKey.stringKey("exception.type"), thrown.getClass().getName());
         builder.setAttribute(AttributeKey.stringKey("exception.message"),
@@ -181,76 +191,110 @@ public final class OTelLogAppender extends java.util.logging.Handler {
       // hard context: Context.current() picks up the active span automatically.
       builder.emit();
     } catch (RuntimeException | LinkageError | AssertionError t) {
-      reportError("OTel log emit failed", t instanceof Exception e ? e : new RuntimeException(t),
-          ErrorManager.GENERIC_FAILURE);
+      FALLBACK.log(java.util.logging.Level.WARNING, "OTel log emit failed", t);
     } finally {
       reentrant.set(false);
     }
   }
-
-  @Override public void flush() { /* SDK flushes on shutdown */ }
-  @Override public void close() { /* idempotent */ }
 }
 ```
 
-The `setObservedTimestamp` (not `setTimestamp`) follows sem-conv guidance for the "log was observed by the appender" axis. The OTel SDK fills `Timestamp` from the exporter side; the observed timestamp is the appender's wall-clock at publish time.
+The `setObservedTimestamp(Instant.now())` follows sem-conv guidance for the "log was observed by the appender" axis. The OTel SDK fills `Timestamp` from the exporter side; the observed timestamp is the hook's wall-clock at invocation time. The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` replaces the `Handler.reportError` channel a JUL Handler would have used. The fallback logger is itself part of the SLF4J→JUL or SLF4J→Logback dispatch chain (via slf4j-jdk14 in server mode), so its output reaches the operator's normal log sink without re-entering the OTel hook (the appender's own logger name is filtered out at install time to keep the cycle impossible).
+
+The `SLF4JLogManager` hook iteration runs after the existing `isEnabledForLevel(level)` filter and before the marker/format work the existing path does. Hooks see the same formatted message SLF4J emits, not the raw format string and varargs; that keeps each hook from re-running `String.format(...)` and gives every hook a consistent view.
 
 ### Hard-context correlation across threads
 
-Every span the OTel listeners create runs inside a `try (Scope s = span.makeCurrent())` block. While that scope is open on the current thread, `Context.current()` returns a context carrying the span; any log call from that thread between `makeCurrent()` and `s.close()` reaches `OTelLogAppender.publish(...)`, and the `LogRecordBuilder.emit()` call attaches the same span context to the log record. Trace viewers that support log-to-trace correlation (Grafana with the OTel collector, Jaeger with the unified UI) render the log inside the span's timeline.
+Every span the OTel listeners create runs inside a `try (Scope s = span.makeCurrent())` block. While that scope is open on the current thread, `Context.current()` returns a context carrying the span; any log call from that thread between `makeCurrent()` and `s.close()` reaches `OTelLogAppender.onLog(...)` through the hook iteration, and the `LogRecordBuilder.emit()` call attaches the same span context to the log record. Trace viewers that support log-to-trace correlation (Grafana with the OTel collector, Jaeger with the unified UI) render the log inside the span's timeline.
 
-The correlation is automatic only when the log call originates on the thread that owns the span scope. Logs emitted from a background thread spawned inside the span scope (a thread-pool task, a `CompletableFuture` continuation) lose the correlation unless the caller propagates the context — same caveat as for child-span creation across threads, which OTel covers through `Context.taskWrapping(...)` / `Context.makeCurrent()` on the receiving thread.
+The correlation is automatic only when the log call originates on the thread that owns the span scope. Logs emitted from a background thread spawned inside the span scope (a thread-pool task, a `CompletableFuture` continuation) lose the correlation unless the caller propagates the context. Same caveat as for child-span creation across threads, which OTel covers through `Context.taskWrapping(...)` / `Context.makeCurrent()` on the receiving thread.
 
 ### Edge cases / Gotchas
 
-- A host that already wires JUL through SLF4J (`jul-to-slf4j` bridge): the bridge intercepts JUL records before they reach the JUL handler set, so `OTelLogAppender` never sees them. Hosts in this configuration need a parallel SLF4J appender on the OTel side, or they unbridge YTDB's logger. The design does NOT ship an SLF4J appender; the YTDB-496 scope is "log through YTDB's own chokepoint". Custom integrations beyond that are a follow-up ticket.
-- High-frequency `DEBUG` / `TRACE` records (a tight loop logging every page read at `FINE`): the JUL handler set still receives them at the configured JUL level, but the severity floor drops them before any OTel allocation. Operators tune `OPENTELEMETRY_LOGS_MIN_SEVERITY` to control OTel-side volume independently from the JUL `level.properties` file the server reads.
-- An exception thrown from `OTelLogAppender.publish(...)`: JUL's `Handler` contract requires the appender to not propagate exceptions back to the caller. `publish` catches the union `RuntimeException | LinkageError | AssertionError` (matching the listener-side isolation contract: catch the union that covers OTel-typical failure modes while letting `VirtualMachineError` and `ThreadDeath` propagate) and reports via `Handler.reportError(...)`, so a broken OTel exporter never disrupts a YTDB log call.
-- Concurrent `setOpenTelemetry` calls during active logging: when the facade swaps SDKs, the previously-registered `OTelLogAppender` is unregistered via `LogManager.instance().removeAdditionalHandler(...)` before the new one is registered, so each log record reaches exactly one OTel pipeline. The window between unregister and register is small but non-zero; log records in that window are dropped on the OTel side but still reach the JUL handler set (the existing path is untouched).
-- Bootstrap-time logs (records emitted before `OPENTELEMETRY_LOGS_ENABLED` is read): these reach only the JUL handlers, which is the desired behavior. Operators who need OTel coverage of bootstrap logs configure `OPENTELEMETRY_LOGS_ENABLED=true` via a JVM property (`-Dyoutrackdb.opentelemetry.logs.enabled=true`) so the flag is set before the first log call.
-- Recursive logging from inside the OTel exporter: if the OTel exporter emits a log via `LogManager`, the appender would see its own log and feed it back into OTel, creating an unbounded loop. The thread-local `reentrant` guard above breaks the cycle by short-circuiting `publish(...)` when a `publish(...)` is already on the stack for this thread (same pattern as `GremlinSqlSuppression`).
+- A host that binds `slf4j-nop` (no-op SLF4J provider): SLF4J's per-logger `isEnabledForLevel(...)` returns `false` for every level under the NoOp provider, so `SLF4JLogManager.log(...)` short-circuits before the hook iteration and `OTelLogAppender.onLog(...)` is never invoked. This is the documented behavior — a host that explicitly disables logging gets no OTel logs either. Operators who want OTel logs without SLF4J output bind any non-NoOp provider with its level set high enough to suppress local output (e.g., `slf4j-jdk14` with `INFO` floor).
+- High-frequency `DEBUG` / `TRACE` records (a tight loop logging every page read at `DEBUG`): SLF4J's per-logger level filter drops them before the hook iteration when the bound provider's level is set higher. When the bound level admits them, the severity floor drops them at the top of `onLog(...)` before any `LogRecordBuilder` allocation. Operators tune `OPENTELEMETRY_LOGS_MIN_SEVERITY` to control OTel-side volume independently from the bound provider's level config.
+- An exception thrown from `OTelLogAppender.onLog(...)`: the `SLF4JLogManager` hook iteration wraps each hook call in `try { hook.onLog(...); } catch (Exception | LinkageError | AssertionError t) { /* fallback */ }` (same union as the listener wrappers per the exception-isolation contract). A throwing hook is logged via the same fallback `Logger.getLogger("io.youtrackdb.otel.appender")` channel and the next hook still fires; YTDB's own log call returns normally. `VirtualMachineError` and `ThreadDeath` propagate.
+- Concurrent `setOpenTelemetry` calls during active logging: when the facade swaps SDKs, the previously-registered `OTelLogAppender` is removed via `SLF4JLogManager.removeAppenderHook(oldHook)` before the new one is installed, so each log record reaches exactly one OTel pipeline. The window between remove and install is small but non-zero; log records in that window are dropped on the OTel side but still reach the bound SLF4J provider (the existing path is untouched). Multiple `LogAppenderHook` implementations coexist by being separate list entries.
+- Bootstrap-time logs (records emitted before `OPENTELEMETRY_LOGS_ENABLED` is read): these reach only the bound SLF4J provider, which is the desired behavior. Operators who need OTel coverage of bootstrap logs configure `OPENTELEMETRY_LOGS_ENABLED=true` via a JVM property (`-Dyoutrackdb.opentelemetry.logs.enabled=true`) so the flag is set before the first log call.
+- Recursive logging from inside the OTel exporter: if the OTel exporter emits a log via `LogManager`, the hook would see its own log and feed it back into OTel, creating an unbounded loop. The thread-local `reentrant` guard above breaks the cycle by short-circuiting `onLog(...)` when an `onLog(...)` is already on the stack for this thread (same pattern as `GremlinSqlSuppression`). The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` channel is independently protected by being filtered out at hook install time.
+- Hosts already using the OTel `opentelemetry-instrumentation-logback-appender` (or its log4j equivalent) on their SLF4J binding: that path catches every log record SLF4J emits, including YTDB's. Running both side-by-side double-emits each YTDB log record (once via the host's appender, once via YTDB's hook). Operators run one or the other, not both. The hook is the recommended path because it carries the `Context.current()` read at the YTDB invocation site, not at the host's appender callback site (potentially on a different thread).
 
 ### References
-- D-records: D34 (single-chokepoint log appender registering on `LogManager.instance()`, severity-floor pre-filter, hard-context inheritance from `Context.current()`), D35 (thread-local re-entrance guard against recursive logging from inside the OTel exporter)
-- Invariants: Listener exception isolation (the appender follows the same isolation contract; a throw from `publish` is caught and reported via `Handler.reportError`)
+- D-records: D34 (single-chokepoint `LogAppenderHook` invoked inside `SLF4JLogManager.log`, severity-floor pre-filter, hard-context inheritance from `Context.current()`), D35 (thread-local re-entrance guard against recursive logging from inside the OTel exporter)
+- Invariants: Listener exception isolation (the hook follows the same isolation contract; a throw from `onLog` is caught at the iteration site and reported via the fallback `Logger.getLogger("io.youtrackdb.otel.appender")` channel)
 
 ## Metrics integration
 
-The bridge surfaces two layers: sem-conv DB metrics with names defined by the OpenTelemetry spec, and YTDB-specific gauges under the `youtrackdb.*` namespace.
+The bridge surfaces two layers: sem-conv DB metrics with names defined by the OpenTelemetry spec, and YTDB-specific gauges under the `youtrackdb.*` namespace. The CoreMetrics inventory carries some of these today; the rest land in Track 8 alongside the `MetricGroup` enum that drives the included-groups filter. Each row is annotated `(existing)` when its profiler source already lives in `core/.../profiler/metrics/CoreMetrics.java`, or `(new in Track 8)` when Track 8 adds the underlying `MetricDefinition` plus the writer site that populates it.
 
 **Sem-conv v1.33.0 DB metrics (curated subset):**
 
 | OTel metric name | Stability | Instrument | YTDB source |
 |---|---|---|---|
-| `db.client.connection.count` | stable | `ObservableLongUpDownCounter` | active session count read from `DatabaseSessionRegistry` |
-| `db.client.operation.duration` | stable | `ObservableDoubleHistogram` | query and commit `executionTimeNanos` aggregated across the last collection period |
-| `db.client.response.returned_rows` | experimental | `ObservableDoubleHistogram` | row-count distribution from the listener's `QueryDetails.getResultCount()` accessor |
+| `db.client.connection.count` | stable | `ObservableLongUpDownCounter` | active session count read from `DatabaseSessionRegistry` (new in Track 8) |
+| `db.client.operation.duration` | stable | `ObservableDoubleHistogram` | query and commit `executionTimeNanos` aggregated across the last collection period — sourced from the listener fire sites (Track 3 / Track 4), not from `MetricsRegistry`, so no new profiler-side metric is needed |
+| `db.client.response.returned_rows` | experimental | `ObservableDoubleHistogram` | row-count distribution from `QueryDetails.getResultCount(): OptionalLong` (Track 1 adds the accessor; default empty unless the fire site can count rows without buffering the result set — Track 3 / Track 4 populate it from `LocalResultSet` lifecycle hooks when the source already exposes a row count) |
 
 **YTDB-specific (`youtrackdb.*` namespace):**
 
 | OTel metric name | Group | Instrument | Profiler source |
 |---|---|---|---|
-| `youtrackdb.cache.hit_ratio` | `cache` | `ObservableDoubleGauge` | `Ratio` from `MetricsRegistry` (cache hits over reads) |
-| `youtrackdb.cache.page_reads` | `cache` | `ObservableLongCounter` | `MetricsRegistry` page-read counter |
-| `youtrackdb.wal.pending_bytes` | `wal` | `ObservableLongGauge` | `MetricsRegistry` WAL backlog gauge |
-| `youtrackdb.wal.flush_rate_bps` | `wal` | `ObservableDoubleGauge` | `TimeRate` WAL flush bytes-per-second |
-| `youtrackdb.lock.contention_count` | `locks` | `ObservableLongCounter` | `MetricsRegistry` lock-wait counter |
-| `youtrackdb.storage.size_bytes` | `storage` | `ObservableLongGauge` (per `database` attribute) | per-`MetricScope.Database` size gauge |
-| `youtrackdb.transaction.commit_rate` | `transactions` | `ObservableDoubleGauge` | `TimeRate` commits-per-second |
-| `youtrackdb.transaction.rollback_count` | `transactions` | `ObservableLongCounter` | `MetricsRegistry` rollback counter |
+| `youtrackdb.cache.hit_ratio` | `cache` | `ObservableDoubleGauge` | `CoreMetrics.CACHE_HIT_RATIO` (existing — `Ratio`, cache hits over reads, 60s window) |
+| `youtrackdb.disk.read_rate_bps` | `cache` | `ObservableDoubleGauge` | `CoreMetrics.DISK_READ_RATE` (existing — `TimeRate`, bytes per second, 60s window) |
+| `youtrackdb.disk.write_rate_bps` | `cache` | `ObservableDoubleGauge` | `CoreMetrics.DISK_WRITE_RATE` (existing — `TimeRate`, bytes per second, 60s window) |
+| `youtrackdb.cache.page_reads_total` | `cache` | `ObservableLongCounter` | `CoreMetrics.PAGE_READ_COUNT` (new in Track 8 — `Counter`, monotonic page-read count populated by the disk-cache page-fault path) |
+| `youtrackdb.cache.evictions_total` | `cache` | `ObservableLongCounter` | `CoreMetrics.FILE_EVICTION_RATE` (existing — converted from rate to monotonic counter at OTel-bridge translation time) |
+| `youtrackdb.wal.pending_bytes` | `wal` | `ObservableLongGauge` | `CoreMetrics.WAL_PENDING_BYTES` (new in Track 8 — `Gauge<Long>`, in-flight WAL backlog read at the WAL writer's `flushPending()` site) |
+| `youtrackdb.wal.flush_rate_bps` | `wal` | `ObservableDoubleGauge` | `CoreMetrics.WAL_FLUSH_RATE` (new in Track 8 — `TimeRate`, WAL flush bytes per second, 60s window) |
+| `youtrackdb.lock.contention_count` | `locks` | `ObservableLongCounter` | `CoreMetrics.LOCK_WAIT_COUNT` (new in Track 8 — `Counter`, monotonic wait-event count populated by `ReadWriteLock` wrappers in the storage layer) |
+| `youtrackdb.storage.size_bytes` | `storage` | `ObservableLongGauge` (per `database` attribute) | `CoreMetrics.DATABASE_SIZE_BYTES` (new in Track 8 — per-`MetricScope.Database` `Gauge<Long>` read from the storage layer's `getSizeOnDisk()`) |
+| `youtrackdb.transaction.commit_rate` | `transactions` | `ObservableDoubleGauge` | `CoreMetrics.TRANSACTION_WRITE_RATE` (existing — `TimeRate`, write commits per second, 60s window) |
+| `youtrackdb.transaction.rate` | `transactions` | `ObservableDoubleGauge` | `CoreMetrics.TRANSACTION_RATE` (existing — `TimeRate`, all transactions per second, 60s window) |
+| `youtrackdb.transaction.rollback_rate` | `transactions` | `ObservableDoubleGauge` | `CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE` (existing — `TimeRate`, write rollbacks per second, 60s window) |
+| `youtrackdb.transaction.active_count` | `transactions` | `ObservableLongGauge` | `CoreMetrics.ACTIVE_TX_COUNT` (existing — per-database `Gauge<Integer>`) |
+| `youtrackdb.transaction.oldest_age_seconds` | `transactions` | `ObservableLongGauge` | `CoreMetrics.OLDEST_TX_AGE` (existing — per-database `Gauge<Long>`) |
 
 Sem-conv stability matters for dashboard authors: `stable` metrics will keep their names and semantics in future spec revisions; `experimental` ones may rename or change attribute shapes between sem-conv versions. The bridge surfaces both, but a downstream dashboard that depends on experimental metrics needs to track the sem-conv changelog between v1.33.0 and whatever version YTDB pins next.
 
+### MetricsRegistry enumeration and lazy-registration API
+
+`OTelMetricsBridge` cannot rely on call-site knowledge of every `MetricDefinition` — Track 8 adds enough new ones that a hand-maintained mirror list would drift. Two new public-API methods on `MetricsRegistry` close the gap:
+
+```java
+public interface MetricVisitor {
+  void visit(String fullyQualifiedName, MetricDefinition<?, ?> def, Metric<?> metric);
+}
+
+public void forEachMetric(MetricVisitor visitor);  // walks GLOBAL + every DatabaseMetrics group, calls visitor exactly once per metric instance currently registered
+
+public record MetricRegistrationEvent(
+    String fullyQualifiedName,
+    MetricDefinition<?, ?> def,
+    Metric<?> metric,
+    @Nullable String databaseName  // null for GLOBAL scope metrics
+) {}
+
+public void addRegistrationListener(Consumer<MetricRegistrationEvent> listener);
+public void removeRegistrationListener(Consumer<MetricRegistrationEvent> listener);
+```
+
+Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>` and fires every listener inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. The fire is synchronous on the registering thread; listeners that need to do heavy work (registering an OTel `ObservableInstrument` is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked.
+
+`forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk is a consistent snapshot of `ConcurrentHashMap.entrySet()` — concurrent registrations during the walk may or may not be visible, but every metric registered before `forEachMetric` was called is visited exactly once. The registration listener picks up anything added during or after the walk, so the combination of `forEachMetric` at `start()` plus the listener subscription is a complete enumeration with no race window.
+
 ### Async instrument lifecycle
 
-`OTelMetricsBridge.start()` does two things at SDK init:
+### Async instrument lifecycle
 
-1. Iterate `Profiler.getMetricsRegistry()` once, build a `Map<String, ObservableInstrument>` keyed by the OTel metric name, register each `ObservableInstrument` against the `SdkMeterProvider`'s `Meter` (`provider.get("io.youtrackdb")`). The callback closure captures the source `Metric` reference, not the value, so each collection cycle re-reads through the registry.
-2. Schedule a `ScheduledExecutorService` task at `OPENTELEMETRY_METRICS_PERIOD_MILLIS` interval. The task is a no-op semantically — the SDK's `PeriodicMetricReader` drives the actual export — but it exists to advance YTDB-side time-windowed metrics (`TimeRate`, `Ratio`) that have their own `flushRate` semantics independent of the OTel reader. Without the task, `TimeRate.currentRate()` would stall between exporter polls.
+`OTelMetricsBridge.start()` does three things at SDK init:
 
-`OTelMetricsBridge.stop()` cancels the scheduled task, calls `unregister()` on each `ObservableInstrument` (drops the SDK-side callback registration), and clears the map. Idempotent: stopping a stopped bridge is a no-op.
+1. Call `Profiler.getMetricsRegistry().forEachMetric(...)` to enumerate every currently-registered metric, build a `Map<String, ObservableInstrument>` keyed by the OTel metric name, and register each `ObservableInstrument` against the `SdkMeterProvider`'s `Meter` (`provider.get("io.youtrackdb")`). The callback closure captures the source `Metric` reference, not the value, so each collection cycle re-reads through the registry.
+2. Subscribe a `Consumer<MetricRegistrationEvent>` via `registry.addRegistrationListener(...)`. Each event posts a task onto the bridge's `ScheduledExecutorService` that does the same name-build + `ObservableInstrument` register dance as step 1 for the newly-added metric. This covers the per-database metrics created lazily when `Profiler.getMetricsRegistry().databaseMetric(def, dbName)` is first invoked for a database opened after `start()` ran.
+3. Schedule a periodic task at `OPENTELEMETRY_METRICS_PERIOD_MILLIS`. The SDK's `PeriodicMetricReader` drives the actual export; the bridge's task advances YTDB-side time-windowed metrics (`TimeRate`, `Ratio`) that have their own `flushRate` semantics independent of the OTel reader. Without the task, `TimeRate.currentRate()` would stall between exporter polls.
 
-`OTelMetricsBridge.refresh()` is a test seam: it iterates the registry once and forces a synchronous read through each registered callback, so unit tests can assert on the exporter side without waiting for the periodic reader's interval.
+`OTelMetricsBridge.stop()` calls `registry.removeRegistrationListener(...)`, cancels the scheduled task, calls `unregister()` on each `ObservableInstrument` (drops the SDK-side callback registration), and clears the map. Idempotent: stopping a stopped bridge is a no-op.
+
+`OTelMetricsBridge.refresh()` is a test seam: it forces a synchronous read through each registered callback, so unit tests can assert on the exporter side without waiting for the periodic reader's interval.
 
 ### Counter group filter
 
@@ -276,7 +320,9 @@ Operators wanting metrics on storage health but not query throughput configure `
 - Exporter back-pressure: OTel `PeriodicMetricReader` blocks the SDK's internal export thread when the configured exporter (OTLP, Prometheus) backs up. The bridge's scheduled task is independent of the reader — it advances time-windowed YTDB metrics regardless of exporter state — so back-pressure on the OTel side does not stall YTDB's in-JVM metric collection.
 - SDK swap during active metrics: when `setOpenTelemetry` swaps SDKs, the old `OTelMetricsBridge.stop()` runs before the new one's `start()`, so each `ObservableInstrument` is registered against exactly one `SdkMeterProvider` at a time. The window between stop and start is small; any metric reader poll in that window sees zero data points (the SDK-side callbacks are unregistered).
 - Disabled metrics with a host-wired SDK: when `OPENTELEMETRY_ENABLED=true` and `OPENTELEMETRY_METRICS_ENABLED=false`, the bridge is not started even if the host's OTel SDK carries a real `MeterProvider`. The host's other instrumentations continue to emit; only YTDB's bridge stays silent. This is intentional — a host that wants YTDB metrics specifically must opt them in independently of the master switch.
-- Profiler not initialized: if the bridge is started before `Profiler.onStartup()` completes (race during very early bootstrap), the `MetricsRegistry` is empty and the bridge registers zero callbacks. A WARN line names the race; the operator's recovery path is to enable the bridge via JVM system property (`-Dyoutrackdb.opentelemetry.metrics.enabled=true`) so the bridge waits for the profiler's startup listener to fire instead of racing it.
+- Profiler not initialized: if the bridge is started before `Profiler.onStartup()` completes (race during very early bootstrap), the initial `forEachMetric(...)` walk visits zero metrics. The `addRegistrationListener(...)` subscription still fires for every metric `Profiler.onStartup()` subsequently creates, so the bridge ends up fully wired without a separate retry path. No WARN is emitted in this case — the late-arriving registration events are the expected wiring sequence under early bootstrap.
+- Late-DB-open registration event: when `databaseMetric(def, dbName)` first runs for a new database, the registration listener fires synchronously on the registering thread. The bridge handler posts the OTel `ObservableInstrument` registration to its own `ScheduledExecutorService` and returns immediately, so the database-open path is not blocked by OTel-side allocation. The first metric reader poll after the registration sees the new instrument; polls before the registration land see no data point for that database (consistent with the database simply not having been registered yet).
+- Concurrent enumeration race: a database opened concurrently with `start()`'s `forEachMetric(...)` walk may or may not be visited by the walk — `ConcurrentHashMap.entrySet()` is weakly consistent. Either outcome is correct: the `addRegistrationListener(...)` subscription registered before the walk catches anything the walk missed, so every metric registers exactly once across the combination of walk + listener fires (the listener's idempotence check on `registered.containsKey(name)` handles the rare case where both paths see the same registration event).
 
 ### References
 - D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task advancing YTDB-side `TimeRate`/`Ratio` independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
