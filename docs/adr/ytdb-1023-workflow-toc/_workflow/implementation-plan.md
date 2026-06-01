@@ -346,8 +346,8 @@ flowchart TD
 ## Final Artifacts
 - [>] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 
-**PAUSED 2026-06-01 — context warning (35%), pre-authoring.** All Phase 4
-inputs read and verified; neither artifact authored yet; no Phase 4 commit
-landed. Resume via `_workflow/handoff-phase4.md` (digests Step 1 + Step 2 and
-the deferred-drift reconciliation basket). Next session re-enters Phase 4 at
-Step 3 of `prompts/create-final-design.md`.
+**PAUSED 2026-06-01 — context warning (36%), between artifacts.** `design-final.md`
+authored, passed the full `phase4-creation` mutation discipline, and committed
+(`ea77d2e535`); logged as Mutation 13. `adr.md` not yet written; promote / final-
+artifacts / cleanup commits pending. Resume via `_workflow/handoff-phase4.md` —
+re-enter Phase 4 at Step 3 Artifact 2 (`adr.md`) of `prompts/create-final-design.md`.
