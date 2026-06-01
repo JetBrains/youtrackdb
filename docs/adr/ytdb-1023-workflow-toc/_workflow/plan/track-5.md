@@ -25,7 +25,8 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [x] 2026-05-31T19:24Z [ctx=warning] Step 5 complete (commit a7b7575e04, Review fix 21c3c5fe91)
 - [x] 2026-05-31T19:47Z [ctx=info] Step 6 complete (verification — no code commit)
 - [x] 2026-05-31T20:23Z [ctx=warning] Track-level code review iteration 1 fixes applied (Review fix 16ed654728); gate-check fan-out pending — paused for context refresh
-- [ ] Track-level code review
+- [x] 2026-06-01T03:42Z [ctx=info] Track-level code review iteration 2 complete (gate-check PASS — all VERIFIED: WP1, WI1/WI2/WI3, WC-M4; 2/3 iterations used)
+- [x] Track-level code review
 - [ ] Track completion
 
 ## Surprises & Discoveries
@@ -55,6 +56,7 @@ summary at Phase C. -->
 - [x] Technical: PASS at iteration 1 (3 findings — 1 should-fix, 2 suggestions; all accepted as decomposition refinements). D17's premise re-confirmed empirically: live `.claude/agents/**` is absent from `IN_SCOPE_GLOBS`, so rules 6/7 never visit agent files (`--check` on a live agent exits 0 with zero findings). The fix is necessary, not cosmetic — adding agents to discovery without a per-rule gate makes rules 2 and 4 misfire (reproduced end-to-end).
 - [x] Risk: PASS at iteration 1 (5 findings — 4 should-fix, 1 suggestion; all accepted). No blocker: the script surface is small and well-tested, and every step is one revertible commit. The dominant risk is implementation precision in the per-rule suppression gate (rule-4 blast radius is 360 false findings against rule-2's 20) and the gate-load-bearing backtick discipline (the script's cross-file out-of-scope set is `CLAUDE.md`-only).
 - [x] Adversarial: PASS at iteration 1 (7 findings — 4 should-fix, 3 suggestions; all accepted). D17 and D18 both survive the strongest rejected-alternative challenges: the simpler single-glob D17 fix over-fires rules 5 and 8, and an in-branch migration replay exercises nothing because the drift gate never fetches develop and §1.8 reaches develop only at Phase 4. Every finding is a wording or decomposition refinement, not a decision reversal.
+- [x] Track-level code review iteration 2 (gate-check) PASS. Iteration 1 applied M1-M4 (`Review fix: 16ed654728`): WP1 (step-2 and inline-refs match rules use any-of/OR semantics so multi-hat readers and `any`-axis readers match correctly), WI1 (the no-TOC trigger exempts the bootstrap heading, so a file whose only `## ` heading is the bootstrap block still counts as TOC-less), WI2/WI3 (step-3 zero-rows-match terminal plus the `§1.8(f)` flowchart `SKIP_SECTION → SECTION_MATCH` loop-back and all-skipped `→ DONE` terminal edges), WC-M4 (`§1.8(g)` reframed to delimiter-bounded, dropping the stale "first ~20 lines"). The iteration-2 gate-check fan-out over the three implicated dimensions (prompt-design, instruction-completeness, consistency) returned all-VERIFIED with no regression and no new finding; hook-safety, context-budget, and writing-style were clean at iteration 1 and not re-run. Deferred to the Phase 4 `design-final.md` reconciliation basket: WC1 (the frozen `design.md` bootstrap body now diverges from the on-disk byte-identical body in three ways — next-layer content, backtick-wrapped `§1.8(d)` anchor, and the M1/M2/M3 wording), WC2 (two-anchor-vs-three-anchor placement prose in `design.md` / plan I5 / glossary), and the WP2/WP3/WB1 suggestions.
 
 ## Context and Orientation
 
