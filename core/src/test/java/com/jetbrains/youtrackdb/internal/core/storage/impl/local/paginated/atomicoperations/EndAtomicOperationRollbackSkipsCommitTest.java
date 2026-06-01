@@ -4,8 +4,9 @@ import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginate
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.mockOperation;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.mockStorage;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.primeFreezer;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -59,11 +60,27 @@ import org.junit.Test;
  *       operation into rollback so the subsequent commit gate is skipped.
  * </ul>
  *
- * <p>Each rollback test asserts {@code commitChanges} is NEVER invoked. A
- * positive control asserts {@code commitChanges} IS invoked on a clean success
- * path, so a future change to {@code mockOperation} that stopped wiring
- * {@code commitChanges} altogether (which would make the never-invoked
- * assertions pass vacuously) fails here.
+ * <p>Each rollback test asserts that none of the commit-only side effects of
+ * {@code endAtomicOperation} ever fire on a rolled-back operation: not
+ * {@code commitChanges}, and not the commit-branch table/WAL calls
+ * ({@code commitOperation}, {@code persistOperation}, and the WAL
+ * {@code addEventAt} record). A positive control asserts {@code commitChanges}
+ * IS invoked on a clean success path. The control exists to falsify a specific
+ * vacuous-pass mode: if a future change made the clean success path unreachable
+ * (for example {@code mockOperation} defaulting the operation into rollback, or
+ * the commit gate being removed), the {@code never()} assertions in the two
+ * rollback tests would pass on every path and silently stop guarding anything;
+ * the positive control fails in that case and surfaces the regression.
+ *
+ * <p>The overlap with {@link EndAtomicOperationPersistHookTest} is INTENTIONAL.
+ * That sibling pins the full persist-hook conversion contract (error-mode
+ * transition, exception-type wrapping, lock-release ordering, dual-invocation
+ * latch) across many cases; this class is the dedicated, narrowly-named
+ * regression anchor for the single rollback-leaves-no-physical-footprint premise
+ * that the open-time orphan-pass gate depends on. Keeping it separate means a
+ * future maintainer who weakens that gate finds a test named for exactly the
+ * premise they broke, rather than a buried assertion inside a broad persist-hook
+ * suite. Do not delete this class as accidental duplication of the sibling.
  *
  * <p>The property has a second, read-extend half (no correct production read
  * extends a file outside crash recovery). That half is a component-correctness
@@ -109,13 +126,25 @@ public class EndAtomicOperationRollbackSkipsCommitTest {
     primeFreezer(manager);
     manager.endAtomicOperation(operation, inbound);
 
-    // Write-path half: commitChanges must not run for a rolled-back op.
-    verify(operation, never()).commitChanges(anyLong(), any(WriteAheadLog.class));
+    // Write-path half: commitChanges must not run for a rolled-back op. Exact
+    // matcher (DEFAULT_COMMIT_TS, wal) mirrors the production call
+    // operation.commitChanges(commitTs, writeAheadLog) and the positive
+    // control's IS-invoked assertion; the positive control proves these
+    // arguments are deterministic, so an exact never() documents intent without
+    // weakening the guard (a wider matcher only makes never() easier to pass).
+    verify(operation, never()).commitChanges(DEFAULT_COMMIT_TS, wal);
     // The operation was recorded as a rollback, never a commit, confirming the
     // never-invoked assertion above reflects a genuine rollback path and not a
     // mis-wired mock.
     verify(table, times(1)).rollbackOperation(DEFAULT_COMMIT_TS);
     verify(table, never()).commitOperation(DEFAULT_COMMIT_TS);
+    // Negative state the sibling omits: the remaining commit-branch-only side
+    // effects never fire either. persistOperation and the WAL addEventAt record
+    // are reached only inside endAtomicOperation's commit branch (the else of
+    // `if (currentError != null)`), so a rollback that skipped commitChanges but
+    // still durably recorded the operation would be caught here.
+    verify(table, never()).persistOperation(DEFAULT_COMMIT_TS);
+    verify(wal, never()).addEventAt(any(), any());
   }
 
   /**
@@ -138,30 +167,52 @@ public class EndAtomicOperationRollbackSkipsCommitTest {
     primeFreezer(manager);
     try {
       manager.endAtomicOperation(operation, null);
-      // The captured persist failure is re-raised after releaseLocks; the
-      // throw is expected and irrelevant to this test — what matters is that
-      // commitChanges did not run. Falling through without a throw is also
-      // acceptable for this test's purpose, so no fail() here.
+      // Production always re-raises the captured persist failure after
+      // releaseLocks, so reaching this line means the rollback flip did not
+      // happen the way the test assumes. fail() here forbids the vacuous pass
+      // where commitChanges is un-invoked simply because no throw occurred.
+      fail("Expected the captured persist failure to be re-raised");
     } catch (RuntimeException expected) {
-      // Re-raised persist failure — expected, see method Javadoc.
+      // The re-raised exception must be the exact persist failure we injected,
+      // not an incidental NPE or a different exception raised before the
+      // rollback flip. assertSame confirms the persist throw is what drove the
+      // rollback that skipped commitChanges.
+      assertSame(
+          "The rollback must be driven by the injected persist failure,"
+              + " not an incidental exception",
+          persistFailure, expected);
     }
 
-    // Write-path half: the persist-failure flip skipped commitChanges.
-    verify(operation, never()).commitChanges(anyLong(), any(WriteAheadLog.class));
+    // Write-path half: the persist-failure flip skipped commitChanges. Exact
+    // matcher (DEFAULT_COMMIT_TS, wal) per the production call signature and the
+    // positive control; a wider matcher only makes never() easier to pass.
+    verify(operation, never()).commitChanges(DEFAULT_COMMIT_TS, wal);
     // Persist was attempted exactly once, confirming the rollback was driven by
     // the persist-failure flip rather than an unrelated short-circuit.
     verify(storage, times(1)).persistIndexCountDeltas(operation);
     verify(table, times(1)).rollbackOperation(DEFAULT_COMMIT_TS);
     verify(table, never()).commitOperation(DEFAULT_COMMIT_TS);
+    // Negative state the sibling omits: the commit-branch-only durable side
+    // effects never fire on the persist-failure rollback path either.
+    verify(table, never()).persistOperation(DEFAULT_COMMIT_TS);
+    verify(wal, never()).addEventAt(any(), any());
   }
 
   /**
    * Positive control: on a clean success path (null inbound error, persist hook
    * succeeds, operation never flipped to rollback), {@code commitChanges} IS
-   * invoked. Without this, the two never-invoked assertions above could pass
-   * vacuously if a future change to {@code mockOperation} stopped wiring
-   * {@code commitChanges} as a callable stub. This test fails in that case,
-   * keeping the rollback assertions meaningful.
+   * invoked. Without this, the {@code never()} assertions in the two rollback
+   * tests could pass vacuously if a future change made the clean success path
+   * unreachable — for example {@code mockOperation} defaulting the operation
+   * into rollback ({@code isRollbackInProgress()} returning {@code true} on
+   * entry), or the commit gate being removed so the path can no longer reach
+   * {@code commitChanges} on any input. In that case the rollback tests would
+   * stop guarding anything; this control fails and surfaces the regression.
+   * (Note: {@code commitChanges} is not explicitly stubbed on the shared
+   * {@code mockOperation}; the success path works via Mockito's default
+   * {@code null} return matching production's {@code lsn == null} else-branch,
+   * so the vacuous-pass risk is the path becoming unreachable, not an unwired
+   * stub.)
    */
   @Test
   public void commitChangesReachedOnCleanSuccessPath() throws IOException {
