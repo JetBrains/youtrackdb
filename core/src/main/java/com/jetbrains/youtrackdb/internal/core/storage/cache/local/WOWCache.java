@@ -2078,6 +2078,18 @@ public final class WOWCache extends AbstractWriteCache
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPages(intId, minPageIndex);
         file.shrink(targetBytes);
+        // Boolean/physical-truncate contract: the true return below is the sole signal
+        // LockFreeReadCache.shrinkFile uses to gate its read-cache purge. Pin that the
+        // file actually reached targetBytes so a future refactor that reorders the return
+        // relative to file.shrink (or inserts an early return between removeCachedPages and
+        // the truncate) cannot silently desync the boolean from the physical state. -ea-only,
+        // zero production cost; coverage-gate.py excludes assert lines.
+        assert file.getFileSize() == targetBytes
+            : "shrinkFile returned true but physical size "
+                + file.getFileSize()
+                + " != target "
+                + targetBytes
+                + " (boolean/truncate desync breaks the read-cache purge gate)";
         // The file was physically shrunk: signal the read-cache orchestrator to run its
         // range-scoped purge of cached entries at pageIndex >= minPageIndex.
         return true;

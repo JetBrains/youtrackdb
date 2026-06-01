@@ -762,6 +762,14 @@ public class LockFreeReadCacheFileOpsTest {
       truncateCount.incrementAndGet();
     }
 
+    /**
+     * The production {@code ReadCache.shrinkFile} gate is reached only from
+     * {@code AbstractStorage.truncateOrphansAfterRecovery}, which holds
+     * {@code stateLock.writeLock()} during storage {@code open()}; it never runs concurrently
+     * with client {@code loadForRead}/eviction. These shrinkFile tests are intentionally
+     * single-threaded — a concurrent contention test would model no real production
+     * interleaving.
+     */
     @Override
     public boolean shrinkFile(final long fileId, final long targetBytes) {
       // Tracking variant — unlike the four other test mocks (which throw UOE because the
