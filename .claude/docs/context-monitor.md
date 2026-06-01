@@ -15,14 +15,22 @@ The file is keyed by the `claude` process PID. The statusline walks up the proce
 
 ## Why these thresholds
 
-Calibrated for Claude Opus 4.7 on the 1M context window using published long-context retrieval data plus community Claude Code reports:
+Calibrated for Claude Opus 4.8 on the 1M context window, against the GraphWalks long-context benchmark. GraphWalks measures multi-hop reasoning over the whole context, the closest published proxy for agentic Claude Code work (which chains file paths, decisions, and conventions rather than retrieving one buried fact). The earlier Opus 4.7 bands were set against NIAH-style spot retrieval; every band moves up one notch here because Opus 4.8 degrades about half as fast on GraphWalks.
 
-- **Single-needle retrieval** holds at ~99% accuracy through 200K tokens, then drops to ~89% at 1M (Opus 4.7, NIAH-style benchmarks). Below 20% (≤200K) the model is essentially at full quality — no need to slow down.
-- **Multi-needle retrieval** (which agentic Claude Code work resembles, since it must recall multiple file paths, decisions, and conventions) drops from ~96% at 200K to ~56% at 1M for Opus 4.7. The published "effective context for production multi-needle workloads" sits in the **200–400K** band — this maps directly to the warning (300K) → critical (400K) boundary.
-- **Auto-compaction** triggers around 83–95% in Claude Code, but quality has already significantly degraded by then — the critical threshold fires well before that point so the session can be saved and restarted cleanly.
-- **Self-reported degradation** (Claude observing its own behavior in long Claude Code sessions): noticeable circular reasoning and forgotten earlier decisions begin around 40–50% on Opus 4.6 with the 1M window. Opus 4.7 improves long-context tracking (Anthropic's own claim: "most consistent long-context performance of any model tested"), but the underlying multi-needle drop curve hasn't been eliminated, so the critical 40% line stays put.
+The Opus 4.8 System Card (May 28, 2026, §8.9) reports long context only via GraphWalks, split into 256K and 1M subsets. The 256K point sits inside the old info→warning band, so the bands are fit to measured data rather than extrapolated from it.
 
-Sources: GitHub issue [anthropics/claude-code#34685](https://github.com/anthropics/claude-code/issues/34685); [Claude Opus 4.7 launch notes](https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-7); [Long-Context Retrieval 2026 (digitalapplied.com)](https://www.digitalapplied.com/blog/long-context-retrieval-needle-in-haystack-2026); community guides like spacecake.ai's Claude Code context management.
+GraphWalks F1:
+
+| Subset | 4.8 @256K | 4.8 @1M | 4.7 @256K | 4.7 @1M |
+|---|---|---|---|---|
+| BFS (hard) | 85.9 | 68.1 | 76.9 | 40.3 |
+| Parents | 99.3 | 83.3 | 93.6 | 56.6 |
+
+- **Slope halved.** On the hard BFS subset, Opus 4.7 loses 4.9 F1 points per 100K tokens across the 256K→1M span; Opus 4.8 loses 2.4, about half the decay rate, and scores higher at every measured point. Extrapolating Opus 4.7's steeper slope, Opus 4.8 at the full 1M window lands near Opus 4.7's quality at ~400K — the old critical line. The whole Opus 4.8 window is about as reliable as Opus 4.7's first 400K, so each band moves up one notch (info 20→25%, warning 30→40%, critical 40→50%). The one-band shift is conservative against what the slope-halving alone would justify.
+- **No retrieval-precision cliff.** A local multi-needle probe (10 distinct buried keys, exact-match grading, question placed after the haystack) scored 60/60 on both Opus 4.8 and 4.7 out to 82% of the window. Exact distinct-key recall, the analog of remembering a specific file path or config value, stays saturated well past the bands, so there is no separate retrieval cliff below the reasoning curve. This is why critical sits at 50% rather than a more cautious 45%. Scope: the probe covered distinct-key recall, not MRCR-style ordinal-instance disambiguation, at one trial per depth.
+- **Auto-compaction** triggers around 83–95% in Claude Code, by which point quality has already degraded badly. Critical (50%) fires far enough below that point to save and restart a session cleanly.
+
+Sources: Claude Opus 4.8 System Card, May 28, 2026 (§8.9 Long context: GraphWalks); local multi-needle retrieval probe (60/60 exact match across 408K / 640K / 819K, both models), recorded in YTDB-1035.
 
 ## Configuration
 

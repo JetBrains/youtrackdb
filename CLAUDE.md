@@ -240,21 +240,24 @@ Output example: `ctx: 7% level=safe`
 
 | Level | Trigger | What it means |
 |---|---|---|
-| **safe** | <20% | Plenty of room. |
-| **info** | 20% (~200K of 1M) | Context growing. Delegate exploration to subagents, avoid reading large files, write decisions to files. |
-| **warning** | 30% (~300K of 1M) | Quality degradation likely. Save state to files, run `/compact` with key context, or delegate remaining work to subagents. |
-| **critical** | 40% (~400K of 1M) | Severe degradation. Stop immediately, save all state to `/tmp/claude-code-session-state.md`, tell the user to `/clear` and resume. |
+| **safe** | <25% | Plenty of room. |
+| **info** | 25% (~250K of 1M) | Context growing. Delegate exploration to subagents, avoid reading large files, write decisions to files. |
+| **warning** | 40% (~400K of 1M) | Quality degradation likely. Save state to files, run `/compact` with key context, or delegate remaining work to subagents. |
+| **critical** | 50% (~500K of 1M) | Severe degradation. Stop immediately, save all state to `/tmp/claude-code-session-state.md`, tell the user to `/clear` and resume. |
 
-For the threshold rationale (Opus 4.7 retrieval data, calibration sources), statusline implementation, session isolation, and configuration paths: see `.claude/docs/context-monitor.md`.
+For the threshold rationale (Opus 4.8 GraphWalks data, calibration sources), statusline implementation, session isolation, and configuration paths: see `.claude/docs/context-monitor.md`.
 
 The thresholds in this section MUST stay in sync with:
 - `.claude/scripts/statusline-command.sh` — the line that writes `level=...`
+- `.claude/docs/context-monitor.md` — § Why these thresholds (the GraphWalks calibration rationale that cites the band numbers)
 - `.claude/workflow/workflow.md` — § Context Consumption Check (the level table)
-- `.claude/workflow/track-review.md` and `.claude/workflow/track-code-review.md` — the inline "warning (≥30%) or critical (≥40%)" gates
+- `.claude/workflow/track-review.md` and `.claude/workflow/track-code-review.md` — the inline "warning (≥40%) or critical (≥50%)" gates
 - `.claude/workflow/implementation-review.md` — the State 0 inline gate
-- `.claude/workflow/step-implementation.md` — the Phase B inline gate
+- `.claude/workflow/step-implementation.md` — the Phase B inline gate (symbolic `warning`/`critical`, no numbers — does not move when the bands move, but verify it stays threshold-agnostic)
 - `.claude/workflow/prompts/create-final-design.md` — the Phase 4 inline gate
 - `.claude/workflow/mid-phase-handoff.md` — § When this protocol fires (defines the trigger thresholds)
+- `.claude/agents/review-workflow-context-budget.md` — the budget-review agent's severity-threshold anchor (two inline references to the band numbers)
+- `.claude/skills/migrate-workflow/SKILL.md` — § 4.1 Context check inline gate (symbolic `warning`/`critical`/`info`/`safe`, no numbers — does not move when the bands move, but verify it stays threshold-agnostic)
 
 If you change a threshold here, grep for the others and update them in the same commit.
 

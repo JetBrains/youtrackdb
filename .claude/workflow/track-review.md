@@ -514,7 +514,7 @@ review-mode rounds.
    - **Context consumption check** (mandatory after each review, except
      after the last action of the phase): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
-     `warning` (≥30%) or `critical` (≥40%), do NOT start the next review
+     `warning` (≥40%) or `critical` (≥50%), do NOT start the next review
      or decomposition. Save all work and ask the user for a session
      refresh (see `workflow.md` §Context Consumption Check). If the pause
      leaves Phase A mid-flight (for example, technical review PASSed

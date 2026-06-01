@@ -36,11 +36,11 @@ build_bar() {
 # Determine threshold level. Also used for the on-disk usage file below.
 if [ -n "$used_pct" ]; then
   pct_int=$(printf "%.0f" "$used_pct")
-  if [ "$pct_int" -ge 40 ]; then
+  if [ "$pct_int" -ge 50 ]; then
     level="critical"
-  elif [ "$pct_int" -ge 30 ]; then
+  elif [ "$pct_int" -ge 40 ]; then
     level="warning"
-  elif [ "$pct_int" -ge 20 ]; then
+  elif [ "$pct_int" -ge 25 ]; then
     level="info"
   else
     level="safe"

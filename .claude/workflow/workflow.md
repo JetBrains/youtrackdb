@@ -347,7 +347,7 @@ exactly one phase:
   plan, end the session. The next session starts fresh with the revised plan.
 
 - **Context consumption too high** — if an active context check (see
-  §Context Consumption Check below) shows usage at `warning` level (≥30%)
+  §Context Consumption Check below) shows usage at `warning` level (≥40%)
   or above, finish the current unit of work, save progress, and end the
   session.
 
@@ -372,10 +372,10 @@ The output looks like: `ctx: 7% level=safe`
 
 | Level | Trigger | Action |
 |---|---|---|
-| `safe` | <20% | Continue normally. |
-| `info` | 20–29% | Continue, but prefer delegating exploration to sub-agents and avoid reading large files. |
-| `warning` | 30–39% | **Do not start next unit of work.** Save progress and ask for session refresh. |
-| `critical` | ≥40% | **Do not start next unit of work.** Save progress and ask for session refresh. |
+| `safe` | <25% | Continue normally. |
+| `info` | 25–39% | Continue, but prefer delegating exploration to sub-agents and avoid reading large files. |
+| `warning` | 40–49% | **Do not start next unit of work.** Save progress and ask for session refresh. |
+| `critical` | ≥50% | **Do not start next unit of work.** Save progress and ask for session refresh. |
 
 **If the file does not exist or the command fails**, treat as `safe` and
 continue normally — the statusline script may not have written the file
