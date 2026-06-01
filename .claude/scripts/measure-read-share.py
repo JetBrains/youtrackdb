@@ -394,13 +394,21 @@ def largest_remainder_percentages(values: List[int]) -> List[float]:
 def normalise_path(file_path: str, repo_root: Path) -> str:
     """Repo-relative path for the top-files table, never an absolute path.
 
-    Uses ``Path.relative_to`` against the worktree root. A path that
-    resolves outside the worktree is tagged ``<outside-worktree>`` rather
-    than published verbatim — the publication-safety rule forbids
-    absolute ``/home/...`` paths in the ADR.
+    Canonicalises the path with ``Path.resolve()`` before taking
+    ``relative_to`` against the (already-resolved) worktree root, so a
+    transcript that recorded a file under a symlinked worktree path still
+    maps to its repo-relative form instead of being mislabelled — the same
+    symlink alignment the caller applies to ``repo_root``. A relative path
+    (which the Read tool should never produce) is anchored at the root
+    first. A path that resolves outside the worktree is tagged
+    ``<outside-worktree>`` rather than published verbatim — the
+    publication-safety rule forbids absolute ``/home/...`` paths in the ADR.
     """
     try:
-        return str(Path(file_path).relative_to(repo_root))
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = repo_root / path
+        return str(path.resolve().relative_to(repo_root))
     except ValueError:
         return "<outside-worktree>"
 
