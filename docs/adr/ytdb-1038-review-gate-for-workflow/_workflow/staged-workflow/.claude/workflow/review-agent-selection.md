@@ -151,10 +151,12 @@ launch: `review-workflow-prompt-design`,
 `review-workflow-hook-safety`. (`review-workflow-consistency` and
 `review-workflow-context-budget` always run for this group;
 `review-workflow-writing-style` already fires via its `docs/adr/**/*.md`
-glob.) Before evaluating the per-agent triggers below against the
+glob, and since its `.claude/**/*.md` glob also matches the normalized
+path, it fires regardless of which form this row is evaluated against.)
+Before evaluating the per-agent triggers below against the
 workflow-machinery subset of the diff, normalize each changed path: a
 path matching the anchored prefix
-`docs/adr/<any-dir>/_workflow/staged-workflow/(.claude/…)` is replaced by
+`docs/adr/<any-dir>/_workflow/staged-workflow/(\.claude/…)` is replaced by
 its captured `.claude/…` remainder; the match is anchored after the
 `docs/adr/<dir>/` head (the `<dir>` segment is variable). A path that
 does not match this exact anchored prefix passes through unchanged,
@@ -267,6 +269,19 @@ full track diff.
   `.claude/scripts/`, or `.claude/settings*.json` file is touched).
   5 agents. Without normalization the two glob-gated reviewers would
   miss the staged path and fail to launch.
+- **Staged path that does not normalize.** Step edits
+  `docs/adr/<dir>/_workflow/staged-workflow/notes/.claude/x.md` → after
+  the `docs/adr/<dir>/_workflow/staged-workflow/` head the remainder is
+  `notes/.claude/x.md`, which does not begin with `.claude/`, so the
+  anchored prefix does not match and the path passes through
+  un-normalized (the rule's "merely contains `.claude/` lower down"
+  case). The file is still `workflow-machinery` by the
+  `docs/adr/<dir>/` rule, so the always-run
+  `review-workflow-consistency` + `review-workflow-context-budget` pair
+  and `review-workflow-writing-style` (via `docs/adr/**/*.md`) still
+  fire, but the three glob-gated reviewers do not, because no
+  normalized `.claude/...` path is produced. Only a `.claude/...`
+  segment immediately after `staged-workflow/` normalizes.
 
 ### Maintenance
 <!-- roles=orchestrator phases=3A,3B,3C summary="The mirrored sections must stay in sync with the /code-review skill; drift is a consistency-review defect." -->
