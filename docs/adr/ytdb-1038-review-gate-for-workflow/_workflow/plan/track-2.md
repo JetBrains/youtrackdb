@@ -54,9 +54,9 @@ Non-obvious facts that shape the work:
   workflow file to its staged copy under `_workflow/staged-workflow/` when one
   exists, and to the live file otherwise. As written today `§1.7(d)` scopes
   that precedence to the implementer's per-spawn read site and explicitly
-  excludes reviewers ("reviewers loading a workflow file from the worktree keep
-  reading live paths unchanged"), with the now-false rationale that no such
-  consumer has a staged copy to read. This track amends `§1.7(d)` to bring
+  excludes reviewers, listing "reviewers loading a workflow file from the
+  worktree" among the consumers that keep reading live paths unchanged, with
+  the now-false rationale that no such consumer has a staged copy to read. This track amends `§1.7(d)` to bring
   review agents on a workflow-modifying plan into the precedence scope and to
   drop that rationale, so the caveat invokes a rule that covers reviewers
   rather than one that excludes them.

@@ -300,7 +300,15 @@ flowchart TB
 
 ## Plan Review
 
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed at iteration 2 (re-run after the Track 4 inline replan)
+
+**Auto-fixed (mechanical)**: CR1 — `plan/track-2.md` §Context wrapped a non-verbatim conflation of the live `§1.7(d)` reviewer-exclusion clause in quotation marks; replaced with the verbatim span "reviewers loading a workflow file from the worktree" plus paraphrase.
+
+**Reviewed and rejected (non-issues)**: CR2 — design.md S1 ("mirror … verbatim … date bumped") faithfully paraphrases the authoritative `review-agent-selection.md §Maintenance` text, no inconsistency. CR3 — the seven `prompts/` files' bare-filename rendering is already disambiguated in `track-2.md §Interfaces`, and adding directory prose to the plan would risk the structural bloat gate. The consistency gate confirmed both rejections sound.
+
+**Escalated (design decisions)**: none.
+
+**Structural review**: PASS at iteration 1, zero findings — the Track 4 / D5 additions are structurally sound (D5 DR within budget, S2 extended to "Tracks 2 + 4", DELTA Component-Map node annotated, ordering and dependencies clean) and all bloat budgets hold. The new material matched cleanly across plan ↔ design.md ↔ track files.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
