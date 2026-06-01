@@ -21,6 +21,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
 - [x] 2026-06-01T15:50Z [ctx=info] Step 2 complete (commit 1f0c3e0e3e; dim-review PASS iter 2)
 - [x] 2026-06-01T16:15Z [ctx=info] Step 3 complete (commit 597c1c08aa; dim-review PASS iter 2)
+- [ ] 2026-06-01T16:23Z [ctx=info] Step 4 implementer turn ended without a RESULT block (clean tree, no commit); recovering by resuming the same agent per user choice (RESULT_MISSING — consumes one attempt)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
