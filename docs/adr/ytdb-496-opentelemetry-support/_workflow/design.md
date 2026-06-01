@@ -3,7 +3,7 @@
 
 ## Overview
 
-This design adds a new optional Maven module `youtrackdb-opentelemetry` that turns the existing YTDB listener callbacks into OpenTelemetry spans, so a host running embedded YTDB and an operator running a standalone server both get database telemetry visible in any OTel-compatible trace viewer.
+This design adds a new optional Maven module `youtrackdb-opentelemetry` that wires YTDB into OpenTelemetry across two pillars in this branch's scope: distributed tracing (spans from query and transaction listener callbacks) and logs (every record emitted through YTDB's `LogManager` chokepoint, hard-context-correlated with the active span at emission time). Metrics land in a follow-up mutation (M35) inside the same PR. The result is that a host running embedded YTDB and an operator running a standalone server both get database telemetry — spans and correlated logs — visible in any OTel-compatible viewer.
 
 This design assumes familiarity with the existing `QueryMetricsListener` and `TransactionMetricsListener` firing sites in `YTDBQueryMetricsStep` and `FrontendTransactionImpl`, and with the `YTDBTransaction` open / commit / rollback lifecycle. The audience is contributors maintaining the metrics and transaction subsystems in `core`.
 
@@ -19,15 +19,15 @@ A second optional gate emits a wall-clock heartbeat sample: `OPENTELEMETRY_QUERY
 
 `YTDBTransaction` exposes a builder-style API for listener wiring: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)` are separate fluent methods. The new `withTrackingId(String)` stores an explicit tracking ID on the transaction; `FrontendTransaction.getTrackingId(): String` returns that explicit value when set, else falls back to `String.valueOf(getId())` so the internal-ID source stays the default.
 
-Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-Throwable union `Exception | LinkageError | AssertionError` to cover the OTel-specific failure modes (misconfigured SDK, missing exporter classes, assertion failures) without masking `VirtualMachineError` or `ThreadDeath`, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method) and adds three new accessors on `FrontendTransaction` — `getDefaultQueryMonitoringMode(): QueryMonitoringMode` exposing the per-TX fallback used by commit and by queries with no tag-rule match, `resolveQueryMonitoringMode(Optional<String> tag): QueryMonitoringMode` delegating to the process-global `QueryMonitoringModeResolver` for per-query mode selection from the query tag, and `iterateAllQueryListeners(): Iterable<QueryMetricsListener>` exposing the merged global-snapshot + per-TX-list view — and `GlobalConfiguration` gains five `OPENTELEMETRY_*` entries that drive the server-mode SDK init plus the tag-rule table.
+Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-Throwable union `Exception | LinkageError | AssertionError` to cover the OTel-specific failure modes (misconfigured SDK, missing exporter classes, assertion failures) without masking `VirtualMachineError` or `ThreadDeath`, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method) and adds three new accessors on `FrontendTransaction` — `getDefaultQueryMonitoringMode(): QueryMonitoringMode` exposing the per-TX fallback used by commit and by queries with no tag-rule match, `resolveQueryMonitoringMode(Optional<String> tag): QueryMonitoringMode` delegating to the process-global `QueryMonitoringModeResolver` for per-query mode selection from the query tag, and `iterateAllQueryListeners(): Iterable<QueryMetricsListener>` exposing the merged global-snapshot + per-TX-list view — and `GlobalConfiguration` gains a family of `OPENTELEMETRY_*` entries that drive the server-mode SDK init plus the tag-rule table (master switch, query-tag rule sets for mode / slow-query / heartbeat, exporter wiring, and two log-side entries `OPENTELEMETRY_LOGS_ENABLED` and `OPENTELEMETRY_LOGS_MIN_SEVERITY`).
 
 In embedded mode the SDK resolution chain has three steps in priority order: host-provided via `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, then `GlobalOpenTelemetry.get()` if the host configured the global, then a YTDB-built SDK auto-configured from `OPENTELEMETRY_*` config when neither of the first two yielded a real instance. The flag is never inert; ownership is tracked so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process; an `OpenTelemetrySdk` built from the same config entries wires through a `ServerLifecycleListener`-based plugin.
 
-The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
+The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, OpenTelemetry logs integration, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
 
 ## Core Concepts
 
-This design introduces nine load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
+This design introduces ten load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
 
 **Span.** An OpenTelemetry record covering one unit of work with a start timestamp, an end timestamp, a name, a kind (CLIENT / SERVER / INTERNAL / PRODUCER / CONSUMER), a status (OK / ERROR), and arbitrary key/value attributes. Replaces "nothing in YTDB" (no prior telemetry primitive). → §"Sem-conv attribute mapping" and §"Class Design".
 
@@ -46,6 +46,8 @@ This design introduces nine load-bearing ideas. Each is named and used without r
 **Time-based query sampling (heartbeat).** A wall-clock interval in milliseconds resolved per-query from the same query tag. Global default `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS=0` (disabled); positive values emit one span per `N` ms regardless of duration, picked from whichever successful query finishes first after the interval elapses. Per-tag overrides via `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES` resolve through a process-global `SampleHeartbeatResolver` sharing the sealed `TagRule<T>` matcher hierarchy with the mode and slow-query resolvers. The race for the "first query after the interval" slot is resolved by `AtomicLong.compareAndSet` on a per-listener `lastHeartbeatNanos` field, so under load exactly one query per window claims the heartbeat slot. Composes disjunctively with the slow-query gate (a query emits if either gate passes). Replaces "no sampling beyond the slow-query gate", which biased visibility toward latency outliers and left the fast-query workload invisible. → §"Time-based sampling".
 
 **Explicit transaction tracking ID.** A host-provided string identifier passed to a transaction via `YTDBTransaction.withTrackingId(String)`. When set, `FrontendTransaction.getTrackingId(): String` returns the explicit value; when unset, the accessor falls back to `String.valueOf(getId())` so the existing internal-ID source remains the default. Both `QueryDetails.getTransactionTrackingId()` and `TransactionDetails.getTransactionTrackingId()` read through this accessor, so explicit IDs surface in OTel span attributes (`youtrackdb.transaction.tracking_id`) and in custom listener implementations alike. Replaces the earlier "internal ID only" model where hosts had no way to attach a stable identifier from their own dispatch layer. → §"Class Design" and §"Listener registration and ordering".
+
+**Log appender chokepoint.** YTDB's process-global `com.jetbrains.youtrackdb.internal.common.log.LogManager` is a single dispatch site that every log call from `core`, `embedded`, `server`, and the new `youtrackdb-opentelemetry` module already routes through; it currently fans out to JUL handlers, including the `ConsoleHandler` installed by `installCustomFormatter()`. The OTel module registers a new `OTelLogAppender` (a `java.util.logging.Handler`) on this chokepoint at SDK init, so every existing YTDB log call also feeds the OTel `LogRecordBuilder` pipeline without source-side changes. The appender reads `Context.current()` at `publish()` time, so any log emitted inside a query- or transaction-listener span scope carries the active `traceId`/`spanId` automatically (hard-context correlation). Earlier iterations of this design treated YTDB's own logger as friction because no SLF4J adapter exists to plug into; the named single chokepoint is exactly what makes one-class registration work. Replaces "logs not integrated" (prior design scope). → §"OpenTelemetry logs integration".
 
 ## Class Design
 
@@ -90,6 +92,14 @@ classDiagram
         -SpanKind clientKind
         +writeTransactionCommitted(TransactionDetails, long, long) void
         +writeTransactionFailed(TransactionDetails, long, long, Exception) void
+    }
+    class OTelLogAppender {
+        -Logger otelLogger
+        -int minSeverityNumber
+        -ThreadLocal~Boolean~ reentranceGuard
+        +publish(LogRecord) void
+        +flush() void
+        +close() void
     }
     class YouTrackDBOpenTelemetry {
         -OpenTelemetry openTelemetry
@@ -195,13 +205,14 @@ classDiagram
     YTDBTransaction --> FrontendTransaction : fluent builder stores tracking-id and mode on
     YouTrackDBOpenTelemetry --> OTelQueryMetricsListener : populates defaultThresholdNanos and defaultHeartbeatNanos from config
     OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry(.., ownedByYtdb=true) / shutdown
+    OTelLogAppender --> YouTrackDBOpenTelemetry : loggerProvider()
 ```
 
 The diagram covers the production classes the design introduces. Three interfaces in `core` are extended: `TransactionMetricsListener` and `QueryDetails` gain default methods; `QueryMetricsListener` itself stays unchanged but is consumed by a new impl; `FrontendTransaction` gains `getDefaultQueryMonitoringMode()` (renamed from the earlier `getQueryMonitoringMode()`), `resolveQueryMonitoringMode(Optional<String> tag)`, `resolveSlowQueryThresholdNanos(Optional<String> tag)`, `getTrackingId(): String` (returns the explicit ID set via `YTDBTransaction.withTrackingId(...)` when present, else `String.valueOf(getId())`), and `iterateAllQueryListeners()`. `YTDBTransaction` gains four builder-style methods: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)`. Each returns `this` so they chain.
 
 `SQLStatement` gains a default-empty `getQueryTag(): Optional<String>` accessor populated by the parser when a `/*+ TAG=X */` hint precedes the statement. Two new static-utility classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and one value record (`Classification`) land in `core` next to the existing parsing infrastructure. Gremlin's classifier piggybacks on the bytecode walk `YTDBQueryMetricsStep.produceScript()` already performs, and the SQL classifier dispatches on the `SQLStatement` AST that both `DatabaseSessionEmbedded.query()` and `executeInternal()` already produce via `SQLEngine.parse(...)` before delegating to the `executeStatementWithMetrics` helper. The classifiers are pure functions, called directly from the existing fire sites; no SPI, no ServiceLoader.
 
-Three process-global resolvers (all in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`; `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; `SampleHeartbeatResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES`. All three cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so the resolvers share the matcher hierarchy. Five classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
+Three process-global resolvers (all in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`; `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; `SampleHeartbeatResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES`. All three cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so the resolvers share the matcher hierarchy. Six classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `OTelLogAppender`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
 
 Both OTel listeners take a `SpanKind clientKind` constructor argument that selects between CLIENT and INTERNAL for the query span and the standalone commit span. INTERNAL is used when YTDB runs in-process with the host (embedded), CLIENT when YTDB runs as a standalone server process and the host is a network client. `YouTrackDBOpenTelemetry` resolves `clientKind` from how the SDK was wired: the `OpenTelemetryServerPlugin` invokes the package-private 3-arg variant `setOpenTelemetry(otel, ownedByYtdb=true, serverMode=true)` so CLIENT propagates to both listeners; every embedded entry point (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) defaults `serverMode=false` so INTERNAL applies. The two flags carry separate concerns: `ownedByYtdb` controls whether `shutdown()` closes the SDK; `serverMode` controls the CLIENT/INTERNAL split on emitted spans. See §"Sem-conv attribute mapping" for the sem-conv rule that drives this choice.
 
@@ -776,6 +787,99 @@ The `AtomicLong.compareAndSet` resolves the multi-thread race: under load severa
 - Invariants: Listener exception isolation (the heartbeat CAS sits inside the same try/catch wrapper at the fire site), Heartbeat-and-threshold disjunctive composition (one successful query emits at most once even when both gates would pass)
 - Mechanics: none
 
+## OpenTelemetry logs integration
+
+**TL;DR.** YTDB's process-global `LogManager.instance()` is the single fan-out point every log call already routes through. A new `OTelLogAppender` extends `java.util.logging.Handler` and registers itself on that chokepoint at SDK init, so every existing YTDB log call also feeds the OTel `LogRecordBuilder` pipeline without source-side rewrites. The appender reads `Context.current()` at `publish()` time, so any log emitted inside a query- or transaction-listener span scope carries the active `traceId`/`spanId` automatically (hard-context correlation). A severity floor (`OPENTELEMETRY_LOGS_MIN_SEVERITY`, default `INFO`) drops below-threshold records before any OTel allocation, and the master `OPENTELEMETRY_LOGS_ENABLED` flag (default `false`) gates the entire appender so the existing log path is untouched until an operator opts in.
+
+Configuration entries:
+
+- `OPENTELEMETRY_LOGS_ENABLED` (default `false`) — master switch for OTel log emission. When `false`, the appender is never registered and the existing JUL handler set (`ConsoleHandler` + `AnsiLogFormatter` from `LogManager.installCustomFormatter()`) is the only sink. When `true` and `OPENTELEMETRY_ENABLED=true`, SDK init registers `OTelLogAppender` on `LogManager.instance()`.
+- `OPENTELEMETRY_LOGS_MIN_SEVERITY` (default `INFO`) — minimum severity that reaches the OTel pipeline. Accepts `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL` (case-insensitive). Records below the threshold are dropped at the top of `publish(...)` before any `LogRecordBuilder` allocation. Independent from JUL level: the underlying `java.util.logging.Logger` continues to dispatch every record at or above its own level; the severity floor only filters what OTel sees.
+
+The chokepoint is named, finite, and predates this design. `LogManager.installCustomFormatter()` already attaches a `ConsoleHandler` with `AnsiLogFormatter` (line 91-93 of `core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/LogManager.java`); the OTel appender follows the same registration shape against the root JUL logger. The wiring goes through a new package-private `LogManager.installAdditionalHandler(Handler)` accessor that Track 7 (Logs) adds, so the registration is testable and the OTel module does not reach into JUL directly.
+
+Severity mapping (JUL → OTel sem-conv `severityNumber`):
+
+| JUL Level | OTel `severityNumber` | OTel `severityText` |
+|---|---|---|
+| `FINEST` / `FINER` | 1 (TRACE) | `TRACE` |
+| `FINE` | 5 (DEBUG) | `DEBUG` |
+| `CONFIG` / `INFO` | 9 (INFO) | `INFO` |
+| `WARNING` | 13 (WARN) | `WARN` |
+| `SEVERE` | 17 (ERROR) | `ERROR` |
+
+Pseudo-implementation:
+
+```java
+public final class OTelLogAppender extends java.util.logging.Handler {
+  private final Logger otelLogger;
+  private final int minSeverityNumber;
+  private final ThreadLocal<Boolean> reentrant = ThreadLocal.withInitial(() -> false);
+
+  public OTelLogAppender(LoggerProvider provider, Severity minSeverity) {
+    this.otelLogger = provider.get("io.youtrackdb");
+    this.minSeverityNumber = minSeverity.getSeverityNumber();
+  }
+
+  @Override
+  public void publish(LogRecord record) {
+    if (reentrant.get()) return;
+    int severityNumber = mapJulLevelToOtel(record.getLevel());
+    if (severityNumber < minSeverityNumber) return;
+
+    reentrant.set(true);
+    try {
+      LogRecordBuilder builder = otelLogger.logRecordBuilder()
+          .setSeverity(Severity.fromSeverityNumber(severityNumber))
+          .setSeverityText(record.getLevel().getName())
+          .setObservedTimestamp(record.getInstant())
+          .setBody(formatMessage(record));
+
+      Throwable thrown = record.getThrown();
+      if (thrown != null) {
+        builder.setAttribute(AttributeKey.stringKey("exception.type"), thrown.getClass().getName());
+        builder.setAttribute(AttributeKey.stringKey("exception.message"),
+            thrown.getMessage() == null ? "" : thrown.getMessage());
+        builder.setAttribute(AttributeKey.stringKey("exception.stacktrace"),
+            stackTraceToString(thrown));
+      }
+      // hard context: Context.current() picks up the active span automatically.
+      builder.emit();
+    } catch (RuntimeException | LinkageError | AssertionError t) {
+      reportError("OTel log emit failed", t instanceof Exception e ? e : new RuntimeException(t),
+          ErrorManager.GENERIC_FAILURE);
+    } finally {
+      reentrant.set(false);
+    }
+  }
+
+  @Override public void flush() { /* SDK flushes on shutdown */ }
+  @Override public void close() { /* idempotent */ }
+}
+```
+
+The `setObservedTimestamp` (not `setTimestamp`) follows sem-conv guidance for the "log was observed by the appender" axis. The OTel SDK fills `Timestamp` from the exporter side; the observed timestamp is the appender's wall-clock at publish time.
+
+### Hard-context correlation across threads
+
+Every span the OTel listeners create runs inside a `try (Scope s = span.makeCurrent())` block (see §"Context propagation in embedded"). While that scope is open on the current thread, `Context.current()` returns a context carrying the span; any log call from that thread between `makeCurrent()` and `s.close()` reaches `OTelLogAppender.publish(...)`, and the `LogRecordBuilder.emit()` call attaches the same span context to the log record. Trace viewers that support log-to-trace correlation (Grafana with the OTel collector, Jaeger with the unified UI) render the log inside the span's timeline.
+
+The correlation is automatic only when the log call originates on the thread that owns the span scope. Logs emitted from a background thread spawned inside the span scope (a thread-pool task, a `CompletableFuture` continuation) lose the correlation unless the caller propagates the context — same caveat as for child-span creation in §"Context propagation in embedded".
+
+### Edge cases / Gotchas
+
+- A host that already wires JUL through SLF4J (`jul-to-slf4j` bridge): the bridge intercepts JUL records before they reach the JUL handler set, so `OTelLogAppender` never sees them. Hosts in this configuration need a parallel SLF4J appender on the OTel side, or they unbridge YTDB's logger. The design does NOT ship an SLF4J appender; the YTDB-496 scope is "log through YTDB's own chokepoint". Custom integrations beyond that are a follow-up ticket.
+- High-frequency `DEBUG` / `TRACE` records (a tight loop logging every page read at `FINE`): the JUL handler set still receives them at the configured JUL level, but the severity floor drops them before any OTel allocation. Operators tune `OPENTELEMETRY_LOGS_MIN_SEVERITY` to control OTel-side volume independently from the JUL `level.properties` file the server reads.
+- An exception thrown from `OTelLogAppender.publish(...)`: JUL's `Handler` contract requires the appender to not propagate exceptions back to the caller. `publish` catches the union `RuntimeException | LinkageError | AssertionError` (matching the listener-side isolation contract in §"Exception isolation contract") and reports via `Handler.reportError(...)`, so a broken OTel exporter never disrupts a YTDB log call. `VirtualMachineError` and `ThreadDeath` still propagate per the same rationale.
+- Concurrent `setOpenTelemetry` calls during active logging: when the facade swaps SDKs, the previously-registered `OTelLogAppender` is unregistered via `LogManager.instance().removeAdditionalHandler(...)` before the new one is registered, so each log record reaches exactly one OTel pipeline. The window between unregister and register is small but non-zero; log records in that window are dropped on the OTel side but still reach the JUL handler set (the existing path is untouched).
+- Bootstrap-time logs (records emitted before `OPENTELEMETRY_LOGS_ENABLED` is read): these reach only the JUL handlers, which is the desired behavior. Operators who need OTel coverage of bootstrap logs configure `OPENTELEMETRY_LOGS_ENABLED=true` via a JVM property (`-Dyoutrackdb.opentelemetry.logs.enabled=true`) so the flag is set before the first log call.
+- Recursive logging from inside the OTel exporter: if the OTel exporter emits a log via `LogManager`, the appender would see its own log and feed it back into OTel, creating an unbounded loop. The thread-local `reentrant` guard above breaks the cycle by short-circuiting `publish(...)` when a `publish(...)` is already on the stack for this thread (same pattern as `GremlinSqlSuppression`).
+
+### References
+- D-records: D34 (single-chokepoint log appender registering on `LogManager.instance()`, severity-floor pre-filter, hard-context inheritance from `Context.current()`), D35 (thread-local re-entrance guard against recursive logging from inside the OTel exporter)
+- Invariants: Listener exception isolation (the appender follows the same isolation contract; a throw from `publish` is caught and reported via `Handler.reportError`)
+- Mechanics: none
+
 ## SDK lifecycle: embedded vs server
 
 **TL;DR.** Hybrid ownership model. The host owns the `OpenTelemetry` instance when it has wired one (either explicitly through the setter or globally via `GlobalOpenTelemetry.set(...)`). When `OPENTELEMETRY_ENABLED=true` and the host has wired nothing, YTDB auto-configures its own SDK from `OPENTELEMETRY_*` config entries — the same path server mode takes. The facade tracks ownership so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process.
@@ -784,7 +888,7 @@ Embedded path — three-step resolution on first listener fire:
 
 1. **Explicit setter wins**: if the host called `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, use that instance. Ownership = host. `shutdown()` will not close it.
 2. **GlobalOpenTelemetry fallback**: if the host called `GlobalOpenTelemetry.set(otel)` somewhere in its bootstrap (the standard OTel pattern), `GlobalOpenTelemetry.get()` returns the real SDK. Use that instance. Ownership = host. `shutdown()` will not close it.
-3. **YTDB auto-configure**: if neither of the above produced a real SDK and `OPENTELEMETRY_ENABLED=true`, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries (endpoint, protocol, service name). Ownership = YTDB. `shutdown()` closes this SDK.
+3. **YTDB auto-configure**: if neither of the above produced a real SDK and `OPENTELEMETRY_ENABLED=true`, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries (endpoint, protocol, service name). The built SDK carries both an `SdkTracerProvider` and (when `OPENTELEMETRY_LOGS_ENABLED=true`) an `SdkLoggerProvider`; the autoconfigure builder reads the same `*_EXPORTER_ENDPOINT` / `*_EXPORTER_PROTOCOL` config to route both signals through one exporter. When `SdkLoggerProvider` is non-noop, the facade also constructs an `OTelLogAppender` from `provider.get("io.youtrackdb")` and registers it on `LogManager.instance()`. Ownership = YTDB. `shutdown()` closes this SDK (flushes both providers) and removes the appender.
 
 If `OPENTELEMETRY_ENABLED=false` (default), step 3 is skipped and the facade returns no-op tracer; YTDB emits nothing regardless of any host wiring. The flag is the master switch.
 
@@ -793,9 +897,9 @@ Server path:
 1. `ServerMain.create()` builds a `YouTrackDBServer` and calls `activate()`.
 2. The server discovers `ServerLifecycleListener` implementations via the `ServiceLoader.load(ServerLifecycleListener.class)` call Track 5 adds to `YouTrackDBServer.activate()` (the existing code only honors explicit `registerLifecycleListener(...)` calls), appends them to the existing `lifecycleListeners` list, and calls `onBeforeActivate` on each.
 3. After databases load, the server calls `onAfterActivate` on each lifecycle listener.
-4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` with the configured endpoint, protocol, and service name; calls the package-private 3-arg variant `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk(), ownedByYtdb=true, serverMode=true)`. The `serverMode=true` flag causes the facade to select `SpanKind.CLIENT` for the query and commit listeners; the `ownedByYtdb=true` flag causes `shutdown()` to close the SDK on server stop. Embedded entry points (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) default `serverMode=false`, so embedded query and commit spans use `SpanKind.INTERNAL`.
+4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` carrying `SdkTracerProvider` and (when `OPENTELEMETRY_LOGS_ENABLED=true`) `SdkLoggerProvider` from the same exporter endpoint; calls the package-private 3-arg variant `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk(), ownedByYtdb=true, serverMode=true)`. The setter installs `OTelLogAppender` on `LogManager.instance()` only when the SDK's `LoggerProvider` is non-noop (logs enabled). The `serverMode=true` flag causes the facade to select `SpanKind.CLIENT` for the query and commit listeners; the `ownedByYtdb=true` flag causes `shutdown()` to close the SDK on server stop. Embedded entry points (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) default `serverMode=false`, so embedded query and commit spans use `SpanKind.INTERNAL`.
 5. Transactions run, spans emit.
-6. On shutdown, `server.shutdown()` calls `onBeforeDeactivate` on every plugin. `OpenTelemetryServerPlugin.onBeforeDeactivate()` calls `YouTrackDBOpenTelemetry.shutdown()`, which unregisters listeners and closes the SDK (`OpenTelemetrySdk.close()` flushes pending spans).
+6. On shutdown, `server.shutdown()` calls `onBeforeDeactivate` on every plugin. `OpenTelemetryServerPlugin.onBeforeDeactivate()` calls `YouTrackDBOpenTelemetry.shutdown()`, which unregisters listeners, removes `OTelLogAppender` from `LogManager.instance()` when registered, and closes the SDK (`OpenTelemetrySdk.close()` flushes both pending spans and log records).
 
 Idempotence and ownership transitions:
 - `setOpenTelemetry` called when YTDB has already auto-configured its own SDK: the facade closes the YTDB-owned SDK first, then installs the host's instance and flips ownership to host.
