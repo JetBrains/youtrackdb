@@ -16,11 +16,12 @@ staged-path normalization rule strips the prefix before the globs run.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T13:05Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-01T13:26Z [ctx=safe] Step 1 complete (commit a2cd449)
 - [x] 2026-06-01T13:31Z [ctx=safe] Step 2 complete (commit 7f171bd)
+- [x] 2026-06-01T13:44Z [ctx=safe] Track-level code review complete: PASS at iteration 1 (5 workflow reviewers; 0 blockers, 0 should-fix, 3 suggestions)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -46,6 +47,34 @@ summary at Phase C. -->
   prose-criteria (references verified as file paths / §-anchors via
   Read+Grep, not PSI), since the live machinery does not yet carry the
   YTDB-1046 / YTDB-1038 fixes this branch stages.
+- [x] Track-level code review: PASS at iteration 1. Five workflow-review
+  agents ran (consistency, instruction-completeness, prompt-design,
+  context-budget, writing-style); hook-safety correctly did not fire (no
+  hooks, scripts, or settings in the diff). Result: 0 blockers, 0 should-fix,
+  3 suggestions (WI1, WP1, WP2), all carried to track completion for the user
+  to accept or apply. Consistency confirmed S1 mirror integrity, promotion
+  fidelity (each staged copy differs from its live counterpart only by the
+  intended additions), and reference resolution. Context-budget found no
+  material impact and flagged the `workflow-reindex.py --check` rule_1 hit on
+  both staged copies as the expected staged-residue that clears at Phase 4
+  promotion, not a defect. Self-application carve-out (§1.7(h)): the
+  orchestrator hand-injected the staged-path normalization into agent
+  selection so the glob-gated reviewers fired on the staged paths, plus the
+  §1.7(d) staged-read precedence and an out-of-scope guard for the
+  verbatim-copied live content, since the live machinery does not yet carry
+  this branch's fixes.
+  - WI1 (suggestion): the preamble's "normalize each changed path" reads as
+    covering the writing-style row, while the worked example attributes
+    writing-style's firing to the un-normalized `docs/adr/**/*.md` glob. Zero
+    behavioral consequence; writing-style fires under either form. Optional
+    half-sentence clarification.
+  - WP1 (suggestion): the capture notation `(.claude/…)` writes an unescaped
+    `.` that a fast scan could read as a regex wildcard; contained by the
+    surrounding prose. Optional: write `\.claude/` or plain prose.
+  - WP2 (suggestion): the §Examples worked example teaches only the positive
+    (normalize) path; an optional negative bullet (a `.claude/` segment
+    nested below the staged prefix that does not normalize) would harden the
+    boundary.
 
 ## Context and Orientation
 
