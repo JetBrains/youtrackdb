@@ -1,6 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.withSettings;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
@@ -13,15 +18,26 @@ import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -1056,6 +1072,474 @@ public class TruncateOrphansAfterRecoveryIT {
   private static void forceDirtyReopen(java.nio.file.Path storagePath) throws java.io.IOException {
     java.nio.file.Files.deleteIfExists(storagePath.resolve("dirty.fl"));
     java.nio.file.Files.deleteIfExists(storagePath.resolve("dirty.flb"));
+  }
+
+  // ===========================================================================
+  // Open-time dispatch gate (YTDB-1039): the recovery-time orphan pass runs only
+  // when this open replayed the WAL (a crash reopen). A gracefully-closed disk
+  // database that replays no WAL skips the pass entirely, so reopen cost no longer
+  // scales with collection count. The scenarios below pin both directions of that
+  // gate. The observation hook is the package-private dispatch counter on
+  // AbstractStorage (orphanTruncationDispatchCountForTests): file size alone cannot
+  // tell "pass skipped" from "pass ran and truncated nothing", so the counter is the
+  // load-bearing assertion; the public wereDataRestoredAfterOpen() getter (the gate's
+  // own predicate) is asserted alongside as a corroborating signal.
+  // ===========================================================================
+
+  /**
+   * Crash (WAL-replay) reopen with a real physical orphan: the pass MUST run and MUST
+   * re-establish the {@code logical <= physical} invariant. Fabricates a magic-stamped
+   * orphan tail on a {@code .pcl} file, forces a dirty reopen, then asserts (1) the open
+   * replayed the WAL ({@code wereDataRestoredAfterOpen() == true}), (2) the orphan pass was
+   * dispatched at least once on the reopened storage instance, and (3) the orphan tail was
+   * truncated back to the logical horizon (physical {@code ==} the pre-fabrication size).
+   * This is the positive leg of the gate: dirty reopen implies the pass runs and repairs.
+   */
+  @Test
+  public void dirtyReopenRunsPassAndReestablishesLogicalHorizon() throws Exception {
+    var config = makeConfig(ChecksumMode.StoreAndThrow);
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
+    String nativeFileName;
+    int pageSize;
+    java.nio.file.Path storagePath;
+    try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      session.getMetadata().getSchema().createClass("DirtyReopen");
+      session.executeInTx(transaction -> {
+        for (var i = 0; i < 50; i++) {
+          var entity = transaction.newEntity("DirtyReopen");
+          entity.setProperty("value", "row-" + i);
+        }
+      });
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      var pclFileName = findFileName(wowCache, "dirtyreopen", ".pcl");
+      var fileId = wowCache.fileIdByName(pclFileName);
+      nativeFileName = wowCache.nativeFileNameById(fileId);
+      pageSize = wowCache.pageSize();
+      storagePath = storage.getStoragePath();
+    }
+    youTrackDB.close();
+
+    var pclPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeFabrication = pclPath.length();
+    magicStampedOrphanFabricator().fabricate(pclPath, pageSize, ORPHAN_PAGE_COUNT);
+    assertThat(pclPath.length())
+        .as(".pcl file must grow by ORPHAN_PAGE_COUNT * pageSize after fabrication")
+        .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
+
+    forceDirtyReopen(storagePath);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long sizeImmediatelyAfterReopen;
+    boolean walReplayed;
+    int dispatchCount;
+    try (var session = youTrackDB.open(
+        TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      sizeImmediatelyAfterReopen = pclPath.length();
+      var storage = (DiskStorage) session.getStorage();
+      walReplayed = storage.wereDataRestoredAfterOpen();
+      dispatchCount = ((AbstractStorage) storage).orphanTruncationDispatchCountForTests();
+    }
+
+    assertThat(walReplayed)
+        .as("a dirty (marker-deleted) reopen must replay the WAL")
+        .isTrue();
+    assertThat(dispatchCount)
+        .as("a dirty reopen must dispatch the orphan-truncation pass at least once")
+        .isGreaterThanOrEqualTo(1);
+    assertThat(sizeImmediatelyAfterReopen)
+        .as("the pass must truncate the orphan tail back to the logical horizon")
+        .isEqualTo(sizeBeforeFabrication);
+  }
+
+  /**
+   * Empty-WAL dirty reopen boundary: a crash reopen of an orphan-FREE database must STILL
+   * dispatch the pass. Pins "dirty implies the pass runs" independent of whether any orphan
+   * is present, so a future change that gated the dispatch on orphan presence (rather than
+   * on WAL replay) would fail here. Creates a database, closes gracefully, deletes the
+   * clean-shutdown markers to force a WAL replay (no fabrication), reopens, and asserts the
+   * pass was dispatched, the open replayed the WAL, and the file is unchanged
+   * (physical {@code ==} logical - there was no orphan to truncate).
+   */
+  @Test
+  public void dirtyReopenWithoutOrphanStillRunsPass() throws Exception {
+    var config = makeConfig(ChecksumMode.StoreAndThrow);
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
+    String nativeFileName;
+    java.nio.file.Path storagePath;
+    try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      session.getMetadata().getSchema().createClass("EmptyWalDirty");
+      session.executeInTx(transaction -> {
+        for (var i = 0; i < 20; i++) {
+          var entity = transaction.newEntity("EmptyWalDirty");
+          entity.setProperty("value", "row-" + i);
+        }
+      });
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      var pclFileName = findFileName(wowCache, "emptywaldirty", ".pcl");
+      var fileId = wowCache.fileIdByName(pclFileName);
+      nativeFileName = wowCache.nativeFileNameById(fileId);
+      storagePath = storage.getStoragePath();
+    }
+    youTrackDB.close();
+
+    var pclPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeReopen = pclPath.length();
+
+    // No fabrication: the database is orphan-free. Forcing a dirty reopen exercises the
+    // "dirty implies pass runs" boundary on a clean-but-replayed storage.
+    forceDirtyReopen(storagePath);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long sizeImmediatelyAfterReopen;
+    boolean walReplayed;
+    int dispatchCount;
+    try (var session = youTrackDB.open(
+        TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      sizeImmediatelyAfterReopen = pclPath.length();
+      var storage = (DiskStorage) session.getStorage();
+      walReplayed = storage.wereDataRestoredAfterOpen();
+      dispatchCount = ((AbstractStorage) storage).orphanTruncationDispatchCountForTests();
+    }
+
+    assertThat(walReplayed)
+        .as("a marker-deleted reopen must replay the WAL even with no orphan present")
+        .isTrue();
+    assertThat(dispatchCount)
+        .as("the pass must be dispatched on a dirty reopen regardless of orphan presence")
+        .isGreaterThanOrEqualTo(1);
+    assertThat(sizeImmediatelyAfterReopen)
+        .as("an orphan-free dirty reopen must leave the .pcl file size unchanged")
+        .isEqualTo(sizeBeforeReopen);
+  }
+
+  /**
+   * Clean reopen of a rolled-back session: no orphan exists AND the pass is skipped. Runs an
+   * {@code executeInTx} that allocates rows then throws (forcing a rollback), closes
+   * gracefully, then reopens WITHOUT deleting the clean-shutdown markers (a genuine clean
+   * reopen). Asserts (1) the open did NOT replay the WAL
+   * ({@code wereDataRestoredAfterOpen() == false}), (2) the orphan pass was NOT dispatched
+   * (dispatch counter {@code == 0} on the reopened storage instance), and (3) no orphan
+   * exists (the {@code .pcl} file size is unchanged across the boundary). The dispatch
+   * counter is the load-bearing assertion: it distinguishes "pass skipped" from "pass ran
+   * and found nothing", which the file size alone cannot.
+   */
+  @Test
+  public void cleanReopenAfterRollbackSkipsPassAndLeavesNoOrphan() throws Exception {
+    var config = makeConfig(ChecksumMode.StoreAndThrow);
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
+    String nativeFileName;
+    java.nio.file.Path storagePath;
+    long sizeAfterRollback;
+    try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      session.getMetadata().getSchema().createClass("RolledBack");
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      var pclFileName = findFileName(wowCache, "rolledback", ".pcl");
+      var fileId = wowCache.fileIdByName(pclFileName);
+      nativeFileName = wowCache.nativeFileNameById(fileId);
+      storagePath = storage.getStoragePath();
+      var pclPath = storagePath.resolve(nativeFileName).toFile();
+
+      // Allocate-then-rollback: the consumer inserts many rows (forcing the cluster to
+      // grow), then throws. executeInTx rolls the transaction back, so the physical-apply
+      // path (which runs only inside commitChanges) never executes - the rolled-back op
+      // leaves zero physical footprint (the load-bearing premise of the open-time gate,
+      // YTDB-1039). The throw is expected; we swallow it and continue.
+      try {
+        session.executeInTx(transaction -> {
+          for (var i = 0; i < 200; i++) {
+            var entity = transaction.newEntity("RolledBack");
+            entity.setProperty("value", "row-" + i);
+          }
+          throw new IllegalStateException("intentional rollback trigger");
+        });
+        org.junit.Assert.fail("executeInTx should have propagated the rollback trigger");
+      } catch (final IllegalStateException expected) {
+        // expected - the transaction rolled back.
+      }
+      sizeAfterRollback = pclPath.length();
+    }
+    youTrackDB.close();
+
+    var pclPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeReopen = pclPath.length();
+
+    // Genuine clean reopen: do NOT call forceDirtyReopen - the graceful close left the
+    // clean-shutdown markers in place, so this open replays no WAL and the gate skips the
+    // pass.
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long sizeImmediatelyAfterReopen;
+    boolean walReplayed;
+    int dispatchCount;
+    try (var session = youTrackDB.open(
+        TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      sizeImmediatelyAfterReopen = pclPath.length();
+      var storage = (DiskStorage) session.getStorage();
+      walReplayed = storage.wereDataRestoredAfterOpen();
+      dispatchCount = ((AbstractStorage) storage).orphanTruncationDispatchCountForTests();
+    }
+
+    assertThat(walReplayed)
+        .as("a gracefully-closed reopen must NOT replay the WAL")
+        .isFalse();
+    assertThat(dispatchCount)
+        .as("the orphan-truncation pass must be SKIPPED on a clean reopen")
+        .isZero();
+    assertThat(sizeImmediatelyAfterReopen)
+        .as("a rolled-back-then-cleanly-closed session must leave no on-disk orphan")
+        .isEqualTo(sizeBeforeReopen);
+    assertThat(sizeAfterRollback)
+        .as("the rolled-back allocation must leave no physical footprint pre-close either")
+        .isEqualTo(sizeBeforeReopen);
+  }
+
+  /**
+   * The defining behavior of the open-time gate (YTDB-1039): a CLEAN reopen does NOT repair a
+   * pre-existing physical orphan. This is the dual of the migrated fabrication scenarios
+   * (which delete the clean-shutdown markers to force a dirty reopen): here we fabricate a
+   * magic-stamped orphan tail on a gracefully-closed {@code .pcl} file and reopen WITHOUT
+   * deleting the markers, so the open replays no WAL and the pass is skipped. The fabricated
+   * orphan tail therefore SURVIVES - the file stays at the fabricated size, NOT shrunk back
+   * to the logical horizon. This pins the gate's contract and fails if a future change
+   * re-runs the pass on the clean path or misclassifies a clean reopen as dirty.
+   *
+   * <p>A fabricated-orphan-on-clean-close is not a state the production stack can actually
+   * produce (a rolled-back op leaves zero footprint and a graceful close flushes nothing
+   * past the logical horizon); the fabrication is purely a probe for "did the pass run on
+   * the clean path?" The companion {@link #cleanReopenAfterRollbackSkipsPassAndLeavesNoOrphan}
+   * scenario covers the realistic clean-close shape (rollback leaves no orphan); this one
+   * isolates the gate's skip decision from orphan presence.
+   */
+  @Test
+  public void cleanReopenDoesNotRepairPreExistingPhysicalOrphan() throws Exception {
+    var config = makeConfig(ChecksumMode.StoreAndThrow);
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    youTrackDB.create(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+
+    String nativeFileName;
+    int pageSize;
+    java.nio.file.Path storagePath;
+    try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      session.getMetadata().getSchema().createClass("SurvivingOrphan");
+      session.executeInTx(transaction -> {
+        for (var i = 0; i < 50; i++) {
+          var entity = transaction.newEntity("SurvivingOrphan");
+          entity.setProperty("value", "row-" + i);
+        }
+      });
+      var storage = (DiskStorage) session.getStorage();
+      var wowCache = (WOWCache) storage.getWriteCache();
+      var pclFileName = findFileName(wowCache, "survivingorphan", ".pcl");
+      var fileId = wowCache.fileIdByName(pclFileName);
+      nativeFileName = wowCache.nativeFileNameById(fileId);
+      pageSize = wowCache.pageSize();
+      storagePath = storage.getStoragePath();
+    }
+    youTrackDB.close();
+
+    var pclPath = storagePath.resolve(nativeFileName).toFile();
+    long sizeBeforeFabrication = pclPath.length();
+    magicStampedOrphanFabricator().fabricate(pclPath, pageSize, ORPHAN_PAGE_COUNT);
+    long sizeAfterFabrication = pclPath.length();
+    assertThat(sizeAfterFabrication)
+        .as(".pcl file must grow by ORPHAN_PAGE_COUNT * pageSize after fabrication")
+        .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
+
+    // Clean reopen: do NOT delete the clean-shutdown markers. The open replays no WAL, so
+    // the gate skips the pass and the fabricated orphan tail must remain on disk.
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
+    long sizeImmediatelyAfterReopen;
+    boolean walReplayed;
+    int dispatchCount;
+    try (var session = youTrackDB.open(
+        TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
+        "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
+      // Capture file size BEFORE any non-recovery TX runs. We deliberately do NOT run a
+      // follow-up TX here: with the orphan tail still present, the first non-recovery TX
+      // would observe the physical > logical shape and surface an IllegalStateException
+      // (which is exactly the state the dirty-path pass exists to prevent). The point of
+      // this scenario is only that the clean reopen left the orphan in place.
+      sizeImmediatelyAfterReopen = pclPath.length();
+      var storage = (DiskStorage) session.getStorage();
+      walReplayed = storage.wereDataRestoredAfterOpen();
+      dispatchCount = ((AbstractStorage) storage).orphanTruncationDispatchCountForTests();
+    }
+
+    assertThat(walReplayed)
+        .as("a gracefully-closed reopen must NOT replay the WAL")
+        .isFalse();
+    assertThat(dispatchCount)
+        .as("the orphan-truncation pass must be SKIPPED on a clean reopen")
+        .isZero();
+    assertThat(sizeImmediatelyAfterReopen)
+        .as("a clean reopen must NOT truncate a pre-existing physical orphan tail -"
+            + " the fabricated tail must survive at the fabricated size")
+        .isEqualTo(sizeAfterFabrication);
+  }
+
+  /**
+   * WARN-on-truncate-failure: a transient physical-truncate failure on an otherwise readable
+   * component must be logged as a WARN and must not abort the rest of the recovery pass. The
+   * open-time gate (YTDB-1039) drops the cross-clean-cycle retry of such a transient failure;
+   * the accepted bound is that the failure is operator-visible (a WARN at the reopen where it
+   * occurred) and re-armed by any later crash. This test pins that visibility.
+   *
+   * <p>The failure is injected at the {@code readCache.shrinkFile} layer (the call
+   * {@code StorageComponent.verifyAndTruncateOrphans} makes, backed by
+   * {@code WOWCache.shrinkFile} -> {@code AsyncFile.shrink}): a {@link PaginatedCollectionV2}
+   * whose {@code verifyAndTruncateOrphans} throws an {@link IOException} stands in for a real
+   * shrink that failed mid-truncate. The orchestrator
+   * {@code AbstractStorage.truncateOrphansAfterRecovery} is exercised directly via a
+   * {@code CALLS_REAL_METHODS} Mockito instance (the same harness shape as the sibling
+   * orchestrator unit test) so the real catch-and-WARN branch executes; a JUL handler
+   * attached to the root logger captures the emitted WARN record. The DB-less harness is the
+   * least invasive way to make a {@code shrinkFile} failure surface deterministically - a
+   * real {@code AsyncFile.shrink} cannot be forced to throw transiently on a healthy file.
+   */
+  @Test
+  public void warnLoggedWhenTruncateFailsDuringRecoveryPass() throws Exception {
+    var rootLogger = Logger.getLogger("");
+    var captured = new CapturingHandler();
+    rootLogger.addHandler(captured);
+    var previousLevel = rootLogger.getLevel();
+    rootLogger.setLevel(Level.ALL);
+    try {
+      var storage =
+          mock(AbstractStorage.class, withSettings().defaultAnswer(CALLS_REAL_METHODS));
+      var readCache = mock(ReadCache.class);
+      var writeCache = mock(WriteCache.class);
+      var atomicOperation = mock(AtomicOperation.class);
+      var manager =
+          mock(
+              com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared.class);
+      installPrivateField(storage, "readCache", readCache);
+      installPrivateField(storage, "writeCache", writeCache);
+      installPrivateField(storage, "linkCollectionsBTreeManager", manager);
+
+      // A collection whose primary truncate fails: verifyAndTruncateOrphans throwing an
+      // IOException models the readCache.shrinkFile -> AsyncFile.shrink failure path, which
+      // surfaces out of the per-component verifyAndTruncateOrphans the same way.
+      var failingCollection = mock(PaginatedCollectionV2.class);
+      doThrow(new IOException("simulated transient shrinkFile failure"))
+          .when(failingCollection)
+          .verifyAndTruncateOrphans(any(), any(), any());
+      org.mockito.Mockito.when(failingCollection.getName()).thenReturn("survivingorphan_0");
+      org.mockito.Mockito.when(failingCollection.getFileId()).thenReturn(7L);
+
+      @SuppressWarnings("unchecked")
+      List<com.jetbrains.youtrackdb.internal.core.storage.StorageCollection> collections =
+          (List<com.jetbrains.youtrackdb.internal.core.storage.StorageCollection>) readPrivateField(
+              storage, "collections");
+      collections.clear();
+      collections.add(failingCollection);
+
+      // The orchestrator also iterates indexEngines after the collections group; touch it
+      // so the bare mock's null field is replaced with an empty list (no engines needed -
+      // the WARN we assert originates from the Group 1 collection failure).
+      readPrivateField(storage, "indexEngines");
+
+      storage.truncateOrphansAfterRecovery(atomicOperation);
+
+      var sawTruncateWarn =
+          captured.records().stream()
+              .anyMatch(r -> r.getLevel().intValue() >= Level.WARNING.intValue()
+                  && r.getMessage() != null
+                  && r.getMessage().contains("Orphan-truncation skipped"));
+      assertThat(sawTruncateWarn)
+          .as("a transient truncate failure must be logged as a WARN so the dropped"
+              + " cross-cycle retry stays operator-visible")
+          .isTrue();
+    } finally {
+      rootLogger.removeHandler(captured);
+      rootLogger.setLevel(previousLevel);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers for the WARN-on-truncate-failure orchestrator harness
+  // ---------------------------------------------------------------------------
+
+  /** Installs a value into a private {@link AbstractStorage} field via reflection. */
+  private static void installPrivateField(AbstractStorage storage, String name, Object value)
+      throws Exception {
+    var field = AbstractStorage.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(storage, value);
+  }
+
+  /**
+   * Reads a private {@link AbstractStorage} field via reflection, instantiating a mutable
+   * stand-in for the {@code collections} list when the bare mock left it null (mirrors the
+   * sibling orchestrator unit test's helper).
+   */
+  private static Object readPrivateField(AbstractStorage storage, String name) throws Exception {
+    var field = AbstractStorage.class.getDeclaredField(name);
+    field.setAccessible(true);
+    var value = field.get(storage);
+    if (value == null && name.equals("collections")) {
+      value = new java.util.concurrent.CopyOnWriteArrayList<
+          com.jetbrains.youtrackdb.internal.core.storage.StorageCollection>();
+      field.set(storage, value);
+    } else if (value == null && name.equals("indexEngines")) {
+      value =
+          new java.util.ArrayList<
+              com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine>();
+      field.set(storage, value);
+    }
+    return value;
+  }
+
+  /**
+   * A {@link Handler} that records every {@link LogRecord} it receives into a bounded queue
+   * so a test can assert that a particular WARN was emitted. Bounded so a runaway producer
+   * cannot exhaust memory; the recovery pass emits at most a handful of records.
+   */
+  private static final class CapturingHandler extends Handler {
+    private final BlockingQueue<LogRecord> records = new ArrayBlockingQueue<>(256);
+
+    @Override
+    public void publish(final LogRecord record) {
+      records.offer(record);
+    }
+
+    @Override
+    public void flush() {
+      // No buffering - records are enqueued in publish().
+    }
+
+    @Override
+    public void close() {
+      records.clear();
+    }
+
+    List<LogRecord> records() {
+      return List.copyOf(records);
+    }
   }
 
   @After

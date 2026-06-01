@@ -318,6 +318,17 @@ public abstract class AbstractStorage
   private final Semaphore histogramRebalanceSemaphore;
 
   private boolean wereDataRestoredAfterOpen;
+
+  // Test-observability only: counts how many times the recovery-time orphan-truncation
+  // pass (truncateOrphansAfterRecovery) is dispatched on this storage instance. Production
+  // code never reads it. The open-time dispatch is gated so that a cleanly-closed disk
+  // database that replays no WAL skips the pass entirely (YTDB-1039); a regression test
+  // reads this counter to prove the dispatch did NOT run on a clean reopen and DID run on a
+  // crash (WAL-replay) reopen. File size alone cannot distinguish "pass skipped" from "pass
+  // ran and truncated nothing", so an explicit dispatch counter is the observation hook.
+  // Package-private so only same-package tests can read it; never reset.
+  final AtomicInteger orphanTruncationDispatchCountForTests = new AtomicInteger(0);
+
   protected UUID uuid;
 
   private final AtomicInteger sessionCount = new AtomicInteger(0);
@@ -1101,6 +1112,13 @@ public abstract class AbstractStorage
    */
   protected void truncateOrphansAfterRecovery(final AtomicOperation atomicOperation)
       throws IOException {
+    // Test-observability only: record that the pass was dispatched (see the field's Javadoc).
+    // Null-guarded because a Mockito CALLS_REAL_METHODS mock of this class skips field
+    // initializers, leaving the counter null; on a real storage instance it is always set.
+    if (orphanTruncationDispatchCountForTests != null) {
+      orphanTruncationDispatchCountForTests.incrementAndGet();
+    }
+
     // Group 1: paginated collections. Each non-null entry truncates the collection's own
     // .pcl data file; the PCV2 helper's siblings hook (verifyAndTruncateOrphansSiblings)
     // then internally truncates the embedded position map's .cpm file.
@@ -3943,6 +3961,16 @@ public abstract class AbstractStorage
 
   public boolean wereDataRestoredAfterOpen() {
     return wereDataRestoredAfterOpen;
+  }
+
+  /**
+   * Test-observability only: the number of times {@code truncateOrphansAfterRecovery} has
+   * been dispatched on this storage instance. Production code never reads it; a regression
+   * test (YTDB-1039) reads it to prove the open-time pass is skipped on a clean reopen and
+   * runs on a crash (WAL-replay) reopen.
+   */
+  int orphanTruncationDispatchCountForTests() {
+    return orphanTruncationDispatchCountForTests.get();
   }
 
   public boolean wereNonTxOperationsPerformedInPreviousOpen() {
