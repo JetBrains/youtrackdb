@@ -2,7 +2,7 @@
 # Track 2: Read-side staged-read caveat (YTDB-1038)
 
 ## Purpose / Big Picture
-After this track, every Phase 2, Phase A, and Phase B/C review and gate prompt on a workflow-modifying plan resolves its workflow-document reads through `§1.7(d)` precedence, so an agent stops reporting phantom mismatches against develop's version of a rule the branch already rewrote.
+After this track, every Phase 2, Phase A, and Phase B/C review and gate prompt on a workflow-modifying plan resolves its workflow-document reads through `§1.7(d)` precedence, so an agent stops reporting phantom mismatches against develop's version of a rule the branch already rewrote. This track also amends `§1.7(d)` to bring review agents into the staged-first precedence scope it currently restricts to the implementer, so the rule the caveat invokes actually covers reviewers.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
@@ -52,7 +52,14 @@ Non-obvious facts that shape the work:
   differently from its Phase B counterpart (S2).
 - `§1.7(d)` reads precedence is the rule the caveat invokes: resolve a
   workflow file to its staged copy under `_workflow/staged-workflow/` when one
-  exists, and to the live file otherwise.
+  exists, and to the live file otherwise. As written today `§1.7(d)` scopes
+  that precedence to the implementer's per-spawn read site and explicitly
+  excludes reviewers ("reviewers loading a workflow file from the worktree keep
+  reading live paths unchanged"), with the now-false rationale that no such
+  consumer has a staged copy to read. This track amends `§1.7(d)` to bring
+  review agents on a workflow-modifying plan into the precedence scope and to
+  drop that rationale, so the caveat invokes a rule that covers reviewers
+  rather than one that excludes them.
 - The marker is visible from the slim plan snapshot: `render-slim-plan.py`
   copies the plan's strategic header `pre` block unchanged and filters only
   the track checklist, so `### Constraints` (and the `§1.7(b)` marker inside
@@ -66,18 +73,25 @@ the seven other prompts.
 ## Plan of Work
 
 The approach is one marker-gated caveat, byte-uniform across nine prompts
-(D2, D3, S3), with the two context blocks treated as a parallel pair (S2).
+(D2, D3, S3), with the two context blocks treated as a parallel pair (S2). It
+rests on a one-clause amendment to `§1.7(d)` so the precedence rule the caveat
+invokes actually names review agents.
 
-1. Add the caveat block to the two canonical context blocks — the fenced
+1. Amend `conventions.md §1.7(d)`: bring review agents on a workflow-modifying
+   plan into the staged-first precedence scope it currently restricts to the
+   implementer, and drop the "no consumer has a staged copy to read" rationale
+   that excludes reviewers. The caveat in the prompts then invokes a rule that
+   covers them.
+2. Add the caveat block to the two canonical context blocks — the fenced
    prompt body of `step-implementation.md` sub-step 4(a) and its parallel copy
    in `track-code-review.md` — with matching meaning (S2).
-2. Add the one-line mirror caveat to the seven other prompts:
+3. Add the one-line mirror caveat to the seven other prompts:
    `dimensional-review-gate-check.md`, `consistency-review.md`,
    `structural-review.md`, `technical-review.md`, `risk-review.md`,
    `adversarial-review.md`, and `review-gate-verification.md`. The two gate
    prompts already list the diff, plan, and track file as inputs; the caveat
    rides next to that input block.
-3. Verify uniformity (S3): the caveat reads the same across all nine prompts.
+4. Verify uniformity (S3): the caveat reads the same across all nine prompts.
 
 Caveat content (the same across all nine sites): when the plan's
 `### Constraints` carries the `§1.7(b)` marker, resolve every read of a
@@ -119,6 +133,9 @@ Track-level behavioral acceptance:
   Phase A, and Phase B/C once staging has produced copies.
 - The two context blocks carry the same caveat (S2); all nine read uniformly
   (S3).
+- `§1.7(d)` names review agents on a workflow-modifying plan as in-scope
+  consumers of the staged-first precedence; the implementer-only scope clause
+  and the stale no-staged-copy rationale no longer exclude reviewers.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -136,20 +153,27 @@ belong to one specific step. Per-step episode content lives in
 
 ## Interfaces and Dependencies
 
-In-scope files (the nine prompt sites, all under `.claude/workflow/**`):
+In-scope files (the nine prompt sites plus the `§1.7(d)` amendment, all under `.claude/workflow/**`):
 - `step-implementation.md` — sub-step 4(a) canonical context block.
 - `track-code-review.md` — the parallel copy of that context block.
 - `dimensional-review-gate-check.md` — gate prompt input block.
-- `consistency-review.md`, `structural-review.md` — Phase 2 plan review prompts.
+- `prompts/consistency-review.md`, `prompts/structural-review.md` — Phase 2
+  plan review prompts. Target the `prompts/` sub-agent prompt for
+  structural-review, not the `.claude/workflow/structural-review.md`
+  orchestration driver of the same name (consistency-review exists only under
+  `prompts/`, so it carries no ambiguity).
 - `technical-review.md`, `risk-review.md`, `adversarial-review.md`,
   `review-gate-verification.md` — Phase A track review prompts.
+- `conventions.md` — `§1.7(d)` reads precedence: amend the reviewer-exclusion
+  clause to include review agents on a workflow-modifying plan and drop the
+  stale no-staged-copy rationale.
 
 (Phase A decomposition resolves the exact directory of each file under
 `.claude/workflow/**`; the design names them by filename.)
 
 Out-of-scope:
-- The `§1.7(b)` marker definition and `§1.7(d)` precedence rule in
-  `conventions.md` — relied on, not edited.
+- The `§1.7(b)` marker definition in `conventions.md` — relied on, not edited.
+  (`§1.7(d)` is now in scope — see the in-scope list above.)
 - `render-slim-plan.py` — relied on to surface `### Constraints`; not edited.
 
 Inter-track dependencies:
@@ -158,8 +182,8 @@ Inter-track dependencies:
   the read caveat in `technical-review.md`, `risk-review.md`, and
   `adversarial-review.md`, so the caveat must land in those three files first.
 
-Staging: per `§1.7`, all nine edits route through
-`docs/adr/<dir>/_workflow/staged-workflow/.claude/workflow/...`; the live
-files stay at develop's state until Phase 4 promotion.
+Staging: per `§1.7`, the nine prompt edits and the `§1.7(d)` amendment all
+route through `docs/adr/<dir>/_workflow/staged-workflow/.claude/workflow/...`;
+the live files stay at develop's state until Phase 4 promotion.
 
 Full design: design.md §"Read-side staging awareness".

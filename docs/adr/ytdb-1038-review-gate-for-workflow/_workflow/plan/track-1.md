@@ -72,8 +72,9 @@ Concrete deliverables this track produces:
 - A staged-path normalization paragraph in
   `review-agent-selection.md` §Workflow-machinery override.
 - The mirrored paragraph in `code-review/SKILL.md` Step 5d, in the same
-  commit, with the `<!-- Last sync-checked … -->` date bumped in both files
-  (S1).
+  commit, with the single canonical `<!-- Last sync-checked … -->` date in
+  `review-agent-selection.md §Maintenance` bumped (S1). The sync stamp is
+  single-location; `code-review/SKILL.md` carries no such comment.
 
 ## Plan of Work
 
@@ -81,15 +82,22 @@ The approach is one normalization rule applied before the per-agent globs run,
 landed in both mirror files in a single commit (D1, S1).
 
 1. Add the normalization rule to `review-agent-selection.md`
-   §Workflow-machinery override: before matching the per-agent globs, strip
-   the `docs/adr/<dir>/_workflow/staged-workflow/` prefix from any changed
-   path and match the remainder against the globs. A staged file then
-   evaluates exactly as its live counterpart would. State the precise gap
+   §Workflow-machinery override (the section mirroring SKILL.md Step 5d):
+   before the per-agent globs are matched — those globs live in
+   §Per-agent file-pattern triggers, which mirrors SKILL.md Step 5b, not in
+   the override section — strip the `docs/adr/<dir>/_workflow/staged-workflow/`
+   prefix from any changed path and match the remainder against the globs. The
+   override section is the right home because it already evaluates the
+   per-agent triggers against the workflow-machinery subset of the diff; the
+   normalization is a preamble that runs ahead of that evaluation. A staged
+   file then evaluates exactly as its live counterpart would. State the precise gap
    verbatim (only the three glob-gated reviewers miss on staged paths;
    consistency and context-budget always run; writing-style already fires via
    `docs/adr/**/*.md`) rather than the issue's looser wording.
 2. Mirror the same rule into `code-review/SKILL.md` Step 5d in the same
-   commit, and bump the `<!-- Last sync-checked … -->` date in both files.
+   commit, and bump the single canonical `<!-- Last sync-checked … -->` date
+   in `review-agent-selection.md §Maintenance` (the only file that carries the
+   stamp; `code-review/SKILL.md` has no such comment).
 
 Ordering and invariants:
 - Both edits land in one commit (S1). The normalization is scoped to the exact
@@ -121,8 +129,9 @@ Track-level behavioral acceptance:
   `instruction-completeness` per-agent glob, so that reviewer launches.
 - A path containing `.claude/` below the staged prefix (not at the exact
   two-level boundary) does not normalize.
-- The mirror pair changes in one commit with the sync-date bumped in both
-  files; `review-workflow-consistency` would flag drift otherwise.
+- The mirror pair changes in one commit with the canonical sync-date in
+  `review-agent-selection.md §Maintenance` bumped; `review-workflow-consistency`
+  would flag drift otherwise.
 - The writing-style reviewer outcome is unchanged: it still fires via
   `docs/adr/**/*.md`; normalization makes that intentional rather than an
   incidental overlap.
@@ -146,8 +155,10 @@ belong to one specific step. Per-step episode content lives in
 In-scope files:
 - `.claude/workflow/review-agent-selection.md` — §Workflow-machinery override
   (add the normalization paragraph) and §Maintenance sync-date comment.
-- `.claude/skills/code-review/SKILL.md` — Step 5d (mirror the paragraph) and
-  its `<!-- Last sync-checked … -->` comment.
+- `.claude/skills/code-review/SKILL.md` — Step 5d (mirror the paragraph). The
+  sync stamp is single-canonical in `review-agent-selection.md §Maintenance`;
+  `code-review/SKILL.md` carries no `<!-- Last sync-checked … -->` comment of
+  its own.
 
 Out-of-scope:
 - The per-agent glob definitions themselves — normalization runs before them,

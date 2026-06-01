@@ -130,7 +130,12 @@ flowchart TB
   plan snapshot, which retains `### Constraints` verbatim.
 - **Risks/Caveats**: relies on the slim plan retaining `### Constraints`.
   Verified this session — `render-slim-plan.py` copies the strategic header
-  `pre` block unchanged and filters only the track checklist.
+  `pre` block unchanged and filters only the track checklist. The caveat
+  invokes `§1.7(d)`, which as written scopes precedence to the implementer and
+  excludes reviewers; Track 2 therefore amends `§1.7(d)` to bring review agents
+  on a workflow-modifying plan into that precedence scope. The alternative —
+  wording the caveat to override `§1.7(d)` while leaving its text stale — was
+  rejected for leaving a self-contradiction in the conventions source.
 - **Implemented in**: Track 2
 - **Full design**: design.md §"Read-side staging awareness"
 
@@ -212,9 +217,11 @@ flowchart TB
   > Every review and gate prompt names the live `.claude/...` path, so on a
   > workflow-modifying plan an agent reads develop's version of a rule the
   > branch already rewrote and reports a phantom mismatch. A marker-gated
-  > caveat in all nine prompts routes reads through `§1.7(d)` precedence.
+  > caveat in all nine prompts routes reads through `§1.7(d)` precedence
+  > (which this track first amends to cover review agents, not just the
+  > implementer).
   > Detailed description in plan/track-2.md.
-  > **Scope:** ~3 steps covering the caveat across nine review/gate prompts.
+  > **Scope:** ~4 steps covering the `§1.7(d)` amendment plus the caveat across nine review/gate prompts.
 
 - [ ] Track 3: Phase A criteria addendum (YTDB-1046)
   > The Phase A technical, risk, and adversarial reviewers apply Java criteria
@@ -225,7 +232,28 @@ flowchart TB
   > **Depends on:** Track 2
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed; consistency at iteration 2, structural at iteration 1
+
+**Auto-fixed (mechanical)**: CR1 — clarified track-1.md Plan of Work step 1
+(the per-agent globs live in §Per-agent file-pattern triggers / SKILL.md
+Step 5b; the override section / Step 5d is where the normalization preamble
+lands). CR2 — no edit; the plan's short-form `§Workflow-machinery override`
+reference matches §Maintenance's own usage. CR4 — disambiguated
+`structural-review.md` → `prompts/structural-review.md` in track-2.md
+(a same-named driver doc exists at `.claude/workflow/structural-review.md`).
+
+**Escalated (design decisions)**: CR3 — track-1.md said to bump the
+`<!-- Last sync-checked … -->` date "in both files," but that stamp is
+single-canonical in `review-agent-selection.md §Maintenance`; user chose the
+single-canonical reading, fixed at 4 sites (SKILL.md carries no such comment).
+CR5 — the Track 2 read caveat routes review agents through `§1.7(d)`, but
+`§1.7(d)` as written scopes precedence to the implementer and excludes
+reviewers; user chose to amend `§1.7(d)` in Track 2 (bring review agents into
+the precedence scope, drop the stale rationale), applied to track-2.md, the
+Track 2 scope line + D2 Risks/Caveats, and design.md (edit-design Mutation 3).
+S1 — design.md Core Concepts "Per-agent trigger" one-liner undercounts the
+glob-gated reviewers (three, not four); user chose leave-as-is (the canonical
+§Selection-side section is correct; the entry is a non-authoritative summary).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

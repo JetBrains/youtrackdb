@@ -59,3 +59,33 @@ paragraph.
 flagged Overview length; iteration 2 trimmed the roadmap, re-ran mechanical
 (PASS, stamp intact on line 1), and the whole-doc cold-read returned PASS
 with no findings.
+
+## Mutation 3 — 2026-06-01 — content-edit (design.md)
+
+**Diff summary**: Phase 2 plan-review resolution of consistency finding CR5
+(user-approved). Two edits recording that Track 2 amends `conventions.md
+§1.7(d)` to bring review agents on a workflow-modifying plan into the
+staged-first precedence scope, rather than relying on a rule whose current
+text scopes precedence to the implementer and excludes reviewers. (1) The
+§"Core Concepts" "§1.7(d) reads precedence" entry now notes §1.7(d) as
+written excludes reviewers and that this design amends it. (2) A new paragraph
+in §"Read-side staging awareness" explains the amendment: §1.7(d)'s "no
+consumer has a staged copy" rationale is the YTDB-1038 bug itself, so the work
+amends §1.7(d) and drops the stale rationale; the amendment rides in Track 2
+alongside the caveat. Line-1 stamp preserved (content-edit).
+
+**Mechanical checks** (target=design): PASS — 0 findings
+**Cold-read** (scope: bounded — §"Read-side staging awareness" + §"Core
+Concepts" + §"Selection-side staging awareness" + §"Phase A criteria for
+workflow-machinery tracks" + Overview): PASS — 0 structural findings, 1
+suggestion recorded
+
+**Findings**:
+- suggestion: the §1.7(d) amendment is a genuine new decision (scope-expansion
+  of an existing convention) folded under D2 rather than carrying its own
+  D-code. Cold-read rated traceability intact — D2's Risks/Caveats records the
+  amendment plus the rejected "caveat overrides" alternative, and track-2.md
+  documents the rationale. Recorded, not applied — left folded under D2.
+
+**Iterations**: 1 of 3 (PASS). Mechanical and bounded cold-read both passed on
+the first round; no fixes needed.

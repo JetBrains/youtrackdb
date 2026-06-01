@@ -71,8 +71,10 @@ equivalent for selection. New in this design.
 → §"Selection-side staging awareness".
 
 **§1.7(d) reads precedence.** The rule that a reader resolves a workflow
-file to its staged copy when one exists and to the live file otherwise. The
-read caveat tells review agents to follow it. Defined in
+file to its staged copy when one exists and to the live file otherwise. As
+written `§1.7(d)` scopes that precedence to the implementer and excludes
+reviewers; this design amends it so review agents on a workflow-modifying plan
+follow it too, so the read caveat invokes a rule that covers them. Defined in
 `conventions.md §1.7(d)`. → §"Read-side staging awareness".
 
 **Phase A track review.** The pre-decomposition review layer: track-scoped
@@ -265,6 +267,16 @@ plan snapshot, which retains the `### Constraints` section verbatim because
 the renderer copies the plan's strategic header unchanged and only filters
 the track checklist. Placing the caveat in the prompt body, not as a
 document section, keeps it out of the host file's section structure (D3).
+
+The caveat invokes `§1.7(d)`, but `§1.7(d)` as written scopes its staged-first
+precedence to the implementer's per-spawn read site and excludes reviewers, on
+the rationale that no such consumer has a staged copy to read. On a
+workflow-modifying plan that rationale is the YTDB-1038 bug itself: the
+reviewer does have a staged copy, and reading live is what produces the
+phantom mismatch. So this work amends `§1.7(d)` to bring review agents on a
+workflow-modifying plan into the precedence scope and drops the stale
+rationale, rather than wording the caveat to override a rule whose own text
+still excludes reviewers. The amendment rides in Track 2 alongside the caveat.
 
 ### Edge cases / Gotchas
 
