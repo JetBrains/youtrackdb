@@ -20,6 +20,7 @@ staged-path normalization rule strips the prefix before the globs run.
 - [ ] Track completion
 - [x] 2026-06-01T13:05Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-01T13:26Z [ctx=safe] Step 1 complete (commit a2cd449)
+- [x] 2026-06-01T13:31Z [ctx=safe] Step 2 complete (commit 7f171bd)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -160,7 +161,7 @@ Ordering and invariants:
    this edits `review-agent-selection.md` only (no SKILL.md counterpart, no
    sync-date re-bump, no new drift). Sequential after Step 1 (it documents
    Step 1's rule). — risk: low (default: documentation; illustrative prose, no
-   behavior change)  [ ]
+   behavior change)  [x] commit: 7f171bd
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -198,6 +199,34 @@ left as-is (the rulebook bans `--amend`).
 **Key files:**
 - `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/review-agent-selection.md` (new — staged copy)
 - `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md` (new — staged copy)
+
+### Step 2 — commit 7f171bd, 2026-06-01T13:31Z [ctx=safe]
+**What was done:** Added one staged-path worked example to the staged copy
+of `review-agent-selection.md` §Examples — workflow-machinery override,
+documenting the normalization rule from Step 1. The example shows a step
+editing `…/staged-workflow/.claude/skills/code-review/SKILL.md` normalizing
+to `.claude/skills/code-review/SKILL.md`, which matches the
+`review-workflow-prompt-design` and `review-workflow-instruction-completeness`
+globs, so both launch alongside the always-run consistency + context-budget
+pair and writing-style (via `docs/adr/**/*.md`): 5 agents, with `hook-safety`
+not firing. The bullet mirrors the shape and prose of the three existing
+live-path examples and closes with the without-normalization consequence.
+§Examples is not a mirrored section, so this edits `review-agent-selection.md`
+only — no SKILL.md counterpart and no sync-date re-bump.
+
+**What was discovered:** The worked example demonstrates two glob-gated
+reviewers, not three. The track's Validation criterion phrases the expected
+example as showing "the three glob-gated reviewers plus the always-run pair,"
+but no single changed file can match all three at once: the
+SKILL/agents/prompts globs (`prompt-design`, `instruction-completeness`) and
+the hooks/scripts/settings globs (`hook-safety`) are disjoint. The
+implementer followed the realizable spec in §Plan of Work step 3 (the SKILL.md
+path matching two globs). The Validation criterion's "three" is a superset
+framing of the rule, not a per-example claim — Phase C track review should
+read it that way.
+
+**Key files:**
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/review-agent-selection.md` (modified — staged copy)
 
 ## Validation and Acceptance
 
