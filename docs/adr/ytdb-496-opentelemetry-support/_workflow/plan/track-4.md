@@ -3,11 +3,11 @@
 
 ## Purpose / Big Picture
 
-After this track lands, every native SQL statement (`db.command(...)`, `db.execute(...)`, AND read-only `db.query(...)` — including MATCH, INSERT, UPDATE, DELETE, DDL) fires `QueryMetricsListener.queryFinished(...)` through a single private helper `executeStatementWithMetrics(SQLStatement, String, Object)` on `DatabaseSessionEmbedded`, invoked from both `query()` (line 617) and `executeInternal()` (line 702). A new `GremlinSqlSuppression` utility (re-entrant ThreadLocal counter + `AutoCloseable` token) activated by both `YTDBGraphQuery.execute(session)` and `YTDBGraphQuery.explain(session)` short-circuits the helper for Gremlin-driven SQL (and Gremlin's explain-introspection path) so one traversal emits exactly one span. The OTel module ships `SqlSanitizer` (literal-to-`?` replacement for `db.query.text`); the SQL classifier (`core.SqlSyntaxClassifier`) is owned by Track 1, called directly from the helper to populate the inline `QueryDetails` operation/collection accessors.
+After this track lands, every native SQL statement (`db.command(...)`, `db.execute(...)`, AND read-only `db.query(...)` — including MATCH, INSERT, UPDATE, DELETE, DDL) fires `QueryMetricsListener.queryFinished(...)` through a single private helper `executeStatementWithMetrics(SQLStatement, String, Object)` on `DatabaseSessionEmbedded`, invoked from all three SQL execution entry points: `query(String, Object...)` (line 617), `query(String, boolean, Map)` (line 652, the Map-args overload backing both `db.query("...", Map.of(...))` and the Gremlin-to-SQL bridge), and `executeInternal()` (line 702). A new `GremlinSqlSuppression` utility (re-entrant ThreadLocal counter + `AutoCloseable` token) activated by both `YTDBGraphQuery.execute(session)` and `YTDBGraphQuery.explain(session)` short-circuits the helper for Gremlin-driven SQL (and Gremlin's explain-introspection path) so one traversal emits exactly one span. Both the SQL sanitizer (`core.SqlSanitizer`) and the SQL classifier (`core.SqlSyntaxClassifier`) live in `core` (the classifier is owned by Track 1; the sanitizer is added by this track) because both walk the parser-output AST that lives in `core`; the helper calls both directly to populate the inline `QueryDetails`.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Extract `executeStatementWithMetrics(SQLStatement, String, Object)` as a private helper on `DatabaseSessionEmbedded` and invoke it from both `query()` and `executeInternal()` so every native SQL statement (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) flows through `QueryMetricsListener.queryFinished(...)`. Add a `GremlinSqlSuppression` static utility in `core` and wrap `YTDBGraphQuery.execute`'s underlying `transaction.query(...)` call with a try-with-resources `activate()` token so the helper stays silent during Gremlin-driven SQL. Implement `SqlSanitizer` (literal-to-`?` replacement for `db.query.text`) inside the OTel module. The SQL classifier lives in `core` (Track 1) and is called directly from the helper to populate the inline `QueryDetails`.
+Extract `executeStatementWithMetrics(SQLStatement, String, Object)` as a private helper on `DatabaseSessionEmbedded` and invoke it from all three SQL execution entry points (`query(String, Object...)` line 617, `query(String, boolean, Map)` line 652, `executeInternal()` line 702) so every native SQL statement (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) flows through `QueryMetricsListener.queryFinished(...)`. Add a `GremlinSqlSuppression` static utility in `core` and wrap `YTDBGraphQuery.execute`'s underlying `transaction.query(...)` call with a try-with-resources `activate()` token so the helper stays silent during Gremlin-driven SQL. Implement `SqlSanitizer` as an AST-walk static utility in `core` (alongside `SqlSyntaxClassifier` from Track 1). The SQL classifier and sanitizer are both called directly from the helper to populate the inline `QueryDetails`.
 
 ## Progress
 - [ ] Review + decomposition
@@ -66,8 +66,8 @@ New `GremlinSqlSuppression` class in `core/src/main/java/com/jetbrains/youtrackd
 
 `YTDBGraphQuery.execute` site: `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBGraphQuery.java` line 23-26. Wrap the existing `transaction.query(this.query, this.params)` in `try (var ignored = GremlinSqlSuppression.activate())`.
 
-OTel-module-side class:
-- `SqlSanitizer`: pure function `sanitize(String rawSql) → String`. Replaces string literals (between single quotes), numeric literals, date literals, and boolean literals with `?`. Parameterized query text (already contains `?`) passes through unchanged. Conservative on edge cases: when uncertain, leaves the text as-is rather than corrupting it.
+Core-side sanitizer (moved out of the OTel module because it walks the parser-output AST that lives in `core`):
+- `SqlSanitizer`: static utility `sanitize(SQLStatement) → String` in `core/.../profiler/monitoring/` next to `SqlSyntaxClassifier`. Walks the parsed AST and emits a rendering with every literal node (`SQLBaseExpression`, `SQLInputParameter`, `SQLNumber`, `SQLBoolean`, `SQLString`, date / timestamp literal nodes) replaced by `?`; structural nodes (FROM targets, WHERE operators, GROUP BY / ORDER BY identifiers) render verbatim. Already-parameterized text (`SQLInputParameter` nodes carrying `:name` / `?` placeholders) renders as `?` idempotently. Handles edge cases regex-based sanitizers leak: doubled single quotes (`'It''s'`), JSON strings inside SELECT projections, regex predicates in `MATCHES` clauses — the parser already classified those as `SQLString` nodes, so the walk renders them as `?` without re-parsing quoting rules.
 
 Core-side classifier (delivered by Track 1, consumed here):
 - `core.SqlSyntaxClassifier.classify(SQLStatement)`: static utility that dispatches on the AST subclass (`SQLSelectStatement` → SELECT with first FROM target, `SQLInsertStatement` → INSERT, `SQLUpdateStatement` → UPDATE, `SQLDeleteStatement` → DELETE, `SQLMatchStatement` → MATCH, `SQLCreateClassStatement` / `SQLAlterClassStatement` / `SQLDropClassStatement` → CREATE / ALTER / DROP); returns `Classification.EMPTY` for shapes that don't fit.
@@ -80,7 +80,7 @@ Concrete deliverables:
 4. New `GremlinSqlSuppression` static utility class in `core/.../profiler/monitoring/`. Re-entrant ThreadLocal counter + `AutoCloseable` activation token; `isActive()` boolean check.
 5. Wire `GremlinSqlSuppression.activate()` into BOTH `YTDBGraphQuery.execute(session)` (lines 23-26) AND `YTDBGraphQuery.explain(session)` (line 31) via try-with-resources around the existing `transaction.query(...)` calls. The explain wire prevents parasitic SQL spans on any caller of `YTDBGraphQuery.explain`, including the test-driven `YTDBGraphQuery.usedIndexes` introspection path (`usedIndexes(session)` at `YTDBGraphQuery.java:37` calls `this.explain(session)` at line 38).
 6. A SQL-flavored `QueryDetails` implementation carrying raw SQL, sanitized SQL, operation name, collection name, database name, tracking ID. Lives in `core` (close to the helper) and calls `SqlSyntaxClassifier.classify(statement)` (Track 1's static utility) to populate operation/collection lazily; database name comes from `getDatabaseName()` on the session; tracking ID is `String.valueOf(currentTx.getId())`.
-7. `SqlSanitizer` in `youtrackdb-opentelemetry`, regex-based with carefully tested edge cases.
+7. `SqlSanitizer` static utility in `core/.../profiler/monitoring/` (alongside `SqlSyntaxClassifier`). AST-walk implementation: `sanitize(SQLStatement)` returns the sanitized rendering. Lives in `core` because the walk needs the parser-output AST; the OTel module's `QueryDetails` impl reads it via the same lazy-cache path as `SqlSyntaxClassifier`.
 
 8. SQL parser grammar extension in `core/src/main/jj/YouTrackDBSql.jjt` to recognize the hint syntax `/*+ TAG=identifier */` preceding any top-level statement (SELECT / INSERT / UPDATE / DELETE / MATCH / CREATE / ALTER / DROP). The grammar treats the hint as a special comment block: the lexer matches `/*+` ... `*/` outside of regular block comments, parses the inner `TAG=identifier` clause, and attaches the extracted identifier to the next produced `SQLStatement` node. Re-generation of the parser code is automatic on build via the existing JavaCC pipeline.
 
@@ -100,7 +100,7 @@ The third edit wires the helper into `DatabaseSessionEmbedded.query()` (line 617
 
 The fourth edit wires `GremlinSqlSuppression.activate()` into BOTH `YTDBGraphQuery.execute(session)` at `core/.../gremlin/YTDBGraphQuery.java` lines 23-26 AND `YTDBGraphQuery.explain(session)` at line 31. The existing `return transaction.query(this.query, this.params);` (in `execute`) and `try (var resultSet = transaction.query(String.format("EXPLAIN %s", query), params))` (in `explain`) are each wrapped in a `try (var ignored = GremlinSqlSuppression.activate()) { ... }`. Cleanup runs even if the SQL throws. The explain wire prevents parasitic SQL spans on any caller of `YTDBGraphQuery.explain`, including the test-driven `YTDBGraphQuery.usedIndexes` path (`usedIndexes(session)` at `YTDBGraphQuery.java:37` delegates to `this.explain(session)` at line 38).
 
-The fifth edit adds `SqlSanitizer` to the OTel module. Pure regex-based replacement for string literals (`'[^']*'` → `?`), numeric literals (`\b\d+(\.\d+)?\b` → `?`), date/timestamp literals (`DATE 'YYYY-MM-DD'`, `TIMESTAMP '...'`), and boolean literals. The implementation is conservative: when a sequence is ambiguous (e.g., string contains an escaped quote), it returns the input unchanged rather than producing a corrupted output. Unit-tested independently in this track (full coverage of statement-type variations runs in Track 6a's `OTelSqlQueryTest`).
+The fifth edit adds `SqlSanitizer` as a static utility in `core/.../profiler/monitoring/` alongside `SqlSyntaxClassifier`. The `sanitize(SQLStatement)` method walks the parsed AST and renders each literal node as `?`: `SQLBaseExpression`, `SQLInputParameter`, `SQLNumber`, `SQLBoolean`, `SQLString`, and the date / timestamp literal node types the parser produces. Structural nodes (FROM targets, WHERE operators, GROUP BY / ORDER BY identifiers, function calls) render verbatim. Already-parameterized text (`SQLInputParameter` nodes carrying `:name` / `?` placeholders in the input) renders as `?` idempotently. The AST walk correctly handles doubled single quotes (`'It''s'`), JSON strings inside SELECT projections, and regex predicates in `MATCHES` clauses — all classified by the parser as `SQLString` nodes. Unit-tested independently in this track (full coverage of statement-type variations runs in Track 6a's `OTelSqlQueryTest`).
 
 The sixth edit adds JUnit unit tests covering: `GremlinSqlSuppression` counter behavior (activate/close round-trips, re-entrance, exception safety), `SqlSanitizer` literal-replacement edge cases, helper short-circuit when no listeners or when suppression active, helper fire when listeners present and suppression inactive, both `query()` and `executeInternal()` invoking the helper with the same end-to-end semantics. The SQL classifier's per-statement-type unit tests land in Track 1 alongside the classifier itself; full end-to-end OTel-SDK assertions land in Tracks 6a / 6b / 6c.
 
@@ -145,7 +145,7 @@ In scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (private `executeStatementWithMetrics` helper, wires from both `query()` and `executeInternal()`, SQL-flavored `QueryDetails` inline impl calling `core.SqlSyntaxClassifier.classify(...)`).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/GremlinSqlSuppression.java` (new static utility — re-entrant ThreadLocal counter + `AutoCloseable` token).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBGraphQuery.java` (try-with-resources `GremlinSqlSuppression.activate()` wrapping the existing `transaction.query(...)` calls in BOTH `execute(session)` (lines 23-26) AND `explain(session)` (line 31); the explain wire prevents parasitic SQL spans on Gremlin's explain-introspection path).
-- `youtrackdb-opentelemetry/src/main/java/com/jetbrains/youtrackdb/opentelemetry/sql/SqlSanitizer.java`
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/SqlSanitizer.java` (AST-walk static utility alongside `SqlSyntaxClassifier`)
 
 Out of scope:
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransaction.java` — no new `getTrackingId()` accessor; the helper uses the existing `getId(): long` (CR16 resolution).
@@ -158,16 +158,16 @@ Out of scope:
 
 Inter-track dependencies:
 - Depends on Track 1 (TX SPI extensions, global listener registry, both classifier helpers + `Classification` record, exception-wrapper widening to `Exception | LinkageError | AssertionError`, listener snapshot fields on `FrontendTransactionImpl`, the new `FrontendTransaction.getDefaultQueryMonitoringMode()` + `resolveQueryMonitoringMode(Optional<String>)` accessors, and the new `QueryMonitoringModeResolver` + `TagRule<T>` sealed interface).
-- Depends on Track 2 (the `youtrackdb-opentelemetry` Maven module where `SqlSanitizer` lives).
+- Depends on Track 2 (the `youtrackdb-opentelemetry` Maven module exists; the SQL helper invokes the OTel listener via the global registry snapshot — `SqlSanitizer` itself lives in `core` next to `SqlSyntaxClassifier` because both walk the parser-output AST).
 - Depends on Track 3 (`OTelQueryMetricsListener` exists; the SQL hook feeds into the same listener instance via the global registry snapshot).
 - Provides for Track 6a (`OTelSqlQueryTest` covers each statement type and the sanitizer edge cases) and Track 6c (`OTelDbQuerySpanTest` covers the `db.query(...)` regression path).
 
 Library / function signatures introduced:
 
 ```java
-// youtrackdb-opentelemetry
+// core/.../profiler/monitoring/SqlSanitizer.java (new — AST-walk over parser output)
 public final class SqlSanitizer {
-  public static String sanitize(String rawSql);
+  public static String sanitize(SQLStatement statement);
 }
 
 // core/.../profiler/monitoring/GremlinSqlSuppression.java (new)
