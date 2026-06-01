@@ -1,4 +1,4 @@
-<!-- workflow-sha: bb73bcdb79554f0375739eda54542257c9a9d082 -->
+<!-- workflow-sha: 795f7e1902017877bd158df977a01e3ddb436a42 -->
 # Speed up open() on databases with many collections — Design
 
 ## Overview
