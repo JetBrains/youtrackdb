@@ -3,7 +3,7 @@
 
 ## Overview
 
-This design adds a new optional Maven module `youtrackdb-opentelemetry` that wires YTDB into OpenTelemetry across two pillars in this branch's scope: distributed tracing (spans from query and transaction listener callbacks) and logs (every record emitted through YTDB's `LogManager` chokepoint, hard-context-correlated with the active span at emission time). Metrics land in a follow-up mutation (M35) inside the same PR. The result is that a host running embedded YTDB and an operator running a standalone server both get database telemetry — spans and correlated logs — visible in any OTel-compatible viewer.
+This design adds a new optional Maven module `youtrackdb-opentelemetry` that wires YTDB into OpenTelemetry across all three signal types: distributed tracing (spans from query and transaction listener callbacks), logs (every record emitted through YTDB's `LogManager` chokepoint, hard-context-correlated with the active span at emission time), and metrics (the existing `Profiler.getMetricsRegistry()` counter set surfaced through OTel async instruments at a configurable period). The result is that a host running embedded YTDB and an operator running a standalone server both get database telemetry — spans, correlated logs, and counter samples — visible in any OTel-compatible viewer.
 
 This design assumes familiarity with the existing `QueryMetricsListener` and `TransactionMetricsListener` firing sites in `YTDBQueryMetricsStep` and `FrontendTransactionImpl`, and with the `YTDBTransaction` open / commit / rollback lifecycle. The audience is contributors maintaining the metrics and transaction subsystems in `core`.
 
@@ -19,15 +19,15 @@ A second optional gate emits a wall-clock heartbeat sample: `OPENTELEMETRY_QUERY
 
 `YTDBTransaction` exposes a builder-style API for listener wiring: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)` are separate fluent methods. The new `withTrackingId(String)` stores an explicit tracking ID on the transaction; `FrontendTransaction.getTrackingId(): String` returns that explicit value when set, else falls back to `String.valueOf(getId())` so the internal-ID source stays the default.
 
-Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-Throwable union `Exception | LinkageError | AssertionError` to cover the OTel-specific failure modes (misconfigured SDK, missing exporter classes, assertion failures) without masking `VirtualMachineError` or `ThreadDeath`, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method) and adds three new accessors on `FrontendTransaction` — `getDefaultQueryMonitoringMode(): QueryMonitoringMode` exposing the per-TX fallback used by commit and by queries with no tag-rule match, `resolveQueryMonitoringMode(Optional<String> tag): QueryMonitoringMode` delegating to the process-global `QueryMonitoringModeResolver` for per-query mode selection from the query tag, and `iterateAllQueryListeners(): Iterable<QueryMetricsListener>` exposing the merged global-snapshot + per-TX-list view — and `GlobalConfiguration` gains a family of `OPENTELEMETRY_*` entries that drive the server-mode SDK init plus the tag-rule table (master switch, query-tag rule sets for mode / slow-query / heartbeat, exporter wiring, and two log-side entries `OPENTELEMETRY_LOGS_ENABLED` and `OPENTELEMETRY_LOGS_MIN_SEVERITY`).
+Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDetails` gains three `Optional<String>` accessors (operation, collection, namespace) and the nested `TransactionMetricsListener.TransactionDetails` gains one (namespace), the existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-Throwable union `Exception | LinkageError | AssertionError` to cover the OTel-specific failure modes (misconfigured SDK, missing exporter classes, assertion failures) without masking `VirtualMachineError` or `ThreadDeath`, the SQL hook reuses the existing `FrontendTransaction.getId(): long` accessor (no new tracking-id method) and adds three new accessors on `FrontendTransaction` — `getDefaultQueryMonitoringMode(): QueryMonitoringMode` exposing the per-TX fallback used by commit and by queries with no tag-rule match, `resolveQueryMonitoringMode(Optional<String> tag): QueryMonitoringMode` delegating to the process-global `QueryMonitoringModeResolver` for per-query mode selection from the query tag, and `iterateAllQueryListeners(): Iterable<QueryMetricsListener>` exposing the merged global-snapshot + per-TX-list view — and `GlobalConfiguration` gains a family of `OPENTELEMETRY_*` entries that drive the server-mode SDK init plus the tag-rule table (master switch, query-tag rule sets for mode / slow-query / heartbeat, exporter wiring, two log-side entries `OPENTELEMETRY_LOGS_ENABLED` and `OPENTELEMETRY_LOGS_MIN_SEVERITY`, and three metric-side entries `OPENTELEMETRY_METRICS_ENABLED`, `OPENTELEMETRY_METRICS_PERIOD_MILLIS`, and `OPENTELEMETRY_METRICS_INCLUDED_GROUPS`).
 
 In embedded mode the SDK resolution chain has three steps in priority order: host-provided via `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, then `GlobalOpenTelemetry.get()` if the host configured the global, then a YTDB-built SDK auto-configured from `OPENTELEMETRY_*` config when neither of the first two yielded a real instance. The flag is never inert; ownership is tracked so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process; an `OpenTelemetrySdk` built from the same config entries wires through a `ServerLifecycleListener`-based plugin.
 
-The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, OpenTelemetry logs integration, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
+The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, OpenTelemetry logs integration, metrics integration, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract.
 
 ## Core Concepts
 
-This design introduces ten load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
+This design introduces eleven load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
 
 **Span.** An OpenTelemetry record covering one unit of work with a start timestamp, an end timestamp, a name, a kind (CLIENT / SERVER / INTERNAL / PRODUCER / CONSUMER), a status (OK / ERROR), and arbitrary key/value attributes. Replaces "nothing in YTDB" (no prior telemetry primitive). → §"Sem-conv attribute mapping" and §"Class Design".
 
@@ -48,6 +48,8 @@ This design introduces ten load-bearing ideas. Each is named and used without re
 **Explicit transaction tracking ID.** A host-provided string identifier passed to a transaction via `YTDBTransaction.withTrackingId(String)`. When set, `FrontendTransaction.getTrackingId(): String` returns the explicit value; when unset, the accessor falls back to `String.valueOf(getId())` so the existing internal-ID source remains the default. Both `QueryDetails.getTransactionTrackingId()` and `TransactionDetails.getTransactionTrackingId()` read through this accessor, so explicit IDs surface in OTel span attributes (`youtrackdb.transaction.tracking_id`) and in custom listener implementations alike. Replaces the earlier "internal ID only" model where hosts had no way to attach a stable identifier from their own dispatch layer. → §"Class Design" and §"Listener registration and ordering".
 
 **Log appender chokepoint.** YTDB's process-global `com.jetbrains.youtrackdb.internal.common.log.LogManager` is a single dispatch site that every log call from `core`, `embedded`, `server`, and the new `youtrackdb-opentelemetry` module already routes through; it currently fans out to JUL handlers, including the `ConsoleHandler` installed by `installCustomFormatter()`. The OTel module registers a new `OTelLogAppender` (a `java.util.logging.Handler`) on this chokepoint at SDK init, so every existing YTDB log call also feeds the OTel `LogRecordBuilder` pipeline without source-side changes. The appender reads `Context.current()` at `publish()` time, so any log emitted inside a query- or transaction-listener span scope carries the active `traceId`/`spanId` automatically (hard-context correlation). Earlier iterations of this design treated YTDB's own logger as friction because no SLF4J adapter exists to plug into; the named single chokepoint is exactly what makes one-class registration work. Replaces "logs not integrated" (prior design scope). → §"OpenTelemetry logs integration".
+
+**Profiler counter bridge.** YTDB's internal `Profiler.getMetricsRegistry()` is a process-global registry of `Metric<T>` instances (concrete shapes: `Gauge<T>`, `Stopwatch`, `TimeRate`, `Ratio`) updated by storage, cache, WAL, and transaction subsystems on their own threads, independent of OTel state. A new `OTelMetricsBridge` reads that registry through OTel async instruments (`ObservableLongCounter`, `ObservableLongGauge`, `ObservableDoubleHistogram`) at a `OPENTELEMETRY_METRICS_PERIOD_MILLIS`-driven cadence, surfacing a curated subset under sem-conv v1.33.0 DB metric names where the spec defines them as stable, plus the `youtrackdb.*` namespace for vendor-specific gauges. The bridge subscribes; it does not duplicate the underlying writer state. Replaces "metrics not integrated" (prior design scope after M34's logs addition). → §"Metrics integration".
 
 ## Class Design
 
@@ -100,6 +102,15 @@ classDiagram
         +publish(LogRecord) void
         +flush() void
         +close() void
+    }
+    class OTelMetricsBridge {
+        -Meter meter
+        -ScheduledExecutorService scheduler
+        -Set~MetricGroup~ includedGroups
+        -Map~String,ObservableInstrument~ registered
+        +start() void
+        +stop() void
+        +refresh() void
     }
     class YouTrackDBOpenTelemetry {
         -OpenTelemetry openTelemetry
@@ -206,13 +217,14 @@ classDiagram
     YouTrackDBOpenTelemetry --> OTelQueryMetricsListener : populates defaultThresholdNanos and defaultHeartbeatNanos from config
     OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry(.., ownedByYtdb=true) / shutdown
     OTelLogAppender --> YouTrackDBOpenTelemetry : loggerProvider()
+    OTelMetricsBridge --> YouTrackDBOpenTelemetry : meter()
 ```
 
 The diagram covers the production classes the design introduces. Three interfaces in `core` are extended: `TransactionMetricsListener` and `QueryDetails` gain default methods; `QueryMetricsListener` itself stays unchanged but is consumed by a new impl; `FrontendTransaction` gains `getDefaultQueryMonitoringMode()` (renamed from the earlier `getQueryMonitoringMode()`), `resolveQueryMonitoringMode(Optional<String> tag)`, `resolveSlowQueryThresholdNanos(Optional<String> tag)`, `getTrackingId(): String` (returns the explicit ID set via `YTDBTransaction.withTrackingId(...)` when present, else `String.valueOf(getId())`), and `iterateAllQueryListeners()`. `YTDBTransaction` gains four builder-style methods: `withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, and `withTransactionListener(listener)`. Each returns `this` so they chain.
 
 `SQLStatement` gains a default-empty `getQueryTag(): Optional<String>` accessor populated by the parser when a `/*+ TAG=X */` hint precedes the statement. Two new static-utility classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) and one value record (`Classification`) land in `core` next to the existing parsing infrastructure. Gremlin's classifier piggybacks on the bytecode walk `YTDBQueryMetricsStep.produceScript()` already performs, and the SQL classifier dispatches on the `SQLStatement` AST that both `DatabaseSessionEmbedded.query()` and `executeInternal()` already produce via `SQLEngine.parse(...)` before delegating to the `executeStatementWithMetrics` helper. The classifiers are pure functions, called directly from the existing fire sites; no SPI, no ServiceLoader.
 
-Three process-global resolvers (all in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`; `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; `SampleHeartbeatResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES`. All three cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so the resolvers share the matcher hierarchy. Six classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `OTelLogAppender`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
+Three process-global resolvers (all in `core/.../profiler/monitoring/`) reuse the same sealed `TagRule<T>` interface: `QueryMonitoringModeResolver` walks a `List<TagRule<QueryMonitoringMode>>` parsed once at startup from `OPENTELEMETRY_QUERY_MODE_TAG_RULES`; `SlowQueryThresholdResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES`; `SampleHeartbeatResolver` walks a `List<TagRule<Long>>` parsed from `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES`. All three cache resolved `(tag → value)` pairs in a `ConcurrentHashMap` for cheap repeat lookups. The sealed `TagRule<T>` interface has three concrete shapes (`Exact`, `Prefix`, `Regex`) and is generic precisely so the resolvers share the matcher hierarchy. Seven classes in the new OTel module implement the integration (`OTelQueryMetricsListener`, `OTelTransactionMetricsListener`, `OTelLogAppender`, `OTelMetricsBridge`, `YouTrackDBOpenTelemetry`, `SqlSanitizer`, `OpenTelemetryServerPlugin`), keeping the static dependency arrow one-way (`youtrackdb-opentelemetry` → `core`).
 
 Both OTel listeners take a `SpanKind clientKind` constructor argument that selects between CLIENT and INTERNAL for the query span and the standalone commit span. INTERNAL is used when YTDB runs in-process with the host (embedded), CLIENT when YTDB runs as a standalone server process and the host is a network client. `YouTrackDBOpenTelemetry` resolves `clientKind` from how the SDK was wired: the `OpenTelemetryServerPlugin` invokes the package-private 3-arg variant `setOpenTelemetry(otel, ownedByYtdb=true, serverMode=true)` so CLIENT propagates to both listeners; every embedded entry point (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) defaults `serverMode=false` so INTERNAL applies. The two flags carry separate concerns: `ownedByYtdb` controls whether `shutdown()` closes the SDK; `serverMode` controls the CLIENT/INTERNAL split on emitted spans. See §"Sem-conv attribute mapping" for the sem-conv rule that drives this choice.
 
@@ -880,6 +892,85 @@ The correlation is automatic only when the log call originates on the thread tha
 - Invariants: Listener exception isolation (the appender follows the same isolation contract; a throw from `publish` is caught and reported via `Handler.reportError`)
 - Mechanics: none
 
+## Metrics integration
+
+**TL;DR.** YTDB ships an internal profiler (`internal.common.profiler.Profiler`) whose `MetricsRegistry` already holds the counter set every operator-facing dashboard needs: cache hit ratios, page-read counts, WAL pending bytes, lock contention, query throughput, per-database storage size. A new `OTelMetricsBridge` reads that registry through OTel async instruments (`ObservableLongCounter`, `ObservableLongGauge`, `ObservableDoubleHistogram`) at a configurable period and surfaces a curated subset under the OpenTelemetry sem-conv DB metric names (where v1.33.0 defines one as stable) plus the `youtrackdb.*` namespace for vendor-specific gauges. `OPENTELEMETRY_METRICS_ENABLED=false` (default) keeps the bridge unwired so the profiler's existing in-JVM consumers are untouched; positive `OPENTELEMETRY_METRICS_PERIOD_MILLIS` drives the collection cadence; `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` lets operators opt into subsets to bound exporter cardinality.
+
+Configuration entries:
+
+- `OPENTELEMETRY_METRICS_ENABLED` (default `false`) — master switch for OTel metrics emission. When `false`, the bridge is never started and no `ObservableInstrument` callbacks register; the existing `Profiler.getMetricsRegistry()` continues to serve any in-JVM consumers (JMX, custom listeners) unchanged.
+- `OPENTELEMETRY_METRICS_PERIOD_MILLIS` (default `10000`) — collection period in milliseconds, fed to the SDK's `PeriodicMetricReader`. Matches OTel's typical 10-second cadence and aligns with the default exporter push interval. Values below `1000` are clamped to `1000` at SDK init to prevent runaway export volume.
+- `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` (default empty = all groups enabled when metrics ON) — comma-separated allow-list of metric groups; recognized values are `queries`, `cache`, `storage`, `wal`, `locks`, `transactions`. Empty value means all groups; a non-empty value restricts the bridge to only register `ObservableInstrument` callbacks for counters whose group tag matches. Unrecognized group names log one WARN line and are ignored.
+
+### Counter inventory and sem-conv mapping
+
+The bridge surfaces two layers: sem-conv DB metrics with names defined by the OpenTelemetry spec, and YTDB-specific gauges under the `youtrackdb.*` namespace.
+
+**Sem-conv v1.33.0 DB metrics (curated subset):**
+
+| OTel metric name | Stability | Instrument | YTDB source |
+|---|---|---|---|
+| `db.client.connection.count` | stable | `ObservableLongUpDownCounter` | active session count read from `DatabaseSessionRegistry` |
+| `db.client.operation.duration` | stable | `ObservableDoubleHistogram` | query and commit `executionTimeNanos` aggregated across the last collection period |
+| `db.client.response.returned_rows` | experimental | `ObservableDoubleHistogram` | row-count distribution from the listener's `QueryDetails.getResultCount()` accessor |
+
+**YTDB-specific (`youtrackdb.*` namespace):**
+
+| OTel metric name | Group | Instrument | Profiler source |
+|---|---|---|---|
+| `youtrackdb.cache.hit_ratio` | `cache` | `ObservableDoubleGauge` | `Ratio` from `MetricsRegistry` (cache hits over reads) |
+| `youtrackdb.cache.page_reads` | `cache` | `ObservableLongCounter` | `MetricsRegistry` page-read counter |
+| `youtrackdb.wal.pending_bytes` | `wal` | `ObservableLongGauge` | `MetricsRegistry` WAL backlog gauge |
+| `youtrackdb.wal.flush_rate_bps` | `wal` | `ObservableDoubleGauge` | `TimeRate` WAL flush bytes-per-second |
+| `youtrackdb.lock.contention_count` | `locks` | `ObservableLongCounter` | `MetricsRegistry` lock-wait counter |
+| `youtrackdb.storage.size_bytes` | `storage` | `ObservableLongGauge` (per `database` attribute) | per-`MetricScope.Database` size gauge |
+| `youtrackdb.transaction.commit_rate` | `transactions` | `ObservableDoubleGauge` | `TimeRate` commits-per-second |
+| `youtrackdb.transaction.rollback_count` | `transactions` | `ObservableLongCounter` | `MetricsRegistry` rollback counter |
+
+Sem-conv stability matters for dashboard authors: `stable` metrics will keep their names and semantics in future spec revisions; `experimental` ones may rename or change attribute shapes between sem-conv versions. The bridge surfaces both, but a downstream dashboard that depends on experimental metrics needs to track the sem-conv changelog between v1.33.0 and whatever version YTDB pins next.
+
+### Async instrument lifecycle
+
+`OTelMetricsBridge.start()` does two things at SDK init:
+
+1. Iterate `Profiler.getMetricsRegistry()` once, build a `Map<String, ObservableInstrument>` keyed by the OTel metric name, register each `ObservableInstrument` against the `SdkMeterProvider`'s `Meter` (`provider.get("io.youtrackdb")`). The callback closure captures the source `Metric` reference, not the value, so each collection cycle re-reads through the registry.
+2. Schedule a `ScheduledExecutorService` task at `OPENTELEMETRY_METRICS_PERIOD_MILLIS` interval. The task is a no-op semantically — the SDK's `PeriodicMetricReader` drives the actual export — but it exists to advance YTDB-side time-windowed metrics (`TimeRate`, `Ratio`) that have their own `flushRate` semantics independent of the OTel reader. Without the task, `TimeRate.currentRate()` would stall between exporter polls.
+
+`OTelMetricsBridge.stop()` cancels the scheduled task, calls `unregister()` on each `ObservableInstrument` (drops the SDK-side callback registration), and clears the map. Idempotent: stopping a stopped bridge is a no-op.
+
+`OTelMetricsBridge.refresh()` is a test seam: it iterates the registry once and forces a synchronous read through each registered callback, so unit tests can assert on the exporter side without waiting for the periodic reader's interval.
+
+### Counter group filter
+
+Operators with cardinality constraints opt into subsets via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS`. The bridge classifies each profiler metric into one of six groups at registration time, reading a `group()` annotation on `MetricDefinition` (Track 8 adds the annotation enum). When the included-groups set is non-empty, the bridge skips `register()` for metrics whose group is excluded; the corresponding OTel metric simply does not appear at the exporter.
+
+Group classification table (drives both `MetricDefinition.group()` returns and the filter parsing):
+
+| Group | Examples (profiler-side) |
+|---|---|
+| `queries` | query duration histogram, query throughput, result-row distribution |
+| `cache` | page-cache hit ratio, page reads, eviction count |
+| `storage` | per-database size, page count, allocated bytes |
+| `wal` | pending bytes, flush rate, segment count |
+| `locks` | contention count, wait time histogram, deadlock count |
+| `transactions` | active count, commit rate, rollback count |
+
+Operators wanting metrics on storage health but not query throughput configure `OPENTELEMETRY_METRICS_INCLUDED_GROUPS=storage,wal,locks`. The default empty value enables every group, matching "metrics ON = everything" semantics; a host that wants nothing at all leaves `OPENTELEMETRY_METRICS_ENABLED=false` rather than emptying the included list.
+
+### Edge cases / Gotchas
+
+- High-cardinality attributes: a `youtrackdb.storage.size_bytes` per-database gauge fans out one OTel data point per `database` attribute value at every collection cycle. Hosts with 10k+ databases see 10k+ data points per period; the exporter side has to absorb that. The bridge does NOT add per-class or per-RID attributes — `MetricScope.Class` profiler entries collapse to one OTel data point per (metric, database) pair. If per-class breakdown is needed downstream, the host configures a dedicated OTel exporter that views the raw profiler dump.
+- Bridge thread vs profiler-thread contention: the profiler's own collection threads (the `ScheduledExecutorService` passed to `Profiler` constructor) may be updating a `TimeRate` or `Ratio` while the bridge's callback reads through it. Both sides use lock-free reads on the metric primitives (`Gauge.value()` is a volatile read; `TimeRate.currentRate()` snapshots an `AtomicReference`), so the contention surface is the `AtomicReference` CAS in `TimeRate.advance()`. Worst case: the bridge reads a sample one window behind reality. Acceptable for 10-second collection cadence.
+- Exporter back-pressure: OTel `PeriodicMetricReader` blocks the SDK's internal export thread when the configured exporter (OTLP, Prometheus) backs up. The bridge's scheduled task is independent of the reader — it advances time-windowed YTDB metrics regardless of exporter state — so back-pressure on the OTel side does not stall YTDB's in-JVM metric collection.
+- SDK swap during active metrics: when `setOpenTelemetry` swaps SDKs, the old `OTelMetricsBridge.stop()` runs before the new one's `start()`, so each `ObservableInstrument` is registered against exactly one `SdkMeterProvider` at a time. The window between stop and start is small; any metric reader poll in that window sees zero data points (the SDK-side callbacks are unregistered).
+- Disabled metrics with a host-wired SDK: when `OPENTELEMETRY_ENABLED=true` and `OPENTELEMETRY_METRICS_ENABLED=false`, the bridge is not started even if the host's OTel SDK carries a real `MeterProvider`. The host's other instrumentations continue to emit; only YTDB's bridge stays silent. This is intentional — a host that wants YTDB metrics specifically must opt them in independently of the master switch.
+- Profiler not initialized: if the bridge is started before `Profiler.onStartup()` completes (race during very early bootstrap), the `MetricsRegistry` is empty and the bridge registers zero callbacks. A WARN line names the race; the operator's recovery path is to enable the bridge via JVM system property (`-Dyoutrackdb.opentelemetry.metrics.enabled=true`) so the bridge waits for the profiler's startup listener to fire instead of racing it.
+
+### References
+- D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task advancing YTDB-side `TimeRate`/`Ratio` independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
+- Invariants: Listener exception isolation (callback exceptions inside `ObservableInstrument` callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
+- Mechanics: none
+
 ## SDK lifecycle: embedded vs server
 
 **TL;DR.** Hybrid ownership model. The host owns the `OpenTelemetry` instance when it has wired one (either explicitly through the setter or globally via `GlobalOpenTelemetry.set(...)`). When `OPENTELEMETRY_ENABLED=true` and the host has wired nothing, YTDB auto-configures its own SDK from `OPENTELEMETRY_*` config entries — the same path server mode takes. The facade tracks ownership so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process.
@@ -888,7 +979,7 @@ Embedded path — three-step resolution on first listener fire:
 
 1. **Explicit setter wins**: if the host called `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, use that instance. Ownership = host. `shutdown()` will not close it.
 2. **GlobalOpenTelemetry fallback**: if the host called `GlobalOpenTelemetry.set(otel)` somewhere in its bootstrap (the standard OTel pattern), `GlobalOpenTelemetry.get()` returns the real SDK. Use that instance. Ownership = host. `shutdown()` will not close it.
-3. **YTDB auto-configure**: if neither of the above produced a real SDK and `OPENTELEMETRY_ENABLED=true`, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries (endpoint, protocol, service name). The built SDK carries both an `SdkTracerProvider` and (when `OPENTELEMETRY_LOGS_ENABLED=true`) an `SdkLoggerProvider`; the autoconfigure builder reads the same `*_EXPORTER_ENDPOINT` / `*_EXPORTER_PROTOCOL` config to route both signals through one exporter. When `SdkLoggerProvider` is non-noop, the facade also constructs an `OTelLogAppender` from `provider.get("io.youtrackdb")` and registers it on `LogManager.instance()`. Ownership = YTDB. `shutdown()` closes this SDK (flushes both providers) and removes the appender.
+3. **YTDB auto-configure**: if neither of the above produced a real SDK and `OPENTELEMETRY_ENABLED=true`, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries (endpoint, protocol, service name). The built SDK carries `SdkTracerProvider`, and (when their respective master switches are on) `SdkLoggerProvider` and `SdkMeterProvider`; the autoconfigure builder reads the same `*_EXPORTER_ENDPOINT` / `*_EXPORTER_PROTOCOL` config to route all three signals through one exporter. When `SdkLoggerProvider` is non-noop, the facade also constructs an `OTelLogAppender` from `provider.get("io.youtrackdb")` and registers it on `LogManager.instance()`; when `SdkMeterProvider` is non-noop, the facade also constructs an `OTelMetricsBridge` from `provider.get("io.youtrackdb")` and starts its scheduled refresh task. Ownership = YTDB. `shutdown()` closes this SDK (flushes all three providers), removes the appender, and stops the metrics bridge.
 
 If `OPENTELEMETRY_ENABLED=false` (default), step 3 is skipped and the facade returns no-op tracer; YTDB emits nothing regardless of any host wiring. The flag is the master switch.
 
@@ -897,9 +988,9 @@ Server path:
 1. `ServerMain.create()` builds a `YouTrackDBServer` and calls `activate()`.
 2. The server discovers `ServerLifecycleListener` implementations via the `ServiceLoader.load(ServerLifecycleListener.class)` call Track 5 adds to `YouTrackDBServer.activate()` (the existing code only honors explicit `registerLifecycleListener(...)` calls), appends them to the existing `lifecycleListeners` list, and calls `onBeforeActivate` on each.
 3. After databases load, the server calls `onAfterActivate` on each lifecycle listener.
-4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` carrying `SdkTracerProvider` and (when `OPENTELEMETRY_LOGS_ENABLED=true`) `SdkLoggerProvider` from the same exporter endpoint; calls the package-private 3-arg variant `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk(), ownedByYtdb=true, serverMode=true)`. The setter installs `OTelLogAppender` on `LogManager.instance()` only when the SDK's `LoggerProvider` is non-noop (logs enabled). The `serverMode=true` flag causes the facade to select `SpanKind.CLIENT` for the query and commit listeners; the `ownedByYtdb=true` flag causes `shutdown()` to close the SDK on server stop. Embedded entry points (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) default `serverMode=false`, so embedded query and commit spans use `SpanKind.INTERNAL`.
+4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` carrying `SdkTracerProvider` and (when the respective master switches are on) `SdkLoggerProvider` and `SdkMeterProvider` from the same exporter endpoint; calls the package-private 3-arg variant `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk(), ownedByYtdb=true, serverMode=true)`. The setter installs `OTelLogAppender` on `LogManager.instance()` only when the SDK's `LoggerProvider` is non-noop (logs enabled), and starts `OTelMetricsBridge` only when the SDK's `MeterProvider` is non-noop (metrics enabled). The `serverMode=true` flag causes the facade to select `SpanKind.CLIENT` for the query and commit listeners; the `ownedByYtdb=true` flag causes `shutdown()` to close the SDK on server stop. Embedded entry points (host setter, `GlobalOpenTelemetry.get()` fallback, YTDB auto-configure) default `serverMode=false`, so embedded query and commit spans use `SpanKind.INTERNAL`.
 5. Transactions run, spans emit.
-6. On shutdown, `server.shutdown()` calls `onBeforeDeactivate` on every plugin. `OpenTelemetryServerPlugin.onBeforeDeactivate()` calls `YouTrackDBOpenTelemetry.shutdown()`, which unregisters listeners, removes `OTelLogAppender` from `LogManager.instance()` when registered, and closes the SDK (`OpenTelemetrySdk.close()` flushes both pending spans and log records).
+6. On shutdown, `server.shutdown()` calls `onBeforeDeactivate` on every plugin. `OpenTelemetryServerPlugin.onBeforeDeactivate()` calls `YouTrackDBOpenTelemetry.shutdown()`, which unregisters listeners, removes `OTelLogAppender` from `LogManager.instance()` when registered, stops `OTelMetricsBridge` when started, and closes the SDK (`OpenTelemetrySdk.close()` flushes pending spans, log records, and the final metrics export cycle).
 
 Idempotence and ownership transitions:
 - `setOpenTelemetry` called when YTDB has already auto-configured its own SDK: the facade closes the YTDB-owned SDK first, then installs the host's instance and flips ownership to host.
