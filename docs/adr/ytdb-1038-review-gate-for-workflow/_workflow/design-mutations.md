@@ -89,3 +89,53 @@ suggestion recorded
 
 **Iterations**: 1 of 3 (PASS). Mechanical and bounded cold-read both passed on
 the first round; no fixes needed.
+
+## Mutation 4 — 2026-06-01 — structural-rewrite (design.md)
+
+**Diff summary**: Folded D5 (review-target delta-scoping for staged copies —
+Track 4, under the YTDB-1038 umbrella) into `design.md` as a second facet of
+§"Read-side staging awareness", per the post-Track-1 inline replan. Read-side
+gains a TL;DR clause, a two-paragraph mechanism (orchestrator pre-stages a
+`diff <live> <staged>` delta in the Phase C diff-staging step and the
+high-risk Phase B step-review setup; the canonical reviewer context block
+scopes findings to that delta), an edge-case bullet (fires only on a
+first-creation new-file add; keys off the staged prefix, so no marker), and D5
+in the References footer. Propagated the count/topology changes: the Overview
+reading sentence and the "three concerns, one per issue" paragraph (now naming
+the read side's two mechanisms); Core Concepts seven→eight with a new
+"Staged-copy review delta" entry; Class Design "three additions, three
+reach"→"four", a `DELTA` node plus `DELTA -->|"two context blocks"| DIM` edge
+in the topology diagram, and the reach sentence; S2 extended (TL;DR +
+paragraph) to cover the delta note; Consistency References D-records += D5. The
+top-level "three concerns" framing is preserved — D5 folds under YTDB-1038
+rather than becoming a fourth section. Line-1 stamp preserved (structural-rewrite).
+
+**Mechanical checks** (target=design): PASS — 0 findings
+**Cold-read** (scope: whole-doc): PARTIAL → resolved — 1 should-fix, 1 suggestion
+
+**Findings**:
+- should-fix (applied): D5 misattribution in the Overview "closes all three"
+  paragraph. An Overview-cap trim had conjoined "pre-stages a review delta" to
+  the caveat sentence, making the prompt caveat the grammatical subject when
+  every other mention attributes the delta to the orchestrator (Core Concepts,
+  Class Design, Read-side, and the Overview's own "orchestrator-staged"
+  summary). Fixed by removing the misattributing clause from para 4; para 5
+  already introduces the delta with correct attribution, so the Overview no
+  longer sets up a mental model the body contradicts.
+- suggestion (applied): the topology edge `DELTA --> DIM` overstated the
+  delta's reach — the `DIM` node groups three prompts, but the delta reaches
+  only the two parallel context blocks (step-implementation 4(a),
+  track-code-review), not the `dimensional-review-gate-check.md` gate prompt.
+  Relabeled the edge `DELTA -->|"two context blocks"| DIM`. Below should-fix
+  (the prose was already exact); applied because the relabel is cheap and
+  strictly more accurate.
+
+**Iterations**: 2 of 3 (PASS). Iteration 1 applied the fold-in; mechanical
+flagged the Overview at 45 lines, which three sub-trims (push delta detail down
+into the Read-side section, tighten the orchestrator sentence, drop the
+navigation roadmap line) cleared to 40; the whole-doc cold-read then flagged
+the misattribution should-fix and the edge suggestion. Iteration 2 applied both
+(clause removal + edge relabel) and re-ran mechanical (PASS, stamp intact on
+line 1). The full cold-read was not re-spawned: the should-fix was resolved by
+removing the exact clause the reviewer flagged, and the edge relabel is the
+reviewer's verbatim suggested fix.

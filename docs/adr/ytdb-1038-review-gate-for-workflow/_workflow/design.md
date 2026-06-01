@@ -6,10 +6,9 @@
 The development workflow reviews its own machinery at three points: a
 plan-level review before execution (Phase 2), a track-level review before
 each track is decomposed (Phase A), and a dimensional code review of each
-track's diff (Phase B/C). An orchestrator picks which agents fire for a
-given change, and each spawned agent reads the relevant workflow documents
-to judge it. Every part addresses workflow files by their live `.claude/...`
-path.
+track's diff (Phase B/C). An orchestrator picks which agents fire, and each
+reads the relevant workflow documents to judge the change. Every part
+addresses workflow files by their live `.claude/...` path.
 
 The `§1.7` staging convention changed where that content lives during a
 branch. On a plan that edits `.claude/workflow/**` or `.claude/skills/**`,
@@ -23,8 +22,9 @@ fire match literal changed file paths, and a staged path begins with
 `docs/adr/...`, so three reviewers never match and fail to launch. Reading
 goes stale: every review and gate prompt hands its agent the live path, so
 an agent checking a change against a rule the branch already rewrote reads
-develop's version and reports a phantom mismatch. Phase A goes further
-stale: its technical, risk, and adversarial reviewers apply Java criteria
+develop's version and reports a phantom mismatch; the same blind spot
+mis-scopes review of a changed file that is itself a freshly-created staged
+copy. Phase A goes further stale: its technical, risk, and adversarial reviewers apply Java criteria
 (find-class on named symbols, WAL and crash edge cases, data migrations)
 that have nothing to bind to on a track that edits prose.
 
@@ -35,14 +35,14 @@ the `§1.7(d)` precedence: the staged copy when present, the live file
 otherwise. The Phase A reviewers gain an addendum, also gated on the marker,
 that re-points their criteria from Java to prose.
 
-The work splits into three pieces, one per issue: the selection fix, the
-read fix across every review prompt including Phase A, and the Phase A
-criteria fix. Core Concepts, Class Design, and Workflow come first, then a
-section per fix and the invariants that bind them.
+The work splits into three concerns, one per issue: selection (YTDB-1032), the
+read side (YTDB-1038), and the Phase A criteria (YTDB-1046). The read side
+carries two mechanisms: the prompt caveat and an orchestrator-staged review
+delta.
 
 ## Core Concepts
 
-This design introduces seven load-bearing ideas. Each is named once here and
+This design introduces eight load-bearing ideas. Each is named once here and
 used without redefinition below; the entry pairs the concept with what it
 replaces so the delta from the baseline is visible.
 
@@ -77,6 +77,13 @@ reviewers; this design amends it so review agents on a workflow-modifying plan
 follow it too, so the read caveat invokes a rule that covers them. Defined in
 `conventions.md §1.7(d)`. → §"Read-side staging awareness".
 
+**Staged-copy review delta.** When a track first creates a staged copy inside
+a reviewed commit range, the cumulative diff shows it as a whole-file add even
+though it is a copy of an already-live file plus a small edit. The orchestrator
+pre-stages a `diff` of the live file against the staged copy and scopes the
+reviewer to it. New in this design.
+→ §"Read-side staging awareness".
+
 **Phase A track review.** The pre-decomposition review layer: track-scoped
 technical, risk, and adversarial reviewers plus a gate-verification
 reviewer, run before a track is broken into steps. Their criteria assume
@@ -109,6 +116,7 @@ flowchart TB
     end
     NORM(["staged-path normalization"])
     CAVEAT(["1.7(d) read caveat"])
+    DELTA(["staged-copy review delta pre-staging"])
     ADD(["workflow-machinery criteria addendum"])
     MARKER{{"1.7(b) marker in plan Constraints"}}
 
@@ -119,17 +127,21 @@ flowchart TB
     CAVEAT --> DIM
     CAVEAT --> PR
     CAVEAT --> PA
+    DELTA -->|"two context blocks"| DIM
     ADD --> PA
 ```
 
-Three additions, three reach. The normalization rule (selection, YTDB-1032)
+Four additions, four reach. The normalization rule (selection, YTDB-1032)
 lands in the mirror pair. The read caveat (YTDB-1038) lands in every review
-and gate prompt across all three layers. The criteria addendum (YTDB-1046)
-lands in the three Phase A criteria reviewers only; the Phase A
-gate-verification reviewer is criteria-agnostic and takes the read caveat
-alone. The marker gates the caveat and the addendum; the normalization rule
-is keyed off the staged prefix and needs no marker, because staged paths
-exist only on plans that carry the marker anyway.
+and gate prompt across all three layers. The review-target delta pre-staging,
+also under YTDB-1038, lands in the orchestrator's Phase C diff-staging and
+high-risk Phase B step-review setup and surfaces to the two dimensional
+context blocks. The criteria addendum (YTDB-1046) lands in the three Phase A
+criteria reviewers only; the Phase A gate-verification reviewer is
+criteria-agnostic and takes the read caveat alone. The marker gates the caveat
+and the addendum; the normalization rule and the delta pre-staging are keyed
+off the staged prefix and need no marker, because staged paths exist only on
+plans that carry the marker anyway.
 
 ## Workflow
 
@@ -242,7 +254,11 @@ both. D1 records why one normalization rule beats editing each glob.
 plan, the track file, and the workflow docs, and names the live `.claude/...`
 path. On a workflow-modifying plan the agent should read the staged copy. A
 caveat, gated on the marker and added to all nine prompts across the three
-review layers, sends the agent through `§1.7(d)` precedence.
+review layers, sends the agent through `§1.7(d)` precedence. A second
+staleness affects the review target itself: when a changed file is a
+freshly-created staged copy, the orchestrator pre-stages its delta against the
+live file so the reviewer scopes to the real change rather than the whole-file
+add (D5).
 
 The caveat reaches every prompt that judges a change against workflow-rule
 content:
@@ -278,6 +294,25 @@ workflow-modifying plan into the precedence scope and drops the stale
 rationale, rather than wording the caveat to override a rule whose own text
 still excludes reviewers. The amendment rides in Track 2 alongside the caveat.
 
+The caveat governs how a reviewer reads a *referenced* rule; a separate
+staleness affects the *changed file* the reviewer is handed. On a
+workflow-modifying plan a track's deliverable is a staged copy under
+`_workflow/staged-workflow/.claude/...`. When that copy is first created
+inside a reviewed commit range, the cumulative diff shows it as a whole-file
+add, even though it is a copy of an already-live, already-reviewed file plus a
+small edit, so the reviewer spends effort on already-promoted content and
+risks phantom findings or scope creep into the live machinery.
+
+The fix is orchestrator-side. In the Phase C diff-staging step and the
+high-risk Phase B step-review setup, the orchestrator detects a changed file
+that is a freshly-created staged copy (it matches the anchored
+`…/_workflow/staged-workflow/.claude/…` prefix, is a new-file add in the
+reviewed range, and has a live counterpart) and additionally stages a
+`diff <live> <staged>` delta. The canonical reviewer context block points
+reviewers at that delta and tells them to scope findings to it, the rest being
+verbatim-copied live content. D5 records why orchestrator pre-staging beats
+reviewer-side self-diffing.
+
 ### Edge cases / Gotchas
 
 - At a fresh State-0 plan review no staged copy exists yet, so `§1.7(d)`
@@ -292,10 +327,14 @@ still excludes reviewers. The amendment rides in Track 2 alongside the caveat.
   as inputs; the caveat rides next to that input block.
 - On a plan that does not modify the workflow, the marker is absent and the
   caveat stays inert.
+- Delta pre-staging fires only when a staged copy is *first created* in the
+  reviewed range (a new-file add). A later edit to an already-restaged file is
+  an ordinary diff, not a whole-file add, so no delta is staged. Like the
+  selection normalization, it keys off the staged prefix and needs no marker.
 
 ### References
 
-- D-records: D2, D3
+- D-records: D2, D3, D5
 - Invariants: S2
 - Related: YTDB-1038
 
@@ -355,8 +394,8 @@ prompts, so it lands after the read-side work.
 
 **TL;DR.** Three invariants hold the change together: the selection rules
 and their `/code-review` mirror change in one commit (S1), the two context
-blocks carry the same caveat (S2), and the read caveat and the Phase A
-addendum stay uniform across the prompts that carry them (S3). The fix also
+blocks carry the same caveat and delta note (S2), and the read caveat and the
+Phase A addendum stay uniform across the prompts that carry them (S3). The fix also
 cannot fix its own review: this branch stages its edits, so its own Phase A
 and Phase C read the live, unfixed machinery, which the `§1.7(h)`
 forward-only rule predicts.
@@ -370,8 +409,9 @@ touches a mirrored section, so it is bound by this rule.
 
 The parallel-block invariant (S2) covers the read fix. `step-implementation.md`
 sub-step 4(a) and `track-code-review.md` hold separate but parallel copies
-of the context block. The caveat must land in both with the same meaning, or
-a Phase C review would behave differently from its Phase B counterpart.
+of the context block. The caveat and the review-target delta note must land
+in both with the same meaning, or a Phase C review would behave differently
+from its Phase B counterpart.
 
 The uniformity invariant (S3) covers the breadth of the read and Phase A
 fixes. The read caveat lands in nine prompts and the addendum in three; each
@@ -402,5 +442,5 @@ forward-only rule in `§1.7(h)` describes.
 
 ### References
 
-- D-records: D1, D2, D4
+- D-records: D1, D2, D4, D5
 - Invariants: S1, S2, S3

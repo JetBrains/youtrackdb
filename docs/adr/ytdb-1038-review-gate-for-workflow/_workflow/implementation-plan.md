@@ -18,17 +18,22 @@ under `docs/adr/<dir>/_workflow/staged-workflow/.claude/...` and the live
 files stay at develop's state until one Phase 4 promotion. The review
 machinery never learned this and goes stale on such plans in three ways.
 
-This plan closes all three, one issue per gap:
+This plan closes all three. The reading gap turns out to have two facets, so
+the read-side issue YTDB-1038 spans two tracks:
 
 - **YTDB-1032 (selection).** The per-agent triggers match the live
   `.claude/...` path, but a staged path begins with `docs/adr/...`, so three
   workflow reviewers never match and fail to launch. Fix: strip the staged
   prefix before matching triggers.
-- **YTDB-1038 (reading).** Every review and gate prompt hands its agent the
-  live path, so an agent checking a change against a rule the branch already
-  rewrote reads develop's version and reports a phantom mismatch. Fix: a
-  marker-gated caveat in every prompt that routes reads through `§1.7(d)`
-  precedence (staged copy when present, else live).
+- **YTDB-1038 (reading), two facets.** First, every review and gate prompt
+  hands its agent the live path, so an agent checking a change against a rule
+  the branch already rewrote reads develop's version and reports a phantom
+  mismatch. Fix (Track 2): a marker-gated caveat in every prompt that routes
+  reads through `§1.7(d)` precedence (staged copy when present, else live).
+  Second, when the changed file under review is itself a freshly-created staged
+  copy, the cumulative diff shows a whole-file add that hides the real delta
+  against the live counterpart. Fix (Track 4): the orchestrator pre-stages that
+  delta and the reviewer context block scopes findings to it.
 - **YTDB-1046 (Phase A criteria).** The Phase A technical, risk, and
   adversarial reviewers apply Java criteria (find-class on named symbols, WAL
   and crash edge cases, data migrations) that have nothing to bind to on a
@@ -81,6 +86,7 @@ flowchart TB
     end
     NORM(["staged-path normalization"])
     CAVEAT(["1.7(d) read caveat"])
+    DELTA(["staged-copy review delta pre-staging"])
     ADD(["workflow-machinery criteria addendum"])
     MARKER{{"1.7(b) marker in plan Constraints"}}
 
@@ -91,6 +97,7 @@ flowchart TB
     CAVEAT --> DIM
     CAVEAT --> PR
     CAVEAT --> PA
+    DELTA -->|"two context blocks"| DIM
     ADD --> PA
 ```
 
@@ -99,11 +106,12 @@ flowchart TB
   by the S1 sync-date constraint. Track 1.
 - **Prompt layers** (Phase B/C dimensional, Phase 2 plan, Phase A track): the
   read caveat (CAVEAT) reaches all three; the addendum (ADD) reaches the
-  Phase A criteria reviewers only. Tracks 2 and 3.
+  Phase A criteria reviewers only; the delta pre-staging (DELTA) reaches the
+  two Phase B/C dimensional context blocks only. Tracks 2, 3, and 4.
 - **Marker** (`§1.7(b)` sentence in the plan's `### Constraints`): the single
   gating signal for CAVEAT and ADD, surfaced to review agents through the
-  slim plan snapshot. NORM keys off the staged prefix and needs no marker —
-  staged paths exist only on plans that carry the marker anyway.
+  slim plan snapshot. NORM and DELTA key off the staged prefix and need no
+  marker — staged paths exist only on plans that carry the marker anyway.
 
 #### D1: Selection — staged-path normalization over per-glob editing
 
@@ -166,6 +174,26 @@ flowchart TB
 - **Implemented in**: Track 3
 - **Full design**: design.md §"Phase A criteria for workflow-machinery tracks"
 
+#### D5: Review-target delta-scoping — orchestrator pre-stages the delta
+
+- **Alternatives considered**: reviewer-side self-diffing (each review agent
+  diffs the staged copy against its live counterpart on its own); vs the
+  orchestrator pre-staging a `diff <live> <staged>` delta file and pointing
+  reviewers at it through the context block.
+- **Rationale**: orchestrator pre-staging is deterministic across the review
+  fan-out: every reviewer sees the same scoped delta and the same out-of-scope
+  note, where self-diffing repeats the work per agent and varies with each
+  agent's interpretation. The orchestrator already stages the diff for review,
+  so the delta rides alongside it.
+- **Risks/Caveats**: the trigger must be precise: a freshly-created staged copy
+  that matches the anchored `…/_workflow/staged-workflow/.claude/…` prefix, is a
+  new-file add in the reviewed range, and has a live counterpart. A later edit
+  to an already-restaged file is an ordinary diff and stages no delta. The delta
+  note rides in the two parallel context blocks only (S2), not the gate-check
+  prompt.
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Read-side staging awareness"
+
 #### Invariants
 
 - **S1 (selection mirror).** `review-agent-selection.md` (§Workflow-machinery
@@ -175,8 +203,8 @@ flowchart TB
   `review-workflow-consistency` at Phase C; no script checks it. (Track 1)
 - **S2 (parallel-block).** The canonical context block in
   `step-implementation.md` sub-step 4(a) and its parallel copy in
-  `track-code-review.md` carry the same caveat, or a Phase C review behaves
-  differently from its Phase B counterpart. (Track 2)
+  `track-code-review.md` carry the same caveat and delta note, or a Phase C
+  review behaves differently from its Phase B counterpart. (Tracks 2 + 4)
 - **S3 (uniformity).** The read caveat reads the same across all nine prompts,
   and the Phase A addendum the same across the three criteria prompts; all
   three fixes key off the single `§1.7(b)` marker. (Tracks 2 + 3)
@@ -189,6 +217,9 @@ flowchart TB
 - Selection normalization plugs into `review-agent-selection.md`
   §Workflow-machinery override and the mirrored `code-review/SKILL.md` Step 5d,
   ahead of the per-agent glob match.
+- Delta pre-staging plugs into `track-code-review.md` (the Phase C diff-staging
+  step) and `step-implementation.md` (the high-risk Phase B step-review setup),
+  with the scope note carried in the two dimensional context blocks (S2).
 
 #### Non-Goals
 
@@ -253,33 +284,23 @@ flowchart TB
   > **Scope:** ~2 steps covering the workflow-machinery criteria addendum in technical/risk/adversarial.
   > **Depends on:** Track 2
 
+- [ ] Track 4: Review-target delta-scoping for staged copies (YTDB-1038)
+  > On a workflow-modifying plan a track's deliverable is a staged copy; when
+  > that copy is first created in a reviewed commit range, the cumulative diff
+  > shows it as a whole-file add with no signal that only the delta against the
+  > live counterpart is the real target, so reviewers spend effort on
+  > already-promoted content and risk phantom findings or scope creep. The
+  > orchestrator pre-stages a `diff <live> <staged>` delta in the Phase C
+  > diff-staging step and the high-risk Phase B step-review setup, and the
+  > reviewer context block scopes findings to it. Folded under YTDB-1038 (no
+  > separate issue). Detailed description in plan/track-4.md.
+  > **Scope:** ~2-3 steps covering the delta pre-staging in `track-code-review.md`
+  > and `step-implementation.md`, with the scope note in the two context blocks.
+  > **Depends on:** Track 2
+
 ## Plan Review
 
-**PAUSED 2026-06-01 at post-Track-1 inline replan pending execution of the Track 4 addition (deferred to a fresh session for context budget)**
-- Handoff: docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/handoff-inline-replan-track4.md
-
-- [x] Plan review (consistency + structural) — passed; consistency at iteration 2, structural at iteration 1
-
-**Auto-fixed (mechanical)**: CR1 — clarified track-1.md Plan of Work step 1
-(the per-agent globs live in §Per-agent file-pattern triggers / SKILL.md
-Step 5b; the override section / Step 5d is where the normalization preamble
-lands). CR2 — no edit; the plan's short-form `§Workflow-machinery override`
-reference matches §Maintenance's own usage. CR4 — disambiguated
-`structural-review.md` → `prompts/structural-review.md` in track-2.md
-(a same-named driver doc exists at `.claude/workflow/structural-review.md`).
-
-**Escalated (design decisions)**: CR3 — track-1.md said to bump the
-`<!-- Last sync-checked … -->` date "in both files," but that stamp is
-single-canonical in `review-agent-selection.md §Maintenance`; user chose the
-single-canonical reading, fixed at 4 sites (SKILL.md carries no such comment).
-CR5 — the Track 2 read caveat routes review agents through `§1.7(d)`, but
-`§1.7(d)` as written scopes precedence to the implementer and excludes
-reviewers; user chose to amend `§1.7(d)` in Track 2 (bring review agents into
-the precedence scope, drop the stale rationale), applied to track-2.md, the
-Track 2 scope line + D2 Risks/Caveats, and design.md (edit-design Mutation 3).
-S1 — design.md Core Concepts "Per-agent trigger" one-liner undercounts the
-glob-gated reviewers (three, not four); user chose leave-as-is (the canonical
-§Selection-side section is correct; the entry is a non-authoritative summary).
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
