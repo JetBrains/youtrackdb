@@ -19,11 +19,23 @@ cache only when it did.
 - [ ] Track completion
 - [x] 2026-06-01T11:36Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T12:05Z [ctx=safe] Step 1 complete (commit 62072f21b503f22afbc3b8d28feecfd8498d16a4)
+- [x] 2026-06-01T12:47Z [ctx=info] Step 2 complete (commit b4ec7194b68c434eb0d68cd72ae50d2a68121dd8, dim-review PASS iter 2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- JaCoCo's report goal is bound to the `prepare-package` phase, not `test`, so a
+  `mvnw -pl core test -P coverage` run regenerates `jacoco.exec` but leaves
+  `.coverage/reports/.../jacoco.xml` stale and the changed-line coverage gate reads
+  pre-edit numbers. Run through `package -P coverage` (scoped via `-Dtest=…` to stay
+  under the Bash 600s cap) to regenerate the XML before invoking `coverage-gate.py`.
+  Relevant to Track 2's coverage gate and the Phase C verification. See Episodes §Step 2.
+- `AsyncReadCacheTestIT` and `LockFreeReadCacheConcurrentTestIT` carry the
+  `MockedWriteCache` boolean-signature change but are failsafe ITs not run by the
+  surefire `test` goal; exercise them via `verify -P ci-integration-tests` in Phase C
+  and Track 2 validation. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -161,7 +173,7 @@ layer physically truncated.
 ## Concrete Steps
 
 1. Migrate `WriteCache.shrinkFile` `void` → `boolean` across all 7 overriders, behavior-preserving: `WOWCache` returns `false` at the `fileSize <= targetBytes` no-op (`:2065`) and `true` after `file.shrink()` (`:2076`); `DirectMemoryOnlyDiskCache` 2-arg returns `false` (its 3-arg `ReadCache` forwarder is unchanged, discards the boolean); the four throwing mocks (`MockedWriteCache` ×3, `PageFrameWriteCache`) keep their `UnsupportedOperationException` (return type only); `TrackingWriteCache` returns a test-controlled boolean (default `true`, with a setter). `LockFreeReadCache.shrinkFile` still calls `clearFile` unconditionally (the boolean is consumed in Step 2). Extend `WOWCacheShrinkFileTest` to assert the return (`false` on `targetBytes >= currentSize`, `true` on a real truncate). — risk: medium (multi-file SPI signature change across core storage-cache classes; behavior-preserving, no eviction/recovery behavior change)  [x] commit: 62072f21b503f22afbc3b8d28feecfd8498d16a4
-2. Gate the read-cache purge in `LockFreeReadCache.shrinkFile` (`:673`) on the boolean: capture `truncated` from `writeCache.shrinkFile(...)` (`:712`) and call `clearFile(fileId, minPageIndex, writeCache)` (`:720`) only when `true`. Keep the argument-validity guards (`:694-711`) and the unconditional 2-arg `clearFile` in `truncateFile`/`closeFile`/`deleteFile` untouched (gate at the call site, never inside `clearFile`). Add the non-vacuous no-op-skip test to `LockFreeReadCacheFileOpsTest` (seed N live pages, drive `TrackingWriteCache` to return `false`, assert `getUsedMemory()` unchanged + no `clearFile.checkCacheOverflow` event + `shrinkFileCount == 1`) and confirm the genuine-truncate path still evicts at `pageIndex >= minPageIndex`. — risk: high (crash-safety + cache-eviction: gates the recovery-time read-cache purge in LockFreeReadCache; preserves invariant S3)  [ ]
+2. Gate the read-cache purge in `LockFreeReadCache.shrinkFile` (`:673`) on the boolean: capture `truncated` from `writeCache.shrinkFile(...)` (`:712`) and call `clearFile(fileId, minPageIndex, writeCache)` (`:720`) only when `true`. Keep the argument-validity guards (`:694-711`) and the unconditional 2-arg `clearFile` in `truncateFile`/`closeFile`/`deleteFile` untouched (gate at the call site, never inside `clearFile`). Add the non-vacuous no-op-skip test to `LockFreeReadCacheFileOpsTest` (seed N live pages, drive `TrackingWriteCache` to return `false`, assert `getUsedMemory()` unchanged + no `clearFile.checkCacheOverflow` event + `shrinkFileCount == 1`) and confirm the genuine-truncate path still evicts at `pageIndex >= minPageIndex`. — risk: high (crash-safety + cache-eviction: gates the recovery-time read-cache purge in LockFreeReadCache; preserves invariant S3)  [x] commit: b4ec7194b68c434eb0d68cd72ae50d2a68121dd8
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
@@ -201,6 +213,39 @@ needs no fall-through return and compiles cleanly.
 - `core/.../storage/cache/chm/LockFreeReadCacheOptimisticTest.java` (modified)
 - `core/.../storage/cache/chm/LockFreeReadCacheFileOpsTest.java` (modified)
 - `core/.../storage/cache/local/WOWCacheShrinkFileTest.java` (modified)
+
+### Step 2 — commit b4ec7194b68c434eb0d68cd72ae50d2a68121dd8, 2026-06-01T12:47Z [ctx=info]
+**What was done:** Gated the read-cache purge in `LockFreeReadCache.shrinkFile` on
+the `truncated` boolean from `WriteCache.shrinkFile`. The `minPageIndex` computation
+and the 3-arg `clearFile(fileId, minPageIndex, writeCache)` call now run inside
+`if (truncated)`. The argument-validity guards are unchanged and still run before the
+delegate; the unconditional 2-arg `clearFile` reached by
+`truncateFile`/`closeFile`/`deleteFile` is untouched (gated at the call site, never
+inside `clearFile`). PSI confirmed the 3-arg `clearFile` has exactly two callers (the
+gated `shrinkFile` site and the 2-arg overload), so the gate is correctly localized.
+Commit 4e732075ad added the gate plus the no-op-skip and genuine-truncate tests;
+review-fix commit b4ec7194b6 strengthened the test set. The 7-agent dimensional
+review confirmed S3 holds and that the gate removes the `removeByFileId` O(capacity)
+sweep on the no-op path.
+
+**What was discovered:** The first no-op test was vacuous: it seeded pages 0–4 and
+shrank to `5*PAGE_SIZE`, so the would-be `minPageIndex=5` matched no seeded page and
+every assertion passed even with the `if (truncated)` gate deleted. The rewrite seeds
+6 pages (0–5) and shrinks to `3*PAGE_SIZE` (`minPageIndex=3`) so an un-gated purge
+would evict pages 3,4,5; falsifiability was confirmed by deleting the gate (test
+failed `expected:<24576> but was:<12288>`) and restoring it. A test-only `assert`
+pinning S3 on the no-op branch was considered and declined: the `WriteCache` SPI has
+no byte-valued per-file size accessor (`fileId`-keyed candidates are page-valued and
+`TrackingWriteCache` returns 0, so the assert trips spuriously under `-ea`;
+`getFilledUpTo` is deprecated and audit-gated). S3 is already proven
+infeasible-to-violate by Phase A adversarial review and is further pinned by Track 2's
+S2 work. JaCoCo's report goal is bound to the `prepare-package` phase, not `test`, so
+a `mvnw test -P coverage` run leaves `jacoco.xml` stale; the changed-line gate must
+run through `package -P coverage` (scoped via `-Dtest=…`) to regenerate the XML.
+
+**Key files:**
+- `core/.../storage/cache/chm/LockFreeReadCache.java` (modified — `if (truncated)` gate)
+- `core/.../storage/cache/chm/LockFreeReadCacheFileOpsTest.java` (modified — non-vacuous no-op test + `>=`-boundary test)
 
 ## Validation and Acceptance
 
