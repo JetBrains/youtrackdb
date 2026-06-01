@@ -817,8 +817,9 @@ public abstract class AbstractStorage
           // IndexManagerEmbedded.autoRecreateIndexesAfterCrash and is set once and never
           // reset, so it is left alone on close.
           //
-          // Trade-off: the pass is best-effort (verifyAndTruncateOrphans swallows a
-          // truncate IOException as a WARN and continues). Skipping the pass on a clean
+          // Trade-off: the pass is best-effort: truncateOrphansAfterRecovery wraps each
+          // per-component verifyAndTruncateOrphans dispatch in a try/catch that logs a
+          // truncate IOException as a WARN and continues. Skipping the pass on a clean
           // reopen drops the cross-clean-cycle retry of a transient truncate failure on
           // an otherwise readable component. That is bounded-acceptable: such a failure
           // is loud (it logs a WARN at the reopen where it occurred) and is re-armed by
