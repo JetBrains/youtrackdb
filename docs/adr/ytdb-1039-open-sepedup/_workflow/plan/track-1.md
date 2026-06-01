@@ -238,3 +238,6 @@ shrink drops no pages, so an interrupted no-op leaves nothing to reconcile.
 
 **Dependencies:** none inbound. Track 2 depends on this track (the crash-recovery
 path it tests benefits from the cheap pass, and the two axes are validated together).
+
+## Base commit
+6ed334837049ba42972ef34cb80efdd8ade6c95e
