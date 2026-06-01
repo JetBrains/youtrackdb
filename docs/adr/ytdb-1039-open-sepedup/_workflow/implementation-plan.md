@@ -192,6 +192,13 @@ flowchart TD
   > `package -P coverage` before the changed-line coverage gate.
   >
   > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 1's
+  > discoveries reinforce Track 2's plan (same `TruncateOrphansAfterRecoveryIT`
+  > harness) and add two operational tooling notes (JaCoCo `package -P coverage`
+  > before the coverage gate; failsafe ITs via `verify -P ci-integration-tests`),
+  > both already captured in Track 1's episode. Component Map, D1/D2, and the
+  > Track 1→2 dependency hold unchanged.
 
 - [ ] Track 2: Axis A — gate the open-time pass on `wereDataRestoredAfterOpen`
   > Skip the orphan pass entirely on a clean (non-WAL-replay) open so a
