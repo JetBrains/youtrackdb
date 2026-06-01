@@ -219,7 +219,7 @@ def _atomic_write_text(target, text):
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
     fd = os.open(tmp, flags, 0o600)
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
     except Exception:
         try:
@@ -509,6 +509,12 @@ def project_totals(transcript_path):
     worktree across every session ever run in it — not just the live one.
     """
     p = pathlib.Path(transcript_path).expanduser()
+    # Mirror session_totals: short-circuit a non-existent transcript before the
+    # rglob below. Without this, a path whose *parent* exists (e.g. a stale or
+    # relative path resolving to /tmp/x.jsonl) would recursively scan that whole
+    # parent directory for *.jsonl files.
+    if not p.exists():
+        return _zero()
     proj_dir = p.parent
     if not proj_dir.is_dir():
         return _zero()

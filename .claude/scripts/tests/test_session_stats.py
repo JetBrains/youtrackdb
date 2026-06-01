@@ -296,6 +296,23 @@ def test_project_totals_missing_dir_is_zero() -> None:
     assert out == MODULE._zero(), out
 
 
+def test_project_totals_nonexistent_transcript_does_not_scan_parent() -> None:
+    """A non-existent transcript whose *parent* directory exists must yield zero
+    without recursively scanning that parent. Regression for a footgun where
+    project_totals only checked parent.is_dir(): a path like /tmp/nonexistent.jsonl
+    would have rglob'd all of /tmp. A decoy .jsonl carrying real usage sits in the
+    parent; if the parent were scanned the total would be non-zero, so asserting
+    zero proves the parent was never walked."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp) / "cache"
+        proj = Path(tmp) / "project"
+        proj.mkdir()
+        write_jsonl(proj / "decoy.jsonl", [_assistant_usage("m1", "r1", in_t=1_000_000)])
+        with _patched(CACHE_DIR=cache):
+            out = MODULE.project_totals(str(proj / "nonexistent.jsonl"))
+        assert out == MODULE._zero(), out
+
+
 # ---------------------------------------------------------------------------
 # _atomic_write_text.
 # ---------------------------------------------------------------------------
@@ -379,6 +396,7 @@ def main() -> int:
         ("format line NO_COLOR env respected", test_format_line_no_color_env_respected),
         ("project_totals sessions + subagents deduped", test_project_totals_aggregates_sessions_and_subagents),
         ("project_totals missing dir -> zero", test_project_totals_missing_dir_is_zero),
+        ("project_totals nonexistent file w/ existing parent -> zero", test_project_totals_nonexistent_transcript_does_not_scan_parent),
         ("atomic_write_text writes + overwrites", test_atomic_write_text_writes_and_overwrites),
         ("main worktree writes file + shows wt", test_main_worktree_writes_cost_file_and_shows_wt),
         ("main no worktree omits wt + no file", test_main_no_worktree_omits_wt_and_writes_no_file),
