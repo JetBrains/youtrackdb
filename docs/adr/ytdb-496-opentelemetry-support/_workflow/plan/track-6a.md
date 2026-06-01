@@ -1,3 +1,4 @@
+<!-- workflow-sha: 5db61a37462f0b28965113f39a81b6fcb1ed1340 -->
 # Track 6a: Test suite — attribute mapping, hierarchy, propagation, tag resolution
 
 ## Purpose / Big Picture
