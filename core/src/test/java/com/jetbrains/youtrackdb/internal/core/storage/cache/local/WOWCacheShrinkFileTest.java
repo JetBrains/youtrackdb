@@ -48,6 +48,11 @@ import org.junit.Test;
  * {@link WOWCache} setup, page allocation, dirty-page installation via {@code store}, flush
  * verification via {@code getFileSize}) mirrors the existing {@code WOWCacheTestIT} pattern so a
  * later reviewer can trace the shape across the existing test surface.
+ *
+ * <p><b>Boolean return contract.</b> {@code shrinkFile} now returns {@code true} iff the file was
+ * physically truncated and {@code false} on the pre-flight no-op (a target at or above the current
+ * size). The no-op and real-truncate tests below assert the return so the read-cache orchestrator
+ * can trust it to gate its purge.
  */
 public class WOWCacheShrinkFileTest {
 
@@ -227,12 +232,16 @@ public class WOWCacheShrinkFileTest {
     final long initialSize = wowCache.getFilledUpTo(fileId) * pageSize;
     assertThat(initialSize).isEqualTo(4L * pageSize);
 
-    // Equal-target — must not perturb file state
-    wowCache.shrinkFile(fileId, initialSize);
+    // Equal-target — must not perturb file state and must report false (nothing truncated).
+    assertThat(wowCache.shrinkFile(fileId, initialSize))
+        .as("equal-target shrinkFile is a no-op and must return false")
+        .isFalse();
     assertThat(wowCache.getFilledUpTo(fileId) * pageSize).isEqualTo(initialSize);
 
-    // Above-target — same no-op contract
-    wowCache.shrinkFile(fileId, initialSize + pageSize * 100L);
+    // Above-target — same no-op contract, same false return.
+    assertThat(wowCache.shrinkFile(fileId, initialSize + pageSize * 100L))
+        .as("above-target shrinkFile is a no-op and must return false")
+        .isFalse();
     assertThat(wowCache.getFilledUpTo(fileId) * pageSize).isEqualTo(initialSize);
 
     // Flush so the dirty entries are persisted, then verify each page's marker byte
@@ -273,7 +282,9 @@ public class WOWCacheShrinkFileTest {
 
     // Shrink to the first 3 pages — pages [3, 6) become physical orphans.
     final long targetBytes = 3L * pageSize;
-    wowCache.shrinkFile(fileId, targetBytes);
+    assertThat(wowCache.shrinkFile(fileId, targetBytes))
+        .as("a real truncate must return true")
+        .isTrue();
 
     // Physical size matches the target immediately after the shrink — the dirty entries at
     // pageIndex >= 3 were dropped before AsyncFile.shrink, so the truncate took effect.
@@ -435,7 +446,9 @@ public class WOWCacheShrinkFileTest {
     final var fileId = allocateAndOptionallyDirty(5, true);
     assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(5);
 
-    wowCache.shrinkFile(fileId, 0L);
+    assertThat(wowCache.shrinkFile(fileId, 0L))
+        .as("a real zero-target truncate must return true")
+        .isTrue();
 
     // Logical size — getFilledUpTo divides AsyncFile.getFileSize() by pageSize.
     assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(0);
@@ -469,12 +482,17 @@ public class WOWCacheShrinkFileTest {
     assertThat(wowCache.getFilledUpTo(fileId)).isEqualTo(6);
 
     final long targetBytes = 3L * pageSize;
-    wowCache.shrinkFile(fileId, targetBytes);
+    assertThat(wowCache.shrinkFile(fileId, targetBytes))
+        .as("first shrinkFile is a real truncate and must return true")
+        .isTrue();
     assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize).isEqualTo(targetBytes);
 
     // Second call with the same target — should be a pre-flight no-op (file.getFileSize() <=
-    // targetBytes branch); the [0, 3) below-target dirty entries must NOT be perturbed.
-    wowCache.shrinkFile(fileId, targetBytes);
+    // targetBytes branch); the [0, 3) below-target dirty entries must NOT be perturbed, and the
+    // already-shrunk file truncates nothing so the return must be false.
+    assertThat(wowCache.shrinkFile(fileId, targetBytes))
+        .as("second shrinkFile with the same target is a no-op and must return false")
+        .isFalse();
     assertThat(wowCache.getFilledUpTo(fileId) * (long) pageSize)
         .as("second shrinkFile call with the same target must leave file size unchanged")
         .isEqualTo(targetBytes);

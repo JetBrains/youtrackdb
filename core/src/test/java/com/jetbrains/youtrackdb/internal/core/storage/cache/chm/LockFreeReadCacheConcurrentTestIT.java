@@ -394,10 +394,11 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
-    public void shrinkFile(final long fileId, final long targetBytes) {
+    public boolean shrinkFile(final long fileId, final long targetBytes) {
       // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
       // catches an accidental call from a future test that should use the production
-      // WriteCache impl instead.
+      // WriteCache impl instead. The throw satisfies the new boolean return type, so the
+      // void->boolean migration leaves this deliberate trip-wire body intact.
       throw new UnsupportedOperationException("shrinkFile is not supported by test mock");
     }
 

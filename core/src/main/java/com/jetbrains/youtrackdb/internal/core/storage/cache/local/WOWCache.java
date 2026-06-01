@@ -1996,7 +1996,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void shrinkFile(long fileId, final long targetBytes) throws IOException {
+  public boolean shrinkFile(long fileId, final long targetBytes) throws IOException {
     // Argument-validity guards run BEFORE any locking or pre-flight no-op so a contract
     // violation never lands a partial truncate and never racily competes with concurrent
     // file writers for filesLock. These checks run under default JVM flags (no -ea) — the
@@ -2063,7 +2063,11 @@ public final class WOWCache extends AbstractWriteCache
         // filesLock writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
         // stable for the duration of the call.
         if (file.getFileSize() <= targetBytes) {
-          return;
+          // Pre-flight no-op: nothing was truncated. Returning false here (versus true on
+          // the real-truncate fall-through below) is derived from this same getFileSize()
+          // snapshot held under filesLock.writeLock, so the read-cache orchestrator can
+          // skip its purge without reopening a TOCTOU window on a recomputed size compare.
+          return false;
         }
         // Drop write-back layer entries at pageIndex >= minPageIndex BEFORE
         // truncating the AsyncFile. If we truncated first, a concurrent periodic
@@ -2074,6 +2078,9 @@ public final class WOWCache extends AbstractWriteCache
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPages(intId, minPageIndex);
         file.shrink(targetBytes);
+        // The file was physically shrunk: signal the read-cache orchestrator to run its
+        // range-scoped purge of cached entries at pageIndex >= minPageIndex.
+        return true;
       } finally {
         files.release(entry);
       }

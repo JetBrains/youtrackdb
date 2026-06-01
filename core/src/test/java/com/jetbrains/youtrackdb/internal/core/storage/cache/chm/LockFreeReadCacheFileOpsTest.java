@@ -529,6 +529,14 @@ public class LockFreeReadCacheFileOpsTest {
     final AtomicInteger deleteFileCount = new AtomicInteger();
     final AtomicInteger shrinkFileCount = new AtomicInteger();
     volatile long lastShrinkTargetBytes = -1L;
+    /**
+     * Test-controlled return value for {@link #shrinkFile(long, long)}. Defaults to {@code true}
+     * (genuine-truncate semantics) so the existing eviction tests, which assert the read-cache
+     * purge runs, see the truncated branch. A test that needs the no-op branch (no physical
+     * truncate, so the orchestrator skips its purge) flips this to {@code false} via
+     * {@link #setShrinkFileReturnValue(boolean)}.
+     */
+    volatile boolean shrinkFileReturnValue = true;
     volatile long lastClosedFileId = -1;
     /**
      * Stamps the shrinkFile invocation against a sequence counter the test may install via
@@ -554,6 +562,15 @@ public class LockFreeReadCacheFileOpsTest {
 
     void attachOrderCounter(final AtomicInteger counter) {
       this.sharedOrderCounter = counter;
+    }
+
+    /**
+     * Override the boolean {@link #shrinkFile(long, long)} reports. Pass {@code false} to model
+     * the WriteCache pre-flight no-op (a target at or above the current physical size, which
+     * truncates nothing) so the orchestrator's purge-skip branch becomes observable.
+     */
+    void setShrinkFileReturnValue(final boolean value) {
+      this.shrinkFileReturnValue = value;
     }
 
     /**
@@ -618,7 +635,7 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
-    public void shrinkFile(final long fileId, final long targetBytes) {
+    public boolean shrinkFile(final long fileId, final long targetBytes) {
       // Tracking variant — unlike the four other test mocks (which throw UOE because the
       // recovery-time orphan-truncation pass never reaches them), this mock is exercised
       // by the LockFreeReadCache.shrinkFile orchestration tests below and records the
@@ -636,6 +653,9 @@ public class LockFreeReadCacheFileOpsTest {
       if (tracker != null) {
         tracker.add("writeCache.shrinkFile");
       }
+      // Report the test-controlled truncated/no-op outcome (default true) so the orchestrator's
+      // conditional purge can be driven down both branches from the test.
+      return shrinkFileReturnValue;
     }
 
     @Override

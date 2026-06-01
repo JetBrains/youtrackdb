@@ -380,10 +380,11 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public void shrinkFile(long fileId, long targetBytes) {
+    public boolean shrinkFile(long fileId, long targetBytes) {
       // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
       // catches an accidental call from a future test that should use the production
-      // WriteCache impl instead.
+      // WriteCache impl instead. The throw satisfies the new boolean return type, so the
+      // void->boolean migration leaves this deliberate trip-wire body intact.
       throw new UnsupportedOperationException("shrinkFile is not supported by test mock");
     }
 
