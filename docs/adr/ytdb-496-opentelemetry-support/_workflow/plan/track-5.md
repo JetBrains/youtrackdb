@@ -39,7 +39,7 @@ The plugin is registered with the server via a `META-INF/services/com.jetbrains.
 
 Concrete deliverables:
 
-1. Five `GlobalConfiguration` entries: `OPENTELEMETRY_ENABLED` (Boolean, default false), `OPENTELEMETRY_EXPORTER_ENDPOINT` (String), `OPENTELEMETRY_EXPORTER_PROTOCOL` (String, default `grpc`), `OPENTELEMETRY_SERVICE_NAME` (String, default `youtrackdb`), and `OPENTELEMETRY_QUERY_MODE_TAG_RULES` (String, default empty — consumed by Track 1's `QueryMonitoringModeResolver` at startup; format documented in design.md §"Query tagging and per-tag rule resolution"). All env-var capable.
+1. The SDK-wiring core `GlobalConfiguration` entries: `OPENTELEMETRY_ENABLED` (Boolean, default false), `OPENTELEMETRY_EXPORTER_ENDPOINT` (String), `OPENTELEMETRY_EXPORTER_PROTOCOL` (String, default `grpc`), `OPENTELEMETRY_SERVICE_NAME` (String, default `youtrackdb`), and `OPENTELEMETRY_QUERY_MODE_TAG_RULES` (String, default empty — consumed by Track 1's `QueryMonitoringModeResolver` at startup; format documented in design.md §"Query tagging and per-tag rule resolution"). Plus the slow-query / heartbeat / commit-side gating entries: `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (Long, default `100`), `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` (String, default empty), `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` (Long, default `0`), `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_TAG_RULES` (String, default empty), and `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` (Long, default `0` per D38 — emit every successful commit; positive value gates `executionTimeNanos < threshold` for successful commits only; failed commits always bypass). Plus the logs entries from D34: `OPENTELEMETRY_LOGS_ENABLED` (Boolean, default false), `OPENTELEMETRY_LOGS_MIN_SEVERITY` (String, default `INFO`). Plus the metrics entries from D36/D37: `OPENTELEMETRY_METRICS_ENABLED` (Boolean, default false), `OPENTELEMETRY_METRICS_PERIOD_MILLIS` (Long, default `10000`, clamped to `>= 1000` at SDK init), `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` (String, default empty = all groups when metrics ON). All env-var capable.
 2. The `YouTrackDBOpenTelemetry` facade extended with three-step lazy resolution chain (explicit setter → `GlobalOpenTelemetry.get()` → auto-configure) gated by `OPENTELEMETRY_ENABLED`. Internal `ownedByYtdb` flag tracks who created the active SDK. A package-private 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` variant lets `OpenTelemetryServerPlugin` signal server-mode ownership; the public single-arg variant always sets `ownedByYtdb=false`.
 3. `ServiceLoader.load(ServerLifecycleListener.class)` call inside `YouTrackDBServer.activate()` appending discovered listeners to the existing `lifecycleListeners` list before the iteration that calls `onAfterActivate` (CR3).
 4. `OpenTelemetryServerPlugin` implementing `ServerLifecycleListener`, ServiceLoader-registered, register / unregister listeners through `YourTracks` static methods.
@@ -51,7 +51,7 @@ Concrete deliverables:
 
 Six edits.
 
-The first edit adds the five `GlobalConfiguration` entries. They sit alphabetically with other config entries; the `isEnv=true` flag is set so `YOUTRACKDB_OPENTELEMETRY_ENABLED=true` works in containerized deployments. The fifth entry `OPENTELEMETRY_QUERY_MODE_TAG_RULES` is consumed by Track 1's `QueryMonitoringModeResolver` at startup; Track 5 only adds the config entry definition, not the parsing logic.
+The first edit adds the `GlobalConfiguration` entries listed in deliverable #1. They sit alphabetically with other config entries; the `isEnv=true` flag is set on each so `YOUTRACKDB_OPENTELEMETRY_*` env-var bindings work in containerized deployments. The tag-rule entries (`*_TAG_RULES`) are consumed by their respective resolvers at startup (Track 1 owns the parsing); Track 5 only adds the entry definitions. The threshold / interval `*_MILLIS` entries are read into nanosecond-typed final fields on the OTel listeners by `YouTrackDBOpenTelemetry` when building them (Track 3 owns the constructor args); Track 5 only adds the entries and the read-and-multiply wiring. The commit-side `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` (D38) follows the same pattern: Track 5 adds the entry; `YouTrackDBOpenTelemetry` reads it and passes the nanosecond value into `OTelTransactionMetricsListener`'s `defaultCommitThresholdNanos` constructor argument; the gate itself lives in Track 3's listener implementation.
 
 The second edit extends `YouTrackDBOpenTelemetry` with the lazy resolution chain. The `tracer()` accessor (called on first listener fire) runs a synchronized resolution: if `openTelemetry` field is already set, return its tracer; otherwise consult the global, then auto-configure from config. The auto-configure path uses `AutoConfiguredOpenTelemetrySdk.builder().addPropertiesSupplier(...)` to inject our config entries as OTel-conventional property names. Sets `ownedByYtdb=true`. The public single-arg `setOpenTelemetry(OpenTelemetry)` method closes the YTDB-built SDK (if any) before installing the new instance, flipping `ownedByYtdb=false`. A package-private 2-arg `setOpenTelemetry(OpenTelemetry, boolean ownedByYtdb)` variant lets `OpenTelemetryServerPlugin` install a YTDB-owned SDK without flipping ownership. Both variants register / re-register OTel listeners through `YourTracks.registerGlobalQueryListener(...)` / `registerGlobalTransactionListener(...)` (CR9) when `OPENTELEMETRY_ENABLED=true`.
 
@@ -96,7 +96,7 @@ After Track 5:
 ## Interfaces and Dependencies
 
 In scope:
-- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` (four new enum entries).
+- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` (the OTel enum entries listed in deliverable #1 — SDK-wiring + gating + commit-side per D38 + logs + metrics, ~thirteen entries).
 - `server/src/main/java/com/jetbrains/youtrackdb/internal/server/YouTrackDBServer.java` (add `ServiceLoader.load(ServerLifecycleListener.class)` inside `activate()` per CR3).
 - `youtrackdb-opentelemetry/.../YouTrackDBOpenTelemetry.java` (extended with registration side-effects through `YourTracks` static methods plus the package-private 2-arg `setOpenTelemetry` variant).
 - `youtrackdb-opentelemetry/.../server/OpenTelemetryServerPlugin.java` (new).
@@ -129,4 +129,12 @@ OPENTELEMETRY_EXPORTER_PROTOCOL("youtrackdb.opentelemetry.exporter.protocol",
 OPENTELEMETRY_SERVICE_NAME("youtrackdb.opentelemetry.service.name",
     "OTel service.name resource attribute used in server mode",
     String.class, "youtrackdb", false, false, true),
+
+OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS("youtrackdb.opentelemetry.commit.slow.threshold.millis",
+    "Commit-side slow-query threshold in ms; 0 (default) emits every successful commit, "
+        + "positive value gates emission on executionTimeNanos < threshold for successful "
+        + "commits only; failed commits always bypass (D38)",
+    Long.class, 0L, false, false, true),
 ```
+
+(Remaining OTel config entries — query slow-query / heartbeat / mode-rules tables / logs / metrics — sit alongside following the same shape; see the deliverable #1 listing for the full set.)
