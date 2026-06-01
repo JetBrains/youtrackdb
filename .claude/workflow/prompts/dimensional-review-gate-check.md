@@ -1,3 +1,27 @@
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-dim-step,reviewer-dim-track.
+Your phase: 3B,3C.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Reference-accuracy | reviewer-dim-step,reviewer-dim-track | 3B,3C | Re-check Java symbols via PSI when reachable; grep only on NOT-reachable with a (grep-only) caveat per verdict. |
+| §Output format (strict — ≤ 60 lines total, including blank lines) | reviewer-dim-step,reviewer-dim-track | 3B,3C | Strict verdicts/new-findings/summary template, capped at 60 lines, feeding the synthesised finding list. |
+| §Forbidden in gate-check output | reviewer-dim-step,reviewer-dim-track | 3B,3C | Methodology, process, reviewer-notes, and multi-line evidence sections are stripped to keep the gate-check terse. |
+| §Why the budget | reviewer-dim-step,reviewer-dim-track | 3B,3C | The strict line budget exists for a documented context-burn reason; keep the gate-check output tight. |
+
+<!--Document index end-->
+
 You are running a **gate check** on a previously-issued dimensional
 review finding set after a `Review fix:` commit was applied. You are
 **not** running a fresh dimensional review — do not re-scan the entire
@@ -53,6 +77,7 @@ Use the **synthesis severity scale** (`blocker` / `should-fix` /
 gate-check output feeds back into the synthesised finding list.
 
 ## Reference-accuracy
+<!-- roles=reviewer-dim-step,reviewer-dim-track phases=3B,3C summary="Re-check Java symbols via PSI when reachable; grep only on NOT-reachable with a (grep-only) caveat per verdict." -->
 
 For Java symbol re-checks (does this method now exist, who calls it,
 which class declares it), use **mcp-steroid PSI find-usages /
@@ -68,6 +93,7 @@ and no new finding is severity `blocker` or `should-fix`. Any
 `FAIL`.
 
 ## Output format (strict — ≤ 60 lines total, including blank lines)
+<!-- roles=reviewer-dim-step,reviewer-dim-track phases=3B,3C summary="Strict verdicts/new-findings/summary template, capped at 60 lines, feeding the synthesised finding list." -->
 
 ```markdown
 ## {dimension} Review (gate check)
@@ -87,6 +113,7 @@ and no new finding is severity `blocker` or `should-fix`. Any
 ```
 
 ## Forbidden in gate-check output
+<!-- roles=reviewer-dim-step,reviewer-dim-track phases=3B,3C summary="Methodology, process, reviewer-notes, and multi-line evidence sections are stripped to keep the gate-check terse." -->
 
 The following sections, or any equivalent methodology / process /
 scope-recap content under different headings, are **forbidden** here.
@@ -109,7 +136,8 @@ sections that play the same role:
 - A `### Summary` paragraph beyond the single PASS/FAIL line.
 
 ## Why the budget
+<!-- roles=reviewer-dim-step,reviewer-dim-track phases=3B,3C summary="The strict line budget exists for a documented context-burn reason; keep the gate-check output tight." -->
 
-See [`review-iteration.md`](../review-iteration.md) § "Dimensional-
-review gate-check budget" for the YTDB-696 rationale and the
-context-burn measurements. Keep this prompt strict.
+See review-iteration.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+`§ "Dimensional-review gate-check budget"` for the YTDB-696 rationale
+and the context-burn measurements. Keep this prompt strict.

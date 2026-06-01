@@ -5,13 +5,52 @@ argument-hint: "[branch-name]"
 user-invocable: true
 ---
 
-Auto-detection runs in `/create-plan` Step 1.5 and `/execute-tracks` startup via [`workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
+## Reading workflow files (TOC protocol)
 
-The skill runs inside the branch's own worktree. The branch is a self-contained capsule: workflow-format commits enter its view only when the user explicitly rebases or merges `develop`, so the migration's commit range is derived from per-artifact stamps and HEAD (see `conventions.md` §1.6), never from a develop-relative fork point. The skill applies each format-relevant commit's edits to the corresponding artifact files under the active plan's `_workflow/`.
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: migrator.
+Your phase: any (migration sits outside the phase taxonomy).
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Inputs | migrator | any | The plan directory and worktree the migration operates on, resolved before any replay step runs. |
+| §Step 0 — Create progress tracker | migrator | any | Create the TaskCreate progress tracker so a /clear mid-migration can resume from the last completed commit. |
+| §Step 1 — Preflight | migrator | any | Resolve the plan directory and worktree, confirm the branch has migratable artifacts, and abort cleanly when none exist. |
+| §Step 2.0 — Bootstrap unstamped artifacts | migrator | any | Stamp any artifact still missing a line-1 workflow-sha before the replay range is computed. |
+| §Step 2 — Compute commit range | migrator | any | Derive the replay range from per-artifact stamps and HEAD, bounding retries on an unresolvable stamp. |
+| §Step 3 — Load or initialize progress file | migrator | any | Load an existing .migration-progress file to resume, or initialize a fresh one when the migration starts clean. |
+| §Step 4 — Per-commit migration loop | migrator | any | Replay each format-relevant commit: context check, read, classify, apply edits, advance stamps, record progress. |
+| §4.1 Context check (mandatory before starting the commit) | migrator | any | Check context budget before each commit and checkpoint to a fresh session when it would not fit the whole commit. |
+| §4.2 Read the commit | migrator | any | Read the commit's diff and message to determine what workflow-format change it introduced. |
+| §4.3 Classify the commit | migrator | any | Classify the commit as format-relevant, no-op, or manual-review-needed to route how its edits are replayed. |
+| §4.4 Apply the migration | migrator | any | Apply the commit's format edits to the matching artifacts in place, or route to manual review on a stamp-format halt. |
+| §4.5 Advance stamps in lockstep | migrator | any | After the edits land, rewrite every artifact's line-1 stamp to this commit SHA; the order matters for crash resume. |
+| §4.6 Update the progress file | migrator | any | Record the replayed commit and its classification in .migration-progress as the crash-resume marker. |
+| §4.7 Mark the per-commit task completed | migrator | any | Mark the commit's TaskCreate entry complete so the progress tracker reflects the replayed commit. |
+| §4.8 Final stamp-to-HEAD batch | migrator | any | After the loop, batch-rewrite every artifact's line-1 stamp to HEAD; already-at-HEAD artifacts are benign no-ops. |
+| §Step 5 — Final summary | migrator | any | Report the replayed and manual-review commits and leave the dirty worktree for the user to review and commit. |
+| §Step 6 — Self-improvement reflection | migrator | any | Run the shared reflection pass to capture migration-process friction as YouTrack proposals before ending the session. |
+| §Notes | migrator | any | Standing caveats on in-place editing, the dirty-worktree contract, and the no-automatic-commits rule. |
+
+<!--Document index end-->
+
+Auto-detection runs in `/create-plan` Step 1.5 and `/execute-tracks` startup via workflow-drift-check.md:orchestrator,planner:2,3A.
+
+The skill runs inside the branch's own worktree. The branch is a self-contained capsule: workflow-format commits enter its view only when the user explicitly rebases or merges `develop`, so the migration's commit range is derived from per-artifact stamps and HEAD (see `conventions.md` `§1.6`), never from a develop-relative fork point. The skill applies each format-relevant commit's edits to the corresponding artifact files under the active plan's `_workflow/`.
 
 The skill edits files in place and leaves the worktree dirty for the user to review and commit. No automatic commits.
 
 ## Inputs
+<!-- roles=migrator phases=any summary="The plan directory and worktree the migration operates on, resolved before any replay step runs." -->
 
 `$ARGUMENTS` — optional. When supplied, it must equal the current
 branch name (`git branch --show-current`); the migration always runs
@@ -19,6 +58,7 @@ in the current worktree on the current branch. Step 1 enforces the
 equality and rejects mismatches.
 
 ## Step 0 — Create progress tracker
+<!-- roles=migrator phases=any summary="Create the TaskCreate progress tracker so a /clear mid-migration can resume from the last completed commit." -->
 
 Before any other tool call, create one task per step below using `TaskCreate`. Mark each `in_progress` when starting, `completed` when done. This list is the checklist; do not skip entries.
 
@@ -32,6 +72,7 @@ Before any other tool call, create one task per step below using `TaskCreate`. M
 8. Self-improvement reflection: invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow`
 
 ## Step 1 — Preflight
+<!-- roles=migrator phases=any summary="Resolve the plan directory and worktree, confirm the branch has migratable artifacts, and abort cleanly when none exist." -->
 
 Run these checks in order. Halt on any failure.
 
@@ -72,7 +113,7 @@ Subsequent steps reference `$PLAN_DIR` (e.g.,
 the ladder.
 
 **Narrow-scope dirty check.** Refuse to start when any tracked file
-under the active plan's §1.6(h) artifact paths has uncommitted
+under the active plan's `§1.6(h)` artifact paths has uncommitted
 changes (working tree or index), or when any untracked file lives
 there. The scope covers the implementation plan, the design files,
 and every track file under `$PLAN_DIR/_workflow/plan/`. The staged
@@ -116,8 +157,9 @@ always reads the develop-state skill regardless of staged rewrites —
 the side-effect protection is no longer needed.
 
 ## Step 2.0 — Bootstrap unstamped artifacts
+<!-- roles=migrator phases=any summary="Stamp any artifact still missing a line-1 workflow-sha before the replay range is computed." -->
 
-Walk the active plan's `_workflow/**` per `conventions.md` §1.6(h) and
+Walk the active plan's `_workflow/**` per `conventions.md` `§1.6(h)` and
 classify each artifact as stamped (line-1 stamp parses) or unstamped
 (no stamp). The classification feeds both this step's bootstrap prompt
 and Step 2's range derivation.
@@ -141,9 +183,9 @@ for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
 done
 ```
 
-The walk pattern matches `conventions.md` §1.6(h); `$PLAN_DIR` is
+The walk pattern matches `conventions.md` `§1.6(h)`; `$PLAN_DIR` is
 documentary here (resolved in Step 1), versus the literal
-placeholder `docs/adr/<resolved-dir-name>` in §1.6(h)'s canonical
+placeholder `docs/adr/<resolved-dir-name>` in `§1.6(h)`'s canonical
 form. Step 2 repeats the walk with a paired `(file, sha)` array so
 merge-base failures can name artifact paths; this step only needs
 the classification, so the simpler form lands here.
@@ -168,9 +210,9 @@ the migration cannot guess:
 > form are both accepted.
 
 Validate the response with the two-subcommand check from
-`conventions.md` §1.6(d). The `^{commit}` peel rejects tag and ref
+`conventions.md` `§1.6(d)`. The `^{commit}` peel rejects tag and ref
 names; only commit SHAs pass. The reachability check enforces the
-range's upper-bound rule from §1.6(c) (HEAD is the comparison anchor,
+range's upper-bound rule from `§1.6(c)` (HEAD is the comparison anchor,
 so the bootstrap SHA must be reachable from HEAD).
 
 The validation block below runs inside a retry loop bounded at three
@@ -195,14 +237,14 @@ fi
 Store the **canonical 40-char `rev-parse` stdout** (`$CANON_SHA`), not
 the user's raw input, as `$USER_BOOTSTRAP_SHA`. The canonicalization
 is mandatory: Step 4's per-commit lockstep advance writes the value
-into artifact stamps, and the stamp regex `[0-9a-f]{40}` in §1.6(a1)
+into artifact stamps, and the stamp regex `[0-9a-f]{40}` in `§1.6(a1)`
 rejects shorter values on subsequent parse, so a short-prefix stamp
 would fail every drift-check re-read.
 
 **Retry policy (bounded, session-bound counter).** On validation
 failure (either subcommand returns non-zero), print the failure cause
 and re-prompt the user with the same artifact list. Cap the retry
-count at three attempts per `conventions.md` §1.6(d); after the third
+count at three attempts per `conventions.md` `§1.6(d)`; after the third
 rejection print a one-line diagnostic naming the current HEAD SHA
 (`echo "Reachability is checked against git rev-parse HEAD =
 $(git rev-parse HEAD); if the SHA you supplied is on a different
@@ -218,14 +260,14 @@ run once per attempt, and the orchestrator decides whether to
 re-invoke them. A `/clear` between attempts resets it. Step 3's
 `.migration-progress` file does not exist yet at Step 2.0 time, so no
 persistent counter is available; the bound is by design soft against
-`/clear`-based abandonment and re-entry. This matches §1.6(d)'s
+`/clear`-based abandonment and re-entry. This matches `§1.6(d)`'s
 explicit "`/clear`s the session to abandon the migration" exit shape.
 
 The prompt records the user's best guess; the per-commit replay
 loop's halt-on-ambiguity in Step 4 is a partial safety net, not a
 guarantee. A too-old SHA silently bloats the replay range; a too-new
 SHA silently skips needed migrations. Both failure modes are
-documented in `conventions.md` §1.6(d) so debug sessions have a
+documented in `conventions.md` `§1.6(d)` so debug sessions have a
 starting point.
 
 Step 2 consumes `$USER_BOOTSTRAP_SHA` (when set) alongside
@@ -234,10 +276,11 @@ Step 2 consumes `$USER_BOOTSTRAP_SHA` (when set) alongside
 unset and the fold runs over `$STAMPED_SHAS` alone.
 
 ## Step 2 — Compute commit range
+<!-- roles=migrator phases=any summary="Derive the replay range from per-artifact stamps and HEAD, bounding retries on an unresolvable stamp." -->
 
 The range derivation runs in two phases. **Phase 1** walks the active
 plan's `_workflow/**` artifacts and classifies each as stamped or
-unstamped (byte-copied from `conventions.md` §1.6(h) so the migration
+unstamped (byte-copied from `conventions.md` `§1.6(h)` so the migration
 and the drift check agree on what "drift" means). **Phase 2** folds
 the stamp set pairwise through `git merge-base` to derive `BASE_SHA`,
 then runs `git log $BASE_SHA..HEAD` against workflow paths.
@@ -249,7 +292,7 @@ array** so merge-base failures can name artifact paths in the recovery
 re-prompt rather than bare SHAs; Step 2.0's simpler-form walk did not
 carry that pairing.
 
-The Phase 1 walk block, byte-for-byte from `conventions.md` §1.6(h),
+The Phase 1 walk block, byte-for-byte from `conventions.md` `§1.6(h)`,
 extended with a paired path-and-SHA array (`STAMPED_PAIRS` — one
 `<path>=<sha>` entry per stamped artifact) so the Phase 2 recovery
 path can name failing artifact paths:
@@ -277,20 +320,20 @@ done
 ```
 
 The `<resolved-dir-name>` placeholder is the active plan dir captured
-as `$PLAN_DIR` in Step 1 per `conventions.md` §1.6(g); substitute it
+as `$PLAN_DIR` in Step 1 per `conventions.md` `§1.6(g)`; substitute it
 literally at invocation time. The walk silently skips artifacts not
 yet on disk (`design-mechanics.md` before the length trigger, any
 `track-*.md` not yet created), so absent optional artifacts contribute
 neither a stamp nor an unstamped flag. Apart from the `STAMPED_PAIRS`
 extension, the loop body is text-identical to the drift check's copy
-in `workflow-drift-check.md`; a future edit to the §1.6(h) block
+in `workflow-drift-check.md`; a future edit to the `§1.6(h)` block
 applies to both files in lockstep.
 
 **Phase 1 halt — no stampable artifacts.** When both `$STAMPED_SHAS`
 and `$UNSTAMPED_FILES` are empty after the walk, the active plan has
 no stampable artifacts on disk (a freshly-created `_workflow/` dir
 holding only a transient `handoff-*.md`, for example). Per
-`conventions.md` §1.6(h)'s both-arrays-empty rule, halt the migration
+`conventions.md` `§1.6(h)`'s both-arrays-empty rule, halt the migration
 with `no artifacts to migrate` and exit without entering Phase 2. This
 case is distinct from the all-stamped case (where Phase 2 runs the
 fold) and from the partially-stamped case (where Step 2.0 already
@@ -305,7 +348,7 @@ fi
 
 Phase 2 — fold the stamp set pairwise through `git merge-base` to
 derive `BASE_SHA`, the oldest stamp reachable from HEAD per
-`conventions.md` §1.6(c). The fold input set is `$STAMPED_SHAS` plus
+`conventions.md` `§1.6(c)`. The fold input set is `$STAMPED_SHAS` plus
 `$USER_BOOTSTRAP_SHA` when Step 2.0 fired; when Step 2.0 was a no-op
 (every artifact stamped), `$USER_BOOTSTRAP_SHA` stays unset and the
 fold runs over `$STAMPED_SHAS` alone:
@@ -358,15 +401,15 @@ encountered serially.
 non-empty, resolve each failing SHA to the artifact path that emitted
 it via the `$STAMPED_PAIRS` table, then route the **combined**
 unstamped + merge-base-failed file set back through Step 2.0's
-bootstrap prompt per `conventions.md` §1.6(c). The user supplies one
+bootstrap prompt per `conventions.md` `§1.6(c)`. The user supplies one
 new SHA covering the combined set; the validated value **replaces**
 the prior `$USER_BOOTSTRAP_SHA` (the variable stays singular, matching
-`conventions.md` §1.6(d)'s one-SHA-per-prompt shape).
+`conventions.md` `§1.6(d)`'s one-SHA-per-prompt shape).
 
 Drop the merge-base-failed SHAs from `STAMPED_SHAS` before restarting
 the fold. Their owning artifacts are reclassified as unstamped for
 the rest of the session (matching the "treat as unstamped" framing in
-`conventions.md` §1.6(c)), so the user's fresh `$USER_BOOTSTRAP_SHA`
+`conventions.md` `§1.6(c)`), so the user's fresh `$USER_BOOTSTRAP_SHA`
 serves as the bootstrap anchor for both the originally-unstamped set
 and the dropped stamps' artifacts. Without this drop, the restarted
 fold would re-run `git merge-base` over the same failing pair and
@@ -453,6 +496,7 @@ are added at the start of Step 4, after Step 3 has trimmed the resume
 queue, so the task list never drifts from the actual queue.
 
 ## Step 3 — Load or initialize progress file
+<!-- roles=migrator phases=any summary="Load an existing .migration-progress file to resume, or initialize a fresh one when the migration starts clean." -->
 
 The progress file lives at the worktree root, not inside `_workflow/`:
 
@@ -487,6 +531,7 @@ File-existence handling:
 - The commits already listed in the body are **done**. Skip them in Step 4.
 
 ## Step 4 — Per-commit migration loop
+<!-- roles=migrator phases=any summary="Replay each format-relevant commit: context check, read, classify, apply edits, advance stamps, record progress." -->
 
 On first entry to Step 4:
 
@@ -496,6 +541,7 @@ On first entry to Step 4:
 Then iterate. For each commit in the queue, in order:
 
 ### 4.1 Context check (mandatory before starting the commit)
+<!-- roles=migrator phases=any summary="Check context budget before each commit and checkpoint to a fresh session when it would not fit the whole commit." -->
 
 ```bash
 cat /tmp/claude-code-context-usage-$PPID.txt 2>/dev/null || echo "ctx: unknown"
@@ -526,6 +572,7 @@ This is a docs-only migration: sub-agents should use `git show`, `Read`, and `Gr
 If `safe` (`ctx < 20%`): continue normally. The `ctx: unknown` fallback (file missing or `$PPID` resolution failed) is treated as `safe` — the file is best-effort, not load-bearing.
 
 ### 4.2 Read the commit
+<!-- roles=migrator phases=any summary="Read the commit's diff and message to determine what workflow-format change it introduced." -->
 
 ```bash
 git show --stat <sha>
@@ -536,6 +583,7 @@ git log -1 --format='%B' <sha>
 The commit message is load-bearing: it states the intent of the format change. Read it first, then the diff.
 
 ### 4.3 Classify the commit
+<!-- roles=migrator phases=any summary="Classify the commit as format-relevant, no-op, or manual-review-needed to route how its edits are replayed." -->
 
 **First, detect path renames as a side concern** (independent of the classification chosen below):
 
@@ -554,11 +602,12 @@ For each `R<percentage>\t<old>\t<new>` entry, plan to append one `#   <old> -> <
 
 Before invoking any edit tool, print one line to the user in the form `commit <short-sha>: <classification> — <reason>` (e.g., `commit 1de3cb0e: format — adds Phase-2 review section to implementation-plan.md`).
 
-**Stamp-format-change halt.** If the commit's diff modifies `conventions.md` §1.6 stamp-format definition (the `workflow-sha:` regex shape or the line-1 stamp position rule), halt and route the commit to manual review — the in-place migration cannot self-bootstrap a stamp-format change because the writer's `old_string`-match contract assumes the prior format's text shape. Record the commit at 4.6 with classification `manual-review-needed` and skip the per-commit edits in 4.4.
+**Stamp-format-change halt.** If the commit's diff modifies `conventions.md` `§1.6` stamp-format definition (the `workflow-sha:` regex shape or the line-1 stamp position rule), halt and route the commit to manual review — the in-place migration cannot self-bootstrap a stamp-format change because the writer's `old_string`-match contract assumes the prior format's text shape. Record the commit at 4.6 with classification `manual-review-needed` and skip the per-commit edits in 4.4.
 
 A fifth classification value, `manual-review-needed`, may be set in Step 4.6 only when the user invokes the "skip" escape from a Step 4.4 ambiguity halt, or when 4.3's stamp-format-change halt fires above. It is not selected here in 4.3 as a primary classification.
 
 ### 4.4 Apply the migration
+<!-- roles=migrator phases=any summary="Apply the commit's format edits to the matching artifacts in place, or route to manual review on a stamp-format halt." -->
 
 For **Format change** commits, identify which files under the active plan's `_workflow/**` (or `.claude/**` if the branch carries local workflow overrides) match the format being changed. Use `Read` and `Bash` (`git ls-files "$PLAN_DIR/_workflow/"`) to find them.
 
@@ -591,16 +640,18 @@ User outcomes:
 2. **User says "skip"** — apply no edit. Proceed to 4.6 and record the commit with classification `manual-review-needed`. Step 5 surfaces the count so the user knows which commits to revisit manually.
 
 ### 4.5 Advance stamps in lockstep
+<!-- roles=migrator phases=any summary="After the edits land, rewrite every artifact's line-1 stamp to this commit SHA; the order matters for crash resume." -->
 
-After sub-step 4.4's edits land and before sub-step 4.6 records the commit in `.migration-progress`, rewrite line 1 of every artifact enumerated by `conventions.md` §1.6(h)'s canonical walk under the active plan's `_workflow/` to `<!-- workflow-sha: <current-commit-sha> -->`. The order is load-bearing: edits → advance → progress sentinel, never another order. Reversing edits and advance, or deferring the advance past the progress sentinel, breaks crash resume — see design.md §"Per-commit replay and lockstep advance" for the case analysis. The design.md sequence diagram in §"Migration replay loop" is the authoritative ordering; §"Per-commit replay and lockstep advance" carries the crash-window analysis.
+After sub-step 4.4's edits land and before sub-step 4.6 records the commit in `.migration-progress`, rewrite line 1 of every artifact enumerated by `conventions.md` `§1.6(h)`'s canonical walk under the active plan's `_workflow/` to `<!-- workflow-sha: <current-commit-sha> -->`. The order is load-bearing: edits → advance → progress sentinel, never another order. Reversing edits and advance, or deferring the advance past the progress sentinel, breaks crash resume — see `design.md` §"Per-commit replay and lockstep advance" for the case analysis. The `design.md` sequence diagram in §"Migration replay loop" is the authoritative ordering; §"Per-commit replay and lockstep advance" carries the crash-window analysis.
 
 For each stamped artifact, use the `Edit` tool against line 1 with the **prior stamp** as `old_string` and the new `<!-- workflow-sha: <current-commit-sha> -->` as `new_string`. For the K-th commit in the queue (K ≥ 2), the **prior stamp** is the SHA 4.5 wrote on its previous iteration. Re-read `head -1 "$f"` at the start of each 4.5 fire to capture the current `PREV_SHA`; do not reuse the session-start stamp value. For K=1, `PREV_SHA` is the artifact's line-1 stamp at session start (Step 2's stamped set), or the bootstrap SHA after 4.5's unstamped-artifact branch ran for the artifact. The exact-string match makes the writer idempotent on equal SHAs (re-running on an artifact already at this commit's SHA: the prior stamp text is no longer present, so `Edit` raises an `old_string` mismatch — treat this as a benign no-op, do not retry and do not halt, because the post-condition `<!-- workflow-sha: <current-commit-sha> -->` on line 1 already holds) and portable across platforms (no `sed -i` BSD/GNU dialect difference).
 
 Artifacts that were not stamped at session start gain their first stamp here as a side effect. At 4.5 invocation time, an artifact takes this bootstrap branch iff `head -1 "$f"` does not start with `<!-- workflow-sha:`; the `$UNSTAMPED_FILES` set Step 2.0 computed is informational (it drives Step 5's count summary), so do not rely on its membership at 4.5 — re-check per artifact. For files on the bootstrap branch, the `Edit` writer has no prior stamp to match. Use `Read` to capture the **full file content**, prepend a new line `<!-- workflow-sha: <current-commit-sha> -->\n` above the existing line 1, then `Write` the entire concatenated content back to the same path. After the first successful per-commit replay these artifacts join the stamped set and the standard `Edit` path applies on subsequent commits. A crash between `Read` and `Write` on this path leaves the artifact unstamped (the on-disk content is identical to its pre-4.5 state). The next session re-enters Step 2.0 with the same `$UNSTAMPED_FILES` set, re-prompts for the bootstrap SHA, and 4.5's bootstrap branch fires again on this artifact for the same commit — idempotent under the user supplying the same SHA.
 
-This sub-step is the crash-resume marker: the next session reads any stamp, finds the last successfully-replayed SHA, and resumes at the next commit. See design.md §"Migration replay loop" for the sequence diagram and §"Per-commit replay and lockstep advance" for the crash-window analysis.
+This sub-step is the crash-resume marker: the next session reads any stamp, finds the last successfully-replayed SHA, and resumes at the next commit. See `design.md` §"Migration replay loop" for the sequence diagram and §"Per-commit replay and lockstep advance" for the crash-window analysis.
 
 ### 4.6 Update the progress file
+<!-- roles=migrator phases=any summary="Record the replayed commit and its classification in .migration-progress as the crash-resume marker." -->
 
 Append one tab-separated line to the body of `.migration-progress` at the worktree root:
 
@@ -617,14 +668,16 @@ Mechanism: read the file with `Read`, mutate the contents in memory (append the 
 If the process is killed between applying edits in 4.4 and updating `.migration-progress` here, the next run will replay the same commit. After a crash, run `git diff` before resuming to detect duplicate edits.
 
 ### 4.7 Mark the per-commit task completed
+<!-- roles=migrator phases=any summary="Mark the commit's TaskCreate entry complete so the progress tracker reflects the replayed commit." -->
 
 `TaskUpdate` the matching task to `completed`. Move to the next commit. When the queue is exhausted, mark Step 0's umbrella task 5 ("Per-commit migration loop") as `completed` before falling through to sub-step 4.8.
 
 ### 4.8 Final stamp-to-HEAD batch
+<!-- roles=migrator phases=any summary="After the loop, batch-rewrite every artifact's line-1 stamp to HEAD; already-at-HEAD artifacts are benign no-ops." -->
 
 Mark Step 0's umbrella task 6 ("Final stamp-to-HEAD batch") as `in_progress`. After the per-commit loop exits (the queue is exhausted) and before Step 5's final summary runs, re-stamp every artifact present on disk to `git rev-parse HEAD`. This sub-step lands invariant I2: at session end, every stamped artifact's line-1 SHA equals HEAD's SHA.
 
-Capture HEAD once via `git rev-parse HEAD` into `$HEAD_SHA`. Then walk every artifact under `$PLAN_DIR/_workflow/**` per `conventions.md` §1.6(h)'s enumeration; for each artifact, read the current line-1 stamp (`head -1 "$f"`) and call `Edit` with that value as `old_string` and `<!-- workflow-sha: $HEAD_SHA -->` as `new_string`. Artifacts already at HEAD (their prior 4.5 fire already wrote this SHA) fail the `old_string` precondition — treat the mismatch as a benign no-op (the post-condition already holds), do not retry, do not halt. Optional artifacts absent from disk (`design-mechanics.md` on branches that never crossed the length trigger) are silently skipped by §1.6(h)'s `ls 2>/dev/null` shape.
+Capture HEAD once via `git rev-parse HEAD` into `$HEAD_SHA`. Then walk every artifact under `$PLAN_DIR/_workflow/**` per `conventions.md` `§1.6(h)`'s enumeration; for each artifact, read the current line-1 stamp (`head -1 "$f"`) and call `Edit` with that value as `old_string` and `<!-- workflow-sha: $HEAD_SHA -->` as `new_string`. Artifacts already at HEAD (their prior 4.5 fire already wrote this SHA) fail the `old_string` precondition — treat the mismatch as a benign no-op (the post-condition already holds), do not retry, do not halt. Optional artifacts absent from disk (`design-mechanics.md` on branches that never crossed the length trigger) are silently skipped by `§1.6(h)`'s `ls 2>/dev/null` shape.
 
 Re-stamp every artifact in the walk, including artifacts whose stamp the per-commit advance in sub-step 4.5 already updated to a SHA inside the range. A re-stamp that does change content covers two cases — an artifact whose last per-commit advance landed at a non-HEAD SHA inside the range (because no later replayed commit touched its file shape), and an artifact whose first stamp arrived through 4.5's unstamped-artifact bootstrap branch at a pre-HEAD SHA.
 
@@ -633,6 +686,7 @@ The final batch and the per-commit advance use the same `Edit`-against-line-1 wr
 After the walk exits, mark Step 0's umbrella task 6 as `completed`.
 
 ## Step 5 — Final summary
+<!-- roles=migrator phases=any summary="Report the replayed and manual-review commits and leave the dirty worktree for the user to review and commit." -->
 
 Mark Step 0's umbrella task 7 ("Final summary") as `in_progress`. `$HEAD_SHA` is the value sub-step 4.8 captured via `git rev-parse HEAD`; re-derive it here by running `git rev-parse HEAD` again — the value is unchanged since 4.8. `$USER_BOOTSTRAP_SHA` was captured at Step 2.0; if it is no longer in conversation state, recover it by reading line 1 of any artifact in `$UNSTAMPED_FILES` (the bootstrap branch stamped them at this value during the first commit's 4.5 fire). If Step 2.0 did not run this session (no unstamped artifacts), omit the bootstrap-count summary line entirely.
 
@@ -648,10 +702,12 @@ Output:
 After printing the summary lines above, mark Step 0's umbrella task 7 as `completed`. Then proceed to Step 6.
 
 ## Step 6 — Self-improvement reflection
+<!-- roles=migrator phases=any summary="Run the shared reflection pass to capture migration-process friction as YouTrack proposals before ending the session." -->
 
 Mark Step 0's umbrella task 8 (`Self-improvement reflection`) as `in_progress`, then mark umbrella task 8 as `completed` **before** invoking the reflection protocol. The flip is intentional: `self-improvement-reflection.md` ends the session at its final "End the session" step and never returns control here, so any post-invoke completion line is unreachable. Treating the umbrella task as "I am about to invoke reflection" (not "reflection completed") keeps the user's task list consistent even though the reflection itself runs after the flip. Then invoke `.claude/workflow/self-improvement-reflection.md` with `session-type=migrate-workflow` (see `self-improvement-reflection.md` §"What counts as a worth-recording issue" for the migration-shaped friction examples). The protocol owns its own YouTrack MCP-reachability check and end-of-session contract; nothing else fires after it returns.
 
 ## Notes
+<!-- roles=migrator phases=any summary="Standing caveats on in-place editing, the dirty-worktree contract, and the no-automatic-commits rule." -->
 
 - The skill edits artifacts in the branch's own worktree and never commits on the user's behalf; the user reviews the diff and commits + pushes after the session ends.
 - For large diffs, delegate to `Explore` to summarize commit diffs and `general-purpose` to apply repetitive edits across many files; pass absolute paths inside the branch's worktree.

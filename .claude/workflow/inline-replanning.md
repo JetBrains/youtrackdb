@@ -1,20 +1,31 @@
 # Inline Replanning (ESCALATE)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §When ESCALATE triggers | orchestrator | 3A,3C | The triggers that route to inline replanning: deep amendments, broken assumptions, unfixable step failures. |
+| §Process | orchestrator | 3A,3C | Stop, assess, propose a revised plan (PSI-backed, via edit-design), preview-review, then resume or exit. |
+| §Updating plan and track files | orchestrator | 3A,3C | Per-case rule for which on-disk file carries a revised track description by the track's current status. |
+
+<!--Document index end-->
+
 When the Track Pre-Flight gate (or any other ESCALATE trigger below)
 produces ESCALATE, you handle replanning directly — you have all the
 context: every track episode, the full plan file, and architecture
 notes.
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:any:any `§1.5` for the workflow-level anchor and tier mapping.
 
 ## When ESCALATE triggers
+<!-- roles=orchestrator phases=3A,3C summary="The triggers that route to inline replanning: deep amendments, broken assumptions, unfixable step failures." -->
 
 - Track Pre-Flight Panel 1 (strategy assessment) returns ESCALATE
-  and the user accepts (see [`track-review.md`](track-review.md)
+  and the user accepts (see track-review.md:orchestrator:3A
   § Track Pre-Flight step 1)
 - Track Pre-Flight review mode produces an `ESCALATE` action item,
   or the user picks **Escalate now** on the Mixed-set policy panel
-  (see [`review-mode.md`](review-mode.md) § ESCALATE detection and
+  (see review-mode.md:orchestrator:3A,3C § ESCALATE detection and
   § Mixed-set policy) — i.e., the requested change touches Decision
   Records, Architecture Notes, Goals, Constraints, **adds** a new
   track, crosses cross-track interaction surfaces, or the user
@@ -27,6 +38,7 @@ notes.
   cannot fix
 
 ## Process
+<!-- roles=orchestrator phases=3A,3C summary="Stop, assess, propose a revised plan (PSI-backed, via edit-design), preview-review, then resume or exit." -->
 
 **1. Stop** — do not start new steps.
 
@@ -41,7 +53,7 @@ notes.
 If `pending_escalate_description` is set in conversation context
 when inline-replanning fires from a Track Pre-Flight or Track
 Completion gate (captured by a Strip-and-apply earlier in the same
-session per [`review-mode.md`](review-mode.md) § Mixed-set policy),
+session per review-mode.md:orchestrator:3A,3C § Mixed-set policy),
 read the stashed text as the user-supplied deep-change description
 for this Assess. Do not prompt the user to re-state it. Clear the
 slot after consumption.
@@ -63,9 +75,9 @@ are reference-accuracy facts and must be verified through mcp-steroid
 PSI find-usages / find-implementations / type-hierarchy via
 `steroid_execute_code`, not grep, when the mcp-steroid MCP server is
 reachable per the SessionStart hook — same rule as Phase 1 planning
-(see [`planning.md`](planning.md) §"Tooling — PSI-backed Component
-Map and integration points" and [`conventions.md`](conventions.md)
-§1.4 *Tooling discipline*). Run `steroid_list_projects` once before
+(see planning.md:planner:1 §"Tooling — PSI-backed Component
+Map and integration points" and conventions.md:any:any `§1.4`
+*Tooling discipline*). Run `steroid_list_projects` once before
 the first symbol audit; do not re-probe. Fall back to grep with an
 explicit reference-accuracy caveat in any plan claim that depends on
 a symbol search only when mcp-steroid is unreachable. Silent grep
@@ -75,7 +87,7 @@ When the replan is triggered by a discovery in an already-completed
 track ("we changed X, but Y still depends on the old contract") or
 needs to scope new tracks against the upward call chain of a
 low-level signature, load the **`call-hierarchy`** recipe (see
-[`conventions.md`](conventions.md) §1.4 *Recipes*). Multi-hop
+conventions.md:any:any `§1.4` *Recipes*). Multi-hop
 impact at the depth of "callers of callers of X" is exactly the
 question grep cannot answer reliably and is the most common reason
 inline-replan estimates underscope.
@@ -101,7 +113,7 @@ for the authoritative rule per case.
 Record's `**Full design**` link, adds a new design section, or
 renames an existing one, the design changes go through the
 mutation discipline defined in
-[`design-document-rules.md`](design-document-rules.md) § Mutation
+design-document-rules.md:planner,final-designer:1,3A,3C,4 § Mutation
 discipline — one atomic action that bundles `(apply edit →
 auto-review → bounded iterate → present)`. Do not directly Edit
 `design.md` mid-replan; invoke the mutation action so the
@@ -125,8 +137,8 @@ on the size of the inline-replanning revision (see
   multi-section revision. The working/sync loop is **only** valid
   when `design-mechanics.md` exists at the time of the
   inline-replan — `mechanics-edit` mutates that file, and there's
-  no equivalent on a design.md-only design.
-- For a multi-section revision **on a design.md-only design**
+  no equivalent on a `design.md`-only design.
+- For a multi-section revision **on a `design.md`-only design**
   (no mechanics companion), either run a sequence of direct
   mutations (`content-edit` / `section-add` / `section-rename` —
   each one is its own atomic action with full discipline), or, if
@@ -136,7 +148,7 @@ on the size of the inline-replanning revision (see
   working/sync loop.
 
 **Invocation:** use the `edit-design` skill
-([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
+(`edit-design/SKILL.md`),
 not direct `Edit` / `Write` calls.
 
 **4. Review (advisory preview)** — spawn a sub-agent to run the
@@ -144,12 +156,12 @@ structural review protocol from Phase 2 (see `structural-review.md`)
 on the revised plan. This is a fail-fast preview, **not the gate** —
 the definitive gate is the State 0 re-run on the next
 `/execute-tracks` session, which runs consistency + structural
-together (see [`implementation-review.md`](implementation-review.md)
+together (see implementation-review.md:orchestrator,reviewer-plan:2
 § Replanning). The preview exists so you don't end the session and
 clear context only to learn on the next invocation that the revision
 was structurally broken. The invocation passes `plan_path` +
 `plan_dir` per the path-passing rule in
-`.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
+`review-plan/SKILL.md`. The sub-agent receives the
 full plan file including both completed track episodes and the
 proposed revisions, plus the track-file directory so pending-track
 details (each track's `## Purpose / Big Picture` plus the
@@ -170,7 +182,7 @@ preview — they will appear in the next-session State 0 re-run.
   `/execute-tracks` session through State 0, which re-runs Phase 2
   against the revised plan and catches any consistency drift the
   replan introduced (see
-  [`implementation-review.md`](implementation-review.md) § Replanning
+  implementation-review.md:orchestrator,reviewer-plan:2 § Replanning
   for the contract). Then commit and push the workflow changes
   immediately so the next implementer spawn doesn't lose them via
   `git reset --hard HEAD`:
@@ -205,11 +217,12 @@ preview — they will appear in the next-session State 0 re-run.
 ---
 
 ## Updating plan and track files
+<!-- roles=orchestrator phases=3A,3C summary="Per-case rule for which on-disk file carries a revised track description by the track's current status." -->
 
 When a revision drafted during step 3 of [§Process](#process) lands —
 whether during the propose step itself or after review passes — each
 affected track must be written to its authoritative file location. The
-"Section lifecycle" table in `conventions-execution.md` §2.1 is the
+"Section lifecycle" table in conventions-execution.md:orchestrator,decomposer:3A,3B,3C `§2.1` is the
 authority for non-inline-replan phases (Phase 1 write, Phase A,
 Phase C after collapse, Skipped at or before Phase A); this section is
 the authority for inline-replan revisions. If the two ever diverge, a
@@ -222,7 +235,7 @@ revision and the file(s) that carry the new description:
    `**Scope:**` + optional `**Depends on:**`) to
    `implementation-plan.md`, and create a new `plan/track-N.md` track
    file in the canonical 14-section ExecPlan shape (see
-   [`conventions-execution.md`](conventions-execution.md) §2.1 *Track
+   conventions-execution.md:orchestrator,decomposer:3A,3B,3C `§2.1` *Track
    file content* for the full template: 12 OpenAI sections,
    `## Episodes`, `## Base commit`). The intro paragraph lands in
    `## Purpose / Big Picture`; the track-level detail prose splits

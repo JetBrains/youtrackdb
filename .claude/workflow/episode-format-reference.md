@@ -1,7 +1,26 @@
 # Episode Format Reference
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §The four-section write checklist | orchestrator | 3A,3B,3C | The statusline-read-first write shapes (per-step vs Progress-only) and the five numbered sub-steps. |
+| §Completed-step Episodes block | orchestrator | 3B,3C | The successful-step Episodes template and its header fields (commit SHA, ISO timestamp, ctx level). |
+| §Episode fields | orchestrator | 3B | The five episode fields (What was done / discovered / changed / Key files / Critical context) and which are required. |
+| §Rules | orchestrator | 3B | Episode field rules: fill discovered/changed when applicable, keep concise, episodes immutable, omit empty fields. |
+| §Minimal episode example (nothing unexpected) | orchestrator | 3B | A minimal episode carrying only What was done and Key files. |
+| §Failed-step Episodes block | orchestrator | 3B | The failed-step ([!]) Episodes template, the FAILED header marker, and the retry/split/adjust/escalate decision. |
+| §Authoritative copies and back-references | orchestrator | 3B | Which section is canonical for each fact (Episodes, Surprises, Decision Log, Progress) and the promotion rule. |
+| §Back-reference convention | orchestrator | 3B | Surprises/Decision Log promotions carry a one-line `See Episodes §Step N` back-reference, with a (FAILED) disambiguator. |
+| §Minimum-write contract (when to skip optional writes) | orchestrator | 3B | Sub-steps 0/1/2 always fire; sub-steps 3/4 fire only on cross-cutting discoveries or tagged decisions. |
+| §Where episodes live | orchestrator | 3B,3C | Step-level episodes live in the track file; track-level episodes live in the plan-file checklist entry. |
+| §Code commit and episode ordering | orchestrator | 3B | Code commits first, then the orchestrator writes the Episodes block + Progress entry in a follow-up commit and pushes. |
+| §Episode length rule | orchestrator | 3B,3C | Episode length is proportional to cross-track impact; structured-field blocks are exempt from the section cap. |
+
+<!--Document index end-->
+
 Detailed episode format rules and examples. Referenced from
-`conventions-execution.md` §2.1 and §2.2.
+`conventions-execution.md` `§2.1` and `§2.2`.
 
 The per-step episode is no longer a nested blockquote under a legacy
 `## Steps` roster item (that section name retired with the move to
@@ -19,18 +38,19 @@ Episode prose is Tier A house-style content. The four episode fields
 plan`, `Critical context`) and the matching `## Surprises &
 Discoveries` / `## Decision Log` promotion lines land in durable
 track-file Markdown and survive into the eventual ADR aggregation.
-Apply the full rule set in `.claude/output-styles/house-style.md`
+Apply the full rule set in `house-style.md`
 when drafting them: BLUF lead, banned vocabulary, em-dash
 discipline, soft section length cap with template-bound exemptions,
 structural rules. The four
 banned-section heading slugs to apply are `## Banned vocabulary`,
 `## Banned sentence patterns`, `## Banned analysis patterns`, and
 `### Em-dash discipline`.
-See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
+See conventions.md:any:any `§1.5` Writing style for Markdown and prose artifacts for the workflow-level pointer.
 
 ---
 
 ## The four-section write checklist
+<!-- roles=orchestrator phases=3A,3B,3C summary="The statusline-read-first write shapes (per-step vs Progress-only) and the five numbered sub-steps." -->
 
 The workflow has two write shapes that share the statusline-read-
 first prefix:
@@ -44,18 +64,18 @@ first prefix:
 
 - **Per-step write shape** — used by Phase B sub-step 7 (the
   `on_success` writer in
-  [`step-implementation.md`](step-implementation.md)) and the
+  step-implementation.md:orchestrator:3B) and the
   failed-step `[!]` writers in
-  [`step-implementation-recovery.md`](step-implementation-recovery.md)
+  step-implementation-recovery.md:orchestrator:3B
   §Step Failure and §`rollback_and_handle_failure`. Episodes block
   (with roster checkbox flip) + Progress entry are always written;
   Surprises and Decision Log promotions are conditional. The full
   four-sub-step checklist below applies verbatim.
 - **Progress-only write shape** — used by Phase A decomposition-
-  complete (see [`track-review.md`](track-review.md) §Phase A:
+  complete (see track-review.md:orchestrator:3A §Phase A:
   Review + Decomposition step 5), Phase C iteration writes, Phase C
   track-completion, and Phase C iteration-failure (see
-  [`track-code-review.md`](track-code-review.md) §Review loop).
+  track-code-review.md:orchestrator:3C §Review loop).
   These writers do **not** append an Episodes block, do **not** flip
   a `## Concrete Steps` checkbox, and do **not** consider Surprises
   / Decision Log promotion. Only sub-step 0 (statusline read) and
@@ -96,6 +116,7 @@ only write shape.
 ---
 
 ## Completed-step Episodes block
+<!-- roles=orchestrator phases=3B,3C summary="The successful-step Episodes template and its header fields (commit SHA, ISO timestamp, ctx level)." -->
 
 The standard template for a successful step:
 
@@ -127,6 +148,7 @@ The header carries three fields after `Step N`:
   statusline file was missing at write time.
 
 ### Episode fields
+<!-- roles=orchestrator phases=3B summary="The five episode fields (What was done / discovered / changed / Key files / Critical context) and which are required." -->
 
 Episodes are produced by the **Phase B orchestrator** from the
 implementer's `EPISODE_DRAFT` return field, merged with cross-track
@@ -144,6 +166,7 @@ steps) and sub-step 5 (cross-track impact check) complete.
 | **Critical context** | When applicable | Free-form field for anything essential that doesn't fit the structured fields above — e.g., a fundamental architectural insight, a performance characteristic that changes the approach for the whole feature, or a constraint discovered that affects multiple tracks. Use sparingly; most episodes won't need this |
 
 ### Rules
+<!-- roles=orchestrator phases=3B summary="Episode field rules: fill discovered/changed when applicable, keep concise, episodes immutable, omit empty fields." -->
 
 - **"What was discovered" must be filled whenever anything unexpected
   is found** — even if it didn't block the current step. Future
@@ -163,6 +186,7 @@ steps) and sub-step 5 (cross-track impact check) complete.
   carries only `What was done` and `Key files`.
 
 ### Minimal episode example (nothing unexpected)
+<!-- roles=orchestrator phases=3B summary="A minimal episode carrying only What was done and Key files." -->
 
 ```markdown
 ### Step 4 — commit abc1234, 2026-05-16T15:10Z [ctx=safe]
@@ -178,6 +202,7 @@ Added serialization/deserialization in `LeafPageSerializer`.
 ---
 
 ## Failed-step Episodes block
+<!-- roles=orchestrator phases=3B summary="The failed-step ([!]) Episodes template, the FAILED header marker, and the retry/split/adjust/escalate decision." -->
 
 A failed step (`[!]` checkbox in `## Concrete Steps`) follows the
 same shape with a different header marker and a different field set:
@@ -214,7 +239,7 @@ failure entry from the eventual retry's success entry; see
 `mode=FIX_REVIEW_FINDINGS`
 respawn (post-commit), the orchestrator additionally runs the
 `Revert step:` rollback per
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Post-Commit Handlers before writing the Episodes block.
 
 The orchestrator then decides:
@@ -227,7 +252,7 @@ The orchestrator then decides:
 
 If the same step fails twice, stop and present the situation to the
 user (see
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Two-Failure Rule).
 
 Failed Episodes blocks live in `## Episodes` alongside completed
@@ -237,6 +262,7 @@ shapes.
 ---
 
 ## Authoritative copies and back-references
+<!-- roles=orchestrator phases=3B summary="Which section is canonical for each fact (Episodes, Surprises, Decision Log, Progress) and the promotion rule." -->
 
 Sub-steps 3 and 4 promote selected facts into `## Surprises &
 Discoveries` and `## Decision Log` for resume-reader visibility, but
@@ -256,6 +282,7 @@ rule:
   canonical; not joined to any per-step block.
 
 ### Back-reference convention
+<!-- roles=orchestrator phases=3B summary="Surprises/Decision Log promotions carry a one-line `See Episodes §Step N` back-reference, with a (FAILED) disambiguator." -->
 
 Sub-step 3 (Surprises promotion) and sub-step 4 (Decision Log
 promotion) always include a back-reference of the form
@@ -296,6 +323,7 @@ Example Decision Log promotion:
 ---
 
 ## Minimum-write contract (when to skip optional writes)
+<!-- roles=orchestrator phases=3B summary="Sub-steps 0/1/2 always fire; sub-steps 3/4 fire only on cross-cutting discoveries or tagged decisions." -->
 
 Sub-steps 0, 1, and 2 always fire — the statusline read, the
 Episodes block, and the Progress entry. Sub-steps 3 and 4 fire
@@ -319,6 +347,7 @@ the Progress entry (sub-step 2). Sub-steps 3 and 4 produce nothing.
 ---
 
 ## Where episodes live
+<!-- roles=orchestrator phases=3B,3C summary="Step-level episodes live in the track file; track-level episodes live in the plan-file checklist entry." -->
 
 Step-level episodes: **track file** under
 `docs/adr/<dir-name>/_workflow/plan/track-N.md` `## Episodes`
@@ -327,11 +356,12 @@ section.
 Track-level episodes: **plan file** (`implementation-plan.md`) under
 the track's checklist entry — a strategic summary synthesised from
 step episodes by Phase C track completion (see
-[`track-code-review.md`](track-code-review.md) § Track Completion).
+track-code-review.md:orchestrator:3C § Track Completion).
 
 ---
 
 ## Code commit and episode ordering
+<!-- roles=orchestrator phases=3B summary="Code commits first, then the orchestrator writes the Episodes block + Progress entry in a follow-up commit and pushes." -->
 
 Code changes are committed first (including any code review fix
 commits). After all code is committed, the orchestrator writes the
@@ -345,6 +375,7 @@ directory is removed by the Phase 4 cleanup commit before merge.
 ---
 
 ## Episode length rule
+<!-- roles=orchestrator phases=3B,3C summary="Episode length is proportional to cross-track impact; structured-field blocks are exempt from the section cap." -->
 
 Proportional to cross-track impact. A track that went as planned and
 produced no surprises needs 1-2 sentences. A track that discovered
@@ -361,4 +392,5 @@ one line; a step that uncovered a concurrency bug needs a full
 explanation.
 
 Episode structured-field paragraph blocks are exempt from the
-house-style soft section length cap — see [`house-style.md § Structural rules`](../output-styles/house-style.md) "Section length cap exception" for the full exemption list and the padding-based finding criterion that replaces the word-count check for these template-bound shapes.
+house-style soft section length cap — see `house-style.md` § Structural rules
+"Section length cap exception" for the full exemption list and the padding-based finding criterion that replaces the word-count check for these template-bound shapes.

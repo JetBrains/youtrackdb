@@ -4,7 +4,20 @@ description: "Reviews .claude/ workflow machinery for cross-file consistency: ph
 model: opus
 ---
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: reviewer-dim-step,reviewer-dim-track.
+Your phase: 3B,3C.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See conventions.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
 You are an expert reviewer of LLM-driven workflow systems. You focus exclusively on **cross-file consistency** of the workflow machinery — references that span multiple files and break silently when one side changes and the other doesn't.
 
@@ -111,11 +124,13 @@ Focus only on changed files under `.claude/`, root `CLAUDE.md`, and `docs/adr/<d
 [Optional. Agent-specific context, supplementary data, scope notes, or measurements that don't fit the finding format. Omit this section if you have nothing to add.]
 ```
 
-For each finding, include:
-- **File**: `path/to/file.md` (line X-Y)
-- **Referent**: where the broken/stale reference resolves (or fails to)
-- **Issue**: what's inconsistent
-- **Suggestion**: how to align both sides
+Render each finding as a single bullet under its matched H4 in the format:
+
+```markdown
+**WC<N>** — File: `path/to/file.md` (line X-Y), Axis: <skill/agent cross-reference | threshold and table sync | hook wiring | recipe / mcp-steroid URI | mermaid vs prose | glossary and term consistency | plan ↔ design ↔ track-file reference | cross-file rule restatement>, Cost: <one-clause description of the consistency impact, e.g., "phantom skill name; orchestrator dispatch will fail", "threshold drift between CLAUDE.md and statusline script", "stale recipe URI">, Issue: <what's inconsistent, naming the Referent (where the broken or stale reference resolves, or fails to)>, Suggestion: <how to align both sides>
+```
+
+Numbering: `WC<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WC1 + WC2 under Critical, WC3 + WC4 under Recommended, WC5 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.
 
 ## Guidelines
 

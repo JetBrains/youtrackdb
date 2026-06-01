@@ -1,26 +1,50 @@
 # Planning (Phase 1)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Overview | planner | 1 | Phase 1 develops the implementation plan and design document in a single session, informed by Phase 0 research. |
+| §Goal | planner | 1 | Produce a plan with description, architecture notes, and track decomposition; step detail is deferred to execution. |
+| §How to run | planner | 0,1 | Start /create-plan, run Phase 0 research, then transition to Phase 1 planning on the user's explicit go-ahead. |
+| §Plan file structure | planner | 1 | The four _workflow files (plan, design, track files, mutation log); track files do not exist until Phase 3. |
+| §Architecture Notes format | planner | 1 | Architecture Notes carry the strategic shape of the design; the section's per-component budgets keep the plan file lean. |
+| §Boundary with `design.md` and track files | planner | 1 | Architecture Notes hold strategic shape only; long-form material belongs in the design doc or track narrative. |
+| §Per-section budget at a glance | planner,reviewer-plan | 1,2 | The per-section line/token budgets (component, DR, invariant, integration, intro, total) enforced by structural review. |
+| §Required sections | planner | 1 | The two mandatory Architecture Notes sections: Component Map and Decision Records, with their format and budget rules. |
+| §Optional sections (include when applicable) | planner | 1 | The optional Architecture Notes sections: Invariants & Contracts, Integration Points, Non-Goals, with their budgets. |
+| §Architecture Notes rules | planner | 1 | The nine Architecture Notes rules: mandatory sections, immutability, traceability, budgets, no plan/design duplication. |
+| §Track descriptions | planner | 1 | Each track is described across the thin plan-file checklist entry and the four Phase 1 track-level sections. |
+| §Track-level component interaction diagrams | planner | 1 | Optional per-track Mermaid diagrams live in the track file's Interfaces and Dependencies section, not the plan. |
+| §Scope indicators | planner | 1 | Every track carries a `> **Scope:** ~N steps covering X, Y, Z` line; format and purpose live in conventions. |
+| §Design Document | planner | 1 | The plan ships a separate design doc (class/workflow diagrams, complex-part sections), frozen after Phase 1. |
+| §Checklist decomposition rules | planner | 1 | Step decomposition is deferred to Phase 3; the canonical rules live in the track-review §Step Decomposition. |
+| §Tooling — PSI-backed Component Map and integration points | planner | 1 | Verify symbols, callers, and SPI consumers named in Architecture Notes through PSI via mcp-steroid before they land. |
+
+<!--Document index end-->
+
 ## Overview
+<!-- roles=planner phases=1 summary="Phase 1 develops the implementation plan and design document in a single session, informed by Phase 0 research." -->
 
 This document covers Phase 1 of the development workflow — iteratively
 developing an implementation plan. This is a single-session conversation
 with no agent teams — the user interacts directly with a single Claude Code
 session. Phase 1 is preceded by Phase 0 (Research) in the same session.
 
-- **Phase 0 (Research):** See [`research.md`](research.md) — interactive
+- **Phase 0 (Research):** See research.md:planner:0 — interactive
   research and exploration. The agent answers questions, explores code, and
   does internet research. Completes only when the user explicitly asks to
   create the plan.
 - **Phase 1 (Planning):** Develop a plan informed by Phase 0 findings.
   Produce tracks with architecture notes, scope indicators, and design document.
 - **Phase 2 (Implementation Review):** See
-  [`implementation-review.md`](implementation-review.md) — autonomous
+  implementation-review.md:orchestrator,reviewer-plan:2 — autonomous
   two-step review run as the first phase of `/execute-tracks` (State 0):
   (1) consistency review (design doc ↔ code ↔ plan), (2) structural
   review. Mechanical findings auto-fixed; only design-decision findings
   escalated to the user. Optionally re-invoked via `/review-plan`.
-- **Phase 3 (Execution):** See [`workflow.md`](workflow.md).
-- **Phase 4 (Final Artifacts):** See [`workflow.md`](workflow.md)
+- **Phase 3 (Execution):** See workflow.md:orchestrator:2,3A,3B,3C,4.
+- **Phase 4 (Final Artifacts):** See workflow.md:orchestrator:2,3A,3B,3C,4
   §Final Artifacts.
 
 ```mermaid
@@ -57,6 +81,7 @@ captured in the project's track episodes (plan file) and step episodes
 ---
 
 ## Goal
+<!-- roles=planner phases=1 summary="Produce a plan with description, architecture notes, and track decomposition; step detail is deferred to execution." -->
 
 Produce a plan markdown file with a high-level description, architecture notes,
 and track-level decomposition. Step-level decomposition is **deferred to
@@ -66,6 +91,7 @@ during Phase 3 when the execution agent has maximum codebase context from
 prior tracks.
 
 ## How to run
+<!-- roles=planner phases=0,1 summary="Start /create-plan, run Phase 0 research, then transition to Phase 1 planning on the user's explicit go-ahead." -->
 
 Start a new Claude Code session and run `/create-plan` (optionally pass a
 branch name; if omitted, the current git branch is used). The slash command
@@ -79,6 +105,7 @@ transitions to Phase 1 (Planning) and produces the plan and design document,
 incorporating all findings and decisions from the research phase.
 
 ## Plan file structure
+<!-- roles=planner phases=1 summary="The four _workflow files (plan, design, track files, mutation log); track files do not exist until Phase 3." -->
 
 The plan file structure is defined in `conventions.md` (section 1.2). The key
 points:
@@ -96,7 +123,7 @@ points:
 The `_workflow/` directory is tracked under git for the branch
 lifetime (so the draft PR shows progress to teammates and so a
 disk-loss never destroys work) and is removed in the Phase 4
-cleanup commit before merge — see `conventions.md` §1.2 and
+cleanup commit before merge — see `conventions.md` `§1.2` and
 `workflow.md` § Final Artifacts.
 
 Track files do not exist during Phase 1 (planning) or
@@ -111,11 +138,13 @@ always has freedom to adapt step-level decomposition without formal replanning �
 only track-level or decision-level changes require escalation.
 
 ## Architecture Notes format
+<!-- roles=planner phases=1 summary="Architecture Notes carry the strategic shape of the design; the section's per-component budgets keep the plan file lean." -->
 
 Architecture notes document the structural context and design decisions for the plan.
 They live in the `## High-level plan > ### Architecture Notes` section of the plan file.
 
 ### Boundary with `design.md` and track files
+<!-- roles=planner phases=1 summary="Architecture Notes hold strategic shape only; long-form material belongs in the design doc or track narrative." -->
 
 Architecture Notes carry the **strategic** shape of the design — what
 components are touched, what decisions were made, what must remain true,
@@ -145,6 +174,7 @@ alongside its format rules.
 > fits). Replace the original location with a one-line link.
 
 ### Per-section budget at a glance
+<!-- roles=planner,reviewer-plan phases=1,2 summary="The per-section line/token budgets (component, DR, invariant, integration, intro, total) enforced by structural review." -->
 
 | Section | Budget |
 |---|---|
@@ -159,7 +189,7 @@ The Track-checklist-intro budget is enforced via the existing
 TRACK DESCRIPTIONS and SCOPE INDICATORS checks in the structural
 review prompt (sentence-count and Scope-line presence), not as a
 separate mechanical bloat rule. Every other row above has a
-corresponding mechanical check in [`structural-review.md`](structural-review.md)
+corresponding mechanical check in structural-review.md:reviewer-plan:2
 § Bloat checks.
 
 Each section below restates its own budget alongside its format rules.
@@ -171,9 +201,10 @@ file's narrative sections in `plan/track-N.md` —
 `## Interfaces and Dependencies` (per-track edit detail — files,
 classes, methods, edit ordering). The structural review (Phase 2)
 enforces the budgets as first-class findings — see
-[`structural-review.md`](structural-review.md) § Bloat checks.
+structural-review.md:reviewer-plan:2 § Bloat checks.
 
 ### Required sections
+<!-- roles=planner phases=1 summary="The two mandatory Architecture Notes sections: Component Map and Decision Records, with their format and budget rules." -->
 
 Every plan must include these two sections:
 
@@ -261,6 +292,7 @@ section in that track's `plan/track-N.md` —
 `## Interfaces and Dependencies` — instead.
 
 ### Optional sections (include when applicable)
+<!-- roles=planner phases=1 summary="The optional Architecture Notes sections: Invariants & Contracts, Integration Points, Non-Goals, with their budgets." -->
 
 **3. Invariants & Contracts** — What must remain true before/after the change.
 Each invariant listed here must have a corresponding test in the relevant step.
@@ -302,6 +334,7 @@ scope creep during execution.
 ```
 
 ### Architecture Notes rules
+<!-- roles=planner phases=1 summary="The nine Architecture Notes rules: mandatory sections, immutability, traceability, budgets, no plan/design duplication." -->
 
 1. **Component Map and at least one Decision Record are mandatory.** Other
    sections are "include if applicable."
@@ -318,7 +351,7 @@ scope creep during execution.
 6. **Update diagrams with steps** — when a step modifies component interactions,
    updating the Component Map diagram is part of the episode capture or the
    Track Pre-Flight gate's review-mode loop (an `EDIT_PLAN` item per
-   [`review-mode.md`](review-mode.md) § Action types).
+   review-mode.md:orchestrator:3A,3C § Action types).
 7. **Mermaid diagrams** — required when there are 3+ components with
    non-trivial relationships; omit for simpler cases where a bullet list
    alone is clearer.
@@ -339,6 +372,7 @@ scope creep during execution.
    in both.
 
 ## Track descriptions
+<!-- roles=planner phases=1 summary="Each track is described across the thin plan-file checklist entry and the four Phase 1 track-level sections." -->
 
 Each **track** in the checklist is described across two files:
 
@@ -362,7 +396,7 @@ Each **track** in the checklist is described across two files:
   narrative; make it as long as the execution agent needs.
 
 The detailed description in the track file is split across the four
-Phase 1 track-level sections (see `conventions-execution.md` §2.1 for
+Phase 1 track-level sections (see `conventions-execution.md` `§2.1` for
 the full template and `design.md` §"New per-track file shape" for the
 authoritative shape). At Phase 1 the four sections cover:
 
@@ -382,10 +416,10 @@ authoritative shape). At Phase 1 the four sections cover:
   relevant to this track.
 
 The file format and template for both files are defined in
-`conventions.md` §1.2 and the track-file template in
-`conventions-execution.md` §2.1; the authoritative section lifecycle
+`conventions.md` `§1.2` and the track-file template in
+`conventions-execution.md` `§2.1`; the authoritative section lifecycle
 (Phase 1 → Phase A → Phase B/C writer/reader split) is given by the
-*Section lifecycle* table in `conventions-execution.md` §2.1.
+*Section lifecycle* table in `conventions-execution.md` `§2.1`.
 
 **Track sizing rule:** If a track would need more than ~5-7 steps, split it
 into separate dependent tracks during planning. The execution agent
@@ -395,6 +429,7 @@ sequencing and episode propagation between dependent tracks is handled by the
 execution agent.
 
 ## Track-level component interaction diagrams
+<!-- roles=planner phases=1 summary="Optional per-track Mermaid diagrams live in the track file's Interfaces and Dependencies section, not the plan." -->
 
 Optional Mermaid diagrams that belong with a track's **detailed
 description**, for when the track has 3+ internal components with
@@ -402,7 +437,7 @@ non-trivial interactions and the flow isn't obvious from the prose alone.
 
 Location: the diagram is written inside the track file's
 `## Interfaces and Dependencies` section as a separate fenced `mermaid`
-block (see the track-file template in `conventions-execution.md` §2.1).
+block (see the track-file template in `conventions-execution.md` `§2.1`).
 It is **never rendered in `implementation-plan.md`** — plan readers who
 want visual reasoning about a specific track open `plan/track-N.md`.
 Phase 1 writes the diagram alongside the rest of the section; Track
@@ -418,14 +453,16 @@ Rules:
   during Phase B/C).
 
 ## Scope indicators
+<!-- roles=planner phases=1 summary="Every track carries a `> **Scope:** ~N steps covering X, Y, Z` line; format and purpose live in conventions." -->
 
-Format, rules, and purpose: see `conventions.md` §1.2 (Scope indicators).
+Format, rules, and purpose: see `conventions.md` `§1.2` (Scope indicators).
 
 Every track must include `> **Scope:** ~N steps covering X, Y, Z` in its
 description block. Focus planner energy on track descriptions and
 architecture, not premature step decomposition.
 
 ## Design Document
+<!-- roles=planner phases=1 summary="The plan ships a separate design doc (class/workflow diagrams, complex-part sections), frozen after Phase 1." -->
 
 The plan must be accompanied by a separate **design document** at
 `docs/adr/<dir-name>/_workflow/design.md`. It explains the structural and behavioral
@@ -469,21 +506,23 @@ explicitly at any time, or accept the auto-suggestion that fires after
 § Two-mode editing — working vs sync.
 
 **Invocation:** use the `edit-design` skill
-([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
+(`edit-design/SKILL.md`),
 not direct `Edit` / `Write` calls.
 
 **Full rules, examples, and structure:**
-[`design-document-rules.md`](design-document-rules.md)
+design-document-rules.md:planner,final-designer,reviewer-design:1,3A,3C,4
 
 ## Checklist decomposition rules
+<!-- roles=planner phases=1 summary="Step decomposition is deferred to Phase 3; the canonical rules live in the track-review §Step Decomposition." -->
 
 Step decomposition is deferred to Phase 3 execution (Phase A: review +
 decomposition). The canonical decomposition rules are in
-[`track-review.md`](track-review.md) §Step Decomposition. During planning,
+track-review.md:orchestrator,decomposer:3A §Step Decomposition. During planning,
 focus on track-level descriptions and scope indicators — not step-level
 detail.
 
 ## Tooling — PSI-backed Component Map and integration points
+<!-- roles=planner phases=1 summary="Verify symbols, callers, and SPI consumers named in Architecture Notes through PSI via mcp-steroid before they land." -->
 
 Architecture Notes that name code constructs (Component Map, Integration
 Points, Decision Records that cite specific classes/methods, Invariants
@@ -491,7 +530,7 @@ that refer to existing enforcement sites) ride on the assumption that
 the cited symbols exist with the cited shape and the cited callers.
 Verify those facts through the IntelliJ PSI via mcp-steroid when the
 IDE is connected — per the rule in
-[`conventions.md`](conventions.md) §1.4 *Tooling discipline*. The
+conventions.md:any:any `§1.4` *Tooling discipline*. The
 preflight (`steroid_list_projects`), the requirement that load-bearing
 audits use PSI rather than grep, and the explicit-instruction rule for
 sub-agent delegations all apply during planning.
@@ -503,7 +542,7 @@ verification before they land in `implementation-plan.md` or
 `design.md` — they shape Phase A complexity assessment and step
 sizing, and silent grep misses become Phase A surprises.
 
-Three recipes in [`conventions.md`](conventions.md) §1.4 *Recipes*
+Three recipes in conventions.md:any:any `§1.4` *Recipes*
 are particularly useful during planning:
 
 - **`hierarchy-search`** — when the Component Map names an SPI or

@@ -1,6 +1,31 @@
 # Execution Workflow
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Overview | orchestrator,planner | any | What the execution workflow is and how its phases compose. |
+| §Terminology: Phases 0/1/2/3/4 vs Phases A/B/C | any | any | Disambiguates the numeric planning phases from the A/B/C per-track sub-phases. |
+| §Session Lifecycle | orchestrator | 2,3A,3B,3C,4 | How one /execute-tracks session starts, advances tracks, and ends. |
+| §Startup Protocol (Auto-Resume) | orchestrator | 2,3A,3B,3C,4 | State detection at startup: where to resume from the plan and track files. |
+| §Track Pre-Flight (Strategy Assessment + Track Summary) | orchestrator | 3A | Per-track strategy check and summary before review and decomposition. |
+| §Cross-Track Impact Monitoring | orchestrator | 3B,3C | Watching for changes that ripple into upcoming tracks. |
+| §Session Boundary Rules | orchestrator | 2,3A,3B,3C,4 | When to end a session and what to record before stopping. |
+| §When to end a session | orchestrator | 2,3A,3B,3C,4 | Triggers that should close the current session cleanly. |
+| §Context Consumption Check | orchestrator | 2,3A,3B,3C,4 | Context-window level table and the actions each level demands. |
+| §What to do before ending a session | orchestrator | 2,3A,3B,3C,4 | State to persist so the next session resumes without loss. |
+| §User Interaction Model | orchestrator | 2,3A,3B,3C,4 | When the orchestrator pauses for user input versus proceeding autonomously. |
+| §Failure Handling | orchestrator | 3B,3C | How the orchestrator reacts to implementer failures and gate misses. |
+| §Inline Replanning (ESCALATE) | orchestrator | 3A,3C | The ESCALATE back-edge that re-opens planning mid-execution. |
+| §Track Skip (`[~]`) | orchestrator | 3A | Marking a track skipped and the conditions that justify it. |
+| §Track Completion Protocol | orchestrator | 3C | Steps to close a track: episode, marks, progress update. |
+| §Final Artifacts (Phase 4) | orchestrator,final-designer | 4 | Producing design-final and adr; the promotion and cleanup commits. |
+| §Conventions | orchestrator | any | Pointer to the shared conventions this workflow relies on. |
+
+<!--Document index end-->
+
 ## Overview
+<!-- roles=orchestrator,planner phases=any summary="What the execution workflow is and how its phases compose." -->
 
 This is the session entry point for Phase 3 execution. You are a single agent
 that reads the plan, determines where execution left off, and either runs
@@ -19,15 +44,16 @@ are used for two distinct purposes:
    (`step-implementation.md`) and `level=track` for Phase C
    per-iteration review-fix application
    (`track-code-review.md`). Both share the same rulebook
-   ([`implementer-rules.md`](implementer-rules.md)) and prompt
+   (implementer-rules.md:implementer:3B,3C) and prompt
    template; the level switch is a single variable input. The
    orchestrator never edits source files itself in either Phase B
    or Phase C — Maven, Spotless, source-file reads, and IDE traffic
    are absorbed by the implementer's context.
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:any:any `§1.5` for the workflow-level anchor and tier mapping.
 
 ### Terminology: Phases 0/1/2/3/4 vs Phases A/B/C
+<!-- roles=any phases=any summary="Disambiguates the numeric planning phases from the A/B/C per-track sub-phases." -->
 
 The overall workflow has five phases:
 - **Phase 0 (Research)**: `/create-plan` — interactive research and exploration (same session as Phase 1)
@@ -68,6 +94,7 @@ at every phase boundary.
 ---
 
 ## Session Lifecycle
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="How one /execute-tracks session starts, advances tracks, and ends." -->
 
 ```mermaid
 flowchart TD
@@ -122,6 +149,7 @@ cross-track impact.
 ---
 
 ## Startup Protocol (Auto-Resume)
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State detection at startup: where to resume from the plan and track files." -->
 
 1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
    (startup reads only the plan; per-track track files at
@@ -134,7 +162,7 @@ cross-track impact.
    - `[~]` — skipped
 
 3. **Run the Branch Divergence Check.** Load
-   [`branch-divergence-check.md`](branch-divergence-check.md) and
+   branch-divergence-check.md:orchestrator:2,3A,3B,3C and
    follow it. This must happen in turn 1, before any per-commit push
    work — including handoff-resolution commits in the next step. A
    diverged branch left undetected makes every `git push` across the
@@ -145,7 +173,7 @@ cross-track impact.
    no default is picked.
 
 3a. **Run the Workflow Drift Check.** Load
-   [`workflow-drift-check.md`](workflow-drift-check.md) and follow it.
+   workflow-drift-check.md:orchestrator,planner:2,3A and follow it.
    This step runs after the divergence check and before the handoff
    scan, so any user-driven migration changes the on-disk shape of
    `_workflow/**` before steps 4 and 5 read those files. The gate
@@ -160,7 +188,7 @@ cross-track impact.
    `-t` sorts most-recent-first by mtime so the resume protocol
    processes handoffs in the correct order.
    If any files exist, load
-   [`mid-phase-handoff.md`](mid-phase-handoff.md) and follow its
+   mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 and follow its
    §Resume protocol. That protocol re-presents the pending decision
    (or research findings) to the user, deletes resolved handoff files
    and their secondary PAUSED markers, and only then returns control
@@ -197,9 +225,9 @@ cross-track impact.
    | Progress section | Resume action |
    |---|---|
    | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume (often a no-op since the track file already has its description from Phase 1), then re-run only missing reviews and decompose. |
-   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md §Phase B Resume for orphan commit recovery) |
+   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md:orchestrator:3B §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
-   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
+   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md:orchestrator,reviewer-dim-track:3C; includes track completion after review) |
    | All steps `[x]`, code review `[x]`, track still `[ ]` in plan | Resume track completion — compile episode, present to user for approval |
 
    Each resume handles exactly **one phase** — end session after that phase.
@@ -252,6 +280,7 @@ cross-track impact.
 ---
 
 ## Track Pre-Flight (Strategy Assessment + Track Summary)
+<!-- roles=orchestrator phases=3A summary="Per-track strategy check and summary before review and decomposition." -->
 
 Triggered at State A (pre-Phase-A — fresh entry). Combines a
 backward-looking strategy assessment (when an earlier track has
@@ -259,29 +288,32 @@ just completed or been skipped) with a forward-looking summary of
 the upcoming track. The user can apply light edits to remaining
 tracks, attach clarifications to the upcoming track, or escalate to
 inline replanning — all via the conversational review-mode loop (see
-[`review-mode.md`](review-mode.md)). The gate runs in the same
+review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C). The gate runs in the same
 session as Phase A; this is the only exception to mandatory phase
 boundaries.
 
-**Full protocol:** [`track-review.md`](track-review.md) § Track Pre-Flight
+**Full protocol:** track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A § Track Pre-Flight
 
 ---
 
 ## Cross-Track Impact Monitoring
+<!-- roles=orchestrator phases=3B,3C summary="Watching for changes that ripple into upcoming tracks." -->
 
 After each step implementation, the Phase B orchestrator performs a
 lightweight self-assessment against the plan, fed by the per-step
 implementer's `CROSS_TRACK_HINTS` return field. Triggered inside Phase B,
 not at startup.
 
-**Full protocol:** [`step-implementation.md`](step-implementation.md)
+**Full protocol:** step-implementation.md:orchestrator:3B
 §Cross-Track Impact Check.
 
 ---
 
 ## Session Boundary Rules
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="When to end a session and what to record before stopping." -->
 
 ### When to end a session
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Triggers that should close the current session cleanly." -->
 
 Phase boundaries are **mandatory** session boundaries. Each session handles
 exactly one phase:
@@ -320,6 +352,7 @@ exactly one phase:
   session.
 
 ### Context Consumption Check
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Context-window level table and the actions each level demands." -->
 
 At the end of each intermediate action within a phase (i.e., after every
 step except the last one), the agent actively checks its context window
@@ -357,7 +390,7 @@ yet.
    - Ensure all progress is written to the track file on disk
    - Update the **Progress** section in the track file on disk
    - **Write a handoff file** per
-     [`mid-phase-handoff.md`](mid-phase-handoff.md) if the pause
+     mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 if the pause
      leaves mid-phase state the next session cannot re-derive from
      the plan / track files alone. Mandatory for:
      - between-iteration pauses in Phase C;
@@ -371,7 +404,7 @@ yet.
      `docs/adr/<dir-name>/_workflow/handoff-<phase>.md`, paired with
      a `**PAUSED ...**` marker in the natural progress-tracking file
      (skipped for Phase 0 / 1 — see `mid-phase-handoff.md`
-     §Secondary marker) and a cross-reference in MEMORY.md. All
+     §Secondary marker) and a cross-reference in `MEMORY.md`. All
      channels are written in a single commit with a bare imperative
      message such as `Pause <phase> for context refresh — write
      handoff`.
@@ -384,6 +417,7 @@ This is **mandatory** — the agent must not continue to the next unit of
 work when context consumption is at `warning` level or above.
 
 ### What to do before ending a session
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State to persist so the next session resumes without loss." -->
 
 - Ensure all code changes are committed
 - Ensure all step episodes are written to the track file under
@@ -391,7 +425,7 @@ work when context consumption is at `warning` level or above.
   every workflow-file change has been committed (workflow files are
   tracked under `_workflow/` — see `commit-conventions.md`)
 - Run **self-improvement reflection** per
-  [`self-improvement-reflection.md`](self-improvement-reflection.md).
+  self-improvement-reflection.md:orchestrator,planner:any.
   This is mandatory for every phase (State 0, A, B, C, 4) and runs
   even on early-exit sessions (context warning, ESCALATE,
   two-failure rule). The phase docs invoke it as the second-to-last
@@ -431,11 +465,12 @@ work when context consumption is at `warning` level or above.
 ---
 
 ## User Interaction Model
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="When the orchestrator pauses for user input versus proceeding autonomously." -->
 
 Everything within a phase is fully autonomous **except design decisions**
 (choices affecting architecture, API shape, or behavioral semantics beyond
 what the plan prescribes — pause and ask with alternatives + trade-offs).
-**Full escalation protocol:** [`design-decision-escalation.md`](design-decision-escalation.md)
+**Full escalation protocol:** design-decision-escalation.md:implementer,orchestrator:3A,3B,3C
 
 User interaction points:
 
@@ -454,22 +489,24 @@ User interaction points:
 ---
 
 ## Failure Handling
+<!-- roles=orchestrator phases=3B,3C summary="How the orchestrator reacts to implementer failures and gate misses." -->
 
 Step-level failure handling (revert → failed episode → retry or split),
 the two-failure rule, and track-level failure escalation are all triggered
 inside Phase B.
 
-**Full protocol:** [`step-implementation-recovery.md`](step-implementation-recovery.md)
+**Full protocol:** step-implementation-recovery.md:orchestrator:3B
 §Step Failure, §Two-Failure Rule, §Track-Level Failure.
 
 ---
 
 ## Inline Replanning (ESCALATE)
+<!-- roles=orchestrator phases=3A,3C summary="The ESCALATE back-edge that re-opens planning mid-execution." -->
 
 Triggers when the Track Pre-Flight gate produces ESCALATE (Panel 1
 strategy assessment ESCALATE accepted by the user, or review mode
 produces an `ESCALATE` action item / a Mixed-set Escalate-now per
-[`review-mode.md`](review-mode.md) § ESCALATE detection — i.e., the
+review-mode.md:orchestrator,reviewer-dim-track,reviewer-plan:2,3A,3C § ESCALATE detection — i.e., the
 requested change touches Decision Records, Architecture Notes,
 Goals, Constraints, **adding** a new track, or cross-track
 interaction surfaces; **removing** a remaining track is light
@@ -478,31 +515,34 @@ fundamental assumption failure, or a step failure cannot be
 recovered with additional commits. Stops all new steps and enters
 a propose → review → iterate cycle.
 
-**Full protocol:** [`inline-replanning.md`](inline-replanning.md)
+**Full protocol:** inline-replanning.md:orchestrator:3A,3C
 
 ---
 
 ## Track Skip (`[~]`)
+<!-- roles=orchestrator phases=3A summary="Marking a track skipped and the conditions that justify it." -->
 
 Triggered when a Phase A review sub-agent returns a `skip` severity finding
 or the user requests skipping a track at session start / during strategy
 refresh. Requires user confirmation — tracks are never skipped autonomously.
 
-**Full protocol:** [`track-skip.md`](track-skip.md)
+**Full protocol:** track-skip.md:orchestrator:3A
 
 ---
 
 ## Track Completion Protocol
+<!-- roles=orchestrator phases=3C summary="Steps to close a track: episode, marks, progress update." -->
 
 Track completion is part of Phase C — it runs in the same session as the
 track-level code review, after the review loop and any plan corrections.
 
-**Full protocol:** [`track-code-review.md`](track-code-review.md) §Track
+**Full protocol:** track-code-review.md:orchestrator,reviewer-dim-track:3C §Track
 Completion.
 
 ---
 
 ## Final Artifacts (Phase 4)
+<!-- roles=orchestrator,final-designer phases=4 summary="Producing design-final and adr; the promotion and cleanup commits." -->
 
 Phase 4 lands two commits on non-workflow-modifying plans and three
 commits on workflow-modifying plans; the extra commit promotes the
@@ -512,7 +552,7 @@ After all tracks are complete, a separate session produces
 merge into `develop`.
 
 The directory-presence guard is `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/`
-per [`conventions.md`](conventions.md) §1.7(c) *Detection rule*: when
+per conventions.md:any:any `§1.7(c)` *Detection rule*: when
 the staged subtree exists, the promotion commit fires; when it is
 absent (the default), Phase 4 keeps the two-commit shape. The promotion
 bash itself, the divergence sanity check, and the exact commit
@@ -523,12 +563,12 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    copy the staged subtree onto the live `.claude/workflow/` and
    `.claude/skills/` paths, then commit with the message prefix
    `Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
-   per `conventions.md` §1.7(e) and the implementer-rules
+   per `conventions.md` `§1.7(e)` and the implementer-rules
    live-workflow-path gate's allow-clause. The Phase 4 prompt at
    `prompts/create-final-design.md` § Step 4 carries the full bash,
    the directory-presence guard, and the pre-promotion divergence
    check that halts when the branch has diverged from `develop` per
-   `conventions.md` §1.7(f) *Rebase-precedes-promotion*. When the
+   `conventions.md` `§1.7(f)` *Rebase-precedes-promotion*. When the
    guard fails, the step is a silent no-op and Phase 4 stays in the
    two-commit shape.
 2. **Final-artifacts commit.** Stage `design-final.md`,
@@ -537,7 +577,7 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    § Step 5; push.
 3. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
-   (plan, design.md, design-mechanics.md, track files,
+   (plan, `design.md`, `design-mechanics.md`, track files,
    design-mutations log, and the staged subtree if present). Commit
    with a message such as `Remove workflow scaffolding`. Push.
 
@@ -546,7 +586,7 @@ Phase 4 commit lands — it creates any approved proposals as YouTrack
 issues under `YTDB` with the `dev-workflow` tag and produces **no
 commit** on the branch (the YouTrack sink replaces the retired local
 `workflow-issues/` buffer). See
-[`self-improvement-reflection.md`](self-improvement-reflection.md).
+self-improvement-reflection.md:orchestrator,planner:any.
 
 After every Phase 4 commit is pushed and reflection has run, **inform
 the user that Phase 4 is complete and stop**. If reflection created
@@ -558,11 +598,12 @@ Tracked in the `## Final Artifacts` section of
 `implementation-plan.md` (see State D markers in the Startup
 Protocol table above).
 
-**Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
+**Full instructions:** prompts/create-final-design.md:final-designer:4
 
 ---
 
 ## Conventions
+<!-- roles=orchestrator phases=any summary="Pointer to the shared conventions this workflow relies on." -->
 
 This document defines the session lifecycle and cross-track coordination.
 For other workflow components, see:
@@ -584,18 +625,18 @@ For other workflow components, see:
 On-demand reference documents (loaded only when their specific situation arises):
 - **`inline-replanning.md`** — full ESCALATE replanning protocol
 - **`review-iteration.md`** — iteration limits, finding ID prefixes, gate format (loaded when running any review loop)
-- **`code-review-protocol.md`** — two-tier dimensional code review (loaded by step-implementation.md and track-code-review.md)
+- **`code-review-protocol.md`** — two-tier dimensional code review (loaded by step-implementation.md:orchestrator:3B and track-code-review.md:orchestrator,reviewer-dim-track:3C)
 - **`plan-slim-rendering.md`** — slim plan rendering for sub-agent contexts (loaded when assembling step-level or track-level review sub-agent prompts)
 - **`episode-format-reference.md`** — detailed episode format, rules, examples
 - **`design-document-rules.md`** — design document rules, examples, structure
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
-- **`structural-review.md`** — structural review details (loaded by implementation-review.md)
+- **`structural-review.md`** — structural review details (loaded by implementation-review.md:orchestrator,reviewer-design,reviewer-plan:2)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 3; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
 - **`workflow-drift-check.md`** — turn-1 workflow-format drift detection and three-resolution gate (loaded by the Startup Protocol step 3a, immediately after the Branch Divergence Check; the Remote-authoritative re-entry contract is one-sided pending a symmetric edit to `branch-divergence-check.md` — see the gate file's `## After the choice` section, *Remote-authoritative re-entry — forward-looking note* paragraph)
-- **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
+- **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md:orchestrator:3B and track-code-review.md:orchestrator,reviewer-dim-track:3C)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step inline `risk:` token from the `## Concrete Steps` roster line directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
 - **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
-- **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the pre-commit gate regex are usually enough)
+- **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the `§2.3` stub in `conventions-execution.md` plus the pre-commit gate regex are usually enough)
 - **`self-improvement-reflection.md`** — mandatory final step at the end of every session run by a calling skill that opts into reflection (`/execute-tracks` today; `/migrate-workflow` from this work forward). Phase identifiers depend on session-type (see `self-improvement-reflection.md` §Inputs). Reflects on workflow-process friction encountered in the session and creates approved proposals as YouTrack issues under `YTDB` with the `dev-workflow` tag (or skips with a notice when the YouTrack MCP server is unreachable). Produces no commit. Loaded on-demand at end-of-session by every phase doc.

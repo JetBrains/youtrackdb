@@ -1,5 +1,26 @@
 # Implementer — Rulebook
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Loading discipline | implementer | 3B,3C | This rulebook is read only by the implementer sub-agent on each spawn at either level; orchestrators do not load it. |
+| §Inputs the orchestrator passes on each spawn | implementer | 3B,3C | The stable and per-spawn inputs (level, mode, base_commit, findings, step fields) and the mode/level validity matrix. |
+| §What the implementer does (sub-steps 1–3, expanded) | implementer | 3B,3C | Sub-steps 1–3: implement the change (PSI/IDE/staging), add/run tests, then stage explicit paths, commit, and push. |
+| §Pacing long-running tasks — foreground only | implementer | 3B,3C | Run Maven in foreground; no background or poll loops; prefer targeted -Dtest re-runs and the test-additive shortcut. |
+| §When the failure mode is opaque — consider an IDE debug session | implementer | 3B,3C | For opaque failures with mcp-steroid reachable, run an IDE debug session; skip it for clean assertion/compile failures. |
+| §Detection rules — return early without committing | implementer | 3B,3C | The three early-return cases and the snapshot-and-diff revert sequence run before any early return. |
+| §Design decision detected | implementer | 3B | Return DESIGN_DECISION_NEEDED with alternatives and notes when a choice exceeds the plan and Decision Records. |
+| §Risk upgrade required (level=step only) | implementer | 3B | Return RISK_UPGRADE_REQUESTED when the step is more invasive than its tag; forbidden at level=track. |
+| §Fundamental failure | implementer | 3B,3C | Return FAILED with a FAILURE block and a level-conditional recommended_action (retry/split/escalate). |
+| §Mode-specific scope of the local revert | implementer | 3B,3C | The revert command is identical across modes; the semantic scope of what gets rolled back differs by level and mode. |
+| §Return contract | implementer | 3B,3C | The single structured RESULT block the implementer must emit on every exit; silent exit is forbidden. |
+| §Field rules | implementer | 3B,3C | Per-field rules for the RESULT block (COMMIT, FILES_TOUCHED, TEST_SUMMARY, EPISODE_DRAFT vs FIX_NOTES, failure_class). |
+| §Tooling discipline | implementer | 3B,3C | Pointers to the project PSI/Maven/refactoring rules, the ephemeral-identifier rule, and house-style tiers. |
+| §Coverage gate command | implementer | 3B,3C | The canonical coverage-gate command (85% line / 70% branch) run after a coverage-profile build. |
+
+<!--Document index end-->
+
 This document is the rulebook for the **implementer sub-agent**
 spawned by the orchestrator at two distinct levels:
 
@@ -25,21 +46,22 @@ divergence is called out inline as "Phase B (level=step)" /
 The rulebook for the orchestrator side — Phase B startup, per-step
 orchestration loop, dimensional review fan-out, episode finalisation,
 Phase C review loop, track completion — lives in
-[`step-implementation.md`](step-implementation.md) and
-[`track-code-review.md`](track-code-review.md). Together with this
+step-implementation.md:orchestrator:3B and
+track-code-review.md:orchestrator,reviewer-dim-track:3C. Together with this
 rulebook they are the only entry points; everything else is loaded on
 demand.
 
 ---
 
 ## Loading discipline
+<!-- roles=implementer phases=3B,3C summary="This rulebook is read only by the implementer sub-agent on each spawn at either level; orchestrators do not load it." -->
 
 This file is read **only by the implementer sub-agent** on each spawn,
 at either level. Orchestrators do not load it. The orchestrator
 specifications — including the prompt template and how this rulebook
 is referenced from each spawn — live in
-[`step-implementation.md`](step-implementation.md) (Phase B,
-`level=step`) and [`track-code-review.md`](track-code-review.md)
+step-implementation.md:orchestrator:3B (Phase B,
+`level=step`) and track-code-review.md:orchestrator,reviewer-dim-track:3C
 (Phase C, `level=track`).
 
 The implementer's environment auto-loads the user-global rules in
@@ -53,6 +75,7 @@ implementer reads the track file, the slim plan snapshot, and
 ---
 
 ## Inputs the orchestrator passes on each spawn
+<!-- roles=implementer phases=3B,3C summary="The stable and per-spawn inputs (level, mode, base_commit, findings, step fields) and the mode/level validity matrix." -->
 
 The implementer prompt has a **stable static prefix** (workflow context
 + rulebook path + project paths) followed by **per-spawn variable
@@ -117,6 +140,7 @@ risk tags, descriptions) but does not focus on a single step.
 ---
 
 ## What the implementer does (sub-steps 1–3, expanded)
+<!-- roles=implementer phases=3B,3C summary="Sub-steps 1–3: implement the change (PSI/IDE/staging), add/run tests, then stage explicit paths, commit, and push." -->
 
 The Phase B orchestrator's per-step workflow has seven sub-steps and
 the Phase C orchestrator's review iteration is a parallel three-step
@@ -174,14 +198,14 @@ rules:
   "Refactoring — IDE refactor vs raw Edit" for the routing table.
   The `change-signature`, `extract-interface`, `pull-up-members`,
   and `push-down-members` recipes (catalogued in `conventions.md`
-  §1.4 *Recipes*) cover the common cases.
+  `§1.4` *Recipes*) cover the common cases.
 - **Multi-site / multi-file literal-text edits that don't need
   symbol resolution** (recurring string literal, repeated boilerplate
   across call sites, Javadoc tag swap) route through the dedicated
   `steroid_apply_patch` tool rather than 2+ chained native `Edit`
   calls — the native tool bypasses IntelliJ and leaves PSI / search
   indices stale. Single-site edits stay on `Edit`. See
-  `conventions.md` §1.4 *Other mcp-steroid routes* and the project's
+  `conventions.md` `§1.4` *Other mcp-steroid routes* and the project's
   `.claude/docs/mcp-steroid/skills.md` → `apply-patch-tool-description`
   for the rule.
 - **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
@@ -190,11 +214,11 @@ rules:
   `./mvnw` per the project's `CLAUDE.md` § MCP Steroid → "Maven —
   when to route through mcp-steroid". When an IDE-routed test run
   fails, the `test/failure-details` and `test/statistics` recipes
-  (see `conventions.md` §1.4 *Recipes*) read structured per-test
+  (see `conventions.md` `§1.4` *Recipes*) read structured per-test
   outcomes back from the IDE without re-parsing surefire XML.
 - **Before deleting a method, field, or class** that may still be
   referenced anywhere — load the `safe-delete` recipe (see
-  `conventions.md` §1.4 *Recipes*) and run it in dry-run mode
+  `conventions.md` `§1.4` *Recipes*) and run it in dry-run mode
   before the deletion. The recipe enumerates remaining production
   callers via PSI; an empty list is the green light to proceed.
 - The session-start preflight from the project's `CLAUDE.md` § MCP
@@ -207,7 +231,7 @@ rules:
   workflow stays at develop's state through Phase B and Phase C. The
   implementer detects the mode per-spawn by reading the plan file's
   `### Constraints` section and matching the canonical marker sentence
-  defined in [`conventions.md`](conventions.md) §1.7(b) verbatim:
+  defined in conventions.md:any:any `§1.7(b)` verbatim:
 
   ```
   This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
@@ -222,14 +246,14 @@ rules:
   `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/X.md`.
   The rewrite covers every write surface (`Edit`, `Write`,
   `steroid_apply_patch`, `steroid_execute_code` file writes, and `Bash`
-  redirections) per `conventions.md` §1.7(e). On first touch of a
+  redirections) per `conventions.md` `§1.7(e)`. On first touch of a
   live file with no staged copy, copy the live file to the staged path
   verbatim, then apply the edit to the staged copy; subsequent writes
   to the same file edit the staged copy directly. The copy-then-edit
   step preserves develop's state as the staged baseline so the eventual
   Phase 4 promotion overwrites the live tree with a coherent target.
 
-  Reads precedence follows `conventions.md` §1.7(d): the staged copy
+  Reads precedence follows `conventions.md` `§1.7(d)`: the staged copy
   is authoritative when present, otherwise read the live file. A step
   that authors a rule in the staged `conventions.md` is visible to
   every subsequent step in the same plan that cites or extends it.
@@ -244,8 +268,8 @@ rules:
   `Step N`, finding IDs, iteration counters, or named-only plan
   invariants) in source code, Javadoc, test names, or test
   descriptions — see
-  [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) for
-  the full Ephemeral identifier rule and rewrite examples (the §2.3
+  ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4 for
+  the full Ephemeral identifier rule and rewrite examples (the `§2.3`
   stub in `conventions-execution.md` is a quick recap pointing at
   the same regex). Sub-step 3 below makes that regex a hard
   pre-commit gate; staying clean while writing prose avoids paying
@@ -269,24 +293,24 @@ changes.
 No `git add -A`. No `--amend`. Apply the project's commit-message
 convention from `CLAUDE.md` (imperative summary under 50 chars, blank
 line, detailed why). The Ephemeral identifier rule
-([`conventions-execution.md`](conventions-execution.md) §2.3) covers
+(conventions-execution.md:orchestrator,decomposer,implementer:3A,3B,3C,4 `§2.3`) covers
 durable content only — branch-only commit messages may cite
 `Track N` / `Step N` / finding IDs / iteration counters when it
 makes the commit log easier to follow, since the squash-merge
 collapses them away (see
-[`commit-conventions.md`](commit-conventions.md) "Branch-only
+commit-conventions.md:orchestrator,implementer:3A,3B,3C "Branch-only
 commit messages may cite workflow-internal identifiers"). For
 `mode == FIX_REVIEW_FINDINGS` or `mode == WITH_GUIDANCE` with a
 fix-applied outcome at `level=track`, prefix the commit subject with
-`Review fix:` per [`commit-conventions.md`](commit-conventions.md);
+`Review fix:` per commit-conventions.md:orchestrator,implementer:3A,3B,3C;
 prefer describing the fix by what changed (behavior, file, class)
 over citing a finding ID, but a finding-ID reference is permitted
 when it aids review. The same `Review fix:` prefix applies at both
 levels — Phase B Resume distinguishes Phase B vs Phase C fix commits
 by **position** (Phase C fix commits appear strictly after the last
 episode commit, since Phase B is fully done before Phase C runs);
-see [`commit-conventions.md`](commit-conventions.md) and
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+see commit-conventions.md:orchestrator,implementer:3A,3B,3C and
+step-implementation-recovery.md:orchestrator:3B
 §Resume-side commit-pattern reference.
 
 **Pre-commit gate, ephemeral-identifier check.** After staging and
@@ -303,7 +327,7 @@ Inspect-then-rewrite. Matches that resolve to allowed exceptions
 file paths; see the rule file's §Allowed list) pass through;
 matches resolving to forbidden labels (`Track N`, `Step N`, review
 finding IDs) must be rewritten contract-first per
-[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md)
+ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4
 §"How to rewrite a forbidden reference". Re-stage and re-run until
 every remaining match resolves to the §Allowed list.
 
@@ -331,7 +355,7 @@ passed to a tool, a `Bash` redirection that the implementer
 forgot to rewrite — at commit time, before the bypass lands in
 history. The gate fires only when the active plan declares
 workflow-modifying in its `### Constraints` section per
-[`conventions.md`](conventions.md) §1.7(b); on plans without the
+conventions.md:any:any `§1.7(b)`; on plans without the
 marker, the staging convention does not apply and the gate is a
 no-op.
 
@@ -351,14 +375,14 @@ composes its commit message before staging). When the prepared
 message begins with the exact prefix
 `Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
 (the Phase 4 promotion commit signature per `conventions.md`
-§1.7(e)), the live-path diff is the legitimate work product and
+`§1.7(e)`), the live-path diff is the legitimate work product and
 the gate passes. Every other prepared message must produce an
 empty diff to commit.
 
 Non-empty diffs outside the promotion commit cause the gate to
 refuse the commit. Recovery is symmetric with the ephemeral-
 identifier gate: rewrite the offending write's target to the
-staged subtree per `conventions.md` §1.7(e), re-stage, and re-run
+staged subtree per `conventions.md` `§1.7(e)`, re-stage, and re-run
 the gate until empty (or until the legitimate Phase 4 promotion
 commit replaces the implementer-level commit message).
 
@@ -370,13 +394,13 @@ separate finding for the next iteration. The gate applies on
 every spawn including `mode=FIX_REVIEW_FINDINGS` respawns.
 
 **After the commit lands, run `git push` immediately** per
-[`commit-conventions.md`](commit-conventions.md) § Push every commit.
+commit-conventions.md:orchestrator,implementer:3A,3B,3C § Push every commit.
 The implementer is responsible for the push; the orchestrator does
 not push on the implementer's behalf. Inspect the `git push` exit
 code: a successful push is a precondition for emitting
 `RESULT: SUCCESS` (see §Return contract `COMMIT` field rule below).
 On push failure (the shapes enumerated in
-[`commit-conventions.md`](commit-conventions.md) § Push failure
+commit-conventions.md:orchestrator,implementer:3A,3B,3C § Push failure
 handling), do **not** emit `SUCCESS`. Surface the situation via
 `RESULT: FAILED` with `FAILURE.recommended_action: retry`,
 `FAILURE.failure_class: push_only`, and `FAILURE.why_it_failed`
@@ -385,7 +409,7 @@ tells the orchestrator that the commit content is fine and only the
 push relationship to `origin` failed — at `mode=FIX_REVIEW_FINDINGS`
 the orchestrator skips the rollback that would otherwise revert the
 implementer's good commit (see
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §`rollback_and_handle_failure`).
 
 **Return.** Emit the structured result block (see §Return contract
@@ -403,6 +427,7 @@ existing one), track episode, `[x]` mark on the plan track entry —
 are the Phase C orchestrator's responsibility.
 
 ### Pacing long-running tasks — foreground only
+<!-- roles=implementer phases=3B,3C summary="Run Maven in foreground; no background or poll loops; prefer targeted -Dtest re-runs and the test-additive shortcut." -->
 
 The implementer is spawned synchronously by the orchestrator via the
 Agent tool. The orchestrator parses **one** structured return block
@@ -490,7 +515,7 @@ profile build, integration tests:
   Steroid → "Maven — when to route through mcp-steroid",
   single-test re-runs and short targeted lists belong on the IDE
   route. The `test/failure-details` and `test/statistics` recipes
-  (catalogued in `conventions.md` §1.4 → "Recipes" subsection)
+  (catalogued in `conventions.md` `§1.4` → "Recipes" subsection)
   return structured
   per-test outcomes from `RunContentManager` rather than streaming
   surefire stdout into the conversation — typically a 10–25× context
@@ -508,6 +533,7 @@ coverage on a slow host), return `RESULT: FAILED` with
 splits do not apply) and let the orchestrator decide how to proceed.
 
 ### When the failure mode is opaque — consider an IDE debug session
+<!-- roles=implementer phases=3B,3C summary="For opaque failures with mcp-steroid reachable, run an IDE debug session; skip it for clean assertion/compile failures." -->
 
 If a test failure is **opaque from the stack trace + test output** —
 concurrency hang, unexpected branch taken, mid-operation state
@@ -532,6 +558,7 @@ implementation.
 ---
 
 ## Detection rules — return early without committing
+<!-- roles=implementer phases=3B,3C summary="The three early-return cases and the snapshot-and-diff revert sequence run before any early return." -->
 
 The implementer **MUST** stop and return early — without committing —
 in three cases. The orchestrator decides what happens next; the
@@ -618,13 +645,14 @@ had staged files before bailing.
 The semantic scope of the revert differs by mode (see §"Mode-specific
 scope of the local revert" below), but the command sequence above
 is the same. The orchestrator's pre-revert assertion in
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Post-Commit Handlers depends on this — a dirty tree at hand-off is a contract
 violation, and an orphaned implementer-created untracked file at
 hand-off would also be a contract violation (it would interfere with
 the next spawn's pre-snapshot).
 
 ### Design decision detected
+<!-- roles=implementer phases=3B summary="Return DESIGN_DECISION_NEEDED with alternatives and notes when a choice exceeds the plan and Decision Records." -->
 
 A **design decision** is a choice between alternatives that affects
 architecture, public API shape, data structures, algorithms, or
@@ -662,6 +690,7 @@ and respawns the implementer with `mode=WITH_GUIDANCE` and the
 redo the exploration.
 
 ### Risk upgrade required (level=step only)
+<!-- roles=implementer phases=3B summary="Return RISK_UPGRADE_REQUESTED when the step is more invasive than its tag; forbidden at level=track." -->
 
 Implementation reveals that the step is more invasive than its
 tagged risk — for example, the "trivial refactor" tagged `low`
@@ -671,7 +700,7 @@ form.
 
 **This case is `level=step` only.** At `level=track` there is no
 per-step risk to upgrade — risk tags are locked at the end of
-Phase B per [`risk-tagging.md`](risk-tagging.md) §Risk locking.
+Phase B per risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C §Risk locking.
 Returning `RESULT: RISK_UPGRADE_REQUESTED` from a `level=track`
 spawn is a contract violation; the orchestrator surfaces the
 return to the user instead of dispatching. If applying a Phase C
@@ -686,7 +715,7 @@ HEAD`, then `comm -13` against a post-snapshot to surgically remove
 only files this spawn created), then return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
 `from`, `to`, `category` (one of: `concurrency`, `crash-safety`,
 `public-API`, `security`, `architecture`, `performance-hot-path` —
-see [`risk-tagging.md`](risk-tagging.md) for the full criteria), and
+see risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C for the full criteria), and
 `evidence` (a short factual statement of what was discovered).
 
 The implementer **never writes to the track file** to apply the
@@ -697,6 +726,7 @@ step has been planned at a given risk level, the implementer cannot
 self-relax review pressure.
 
 ### Fundamental failure
+<!-- roles=implementer phases=3B,3C summary="Return FAILED with a FAILURE block and a level-conditional recommended_action (retry/split/escalate)." -->
 
 A failure the step's scope cannot address — wrong API assumption,
 tests cannot be made to pass, coverage cannot be met, architectural
@@ -724,6 +754,7 @@ retry/split rows, and runs the two-failure detection on its side
 (`level=step` only — Phase C does not insert retry/split rows).
 
 ### Mode-specific scope of the local revert
+<!-- roles=implementer phases=3B,3C summary="The revert command is identical across modes; the semantic scope of what gets rolled back differs by level and mode." -->
 
 The snapshot-and-diff revert sequence at the top of this section
 (snapshot, `git reset --hard HEAD`, `comm -13` cleanup) resets to
@@ -745,7 +776,7 @@ what gets reverted differs:
   iterations). The implementer's reset clears only its in-progress
   fix attempt; the prior commits stay on disk. Rolling those back
   is the Phase B **orchestrator's** responsibility — see
-  [`step-implementation-recovery.md`](step-implementation-recovery.md)
+  step-implementation-recovery.md:orchestrator:3B
   §Post-Commit Handlers. The implementer must not run `git reset --hard
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
@@ -758,7 +789,7 @@ what gets reverted differs:
   which itself sits on top of that iteration's `Review fix:` commit
   (the orchestrator records Progress as a Workflow update commit
   immediately after each successful fix iteration; see
-  [`track-code-review.md`](track-code-review.md) §Review loop). The
+  track-code-review.md:orchestrator,reviewer-dim-track:3C §Review loop). The
   implementer commits on top of HEAD whatever it is and does not
   need to inspect the prior commit's subject. The implementer's
   reset clears only its in-progress fix attempt; nothing else is
@@ -766,7 +797,7 @@ what gets reverted differs:
   successful `Review fix:` commits on a `FAILED` return — the
   earlier fixes remain valid (they passed their gate check) and
   the failed iteration is treated as a no-op. See
-  [`track-code-review.md`](track-code-review.md) §Review loop and
+  track-code-review.md:orchestrator,reviewer-dim-track:3C §Review loop and
   the `level=track` row in §Return contract field rules below.
 
 The implementer is therefore symmetric in code (the snapshot-and-diff
@@ -779,6 +810,7 @@ the prior step commits; Phase C never rolls back across spawns.
 ---
 
 ## Return contract
+<!-- roles=implementer phases=3B,3C summary="The single structured RESULT block the implementer must emit on every exit; silent exit is forbidden." -->
 
 The implementer's return is a **single structured block**. The
 orchestrator parses it; everything else in the implementer's output is
@@ -794,7 +826,7 @@ block (or a block truncated mid-field) is a contract violation: the
 orchestrator cannot dispatch on missing data, the implementer's last
 actions are by definition uncommitted, and recovery requires manual
 inspection of the working tree (see
-[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+track-code-review.md:orchestrator,reviewer-dim-track:3C §Phase C Implementer
 Handlers → `RESULT_MISSING` for the orchestrator-side handler).
 
 When an exit is forced before sub-steps 1–3 complete, the priority
@@ -811,7 +843,7 @@ if time and budget still permit. If the revert cannot complete,
 leaving a dirty tree at HEAD on a `FAILED` return is itself a
 contract violation that the orchestrator's
 `handle_iteration_failure` path surfaces to the user (see
-[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+track-code-review.md:orchestrator,reviewer-dim-track:3C §Phase C Implementer
 Handlers → `handle_iteration_failure` "Verify `git status` is clean
 before continuing"); the user then chooses among the same
 commit-as-is / re-spawn / discard options as the `RESULT_MISSING`
@@ -921,6 +953,7 @@ FAILURE:                          # only if RESULT == FAILED
 ```
 
 ### Field rules
+<!-- roles=implementer phases=3B,3C summary="Per-field rules for the RESULT block (COMMIT, FILES_TOUCHED, TEST_SUMMARY, EPISODE_DRAFT vs FIX_NOTES, failure_class)." -->
 
 - `RESULT` is the dispatch tag — the orchestrator routes on it. Pick
   exactly one value. `RISK_UPGRADE_REQUESTED` is **forbidden at
@@ -985,7 +1018,7 @@ FAILURE:                          # only if RESULT == FAILED
   landed locally, and only `git push` failed. The orchestrator uses
   this flag at `mode=FIX_REVIEW_FINDINGS` to skip the rollback path
   in `rollback_and_handle_failure` — see
-  [`step-implementation-recovery.md`](step-implementation-recovery.md).
+  step-implementation-recovery.md:orchestrator:3B.
   Omit or set to `content` for every other failure (work didn't
   start, tests failed, spotless failed, commit refused, etc.).
   Mis-tagging a content failure as `push_only` leaves a broken
@@ -994,6 +1027,7 @@ FAILURE:                          # only if RESULT == FAILED
 ---
 
 ## Tooling discipline
+<!-- roles=implementer phases=3B,3C summary="Pointers to the project PSI/Maven/refactoring rules, the ephemeral-identifier rule, and house-style tiers." -->
 
 The implementer relies on the existing rules verbatim — do not
 duplicate the routing tables here. Pointers:
@@ -1003,21 +1037,21 @@ duplicate the routing tables here. Pointers:
   switch", "Maven — when to route through mcp-steroid", "Refactoring —
   IDE refactor vs raw Edit").
 - **Project conventions and PSI requirement for load-bearing audits**:
-  [`conventions.md`](conventions.md) §1.4 *Tooling discipline*.
+  conventions.md:any:any `§1.4` *Tooling discipline*.
 - **Ephemeral identifier rule** for durable content (code, tests,
   PR title/body, `design-final.md`, `adr.md`):
-  [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) is
-  the full rule; the §2.3 stub in `conventions-execution.md` carries
+  ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4 is
+  the full rule; the `§2.3` stub in `conventions-execution.md` carries
   the quick recap and the pre-commit gate regex. Branch-only commit
   messages are exempt; see
-  [`commit-conventions.md`](commit-conventions.md) "Branch-only
+  commit-conventions.md:orchestrator,implementer:3A,3B,3C "Branch-only
   commit messages may cite workflow-internal identifiers".
 - **Risk categories** referenced in `RISK_UPGRADE.category`:
-  [`risk-tagging.md`](risk-tagging.md). The implementer reads only
+  risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C. The implementer reads only
   the category names; full criteria and override rules stay in
   `risk-tagging.md` for the orchestrator and Phase A.
 - **Commit-message prefixes** for `mode=FIX_REVIEW_FINDINGS`:
-  [`commit-conventions.md`](commit-conventions.md).
+  commit-conventions.md:orchestrator,implementer:3A,3B,3C.
 - **House-style for prose**: `.claude/output-styles/house-style.md`
   is the rule set. Tier A (full house-style: BLUF lead, banned
   vocabulary, em-dash discipline, soft section length cap with
@@ -1030,11 +1064,12 @@ duplicate the routing tables here. Pointers:
   the Tier-B AI-tell subset are `## Banned vocabulary`,
   `## Banned sentence patterns`, `## Banned analysis patterns`, and
   `### Em-dash discipline`.
-  See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
+  See conventions.md:any:any for the workflow-level pointer.
 
 ---
 
 ## Coverage gate command
+<!-- roles=implementer phases=3B,3C summary="The canonical coverage-gate command (85% line / 70% branch) run after a coverage-profile build." -->
 
 The canonical coverage check after running tests with the `coverage`
 profile is:

@@ -5,11 +5,24 @@ argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: planner.
+Your phase: determined by the auto-resume State in `workflow.md` § Startup Protocol.
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
 Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
-> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../../workflow/conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** User-facing prose produced from this file (status updates, escalation prompts, replanning summaries, review-mode loop turns, handoff notes, whichever apply) follows the AI-tell subset of `house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, `§ Structural rules` for the ≤200-word section cap, `§ Document-shape rules (design / ADR-specific)`) do not apply to chat-scale prose. See conventions.md:planner:0,1 `§1.5` for the workflow-level anchor and tier mapping.
 
-> **Stamp discipline.** Every `_workflow/**` artifact this SKILL creates carries a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation. Direct-mutation kinds applied later by `edit-design` (`content-edit`, `section-add`, `section-remove`, `section-rename`, `section-move`, `structural-rewrite`, `mechanics-edit`, `design-sync`) leave the stamp untouched and preserve its line-1 position; only artifact creation, migration replay, and no-drift normalization write the stamp. The format definition, parser idioms, and the paired SHA-computation idiom this SKILL copies into its planning-transition step are anchored in [conventions.md §1.6](../../workflow/conventions.md). Read that section for the single source of truth.
+> **Stamp discipline.** Every `_workflow/**` artifact this SKILL creates carries a line-1 `<!-- workflow-sha: <40-char SHA> -->` stamp written at creation. Direct-mutation kinds applied later by `edit-design` (`content-edit`, `section-add`, `section-remove`, `section-rename`, `section-move`, `structural-rewrite`, `mechanics-edit`, `design-sync`) leave the stamp untouched and preserve its line-1 position; only artifact creation, migration replay, and no-drift normalization write the stamp. The format definition, parser idioms, and the paired SHA-computation idiom this SKILL copies into its planning-transition step are anchored in conventions.md:planner:1 `§1.6`. Read that section for the single source of truth.
 
 **Step 1 — Read workflow documents.**
 
@@ -33,7 +46,7 @@ it. Otherwise, default to `$(git branch --show-current)`.
 **Ordering:** this step depends on the `<dir-name>` resolver above being complete and Step 1b's `mkdir` not yet having run — see the trailing paragraph below for the gate's Skip-#1 rationale.
 
 Invoke the drift gate defined in
-[`.claude/workflow/workflow-drift-check.md`](../../workflow/workflow-drift-check.md).
+workflow-drift-check.md:planner:1.
 The gate is shared with `/execute-tracks`; its intro names both callers
 and its body is caller-symmetric, so this step is a thin orchestration
 handoff rather than a re-statement of the bash. Run the gate's
@@ -55,9 +68,8 @@ skip condition matched. The user picks one:
   downstream of Step 1.5).
 - **Defer** — continue this session. Record the deferred-drift count
   via the TaskCreate todo described in `workflow-drift-check.md`
-  § Defer; Step 5's deferred-drift recital reads that todo and prints
-  the same line shape `workflow.md § What to do before ending a
-  session` uses for `/execute-tracks`. If TaskCreate is unavailable
+  `§ Defer`; Step 5's deferred-drift recital reads that todo and prints
+  the same line shape `workflow.md § What to do before ending a session` uses for `/execute-tracks`. If TaskCreate is unavailable
   in this session, hold the `<count>` and `<short-stamp-base-SHA>`
   (or the unstamped variant flag) in in-context memory instead,
   matching the gate file's § Defer paragraph.
@@ -89,8 +101,8 @@ Run:
 ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
 ```
 If any files exist, load
-[`.claude/workflow/mid-phase-handoff.md`](../../workflow/mid-phase-handoff.md)
-and follow its §Resume protocol BEFORE Step 1b. A previous
+mid-phase-handoff.md:planner:1
+and follow its `§Resume protocol` BEFORE Step 1b. A previous
 `/create-plan` session paused mid-research or mid-planning and left a
 handoff to be re-presented. Do NOT ask for the aim, start fresh
 research, or write plan files until the handoff is resolved.
@@ -106,7 +118,7 @@ mkdir -p docs/adr/<dir-name>/_workflow/plan
 This is idempotent — safe to re-run on resume. The directory carries
 the plan, design, track files, and handoff files; the Phase 4 cleanup
 commit removes it before merge (see
-`.claude/workflow/conventions.md` §1.2).
+`.claude/workflow/conventions.md` `§1.2`).
 
 **Step 2 — Ask the user for the aim.**
 
@@ -116,7 +128,7 @@ The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 (the `_workflow/` subdir holds every ephemeral working file — plan,
 design, track files, reviews — and is removed in the Phase 4
-cleanup commit before merge; see `conventions.md` §1.2 and
+cleanup commit before merge; see `conventions.md` `§1.2` and
 `workflow.md` § Final Artifacts).
 The codebase is at the current working directory.
 
@@ -182,7 +194,7 @@ Help the user develop the plan:
      additions plus ordering constraints and invariants to preserve;
      `## Interfaces and Dependencies` carries in-scope/out-of-scope
      file boundaries, inter-track dependencies, and library/function
-     signatures. See `conventions-execution.md` §2.1 for the
+     signatures. See `conventions-execution.md` `§2.1` for the
      canonical section list and lifecycle.
    - Include a track-level Mermaid component diagram inside the
      track file's `## Context and Orientation` section when the
@@ -221,7 +233,7 @@ Do NOT implement anything. Only research and plan.
 
 **Compute the workflow-SHA stamp once before writing the templates.**
 Run the paired test-and-fallback idiom from
-[`conventions.md` §1.6(b)](../../workflow/conventions.md) verbatim;
+conventions.md:planner:1 `§1.6(b)` verbatim;
 every artifact created in this `/create-plan` session reuses the
 single `$WORKFLOW_SHA` value, so artifacts seeded together share a
 stamp by construction:
@@ -265,8 +277,8 @@ of edits and additions), and `## Interfaces and Dependencies`
 (in-scope/out-of-scope file boundaries, inter-track dependencies,
 library/function signatures). Keeping per-track detail out of the
 plan keeps `/execute-tracks` startup context small (see
-`.claude/workflow/conventions.md` §1.2 for the directory layout
-under `_workflow/` and `conventions-execution.md` §2.1 for the
+`.claude/workflow/conventions.md` `§1.2` for the directory layout
+under `_workflow/` and `conventions-execution.md` `§2.1` for the
 track-file shape and section lifecycle).
 
 Before writing this template, substitute the resolved 40-character
@@ -334,7 +346,7 @@ sections empty, and the Phase-A-populated sections
 (`## Concrete Steps`, `## Idempotence and Recovery`) left as Phase A
 placeholders that decomposition will fill. The canonical section list and lifecycle
 table — which writer touches which section in which phase — live in
-`conventions-execution.md` §2.1; the verbatim ready-to-paste
+`conventions-execution.md` `§2.1`; the verbatim ready-to-paste
 template body is reproduced below so this SKILL stays
 self-sufficient (the lifecycle source is durable; the design-doc
 copy is ephemeral and removed in the Phase 4 cleanup commit, so it
@@ -430,7 +442,7 @@ and library/function signatures relevant to this track.>
 
 The `## Base commit` section is added by Phase B at session start
 and is omitted from the Phase 1 skeleton. Full lifecycle for every
-section above is tabulated in `conventions-execution.md` §2.1.
+section above is tabulated in `conventions-execution.md` `§2.1`.
 
 Write the design document to
 `docs/adr/<dir-name>/_workflow/design.md` using this structure.
@@ -493,8 +505,7 @@ teammates as a draft PR:
    Defer resolution fired this session), skip this sub-step silently
    rather than fabricate a recital. The recital fires before the
    draft PR is opened so the user sees the residue in the same
-   session; it mirrors the recital `workflow.md § What to do before
-   ending a session` runs for `/execute-tracks`.
+   session; it mirrors the recital `workflow.md § What to do before ending a session` runs for `/execute-tracks`.
 4. Ask the user **once**, before opening the PR:
    *"Provide an issue prefix for the PR title (e.g. `YTDB-123`)?
    Leave blank to skip."*
@@ -506,7 +517,7 @@ teammates as a draft PR:
    - Without a prefix: `<feature title>`
 6. Compose the PR body from the plan: `## Motivation` (the plan's
    Goals + Constraints, distilled into prose — apply the Ephemeral
-   identifier rule from `conventions-execution.md` §2.3 to the body
+   identifier rule from `conventions-execution.md` `§2.3` to the body
    since PR titles and descriptions are durable), `## Plan` (one
    line per track from the checklist, no internal IDs), and a
    `## Status` line stating *"Draft — workflow scaffolding under

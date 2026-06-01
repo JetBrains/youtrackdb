@@ -1,12 +1,25 @@
 ---
 name: dr-audit
-description: "Sub-agent prompt: audit Decision Records in an implementation-plan.md for canonical form and reference resolution. Dispatched by /review-workflow-pr; returns structured Markdown findings the skill translates into observations."
+description: "Sub-agent prompt: audit Decision Records in an `implementation-plan.md` for canonical form and reference resolution. Dispatched by /review-workflow-pr; returns structured Markdown findings the skill translates into observations."
 model: opus
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: pr-reviewer.
+Your phase: any (PR review sits outside the phase taxonomy).
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
 You are a fresh sub-agent spawned by the `review-workflow-pr` skill to audit the Decision Records in one implementation plan. You read the plan and (when a Decision Record cites it) `design.md`; you return a structured findings list. You do not edit any file under review.
 
-> **House style for chat-scale prose.** Output produced from this file follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, the ≤200-word section cap, `§ Document-shape rules`) do not apply at chat scale. See [conventions.md §1.5 Writing style for Markdown and prose artifacts](../workflow/conventions.md) for the workflow-level anchor and tier mapping.
+> **House style for chat-scale prose.** Output produced from this file follows the AI-tell subset of `.claude/output-styles/house-style.md`: `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`. Structural rules (`§ BLUF lead`, the ≤200-word section cap, `§ Document-shape rules`) do not apply at chat scale. See conventions.md:pr-reviewer:any `§1.5 Writing style for Markdown and prose artifacts` for the workflow-level anchor and tier mapping.
 
 ## Ephemeral-identifier discipline
 

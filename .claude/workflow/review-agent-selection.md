@@ -1,11 +1,28 @@
 # Review Agent Selection
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Baseline agents (always run) | orchestrator | 3A,3B,3C | The four baseline review agents (code quality, bugs/concurrency, test behavior, test completeness) and when they skip. |
+| §Conditional agents | orchestrator | 3A,3B,3C | Add crash-safety, security, performance, or test-structure agents based on what the step or track touches. |
+| §Examples | orchestrator | 3A,3B,3C | Worked agent-selection examples for storage, refactor, public-API, and WAL-replay changes. |
+| §Workflow-review agents | orchestrator | 3A,3B,3C | The six workflow-machinery review agents and their finding prefixes; they ignore Java code. |
+| §Workflow-machinery file set | orchestrator | 3A,3B,3C | What counts as workflow-machinery (.claude/, root CLAUDE.md, docs/adr/<dir>/); exclusive with docs-only. |
+| §Per-agent file-pattern triggers | orchestrator | 3A,3B,3C | Which workflow-review agents fire on which changed-file patterns; consistency and context-budget always launch. |
+| §Workflow-machinery override (baseline-skip) | orchestrator | 3A,3B,3C | Three cases governing baseline/workflow-review/conditional interaction when workflow-machinery is in the diff. |
+| §Selection process | orchestrator | 3A,3B,3C | Read the description and changed files, match against the tables, and spawn the selected groups in one parallel call. |
+| §Examples — workflow-machinery override | orchestrator | 3A,3B,3C | Worked override examples: workflow-only, docs+workflow mix, and mixed Java+workflow diffs. |
+| §Maintenance | orchestrator | 3A,3B,3C | The mirrored sections must stay in sync with the /code-review skill; drift is a consistency-review defect. |
+
+<!--Document index end-->
+
 Characteristic-based selection of review sub-agents for step-level (Phase B)
 and track-level (Phase C) code reviews. Referenced from `step-implementation.md`
 and `track-code-review.md`.
 
 Step-level review fires only for steps tagged `risk: high` per
-[`risk-tagging.md`](risk-tagging.md); for `medium` and `low` steps,
+risk-tagging.md:decomposer,orchestrator:3A,3B; for `medium` and `low` steps,
 selection is moot because no step-level agents are spawned. Track-level
 review always runs. The selection rules below apply identically whenever
 either review actually fires.
@@ -13,6 +30,7 @@ either review actually fires.
 ---
 
 ## Baseline agents (always run)
+<!-- roles=orchestrator phases=3A,3B,3C summary="The four baseline review agents (code quality, bugs/concurrency, test behavior, test completeness) and when they skip." -->
 
 These four agents cover the dimensions relevant to every code change:
 
@@ -30,6 +48,7 @@ workflow-machinery + docs-only** — see the baseline-skip override under
 ---
 
 ## Conditional agents
+<!-- roles=orchestrator phases=3A,3B,3C summary="Add crash-safety, security, performance, or test-structure agents based on what the step or track touches." -->
 
 Add these based on what the step or track actually touches. The main agent
 selects them using the step/track description and the list of changed files.
@@ -44,6 +63,7 @@ agent.
 | Complex test setup, shared fixtures, test lifecycle, test isolation concerns | `review-test-structure` | `TS` |
 
 ### Examples
+<!-- roles=orchestrator phases=3A,3B,3C summary="Worked agent-selection examples for storage, refactor, public-API, and WAL-replay changes." -->
 
 - **Step adds a histogram to a B-tree leaf page** → baseline + crash-safety
   + test-crash-safety (storage/durability) + performance (data structure).
@@ -58,6 +78,7 @@ agent.
 ---
 
 ## Workflow-review agents
+<!-- roles=orchestrator phases=3A,3B,3C summary="The six workflow-machinery review agents and their finding prefixes; they ignore Java code." -->
 
 These six agents review changes to the workflow machinery itself (skills,
 agents, hooks, scripts, settings, workflow rules and prompts, output styles,
@@ -74,6 +95,7 @@ baseline and conditional agents handle that.
 | Workflow writing style | `review-workflow-writing-style` | `WS1, WS2, ...` |
 
 ### Workflow-machinery file set
+<!-- roles=orchestrator phases=3A,3B,3C summary="What counts as workflow-machinery (.claude/, root CLAUDE.md, docs/adr/<dir>/); exclusive with docs-only." -->
 
 A file is **workflow-machinery** when it is any of:
 
@@ -88,13 +110,14 @@ A file is **workflow-machinery** when it is any of:
 
 `workflow-machinery` is **exclusive with `docs-only`**: anything under
 `docs/` outside `docs/adr/<dir>/` is `docs-only`, anything inside is
-`workflow-machinery`. The definition mirrors `/code-review` SKILL.md
+`workflow-machinery`. The definition mirrors `/code-review` `SKILL.md`
 Step 5a verbatim so the standalone and in-workflow paths categorise
 the same diff the same way.
 
 ### Per-agent file-pattern triggers
+<!-- roles=orchestrator phases=3A,3B,3C summary="Which workflow-review agents fire on which changed-file patterns; consistency and context-budget always launch." -->
 
-Each row matches the `/code-review` SKILL.md Step 5b workflow-review
+Each row matches the `/code-review` `SKILL.md` Step 5b workflow-review
 table verbatim. `review-workflow-consistency` and
 `review-workflow-context-budget` are **always launched** for this
 group — they decide internally whether the diff actually affects
@@ -115,8 +138,9 @@ are affected.
 | `review-workflow-writing-style` | `.claude/**/*.md`, root `CLAUDE.md`, or `docs/adr/**/*.md` |
 
 ### Workflow-machinery override (baseline-skip)
+<!-- roles=orchestrator phases=3A,3B,3C summary="Three cases governing baseline/workflow-review/conditional interaction when workflow-machinery is in the diff." -->
 
-The three cases below mirror `/code-review` SKILL.md Step 5d bullets 1,
+The three cases below mirror `/code-review` `SKILL.md` Step 5d bullets 1,
 2, and 3 verbatim. They govern how the baseline group, workflow-review
 group, and conditional group interact when `workflow-machinery` is
 present in the diff.
@@ -137,12 +161,12 @@ present in the diff.
    Pre-filter each group with an `IN_SCOPE_FILES` list so baseline
    and conditional agents see only Java / test files and the
    workflow-review group sees only workflow-machinery files. The
-   filtered-dispatch shape mirrors `/code-review` SKILL.md Step 6 so
+   filtered-dispatch shape mirrors `/code-review` `SKILL.md` Step 6 so
    cross-contamination is bounded. Per-agent file-pattern triggers
    from the table above are evaluated against the workflow-machinery
    subset of the diff to determine which workflow-review agents fire;
    `IN_SCOPE_FILES` is then narrowed to that subset per Step 6 of
-   `/code-review` SKILL.md.
+   `/code-review` `SKILL.md`.
 
 In every other case (no `workflow-machinery` at all in the diff) the
 override does not fire: baseline runs as usual, conditional agents
@@ -151,6 +175,7 @@ fire by their triggers, and no workflow-review agents launch.
 ---
 
 ## Selection process
+<!-- roles=orchestrator phases=3A,3B,3C summary="Read the description and changed files, match against the tables, and spawn the selected groups in one parallel call." -->
 
 1. Read the step description (or track description for Phase C).
 2. Read the list of changed files (`git diff --name-only`).
@@ -168,9 +193,10 @@ reviews. For track-level reviews, assess characteristics across the
 full track diff.
 
 ### Examples — workflow-machinery override
+<!-- roles=orchestrator phases=3A,3B,3C summary="Worked override examples: workflow-only, docs+workflow mix, and mixed Java+workflow diffs." -->
 
 - **Workflow-only diff.** Step rewrites
-  `.claude/workflow/conventions-execution.md` §2.1 → only category is
+  `.claude/workflow/conventions-execution.md` `§2.1` → only category is
   `workflow-machinery`; baseline skipped (case 1); workflow-review
   group fires `review-workflow-consistency` +
   `review-workflow-instruction-completeness` +
@@ -199,14 +225,15 @@ full track diff.
   change) join the baseline group with the same Java-only filter.
 
 ### Maintenance
+<!-- roles=orchestrator phases=3A,3B,3C summary="The mirrored sections must stay in sync with the /code-review skill; drift is a consistency-review defect." -->
 
 `.claude/workflow/review-agent-selection.md` §Workflow-review agents,
 §Workflow-machinery file set, §Per-agent file-pattern triggers, and
-§Workflow-machinery override mirror `/code-review` SKILL.md
-Step 5a/5b/5d/6 verbatim per implementation-plan.md D8. Any edit to
+§Workflow-machinery override mirror `/code-review` `SKILL.md`
+Step 5a/5b/5d/6 verbatim per `implementation-plan.md` D8. Any edit to
 either file's mirrored sections MUST update both files in the same
 commit and bump the date in the trailing `<!-- Last sync-checked … -->`
 comment below. Drift between the two files is a defect for
 `review-workflow-consistency`.
 
-<!-- Last sync-checked against .claude/skills/code-review/SKILL.md Step 5a/5b/5d/6 on 2026-05-15 (YTDB-817 Track 1 Step 3). Future drift sweeps update this date. -->
+<!-- Last sync-checked against `.claude/skills/code-review/SKILL.md` Step 5a/5b/5d/6 on 2026-05-15 (YTDB-817 Track 1 Step 3). Future drift sweeps update this date. -->

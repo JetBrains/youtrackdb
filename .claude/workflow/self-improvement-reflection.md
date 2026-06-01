@@ -1,5 +1,30 @@
 # Self-Improvement Reflection
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Inputs | orchestrator,planner | any | What the reflection step reads to decide whether to file an issue. |
+| §YouTrack MCP requirement | orchestrator,planner | any | The YouTrack MCP must be reachable to file reflection issues. |
+| §When it runs | orchestrator,planner | any | The mandatory reflection point at the end of a session. |
+| §What counts as a worth-recording issue | orchestrator,planner | any | The bar a workflow friction must clear to warrant an issue. |
+| §Cost-benefit gate | orchestrator,planner | any | Weighing the carry cost of a fix against the friction of leaving it. |
+| §load_cost — what the fix costs to carry | orchestrator,planner | any | Estimating the per-session context cost of a proposed fix. |
+| §self_fix_cost — what the friction costs if left alone | orchestrator,planner | any | Estimating the recurring cost of not fixing the friction. |
+| §Worked examples | orchestrator,planner | any | Concrete cost-benefit calls on sample frictions. |
+| §Scope-match check | orchestrator,planner | any | Confirming the friction belongs to the workflow, not the task. |
+| §Quick checklist | orchestrator,planner | any | Fast pass/skip checklist for the reflection decision. |
+| §Per-session cap | orchestrator,planner | any | The limit on how many reflection issues one session may file. |
+| §Reflection procedure | orchestrator,planner | any | Step-by-step procedure for running the reflection. |
+| §Issue body template | orchestrator,planner | any | The template for a reflection-filed YouTrack issue body. |
+| §Section length caps | orchestrator,planner | any | Caps on each section of the issue body. |
+| §Type guide | orchestrator,planner | any | Choosing the YouTrack issue type for a reflection finding. |
+| §Severity guide | orchestrator,planner | any | Choosing the severity for a reflection finding. |
+| §Severity → YouTrack `Priority` mapping | orchestrator,planner | any | Mapping reflection severity onto the tracker priority field. |
+| §What the agent must not do | orchestrator,planner | any | Anti-patterns the reflection step must avoid. |
+
+<!--Document index end-->
+
 A mandatory final step at the end of every session run by a calling
 skill that opts into reflection (`/execute-tracks` today;
 `/migrate-workflow` from this track forward). The session-running
@@ -18,6 +43,7 @@ agent would have benefited from a rule that did not exist.
 ---
 
 ## Inputs
+<!-- roles=orchestrator,planner phases=any summary="What the reflection step reads to decide whether to file an issue." -->
 
 - `session-type` — one of `execute-tracks` (default; existing
   behavior) or `migrate-workflow` (new). A calling skill names the
@@ -43,6 +69,7 @@ is session-type-agnostic.
 ---
 
 ## YouTrack MCP requirement
+<!-- roles=orchestrator,planner phases=any summary="The YouTrack MCP must be reachable to file reflection issues." -->
 
 Reflection writes its output to YouTrack via the YouTrack MCP server
 (the `mcp__youtrack__*` tools). The protocol is gated on that server
@@ -71,6 +98,7 @@ Reflection is best-effort, not load-bearing.
 ---
 
 ## When it runs
+<!-- roles=orchestrator,planner phases=any summary="The mandatory reflection point at the end of a session." -->
 
 As the **last step** of every session run by a calling skill that
 opts into reflection, immediately before "End the session". The
@@ -116,6 +144,7 @@ Reflection is skipped only when:
 ---
 
 ## What counts as a worth-recording issue
+<!-- roles=orchestrator,planner phases=any summary="The bar a workflow friction must clear to warrant an issue." -->
 
 In scope (record):
 
@@ -177,6 +206,7 @@ ready to record — drop it or sharpen it.
 ---
 
 ## Cost-benefit gate
+<!-- roles=orchestrator,planner phases=any summary="Weighing the carry cost of a fix against the friction of leaving it." -->
 
 Every candidate (Bug or Feature) must clear a single inequality
 before it is recorded. The gate compares the cost of carrying a
@@ -193,6 +223,7 @@ file if:  load_cost  ≤  self_fix_cost / 5     # at least a 5× margin
 Horizon for both sides: **6 months**.
 
 ### load_cost — what the fix costs to carry
+<!-- roles=orchestrator,planner phases=any summary="Estimating the per-session context cost of a proposed fix." -->
 
 ```
 load_cost = paragraphs_added × per-paragraph cost from the table below
@@ -214,6 +245,7 @@ over the horizon, because they ride every session); calibrate by
 tier, not by significant figures.
 
 ### self_fix_cost — what the friction costs if left alone
+<!-- roles=orchestrator,planner phases=any summary="Estimating the recurring cost of not fixing the friction." -->
 
 ```
 self_fix_cost = turns_per_occurrence × population_in_horizon
@@ -248,6 +280,7 @@ self_fix_cost = turns_per_occurrence × population_in_horizon
     is project-shaped, not workflow-shaped.
 
 ### Worked examples
+<!-- roles=orchestrator,planner phases=any summary="Concrete cost-benefit calls on sample frictions." -->
 
 1. **Drop — recurrence floor fails.** Agent misread one heading
    once, recovered in 1 turn, no reason to expect it recurs.
@@ -292,6 +325,7 @@ self_fix_cost = turns_per_occurrence × population_in_horizon
      session's normal output, not under `dev-workflow`.
 
 ### Scope-match check
+<!-- roles=orchestrator,planner phases=any summary="Confirming the friction belongs to the workflow, not the task." -->
 
 A candidate also fails the gate if its §Proposed fix is more than
 **~5×** the cost of the friction it cures, measured in paragraphs
@@ -312,6 +346,7 @@ combined: a candidate must clear both ratio (≥ 5) and scope-match
 (pass) to be filed.
 
 ### Quick checklist
+<!-- roles=orchestrator,planner phases=any summary="Fast pass/skip checklist for the reflection decision." -->
 
 - Did you actually compute both sides? If you wrote "feels worth
   it" without numbers, you skipped the gate.
@@ -330,6 +365,7 @@ combined: a candidate must clear both ratio (≥ 5) and scope-match
 ---
 
 ## Per-session cap
+<!-- roles=orchestrator,planner phases=any summary="The limit on how many reflection issues one session may file." -->
 
 At most **1** issue per session — this is a ceiling, not a target.
 Zero is the expected outcome on most sessions; one should feel
@@ -352,6 +388,7 @@ correct outcome, not a failure to look hard enough.
 ---
 
 ## Reflection procedure
+<!-- roles=orchestrator,planner phases=any summary="Step-by-step procedure for running the reflection." -->
 
 1. **Verify YouTrack MCP availability.** Confirm the
    `mcp__youtrack__*` tools are reachable (see §YouTrack MCP
@@ -633,6 +670,7 @@ correct outcome, not a failure to look hard enough.
 ---
 
 ## Issue body template
+<!-- roles=orchestrator,planner phases=any summary="The template for a reflection-filed YouTrack issue body." -->
 
 The Markdown body submitted to `create_issue.description`:
 
@@ -711,6 +749,7 @@ of ≤3 options with one-line trade-offs). Edit `<file>` §<section> to
 ```
 
 ### Section length caps
+<!-- roles=orchestrator,planner phases=any summary="Caps on each section of the issue body." -->
 
 The template literals above enforce hard caps. Total body length
 **≤600 words** (excluding the `**Source:**` / `**Severity:**` /
@@ -734,6 +773,7 @@ pick the calling skill; drop the other branch.
 ---
 
 ## Type guide
+<!-- roles=orchestrator,planner phases=any summary="Choosing the YouTrack issue type for a reflection finding." -->
 
 YouTrack `Type` field — pick one per issue:
 
@@ -771,6 +811,7 @@ Framing the issue as "broken" or "missing" does not change the math.
 ---
 
 ## Severity guide
+<!-- roles=orchestrator,planner phases=any summary="Choosing the severity for a reflection finding." -->
 
 Reflection only records frictions whose severity is **medium or
 higher**. Low-severity annoyances — a one-off recipe lookup, a
@@ -822,6 +863,7 @@ it and do not relabel it to medium to keep it alive.
     routing to the recovery procedure.
 
 ### Severity → YouTrack `Priority` mapping
+<!-- roles=orchestrator,planner phases=any summary="Mapping reflection severity onto the tracker priority field." -->
 
 Set the YouTrack `Priority` custom field at creation time from the
 candidate's severity. Use the project's schema (fetched once in
@@ -842,6 +884,7 @@ the triager can verify it.
 ---
 
 ## What the agent must not do
+<!-- roles=orchestrator,planner phases=any summary="Anti-patterns the reflection step must avoid." -->
 
 - **Do not** auto-create YouTrack issues without user confirmation.
   Every issue created by reflection passes through the user gate in

@@ -5,13 +5,58 @@ argument-hint: "[branch | commit-range | uncommitted | PR-number]"
 user-invocable: true
 ---
 
+## Reading workflow files (TOC protocol)
+
+When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow the protocol in `conventions.md §1.8`:
+
+1. Read the TOC region: from `<!--Document index start-->` to `<!--Document index end-->` (read to the closing delimiter, not a fixed line count). If the file has no TOC region (a file whose only `## ` heading is this bootstrap block carries none, per `§1.8(d)`), read the file in full.
+2. Match TOC rows where Roles contains any of your roles (or your role is `any`, or the row's Roles is `any`) AND Phases contains any of your phases (or your phase is `any`, or the row's Phases is `any`).
+3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
+
+Your role: orchestrator.
+Your phase: 3B or 3C (the review phase that invoked this skill).
+
+Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
+
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Step 1: Determine what to review | orchestrator | 3B,3C | Resolve the review target from the argument or, when empty, from the branch's PR or its commits ahead of develop. |
+| §If `$ARGUMENTS` is provided: | orchestrator | 3B,3C | Six argument shapes: branch, commit range, last-N-commits, uncommitted, PR ref, or an unparseable input. |
+| §If `$ARGUMENTS` is empty: | orchestrator | 3B,3C | Fall back to the branch's open PR, then to commits ahead of develop, then ask the user when neither resolves. |
+| §Step 2: Detect the base branch | orchestrator | 3B,3C | Pick the comparison base: a PR's baseRefName, develop for a bare branch, or none for a range or uncommitted review. |
+| §Step 3: Gather the review context | orchestrator | 3B,3C | Collect changed files and commit log, and write the full diff to a unique /tmp file each agent reads on demand. |
+| §For branch or PR review: | orchestrator | 3B,3C | The git diff and log commands that build the changed-file list, diff file, and commit log for a branch or PR target. |
+| §For commit range: | orchestrator | 3B,3C | The git diff and log commands for a commit-range review target. |
+| §For uncommitted changes: | orchestrator | 3B,3C | The git diff commands for an uncommitted-changes target, with the no-commit-history sentinel for the log. |
+| §PR description (if available): | orchestrator | 3B,3C | The gh command that reads the PR body for context, when a PR is associated with the target. |
+| §Step 4: Filter non-reviewable files | orchestrator | 3B,3C | List the generated-code paths to skip and pass the filter note to every dispatched agent. |
+| §Step 5: Triage — categorize changes and select relevant agents | orchestrator | 3B,3C | Categorize each changed file, map categories to review agents, and log the triage decision before dispatch. |
+| §5a: Categorize each changed file | orchestrator | 3B,3C | The category table mapping file signals to domains; a file may carry several categories. |
+| §5b: Map categories to agents | orchestrator | 3B,3C | Launch rules for the 16 review agents across code, test, and workflow groups, keyed on detected categories. |
+| §5c: Log your triage decision | orchestrator | 3B,3C | Print the triage summary naming detected categories, selected agents, and skipped agents before launching. |
+| §5d: Edge cases | orchestrator | 3B,3C | Last-matching-row resolution for category combinations: workflow-only, docs-only, build-config, tests, mixed. |
+| §Step 6: Dispatch selected review agents | orchestrator | 3B,3C | Launch selected agents in parallel with a scope-filtered file list and the group-specific prompt template. |
+| §Prompt template — code-review and test-review groups | orchestrator | 3B,3C | The prompt body for the code and test review groups, including the PSI-over-grep tooling rule for Java symbols. |
+| §Prompt template — workflow-review group | orchestrator | 3B,3C | The prompt body for the workflow-review group, noting PSI does not apply to markdown, shell, and JSON files. |
+| §Handling missing fields | orchestrator | 3B,3C | Treat the missing-PR and uncommitted sentinels as no signal; do not infer requirements from their absence. |
+| §Step 7: Synthesize the results | orchestrator | 3B,3C | Map sub-agent severities, deduplicate, attribute, and summarize into one unified report, not a concatenation. |
+| §Handling agent failures and empty output | orchestrator | 3B,3C | Record failed reviewers, propagate preface notes, emit All clear when empty, and remove the temp diff file. |
+| §Output format | orchestrator | 3B,3C | The synthesized report layout: failed reviewers, assessment, blockers, should-fix, suggestions, notes, and questions. |
+| §Important rules | orchestrator | 3B,3C | Standing rules: gh CLI for GitHub, parallel dispatch, no self-added findings, no severity softening, large-diff abort. |
+
+<!--Document index end-->
+
 Review code, test, and workflow-machinery changes across multiple dimensions by dispatching to specialized review agents and synthesizing their findings. Production code, test code, and workflow files (skills, agents, hooks, settings, prompts, CLAUDE.md, plan/design artifacts) are reviewed in one pass with triage-driven agent selection.
 
 Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or "uncommitted").
 
 ## Step 1: Determine what to review
+<!-- roles=orchestrator phases=3B,3C summary="Resolve the review target from the argument or, when empty, from the branch's PR or its commits ahead of develop." -->
 
 ### If `$ARGUMENTS` is provided:
+<!-- roles=orchestrator phases=3B,3C summary="Six argument shapes: branch, commit range, last-N-commits, uncommitted, PR ref, or an unparseable input." -->
 1. **Branch name** (e.g., `ytdb-605-unified-edges`): Review all changes on that branch that are absent from the base branch.
 2. **Commit range** (e.g., `abc123..def456`): Review that specific range.
 3. **"last N commits"** (e.g., `last 3 commits`): Review `HEAD~N...HEAD`.
@@ -20,6 +65,7 @@ Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or
 6. **None of the above** (malformed input, non-existent branch, unresolvable PR, free-form phrase): Report what you tried to parse, then ask the user for a valid target. Do not guess.
 
 ### If `$ARGUMENTS` is empty:
+<!-- roles=orchestrator phases=3B,3C summary="Fall back to the branch's open PR, then to commits ahead of develop, then ask the user when neither resolves." -->
 1. Check if the current branch has an open PR:
    ```bash
    gh pr list --head $(git branch --show-current) --json number,title,body,baseRefName,url --limit 1
@@ -33,6 +79,7 @@ Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or
 5. If the branch IS `develop` or has no commits ahead, ask the user what to review. Treat the user's reply as if it were `$ARGUMENTS` and restart Step 1.
 
 ## Step 2: Detect the base branch
+<!-- roles=orchestrator phases=3B,3C summary="Pick the comparison base: a PR's baseRefName, develop for a bare branch, or none for a range or uncommitted review." -->
 
 The base branch determines what "new changes" means:
 
@@ -41,6 +88,7 @@ The base branch determines what "new changes" means:
 3. If reviewing a commit range or uncommitted changes: no base branch needed.
 
 ## Step 3: Gather the review context
+<!-- roles=orchestrator phases=3B,3C summary="Collect changed files and commit log, and write the full diff to a unique /tmp file each agent reads on demand." -->
 
 Based on the review mode, collect the changed-file list and commit log inline, but **write the full diff to a temp file** so each agent can `Read` it on demand instead of receiving it interpolated into its prompt. This keeps per-agent prompt size bounded and removes the diff-size ceiling that inline interpolation would impose.
 
@@ -52,6 +100,7 @@ DIFF_FILE=/tmp/claude-code-review-diff-$$.txt   # or use $(uuidgen)
 ```
 
 ### For branch or PR review:
+<!-- roles=orchestrator phases=3B,3C summary="The git diff and log commands that build the changed-file list, diff file, and commit log for a branch or PR target." -->
 ```bash
 git diff {base}...HEAD --name-only           # → CHANGED_FILES
 git diff {base}...HEAD > "$DIFF_FILE"        # → DIFF_FILE
@@ -59,6 +108,7 @@ git log {base}..HEAD --oneline               # → COMMIT_LOG
 ```
 
 ### For commit range:
+<!-- roles=orchestrator phases=3B,3C summary="The git diff and log commands for a commit-range review target." -->
 ```bash
 git diff {start}..{end} --name-only          # → CHANGED_FILES
 git diff {start}..{end} > "$DIFF_FILE"       # → DIFF_FILE
@@ -66,6 +116,7 @@ git log {start}..{end} --oneline             # → COMMIT_LOG
 ```
 
 ### For uncommitted changes:
+<!-- roles=orchestrator phases=3B,3C summary="The git diff commands for an uncommitted-changes target, with the no-commit-history sentinel for the log." -->
 ```bash
 git diff HEAD --name-only                    # → CHANGED_FILES
 git diff HEAD > "$DIFF_FILE"                 # → DIFF_FILE
@@ -73,6 +124,7 @@ git diff HEAD > "$DIFF_FILE"                 # → DIFF_FILE
 For uncommitted changes there is no commit log; set `COMMIT_LOG` to the literal sentinel `"(uncommitted changes — no commit history)"`.
 
 ### PR description (if available):
+<!-- roles=orchestrator phases=3B,3C summary="The gh command that reads the PR body for context, when a PR is associated with the target." -->
 ```bash
 gh pr view {number} --json body --jq '.body'
 ```
@@ -87,6 +139,7 @@ Store the collected context:
 The temp file is ephemeral — remove it at the end of Step 7 (synthesis) so orphans don't accumulate. The unique suffix prevents collision with concurrent agents while the review is in flight.
 
 ## Step 4: Filter non-reviewable files
+<!-- roles=orchestrator phases=3B,3C summary="List the generated-code paths to skip and pass the filter note to every dispatched agent." -->
 
 Before dispatching, note files that should be skipped:
 - Files under `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/`
@@ -96,10 +149,12 @@ Before dispatching, note files that should be skipped:
 Include this filter note in the context passed to agents.
 
 ## Step 5: Triage — categorize changes and select relevant agents
+<!-- roles=orchestrator phases=3B,3C summary="Categorize each changed file, map categories to review agents, and log the triage decision before dispatch." -->
 
 Before dispatching agents, perform a quick triage pass over the **entire diff** (both production and test code) to determine which review dimensions are actually relevant. This avoids wasting time on agents that have nothing meaningful to review.
 
 ### 5a: Categorize each changed file
+<!-- roles=orchestrator phases=3B,3C summary="The category table mapping file signals to domains; a file may carry several categories." -->
 
 Scan the diff and assign one or more categories to **every** changed file — production code, test code, and other files alike:
 
@@ -124,6 +179,7 @@ Scan the diff and assign one or more categories to **every** changed file — pr
 A file can belong to multiple categories (e.g., a lock change in storage code is both `storage-engine` and `concurrency`). Production and test files in the same domain should share the same categories. `workflow-machinery` is exclusive with `docs-only`: any file under `.claude/` or `docs/adr/<dir>/` is `workflow-machinery`; anything else under `docs/` is `docs-only`.
 
 ### 5b: Map categories to agents
+<!-- roles=orchestrator phases=3B,3C summary="Launch rules for the 16 review agents across code, test, and workflow groups, keyed on detected categories." -->
 
 There are **16 specialized review agents** in three groups:
 
@@ -163,6 +219,7 @@ Categories from **both** production and test code count for the test-review side
 The workflow-review agents focus on `.claude/`, root `CLAUDE.md`, and plan artifacts under `docs/adr/<dir>/_workflow/`. They ignore Java code changes — the code-review and test-review agents handle those.
 
 ### 5c: Log your triage decision
+<!-- roles=orchestrator phases=3B,3C summary="Print the triage summary naming detected categories, selected agents, and skipped agents before launching." -->
 
 Before launching agents, output a brief triage summary so the user can see the reasoning:
 
@@ -176,6 +233,7 @@ Before launching agents, output a brief triage summary so the user can see the r
 ```
 
 ### 5d: Edge cases
+<!-- roles=orchestrator phases=3B,3C summary="Last-matching-row resolution for category combinations: workflow-only, docs-only, build-config, tests, mixed." -->
 
 The rules below cover combinations not handled by the per-row tables above. Where a combination matches more than one row, the **last matching row wins**. Workflow-machinery cases are listed first because workflow-only diffs are common and short-circuit the entire code/test agent dispatch.
 
@@ -190,6 +248,7 @@ The rules below cover combinations not handled by the per-row tables above. Wher
 - If **in doubt** about whether an agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
 
 ## Step 6: Dispatch selected review agents
+<!-- roles=orchestrator phases=3B,3C summary="Launch selected agents in parallel with a scope-filtered file list and the group-specific prompt template." -->
 
 Launch the selected agents **in parallel** using the Agent tool. Each agent receives a scope-filtered context: build `IN_SCOPE_FILES` per agent group from the triage categories assigned in Step 5a.
 
@@ -202,6 +261,7 @@ The `IN_SCOPE_FILES` list narrows the agent's focus; the full `DIFF` is still pa
 The Tooling section differs by group. Use the **code/test variant** for the code-review and test-review groups, and the **workflow variant** for the workflow-review group.
 
 ### Prompt template — code-review and test-review groups
+<!-- roles=orchestrator phases=3B,3C summary="The prompt body for the code and test review groups, including the PSI-over-grep tooling rule for Java symbols." -->
 
 ```
 Review the following changes from your specialized perspective.
@@ -251,6 +311,7 @@ file list does not show what changed inside each file.
 ```
 
 ### Prompt template — workflow-review group
+<!-- roles=orchestrator phases=3B,3C summary="The prompt body for the workflow-review group, noting PSI does not apply to markdown, shell, and JSON files." -->
 
 ```
 Review the following changes from your specialized perspective.
@@ -285,6 +346,7 @@ parameters.
 ```
 
 ### Handling missing fields
+<!-- roles=orchestrator phases=3B,3C summary="Treat the missing-PR and uncommitted sentinels as no signal; do not infer requirements from their absence." -->
 
 If `PR_DESCRIPTION` is the literal string `"No PR associated with these changes."` or `COMMIT_LOG` is the uncommitted-changes sentinel, treat the field as carrying no signal. Do not infer requirements from the absence.
 
@@ -315,6 +377,7 @@ The 16 possible agents (launch only those selected in Step 5):
 Set `subagent_type` to the agent name. The agent's frontmatter declares its model; do not override it from the dispatch call unless the user explicitly asks for a different model.
 
 ## Step 7: Synthesize the results
+<!-- roles=orchestrator phases=3B,3C summary="Map sub-agent severities, deduplicate, attribute, and summarize into one unified report, not a concatenation." -->
 
 After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
@@ -339,6 +402,7 @@ After all selected agents complete, produce a unified review report. Do NOT simp
 4. **Summarize.** Write a brief overall assessment (2-3 sentences). Cover whichever of code, tests, and workflow machinery actually appear in the diff. Do not write about a dimension that produced no findings.
 
 ### Handling agent failures and empty output
+<!-- roles=orchestrator phases=3B,3C summary="Record failed reviewers, propagate preface notes, emit All clear when empty, and remove the temp diff file." -->
 
 - If a sub-agent returns empty output, errors out, or times out, add it to a `### Failed reviewers` section at the top of the report with a one-line note and continue. Do not block the synthesis.
 - If a sub-agent emits agent-specific preface sections beyond `Critical / Recommended / Minor` (for example, `review-workflow-context-budget` emits `Always-loaded delta` and `Instant-consumption delta` tables when any axis is affected), propagate them under a `### Reviewer notes` section after the severity blocks rather than dropping them silently. These preface sections are optional: `review-workflow-context-budget` omits them in the no-impact case, and absence is not a failure.
@@ -346,6 +410,7 @@ After all selected agents complete, produce a unified review report. Do NOT simp
 - After the synthesized report is produced (whether with findings or `### All clear`), remove the temp diff file from Step 3: `rm "$DIFF_FILE"`. The file is no longer needed once every sub-agent has returned.
 
 ### Output format
+<!-- roles=orchestrator phases=3B,3C summary="The synthesized report layout: failed reviewers, assessment, blockers, should-fix, suggestions, notes, and questions." -->
 
 ```markdown
 ## Review: {REVIEW_SCOPE}
@@ -388,6 +453,7 @@ produced findings — skip the dimensions that returned clean.]
 If a priority level has no findings, omit it entirely. If all priority levels are empty, replace them with `### All clear` and a one-line note.
 
 ## Important rules
+<!-- roles=orchestrator phases=3B,3C summary="Standing rules: gh CLI for GitHub, parallel dispatch, no self-added findings, no severity softening, large-diff abort." -->
 
 - **Always use `gh` CLI** for GitHub API calls, not WebFetch.
 - **All selected agents must run in parallel** — do not wait for one before launching the next.

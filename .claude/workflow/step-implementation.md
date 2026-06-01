@@ -1,5 +1,25 @@
 # Track Execution — Phase B: Step Implementation (Orchestrator)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Loading discipline — happy path only | orchestrator | 3B | This file is the Phase B orchestrator happy-path spec; recovery and resume handlers live in the recovery file. |
+| §Phase B Startup | orchestrator | 3B | Phase B startup: verify the base commit, render the slim plan, and prepare the per-step orchestration loop. |
+| §Per-step base commit tracking | orchestrator | 3B | Record and verify the per-step base commit so a step revert returns the tree to its pre-implementation state. |
+| §Step Completion Gate | orchestrator | 3B | The gate that decides whether a step is done and the loop advances to the next step. |
+| §Per-Step Orchestration Loop | orchestrator | 3B | The seven sub-steps per step: spawn implementer, review (risk:high only), cross-track check, episode, advance. |
+| §Implementer Prompt Template | orchestrator | 3B | The prompt template the orchestrator composes for each per-step implementer spawn. |
+| §Orchestrator Handlers | orchestrator | 3B | The handlers that process each implementer RESULT (success, design decision, risk upgrade, failure). |
+| §`on_success(step, result)` — sub-steps 4–7 | orchestrator | 3B | On SUCCESS: dimensional review for risk:high, cross-track impact check, episode write, and loop advance. |
+| §Cross-Track Impact Check | orchestrator | 3B | After each step, check whether the change affects other tracks and route any impact to inline replanning. |
+| §If impact is detected | orchestrator | 3B | When cross-track impact is found, surface it and route to inline replanning or a plan correction. |
+| §If no impact is detected | orchestrator | 3B | When no cross-track impact is found, record the check and continue the loop. |
+| §Episode Production | orchestrator | 3B | The orchestrator finalises the implementer EPISODE_DRAFT and writes the Episodes block, Progress entry, and promotions. |
+| §Phase B Completion | orchestrator | 3B | Phase B completes when every step is [x]; record the base commit and hand off to Phase C. |
+
+<!--Document index end-->
+
 Phase B is a **two-actor phase**:
 
 - The **orchestrator** (this document) drives the per-step loop:
@@ -8,7 +28,7 @@ Phase B is a **two-actor phase**:
   check, run the context check, finalise the step episode, mark the
   step `[x]`, and update the Progress count.
 - The **implementer** (a fresh sub-agent spawned per step, see
-  [`implementer-rules.md`](implementer-rules.md)) performs sub-steps
+  implementer-rules.md:implementer:3B,3C) performs sub-steps
   1–3 of step implementation — read the track file, implement the
   change with tests, stage and commit. The implementer's output is a
   structured handoff parsed by the orchestrator.
@@ -23,6 +43,7 @@ The implementer rulebook is the authoritative reference for sub-steps
 1–3. This document stays focused on the orchestrator side.
 
 ## Loading discipline — happy path only
+<!-- roles=orchestrator phases=3B summary="This file is the Phase B orchestrator happy-path spec; recovery and resume handlers live in the recovery file." -->
 
 This document covers the **happy path** only: every implementer spawn
 returns `RESULT: SUCCESS`, no orphan commits exist at session start,
@@ -30,7 +51,7 @@ no step is marked `[!]`. The non-happy-path logic — Phase B Resume,
 the three non-`SUCCESS` orchestrator handlers, post-commit rollback
 handlers, retry/split formats, the Two-Failure Rule, Track-Level
 Failure — lives in
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 and is loaded on demand.
 
 **Read the recovery file when either trigger fires:**
@@ -50,6 +71,7 @@ full procedure for the matching case.
 ---
 
 ## Phase B Startup
+<!-- roles=orchestrator phases=3B summary="Phase B startup: verify the base commit, render the slim plan, and prepare the per-step orchestration loop." -->
 
 Before spawning the first implementer:
 
@@ -117,7 +139,7 @@ Before spawning the first implementer:
 
    Commit the track-file edit as a Workflow update commit before
    spawning the first implementer (per
-   [`commit-conventions.md`](commit-conventions.md) § Commit type
+   commit-conventions.md:orchestrator,implementer:3A,3B,3C § Commit type
    prefixes — "Workflow update" row) so the draft PR records the
    recompute. Use `$ACTUAL_BASE` as `{base_commit}` for the orphan
    detection in step 3 and every subsequent reference in Phase B
@@ -134,7 +156,7 @@ Before spawning the first implementer:
    ```
 
    The script implements the rule from
-   [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
+   plan-slim-rendering.md:orchestrator:3B,3C; do not re-derive
    the transform inline. **Always pass `--out` explicitly** with
    `$PPID` — the orchestrator's PID inside its bash shell. The script
    does not auto-derive this path because, when invoked via the Bash
@@ -151,11 +173,12 @@ Before spawning the first implementer:
    implementer commits, orphan `Review fix:` commits, or a
    `Revert step:` commit at the tip, the previous session was
    interrupted mid-step — load
-   [`step-implementation-recovery.md`](step-implementation-recovery.md)
+   step-implementation-recovery.md:orchestrator:3B
    and follow §Phase B Resume there before spawning the first
    implementer. If no orphan commits exist, continue normally.
 
 ### Per-step base commit tracking
+<!-- roles=orchestrator phases=3B summary="Record and verify the per-step base commit so a step revert returns the tree to its pre-implementation state." -->
 
 The orchestrator tracks a **per-step base commit** —
 `step_base_commit` — distinct from the Phase B `base_commit`:
@@ -173,7 +196,7 @@ respawn returns a non-`SUCCESS` result — `git revert
 {step_base_commit}..HEAD` produces a single revert commit covering
 the original implementer commit plus any prior `Review fix:` commits
 in the same dim-review loop. See
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Post-Commit Handlers.
 
 The orchestrator captures `step_base_commit` in-memory by running
@@ -184,6 +207,7 @@ from git: it is the parent of the first orphan commit for the next
 ---
 
 ## Step Completion Gate
+<!-- roles=orchestrator phases=3B summary="The gate that decides whether a step is done and the loop advances to the next step." -->
 
 **A step is not complete until all seven sub-steps of the per-step
 workflow are done.** Do NOT spawn the implementer for the next step
@@ -207,6 +231,7 @@ activities across steps loses all three benefits.
 ---
 
 ## Per-Step Orchestration Loop
+<!-- roles=orchestrator phases=3B summary="The seven sub-steps per step: spawn implementer, review (risk:high only), cross-track check, episode, advance." -->
 
 For each `[ ]` step in the track file, run sub-steps 1–8 to
 completion before moving to the next step. Sub-steps 1–3 run inside
@@ -224,13 +249,13 @@ match result.RESULT:
 
 Only `on_success` is in this document. The other four handlers are
 in
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Non-`SUCCESS` orchestrator handlers — load it before entering any
 of those branches. The `handle_result_missing` path covers the
 contract-violation case where the implementer exited without emitting
 a `RESULT` block (typically due to message-budget exhaustion or a
 tool-call crash); per
-[`implementer-rules.md`](implementer-rules.md) §Return contract,
+implementer-rules.md:implementer:3B,3C §Return contract,
 silent exit is forbidden, but the orchestrator must still be able to
 recover when it happens. The implementer prompt template is in
 §Implementer Prompt Template below.
@@ -238,6 +263,7 @@ recover when it happens. The implementer prompt template is in
 ---
 
 ## Implementer Prompt Template
+<!-- roles=orchestrator phases=3B summary="The prompt template the orchestrator composes for each per-step implementer spawn." -->
 
 Each spawn uses `subagent_type: "general-purpose"` and
 `model: "opus"` regardless of the step's risk tag. Sonnet's
@@ -245,7 +271,7 @@ reliability on multi-step implementation work is below the threshold
 required for this workflow — implementer steps that complete cleanly
 on Opus surface intermittent execution errors on Sonnet even at
 `risk: low` (skipped sub-steps, incorrect test invocations, malformed
-return blocks). See [`risk-tagging.md`](risk-tagging.md) §"Risk
+return blocks). See risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C §"Risk
 levels — quick reference" for the rationale and for the risk-tag
 effects that DO still apply (sub-step 4 dimensional review, track-level
 focal-point treatment).
@@ -253,12 +279,12 @@ focal-point treatment).
 Because the model is the same across all risk tags, `INITIAL`,
 `WITH_GUIDANCE`, and `FIX_REVIEW_FINDINGS` respawns all use Opus, and
 a `low → high` upgrade per
-[`risk-tagging.md`](risk-tagging.md) §"Phase B upgrade" does not
+risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C §"Phase B upgrade" does not
 change the model — it only changes what review pressure runs after
 the implementer returns.
 
 The same template is used by Phase C with `level=track` (see
-[`track-code-review.md`](track-code-review.md) §Implementer Spawns).
+track-code-review.md:orchestrator,reviewer-dim-track:3C §Implementer Spawns).
 
 The prompt body has a **stable static prefix** followed by the
 **per-spawn variable inputs**. The static block goes first for
@@ -356,7 +382,7 @@ Phase B always passes `level: step` and populates `step_index`,
 `step_description`, and `risk_tag`; Phase C always passes
 `level: track` and leaves the three step-conditional fields out
 (see the validity matrix in
-[`implementer-rules.md`](implementer-rules.md) §Inputs).
+implementer-rules.md:implementer:3B,3C §Inputs).
 
 **Why the rulebook is referenced by path, not inlined.** Inlining the
 rulebook on every spawn would re-embed it in the orchestrator's
@@ -367,16 +393,18 @@ sub-agent context.
 ---
 
 ## Orchestrator Handlers
+<!-- roles=orchestrator phases=3B summary="The handlers that process each implementer RESULT (success, design decision, risk upgrade, failure)." -->
 
 ### `on_success(step, result)` — sub-steps 4–7
+<!-- roles=orchestrator phases=3B summary="On SUCCESS: dimensional review for risk:high, cross-track impact check, episode write, and loop advance." -->
 
 The implementer's commit is now on disk; `result.COMMIT` is its SHA.
-Per [`implementer-rules.md`](implementer-rules.md) §Return contract,
+Per implementer-rules.md:implementer:3B,3C §Return contract,
 `RESULT: SUCCESS` implies the commit has been pushed to `origin`.
 
 **Defensive push check.** Before running sub-steps 4–7, assert that
 the implementer's step commit (`result.COMMIT`) is on `origin` per
-[`defensive-push-check.md`](defensive-push-check.md). The check
+defensive-push-check.md:orchestrator:3B,3C. The check
 short-circuits when no upstream is set, asserts ancestry against
 `@{u}`, and auto-recovers via `git push` if the implementer skipped
 the push.
@@ -387,13 +415,13 @@ Run sub-steps 4–7 in order.
 'high'`).** For `medium` and `low` steps, skip directly to sub-step
 5. The dimensional review loop follows the protocol unchanged: up to
 3 iterations within the orchestrator's context. See
-[`code-review-protocol.md`](code-review-protocol.md) for the
+code-review-protocol.md:orchestrator:3B,3C for the
 two-tier protocol overview and
-[`review-iteration.md`](review-iteration.md) for iteration limits,
+review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C for iteration limits,
 finding ID prefixes, and gate format.
 
    a. **Select review agents** based on code characteristics (see
-      [`review-agent-selection.md`](review-agent-selection.md)),
+      review-agent-selection.md:orchestrator:3A,3B,3C),
       then spawn them in parallel (fresh sub-agents each iteration).
       Baseline agents (4) run unless the diff is workflow-only (see
       the baseline-skip override in `review-agent-selection.md`);
@@ -456,7 +484,7 @@ finding ID prefixes, and gate format.
       intro + track episode + the on-disk `**Strategy refresh:**`
       line only; the current track and other not-started tracks are
       shown in full. If the snapshot is missing, fall back to
-      docs/adr/{dir-name}/_workflow/implementation-plan.md.
+      `docs/adr/{dir-name}/_workflow/implementation-plan.md`.
 
       ## Track File (tactical context)
       Read the track file at:
@@ -523,11 +551,11 @@ finding ID prefixes, and gate format.
 
    b. **Synthesise.** After all selected agents complete, run the
       canonical procedure in
-      [`finding-synthesis-recipe.md`](finding-synthesis-recipe.md):
+      finding-synthesis-recipe.md:orchestrator:3B,3C:
       deduplicate across dimensions by `file:line` → issue shape →
       suggested fix shape, prioritise on the
       `blocker` / `should-fix` / `suggestion` scale (per
-      [`review-iteration.md`](review-iteration.md) §Severity
+      review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C §Severity
       levels), and emit the merged list in the format the
       implementer's `findings:` block consumes. Step-level review
       operates on a single step's diff, so the deferred /
@@ -570,11 +598,11 @@ finding ID prefixes, and gate format.
       ```
 
       On `SUCCESS`, the implementer's new commit follows
-      [`commit-conventions.md`](commit-conventions.md)'s
+      commit-conventions.md:orchestrator,implementer:3A,3B,3C's
       `Review fix:` prefix; the new `result.COMMIT` becomes the
       diff target for the next gate check. On any non-`SUCCESS`
       return, load
-      [`step-implementation-recovery.md`](step-implementation-recovery.md)
+      step-implementation-recovery.md:orchestrator:3B
       and hand off to the post-commit handler defined there
       (§Post-Commit Handlers); it rolls the prior commits back and
       re-enters the top-level dispatch with a clean tree at
@@ -583,7 +611,7 @@ finding ID prefixes, and gate format.
       gate-check iteration. Repeat until approved OR **max 3
       iterations** reached. **Spawn the gate-check sub-agents with
       the compact prompt template at
-      [`prompts/dimensional-review-gate-check.md`](prompts/dimensional-review-gate-check.md),
+      prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C,
       not the dimensional review prompt from sub-step (a).**
       Substitute:
       - `{dimension}` — the agent's review type
@@ -594,7 +622,7 @@ finding ID prefixes, and gate format.
 
       The template enforces a ≤ 60-line budget, a forbidden-sections
       list, and a verdict-only output format. See
-      [`review-iteration.md`](review-iteration.md) §"Dimensional-review
+      review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C §"Dimensional-review
       gate-check budget" for the YTDB-696 rationale, the verdict-
       handling rules (VERIFIED / REJECTED / MOOT / STILL OPEN /
       REGRESSION), and the §Gate-check synthesis routing.
@@ -661,7 +689,7 @@ kept separate:
 `result.EPISODE_DRAFT` with cross-track-impact observations from
 sub-step 5 (into **What was discovered**), then run the four-sub-
 step writer below — the per-step write shape per
-[`episode-format-reference.md`](episode-format-reference.md), which
+episode-format-reference.md:orchestrator:3A,3B,3C, which
 documents the heading template, field-omission rule, promotion
 heuristic, back-reference shape, and `[ctx=unknown]` fallback.
 
@@ -692,7 +720,7 @@ and may be interrupted by a crash between 7.1 and the next write; if
 that happens, the roster `[x]` plus the Episodes block on disk are
 sufficient to drive resume-side reconciliation. The Phase B Resume
 detection in
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 §Phase B Resume runs that reconciliation before the next implementer
 is spawned — Progress entries missing for a roster `[x]` row are
 derived from the Episodes block; Surprises and Decision Log
@@ -708,7 +736,7 @@ than the current track, (b) names a class/file outside the track's
 in-scope list, or (c) identifies a fact future sessions need without
 reading the full episode. Back-reference shape: `See Episodes §Step N`.
 Full criteria:
-[`episode-format-reference.md`](episode-format-reference.md)
+episode-format-reference.md:orchestrator:3A,3B,3C
 §Minimum-write contract.
 
 **Sub-step 7.4 — Promote to Decision Log (conditional).** Fires
@@ -737,7 +765,7 @@ message form.
 **Push failure handling.** Inspect the `git push` exit code and
 stderr. If the rejection is `non-fast-forward` (branch divergence)
 and this is the first such rejection in the session, load
-[`branch-divergence-check.md`](branch-divergence-check.md) and
+branch-divergence-check.md:orchestrator:2,3A,3B,3C and
 apply the user's chosen resolution; do not silently keep pushing
 per-step. For any other push failure (network, auth, pre-receive
 hook), record the failure and continue — the session-end summary
@@ -747,11 +775,11 @@ reports the unpushed-commit count. The full rule lives in
 **Session-end gate.** After committing the episode: if the context
 level was `warning` or `critical`, do NOT spawn the implementer for
 the next step. Save all work and ask the user for a session refresh
-(see workflow.md §Context Consumption Check). The default Phase B
+(see `workflow.md` §Context Consumption Check). The default Phase B
 case (just finished a step, next session resumes from the next `[ ]`
 step) does **not** require a handoff file — the track file's Progress
 section is sufficient. Write a handoff per
-[`mid-phase-handoff.md`](mid-phase-handoff.md) only if the pause
+mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 only if the pause
 captures state the next session cannot re-derive from the track file
 (for example, a partial cross-track-impact finding that needs to be
 re-presented before the next step starts).
@@ -772,6 +800,7 @@ until sub-steps 1–8 above are done.
 ---
 
 ## Cross-Track Impact Check
+<!-- roles=orchestrator phases=3B summary="After each step, check whether the change affects other tracks and route any impact to inline replanning." -->
 
 After each step (sub-step 5 of the per-step workflow), do a
 lightweight assessment against the plan — this is a quick check, not
@@ -789,6 +818,7 @@ For each completed step, assess:
    ordering of remaining tracks?
 
 ### If impact is detected
+<!-- roles=orchestrator phases=3B summary="When cross-track impact is found, surface it and route to inline replanning or a plan correction." -->
 
 Alert the user immediately with:
 
@@ -803,9 +833,10 @@ Alert the user immediately with:
   - **Pause and ADJUST** (remaining steps in current track need
     revision).
   - **ESCALATE** (the discovery fundamentally changes the plan —
-    see [`inline-replanning.md`](inline-replanning.md)).
+    see inline-replanning.md:orchestrator:3A,3C).
 
 ### If no impact is detected
+<!-- roles=orchestrator phases=3B summary="When no cross-track impact is found, record the check and continue the loop." -->
 
 Continue to the context check (sub-step 6). No user notification
 needed.
@@ -813,6 +844,7 @@ needed.
 ---
 
 ## Episode Production
+<!-- roles=orchestrator phases=3B summary="The orchestrator finalises the implementer EPISODE_DRAFT and writes the Episodes block, Progress entry, and promotions." -->
 
 Episodes are produced by the orchestrator from the implementer's
 `result.EPISODE_DRAFT`, merged with cross-track-impact-check
@@ -846,21 +878,22 @@ Decision Log entries the orchestrator emits during sub-step 7.
 The four banned-section heading slugs to apply are
 `## Banned vocabulary`, `## Banned sentence patterns`,
 `## Banned analysis patterns`, and `### Em-dash discipline`.
-See [conventions.md §1.5 Writing style for Markdown and prose artifacts](conventions.md) for the workflow-level pointer.
+See conventions.md:any:any for the workflow-level pointer.
 
 Write the episode to the track file on disk. Detailed format and
 examples live in
-[`episode-format-reference.md`](episode-format-reference.md).
+episode-format-reference.md:orchestrator:3A,3B,3C.
 
 The failed-episode format (`[!]` entry, `**What was attempted:**` /
 `**Why it failed:**` fields), retry/split row insertion, and the
 Two-Failure Rule live in
-[`step-implementation-recovery.md`](step-implementation-recovery.md)
+step-implementation-recovery.md:orchestrator:3B
 — load it when handling a `RESULT: FAILED` return.
 
 ---
 
 ## Phase B Completion
+<!-- roles=orchestrator phases=3B summary="Phase B completes when every step is [x]; record the base commit and hand off to Phase C." -->
 
 After the last step's episode is written to the track file (and its
 code changes committed to git):

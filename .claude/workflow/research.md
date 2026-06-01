@@ -1,6 +1,20 @@
 # Research (Phase 0)
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Overview | planner | 0 | Phase 0 is interactive research and exploration; no plan or design documents are produced. |
+| §Goal | planner | 0 | Build shared user-agent understanding of the codebase, constraints, alternatives, and prior art. |
+| §How it works | planner | 0 | The user drives an exploration loop; the agent answers, explores code, and never starts planning early. |
+| §Transition to Phase 1 | planner | 0,1 | On the user's go-ahead, summarize findings and carry every decision into Phase 1 planning. |
+| §Rules | planner | 0 | No premature planning, stay responsive, be thorough, surface trade-offs, record decisions, internet research allowed. |
+| §Tooling for code research | planner | 0 | Reference-accuracy questions go through PSI via mcp-steroid, not grep; grep is fine only for orientation. |
+
+<!--Document index end-->
+
 ## Overview
+<!-- roles=planner phases=0 summary="Phase 0 is interactive research and exploration; no plan or design documents are produced." -->
 
 This document covers Phase 0 of the development workflow — interactive
 research and exploration before planning. The agent answers user questions
@@ -13,6 +27,7 @@ and design documents** (e.g., "create the plan", "let's plan this",
 "proceed to planning"). Until then, the agent stays in research mode.
 
 ## Goal
+<!-- roles=planner phases=0 summary="Build shared user-agent understanding of the codebase, constraints, alternatives, and prior art." -->
 
 Build shared understanding between the user and the agent about:
 - The relevant parts of the codebase
@@ -26,6 +41,7 @@ agreed on. These are carried forward into Phase 1 (Planning) within the
 same session.
 
 ## How it works
+<!-- roles=planner phases=0 summary="The user drives an exploration loop; the agent answers, explores code, and never starts planning early." -->
 
 1. The user runs `/create-plan` (optionally with a directory name argument).
 2. The agent reads workflow documents, then asks the user for the aim.
@@ -43,6 +59,7 @@ same session.
    create the plan, the agent transitions to Phase 1 (Planning).
 
 ## Transition to Phase 1
+<!-- roles=planner phases=0,1 summary="On the user's go-ahead, summarize findings and carry every decision into Phase 1 planning." -->
 
 When the user says to create the plan:
 
@@ -59,6 +76,7 @@ When the user says to create the plan:
    - The design document should reflect design choices discussed with the user
 
 ## Rules
+<!-- roles=planner phases=0 summary="No premature planning, stay responsive, be thorough, surface trade-offs, record decisions, internet research allowed." -->
 
 - **No premature planning.** Do not start writing plan files, track
   decompositions, or design documents until the user explicitly asks.
@@ -75,6 +93,7 @@ When the user says to create the plan:
   user asks about external libraries, algorithms, standards, or prior art.
 
 ## Tooling for code research
+<!-- roles=planner phases=0 summary="Reference-accuracy questions go through PSI via mcp-steroid, not grep; grep is fine only for orientation." -->
 
 Research routinely produces conclusions that planning, decomposition, or
 deletion decisions ride on later — "this method has no production
@@ -82,7 +101,7 @@ callers", "this slot has no consumer", "the field is touched only
 inside its declaring class". Those are reference-accuracy questions and
 must be answered through the IntelliJ PSI search via mcp-steroid when
 the IDE is connected, not through grep. See
-[`conventions.md`](conventions.md) §1.4 *Tooling discipline* for the
+conventions.md:any:any `§1.4` *Tooling discipline* for the
 full rule (preflight, fallback when unreachable, sub-agent
 delegation). The session-start hook prints the `mcp-steroid: …` status
 line — act on it before the first symbol audit. Grep is fine for
@@ -97,5 +116,5 @@ questions — sub-agents default to grep otherwise.
 For module-graph questions during research ("does `embedded` depend
 on `server`?", "what depends on `lucene`?", "is the Maven module
 boundary where the prose says it is?") load the
-**`project-dependencies`** recipe in [`conventions.md`](conventions.md)
-§1.4 *Recipes* rather than reading several `pom.xml` files by hand.
+**`project-dependencies`** recipe in conventions.md:any:any `§1.4`
+*Recipes* rather than reading several `pom.xml` files by hand.

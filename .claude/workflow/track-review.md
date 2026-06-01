@@ -1,15 +1,39 @@
 # Track Execution — Phase A: Review + Decomposition
 
+<!--Document index start-->
+
+| Section | Roles | Phases | Summary |
+|---|---|---|---|
+| §Overview | orchestrator,decomposer | 3A | Phase A reviews and decomposes the upcoming track, gated by the Track Pre-Flight strategy assessment. |
+| §Phase A: Review + Decomposition | orchestrator,decomposer | 3A | The Phase A flow: complexity assessment, sequential reviews, step decomposition, and the mandatory session boundary. |
+| §Tooling — PSI is required for symbol audits in Phase A | orchestrator,decomposer | 3A | Symbol audits during Phase A go through PSI via mcp-steroid, not grep; the preflight and fallback rules apply. |
+| §Pre-write rule — PSI-verify class names | decomposer | 3A | Verify every class/method name through PSI before it lands in a decomposed step or track-file claim. |
+| §Track Pre-Flight — Strategy Assessment + Track Summary | orchestrator | 3A | The two-panel Pre-Flight gate: a look-back strategy assessment and an upcoming-track summary with a review-mode loop. |
+| §What You Do | orchestrator,decomposer | 3A | The concrete Phase A actions: assess complexity, run the selected reviews, decompose into steps, write the track file. |
+| §Complexity Assessment and Which Reviews to Run | orchestrator,decomposer | 3A | Classify the track Simple/Moderate/Complex and select which pre-execution reviews to run. |
+| §Inputs passed to Phase A review sub-agents | orchestrator | 3A | The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope). |
+| §Track-scoped technical review | reviewer-technical | 3A | The track-scoped technical review and its prompt file. |
+| §Track-scoped risk review | reviewer-risk | 3A | The track-scoped risk review and its prompt file. |
+| §Track-scoped adversarial review | reviewer-adversarial | 3A | The track-scoped adversarial review and its prompt file. |
+| §Review gate verification | orchestrator | 3A | Re-run the Phase A reviews against applied fixes via the review-gate-verification prompt. |
+| §Review iteration protocol | orchestrator | 3A | Phase A reviews follow the shared review iteration protocol (max 3 iterations, cumulative IDs). |
+| §Step Decomposition | decomposer | 3A | Decompose the track into a roster of risk-tagged steps; sizing, cross-cutting, and parallel-annotation rules. |
+| §Phase A Resume | orchestrator | 3A | Resume Phase A mid-stream by reading recorded reviews and the decomposition state from the track file. |
+| §Phase A Completion — MANDATORY SESSION BOUNDARY | orchestrator | 3A | Phase A ends the session after the atomic track-file write; the next session begins Phase B. |
+
+<!--Document index end-->
+
 ## Overview
+<!-- roles=orchestrator,decomposer phases=3A summary="Phase A reviews and decomposes the upcoming track, gated by the Track Pre-Flight strategy assessment." -->
 
 This document covers Phase A only. A track goes through three sub-phases,
 each executed in a **separate session**:
 
 1. **Phase A: Review + Decomposition** — this document (current session)
 2. **Phase B: Step Implementation** — see
-   [`step-implementation.md`](step-implementation.md) (next session)
+   step-implementation.md:orchestrator:3B (next session)
 3. **Phase C: Code Review + Track Completion** — see
-   [`track-code-review.md`](track-code-review.md) (session after Phase B)
+   track-code-review.md:orchestrator,reviewer-dim-track:3C (session after Phase B)
 
 Phase C includes both the track-level code review and track completion
 (episode compilation, plan corrections, user approval) in a single session.
@@ -17,6 +41,7 @@ Phase C includes both the track-level code review and track completion
 ---
 
 ## Phase A: Review + Decomposition
+<!-- roles=orchestrator,decomposer phases=3A summary="The Phase A flow: complexity assessment, sequential reviews, step decomposition, and the mandatory session boundary." -->
 
 > **In this phase, you are a reviewer and planner, not an implementer. You
 > NEVER edit source code, test files, or build files. You explore the
@@ -25,19 +50,20 @@ Phase C includes both the track-level code review and track completion
 > (`plan/track-N.md`).**
 
 ### Tooling — PSI is required for symbol audits in Phase A
+<!-- roles=orchestrator,decomposer phases=3A summary="Symbol audits during Phase A go through PSI via mcp-steroid, not grep; the preflight and fallback rules apply." -->
 
 Phase A's outputs (review findings, scope-indicator validation, step
 decomposition with risk tags) ride on reference-accuracy facts —
 "this method's callers", "this interface's implementations", "no
 existing consumer for this slot". When mcp-steroid is reachable per
 the SessionStart hook, those facts MUST come from PSI find-usages
-rather than grep — see [`conventions.md`](conventions.md) §1.4
+rather than grep — see conventions.md:any:any `§1.4`
 *Tooling discipline* for the full rule (preflight via
 `steroid_list_projects`, cwd-mismatch handling, fallback when
 unreachable). Run the preflight once before the first symbol audit;
 do not re-probe.
 
-Two recipes in [`conventions.md`](conventions.md) §1.4 *Recipes* are
+Two recipes in conventions.md:any:any `§1.4` *Recipes* are
 particularly load-bearing during Phase A:
 
 - **`hierarchy-search`** — when assessing a track that touches an SPI
@@ -57,6 +83,7 @@ PSI. The canonical prompts under `prompts/` already include this
 instruction — keep it intact when customising.
 
 ### Pre-write rule — PSI-verify class names
+<!-- roles=decomposer phases=3A summary="Verify every class/method name through PSI before it lands in a decomposed step or track-file claim." -->
 
 Before any write that names a production class in the track file's
 four Phase 1 track-level sections (`## Purpose / Big Picture`,
@@ -86,7 +113,7 @@ rather than reading existing tests or production callers, it MUST
 verify the name via PSI before committing it to the track file.
 
 **mcp-steroid state handling.** The session-start hook surfaces one
-of three states per [`conventions.md`](conventions.md) §1.4:
+of three states per conventions.md:any:any `§1.4`:
 
 - **Reachable + cwd matches** → run PSI find-class as above.
 - **Reachable + cwd mismatch** (`steroid_list_projects` reports a
@@ -120,7 +147,7 @@ verify mechanism, the same one-retry rule, and the same mcp-steroid
 state handling, but surface failures conversationally inline as
 the user accumulates observations, and let the final approval
 panel carry any `⚠`-warnings that survived past the inline
-clarification — see [`review-mode.md`](review-mode.md)
+clarification — see review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C
 § Validation for the mapping. The user's Refine / Cancel paths in
 review mode cover Use-alternative / Drop / Escalate; Apply with a
 warning still attached is the explicit user consent step that
@@ -131,6 +158,7 @@ This rule is the orchestrator-side complement to the sub-agent-side
 PSI rule in §Tooling above.
 
 ### Track Pre-Flight — Strategy Assessment + Track Summary
+<!-- roles=orchestrator phases=3A summary="The two-panel Pre-Flight gate: a look-back strategy assessment and an upcoming-track summary with a review-mode loop." -->
 
 Before Phase A's reviews and decomposition begin, the orchestrator
 runs a single Pre-Flight gate that combines a backward-looking
@@ -138,7 +166,7 @@ strategy assessment (when an earlier track has just completed or
 been skipped) with a forward-looking summary of the upcoming track.
 The gate is the user's chance to refine the plan / track file before
 sub-agents start reading them — via free-form review mode (see
-[`review-mode.md`](review-mode.md)) for light edits, clarifications,
+review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C) for light edits, clarifications,
 questions, skipping a remaining track, and combinations thereof —
 or to escalate to inline replanning when the change is deep.
 
@@ -178,7 +206,7 @@ If the assessment is `ESCALATE` (accumulated discoveries
 fundamentally changed the picture), present Panel 1 alone to the
 user using `AskUserQuestion` with two options — **Accept
 escalation** and **Override**. On **Accept**, route to
-[`inline-replanning.md`](inline-replanning.md) immediately and do
+inline-replanning.md:orchestrator:3A,3C immediately and do
 NOT render Panel 2. On **Override** (the user disagrees with the
 ESCALATE recommendation), fall through to step 2: build Panel 2
 and present the full three-option gate in step 3, treating the
@@ -205,7 +233,7 @@ run.
 
 Render Panel 1 (if active) followed by Panel 2, and use
 `AskUserQuestion` with three one-step options per the approval-panel
-contract in [`review-mode.md`](review-mode.md) § Approval-panel
+contract in review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Approval-panel
 contract:
 
 - **Approve** — accept the assessment and proceed to step 6
@@ -214,7 +242,7 @@ contract:
   (empty on the first render, populated if earlier rounds applied
   items).
 - **Review mode** — enter the conversational refinement loop per
-  [`review-mode.md`](review-mode.md) § Flow.
+  review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Flow.
 
   The user drops observations across as many chat turns as they
   want; the orchestrator silently classifies and accumulates them.
@@ -225,33 +253,33 @@ contract:
   clarifications buffer (step 5 below); `QUESTION` items were
   already answered inline as they came in (no side effect at
   Apply time). `FIX_FINDING` is not available on Pre-Flight (see
-  [`review-mode.md`](review-mode.md) § Action types).
+  review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Action types).
 
   After Apply, return here: re-render Panel 1 (re-running the
   strategy assessment if any `EDIT_PLAN` item touched a remaining
   track, since the touched track may have changed the look-back
   picture) and Panel 2 from the now-updated files; re-ask.
 - **ESCALATE** — route to inline replanning per
-  [`inline-replanning.md`](inline-replanning.md).
+  inline-replanning.md:orchestrator:3A,3C.
 
 The three-option panel re-renders after every review-mode Apply
 until the user picks **Approve** or **ESCALATE**. Step 4 below
 defines the light-vs-deep boundary; review mode's classification
 and Mixed-set policy enforce it (see
-[`review-mode.md`](review-mode.md) § Mixed-set policy).
+review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Mixed-set policy).
 
 If an `EDIT_PLAN` reorder during review-mode Apply changes which
 track is "next", Panel 2 is rebuilt against the new upcoming track
-per [`track-skip.md`](track-skip.md) step 2's panel-rendering
+per track-skip.md:orchestrator:3A step 2's panel-rendering
 contract.
 
 **4. Apply amendments — light vs deep boundary.**
 
 Light amendments are applied by review mode's Apply step per
-[`review-mode.md`](review-mode.md) § Flow step 5, via `Edit` for
+review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Flow step 5, via `Edit` for
 single-site changes or `steroid_apply_patch` when more than two
 sites are touched. These are markdown edits, so the project
-CLAUDE.md "always route file edits through MCP Steroid" rule is
+`CLAUDE.md` "always route file edits through MCP Steroid" rule is
 satisfied with native `Edit` for single-site changes here.
 Amendments that name production classes in the four Phase 1
 track-level sections (`## Purpose / Big Picture`,
@@ -274,12 +302,12 @@ rather than after commit:
   reorder changes the upcoming track)
 - Skipping a remaining track (`SKIP_TRACK` action item — single
   user-initiated drop with a required reason; runs the full
-  [`track-skip.md`](track-skip.md) § Process on Apply, including
+  track-skip.md:orchestrator:3A § Process on Apply, including
   the terminal track-file delete; re-render Panel 1 with the
   skipped track as the new look-back anchor)
 
 Deep amendments — route to inline replanning per
-[`inline-replanning.md`](inline-replanning.md) (trigger: "user
+inline-replanning.md:orchestrator:3A,3C (trigger: "user
 requests escalation during track pre-flight"):
 
 - Decision Records, Architecture Notes, Goals, or Constraints in
@@ -306,7 +334,7 @@ orchestrator's conversation context — a bullet list of the user's
 notes plus any orchestrator-stated interpretations the user
 confirmed. The buffer is non-empty only if at least one `CLARIFY`
 item was applied during a review-mode round (see
-[`review-mode.md`](review-mode.md) § Flow step 5). When the user
+review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Flow step 5). When the user
 picks **Approve**, the buffer flows verbatim into a
 `### Clarifications` subsection appended to the track file's
 `## Context and Orientation` section in step 6 below (the four
@@ -344,7 +372,7 @@ this round:
   ```
 
   For skipped tracks (`[~]`), the strategy-refresh line follows
-  the skip record (see [`track-skip.md`](track-skip.md) step 5).
+  the skip record (see track-skip.md:orchestrator:3A step 5).
   The skip record's `**Skipped:**` line serves as the just-skipped
   track's episode for the purpose of the assessment.
 
@@ -374,7 +402,7 @@ this round:
 - **Plan/track-file amendments** (any `EDIT_PLAN` / `EDIT_STEP_DESC`
   / `SKIP_TRACK` items applied during review-mode rounds): the edits
   already landed in the working tree during review mode's Apply step
-  ([`review-mode.md`](review-mode.md) § Flow step 5), including any
+  (review-mode.md:orchestrator,reviewer-plan,reviewer-dim-track:2,3A,3C § Flow step 5), including any
   track-file deletions produced by `SKIP_TRACK`. They are committed
   alongside the strategy-refresh line and any clarifications below.
 
@@ -437,6 +465,7 @@ review-mode rounds.
 **8. Continue.** Move to §What You Do sub-step 1 below.
 
 ### What You Do
+<!-- roles=orchestrator,decomposer phases=3A summary="The concrete Phase A actions: assess complexity, run the selected reviews, decompose into steps, write the track file." -->
 
 > The Track Pre-Flight gate above must clear before sub-step 1 starts.
 > On State C resume the gate is skipped (see §Phase A Resume).
@@ -468,8 +497,8 @@ review-mode rounds.
      review types). Phase C entries use a distinct prefix
      (`Track-level code review iteration N…` or `Track complete`)
      per the track-completion flow in
-     [`track-code-review.md`](track-code-review.md) §Review loop.
-     The Phase A review-iteration row in §2.1's lifecycle table names
+     track-code-review.md:orchestrator,reviewer-dim-track:3C §Review loop.
+     The Phase A review-iteration row in `§2.1`'s lifecycle table names
      `## Outcomes & Retrospective` as the canonical home for these
      entries; the legacy `## Reviews completed` section no longer
      exists in the 14-section per-track shape.
@@ -487,19 +516,19 @@ review-mode rounds.
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
      `warning` (≥30%) or `critical` (≥40%), do NOT start the next review
      or decomposition. Save all work and ask the user for a session
-     refresh (see workflow.md §Context Consumption Check). If the pause
+     refresh (see `workflow.md` §Context Consumption Check). If the pause
      leaves Phase A mid-flight (for example, technical review PASSed
      but risk / adversarial reviews are still unrun, or all reviews
      PASSed but decomposition has not yet been written), write a
      handoff file per
-     [`mid-phase-handoff.md`](mid-phase-handoff.md) so the next session
+     mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 so the next session
      does not re-spawn reviewers whose results already landed in the
      **Outcomes & Retrospective** section. If the level is `safe`/`info`,
      continue. If the file does not exist or the command fails, this
      is **not an error** — treat as `safe` and continue.
 4. **Decompose scope indicators** into concrete steps. For each step,
    assign a **risk tag** (`low` / `medium` / `high`) per the criteria
-   in [`risk-tagging.md`](risk-tagging.md) — load that file at the
+   in risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C — load that file at the
    start of decomposition. The tag controls whether Phase B runs
    step-level dimensional review for the step.
 5. **Write decomposed steps** to the track file's `## Concrete Steps`
@@ -556,13 +585,14 @@ review-mode rounds.
    pulled in.
 
 ### Complexity Assessment and Which Reviews to Run
+<!-- roles=orchestrator,decomposer phases=3A summary="Classify the track Simple/Moderate/Complex and select which pre-execution reviews to run." -->
 
 Complexity determines which pre-execution reviews to run, not user
 interaction level — all tracks execute autonomously after review.
 All tracks get track-level code review (Phase C) regardless of
 complexity. Step-level dimensional review (Phase B sub-step 4) runs
 only for steps tagged `risk: high` per
-[`risk-tagging.md`](risk-tagging.md); `medium` and `low` steps rely on
+risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C; `medium` and `low` steps rely on
 tests plus track-level review.
 
 | Track complexity | Review pipeline |
@@ -582,6 +612,7 @@ Specific characteristics that upgrade Moderate tracks:
 | Complex (6-7 steps, or critical path / high-risk) | Technical + Risk + Adversarial |
 
 ### Inputs passed to Phase A review sub-agents
+<!-- roles=orchestrator phases=3A summary="The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope)." -->
 
 All four Phase A review sub-agents — the track-scoped technical, risk,
 and adversarial reviews, plus the review gate verification — receive
@@ -593,7 +624,7 @@ instead of restating them.
 | Input | Value |
 |---|---|
 | `plan_path` | Absolute path to `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
-| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the track file, its four Phase 1 track-level sections (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) are the authoritative source for the track's intent / current-state / step-aware-plan / inter-track-boundary content and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/plan/track-N.md` — once Phase A has written the track file, its four Phase 1 track-level sections (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) are the authoritative source for the track's intent / current-state / step-aware-plan / inter-track-boundary content and any track-level diagram (per the lifecycle table in `conventions-execution.md` `§2.1`). |
 | `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
@@ -619,28 +650,32 @@ shared set because the track-scoped reviews do not consume them; the
 gate-verification mini-section below notes their role.
 
 ### Track-scoped technical review
+<!-- roles=reviewer-technical phases=3A summary="The track-scoped technical review and its prompt file." -->
 
 Spawn a sub-agent with the technical review prompt. Inputs: the shared
 set defined in §Inputs passed to Phase A review sub-agents above.
 
-**Prompt file:** [`prompts/technical-review.md`](prompts/technical-review.md)
+**Prompt file:** prompts/technical-review.md:reviewer-technical:3A
 
 ### Track-scoped risk review
+<!-- roles=reviewer-risk phases=3A summary="The track-scoped risk review and its prompt file." -->
 
 Spawn a sub-agent with the risk review prompt. Inputs: the shared set
 defined in §Inputs passed to Phase A review sub-agents above.
 
-**Prompt file:** [`prompts/risk-review.md`](prompts/risk-review.md)
+**Prompt file:** prompts/risk-review.md:reviewer-risk:3A
 
 ### Track-scoped adversarial review
+<!-- roles=reviewer-adversarial phases=3A summary="The track-scoped adversarial review and its prompt file." -->
 
 Spawn a sub-agent with the adversarial review prompt. Inputs: the
 shared set defined in §Inputs passed to Phase A review sub-agents
 above.
 
-**Prompt file:** [`prompts/adversarial-review.md`](prompts/adversarial-review.md)
+**Prompt file:** prompts/adversarial-review.md:reviewer-adversarial:3A
 
 ### Review gate verification
+<!-- roles=orchestrator phases=3A summary="Re-run the Phase A reviews against applied fixes via the review-gate-verification prompt." -->
 
 After fixes are applied, spawn a sub-agent to verify. Inputs: the
 shared set defined in §Inputs passed to Phase A review sub-agents
@@ -648,18 +683,20 @@ above, **plus** the gate-verification-specific `findings` (the
 iteration's findings under re-check) and `review_type`
 (`technical` / `risk` / `adversarial`).
 
-**Prompt file:** [`prompts/review-gate-verification.md`](prompts/review-gate-verification.md)
+**Prompt file:** prompts/review-gate-verification.md:orchestrator:3A
 
 ### Review iteration protocol
+<!-- roles=orchestrator phases=3A summary="Phase A reviews follow the shared review iteration protocol (max 3 iterations, cumulative IDs)." -->
 
 Max 3 iterations per review type, findings cumulative. Full iteration
 limits, finding ID prefixes, finding format, and gate verification output
-are in [`review-iteration.md`](review-iteration.md) — load that file when
+are in review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C — load that file when
 running the review loop. If blockers persist after 3 iterations, note them
 and proceed with caution — the step implementation phase will surface
 concrete issues if they exist.
 
 ### Step Decomposition
+<!-- roles=decomposer phases=3A summary="Decompose the track into a roster of risk-tagged steps; sizing, cross-cutting, and parallel-annotation rules." -->
 
 After track review passes, decompose scope indicators into concrete steps.
 Decompose **all steps at once** — tracks are capped at ~5-7 steps, making
@@ -692,7 +729,7 @@ and rely on tests plus track-level review). Track-level review at
 Phase C always runs against the cumulative track diff regardless of
 the per-step distribution.
 
-Apply the criteria in [`risk-tagging.md`](risk-tagging.md) — load that
+Apply the criteria in risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C — load that
 file at the start of decomposition. Six HIGH categories (concurrency,
 crash-safety/durability, public API, security, architecture,
 performance hot path), one MEDIUM band (multi-file logic, test
@@ -732,6 +769,7 @@ may produce more or fewer steps than the indicator suggested, or cover
 different aspects, based on what is actually needed.
 
 ### Phase A Resume
+<!-- roles=orchestrator phases=3A summary="Resume Phase A mid-stream by reading recorded reviews and the decomposition state from the track file." -->
 
 The track file already exists from Phase 1 with the four Phase 1
 track-level sections (`## Purpose / Big Picture`,
@@ -760,8 +798,7 @@ replace-then-write rule), but the user must re-enter any
 clarifications they had given previously.
 
 **Uncommitted gate state.** Before re-firing the gate, run
-`git status --porcelain docs/adr/<dir-name>/_workflow/implementation-plan.md
-docs/adr/<dir-name>/_workflow/plan/track-<N>.md`. If either path is
+`git status --porcelain docs/adr/<dir-name>/_workflow/implementation-plan.md docs/adr/<dir-name>/_workflow/plan/track-<N>.md`. If either path is
 dirty, the previous session was interrupted between applying
 amendments and committing them. Surface the diff to the user and ask
 whether to keep or revert the uncommitted changes before continuing —
@@ -794,6 +831,7 @@ overwritten on resume.
 ---
 
 ## Phase A Completion — MANDATORY SESSION BOUNDARY
+<!-- roles=orchestrator phases=3A summary="Phase A ends the session after the atomic track-file write; the next session begins Phase B." -->
 
 > **Do NOT proceed to Phase B in the same session.** Phase A always ends
 > with a session boundary. The user clears context and re-runs
