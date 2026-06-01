@@ -18,8 +18,8 @@ cache only when it did.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T11:36Z [ctx=info] Review + decomposition complete
-- [x] 2026-06-01T12:05Z [ctx=safe] Step 1 complete (commit 62072f21b503f22afbc3b8d28feecfd8498d16a4)
-- [x] 2026-06-01T12:47Z [ctx=info] Step 2 complete (commit b4ec7194b68c434eb0d68cd72ae50d2a68121dd8, dim-review PASS iter 2)
+- [x] 2026-06-01T12:05Z [ctx=safe] Step 1 complete (commit 909ee97829ee695aabc13ee4fa8a9923f3f82ca0)
+- [x] 2026-06-01T12:47Z [ctx=info] Step 2 complete (commit 6828bfce30a60ce25529969ab1b3ed0b2963dc28, dim-review PASS iter 2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -172,13 +172,13 @@ layer physically truncated.
 
 ## Concrete Steps
 
-1. Migrate `WriteCache.shrinkFile` `void` → `boolean` across all 7 overriders, behavior-preserving: `WOWCache` returns `false` at the `fileSize <= targetBytes` no-op (`:2065`) and `true` after `file.shrink()` (`:2076`); `DirectMemoryOnlyDiskCache` 2-arg returns `false` (its 3-arg `ReadCache` forwarder is unchanged, discards the boolean); the four throwing mocks (`MockedWriteCache` ×3, `PageFrameWriteCache`) keep their `UnsupportedOperationException` (return type only); `TrackingWriteCache` returns a test-controlled boolean (default `true`, with a setter). `LockFreeReadCache.shrinkFile` still calls `clearFile` unconditionally (the boolean is consumed in Step 2). Extend `WOWCacheShrinkFileTest` to assert the return (`false` on `targetBytes >= currentSize`, `true` on a real truncate). — risk: medium (multi-file SPI signature change across core storage-cache classes; behavior-preserving, no eviction/recovery behavior change)  [x] commit: 62072f21b503f22afbc3b8d28feecfd8498d16a4
-2. Gate the read-cache purge in `LockFreeReadCache.shrinkFile` (`:673`) on the boolean: capture `truncated` from `writeCache.shrinkFile(...)` (`:712`) and call `clearFile(fileId, minPageIndex, writeCache)` (`:720`) only when `true`. Keep the argument-validity guards (`:694-711`) and the unconditional 2-arg `clearFile` in `truncateFile`/`closeFile`/`deleteFile` untouched (gate at the call site, never inside `clearFile`). Add the non-vacuous no-op-skip test to `LockFreeReadCacheFileOpsTest` (seed N live pages, drive `TrackingWriteCache` to return `false`, assert `getUsedMemory()` unchanged + no `clearFile.checkCacheOverflow` event + `shrinkFileCount == 1`) and confirm the genuine-truncate path still evicts at `pageIndex >= minPageIndex`. — risk: high (crash-safety + cache-eviction: gates the recovery-time read-cache purge in LockFreeReadCache; preserves invariant S3)  [x] commit: b4ec7194b68c434eb0d68cd72ae50d2a68121dd8
+1. Migrate `WriteCache.shrinkFile` `void` → `boolean` across all 7 overriders, behavior-preserving: `WOWCache` returns `false` at the `fileSize <= targetBytes` no-op (`:2065`) and `true` after `file.shrink()` (`:2076`); `DirectMemoryOnlyDiskCache` 2-arg returns `false` (its 3-arg `ReadCache` forwarder is unchanged, discards the boolean); the four throwing mocks (`MockedWriteCache` ×3, `PageFrameWriteCache`) keep their `UnsupportedOperationException` (return type only); `TrackingWriteCache` returns a test-controlled boolean (default `true`, with a setter). `LockFreeReadCache.shrinkFile` still calls `clearFile` unconditionally (the boolean is consumed in Step 2). Extend `WOWCacheShrinkFileTest` to assert the return (`false` on `targetBytes >= currentSize`, `true` on a real truncate). — risk: medium (multi-file SPI signature change across core storage-cache classes; behavior-preserving, no eviction/recovery behavior change)  [x] commit: 909ee97829ee695aabc13ee4fa8a9923f3f82ca0
+2. Gate the read-cache purge in `LockFreeReadCache.shrinkFile` (`:673`) on the boolean: capture `truncated` from `writeCache.shrinkFile(...)` (`:712`) and call `clearFile(fileId, minPageIndex, writeCache)` (`:720`) only when `true`. Keep the argument-validity guards (`:694-711`) and the unconditional 2-arg `clearFile` in `truncateFile`/`closeFile`/`deleteFile` untouched (gate at the call site, never inside `clearFile`). Add the non-vacuous no-op-skip test to `LockFreeReadCacheFileOpsTest` (seed N live pages, drive `TrackingWriteCache` to return `false`, assert `getUsedMemory()` unchanged + no `clearFile.checkCacheOverflow` event + `shrinkFileCount == 1`) and confirm the genuine-truncate path still evicts at `pageIndex >= minPageIndex`. — risk: high (crash-safety + cache-eviction: gates the recovery-time read-cache purge in LockFreeReadCache; preserves invariant S3)  [x] commit: 6828bfce30a60ce25529969ab1b3ed0b2963dc28
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
 
-### Step 1 — commit 62072f21b503f22afbc3b8d28feecfd8498d16a4, 2026-06-01T12:05Z [ctx=safe]
+### Step 1 — commit 909ee97829ee695aabc13ee4fa8a9923f3f82ca0, 2026-06-01T12:05Z [ctx=safe]
 **What was done:** Changed `WriteCache.shrinkFile(long, long)` from `void` to
 `boolean` across all 7 PSI-confirmed overriders, behavior-preserving. `WOWCache`
 returns `false` at the `fileSize <= targetBytes` no-op early-return and `true`
@@ -214,7 +214,7 @@ needs no fall-through return and compiles cleanly.
 - `core/.../storage/cache/chm/LockFreeReadCacheFileOpsTest.java` (modified)
 - `core/.../storage/cache/local/WOWCacheShrinkFileTest.java` (modified)
 
-### Step 2 — commit b4ec7194b68c434eb0d68cd72ae50d2a68121dd8, 2026-06-01T12:47Z [ctx=info]
+### Step 2 — commit 6828bfce30a60ce25529969ab1b3ed0b2963dc28, 2026-06-01T12:47Z [ctx=info]
 **What was done:** Gated the read-cache purge in `LockFreeReadCache.shrinkFile` on
 the `truncated` boolean from `WriteCache.shrinkFile`. The `minPageIndex` computation
 and the 3-arg `clearFile(fileId, minPageIndex, writeCache)` call now run inside
@@ -223,8 +223,8 @@ delegate; the unconditional 2-arg `clearFile` reached by
 `truncateFile`/`closeFile`/`deleteFile` is untouched (gated at the call site, never
 inside `clearFile`). PSI confirmed the 3-arg `clearFile` has exactly two callers (the
 gated `shrinkFile` site and the 2-arg overload), so the gate is correctly localized.
-Commit 4e732075ad added the gate plus the no-op-skip and genuine-truncate tests;
-review-fix commit b4ec7194b6 strengthened the test set. The 7-agent dimensional
+Commit 0f22bb7221 added the gate plus the no-op-skip and genuine-truncate tests;
+review-fix commit 6828bfce30 strengthened the test set. The 7-agent dimensional
 review confirmed S3 holds and that the gate removes the `removeByFileId` O(capacity)
 sweep on the no-op path.
 
@@ -329,4 +329,7 @@ post-Phase-B rebase onto develop pulled in #1110, rewriting every on-branch
 commit); using actual on-branch parent
 afdb5c2d2fea1afdb35851c3aaf93702ebcef2b2 (the "Phase A review and
 decomposition for Track 1" commit, parent of the "Record Phase B base
-commit" commit) for this Phase C.
+commit" commit) for this Phase C. The same rebase rewrote every step-commit
+SHA, so the citations throughout this file were recomputed to their
+post-rebase counterparts: Step 1 `909ee97829`, Step 2 code `0f22bb7221`,
+Step 2 review-fix `6828bfce30`.
