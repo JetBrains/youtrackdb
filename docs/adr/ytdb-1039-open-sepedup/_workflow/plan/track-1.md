@@ -13,10 +13,11 @@ physically truncated, and have `LockFreeReadCache.shrinkFile` purge the read
 cache only when it did.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-01T11:36Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -32,6 +33,11 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 2 (4 findings T1-T4, 4 accepted) — T1 blocker corrected the "5 mocks return false" instruction (4 mocks keep their UOE throw, `TrackingWriteCache` returns a configurable boolean default `true`); T2/T3/T4 (DirectMemoryOnlyDiskCache dual overload, guard-mock trip-wire note, WOWCache boolean-contract assertions) folded into Plan of Work + Interfaces.
+- [x] Risk: PASS at iteration 2 (4 findings R1-R4, 4 accepted) — R1 blocker is the same mock-instruction error as T1; R2 noted the Mockito `mock(WriteCache.class)` needs no edit; R3 specified the non-vacuous no-op test; R4 corrected the `LockFreeReadCache.shrinkFile` line ref to `:673`.
+- [x] Adversarial: PASS at iteration 2 (4 findings A1-A4, 4 accepted) — S3 verified INFEASIBLE to violate (every path installing an above-target read-cache entry also bumps `getFileSize()` past `targetBytes`); A3 pinned the call-site gate + same-snapshot boolean constraints; A1/A2 enriched the D2 rationale (orchestrator-gate TOCTOU, `removeByStorageId` precedent) in Context without touching the immutable plan-file D2.
+- [x] Gate verification: PASS at iteration 2 (all 9 accepted findings VERIFIED, no regressions; cosmetic N1 wording fixed).
 
 ## Context and Orientation
 
@@ -70,37 +76,91 @@ truncate path still drops the correct cache entries.
 entries at `pageIndex >= minPageIndex`. "no-op shrink" = a `shrinkFile` call
 whose `targetBytes >= currentFileSize`, dropping nothing.
 
+**Why the boolean lives in the cache layer (Phase A review).** Gating one layer
+up — comparing `physicalBytes <= targetBytes` at
+`StorageComponent.verifyAndTruncateOrphans` on the already-computed sizes — was
+considered and rejected: that path reads size through the gated
+`StorageComponent.physicalSize` helper, a second read not synchronized with
+`WOWCache`'s authoritative `getFileSize()` snapshot taken under
+`filesLock.writeLock`, so it would open a TOCTOU window the in-cache no-op avoids.
+Deriving the boolean from the same locked snapshot that drives the early-return
+keeps the return exact. The rejected secondary-`fileId`-index alternative to
+`removeByFileId` (plan D2) is likewise unnecessary: the project's own precedent —
+`ConcurrentLongIntHashMap.removeByStorageId`, added when a per-file sweep pegged a
+close thread at 100% CPU — favors targeted bulk skips over structural per-key
+indices, and the no-op skip is the cheapest member of that family.
+
 ## Plan of Work
 
 The change is a narrow contract refinement on the `shrinkFile` SPI plus a
 guarded call in the read-cache orchestration.
 
 1. Change `WriteCache.shrinkFile(long, long)` to return `boolean` — `true` iff
-   the file was physically shrunk, `false` on the pre-flight no-op. Update
-   `WOWCache.shrinkFile` to return `false` at the `fileSize <= targetBytes`
-   early-return and `true` after a real truncate.
-2. Update the other `WriteCache` implementors: `DirectMemoryOnlyDiskCache.shrinkFile`
-   returns `false` (no physical store), and each of the 5 in-tree test
-   `WriteCache` mocks returns `false` (PSI-confirmed list in
-   `## Interfaces and Dependencies`).
-3. In `LockFreeReadCache.shrinkFile`, capture the boolean from
-   `writeCache.shrinkFile(...)` and call `clearFile(fileId, minPageIndex, writeCache)`
-   only when it is `true`. Preserve all argument-validity guards (they run before
-   the delegate). `truncateFile`/`closeFile`/`deleteFile` keep their unconditional
-   `clearFile` — they always drop pages — so the 3-arg `clearFile` change is
-   localized to the `shrinkFile` path.
-4. Tests: assert the no-op shrink performs no purge (spy/counter on
-   `removeByFileId` or assert below-target cache entries survive with no sweep),
-   and that a genuine shrink still evicts entries at `pageIndex >= minPageIndex`
-   while preserving entries below it. Extend `WOWCacheShrinkFileTest` for the
-   boolean contract and `LockFreeReadCacheFileOpsTest` for the conditional purge.
+   the file was physically shrunk, `false` on the pre-flight no-op. In
+   `WOWCache.shrinkFile`, return `false` at the `fileSize <= targetBytes`
+   early-return (`:2065`) and `true` after the real truncate (`file.shrink(...)`,
+   `:2076`). Derive the boolean from these two control-flow branches — the no-op
+   early-return and the post-`file.shrink()` fall-through — **not** from a
+   recomputed `getFileSize()` comparison: both branches read the same
+   `getFileSize()` snapshot held under `filesLock.writeLock`, which is what makes
+   the return exact (a recomputed compare after the lock drops reopens a TOCTOU
+   race; see S3).
+2. Update the other `WriteCache.shrinkFile` overriders (7 total, PSI-confirmed in
+   `## Interfaces and Dependencies`):
+   - `DirectMemoryOnlyDiskCache` — the **2-arg** `WriteCache.shrinkFile(long, long)`
+     returns `false` (the in-memory engine has no physical store). Its separate
+     **3-arg** `ReadCache.shrinkFile(long, long, WriteCache)` forwarder discards the
+     new boolean and needs **no** change.
+   - The four test mocks that today `throw UnsupportedOperationException`
+     (`MockedWriteCache` in `AsyncReadCacheTestIT` / `LockFreeReadCacheConcurrentTestIT`
+     / `LockFreeReadCacheBatchingTest`, and `PageFrameWriteCache` in
+     `LockFreeReadCacheOptimisticTest`) **keep the throw** — change only the return
+     type to `boolean` (a `throw` satisfies any return type). Each is pinned by a
+     `testShrinkFileMockThrowsUnsupportedOperation` guard test; rewriting them to
+     `return false` would delete that deliberate trip-wire and fail those tests.
+   - `TrackingWriteCache` (the only mock exercised by the `LockFreeReadCacheFileOpsTest`
+     orchestration tests) returns a **test-controlled boolean defaulting to `true`**
+     (genuine-truncate semantics). The existing eviction tests
+     (`testShrinkFileDropsAboveTargetEntriesAndDelegates`,
+     `testShrinkFileToZeroDropsEverything`) assert the purge runs, which under the
+     new conditional contract requires `true`; add a setter so the new no-op test
+     (step 4) can flip it to `false`.
+3. In `LockFreeReadCache.shrinkFile` (`:673`), capture the boolean from
+   `writeCache.shrinkFile(...)` (`:712`) and call
+   `clearFile(fileId, minPageIndex, writeCache)` (`:720`) only when it is `true`.
+   Gate at this **call site** — do **not** push the conditional into the `clearFile`
+   body: `truncateFile`/`closeFile`/`deleteFile` reach the purge through the
+   separate **2-arg** `clearFile(fileId, writeCache)` → `clearFile(fileId, 0, writeCache)`
+   and must keep dropping pages unconditionally; only `shrinkFile:720` uses the
+   3-arg `clearFile` directly, so the change is localized to the `shrinkFile` path.
+   Preserve all argument-validity guards (`:694-711`) — they run before the delegate.
+4. Tests:
+   - **No-op skip (non-vacuous):** seed N cached pages for a file, drive
+     `TrackingWriteCache.shrinkFile` to return `false`, call
+     `readCache.shrinkFile(fileId, targetBytes >= currentSize, …)`, then assert
+     (i) `getUsedMemory()` is unchanged, (ii) the call-order tracker recorded
+     `writeCache.shrinkFile` but **no** `clearFile.checkCacheOverflow` event,
+     (iii) `shrinkFileCount == 1`. Seeding live entries (not an empty cache) is
+     what makes the skipped-purge branch non-vacuous.
+   - **Genuine truncate (unchanged):** a real shrink still evicts entries at
+     `pageIndex >= minPageIndex` and preserves entries below it
+     (`testShrinkFileDropsAboveTargetEntriesAndDelegates` /
+     `testShrinkFileToZeroDropsEverything` keep passing with `TrackingWriteCache`
+     returning `true`).
+   - **WOWCache boolean contract:** extend `WOWCacheShrinkFileTest` so the
+     `targetBytes >= currentSize` no-op asserts the return is `false` and the
+     real-truncate cases assert `true`.
+   Target both branches of the new `if` (100% branch coverage) via the two
+   `LockFreeReadCacheFileOpsTest` methods.
 
 Ordering: step 1 must precede steps 2-3 (the SPI return type drives both impls
 and the caller). Invariant to preserve: S3 — the purge runs iff the write-cache
-layer truncated.
+layer physically truncated.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+
+1. Migrate `WriteCache.shrinkFile` `void` → `boolean` across all 7 overriders, behavior-preserving: `WOWCache` returns `false` at the `fileSize <= targetBytes` no-op (`:2065`) and `true` after `file.shrink()` (`:2076`); `DirectMemoryOnlyDiskCache` 2-arg returns `false` (its 3-arg `ReadCache` forwarder is unchanged, discards the boolean); the four throwing mocks (`MockedWriteCache` ×3, `PageFrameWriteCache`) keep their `UnsupportedOperationException` (return type only); `TrackingWriteCache` returns a test-controlled boolean (default `true`, with a setter). `LockFreeReadCache.shrinkFile` still calls `clearFile` unconditionally (the boolean is consumed in Step 2). Extend `WOWCacheShrinkFileTest` to assert the return (`false` on `targetBytes >= currentSize`, `true` on a real truncate). — risk: medium (multi-file SPI signature change across core storage-cache classes; behavior-preserving, no eviction/recovery behavior change)  [ ]
+2. Gate the read-cache purge in `LockFreeReadCache.shrinkFile` (`:673`) on the boolean: capture `truncated` from `writeCache.shrinkFile(...)` (`:712`) and call `clearFile(fileId, minPageIndex, writeCache)` (`:720`) only when `true`. Keep the argument-validity guards (`:694-711`) and the unconditional 2-arg `clearFile` in `truncateFile`/`closeFile`/`deleteFile` untouched (gate at the call site, never inside `clearFile`). Add the non-vacuous no-op-skip test to `LockFreeReadCacheFileOpsTest` (seed N live pages, drive `TrackingWriteCache` to return `false`, assert `getUsedMemory()` unchanged + no `clearFile.checkCacheOverflow` event + `shrinkFileCount == 1`) and confirm the genuine-truncate path still evicts at `pageIndex >= minPageIndex`. — risk: high (crash-safety + cache-eviction: gates the recovery-time read-cache purge in LockFreeReadCache; preserves invariant S3)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. Empty at Phase 1. -->
@@ -123,7 +183,17 @@ layer truncated.
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once steps are decomposed. -->
+
+Both steps are deterministic source edits with no on-disk or data-migration
+component: re-applying a step's commit produces identical bytes, and a failed
+step is recovered by the Phase B revert path (`git reset --hard HEAD`) followed
+by a re-attempt.
+
+Runtime recovery semantics (Step 2): the change alters recovery-time behavior
+(the orphan-truncation pass) but preserves S3 — the read-cache purge still runs
+on every genuine truncate, so a crash during the pass leaves the same
+post-recovery state as today (the next dirty reopen re-runs the pass). A no-op
+shrink drops no pages, so an interrupted no-op leaves nothing to reconcile.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
@@ -131,18 +201,28 @@ layer truncated.
 ## Interfaces and Dependencies
 
 **In scope (production):**
-- `core/.../storage/cache/WriteCache.java` — `shrinkFile` return type.
-- `core/.../storage/cache/local/WOWCache.java` — `shrinkFile` impl.
-- `core/.../storage/memory/DirectMemoryOnlyDiskCache.java` — `shrinkFile` impl.
-- `core/.../storage/cache/chm/LockFreeReadCache.java` — `shrinkFile` conditional purge.
+- `core/.../storage/cache/WriteCache.java` — `shrinkFile` return type (`void` → `boolean`).
+- `core/.../storage/cache/local/WOWCache.java` — `shrinkFile` impl (`false` at the no-op early-return, `true` after the real truncate).
+- `core/.../storage/memory/DirectMemoryOnlyDiskCache.java` — the **2-arg** `WriteCache.shrinkFile` returns `false`; the separate **3-arg** `ReadCache.shrinkFile` forwarder discards the boolean and is unchanged.
+- `core/.../storage/cache/chm/LockFreeReadCache.java` — `shrinkFile` (`:673`) conditional purge, gated at the `clearFile` call site (`:720`).
 
 **In scope (tests):**
-- `WOWCacheShrinkFileTest`, `LockFreeReadCacheFileOpsTest`, and the 5 test
-  `WriteCache` mocks that override `shrinkFile` (PSI-confirmed): the inner mocks
-  in `LockFreeReadCacheOptimisticTest` (`PageFrameWriteCache`),
-  `LockFreeReadCacheFileOpsTest` (`TrackingWriteCache`),
-  `LockFreeReadCacheConcurrentTestIT`, `AsyncReadCacheTestIT`,
-  `LockFreeReadCacheBatchingTest` (`MockedWriteCache`).
+- `WOWCacheShrinkFileTest` (extend for the boolean contract) and
+  `LockFreeReadCacheFileOpsTest` (conditional-purge tests + `TrackingWriteCache`).
+- The 7 `WriteCache.shrinkFile` overriders are PSI-confirmed: 2 production
+  (`WOWCache`, `DirectMemoryOnlyDiskCache`) + 5 test mocks. Four of the five mocks
+  intentionally `throw UnsupportedOperationException` (`MockedWriteCache` in
+  `AsyncReadCacheTestIT` / `LockFreeReadCacheConcurrentTestIT` /
+  `LockFreeReadCacheBatchingTest`; `PageFrameWriteCache` in
+  `LockFreeReadCacheOptimisticTest`) and are pinned by
+  `testShrinkFileMockThrowsUnsupportedOperation` guard tests — the migration
+  changes only their return type, not the throwing body. Only `TrackingWriteCache`
+  (`LockFreeReadCacheFileOpsTest`) returns a real boolean (test-controlled, default `true`).
+- `AbstractStorageTruncateOrphansAfterRecoveryTest` uses a Mockito
+  `mock(WriteCache.class)` — it is **not** a source overrider and needs no edit
+  (Mockito returns the `boolean` default). It mocks `ReadCache` directly and
+  asserts on `verifyAndTruncateOrphans` (no `shrinkFile` assertions), so it is
+  unaffected; re-run it after the change.
 
 **Out of scope:**
 - `ConcurrentLongIntHashMap.removeByFileId` itself (no signature/behavior change —
