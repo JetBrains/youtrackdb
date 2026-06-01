@@ -801,12 +801,32 @@ public abstract class AbstractStorage
 
           // Recovery-time orphan-truncation pass. Restores the per-component
           // logical <= physical invariant before any non-recovery transaction runs.
-          // Unconditional (NOT gated by wereDataRestoredAfterOpen) because an orphan
-          // can survive a crash -> clean-reopen-without-touch -> clean reclose, so a
-          // subsequent open with isDirty() == false still needs the pass. Per-component
-          // helpers each pre-flight to a no-op on a clean shape, so the pass is cheap on
-          // already-consistent storages.
-          atomicOperationsManager.executeInsideAtomicOperation(this::truncateOrphansAfterRecovery);
+          // Gated on wereDataRestoredAfterOpen: on the disk engine an orphan (physical
+          // pages past the logical horizon) is crash-only. A rolled-back transaction
+          // leaves zero physical footprint (the physical apply runs only inside
+          // commitChanges, which endAtomicOperation skips on rollback), and no correct
+          // production read extends a file outside crash recovery, so a cleanly-closed
+          // database is orphan-free. An orphan can therefore arise only from a crash,
+          // and a crash always leaves isDirty() == true at the next open, which sets
+          // wereDataRestoredAfterOpen during recoverIfNeeded(). The pass runs whenever
+          // WAL replay happened. We gate on the field rather than a re-read isDirty()
+          // because recoverIfNeeded -> flushAllData -> clearStorageDirty has already
+          // cleared the dirty flag by the time we reach here, so isDirty() would read
+          // false even on a crash reopen; the field is the surviving "did this open
+          // replay WAL" signal. The field is shared with
+          // IndexManagerEmbedded.autoRecreateIndexesAfterCrash and is set once and never
+          // reset, so it is left alone on close.
+          //
+          // Trade-off: the pass is best-effort (verifyAndTruncateOrphans swallows a
+          // truncate IOException as a WARN and continues). Skipping the pass on a clean
+          // reopen drops the cross-clean-cycle retry of a transient truncate failure on
+          // an otherwise readable component. That is bounded-acceptable: such a failure
+          // is loud (it logs a WARN at the reopen where it occurred) and is re-armed by
+          // any later crash, which sets the field again and re-runs the pass.
+          if (wereDataRestoredAfterOpen) {
+            atomicOperationsManager.executeInsideAtomicOperation(
+                this::truncateOrphansAfterRecovery);
+          }
 
           atomicOperationsManager.executeInsideAtomicOperation(
               (atomicOperation) -> {
