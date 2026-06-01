@@ -373,11 +373,88 @@ public class LockFreeReadCacheFileOpsTest {
   }
 
   /**
-   * {@code shrinkFile()} on a file with no cached pages must still invoke
-   * {@code writeCache.shrinkFile()} exactly once — the file-system call is the
-   * orchestrator's responsibility regardless of cache state, and a clean shutdown
-   * (no pages cached) is a valid call shape for the recovery pass.
-   */
+       * {@code shrinkFile(fileId, targetBytes, writeCache)} with {@code targetBytes} at or above the
+       * current physical size is a no-op at the write-back layer: {@code WriteCache.shrinkFile}
+       * truncates nothing and reports {@code false}. The orchestrator must then SKIP the read-cache
+       * purge entirely, leaving every cached page for the file in place — there is nothing to evict
+       * because no page was physically dropped (invariant: the purge runs iff the write-cache layer
+       * truncated).
+       *
+       * <p>The cache is seeded with live entries before the call so the skipped branch is
+       * <b>non-vacuous</b>: an empty cache would leave used-memory at zero regardless of whether the
+       * purge ran, so it could not distinguish "purge skipped" from "purge ran but evicted nothing".
+       * Seeding 5 pages and driving {@link TrackingWriteCache#setShrinkFileReturnValue}{@code (false)}
+       * makes the skip observable three ways: (i) {@code getUsedMemory()} is unchanged (no eviction),
+       * (ii) the captured call-order list records {@code writeCache.shrinkFile} but NO
+       * {@code clearFile.checkCacheOverflow} event (the LFRC range purge never ran — it invokes
+       * {@code checkCacheOverflow} once per evicted entry), and (iii) {@code shrinkFileCount == 1}
+       * (the write-back delegate still fires exactly once). Together with the genuine-truncate tests
+       * above (which drive the {@code true} branch), this gives 100% branch coverage of the new
+       * conditional purge.
+       */
+  @Test
+  public void testShrinkFileNoOpSkipsPurgeAndPreservesCacheEntries() throws IOException {
+    // Seed 5 live pages for file 60 so the skipped-purge branch is non-vacuous.
+    for (int i = 0; i < 5; i++) {
+      readCache.releaseFromRead(readCache.loadForRead(60, i, writeCache, false));
+    }
+    Assert.assertEquals("sanity: 5 pages in cache", 5L * PAGE_SIZE, readCache.getUsedMemory());
+    Assert.assertEquals("sanity: shrinkFile not called yet", 0, writeCache.shrinkFileCount.get());
+
+    // Model the WriteCache pre-flight no-op: targetBytes >= current size truncates nothing,
+    // so shrinkFile reports false and the orchestrator must skip the read-cache purge.
+    writeCache.setShrinkFileReturnValue(false);
+
+    final var callOrder =
+        java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+    writeCache.attachCallOrderTracker(callOrder);
+
+    // targetBytes at the current size (5 pages) — a valid no-op target (page-aligned,
+    // non-negative, no overflow), so the orchestrator's argument guards pass and the call
+    // reaches the gated delegate.
+    final long targetBytes = 5L * PAGE_SIZE;
+    readCache.shrinkFile(60, targetBytes, writeCache);
+
+    // (iii) The write-back delegate still fires exactly once, with the supplied target.
+    Assert.assertEquals(
+        "writeCache.shrinkFile must be invoked exactly once even on the no-op path",
+        1, writeCache.shrinkFileCount.get());
+    Assert.assertEquals(
+        "writeCache.shrinkFile must receive the orchestrator's targetBytes verbatim",
+        targetBytes, writeCache.lastShrinkTargetBytes);
+
+    // (i) No eviction occurred — all 5 seeded pages remain cached.
+    Assert.assertEquals(
+        "After a no-op shrink (truncated=false), the read cache must be untouched: all 5"
+            + " seeded pages for file 60 must remain",
+        5L * PAGE_SIZE, readCache.getUsedMemory());
+
+    // (ii) The LFRC range purge never ran: writeCache.shrinkFile is recorded, but no
+    // clearFile.checkCacheOverflow event (which the purge emits once per evicted entry).
+    final java.util.List<String> capturedOrder;
+    synchronized (callOrder) {
+      capturedOrder = new java.util.ArrayList<>(callOrder);
+    }
+    Assert.assertTrue(
+        "writeCache.shrinkFile must be recorded on the no-op path (capturedOrder="
+            + capturedOrder + ")",
+        capturedOrder.contains("writeCache.shrinkFile"));
+    Assert.assertFalse(
+        "the read-cache purge must be SKIPPED on a no-op shrink — no"
+            + " clearFile.checkCacheOverflow event may appear (capturedOrder="
+            + capturedOrder + ")",
+        capturedOrder.contains("clearFile.checkCacheOverflow"));
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  /**
+  * {@code shrinkFile()} on a file with no cached pages must still invoke
+  * {@code writeCache.shrinkFile()} exactly once — the file-system call is the
+  * orchestrator's responsibility regardless of cache state, and a clean shutdown
+  * (no pages cached) is a valid call shape for the recovery pass.
+  */
   @Test
   public void testShrinkFileOnUncachedFileStillDelegates() throws IOException {
     Assert.assertEquals("sanity: cache is empty", 0, readCache.getUsedMemory());
