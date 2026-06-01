@@ -20,6 +20,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T14:27Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
 - [x] 2026-06-01T15:50Z [ctx=info] Step 2 complete (commit 1f0c3e0e3e; dim-review PASS iter 2)
+- [x] 2026-06-01T16:15Z [ctx=info] Step 3 complete (commit 597c1c08aa; dim-review PASS iter 2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -39,6 +40,11 @@ at Phase 1. -->
   `forceDirtyReopen`, assert the orphan SURVIVES (pins the gate's defining
   behavior); (b) add an empty-WAL dirty-reopen test asserting the pass still runs
   on a dirty-but-orphan-free reopen. See Episodes §Step 2.
+- 2026-06-01T16:15Z Step 3 discovered: the ephemeral-identifier gate forbids the
+  working labels "S2" / "Axis A" in durable source. Step 5's ADR / design-final
+  amendments land under `docs/adr` (durable), so they must restate the
+  rollback-zero-footprint invariant in prose and anchor to YTDB-1039, not cite the
+  bare labels. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -255,7 +261,7 @@ after `open()`).
 
 1. Migrate orphan-fabrication tests (`TruncateOrphansAfterRecoveryIT`, `StorageBackupMTRestoreIT`) to a dirty (WAL-replay) reopen so the repair path still runs post-gate — risk: medium (test infrastructure: shared scenario fixtures across two IT files)  [x] commit: acfe1445f7
 2. Gate `AbstractStorage.open():809` on `wereDataRestoredAfterOpen`, rewrite the `:802-808` comment, do not reset the shared field, leave `postProcessIncrementalRestore:1680` unconditional — risk: high (crash-safety/durability: gates the recovery-time orphan pass in AbstractStorage; overturns read-cache-concurrency-bug I6)  [x] commit: 1f0c3e0e3e *(file-independent of Step 3)*
-3. Pin S2 write-path half at `AtomicOperationsManager.endAtomicOperation:320` via `assert` + focused unit test (spy) covering the inbound-error and persist-failure rollback paths — risk: high (override: no production behavior change, but pins the load-bearing Axis A crash-safety premise; warrants the crash-safety dimensional review)  [ ] *(file-independent of Step 2)*
+3. Pin S2 write-path half at `AtomicOperationsManager.endAtomicOperation:320` via `assert` + focused unit test (spy) covering the inbound-error and persist-failure rollback paths — risk: high (override: no production behavior change, but pins the load-bearing Axis A crash-safety premise; warrants the crash-safety dimensional review)  [x] commit: 597c1c08aa *(file-independent of Step 2)*
 4. Crash-injection + clean-reopen regression test: dirty-reopen pass-ran/I6, clean-reopen no-orphan + pass-skipped (observation hook), WARN-on-truncate-failure — risk: medium (test infrastructure: extends shared crash-injection + orphan harnesses)  [ ]
 5. Documentation corrections: read-cache-concurrency-bug ADR D6/I6 + design-final (preserve-with-scoping), stale `WOWCache.loadOrAdd` Javadoc, unaffected-tests note — risk: low (docs)  [ ]
 
@@ -347,6 +353,47 @@ read-cache-concurrency-bug D6/I6) must mirror the corrected wording: the
 orchestrator `truncateOrphansAfterRecovery` swallows the truncate `IOException`
 with a WARN, while the per-component `verifyAndTruncateOrphans` propagates it. Do
 not re-import the old inverted phrasing.
+
+### Step 3 — commit 597c1c08aa, 2026-06-01T16:15Z [ctx=info]
+**What was done:** Pinned the write-path half of the
+rollback-leaves-no-physical-footprint premise that the open-time gate (Step 2)
+depends on. Added a production Java `assert !operation.isRollbackInProgress()` at
+the `commitChanges` call site in `AtomicOperationsManager.endAtomicOperation`
+(assert in commit `cd7072fff5`), so a future refactor that merges the rollback
+branches, moves the call, or weakens the predicate trips under `-ea` instead of
+silently breaking the gate's crash-safety argument. A new
+`EndAtomicOperationRollbackSkipsCommitTest` (Mockito spy on `commitChanges`)
+covers both rollback entries — the inbound-error path and the
+index-delta-persist-failure flip — and asserts `commitChanges` plus the
+commit-only side effects (`persistOperation`, WAL `addEventAt`) never fire on
+rollback; a clean-path positive control asserts `commitChanges` IS reached so the
+never-assertions cannot pass vacuously. Because `coverage-gate.py` excludes
+`assert` lines, the regression value lives in the test. No production behavior
+change. Step-level review (7 agents) passed at iteration 2 after four findings
+(Review fix `597c1c08aa`): make the dedicated test earn its place over the
+pre-existing `EndAtomicOperationPersistHookTest` (intentional-overlap Javadoc +
+the sibling-omitted negative-state assertions), pin the persist-failure throw
+identity (`assertSame` + `fail`), correct the positive-control Javadoc, and use
+exact `commitChanges` matchers.
+
+**What was discovered:** The ephemeral-identifier pre-commit gate forbids the
+plan's working labels "S2" / "Axis A" in durable source — the first draft (class
+`EndAtomicOperationS2PremiseTest`, comments citing "premise S2" / "Axis A")
+tripped it. The invariant was restated in prose and anchored to YTDB-1039. The
+dedicated test was initially a strict behavioral subset of
+`EndAtomicOperationPersistHookTest`; it now earns its place via the commit-only
+negative-state assertions the sibling omits plus an explicit intentional-overlap
+Javadoc note. Tooling: this IDE build lacks the steroid `runMavenTests` helper,
+so targeted reruns fall back to foreground `./mvnw`.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/EndAtomicOperationRollbackSkipsCommitTest.java` (new)
+
+**Critical context:** Step 5's ADR amendment lands under `docs/adr` (durable,
+survives merge), so it MUST avoid the "S2" / "Axis A" labels per the
+ephemeral-identifier rule — restate the rollback-zero-footprint invariant in
+prose; the YTDB-1039 issue ID is the allowed durable anchor.
 
 ## Validation and Acceptance
 
