@@ -14,10 +14,11 @@ always run; writing-style already fires via `docs/adr/**/*.md`). A
 staged-path normalization rule strips the prefix before the globs run.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-01T13:05Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -33,6 +34,16 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (4 findings; T1 should-fix + T2/T3
+  suggestions accepted and applied to the track description; T4 suggestion
+  noted, left as-is — the 2-step decomposition makes the plan's "~2 steps"
+  hint accurate, so no plan edit needed). Risk and Adversarial reviews
+  skipped (Simple track, 1-2 steps, per the complexity table).
+  Self-application carve-out (§1.7(h)): the technical and gate-verification
+  sub-agents ran with hand-injected staging-aware reads (§1.7(d)) and
+  prose-criteria (references verified as file paths / §-anchors via
+  Read+Grep, not PSI), since the live machinery does not yet carry the
+  YTDB-1046 / YTDB-1038 fixes this branch stages.
 
 ## Context and Orientation
 
@@ -98,22 +109,57 @@ landed in both mirror files in a single commit (D1, S1).
    commit, and bump the single canonical `<!-- Last sync-checked … -->` date
    in `review-agent-selection.md §Maintenance` (the only file that carries the
    stamp; `code-review/SKILL.md` has no such comment).
+3. Add one staged-path worked example to `review-agent-selection.md`
+   §Examples — workflow-machinery override, in the same commit. The existing
+   worked examples use live `.claude/...` paths and re-state the glob-match
+   outcomes in prose; none demonstrates the staged case this track fixes. The
+   new example shows a staged path normalizing and the three glob-gated
+   reviewers launching: a step editing
+   `docs/adr/<dir>/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md`
+   normalizes to `.claude/skills/code-review/SKILL.md`, which matches the
+   `prompt-design` and `instruction-completeness` globs, so both launch
+   alongside the always-run consistency + context-budget pair. §Examples is
+   not in the mirrored set (§Maintenance lists only §Workflow-review agents,
+   §Workflow-machinery file set, §Per-agent file-pattern triggers, and
+   §Workflow-machinery override), and `code-review/SKILL.md` carries no
+   §Examples block, so this addition creates no new drift and needs no
+   SKILL.md counterpart.
 
 Ordering and invariants:
-- Both edits land in one commit (S1). The normalization is scoped to the exact
-  two-level `…/_workflow/staged-workflow/.claude/` prefix; a path that merely
-  contains `.claude/` lower down must not normalize.
+- Both edits land in one commit (S1). Express the rule as an anchored prefix
+  strip: a changed path matching
+  `docs/adr/<any-dir>/_workflow/staged-workflow/(.claude/…)` is replaced by the
+  captured `.claude/…` remainder before per-agent glob matching. The match is
+  anchored after the `docs/adr/<dir>/` head (the dir segment is variable) and
+  the remainder begins at `.claude/`. A path not matching this exact anchored
+  prefix passes through unchanged; a path that merely contains `.claude/` lower
+  down does not normalize.
 - The file-set categorization is unchanged: a staged file was already
   workflow-machinery by the `docs/adr/<dir>/` rule. Only the per-agent trigger
   step needs the prefix strip.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+
+1. Add the staged-path normalization preamble to `review-agent-selection.md`
+   §Workflow-machinery override and mirror it into `code-review/SKILL.md`
+   Step 5d, in one commit, bumping the single canonical
+   `<!-- Last sync-checked … -->` date in `review-agent-selection.md`
+   §Maintenance. The preamble runs ahead of the per-agent glob match: a
+   changed path matching `docs/adr/<any-dir>/_workflow/staged-workflow/(.claude/…)`
+   is replaced by the captured `.claude/…` remainder before matching, anchored
+   after the `docs/adr/<dir>/` head; paths not matching the exact anchored
+   prefix pass through unchanged. Both staged edits land in the same commit
+   (S1). — risk: medium (review-selection infrastructure: changes which
+   workflow reviewers launch on staged paths; multi-file mirror pair; no HIGH
+   code triggers apply)  [ ]
+2. Add one staged-path worked example to `review-agent-selection.md`
+   §Examples — workflow-machinery override, showing a staged path normalizing
+   and the three glob-gated reviewers launching alongside the always-run
+   consistency + context-budget pair. §Examples is not a mirrored section, so
+   this edits `review-agent-selection.md` only (no SKILL.md counterpart, no
+   sync-date re-bump, no new drift). Sequential after Step 1 (it documents
+   Step 1's rule). — risk: low (default: documentation; illustrative prose, no
+   behavior change)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -135,6 +181,14 @@ Track-level behavioral acceptance:
 - The writing-style reviewer outcome is unchanged: it still fires via
   `docs/adr/**/*.md`; normalization makes that intentional rather than an
   incidental overlap.
+- §Examples — workflow-machinery override gains a staged-path worked example
+  whose stated agent set matches the normalized live path (the three glob-gated
+  reviewers plus the always-run pair).
+- The normalization paragraph in `review-agent-selection.md §Workflow-machinery
+  override` and `code-review/SKILL.md` Step 5d carry the same normalization
+  semantics, and the single commit touches both files plus the `§Maintenance`
+  sync-date (S1 mirror integrity; `review-workflow-consistency` backstops this
+  at Phase C).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -154,7 +208,9 @@ belong to one specific step. Per-step episode content lives in
 
 In-scope files:
 - `.claude/workflow/review-agent-selection.md` — §Workflow-machinery override
-  (add the normalization paragraph) and §Maintenance sync-date comment.
+  (add the normalization paragraph), §Examples — workflow-machinery override
+  (add the staged-path worked example; not a mirrored section, so no SKILL.md
+  counterpart), and §Maintenance sync-date comment.
 - `.claude/skills/code-review/SKILL.md` — Step 5d (mirror the paragraph). The
   sync stamp is single-canonical in `review-agent-selection.md §Maintenance`;
   `code-review/SKILL.md` carries no `<!-- Last sync-checked … -->` comment of
