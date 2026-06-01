@@ -1,13 +1,15 @@
 <!-- workflow-sha: 5db61a37462f0b28965113f39a81b6fcb1ed1340 -->
-# Track 4: SQL execution layer helper, Gremlin-SQL suppression, sanitizer, and syntax classifier wire
+# Track 4: SQL execution layer LocalResultSet hook, sanitizer, and syntax classifier wire
 
 ## Purpose / Big Picture
 
-After this track lands, every native SQL statement (`db.command(...)`, `db.execute(...)`, AND read-only `db.query(...)` — including MATCH, INSERT, UPDATE, DELETE, DDL) fires `QueryMetricsListener.queryFinished(...)` through a single private helper `executeStatementWithMetrics(SQLStatement, String, Object)` on `DatabaseSessionEmbedded`, invoked from all three SQL execution entry points: `query(String, Object...)` (line 617), `query(String, boolean, Map)` (line 652, the Map-args overload backing both `db.query("...", Map.of(...))` and the Gremlin-to-SQL bridge), and `executeInternal()` (line 702). A new `GremlinSqlSuppression` utility (re-entrant ThreadLocal counter + `AutoCloseable` token) activated by both `YTDBGraphQuery.execute(session)` and `YTDBGraphQuery.explain(session)` short-circuits the helper for Gremlin-driven SQL (and Gremlin's explain-introspection path) so one traversal emits exactly one span. Both the SQL sanitizer (`core.SqlSanitizer`) and the SQL classifier (`core.SqlSyntaxClassifier`) live in `core` (the classifier is owned by Track 1; the sanitizer is added by this track) because both walk the parser-output AST that lives in `core`; the helper calls both directly to populate the inline `QueryDetails`.
+After this track lands, every native SQL statement (`db.command(...)`, `db.execute(...)`, AND read-only `db.query(...)` — including MATCH, INSERT, UPDATE, DELETE, DDL) fires `QueryMetricsListener.queryFinished(...)` through the `LocalResultSet` outer-boundary fire site. `LocalResultSet` is the result-set wrapper every SQL execution entry point on `DatabaseSessionEmbedded` returns; its constructor captures the start clock when `executionPlan.start()` opens (line 45 of `LocalResultSet.java`), and `close()` computes elapsed time and fires the listener. Multi-statement scripts (`ScriptExecutionPlan` wrapped in one outer `LocalResultSet`) emit one span per script call. Sub-plans nested inside (MATCH steps, sub-query steps, IF / WHILE flow control, script line steps) call `ExecutionPlan.start()` directly without wrapping in `LocalResultSet`, so they do not double-fire. The SQL sanitizer (`core.SqlSanitizer`, added by this track) and the SQL classifier (`core.SqlSyntaxClassifier`, owned by Track 1) both live in `core` because both walk the parser-output AST that lives in `core`; `LocalResultSet`'s lazy `QueryDetails` accessors call them on first read.
+
+Under Gremlin Path B fallback (`YTDBGraphQuery.execute` → `transaction.query(...)` → `LocalResultSet`), the SQL span emitted by `LocalResultSet.close()` attaches as a child of the active Gremlin span via OTel `Context.current()` propagation — managed by the OTel module's Gremlin span lifecycle hook on `YTDBQueryMetricsStep` (Track 3 owner). No thread-local suppression machinery is needed (D20). Path A (translated Gremlin, post-PR-1038) does not reach `LocalResultSet` because `YTDBMatchPlanStep` calls `SelectExecutionPlan.start()` directly without wrapping.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Extract `executeStatementWithMetrics(SQLStatement, String, Object)` as a private helper on `DatabaseSessionEmbedded` and invoke it from all three SQL execution entry points (`query(String, Object...)` line 617, `query(String, boolean, Map)` line 652, `executeInternal()` line 702) so every native SQL statement (SELECT / INSERT / UPDATE / DELETE / MATCH / DDL) flows through `QueryMetricsListener.queryFinished(...)`. Add a `GremlinSqlSuppression` static utility in `core` and wrap `YTDBGraphQuery.execute`'s underlying `transaction.query(...)` call with a try-with-resources `activate()` token so the helper stays silent during Gremlin-driven SQL. Implement `SqlSanitizer` as an AST-walk static utility in `core` (alongside `SqlSyntaxClassifier` from Track 1). The SQL classifier and sanitizer are both called directly from the helper to populate the inline `QueryDetails`.
+Instrument `LocalResultSet`'s constructor and `close()` to capture the start clock, store the listener snapshot, build `QueryDetails`, and fire `queryFinished` on every registered listener. Wire the three SQL execution entry points (`query(String, Object...)` line 617, `query(String, boolean, Map)` line 652, `executeInternal()` line 702) on `DatabaseSessionEmbedded` to pass the parsed `SQLStatement` plus the raw SQL text plus the listener snapshot from `currentTx.iterateAllQueryListeners()` to the result-set constructor. Implement `SqlSanitizer` as an AST-walk static utility in `core` (alongside Track 1's `SqlSyntaxClassifier`). The SQL classifier and sanitizer are both called by `LocalResultSet`'s lazy `QueryDetails` accessors. Tag source for SQL is `Optional.empty()` (Gremlin-only tag source per D15); the resolver short-circuits to the per-TX default.
 
 ## Progress
 - [ ] Review + decomposition
@@ -25,48 +27,47 @@ Extract `executeStatementWithMetrics(SQLStatement, String, Object)` as a private
 
 ## Context and Orientation
 
-The track has three halves: the core-side helper extraction (`DatabaseSessionEmbedded` + `YTDBGraphQuery`), the new `GremlinSqlSuppression` utility, and the OTel-module-side sanitizer.
+The track has two halves: the core-side `LocalResultSet` instrumentation (`DatabaseSessionEmbedded` entry-point wiring + the result-set constructor + `close()` changes) and the core-side sanitizer.
 
-Core-side helper insertion point: `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` has TWO parallel SQL paths today — `query()` at lines 617-686 (backs `db.query(...)` and the Gremlin bridge) and `executeInternal()` at lines 702-751 (backs `db.command(...)` / `db.execute(...)`). Both follow the same shape: parse via `SQLEngine.parse(...)`, dispatch via `statement.execute(this, args, true)`, post-process the result. Track 4 extracts a private helper that wraps `statement.execute(...)` with the listener fire and invokes it from both call sites:
+Core-side `LocalResultSet` instrumentation point: `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/LocalResultSet.java`. Today the constructor takes the execution plan and calls `stream = executionPlan.start()` at line 45. Track 4 extends the constructor signature to also take the parsed `SQLStatement`, the raw SQL text, the args, and the listener snapshot. When listeners are present, the constructor captures the start clock under the resolved mode, then calls `executionPlan.start()`. `close()` computes elapsed time, builds the `QueryDetails`, fires every listener inside the multi-catch wrapper, and closes the underlying stream.
+
+`DatabaseSessionEmbedded` has three SQL execution entry points today — `query()` at lines 617-686 (backs `db.query(...)` and the Gremlin bridge), the Map-args overload at line 652, and `executeInternal()` at lines 702-751 (backs `db.command(...)` / `db.execute(...)`). All three follow the same shape: parse via `SQLEngine.parse(...)`, build the execution plan via `statement.execute(this, args, true)`, wrap the resulting stream in a `LocalResultSet`. Track 4 changes each entry point to pass the parsed `SQLStatement` plus the raw SQL plus the listener snapshot to the new `LocalResultSet` constructor:
 
 ```
 db.command("...") / db.execute("...")
   → FrontendTransactionImpl.execute()   (lines 1765-1776)
   → DatabaseSessionEmbedded.executeInternal()   (line 702)
   → SQLEngine.parse(...)
-  → executeStatementWithMetrics(statement, rawSql, args)   ← HELPER
+  → executionPlan = statement.execute(...)
+  → new LocalResultSet(executionPlan, statement, rawSql, args, currentTx)   ← INSTRUMENTED
 
 db.query("...")
   → FrontendTransactionImpl.query()   (lines 1751-1762)
   → DatabaseSessionEmbedded.query()   (line 617)
   → SQLEngine.parse(...)
   → isIdempotent() check
-  → executeStatementWithMetrics(statement, rawSql, args)   ← SAME HELPER
+  → executionPlan = statement.execute(...)
+  → new LocalResultSet(executionPlan, statement, rawSql, args, currentTx)   ← SAME CONSTRUCTOR
 
-g.V().hasLabel("X").toList()   (Gremlin)
+g.V().hasLabel("X").toList()   (Gremlin Path B fallback)
   → YTDBGraphStep
   → YTDBGraphQuery.execute(session)
-  → GremlinSqlSuppression.activate() (try-with-resources)
   → transaction.query(...)
   → DatabaseSessionEmbedded.query()
-  → executeStatementWithMetrics(...)
-  → checks GremlinSqlSuppression.isActive() → short-circuits
+  → new LocalResultSet(...)
+  → Constructor reads Context.current() (Gremlin span via Track 3 lifecycle hook)
+  → close() emits SQL span as child of Gremlin span
 ```
 
-Available state at helper invocation:
-- `statement` (SQLStatement): the parsed AST, both call sites parse before delegating.
+Available state at `LocalResultSet` constructor invocation:
+- `executionPlan` (InternalExecutionPlan): the compiled plan whose `start()` returns the result stream.
+- `statement` (SQLStatement): the parsed AST. Stored for lazy classification + sanitization.
 - `rawSql` (String): raw SQL text — `stringStatement` from `executeInternal`'s caller, or the original SQL string from `query()`. Null fallback: `statement.getOriginalStatement()`.
 - `args` (Object): positional `Object[]` or named `Map<Object, Object>` parameters.
-- `currentTx` (FrontendTransaction): the active transaction. The existing `FrontendTransaction.getId(): long` accessor returns a stable internal ID; the helper uses `String.valueOf(currentTx.getId())` as the tracking ID — no new accessor is added (CR16 resolution).
+- `currentTx` (FrontendTransaction): the active transaction. The existing `FrontendTransaction.getId(): long` accessor returns a stable internal ID; the result-set uses `String.valueOf(currentTx.getId())` as the tracking ID — no new accessor is added (CR16 resolution).
+- Listener snapshot from `currentTx.iterateAllQueryListeners()` (Track 1 accessor) — stored at constructor time so listener iteration order is fixed.
 
-New `GremlinSqlSuppression` class in `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/GremlinSqlSuppression.java`:
-- `activate(): AutoCloseable` — increments a ThreadLocal counter; returns a token whose `close()` decrements.
-- `isActive(): boolean` — counter > 0.
-- Re-entrant so nested Gremlin steps inside one another don't underflow.
-
-`YTDBGraphQuery.execute` site: `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBGraphQuery.java` line 23-26. Wrap the existing `transaction.query(this.query, this.params)` in `try (var ignored = GremlinSqlSuppression.activate())`.
-
-Core-side sanitizer (moved out of the OTel module because it walks the parser-output AST that lives in `core`):
+Core-side sanitizer (lives in `core` because it walks the parser-output AST):
 - `SqlSanitizer`: static utility `sanitize(SQLStatement) → String` in `core/.../profiler/monitoring/` next to `SqlSyntaxClassifier`. Walks the parsed AST and emits a rendering with every literal node (`SQLBaseExpression`, `SQLInputParameter`, `SQLNumber`, `SQLBoolean`, `SQLString`, date / timestamp literal nodes) replaced by `?`; structural nodes (FROM targets, WHERE operators, GROUP BY / ORDER BY identifiers) render verbatim. Already-parameterized text (`SQLInputParameter` nodes carrying `:name` / `?` placeholders) renders as `?` idempotently. Handles edge cases regex-based sanitizers leak: doubled single quotes (`'It''s'`), JSON strings inside SELECT projections, regex predicates in `MATCHES` clauses — the parser already classified those as `SQLString` nodes, so the walk renders them as `?` without re-parsing quoting rules.
 
 Core-side classifier (delivered by Track 1, consumed here):
@@ -74,37 +75,35 @@ Core-side classifier (delivered by Track 1, consumed here):
 
 Concrete deliverables:
 
-1. New private helper `executeStatementWithMetrics(SQLStatement, String, Object)` in `DatabaseSessionEmbedded` wrapping `statement.execute(this, args, true)` with a timer and a `QueryDetails` construction. Reads the global registry snapshot from `currentTx` (captured at `beginInternal` time per Track 1) and resolves `QueryMonitoringMode` per-query via `currentTx.resolveQueryMonitoringMode(statement.getQueryTag())` (Track 1's resolver + this track's new `SQLStatement.getQueryTag()` accessor populated by the SQL parser hint `/*+ TAG=X */` — deliverable 7 below). Short-circuits when listeners empty OR `GremlinSqlSuppression.isActive()` — returns `statement.execute(...)` directly with zero overhead. Timing routes through `GranularTicker` under `LIGHTWEIGHT` (default, no syscall on hot path) or `System.nanoTime()` under `EXACT` (sub-millisecond precision, two syscalls per query), matching the pre-existing pattern in `FrontendTransactionImpl.doCommit` and `YTDBQueryMetricsStep.close()`. Different statements in the same TX with different tags can resolve to different modes — this is intentional per D15.
-2. Wire the helper into `DatabaseSessionEmbedded.executeInternal()` (line 702) — replace the direct `statement.execute(...)` call inside the existing `switch (args)` block with a single helper invocation. Preserve the `isIdempotent`-driven prefetch vs streaming branch around the helper's return value.
-3. Wire the helper into `DatabaseSessionEmbedded.query()` (line 617 and the boolean-syncTx overload at line 652) — replace the direct `statement.execute(...)` call (after the `isIdempotent()` check) with a single helper invocation.
-4. New `GremlinSqlSuppression` static utility class in `core/.../profiler/monitoring/`. Re-entrant ThreadLocal counter + `AutoCloseable` activation token; `isActive()` boolean check.
-5. Wire `GremlinSqlSuppression.activate()` into BOTH `YTDBGraphQuery.execute(session)` (lines 23-26) AND `YTDBGraphQuery.explain(session)` (line 31) via try-with-resources around the existing `transaction.query(...)` calls. The explain wire prevents parasitic SQL spans on any caller of `YTDBGraphQuery.explain`, including the test-driven `YTDBGraphQuery.usedIndexes` introspection path (`usedIndexes(session)` at `YTDBGraphQuery.java:37` calls `this.explain(session)` at line 38).
-6. A SQL-flavored `QueryDetails` implementation carrying raw SQL, sanitized SQL, operation name, collection name, database name, tracking ID. Lives in `core` (close to the helper) and calls `SqlSyntaxClassifier.classify(statement)` (Track 1's static utility) to populate operation/collection lazily; database name comes from `getDatabaseName()` on the session; tracking ID is `String.valueOf(currentTx.getId())`.
-7. `SqlSanitizer` static utility in `core/.../profiler/monitoring/` (alongside `SqlSyntaxClassifier`). AST-walk implementation: `sanitize(SQLStatement)` returns the sanitized rendering. Lives in `core` because the walk needs the parser-output AST; the OTel module's `QueryDetails` impl reads it via the same lazy-cache path as `SqlSyntaxClassifier`.
+1. `LocalResultSet` field additions and constructor signature change in `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/LocalResultSet.java`. New fields: `SQLStatement statement`, `String rawSql`, `Object args`, `Iterable<QueryMetricsListener> listeners`, `QueryMonitoringMode mode`, `long startMillis`, `long startEpochNanos`, `long startNanoTime`, `Throwable caughtError = null`, `boolean instrumented`. New constructor signature `LocalResultSet(InternalExecutionPlan executionPlan, SQLStatement statement, String rawSql, Object args, FrontendTransaction currentTx)`. The constructor logic: read `listeners = currentTx.iterateAllQueryListeners()`; if listeners empty, set `instrumented = false`, call `stream = executionPlan.start()`, and return (un-instrumented fast path with zero overhead). Otherwise resolve `mode = currentTx.resolveQueryMonitoringMode(Optional.empty())` (SQL has no tag source; resolver short-circuits to per-TX default per D15), capture `startMillis` / `startEpochNanos` / `startNanoTime` under the chosen mode (`LIGHTWEIGHT` reads from `YouTrackDBEnginesManager.instance().getTicker()`; `EXACT` reads `Instant.now()` + `System.nanoTime()`), call `stream = executionPlan.start()`, set `instrumented = true`.
 
-8. SQL parser grammar extension in `core/src/main/jj/YouTrackDBSql.jjt` to recognize the hint syntax `/*+ TAG=identifier */` preceding any top-level statement (SELECT / INSERT / UPDATE / DELETE / MATCH / CREATE / ALTER / DROP). The grammar treats the hint as a special comment block: the lexer matches `/*+` ... `*/` outside of regular block comments, parses the inner `TAG=identifier` clause, and attaches the extracted identifier to the next produced `SQLStatement` node. Re-generation of the parser code is automatic on build via the existing JavaCC pipeline.
+2. `LocalResultSet.hasNext()` / `next()` iteration changes. Delegate to the underlying stream as today. If the stream throws, set `caughtError = e` and rethrow. Zero overhead on the hot iteration path.
 
-9. `SQLStatement.getQueryTag(): Optional<String>` accessor on the parser-output base class returning the tag attached by the hint (deliverable 8) or `Optional.empty()` when no hint preceded the statement. Default no-op; subclasses don't override.
+3. `LocalResultSet.close()` body. If `instrumented` is false, just close the underlying stream and return. Otherwise compute `elapsedNanos = (mode == LIGHTWEIGHT) ? ticker.approximateNanoTime() - startNanoTime : System.nanoTime() - startNanoTime`. Build the `QueryDetails` (lazy `getQuery()` calls `SqlSanitizer.sanitize(statement)`; lazy `getOperationName()` / `getCollectionName()` call `core.SqlSyntaxClassifier.classify(statement)`; `getDatabaseName()` reads from the session; `getTransactionTrackingId()` returns `String.valueOf(currentTx.getId())`; `getErrorType()` returns `Optional.ofNullable(caughtError).map(t -> t.getClass().getName())`; `getStartedAtEpochNanos()` returns the stored value). Iterate the listener snapshot and call `listener.queryFinished(details, startMillis, elapsedNanos)` on each, wrapped in try/catch `(Exception | LinkageError | AssertionError t)` so a listener throw does not propagate. Close the underlying stream.
 
-The `Classification` record and `SqlSyntaxClassifier` both land in Track 1 — Track 4 only wires the call into the SQL helper. No new `FrontendTransaction.getTrackingId()` accessor is needed (CR16 resolution). The SQL hint parser and `SQLStatement.getQueryTag()` accessor are owned by Track 4 because they are SQL-specific; Gremlin's tag mechanism (`g.with(YTDBQueryConfigParam.querySummary, "X")`) is pre-existing and consumed unchanged by Track 1's `YTDBQueryMetricsStep` mode-read.
+4. Wire the three SQL execution entry points on `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` to construct the instrumented `LocalResultSet` with the parsed `SQLStatement` + raw SQL + args + `currentTx`: `query(String, Object...)` (line 617), `query(String, boolean, Map)` (line 652), `executeInternal()` (line 702). Each entry point already parses via `SQLEngine.parse(...)` before delegating, so the parsed `SQLStatement` is in scope; the raw SQL text comes from `stringStatement` when non-null, else from `statement.getOriginalStatement()`.
+
+5. `SqlSanitizer` static utility in `core/.../profiler/monitoring/` (alongside `SqlSyntaxClassifier`). AST-walk implementation: `sanitize(SQLStatement)` returns the sanitized rendering. Lives in `core` because the walk needs the parser-output AST.
+
+The `Classification` record and `SqlSyntaxClassifier` both land in Track 1 — Track 4 consumes them via `LocalResultSet`'s lazy `QueryDetails` accessors. No new `FrontendTransaction.getTrackingId()` accessor is needed (CR16 resolution). Gremlin's tag mechanism (`g.with(YTDBQueryConfigParam.querySummary, "X")`) is pre-existing and consumed unchanged by Track 1's `YTDBQueryMetricsStep` mode-read; SQL has no tag source (M1).
 
 ## Plan of Work
 
-Six edits. The `Classification` record and `SqlSyntaxClassifier` both come from Track 1, so Track 4 ships the OTel-module sanitizer plus the core-side helper extraction, the suppression utility, the `YTDBGraphQuery` activation, and the SQL helper wiring (which calls Track 1's classifier directly).
+Five edits. The `Classification` record and `SqlSyntaxClassifier` both come from Track 1, so Track 4 ships the `LocalResultSet` instrumentation, the SQL entry-point wiring, and the sanitizer (which calls Track 1's classifier indirectly via the lazy `QueryDetails` accessors).
 
-The first edit adds the `GremlinSqlSuppression` static utility in `core/.../profiler/monitoring/`. Single class with a private ThreadLocal `AtomicInteger` (or boxed `Integer`) counter; static `activate()` returns an `AutoCloseable` whose `close()` decrements the counter; static `isActive()` returns counter > 0. Re-entrant so nested Gremlin steps inside one another increment and decrement symmetrically. No public constructor.
+The first edit adds the new fields and the new constructor signature on `LocalResultSet`. The constructor reads the listener snapshot from `currentTx.iterateAllQueryListeners()`. When empty, the constructor takes the un-instrumented fast path (no clock read, no listener iteration, no `QueryDetails` allocation). Otherwise the constructor resolves the timing mode via `currentTx.resolveQueryMonitoringMode(Optional.empty())` (Track 1's resolver short-circuits on empty tag and returns the per-TX default), captures the start clock pair under the resolved mode, and calls `executionPlan.start()`. The constructor stores `statement`, `rawSql`, `args`, `listeners`, `mode`, the three start-clock values, and `caughtError = null`.
 
-The second edit extracts a private helper `executeStatementWithMetrics(SQLStatement statement, String rawSql, Object args)` in `DatabaseSessionEmbedded` and wires it into `executeInternal()` (line 702). The helper iterates the merged listener view from `currentTx.iterateAllQueryListeners()` (Track 1 accessor returning global-snapshot + per-TX-list as a single iterable, so both registry-installed listeners and per-TX `withQueryListener` listeners fire for SQL statements). Short-circuits when no listeners OR `GremlinSqlSuppression.isActive()` (returns `statement.execute(this, args, true)` directly with zero overhead). Otherwise reads `mode = currentTx.resolveQueryMonitoringMode(statement.getQueryTag())` — per-query resolution via Track 1's resolver — and routes timing capture: `LIGHTWEIGHT` uses `YouTrackDBEnginesManager.instance().getTicker().approximateCurrentTimeMillis()` + `approximateNanoTime()` for both start and duration; `EXACT` uses `System.currentTimeMillis()` + `System.nanoTime()`. Same pattern as `FrontendTransactionImpl.doCommit` (lines 632-707) and its `notifyMetricsListener` callee (lines 712-734), except commit timing reads `currentTx.getDefaultQueryMonitoringMode()` directly since commit has no query tag context. Wraps `statement.execute(this, args, true)` with the chosen start measurements, fires `queryFinished(...)` on every listener in the per-TX snapshot after the call completes. The `QueryDetails` impl carries raw SQL (from `rawSql` parameter, with `statement.getOriginalStatement()` fallback in the caller), lazy-sanitized SQL (calls `SqlSanitizer.sanitize(...)` on first `getQuery()` call), lazy operation/collection (calls `core.SqlSyntaxClassifier.classify(statement)` — Track 1's static utility — on first access), the session's database name as `getDatabaseName()`, the query tag from `statement.getQueryTag()` exposed via `QueryDetails.getQuerySummary()`, and `String.valueOf(currentTx.getId())` as the tracking ID. Wrapped in try/catch (widened to `Exception | LinkageError | AssertionError` per Track 1) so a listener throw does not propagate.
+The second edit modifies the iteration path. `hasNext()` / `next()` delegate to the underlying stream. If the stream throws during `hasNext` / `next`, `caughtError = e` and the exception rethrows so the caller sees the original failure. The iteration path has zero added overhead when the constructor took the un-instrumented fast path.
 
-The third edit wires the helper into `DatabaseSessionEmbedded.query()` (line 617) and the `query(String, boolean syncTx, Map)` overload (line 652). Both methods replace their direct `statement.execute(this, args, true)` call (placed AFTER the `isIdempotent()` check) with a single `executeStatementWithMetrics(statement, query, args)` invocation. The post-execute `queryStartedLifecycle(...)` wrapping remains in each caller.
+The third edit modifies `close()`. When `instrumented` is false, just close the underlying stream. Otherwise compute `elapsedNanos`, build the `QueryDetails`, fire every listener in the snapshot wrapped in try/catch `(Exception | LinkageError | AssertionError t)`, and close the underlying stream. The `QueryDetails` is lazy: sanitization runs on first `getQuery()` call, classification on first `getOperationName()` / `getCollectionName()` call, so listeners that ignore those accessors pay no walk cost.
 
-The fourth edit wires `GremlinSqlSuppression.activate()` into BOTH `YTDBGraphQuery.execute(session)` at `core/.../gremlin/YTDBGraphQuery.java` lines 23-26 AND `YTDBGraphQuery.explain(session)` at line 31. The existing `return transaction.query(this.query, this.params);` (in `execute`) and `try (var resultSet = transaction.query(String.format("EXPLAIN %s", query), params))` (in `explain`) are each wrapped in a `try (var ignored = GremlinSqlSuppression.activate()) { ... }`. Cleanup runs even if the SQL throws. The explain wire prevents parasitic SQL spans on any caller of `YTDBGraphQuery.explain`, including the test-driven `YTDBGraphQuery.usedIndexes` path (`usedIndexes(session)` at `YTDBGraphQuery.java:37` delegates to `this.explain(session)` at line 38).
+The fourth edit wires the three SQL execution entry points on `DatabaseSessionEmbedded` (`query(String, Object...)` line 617, `query(String, boolean, Map)` line 652, `executeInternal()` line 702) to construct the instrumented `LocalResultSet`. Each entry point already has the parsed `SQLStatement` in scope after the `SQLEngine.parse(...)` call; the only change is to pass the statement, raw SQL, and args (already available) plus `currentTx` to the constructor.
 
 The fifth edit adds `SqlSanitizer` as a static utility in `core/.../profiler/monitoring/` alongside `SqlSyntaxClassifier`. The `sanitize(SQLStatement)` method walks the parsed AST and renders each literal node as `?`: `SQLBaseExpression`, `SQLInputParameter`, `SQLNumber`, `SQLBoolean`, `SQLString`, and the date / timestamp literal node types the parser produces. Structural nodes (FROM targets, WHERE operators, GROUP BY / ORDER BY identifiers, function calls) render verbatim. Already-parameterized text (`SQLInputParameter` nodes carrying `:name` / `?` placeholders in the input) renders as `?` idempotently. The AST walk correctly handles doubled single quotes (`'It''s'`), JSON strings inside SELECT projections, and regex predicates in `MATCHES` clauses — all classified by the parser as `SQLString` nodes. Unit-tested independently in this track (full coverage of statement-type variations runs in Track 6a's `OTelSqlQueryTest`).
 
-The sixth edit adds JUnit unit tests covering: `GremlinSqlSuppression` counter behavior (activate/close round-trips, re-entrance, exception safety), `SqlSanitizer` literal-replacement edge cases, helper short-circuit when no listeners or when suppression active, helper fire when listeners present and suppression inactive, both `query()` and `executeInternal()` invoking the helper with the same end-to-end semantics. The SQL classifier's per-statement-type unit tests land in Track 1 alongside the classifier itself; full end-to-end OTel-SDK assertions land in Tracks 6a / 6b / 6c.
+The sixth edit adds JUnit unit tests covering: `LocalResultSet` constructor fast-path when listeners empty (no clock read, no state stored); constructor instrumented path (clock read, state stored); iteration delegates and captures `caughtError`; `close()` fires every listener with correct `elapsedNanos`; `close()` listener exception isolation (one listener throwing does not prevent others from firing or block the close); `SqlSanitizer` literal-replacement edge cases (doubled single quotes, JSON literals, MATCHES regex predicates); all three entry points on `DatabaseSessionEmbedded` invoking the instrumented `LocalResultSet`. The SQL classifier's per-statement-type unit tests land in Track 1 alongside the classifier itself; full end-to-end OTel-SDK assertions land in Tracks 6a / 6b / 6c.
 
-Ordering: edit 1 (suppression utility — no dependencies) → edit 2 (helper extraction + `executeInternal` wire) → edit 3 (`query()` wire — depends on edit 2's helper) → edit 4 (Gremlin activation site — depends on edit 1) → edit 5 (sanitizer, independent, runs in the OTel module) → edit 6 (tests cover all five preceding edits).
+Ordering: edit 1 (constructor signature + fields — no dependencies on other Track 4 edits) → edit 2 (iteration changes — depends on edit 1 fields) → edit 3 (`close()` — depends on edit 1 fields) → edit 4 (entry-point wiring — depends on the new constructor from edit 1) → edit 5 (sanitizer, independent of edits 1-4 but called by `close()`'s lazy `QueryDetails`) → edit 6 (tests cover all five preceding edits).
 
 ## Concrete Steps
 
@@ -116,18 +115,20 @@ Ordering: edit 1 (suppression utility — no dependencies) → edit 2 (helper ex
 
 After Track 4:
 
-- A `db.command("SELECT FROM User WHERE name = 'Alice'")` call fires the registered `QueryMetricsListener` with a `QueryDetails` whose `getQuery()` returns `"SELECT FROM User WHERE name = ?"`, `getOperationName()` returns `Optional.of("SELECT")`, `getCollectionName()` returns `Optional.of("User")`.
-- A `db.query("SELECT FROM User WHERE name = ?", "Alice")` call fires the listener with the same `QueryDetails` shape as the equivalent `db.command(...)` — both call sites delegate to the helper, so coverage is identical (regression check for the pre-mutation gap where `query()` was uncovered).
+- A `db.command("SELECT FROM User WHERE name = 'Alice'")` call constructs an instrumented `LocalResultSet`; `close()` fires the registered `QueryMetricsListener` with a `QueryDetails` whose `getQuery()` returns `"SELECT FROM User WHERE name = ?"`, `getOperationName()` returns `Optional.of("SELECT")`, `getCollectionName()` returns `Optional.of("User")`.
+- A `db.query("SELECT FROM User WHERE name = ?", "Alice")` call fires the listener with the same `QueryDetails` shape as the equivalent `db.command(...)` — both entry points construct the same `LocalResultSet` constructor, so coverage is identical (regression check for the pre-mutation gap where `query()` was uncovered).
 - A `db.command("INSERT INTO Order SET amount = 100, customer = 'X'")` call yields operation `INSERT`, collection `Order`, sanitized `"INSERT INTO Order SET amount = ?, customer = ?"`.
 - A `db.command("MATCH {class:User, as:u}-knows->{class:User, as:f} RETURN u, f")` call yields operation `MATCH`, collection `User` (the first pattern node).
 - A `db.command("CREATE INDEX User.email UNIQUE")` call yields operation `CREATE`, collection `User`, sanitized text unchanged (DDL contains no literals).
 - A parameterized `db.command("SELECT FROM User WHERE id = ?", 42)` call yields sanitized text `"SELECT FROM User WHERE id = ?"` (unchanged, already parameterized) and the listener sees the parameters separately.
-- A Gremlin traversal `g.V().hasLabel("User").toList()` fires the listener exactly once at `YTDBQueryMetricsStep.close()` (Track 3 owner). The SQL helper does NOT fire when called from inside `YTDBGraphQuery.execute` because `GremlinSqlSuppression.isActive()` returns true for the duration of the `transaction.query(...)` call.
-- A multi-hop Gremlin traversal `g.V().out("knows").out("knows").toList()` still fires exactly one listener callback (the Gremlin one). Each underlying `YTDBGraphStep` invokes the SQL helper, but every invocation short-circuits because the suppression counter is > 0 throughout.
-- An exception thrown inside the Gremlin-driven SQL call does NOT leak the suppression state to the next operation on that thread — `AutoCloseable.close()` runs in the implicit `finally` of try-with-resources.
+- A multi-statement script (`db.executeSqlScript("INSERT INTO X ...; INSERT INTO Y ...; ")` or the equivalent) emits exactly one SQL span (the outer `LocalResultSet` wraps the `ScriptExecutionPlan`); inner statements via `ScriptLineStep.start()` do not double-fire because they call inner-plan `start()` directly without wrapping in `LocalResultSet`.
+- A MATCH query that spawns sub-plans via hash-join or correlated-optional steps emits exactly one SQL span (the outer `LocalResultSet`); the sub-plans' `start()` calls do not construct `LocalResultSet` instances.
+- A Gremlin Path A traversal (translated by PR #1038's `GremlinToMatchStrategy`) emits exactly one Gremlin span (Track 3 owner); `LocalResultSet` is never constructed because `YTDBMatchPlanStep` calls `SelectExecutionPlan.start()` directly.
+- A Gremlin Path B fallback traversal `g.V().out("knows").out("knows").toList()` (when the translator declines) emits one Gremlin parent span + one SQL child span; the child's `parentSpanId` matches the Gremlin span's `spanId` via OTel `Context.current()` propagation (Track 3 owns the Gremlin span lifecycle hook).
+- An exception thrown during stream iteration propagates to the caller as before; `LocalResultSet.close()` captures the exception class on its way out and surfaces it through `QueryDetails.getErrorType()`; the span carries status ERROR and `error.type` populated.
 - A listener exception during SQL hook firing does not propagate to the caller; the SQL statement completes normally.
-- A SQL statement run inside a YTDBTransaction emits a span that is a child of the TX span (parent context flows correctly through the global registry snapshot).
-- The OTel module remains opt-in: with `OPENTELEMETRY_ENABLED=false`, no SQL classifier or sanitizer code runs.
+- A SQL statement run inside a YTDBTransaction emits a span whose parent is determined by `Context.current()` at `LocalResultSet` construction time — under Gremlin Path B that is the active Gremlin span; under direct SQL with a host-wrapping span it is the host span; otherwise the trace root.
+- The OTel module remains opt-in: with `OPENTELEMETRY_ENABLED=false`, no SQL classifier or sanitizer code runs (the `LocalResultSet` constructor takes the un-instrumented fast path when no listeners are registered).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -142,25 +143,26 @@ After Track 4:
 ## Interfaces and Dependencies
 
 In scope:
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (private `executeStatementWithMetrics` helper, wires from both `query()` and `executeInternal()`, SQL-flavored `QueryDetails` inline impl calling `core.SqlSyntaxClassifier.classify(...)`).
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/GremlinSqlSuppression.java` (new static utility — re-entrant ThreadLocal counter + `AutoCloseable` token).
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBGraphQuery.java` (try-with-resources `GremlinSqlSuppression.activate()` wrapping the existing `transaction.query(...)` calls in BOTH `execute(session)` (lines 23-26) AND `explain(session)` (line 31); the explain wire prevents parasitic SQL spans on Gremlin's explain-introspection path).
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/SqlSanitizer.java` (AST-walk static utility alongside `SqlSyntaxClassifier`)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/LocalResultSet.java` (new constructor signature, fields, iteration capture of `caughtError`, instrumented `close()`).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (entry-point wiring — three call sites at lines 617, 652, 702 pass the parsed `SQLStatement` + raw SQL + args + `currentTx` to the new `LocalResultSet` constructor).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/SqlSanitizer.java` (AST-walk static utility alongside `SqlSyntaxClassifier`).
 
 Out of scope:
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransaction.java` — no new `getTrackingId()` accessor; the helper uses the existing `getId(): long` (CR16 resolution).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransaction.java` — no new `getTrackingId()` accessor; the SQL fire site uses the existing `getId(): long` (CR16 resolution).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBTransaction.java` — not touched.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBGraphQuery.java` — not touched. Path B fallback works because the Gremlin span lifecycle hook (Track 3 owner) makes the Gremlin span `Context.current()` during inner `transaction.query(...)` execution; the inner `LocalResultSet` then attaches its SQL span as a child via OTel `Context.current()` propagation. No try-with-resources wrapping needed.
 - `core/.../SqlSyntaxClassifier.java`, `core/.../GremlinBytecodeClassifier.java`, `core/.../Classification.java` — all land in Track 1.
+- OTel module's Gremlin span lifecycle hook on `YTDBQueryMetricsStep` — Track 3 owner.
 - Configuration parameters and lifecycle wiring (Track 5).
 - End-to-end integration tests with the OTel SDK (Tracks 6a / 6b / 6c).
 - Native SQL DDL semantics beyond extracting the target class name. The classifier does not validate DDL correctness.
-- `DatabaseSessionEmbedded.computeScript(language, script, args)` script-level instrumentation. Inner SQL statements (executed by the script via `db.command(...)` etc.) still route through `executeStatementWithMetrics` and emit one span each via the helper. Wrapping the script in a parent "script" span is a future-ticket concern (see design.md § "SQL execution layer hook" Edge cases).
+- SQL parser grammar — no changes. SQL has no tag source (M1; Gremlin-only tag source via `g.with(...)`). The resolver short-circuits on `Optional.empty()`.
 
 Inter-track dependencies:
 - Depends on Track 1 (TX SPI extensions, global listener registry, both classifier helpers + `Classification` record, exception-wrapper widening to `Exception | LinkageError | AssertionError`, listener snapshot fields on `FrontendTransactionImpl`, the new `FrontendTransaction.getDefaultQueryMonitoringMode()` + `resolveQueryMonitoringMode(Optional<String>)` accessors, and the new `QueryMonitoringModeResolver` + `TagRule<T>` sealed interface).
-- Depends on Track 2 (the `youtrackdb-opentelemetry` Maven module exists; the SQL helper invokes the OTel listener via the global registry snapshot — `SqlSanitizer` itself lives in `core` next to `SqlSyntaxClassifier` because both walk the parser-output AST).
-- Depends on Track 3 (`OTelQueryMetricsListener` exists; the SQL hook feeds into the same listener instance via the global registry snapshot).
-- Provides for Track 6a (`OTelSqlQueryTest` covers each statement type and the sanitizer edge cases) and Track 6c (`OTelDbQuerySpanTest` covers the `db.query(...)` regression path).
+- Depends on Track 2 (the `youtrackdb-opentelemetry` Maven module exists; the SQL fire path invokes the OTel listener via the global registry snapshot — `SqlSanitizer` itself lives in `core` next to `SqlSyntaxClassifier` because both walk the parser-output AST).
+- Depends on Track 3 (`OTelQueryMetricsListener` exists; the SQL hook feeds into the same listener instance via the global registry snapshot. Track 3 also owns the OTel module's Gremlin span lifecycle hook on `YTDBQueryMetricsStep` that makes Path B parent-child span hierarchy work via `Context.current()`).
+- Provides for Track 6a (`OTelSqlQueryTest` covers each statement type and the sanitizer edge cases) and Track 6c (`OTelDbQuerySpanTest` covers the `db.query(...)` regression path; `OTelPathSpanShapeTest` covers Path A vs Path B span counts).
 
 Library / function signatures introduced:
 
@@ -170,18 +172,20 @@ public final class SqlSanitizer {
   public static String sanitize(SQLStatement statement);
 }
 
-// core/.../profiler/monitoring/GremlinSqlSuppression.java (new)
-public final class GremlinSqlSuppression {
-  public static AutoCloseable activate();   // increments thread-local counter
-  public static boolean isActive();          // counter > 0
-  private GremlinSqlSuppression() {}         // no instances
+// core/.../sql/parser/LocalResultSet.java (extended)
+public class LocalResultSet implements ResultSet {
+  // New constructor signature wires the parsed statement + raw SQL + args + tx
+  // into instrumentation fields. Existing constructor (executionPlan only) is
+  // retained for callers that bypass instrumentation (sub-plans, internal use).
+  public LocalResultSet(
+      InternalExecutionPlan executionPlan,
+      SQLStatement statement,
+      String rawSql,
+      Object args,
+      FrontendTransaction currentTx);
 }
 
-// DatabaseSessionEmbedded helper (private surface, not in any public API)
-private ResultSet executeStatementWithMetrics(
-    SQLStatement statement, String rawSql, Object args);
-
 // SqlSyntaxClassifier lives in core/.../profiler/monitoring/ (Track 1).
-// Track 4 calls it from executeStatementWithMetrics via the lazy QueryDetails
-// accessor, no new public surface added here.
+// Track 4 calls it from LocalResultSet's lazy QueryDetails accessor on first
+// read of getOperationName() / getCollectionName(); no new public surface here.
 ```
