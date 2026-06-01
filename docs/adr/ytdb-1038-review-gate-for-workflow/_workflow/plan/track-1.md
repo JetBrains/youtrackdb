@@ -232,3 +232,7 @@ Staging: per `§1.7`, both edits route through
 develop's state until Phase 4 promotion.
 
 Full design: design.md §"Selection-side staging awareness".
+
+## Base commit
+
+ecc5f54c20e28d39255929a1ae4b061a55136418
