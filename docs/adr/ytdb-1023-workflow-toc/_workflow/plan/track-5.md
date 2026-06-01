@@ -28,9 +28,6 @@ First land a HIGH-risk `workflow-reindex.py` agent-scope fix (D17) so rules 6 an
 - [ ] Track-level code review
 - [ ] Track completion
 
-**PAUSED 2026-05-31 at Phase C iteration-1 fixes-applied pending gate-check fan-out + track completion**
-- Handoff: docs/adr/ytdb-1023-workflow-toc/_workflow/handoff-track-5-phaseC.md
-
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
