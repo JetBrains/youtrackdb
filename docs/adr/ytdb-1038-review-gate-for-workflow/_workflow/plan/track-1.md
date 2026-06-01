@@ -15,7 +15,7 @@ staged-path normalization rule strips the prefix before the globs run.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T13:05Z [ctx=safe] Review + decomposition complete
