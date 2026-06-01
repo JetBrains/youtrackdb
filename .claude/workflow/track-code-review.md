@@ -588,7 +588,7 @@ orchestrator never edits source files itself in Phase C.
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
-     `warning` (≥30%) or `critical` (≥40%), do NOT start the next
+     `warning` (≥40%) or `critical` (≥50%), do NOT start the next
      iteration. Save all work (update Progress section with current
      iteration count, commit) and ask the user for a session refresh
      (see workflow.md:any,final-designer,orchestrator,planner:any,2,3A,3B,3C,4 §Context Consumption Check). If the pause leaves

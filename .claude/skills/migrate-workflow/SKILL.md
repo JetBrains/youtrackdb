@@ -547,7 +547,9 @@ Then iterate. For each commit in the queue, in order:
 cat /tmp/claude-code-context-usage-$PPID.txt 2>/dev/null || echo "ctx: unknown"
 ```
 
-If the level is `warning` (≥30%) or `critical` (≥40%):
+The `level=` word in that output is authoritative — branch on it directly. The numeric band behind each level lives in `.claude/workflow/workflow.md` § Context Consumption Check; do not restate it here.
+
+If the level is `warning` or `critical`:
 
 1. Do NOT start the next commit.
 2. Report progress to the user: which commits are done, which is next, where the progress file lives.
@@ -556,7 +558,7 @@ If the level is `warning` (≥30%) or `critical` (≥40%):
 
 Reflection at Step 6 is deliberately skipped on this early-exit path to protect the already-tight context budget; the next session's reflection at Step 6 (once the migration completes successfully) reports this halt as friction.
 
-If `info` (`20% ≤ ctx < 30%`): continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/` or `.claude/skills/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
+If `info`: continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/` or `.claude/skills/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
 
 **Sub-agent contracts.** The orchestrator must interpolate `$ARGUMENTS` and per-commit values into the sub-agent prompt before launch; sub-agents inherit no conversation context and operate against the current worktree.
 
@@ -569,7 +571,7 @@ If `info` (`20% ≤ ctx < 30%`): continue, but delegate to sub-agents for any co
 
 This is a docs-only migration: sub-agents should use `git show`, `Read`, and `Grep`; mcp-steroid PSI is not required.
 
-If `safe` (`ctx < 20%`): continue normally. The `ctx: unknown` fallback (file missing or `$PPID` resolution failed) is treated as `safe` — the file is best-effort, not load-bearing.
+If `safe`: continue normally. The `ctx: unknown` fallback (file missing or `$PPID` resolution failed) is treated as `safe` — the file is best-effort, not load-bearing.
 
 ### 4.2 Read the commit
 <!-- roles=migrator phases=any summary="Read the commit's diff and message to determine what workflow-format change it introduced." -->

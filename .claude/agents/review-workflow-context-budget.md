@@ -34,7 +34,7 @@ Each Claude Code session in this repo automatically loads, at every turn:
 
 Anything outside that set is **load-on-demand**: skill body, agent body, workflow rule files, prompts under `.claude/workflow/prompts/`, docs under `.claude/docs/`, plan files, etc.
 
-The 1M-context Opus model has degradation thresholds at 20% (info), 30% (warning), 40% (critical) — see `CLAUDE.md` § Context Window Monitor. Every kilobyte added to the always-loaded surface accelerates the user reaching those thresholds.
+The 1M-context Opus model has degradation thresholds at 25% (info), 40% (warning), 50% (critical) — see `CLAUDE.md` § Context Window Monitor. Every kilobyte added to the always-loaded surface accelerates the user reaching those thresholds.
 
 ## Tooling
 
@@ -111,7 +111,7 @@ Peak tokens an orchestrator pulls into context when a workflow step fires. A dif
 ### Instant per-operation consumption
 The previous criteria target the always-loaded baseline. These target the *peak* an orchestrator hits when a workflow step fires.
 
-**Severity thresholds**, anchored to `CLAUDE.md` § Context Window Monitor (1M-context Opus, safe <20% / info 20% / warning 30% / critical 40%):
+**Severity thresholds**, anchored to `CLAUDE.md` § Context Window Monitor (1M-context Opus, safe <25% / info 25% / warning 40% / critical 50%):
 - **Critical**: a single new step pulls >30K tokens (~3000 lines) into the orchestrator without staging or delegation. One fire alone can push a fresh session past `warning`.
 - **Recommended**: 5–30K tokens (~500–3000 lines). Two or three fires accumulate to `warning`.
 - **Minor**: <5K tokens. Visible only over many fires; flag the pattern, not the line.

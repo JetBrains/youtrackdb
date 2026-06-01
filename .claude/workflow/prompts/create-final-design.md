@@ -204,7 +204,7 @@ Rules (these are enforced by the discipline; listed here for orientation):
 **Context consumption check between artifacts.** After
 `design-final.md` is written and committed, run
 `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
-`warning` (≥30%) or `critical` (≥40%), do NOT start `adr.md`. Save
+`warning` (≥40%) or `critical` (≥50%), do NOT start `adr.md`. Save
 all work and ask the user for a session refresh (see
 `workflow.md` §Context Consumption Check). Write a handoff file at
 `docs/adr/<dir-name>/_workflow/handoff-phase4.md` per

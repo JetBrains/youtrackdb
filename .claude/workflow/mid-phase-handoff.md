@@ -44,8 +44,8 @@ Loaded on-demand by:
 ## When this protocol fires
 <!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Fire a handoff at warning/critical context when WIP has not yet landed in durable files; examples and counter-examples." -->
 
-Trigger: a context-consumption check returns `warning` (≥30%) or
-`critical` (≥40%) **and** either
+Trigger: a context-consumption check returns `warning` (≥40%) or
+`critical` (≥50%) **and** either
 
 - the user asks to pause, or
 - the current phase boundary has not yet landed in the durable
