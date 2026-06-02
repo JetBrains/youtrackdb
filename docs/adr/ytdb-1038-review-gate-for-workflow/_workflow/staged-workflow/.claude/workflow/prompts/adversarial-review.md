@@ -106,7 +106,7 @@ Inputs:
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
-**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the `§1.7(b)` marker, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 Start by reading the track file's `## Purpose / Big Picture`,
 `## Context and Orientation`, `## Plan of Work`, and `## Interfaces

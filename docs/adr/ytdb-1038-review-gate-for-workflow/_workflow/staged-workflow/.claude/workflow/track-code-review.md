@@ -344,8 +344,9 @@ back to grep and note the reference-accuracy caveat in any finding
 that depends on a symbol search.
 
 ## Staged-read precedence (workflow-modifying plans)
-When the plan's `### Constraints` carries the `§1.7(b)`
-marker, resolve every read of a `.claude/workflow/**` or
+When the plan's `### Constraints` carries the canonical
+`§1.7(b)` workflow-modifying marker sentence, resolve every
+read of a `.claude/workflow/**` or
 `.claude/skills/**` file through `§1.7(d)`, taking the staged
 copy under `_workflow/staged-workflow/` when present and the
 live file otherwise. Without the marker this caveat is inert:
