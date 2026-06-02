@@ -411,6 +411,181 @@ detect_drift() {
 }
 
 # ---------------------------------------------------------------------------
+# migrate-range detection — the artifact walk and stamp-fold the /migrate-workflow
+# skill's Step 2 needs, emitted as data the skill reads instead of re-deriving
+# the walk in prose.
+#
+# Byte-source: migrate-workflow/SKILL.md Step 2. The walk is byte-copied from
+# conventions.md § 1.6(h) but extended with the one sanctioned § 1.6(h)
+# extension — a paired `(file, sha)` array (`STAMPED_PAIRS`, one `$f=$SHA` entry
+# per stamped artifact) so a merge-base failure can name the failing artifact
+# PATH, not a bare SHA, in the skill's recovery re-prompt. The drift walk above
+# never re-prompts on a failing pair, so it omits the pairing; this is why the
+# § 1.6(h) source-conformance test scopes its "no STAMPED_PAIRS" assertion to
+# the drift walk and treats the pairing here as the whitelisted extension.
+#
+# The fold reuses the shared fold_stamps_to_base function (the same one the
+# drift Phase 2 fold uses) with the "continue" failure mode — distinct from the
+# drift gate's "break" mode. The migration's bootstrap re-prompt is user-
+# interactive, so the fold continues past every merge-base failure to collect
+# the FULL failing set into one batch (FOLD_FAILED_PAIRS), letting the skill
+# cover the combined unstamped + merge-base-failed set in one re-prompt. The
+# break-shape would re-prompt once per failing pair encountered serially. The
+# single shared fold parameterized by this one axis keeps the in-script fold
+# single-sourced the way conventions.md § 1.6(h) single-sources the prose walk.
+#
+# The fold input set is $STAMPED_SHAS plus the optional --bootstrap-sha when the
+# skill supplies one (after the user provides a base SHA for the unstamped set);
+# absent, the fold runs over $STAMPED_SHAS alone (migrate-workflow/SKILL.md
+# Step 2's FOLD_INPUT shape). The script never prompts: an unstamped set with no
+# --bootstrap-sha is reported in unstamped_files and the skill drives the prompt
+# agent-side, then re-invokes with the validated SHA (the no-prompt invariant:
+# no mode reads stdin or asks the user).
+#
+# detect_migrate_range writes plain shell variables only; the single emit point
+# below assembles the migrate-range object from them.
+#
+# Outputs (script-scoped, consumed by emit_json's migrate-range branch):
+#   * MR_STAMPED_PAIRS_JSON  — `[{file, sha}, ...]` for each stamped artifact.
+#   * MR_UNSTAMPED_JSON       — `[<path>, ...]` for each unstamped artifact.
+#   * MR_BASE_SHA             — the folded BASE_SHA, or "" (-> JSON null) when
+#                               the fold did not produce a clean base (no stamps,
+#                               or one or more merge-base failures).
+#   * MR_LOG_RANGE_JSON       — `[{sha, subject}, ...]` for the BASE_SHA..HEAD
+#                               workflow-path commits (oldest first), or the
+#                               empty array when the fold produced no base / the
+#                               range is empty.
+#   * MR_FAILED_PAIRS_JSON    — `[{base, sha, files}, ...]` one entry per failing
+#                               merge-base pair, `files` naming the artifact
+#                               paths that emitted the failing SHAs (resolved via
+#                               STAMPED_PAIRS); the empty array on a clean fold.
+# ---------------------------------------------------------------------------
+
+MR_STAMPED_PAIRS_JSON="[]"
+MR_UNSTAMPED_JSON="[]"
+MR_BASE_SHA=""
+MR_LOG_RANGE_JSON="[]"
+MR_FAILED_PAIRS_JSON="[]"
+
+# Resolve a failing SHA to the artifact paths that emitted it, via the
+# STAMPED_PAIRS `$f=$SHA` table. Mirrors migrate-workflow/SKILL.md Step 2's
+# recovery resolver (the `case "$PAIR" in *"=$FAILED_SHA")` match). Prints the
+# space-joined matching paths (empty when the SHA is the --bootstrap-sha, which
+# has no owning artifact). The pairs and paths carry no shell metacharacters
+# (artifact paths under _workflow/, 40-hex SHAs), so word-splitting is safe.
+mr_files_for_sha() {
+  local target="$1" pair out=""
+  for pair in $STAMPED_PAIRS; do
+    case "$pair" in
+      *"=$target")
+        out="$out ${pair%=*}"
+        ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+detect_migrate_range() {
+  # Resolve the active plan dir from the current branch per § 1.6(g), the same
+  # resolution detect_drift uses.
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  local PLAN_DIR="docs/adr/${branch}"
+
+  # --- Phase 1 walk, byte-copied from conventions.md § 1.6(h), extended with
+  # the STAMPED_PAIRS `$f=$SHA` pairing (the whitelisted § 1.6(h) extension
+  # migrate-workflow/SKILL.md Step 2 declares) ------------------------------
+  # design-mechanics.md is optional; absent until the length trigger fires.
+  # The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+  # yet present on disk, so missing files do not abort the walk.
+  STAMPED_SHAS=""
+  UNSTAMPED_FILES=""
+  STAMPED_PAIRS=""
+  for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+                "$PLAN_DIR/_workflow/design.md" \
+                "$PLAN_DIR/_workflow/design-mechanics.md" \
+                "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+      SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+      if [ -n "$SHA" ]; then
+          STAMPED_SHAS="$STAMPED_SHAS $SHA"
+          STAMPED_PAIRS="$STAMPED_PAIRS $f=$SHA"
+      else
+          UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+      fi
+  done
+  # --- end byte-copied walk -------------------------------------------------
+
+  # The `(file, sha)` pairs and unstamped list are emitted regardless of the
+  # fold outcome so the skill can name failing artifacts and surface the
+  # unstamped set. Build the JSON from the space-delimited word lists with jq.
+  MR_STAMPED_PAIRS_JSON="$(printf '%s\n' $STAMPED_PAIRS \
+    | jq -Rnc '[inputs | select(length > 0) | {file: sub("=[0-9a-f]+$"; ""), sha: (capture("=(?<s>[0-9a-f]+)$").s)}]')"
+  MR_UNSTAMPED_JSON="$(printf '%s\n' $UNSTAMPED_FILES \
+    | jq -Rnc '[inputs | select(length > 0)]')"
+
+  # Fold input: $STAMPED_SHAS plus the optional --bootstrap-sha (FOLD_INPUT in
+  # migrate-workflow/SKILL.md Step 2). The continue-and-collect fold collects
+  # EVERY failing pair into FOLD_FAILED_PAIRS for one batched recovery prompt.
+  local fold_input="$STAMPED_SHAS"
+  if [ -n "$BOOTSTRAP_SHA" ]; then
+    fold_input="$fold_input $BOOTSTRAP_SHA"
+  fi
+  fold_stamps_to_base continue $fold_input
+
+  if [ -n "$FOLD_FAILED_PAIRS" ]; then
+    # One or more merge-base failures. Resolve each failing SHA to its owning
+    # artifact path(s) via STAMPED_PAIRS so the skill's re-prompt names the
+    # files, not bare SHAs (migrate-workflow/SKILL.md Step 2's recovery
+    # resolver). FOLD_FAILED_PAIRS holds `BASE,SHA` entries; split each into the
+    # two SHAs, resolve both to paths, and emit one `{base, sha, files}` object
+    # per failing pair. The fold's BASE_SHA is discarded when any pair failed
+    # (the skill re-prompts and restarts the fold), so MR_BASE_SHA stays empty
+    # and MR_LOG_RANGE_JSON stays the empty array — there is no clean range to
+    # report yet.
+    local pair base_sha failed_sha base_files failed_files
+    MR_FAILED_PAIRS_JSON="$(
+      for pair in $FOLD_FAILED_PAIRS; do
+        base_sha="${pair%,*}"
+        failed_sha="${pair#*,}"
+        base_files="$(mr_files_for_sha "$base_sha")"
+        failed_files="$(mr_files_for_sha "$failed_sha")"
+        # Emit one object per pair; jq builds the files array from the
+        # space-joined paths (an empty string -> the empty array, e.g. when the
+        # failing SHA is the --bootstrap-sha, which owns no artifact).
+        jq -nc \
+          --arg base "$base_sha" \
+          --arg sha "$failed_sha" \
+          --arg files "$base_files $failed_files" \
+          '{base: $base, sha: $sha, files: ($files | split(" ") | map(select(length > 0)))}'
+      done | jq -nc '[inputs]'
+    )"
+    return
+  fi
+
+  # Clean fold: FOLD_BASE_SHA is the oldest stamp reachable from HEAD. Report it
+  # and range `git log --reverse $BASE_SHA..HEAD` over the workflow pathspecs
+  # (the same trailing-slash pathspecs the drift range uses, excluding the
+  # staged subtree by prefix). The byte-source uses the FULL `%H` SHA here (the
+  # progress file records range_start/range_end as full SHAs), distinct from the
+  # drift range's short `%h`. An empty fold base (no stamps and no
+  # --bootstrap-sha) leaves MR_BASE_SHA empty -> JSON null and the range empty.
+  MR_BASE_SHA="$FOLD_BASE_SHA"
+  if [ -n "$FOLD_BASE_SHA" ]; then
+    local log_lines
+    log_lines="$(git log --reverse --format='%H %s' "$FOLD_BASE_SHA..HEAD" \
+                   -- $WORKFLOW_PATHSPECS 2>/dev/null || true)"
+    if [ -n "$log_lines" ]; then
+      # Build `[{sha, subject}, ...]` oldest-first. Unlike the drift range, the
+      # migration replays every workflow commit, so the full list is emitted
+      # (no head -10 cap). sub() splits the first space so a subject with spaces
+      # stays whole in the one field.
+      MR_LOG_RANGE_JSON="$(printf '%s\n' "$log_lines" \
+        | jq -Rnc '[inputs | {sha: (split(" ")[0]), subject: sub("^[^ ]+ *"; "")}]')"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Pending mid-phase handoff scan.
 #
 # Byte-source: workflow.md § Startup Protocol step 4 and
@@ -595,24 +770,35 @@ emit_json() {
       ;;
     migrate-range)
       # migrate-range emits no state/handoffs/divergence — only the migration
-      # range and per-artifact pairs. The detection fields are filled by a
-      # later step of this track; the scaffold pins the key set.
+      # range and per-artifact pairs (migrate-workflow/SKILL.md Step 2). The
+      # detection function detect_migrate_range filled the MR_* variables:
+      #   * stamped_artifacts — `[{file, sha}, ...]` per stamped artifact.
+      #   * unstamped_files    — `[<path>, ...]` per unstamped artifact.
+      #   * base_sha           — the folded BASE_SHA (full %H SHA), or JSON null
+      #                          when the fold produced no clean base.
+      #   * log_range          — `[{sha, subject}, ...]` for BASE_SHA..HEAD
+      #                          (oldest first, no head cap — the migration
+      #                          replays every workflow commit), or the empty
+      #                          array when the fold base is absent / the range
+      #                          is empty.
+      #   * merge_base_failed  — `[{base, sha, files}, ...]` per failing pair,
+      #                          `files` naming the owning artifact paths.
       #
-      # `base_sha` is the first live nullable scalar wired through the
-      # empty->null idiom: an absent --bootstrap-sha (BOOTSTRAP_SHA empty)
-      # must emit JSON null, never the empty string "". A later step replaces
-      # this with the folded BASE_SHA derived from the merge-base walk; until
-      # then the scaffold sources it from --bootstrap-sha so the idiom is
-      # genuinely exercised (and pinned by the null-vs-empty test) rather than
-      # a hard-coded null literal.
+      # `base_sha` runs through the empty->null idiom (an absent fold base must
+      # emit JSON null, never ""); the three arrays are JSON literals spliced
+      # via --argjson. The key set is unchanged from the scaffold.
       jq -n \
-        --arg bootstrap_sha "$BOOTSTRAP_SHA" \
+        --arg base_sha "$MR_BASE_SHA" \
+        --argjson stamped_artifacts "$MR_STAMPED_PAIRS_JSON" \
+        --argjson unstamped_files "$MR_UNSTAMPED_JSON" \
+        --argjson log_range "$MR_LOG_RANGE_JSON" \
+        --argjson merge_base_failed "$MR_FAILED_PAIRS_JSON" \
         '{
-          stamped_artifacts: [],
-          unstamped_files: [],
-          base_sha: ($bootstrap_sha | if . == "" then null else . end),
-          log_range: null,
-          merge_base_failed: []
+          stamped_artifacts: $stamped_artifacts,
+          unstamped_files: $unstamped_files,
+          base_sha: ($base_sha | if . == "" then null else . end),
+          log_range: $log_range,
+          merge_base_failed: $merge_base_failed
         }'
       ;;
   esac
@@ -623,7 +809,9 @@ emit_json() {
 # runs the drift Phase 1+2 walk via detect_drift and the pending-handoff scan
 # via scan_handoffs (only `full` carries `handoffs`). `migrate-range` emits no
 # `divergence` and skips it (the byte-source migrate-range walk does not compute
-# ahead/behind); its own walk + fold land in a later step.
+# ahead/behind); it runs detect_migrate_range, which walks the artifacts (with
+# the STAMPED_PAIRS pairing), folds the stamp set continue-and-collect, and
+# ranges `git log`.
 case "$MODE" in
   full)
     detect_divergence
@@ -632,6 +820,9 @@ case "$MODE" in
     ;;
   divergence-only)
     detect_divergence
+    ;;
+  migrate-range)
+    detect_migrate_range
     ;;
 esac
 

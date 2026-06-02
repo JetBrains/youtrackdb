@@ -467,8 +467,17 @@ def test_divergence_only_mode_pinned_shape() -> None:
 
 def test_migrate_range_mode_pinned_shape() -> None:
     """`--mode migrate-range` emits the migration-range key set and exits 0,
-    with no `state`, `handoffs`, or `divergence` keys."""
-    proc = run_precheck("--mode", "migrate-range")
+    with no `state`, `handoffs`, or `divergence` keys.
+
+    Runs inside a clean GitFixture because migrate-range now walks the active
+    plan's artifacts and folds the stamp set (it reads git) — a bare-cwd run
+    would read the runner's own checkout and resolve real stamps. The fixture
+    holds no plan artifact, so the walk is empty and the fold produces no base;
+    only the key set is asserted here, the populated shapes below."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck("--mode", "migrate-range", cwd=fx.path)
     assert proc.returncode == 0, (
         f"migrate-range should exit 0, got {proc.returncode}"
     )
@@ -490,21 +499,28 @@ def test_null_vs_empty_absent_scalar_is_json_null() -> None:
     """The load-bearing emit-surface contract: an absent nullable scalar emits
     JSON `null`, never the empty string "".
 
-    `base_sha` is the scaffold's live witness for the empty->null idiom — with
-    no `--bootstrap-sha`, the shell variable is empty and the idiom
-    `($x | if . == "" then null else . end)` must collapse it to JSON null.
-    A naive `--arg` binding would emit "" here, which every downstream
-    `jq -e '.field == null'` assertion would silently fail to catch; this test
-    pins the idiom directly."""
-    proc = run_precheck("--mode", "migrate-range")
+    `base_sha` is migrate-range's live witness for the empty->null idiom. With
+    no stampable artifact on disk and no `--bootstrap-sha`, the fold input is
+    empty, the fold produces no base, and the idiom
+    `($x | if . == "" then null else . end)` must collapse the empty
+    `MR_BASE_SHA` to JSON null. A naive `--arg` binding would emit "" here,
+    which every downstream `jq -e '.field == null'` assertion would silently
+    fail to catch; this test pins the idiom directly. base_sha is now the fold's
+    output (not a direct echo of --bootstrap-sha), so the fixture controls the
+    fold input rather than the bare-cwd checkout's stamps."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # No plan artifact and no --bootstrap-sha -> empty fold input -> no base.
+        proc = run_precheck("--mode", "migrate-range", cwd=fx.path)
     assert proc.returncode == 0, (
         f"migrate-range should exit 0, got {proc.returncode}"
     )
     obj = json.loads(proc.stdout)
     assert obj["base_sha"] is None, (
-        "absent --bootstrap-sha must emit base_sha as JSON null, got "
-        f"{obj['base_sha']!r} (an empty string would mean the empty->null "
-        "idiom regressed to a naive --arg binding)"
+        "an empty fold (no stamps, no --bootstrap-sha) must emit base_sha as "
+        f"JSON null, got {obj['base_sha']!r} (an empty string would mean the "
+        "empty->null idiom regressed to a naive --arg binding)"
     )
     # And explicitly NOT the empty string — the precise regression the idiom
     # guards against.
@@ -514,17 +530,245 @@ def test_null_vs_empty_absent_scalar_is_json_null() -> None:
 
 
 def test_null_vs_empty_present_scalar_is_the_value() -> None:
-    """The other half of the idiom: a supplied scalar emits the value verbatim
-    as a JSON string, so the empty->null collapse fires only for the empty
-    case."""
-    proc = run_precheck("--mode", "migrate-range", "--bootstrap-sha", SYNTHETIC_SHA)
+    """The other half of the idiom: a present fold base emits the SHA verbatim
+    as a JSON string, so the empty->null collapse fires only for the empty case.
+
+    A single stamped artifact pointing at a real HEAD commit folds to that SHA
+    (no merge-base failure, no other stamp to combine), so `base_sha` is that
+    full 40-hex SHA — exercising the present-scalar branch of the same idiom
+    through the real fold path."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.plan_artifact("implementation-plan.md", stamp=head)
+        proc = run_precheck("--mode", "migrate-range", cwd=fx.path)
     assert proc.returncode == 0, (
-        f"migrate-range --bootstrap-sha should exit 0, got {proc.returncode}"
+        f"migrate-range should exit 0, got {proc.returncode}"
     )
     obj = json.loads(proc.stdout)
-    assert obj["base_sha"] == SYNTHETIC_SHA, (
-        f"present --bootstrap-sha must emit the SHA string, got {obj['base_sha']!r}"
+    assert obj["base_sha"] == head, (
+        f"a single stamp at HEAD must fold to that SHA, got {obj['base_sha']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# migrate-range mode — the migration's Step 2 walk, fold, and range.
+#
+# migrate-range walks the active plan's artifacts (byte-copied from
+# conventions.md § 1.6(h), extended with the STAMPED_PAIRS `(file, sha)`
+# pairing), folds the stamp set with the CONTINUE-and-collect failure mode
+# (distinct from the drift gate's break-on-first), folds in an optional
+# --bootstrap-sha, and ranges `git log BASE_SHA..HEAD` over the workflow
+# pathspecs. It emits no state / handoffs / divergence. Byte-source:
+# migrate-workflow/SKILL.md Step 2. Each fixture stamps with *real* commit SHAs
+# (head_sha / orphan_branch) so the fold resolves them.
+# ---------------------------------------------------------------------------
+
+
+def _migrate_range(proc: subprocess.CompletedProcess) -> dict:
+    """Parse a migrate-range run's whole object, asserting it exited 0 first so
+    a script error surfaces clearly rather than as a downstream KeyError."""
+    assert proc.returncode == 0, (
+        f"migrate-range should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+    )
+    return json.loads(proc.stdout)
+
+
+def test_migrate_range_stamped_pairs_and_log_range() -> None:
+    """An all-stamped plan whose single stamp points at a real commit, with two
+    `.claude/workflow/` commits sitting between that stamp base and HEAD,
+    produces: `stamped_artifacts` carrying the one `(file, sha)` pair,
+    `unstamped_files` empty, `base_sha` the folded stamp base, and `log_range`
+    listing both workflow commits oldest-first with full subjects. Unlike the
+    drift range, the migration replays every workflow commit, so the full list
+    is emitted (no head cap) and the SHA is the full 40-hex `%H`, not short
+    `%h`. `merge_base_failed` is empty (the fold was clean)."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()
+        fx.workflow_commit("first workflow change")
+        fx.workflow_commit("second workflow change with spaces")
+        fx.plan_artifact("implementation-plan.md", stamp=base)
+        obj = _migrate_range(run_precheck("--mode", "migrate-range", cwd=fx.path))
+        # One stamped artifact, paired (file, sha).
+        assert obj["stamped_artifacts"] == [
+            {
+                "file": "docs/adr/main/_workflow/implementation-plan.md",
+                "sha": base,
+            }
+        ], f"stamped_artifacts pairing mismatch: {obj['stamped_artifacts']!r}"
+        assert obj["unstamped_files"] == [], (
+            f"no unstamped artifact expected, got {obj['unstamped_files']!r}"
+        )
+        assert obj["base_sha"] == base, (
+            f"base_sha should be the folded stamp base {base!r}, got {obj['base_sha']!r}"
+        )
+        assert obj["merge_base_failed"] == [], (
+            f"a clean fold must report no merge_base_failed, got {obj['merge_base_failed']!r}"
+        )
+        # log_range lists both workflow commits oldest-first, full subjects.
+        subjects = [c["subject"] for c in obj["log_range"]]
+        assert subjects == [
+            "first workflow change",
+            "second workflow change with spaces",
+        ], f"log_range should list both subjects oldest-first: {obj['log_range']!r}"
+        for entry in obj["log_range"]:
+            assert set(entry.keys()) == {"sha", "subject"}, (
+                f"each log_range entry is {{sha, subject}}, got {entry!r}"
+            )
+            # The migration records full %H SHAs (40 hex), not the drift range's
+            # short %h.
+            assert len(entry["sha"]) == 40, (
+                f"migrate-range log_range sha should be the full 40-hex %H, got "
+                f"{entry['sha']!r}"
+            )
+
+
+def test_migrate_range_unstamped_files_reported() -> None:
+    """A plan with an unstamped artifact reports it in `unstamped_files` (so the
+    skill can drive the bootstrap prompt) while still pairing the stamped
+    sibling in `stamped_artifacts`. With one stamp at HEAD and no
+    --bootstrap-sha, the fold runs over the single stamp and resolves to it; the
+    unstamped file is reported but does not enter the fold (the skill folds it
+    in via --bootstrap-sha on re-invocation). This pins that the script never
+    prompts — it reports the unstamped set as data."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.plan_artifact("implementation-plan.md", stamp=None)  # unstamped
+        fx.plan_artifact("plan/track-1.md", stamp=head)  # stamped sibling
+        obj = _migrate_range(run_precheck("--mode", "migrate-range", cwd=fx.path))
+        assert obj["unstamped_files"] == [
+            "docs/adr/main/_workflow/implementation-plan.md"
+        ], f"unstamped_files should name the unstamped artifact: {obj['unstamped_files']!r}"
+        assert obj["stamped_artifacts"] == [
+            {"file": "docs/adr/main/_workflow/plan/track-1.md", "sha": head}
+        ], f"stamped sibling should still be paired: {obj['stamped_artifacts']!r}"
+        # The single remaining stamp folds to itself.
+        assert obj["base_sha"] == head, (
+            f"the single stamp should fold to HEAD {head!r}, got {obj['base_sha']!r}"
+        )
+
+
+def test_migrate_range_bootstrap_sha_folded_into_range() -> None:
+    """`--bootstrap-sha` is folded into the stamp set (migrate-workflow/SKILL.md
+    Step 2's FOLD_INPUT). With one stamp at HEAD and a --bootstrap-sha pointing
+    at an *earlier* commit, the fold's merge-base of (HEAD, earlier) is the
+    earlier commit (an ancestor of HEAD), so base_sha moves back to the
+    bootstrap commit and the `git log` range widens to include the workflow
+    commit that landed between the bootstrap commit and HEAD. This confirms the
+    bootstrap SHA actually participates in the fold rather than being echoed."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        bootstrap = fx.head_sha()  # an earlier commit
+        # A workflow commit lands AFTER the bootstrap commit, then the stamp is
+        # placed at the newer HEAD.
+        fx.workflow_commit("change after bootstrap")
+        head_with_wf = fx.head_sha()
+        fx.plan_artifact("implementation-plan.md", stamp=head_with_wf)
+        # Without --bootstrap-sha, the fold base is the stamp (head_with_wf) and
+        # the range is empty (no workflow commit after it).
+        obj_no_boot = _migrate_range(
+            run_precheck("--mode", "migrate-range", cwd=fx.path)
+        )
+        assert obj_no_boot["base_sha"] == head_with_wf, (
+            f"without bootstrap, base is the stamp {head_with_wf!r}, got "
+            f"{obj_no_boot['base_sha']!r}"
+        )
+        assert obj_no_boot["log_range"] == [], (
+            f"without bootstrap the range is empty, got {obj_no_boot['log_range']!r}"
+        )
+        # With --bootstrap-sha at the earlier commit, the fold moves base back to
+        # that ancestor and the workflow commit between it and HEAD enters range.
+        obj_boot = _migrate_range(
+            run_precheck(
+                "--mode", "migrate-range", "--bootstrap-sha", bootstrap, cwd=fx.path
+            )
+        )
+        assert obj_boot["base_sha"] == bootstrap, (
+            f"bootstrap should fold base back to the ancestor {bootstrap!r}, got "
+            f"{obj_boot['base_sha']!r}"
+        )
+        subjects = [c["subject"] for c in obj_boot["log_range"]]
+        assert subjects == ["change after bootstrap"], (
+            f"the workflow commit after the bootstrap commit must enter the range, "
+            f"got {obj_boot['log_range']!r}"
+        )
+
+
+def test_migrate_range_multi_failure_collects_all_pairs() -> None:
+    """The continue-and-collect fold collects MORE than one failing pair, where
+    break-on-first (the drift gate's mode) would stop after the first. This is
+    the continue-vs-break byte-parity hazard: the migrate-range fold must use
+    `continue` (not the drift gate's `break`), so a second merge-base failure
+    later in the fold is still captured.
+
+    The fold's reset-then-reseed shape (a failure resets the running base, and
+    the next stamp simply re-seeds it without a merge-base call — byte-identical
+    to migrate-workflow/SKILL.md Step 2) means two collected failures need the
+    walk order [real, orphan, real, orphan]: seed on real#1, fail vs orphan#1,
+    re-seed on real#2, fail vs orphan#2. The § 1.6(h) walk sorts its operands
+    lexically, so the four artifacts sort
+    `design.md < implementation-plan.md < plan/track-1.md < plan/track-2.md`;
+    stamping them real/orphan/real/orphan in that sorted order produces the two
+    failing pairs. Each failing pair resolves to its owning artifact PATH via
+    STAMPED_PAIRS (the whole point of the pairing), so `merge_base_failed` names
+    files, not bare SHAs. A failed fold reports base_sha null and an empty
+    log_range (the skill re-prompts and restarts the fold)."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        real1 = fx.head_sha()
+        fx.commit("second main commit")
+        real2 = fx.head_sha()  # shares history with real1, distinct commit
+        # Two independent orphan roots, neither sharing history with the main
+        # line nor with each other.
+        orphan1 = fx.orphan_branch("unrelated-a")
+        orphan2 = fx.orphan_branch("unrelated-b")
+        fx.checkout(fx.default_branch)
+        # Sorted walk order is design < implementation-plan < track-1 < track-2;
+        # stamp them real/orphan/real/orphan so the continue fold sees:
+        #   seed real1 -> fail (real1, orphan1) -> reseed real2 ->
+        #   fail (real2, orphan2).
+        fx.plan_artifact("design.md", stamp=real1)
+        fx.plan_artifact("implementation-plan.md", stamp=orphan1)
+        fx.plan_artifact("plan/track-1.md", stamp=real2)
+        fx.plan_artifact("plan/track-2.md", stamp=orphan2)
+        obj = _migrate_range(run_precheck("--mode", "migrate-range", cwd=fx.path))
+        # TWO failing pairs collected (continue mode); break-on-first would stop
+        # after the (real1, orphan1) pair and report only one.
+        assert len(obj["merge_base_failed"]) == 2, (
+            f"continue mode must collect BOTH failing pairs (break-on-first would "
+            f"report one), got {obj['merge_base_failed']!r}"
+        )
+        # Each failing pair names the owning artifact paths via STAMPED_PAIRS.
+        all_files = [
+            f for pair in obj["merge_base_failed"] for f in pair["files"]
+        ]
+        assert any(f.endswith("implementation-plan.md") for f in all_files), (
+            f"merge_base_failed must name implementation-plan.md (orphan1's owner) "
+            f"via STAMPED_PAIRS, got files {all_files!r}"
+        )
+        assert any(f.endswith("plan/track-2.md") for f in all_files), (
+            f"merge_base_failed must name plan/track-2.md (orphan2's owner), got "
+            f"files {all_files!r}"
+        )
+        # Each pair carries {base, sha, files}.
+        for pair in obj["merge_base_failed"]:
+            assert set(pair.keys()) == {"base", "sha", "files"}, (
+                f"each merge_base_failed entry is {{base, sha, files}}, got {pair!r}"
+            )
+        # A failed fold reports no clean base and no range.
+        assert obj["base_sha"] is None, (
+            f"a failed fold must report base_sha null, got {obj['base_sha']!r}"
+        )
+        assert obj["log_range"] == [], (
+            f"a failed fold must report an empty log_range, got {obj['log_range']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1130,22 +1374,58 @@ def _extract_conventions_h_block() -> str:
     return "\n".join(lines[fence_start + 1 : fence_end])
 
 
-def _extract_script_walk() -> str:
-    """Extract the script's Phase 1 walk: the `for f in $(ls ...)` loop through
-    its closing `done`. This is the region the byte-copy contract governs."""
+def _extract_script_walks() -> List[str]:
+    """Extract every Phase 1 walk in the script: each `for f in $(ls ...)` loop
+    through its closing `done`. Returns the loops in file order. The script now
+    carries two walks that both byte-copy § 1.6(h): the drift (full-mode) walk
+    in detect_drift, and the migrate-range walk in detect_migrate_range. The
+    migrate-range walk adds the one sanctioned § 1.6(h) extension — the
+    STAMPED_PAIRS `$f=$SHA` pairing — so the two are distinguished by which
+    carries STAMPED_PAIRS, not by position alone."""
     text = SCRIPT_PATH.read_text(encoding="utf-8")
     lines = text.splitlines()
-    start = next(
-        (i for i, ln in enumerate(lines) if "for f in $(ls " in ln),
-        None,
+    walks: List[str] = []
+    i = 0
+    while i < len(lines):
+        if "for f in $(ls " in lines[i]:
+            end = next(
+                (j for j in range(i, len(lines)) if lines[j].strip() == "done"),
+                None,
+            )
+            assert end is not None, (
+                "could not find the walk loop's closing `done` in the script"
+            )
+            walks.append("\n".join(lines[i : end + 1]))
+            i = end + 1
+            continue
+        i += 1
+    return walks
+
+
+def _extract_drift_walk() -> str:
+    """The drift (full-mode) walk: the one § 1.6(h) walk that does NOT carry the
+    STAMPED_PAIRS pairing. The pairing is the migrate-range walk's sanctioned
+    extension, so the drift walk is identified by its absence."""
+    walks = _extract_script_walks()
+    drift = [w for w in walks if "STAMPED_PAIRS" not in w]
+    assert len(drift) == 1, (
+        f"expected exactly one § 1.6(h) walk without STAMPED_PAIRS (the drift "
+        f"walk), found {len(drift)} of {len(walks)} total walks"
     )
-    assert start is not None, "could not find the `for f in $(ls ...)` walk loop in the script"
-    end = next(
-        (i for i in range(start, len(lines)) if lines[i].strip() == "done"),
-        None,
+    return drift[0]
+
+
+def _extract_migrate_range_walk() -> str:
+    """The migrate-range walk: the one § 1.6(h) walk that DOES carry the
+    STAMPED_PAIRS `$f=$SHA` pairing (the sanctioned § 1.6(h) extension that lets
+    a merge-base failure name the owning artifact path)."""
+    walks = _extract_script_walks()
+    mr = [w for w in walks if "STAMPED_PAIRS" in w]
+    assert len(mr) == 1, (
+        f"expected exactly one § 1.6(h) walk WITH STAMPED_PAIRS (the "
+        f"migrate-range walk), found {len(mr)} of {len(walks)} total walks"
     )
-    assert end is not None, "could not find the walk loop's closing `done` in the script"
-    return "\n".join(lines[start : end + 1])
+    return mr[0]
 
 
 def _glob_tails(block: str) -> List[str]:
@@ -1190,55 +1470,88 @@ def _glob_tails(block: str) -> List[str]:
 
 
 def test_conformance_glob_set_matches_canonical() -> None:
-    """The script's walk enumerates exactly the four § 1.6(h) artifact globs,
-    in the same order as the canonical block — a source comparison that catches
-    a glob the script forgot to copy or an extra glob it added."""
+    """Both § 1.6(h) walks in the script — the drift walk and the migrate-range
+    walk — enumerate exactly the four § 1.6(h) artifact globs, in the same order
+    as the canonical block. A source comparison that catches a glob a walk
+    forgot to copy or an extra one it added. The STAMPED_PAIRS pairing line the
+    migrate-range walk adds is not a glob line, so it does not perturb the glob
+    set; both walks must still match the canonical glob set exactly."""
     canonical = _extract_conventions_h_block()
-    script_walk = _extract_script_walk()
     canonical_tails = _glob_tails(canonical)
-    script_tails = _glob_tails(script_walk)
     assert canonical_tails == EXPECTED_GLOB_TAILS, (
         "canonical § 1.6(h) block no longer enumerates the expected glob set; "
         f"found {canonical_tails!r}. If § 1.6(h) intentionally changed, update "
-        "EXPECTED_GLOB_TAILS and the script's walk together."
+        "EXPECTED_GLOB_TAILS and the script's walks together."
     )
-    assert script_tails == canonical_tails, (
-        "the script's Phase 1 walk glob set drifted from § 1.6(h); "
-        f"script lists {script_tails!r}, canonical lists {canonical_tails!r}"
-    )
+    for label, walk in (
+        ("drift", _extract_drift_walk()),
+        ("migrate-range", _extract_migrate_range_walk()),
+    ):
+        assert _glob_tails(walk) == canonical_tails, (
+            f"the script's {label} walk glob set drifted from § 1.6(h); "
+            f"walk lists {_glob_tails(walk)!r}, canonical lists {canonical_tails!r}"
+        )
 
 
 def test_conformance_anchored_regex_matches_canonical() -> None:
-    """Both the canonical § 1.6(h) block and the script's walk carry the
-    anchored § 1.6(a1) value-extraction regex verbatim. Pinning the anchored
-    form catches a de-anchoring to the bare `[0-9a-f]{40}` variant § 1.6(a1)
-    explicitly rejects (false-positives on H1 titles containing a 40-hex run)."""
+    """The canonical § 1.6(h) block and both script walks carry the anchored
+    § 1.6(a1) value-extraction regex verbatim. Pinning the anchored form catches
+    a de-anchoring to the bare `[0-9a-f]{40}` variant § 1.6(a1) explicitly
+    rejects (false-positives on H1 titles containing a 40-hex run)."""
     canonical = _extract_conventions_h_block()
-    script_walk = _extract_script_walk()
     assert ANCHORED_REGEX_FRAGMENT in canonical, (
         "canonical § 1.6(h) block no longer carries the anchored regex "
         f"{ANCHORED_REGEX_FRAGMENT!r}; § 1.6(a1) may have changed."
     )
-    assert ANCHORED_REGEX_FRAGMENT in script_walk, (
-        "the script's Phase 1 walk does not carry the anchored § 1.6(a1) regex "
-        f"{ANCHORED_REGEX_FRAGMENT!r} verbatim — it must byte-copy § 1.6(h)."
+    for label, walk in (
+        ("drift", _extract_drift_walk()),
+        ("migrate-range", _extract_migrate_range_walk()),
+    ):
+        assert ANCHORED_REGEX_FRAGMENT in walk, (
+            f"the script's {label} walk does not carry the anchored § 1.6(a1) "
+            f"regex {ANCHORED_REGEX_FRAGMENT!r} verbatim — it must byte-copy "
+            "§ 1.6(h)."
+        )
+
+
+def test_conformance_drift_walk_carries_no_stamped_pairs() -> None:
+    """The drift (full-mode) walk is byte-identical to § 1.6(h) with NO
+    `STAMPED_PAIRS` pairing — that `$f=$SHA` line is the one sanctioned § 1.6(h)
+    extension and belongs only to the migrate-range walk
+    (migrate-workflow/SKILL.md Step 2). This pins the whitelist boundary's drift
+    side: the drift walk must stay free of the pairing so the conformance suite
+    distinguishes the sanctioned extension from accidental drift in the drift
+    walk. (`_extract_drift_walk` selects the walk by the *absence* of
+    STAMPED_PAIRS, so this re-asserting it documents the contract for a reader
+    and guards against a future edit that adds the pairing to the wrong walk.)"""
+    drift_walk = _extract_drift_walk()
+    assert "STAMPED_PAIRS" not in drift_walk, (
+        "the drift (full-mode) walk must not carry STAMPED_PAIRS; the pairing is "
+        "the migrate-range walk's sanctioned § 1.6(h) extension, not the drift "
+        "walk's."
     )
 
 
-def test_conformance_script_walk_carries_no_stamped_pairs_yet() -> None:
-    """In this track the script's drift (full-mode) walk is byte-identical to
-    § 1.6(h) with no `STAMPED_PAIRS` pairing — that `$f=$SHA` line is the one
-    sanctioned § 1.6(h) extension and belongs only to the later migrate-range
-    walk (migrate-workflow/SKILL.md Step 2). This test documents the whitelist
-    boundary: it pins that the drift walk does NOT carry the pairing line, so
-    when the migrate-range walk adds it in a later step the conformance suite
-    distinguishes the sanctioned extension from accidental drift in the drift
-    walk."""
-    script_walk = _extract_script_walk()
-    assert "STAMPED_PAIRS" not in script_walk, (
-        "the drift (full-mode) walk must not carry STAMPED_PAIRS; the pairing is "
-        "the migrate-range walk's sanctioned § 1.6(h) extension, added in a "
-        "later step, not the drift walk's."
+def test_conformance_migrate_range_walk_carries_stamped_pairs() -> None:
+    """The migrate-range walk DOES carry the `STAMPED_PAIRS` `$f=$SHA` pairing —
+    the one sanctioned § 1.6(h) extension (migrate-workflow/SKILL.md Step 2
+    declares it). This pins the whitelist boundary's migrate-range side: the
+    pairing must be present so a merge-base failure can name the owning artifact
+    PATH in the skill's recovery re-prompt, and the conformance suite treats it
+    as the sanctioned extension rather than flagging it as drift from § 1.6(h).
+    The walk is otherwise byte-faithful to § 1.6(h) (the glob-set and
+    anchored-regex tests above check that for both walks)."""
+    mr_walk = _extract_migrate_range_walk()
+    assert "STAMPED_PAIRS" in mr_walk, (
+        "the migrate-range walk must carry the STAMPED_PAIRS `$f=$SHA` pairing "
+        "(the sanctioned § 1.6(h) extension) so merge-base-failure recovery can "
+        "name the owning artifact path."
+    )
+    # The pairing line follows the canonical migrate-workflow/SKILL.md Step 2
+    # form: STAMPED_PAIRS accumulates `$f=$SHA` inside the stamped branch.
+    assert 'STAMPED_PAIRS="$STAMPED_PAIRS $f=$SHA"' in mr_walk, (
+        "the migrate-range walk's pairing line must match the byte-source form "
+        '`STAMPED_PAIRS="$STAMPED_PAIRS $f=$SHA"`; got walk:\n' + mr_walk
     )
 
 
@@ -1256,6 +1569,10 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("migrate_range_mode_pinned_shape", test_migrate_range_mode_pinned_shape),
     ("null_vs_empty_absent_scalar_is_json_null", test_null_vs_empty_absent_scalar_is_json_null),
     ("null_vs_empty_present_scalar_is_the_value", test_null_vs_empty_present_scalar_is_the_value),
+    ("migrate_range_stamped_pairs_and_log_range", test_migrate_range_stamped_pairs_and_log_range),
+    ("migrate_range_unstamped_files_reported", test_migrate_range_unstamped_files_reported),
+    ("migrate_range_bootstrap_sha_folded_into_range", test_migrate_range_bootstrap_sha_folded_into_range),
+    ("migrate_range_multi_failure_collects_all_pairs", test_migrate_range_multi_failure_collects_all_pairs),
     ("divergence_clean_in_sync", test_divergence_clean_in_sync),
     ("divergence_detected_both_nonzero", test_divergence_detected_both_nonzero),
     ("divergence_no_upstream_skips", test_divergence_no_upstream_skips),
@@ -1274,7 +1591,8 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("state_stub_is_json_null_in_full_mode", test_state_stub_is_json_null_in_full_mode),
     ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
-    ("conformance_script_walk_carries_no_stamped_pairs_yet", test_conformance_script_walk_carries_no_stamped_pairs_yet),
+    ("conformance_drift_walk_carries_no_stamped_pairs", test_conformance_drift_walk_carries_no_stamped_pairs),
+    ("conformance_migrate_range_walk_carries_stamped_pairs", test_conformance_migrate_range_walk_carries_stamped_pairs),
 ]
 
 
