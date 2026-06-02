@@ -10,6 +10,7 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 
 ## Progress
 - [x] 2026-06-02T14:51Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-02T15:10Z [ctx=safe] Step 1 complete (commit bf6fca2b3f)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -18,6 +19,11 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-06-02T15:10Z Step 1 plumbed the Track 2 seam (`STATE_JSON` → `null`)
+  and the Track 3 seam (`ACTIONS_TAKEN_JSON` → `[]`) as overridable shell
+  variables in `emit_json`; Tracks 2 and 3 set the variable rather than
+  re-editing the jq call. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -80,7 +86,7 @@ The `## Concrete Steps` roster below decomposes this into six steps; per the Pha
 
 ## Concrete Steps
 
-1. Scaffold `workflow-startup-precheck.sh` — shebang (no global `set -e`), `§1.6(h)` header, `--mode {full,divergence-only,migrate-range}` + `--bootstrap-sha` parsing, unknown-mode error (non-zero exit + usage, no JSON), the single `emit_json` jq function with the explicit empty→null idiom, and `actions_taken` defined as an empty array; plus the initial Python stand-alone-runner test asserting the unknown-mode path and the jq null-vs-empty contract on synthetic vars — risk: medium (new component behavior: the one-contract-home jq emit + null idiom is the load-bearing S1 emit surface)  [ ]
+1. Scaffold `workflow-startup-precheck.sh` — shebang (no global `set -e`), `§1.6(h)` header, `--mode {full,divergence-only,migrate-range}` + `--bootstrap-sha` parsing, unknown-mode error (non-zero exit + usage, no JSON), the single `emit_json` jq function with the explicit empty→null idiom, and `actions_taken` defined as an empty array; plus the initial Python stand-alone-runner test asserting the unknown-mode path and the jq null-vs-empty contract on synthetic vars — risk: medium (new component behavior: the one-contract-home jq emit + null idiom is the load-bearing S1 emit surface)  [x] commit: bf6fca2b3f
 2. Branch divergence detection + reusable git-fixture builder — `git rev-list --left-right --count HEAD...'@{u}'` with the upstream and fetch guards populating `divergence{detected,ahead,behind,skipped,skip_reason}`; introduce the Python git-fixture builder (temp `git init`, commit/branch/set-upstream, local `file://` bare remote) and clean / divergence / no-upstream / fetch-failed fixtures — risk: medium (new shared test infrastructure + new detection behavior)  [ ]
 3. Drift Phase 1 — artifact walk + classification — byte-copy the `§1.6(h)` walk (anchored `§1.6(a1)` regex) classifying stamped/unstamped, plus the `§1.6(h)` source-extraction conformance test (glob-set + regex compared against the canonical block, `STAMPED_PAIRS` pairing whitelisted) and stamped / unstamped / empty-input fixtures — risk: medium (byte-parity logic; the conformance test is the spec-drift guard)  [ ]
 4. Drift Phase 2 — pairwise merge-base fold + `git log` — the `full`-mode `break`-shape fold deriving `BASE_SHA`, `git log --reverse` on the trailing-slash pathspecs populating `base_sha`/`commit_count`/`first_commits`, the merge-base-failed short-circuit (null scalars), and the shared fold shell function parameterized by failure-handling; drift-detected / merge-base-failed / staged-subtree-exclusion fixtures — risk: medium (subtlest logic in the track; byte-parity with `workflow-drift-check.md § Detection`)  [ ]
@@ -91,6 +97,33 @@ The `## Concrete Steps` roster below decomposes this into six steps; per the Pha
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit bf6fca2b3f, 2026-06-02T15:10Z [ctx=safe]
+**What was done:** Scaffolded `.claude/scripts/workflow-startup-precheck.sh`:
+shebang with no global `set -e`, a header citing `conventions.md §1.6(h)`
+(the Phase 1 walk spec) and `§1.6(a1)` (the anchored value-extraction
+regex), `--mode {full,divergence-only,migrate-range}` plus `--bootstrap-sha`
+parsing, an unknown/missing-mode error path that exits 2 with usage on
+stderr and no stdout JSON, and the single `emit_json` jq function carrying
+the empty→null idiom `($x | if . == "" then null else . end)`.
+`actions_taken` is a pinned empty array and `full`-mode `state` is JSON
+`null`. Added the initial Python stand-alone-runner test (8 cases) over the
+error path, the three valid mode shapes, and the null-vs-empty contract; all
+8 pass.
+
+**What was discovered:** The null idiom needs a live witness rather than a
+hard-coded `null`, or the load-bearing emit surface would not be exercised by
+this step's test. `migrate-range`'s `base_sha` is wired through the idiom from
+`--bootstrap-sha` (absent → `null`, present → SHA); Step 6 replaces that
+source with the folded `BASE_SHA`, and the idiom plus its test stay in place.
+The Track 2 seam (`STATE_JSON` → `null`) and Track 3 seam
+(`ACTIONS_TAKEN_JSON` → `[]`) are plumbed as overridable shell variables that
+default correctly, so those tracks set the variable rather than re-editing the
+jq call.
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (new)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (new)
 
 ## Validation and Acceptance
 
