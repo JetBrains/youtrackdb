@@ -874,11 +874,24 @@ reads, step N+M either reads stale content before its own write or
 cannot cite the rule it just authored. The chosen rule keeps step N+M
 working against current state.
 
-Consumers outside the implementer keep reading live paths unchanged:
-the drift gate, the plan-slim renderer, sibling-track plan citations,
-and reviewers loading a workflow file from the worktree. None of those
-consumers has a staged copy to read; the precedence rule applies to
-the implementer's per-spawn read site only.
+Three consumers outside the implementer keep reading live paths
+unchanged: the drift gate, the plan-slim renderer, and sibling-track
+plan citations. Each reads a surface the staging convention never
+copies. The drift gate compares the live tree against `develop`, the
+plan-slim renderer reads `implementation-plan.md`, and sibling-track
+citations resolve under `docs/adr/**`, so none of them has a staged
+copy to read and live is the only correct source.
+
+Two consumers resolve staged-first when a staged copy exists. The
+implementer's per-spawn read site resolves through the staging-aware
+check above on every read. Review agents on a workflow-modifying plan
+resolve the same way: a reviewer that opens a `.claude/workflow/**` or
+`.claude/skills/**` file the branch has already restaged reads the
+staged copy, because reading the live file would compare a change
+against `develop`'s version of a rule the branch already rewrote and
+report a phantom mismatch. The marker-gated read caveat carried in the
+review and gate prompts is what routes a reviewer's read through this
+precedence.
 
 ### (e) Write routing and copy-then-edit on first touch
 <!-- roles=implementer,orchestrator,final-designer phases=3A,3B,3C,4 summary="Route writes to the staged path; copy the live file in verbatim on first touch." -->

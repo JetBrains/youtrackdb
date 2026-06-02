@@ -101,6 +101,8 @@ Inputs:
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
+**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+
 **Where track descriptions live:** For each **pending** track (`[ ]`),
 read the track's detailed description (what/how/constraints/interactions
 detail and any track-level Mermaid diagram) from `plan/track-N.md`'s
