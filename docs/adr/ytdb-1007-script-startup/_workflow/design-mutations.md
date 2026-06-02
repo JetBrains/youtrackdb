@@ -47,3 +47,32 @@ working mental model: YES
 **Iterations**: 2 of 3 (PASS) — round 1 cleared the three mechanical
 should-fix findings; cold-read PASS with three suggestions; applied the
 footer-resolution suggestion and re-verified mechanical clean.
+
+## Mutation 2 — 2026-06-02 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review fix CR1 (mechanical,
+should-fix). Corrected the four byte-copy site census in §"Byte-source
+consolidation" TL;DR. The sentence named "the same file's normalization
+recompute" as the third walk copy, which is wrong against the live tree:
+`workflow-drift-check.md:239` is a distinct presence-check loop (builds a
+companion `STAMPED_FILES` path list), not a copy of the value-extraction
+walk, and it is consolidated separately by Track 3 / §"No-drift
+normalization path". The genuine third copy — `migrate-workflow/SKILL.md`
+Step 2.0 (Bootstrap unstamped artifacts) — was omitted. Substituted
+`migrate-workflow` Step 2.0 for "the same file's normalization recompute",
+keeping the exact "four places / three copies → one implementation + one
+spec" framing. The following sentence ("the three copies are replaced by a
+call to the script") and the neighboring sections stay accurate.
+
+**Mechanical checks** (target=design): PASS (0 findings)
+**Cold-read** (scope: bounded): PASS (1 suggestion, out of scope)
+
+**Findings**:
+- suggestion (recorded, not applied): References-footer form uses
+  `- D-records: D4, D5` rather than the per-record `- D7: <label>` form.
+  Pre-existing, document-wide pattern not introduced by this edit; same
+  known-debt footer item recorded under Mutation 1. Deferred to a future
+  whole-doc pass.
+
+**Iterations**: 1 of 3 (PASS) — mechanical clean on first run; cold-read
+PASS with one out-of-scope suggestion; no blockers or should-fix to apply.

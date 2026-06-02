@@ -109,7 +109,7 @@ belong to one specific step. Per-step episode content lives in
 
 **In scope:**
 - `.claude/scripts/workflow-startup-precheck.sh` (create) — the detection script.
-- `.claude/scripts/tests/` (create) — the fixture harness plus divergence, drift, and reduced-mode fixtures.
+- `.claude/scripts/tests/` (add to existing dir) — the precheck fixture harness plus divergence, drift, and reduced-mode fixtures, landing alongside the existing Python test suite and its `fixtures/` subdir (name the new fixtures so they do not collide with what is already there).
 
 **Out of scope (other tracks):**
 - State determination — Track 2 fills the `state` key.

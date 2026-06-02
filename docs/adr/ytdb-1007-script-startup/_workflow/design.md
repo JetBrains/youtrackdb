@@ -217,7 +217,7 @@ The path is byte-for-byte the existing `workflow-drift-check.md § No-drift norm
 
 ## Byte-source consolidation
 
-**TL;DR.** The artifact-walk bash lives in four places today: `conventions.md §1.6(h)` as the declared source, plus byte-copies in `workflow-drift-check.md § Detection`, the same file's normalization recompute, and `migrate-workflow` Step 2. The script becomes the single implementation. §1.6(h) keeps its bash block as the human-readable spec and gains a pointer to the script; the three copies are replaced by a call to the script.
+**TL;DR.** The artifact-walk bash lives in four places today: `conventions.md §1.6(h)` as the declared source, plus byte-copies in `workflow-drift-check.md § Detection`, `migrate-workflow` Step 2.0, and `migrate-workflow` Step 2. The script becomes the single implementation. §1.6(h) keeps its bash block as the human-readable spec and gains a pointer to the script; the three copies are replaced by a call to the script.
 
 `conventions.md §1.6` declares itself the single source of truth for the stamp format, the parser idioms, and the walk. Moving the walk entirely out of conventions would weaken that, so the spec stays and the script cites it in a header comment. The contract changes shape: today it is "keep four bash blocks byte-identical", and after this it is "keep the script conforming to the §1.6(h) spec", checkable by a fixture test. The script absorbs the walk, which reads existing stamps at startup and migration, but not §1.6(b), the create-time stamp computation that `/create-plan` and `/edit-design` run when they author artifacts. Reading stamps is a startup concern; computing a new stamp is a creation concern, and the two stay in separate homes.
 

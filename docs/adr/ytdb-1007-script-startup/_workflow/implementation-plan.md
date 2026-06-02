@@ -151,8 +151,8 @@ flowchart TD
 - **Rationale**: §1.6 declares itself the single source of truth for the
   stamp format, parser idioms, and walk; keeping the readable spec there is
   cheap and the parser idioms (§1.6(a1)) live adjacent. The four byte-copies
-  (§1.6(h), drift-check Detection, drift-check normalization recompute,
-  migrate Step 2) collapse to one script implementation plus one spec.
+  (§1.6(h), drift-check Detection, migrate Step 2.0, migrate Step 2)
+  collapse to one script implementation plus one spec.
 - **Risks/Caveats**: spec / script drift — mitigated by a byte-source
   conformance fixture test (D7).
 - **Implemented in**: Track 1 (the walk), Track 4 (the §1.6(h) pointer edit)
@@ -248,8 +248,7 @@ flowchart TD
   > and `git log`), the handoff scan, and the reduced `divergence-only` and
   > `migrate-range` outputs (including `(file, sha)` pairs and an optional
   > `--bootstrap-sha`). Defines the `actions_taken` field that Track 3
-  > populates. Authored live under `.claude/scripts/`; pure detection, no
-  > side effects. Detailed description in plan/track-1.md.
+  > populates. Detailed description in plan/track-1.md.
   > **Scope:** ~6 steps covering scaffold + mode dispatch, jq emitter,
   > divergence detection, drift Phase 1+2 walk, handoff scan, and the
   > reduced-mode outputs.
@@ -258,10 +257,8 @@ flowchart TD
   > Build the markdown state parser that reads `## Plan Review`, the track
   > checklist, and the active track file's `## Progress` section, then
   > reports `state.phase` (0 / A / C / D / Done) and, for State C, the
-  > five-way sub-state plus the `section-discrepancy` edge. This is the
-  > riskiest surface because it parses markdown rather than git output, so
-  > it is isolated in its own track with the heaviest fixture coverage.
-  > Authored live. Detailed description in plan/track-2.md.
+  > five-way sub-state plus the `section-discrepancy` edge. Detailed
+  > description in plan/track-2.md.
   > **Scope:** ~4-5 steps covering the State 0/A/C/D/Done precedence walk,
   > the State C sub-state map, the section-discrepancy edge, and the state
   > fixtures.
@@ -271,9 +268,8 @@ flowchart TD
   > Port the no-drift normalization path byte-for-byte: recompute the
   > stamped-file list, rewrite each line-1 stamp to the folded `BASE_SHA`
   > with a printf-and-tail pattern, verify the two diff-shape guards, then
-  > land one all-or-nothing commit and feed it into `actions_taken`. This is
-  > the only mutating path in the script. Authored live. Detailed
-  > description in plan/track-3.md.
+  > land one all-or-nothing commit and feed it into `actions_taken`.
+  > Detailed description in plan/track-3.md.
   > **Scope:** ~3-4 steps covering the stamp rewrite, the two diff-shape
   > guards + abort-restore, the commit + `actions_taken` wiring, and the
   > normalization fixtures.
@@ -295,7 +291,20 @@ flowchart TD
   > **Depends on:** Tracks 1, 2, 3
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**: CR1 (should-fix) — corrected the artifact-walk
+byte-copy census in plan D4 and design §"Byte-source consolidation"; the
+walk's three byte-copies are drift-check Detection, `migrate-workflow`
+Step 2.0, and Step 2, not the "drift-check normalization recompute" (a
+distinct presence-check loop consolidated by Track 3). CR2 (suggestion) —
+reworded track-1 §Interfaces: `.claude/scripts/tests/` already exists, so the
+harness is added to it, not created. S1 (should-fix) — trimmed the
+over-budget Track 1/2/3 plan-checklist intros to high-level context plus the
+track-file pointer, dropping sentences that duplicated each track file's
+`## Purpose / Big Picture`.
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
