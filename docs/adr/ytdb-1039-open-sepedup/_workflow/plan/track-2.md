@@ -24,6 +24,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T16:23Z [ctx=info] Step 4 implementer turn ended without a RESULT block (clean tree, no commit); recovered by resuming the same agent per user choice (RESULT_MISSING — consumed one attempt)
 - [x] 2026-06-01T16:46Z [ctx=info] Step 4 complete (commit d955c194a1; medium, no dim-review; recovered from RESULT_MISSING)
 - [x] 2026-06-01T16:55Z [ctx=info] Step 5 complete (commit 5b62ae94ef; low, docs)
+- [x] 2026-06-02T04:10Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations; commit 2c4f0b2038, 13 review-fix items applied, 0 blockers)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
