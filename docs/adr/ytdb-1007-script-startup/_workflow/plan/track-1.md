@@ -135,3 +135,6 @@ belong to one specific step. Per-step episode content lives in
 **Dependencies:** none (first track). Consumed by Tracks 2 and 3 (which extend the script) and Track 4 (which cites the final JSON shape).
 
 **Signature:** `workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} [--bootstrap-sha <40-char-sha>]`, emitting JSON to stdout. `full` JSON: `{divergence, drift, handoffs, state, actions_taken}` (with `state` emitted as JSON `null` and `actions_taken` empty after this track).
+
+## Base commit
+17b05b0329ea683f69036da0dcef7745abf4b870
