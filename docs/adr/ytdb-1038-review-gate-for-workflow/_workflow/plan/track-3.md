@@ -12,10 +12,11 @@ marker-gated addendum re-points the criteria to prose; the same three
 reviewers self-adapt.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-02T07:05Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -28,9 +29,32 @@ scope-downs, dependency reveals, gate-override reasons. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
+- Decomposed to one step, not the ~2 the scope indicator estimated: the
+  addendum is a single byte-uniform block (S3) added to three Phase A
+  criteria prompts in one coherent commit, and S3 verification is intra-step
+  validation rather than a separate commit — mirroring Track 2's grouping of
+  its byte-uniform caveat across four Phase A prompts into one step. The
+  scope indicator is a non-binding estimate.
+- Technical review (iteration 1, PASS) folded two suggestions into the step's
+  addendum-wording guidance: T1 — the prose criteria supersede (not merely
+  append to) the Java criteria when the marker is present; T2 — phrase the
+  path/anchor re-point as additive-for-prose so a track mixing prose and code
+  keeps the both-lenses behaviour the design edge case promises. Both are
+  decomposition-time wording requirements, not plan changes. See Episodes
+  once Phase B lands the step.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 1 (3 findings; T1/T2 suggestions folded
+  into the decomposed step's addendum-wording guidance, T3 informational, no
+  action). Simple track (Technical only, no Risk/Adversarial). Reviewer
+  hand-injected per `§1.7(h)`: workflow-machinery prose criteria (verify
+  refs as paths/`§`-anchors, not `findClass`) and staged-read precedence
+  (read the staged copies of the three criteria prompts, which already carry
+  Track 2's caveat). Verified the dependency on Track 2 is satisfied and the
+  Plan of Work reproduces the design's five prose criteria faithfully.
 
 ## Context and Orientation
 
@@ -83,12 +107,8 @@ Ordering and invariants:
   verify that copy's `§`-anchors as paths).
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+
+1. Author the marker-gated workflow-machinery criteria addendum block and add it byte-identically to the three Phase A criteria prompts (`technical-review.md`, `risk-review.md`, `adversarial-review.md` under `.claude/workflow/prompts/`, staged copies), gated on the canonical `§1.7(b)` workflow-modifying marker sentence (the same gate clause as the Track 2 read caveat: "carries the canonical `§1.7(b)` workflow-modifying marker sentence"). Per D4 the addendum re-points the criteria when the marker is present: (a) verify named references as workflow file paths and `§`-anchors via grep + Read — a non-resolving workflow path or anchor is the finding, while a non-resolving Java symbol is NOT a blocker on a prose reference, so a track mixing prose and code keeps both lenses (design edge case; finding T2); (b) the five prose criteria (rule coherence and non-contradiction, instruction completeness, prompt-design soundness, context-budget impact, breakage of dependent prompts or agents) supersede — not merely append to — the prompt's Java EDGE-CASES / INTEGRATION-POINTS / BACKWARD-COMPAT / `findClass` NAMED-REFERENCES criteria for that review (finding T1). Leave `review-gate-verification.md` addendum-free (criteria-agnostic; out of scope). Verify S3 byte-uniformity of the addendum across the three prompts. — risk: low (default: additive marker-gated prose addendum mirrored byte-identically across three Phase A criteria prompts; established Track 2 caveat pattern; staged under `_workflow/staged-workflow/`; S3-checkable)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -116,8 +136,21 @@ Track-level behavioral acceptance:
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+The single step is one commit of an additive marker-gated prose block to
+three staged prompts under `_workflow/staged-workflow/.claude/workflow/prompts/`
+(the live tree is untouched until Phase 4). Recovery is the standard Phase B
+revert: `git reset --hard HEAD` discards the uncommitted attempt, and
+re-running re-applies the same staged addendum, so the step is idempotent on
+re-run.
+
+Per-step note:
+- **Step 1** edits the three staged criteria prompts in place — Track 2
+  already created all three staged copies (with the read caveat) on its own
+  first touch, so the `§1.7(e)` copy-then-edit-on-first-touch step does not
+  re-fire here. Before inserting the addendum, check for an existing addendum
+  block to stay idempotent. The S3 cross-check is a read-only `grep`/`diff`
+  over the three staged prompts and has no side effect.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
