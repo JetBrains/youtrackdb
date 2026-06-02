@@ -14,6 +14,7 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 - [x] 2026-06-02T15:18Z [ctx=safe] Step 2 complete (commit 9cd797f0fc)
 - [x] 2026-06-02T15:27Z [ctx=safe] Step 3 complete (commit d4f5a38eed)
 - [x] 2026-06-02T15:39Z [ctx=safe] Step 4 complete (commit ffb217a754)
+- [x] 2026-06-02T15:46Z [ctx=safe] Step 5 complete (commit 9b91772c76)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -117,7 +118,7 @@ The `## Concrete Steps` roster below decomposes this into six steps; per the Pha
 2. Branch divergence detection + reusable git-fixture builder — `git rev-list --left-right --count HEAD...'@{u}'` with the upstream and fetch guards populating `divergence{detected,ahead,behind,skipped,skip_reason}`; introduce the Python git-fixture builder (temp `git init`, commit/branch/set-upstream, local `file://` bare remote) and clean / divergence / no-upstream / fetch-failed fixtures — risk: medium (new shared test infrastructure + new detection behavior)  [x] commit: 9cd797f0fc
 3. Drift Phase 1 — artifact walk + classification — byte-copy the `§1.6(h)` walk (anchored `§1.6(a1)` regex) classifying stamped/unstamped, plus the `§1.6(h)` source-extraction conformance test (glob-set + regex compared against the canonical block, `STAMPED_PAIRS` pairing whitelisted) and stamped / unstamped / empty-input fixtures — risk: medium (byte-parity logic; the conformance test is the spec-drift guard)  [x] commit: d4f5a38eed
 4. Drift Phase 2 — pairwise merge-base fold + `git log` — the `full`-mode `break`-shape fold deriving `BASE_SHA`, `git log --reverse` on the trailing-slash pathspecs populating `base_sha`/`commit_count`/`first_commits`, the merge-base-failed short-circuit (null scalars), and the shared fold shell function parameterized by failure-handling; drift-detected / merge-base-failed / staged-subtree-exclusion fixtures — risk: medium (subtlest logic in the track; byte-parity with `workflow-drift-check.md § Detection`)  [x] commit: ffb217a754
-5. Handoff scan + `state` stub — `ls -t handoff-*.md` (mtime order, empty-safe) populating `handoffs`, and `state` emitted as JSON `null`; handoffs-present (mtime order) and clean (empty `[]`) fixtures — risk: low (default: routine `ls -t` plus a null stub, fully fixture-covered, no MEDIUM trigger)  [ ]
+5. Handoff scan + `state` stub — `ls -t handoff-*.md` (mtime order, empty-safe) populating `handoffs`, and `state` emitted as JSON `null`; handoffs-present (mtime order) and clean (empty `[]`) fixtures — risk: low (default: routine `ls -t` plus a null stub, fully fixture-covered, no MEDIUM trigger)  [x] commit: 9b91772c76
 6. Reduced-mode outputs `divergence-only` + `migrate-range` — `divergence-only` emits only `divergence` + `actions_taken`; `migrate-range` runs the continue-and-collect fold (collect every failing pair), the `STAMPED_PAIRS` `(file=sha)` array resolving `merge_base_failed` to artifact paths, the `--bootstrap-sha` fold-in, and `stamped_artifacts (file,sha)` + `unstamped_files` + `base_sha` + `git log` range, emitting no `state`/`handoffs`/`divergence`; divergence-only / migrate-range-stamped / multi-failure-collect-all / `--bootstrap-sha` fixtures — risk: medium (the continue-vs-break fold distinction is the T1/R1 byte-parity hazard; parameterized fold reuse)  [ ]
 
 ## Episodes
@@ -284,6 +285,43 @@ unquoted-splice word list) is script-scoped and reused by the `git log`.
 conformance test `conformance_script_walk_carries_no_stamped_pairs_yet` still
 pins the drift walk WITHOUT `STAMPED_PAIRS` — Step 6 must scope that assertion
 to the drift walk only when it adds the migrate-range pairing.
+
+### Step 5 — commit 9b91772c76, 2026-06-02T15:46Z [ctx=safe]
+**What was done:** Added the pending mid-phase handoff scan to full mode. A
+new `scan_handoffs` function runs the canonical
+`ls -t <plan_dir>/_workflow/handoff-*.md 2>/dev/null` idiom (byte-source:
+`workflow.md § Startup Protocol` step 4 / `mid-phase-handoff.md`), resolving
+the plan dir from the current branch the same way `detect_drift` does
+(`§1.6(g)` → `docs/adr/<branch>`). It reports the file basenames (per
+`design.md § "The JSON contract"`) in `ls -t` newest-first mtime order,
+building the array with `jq -Rnc '[inputs]'`. The empty-safe path (`|| true`
+plus a `[ -z ]` guard) collapses a no-match glob to the empty array.
+`HANDOFFS_JSON` is wired into the full-mode emit via `--argjson` (replacing
+the pinned `handoffs: []`). The `state` key was already JSON `null` from the
+scaffold; this step pins it with a strict-null fixture. Added three tests
+(handoffs mtime-order, handoffs-empty, state-null seam); 27/27 pass and the
+script runs clean on the real repo (`handoffs=[]`, `state=null`, exit 0).
+
+**What was discovered:** `ls` exits non-zero on a no-match glob even with
+`2>/dev/null` swallowing the diagnostic, so the scan needs an explicit
+`|| true` (matching the no-errexit script convention) or the empty-handoff
+path would carry a failure status. The mtime-order fixture must force distinct
+mtimes via `os.utime` — files authored in the same wall-clock second sort
+ambiguously under `ls -t` and would flake; git operations do not alter
+working-tree mtimes after the write, so the `os.utime` stamps hold.
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (modified)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified)
+
+**Critical context:** `HANDOFFS_JSON` is a script-scoped JSON-array literal
+defaulting to `[]`, consumed by `emit_json` via `--argjson handoffs`, and
+`scan_handoffs` runs in the full dispatch case only — `divergence-only` and
+`migrate-range` correctly omit `handoffs`. The state seam stays JSON `null`
+via `--argjson state "${STATE_JSON:-null}"`, now pinned by
+`test_state_stub_is_json_null_in_full_mode`; Track 2 sets the `STATE_JSON`
+variable to the populated `{phase, track, substate}` object rather than
+re-editing the jq call, and updates that test.
 
 ## Validation and Acceptance
 
