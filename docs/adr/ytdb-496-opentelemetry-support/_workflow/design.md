@@ -74,6 +74,7 @@ classDiagram
         +getQuery() String
         +getQuerySummary() String
         +getTransactionTrackingId() String
+        +getExplicitTrackingId() Optional~String~
         +getOperationName() Optional~String~
         +getCollectionName() Optional~String~
         +getDatabaseName() Optional~String~
@@ -81,6 +82,14 @@ classDiagram
         +getQuerySource() Optional~QuerySource~
         +getStartedAtEpochNanos() long
         +getResultCount() OptionalLong
+        +getWherePresent() Optional~Boolean~
+        +getOrderPresent() Optional~Boolean~
+        +getLimitPresent() Optional~Boolean~
+        +getFromClassCount() Optional~Integer~
+        +getStepCount() Optional~Integer~
+        +getHasSubtraversal() Optional~Boolean~
+        +getInvokedVia() Optional~String~
+        +getCustomAttrs() Map~String,Object~
     }
     class QuerySource {
         <<enumeration>>
@@ -163,6 +172,13 @@ classDiagram
     class Classification {
         +operationName Optional~String~
         +collectionName Optional~String~
+        +wherePresent Optional~Boolean~
+        +orderPresent Optional~Boolean~
+        +limitPresent Optional~Boolean~
+        +fromClassCount Optional~Integer~
+        +stepCount Optional~Integer~
+        +hasSubtraversal Optional~Boolean~
+        +customAttrs Map~String,Object~
     }
     class QueryMonitoringModeResolver {
         -List~TagRule~ rules
