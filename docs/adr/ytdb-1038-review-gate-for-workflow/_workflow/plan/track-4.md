@@ -19,11 +19,23 @@ the reviewer context block scopes findings to it.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-02T08:00Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-02T08:20Z [ctx=safe] Step 1 complete (commit b99294b83135ae6c9ddad957fa53d23e93926fd9)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- Track 4's own Phase C does not trigger D5 delta pre-staging. Both files it
+  edits (`track-code-review.md`, `step-implementation.md`) were first-created
+  as staged copies by Track 2, so Track 4's own `base..HEAD` shows ordinary
+  edits, not whole-file adds. Phase C self-application still needs staged-path
+  normalization, staged-read precedence, and the prose-criteria lens, but not
+  delta pre-staging. See Episodes §Step 1.
+- S2 baseline for any future edit to the two delta context blocks: each now
+  carries `read caveat → delta note` in that order; the delta note is
+  byte-identical across both (md5 `b4fb405f`) modulo fence indentation and the
+  per-step versus per-track delta-path token. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -139,12 +151,55 @@ Ordering and invariants:
 
 ## Concrete Steps
 
-1. Add the `diff <live> <staged>` delta-staging step and the reviewer scope note to both parallel review setups in one commit. In `track-code-review.md` (staged copy): add the delta-staging step to `§Phase C Startup` alongside step 7's cumulative-diff staging, and add the scope note to the `§Context passed to all sub-agents` block. In `step-implementation.md` (staged copy): add the delta-staging step to sub-step 4(a) alongside its per-step diff staging, and add the scope note to that sub-step's step-review reviewer `## Workflow Context` block, the one inside sub-step 4(a) — NOT the implementer-prompt-template `## Workflow Context (static — same on every spawn this session)` block at a different sub-step (finding T1). Express each delta-staging step as a concrete `bash` fence mirroring the existing staging blocks: enumerate new-file adds under the anchored `…/_workflow/staged-workflow/.claude/…` prefix via `git diff … --diff-filter=A --name-only`, strip the staged prefix to derive each live counterpart, test the live file exists, then write `diff <live> <staged>` to a delta temp file (finding T2). The scope note directs reviewers to scope findings to the delta and treat the rest as verbatim-copied live content; it is byte-uniform across the two context blocks (S2), modulo the deeper code-fence indentation in `step-implementation.md`. The delta rides in the two context blocks only, not the gate-check prompts `dimensional-review-gate-check.md` or `review-gate-verification.md` (Non-Goal). Verify S2 byte-uniformity of the scope note across the two blocks intra-step. — risk: low (default: additive workflow-doc prose to two already-staged copies under `_workflow/staged-workflow/`; no Java, concurrency, durability, public-API, or build trigger; S2-checkable)  [ ]
+1. Add the `diff <live> <staged>` delta-staging step and the reviewer scope note to both parallel review setups in one commit. In `track-code-review.md` (staged copy): add the delta-staging step to `§Phase C Startup` alongside step 7's cumulative-diff staging, and add the scope note to the `§Context passed to all sub-agents` block. In `step-implementation.md` (staged copy): add the delta-staging step to sub-step 4(a) alongside its per-step diff staging, and add the scope note to that sub-step's step-review reviewer `## Workflow Context` block, the one inside sub-step 4(a) — NOT the implementer-prompt-template `## Workflow Context (static — same on every spawn this session)` block at a different sub-step (finding T1). Express each delta-staging step as a concrete `bash` fence mirroring the existing staging blocks: enumerate new-file adds under the anchored `…/_workflow/staged-workflow/.claude/…` prefix via `git diff … --diff-filter=A --name-only`, strip the staged prefix to derive each live counterpart, test the live file exists, then write `diff <live> <staged>` to a delta temp file (finding T2). The scope note directs reviewers to scope findings to the delta and treat the rest as verbatim-copied live content; it is byte-uniform across the two context blocks (S2), modulo the deeper code-fence indentation in `step-implementation.md`. The delta rides in the two context blocks only, not the gate-check prompts `dimensional-review-gate-check.md` or `review-gate-verification.md` (Non-Goal). Verify S2 byte-uniformity of the scope note across the two blocks intra-step. — risk: low (default: additive workflow-doc prose to two already-staged copies under `_workflow/staged-workflow/`; no Java, concurrency, durability, public-API, or build trigger; S2-checkable)  [x]  commit: b99294b83135ae6c9ddad957fa53d23e93926fd9
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit b99294b83135ae6c9ddad957fa53d23e93926fd9, 2026-06-02T08:20Z [ctx=safe]
+**What was done:** Added a `diff <live> <staged>` delta-staging step plus a
+matching reviewer scope note to both parallel review setups in one commit,
+editing the staged copies under `_workflow/staged-workflow/`. In
+`track-code-review.md` the delta step is a new step 8 in `§Phase C Startup`
+beside step 7's cumulative-diff staging (cumulative `{base_commit}..HEAD`
+range), and its scope note sits in the `§Context passed to all sub-agents`
+block right after Track 2's read caveat. In `step-implementation.md` the delta
+step rides in sub-step 4(a) beside the per-step `{commit}~1..{commit}` staging,
+and its scope note sits in the sub-step 4(a) step-review `## Workflow Context`
+block, not the static implementer-template block (finding T1). Each delta step
+is a `bash` fence mirroring the existing staging blocks: `git diff …
+--diff-filter=A --name-only` over the anchored
+`…/_workflow/staged-workflow/.claude/…` prefix, a prefix-strip to the live
+counterpart, a live-file existence test, then `diff` to a `$PPID`-suffixed
+delta temp file (finding T2). The note rides in the two context blocks only,
+not the gate-check prompts (Non-Goal).
+
+**What was discovered:** Running the new loop against this branch's own
+`origin/develop..HEAD` range as a functional test found all twelve staged
+whole-file adds, derived each live counterpart, confirmed existence, and
+emitted per-file `diff <live> <staged>`. The run reconfirmed the Phase A
+dependency reveal: the two files this step edits are whole-file adds across the
+full cumulative range but were first-created by Track 2, so within Track 4's
+own `base..HEAD` they are ordinary edits. Track 4's own D5 delta-scoping does
+not fire on its own Phase C review; Phase C still needs the `§1.7(h)`
+hand-injection (staged-path normalization, staged-read precedence,
+prose-criteria lens) but not delta pre-staging.
+
+**What changed from the plan:** None. The scope note is byte-uniform across
+both blocks (md5 `b4fb405f` after normalizing leading whitespace) modulo two
+forced differences the step description named only in part: the deeper
+code-fence indentation in `step-implementation.md`, and the per-step
+(`claude-code-step-{N}-{M}-delta`) versus per-track
+(`claude-code-track-{N}-delta`) delta-path token. The token must differ
+because the two delta files are genuinely distinct, matching how the sibling
+`## Diff` and `## Changed Files` sub-sections already differ by the same
+step/track token.
+
+**Key files:**
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/track-code-review.md` (modified)
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/step-implementation.md` (modified)
 
 ## Validation and Acceptance
 
