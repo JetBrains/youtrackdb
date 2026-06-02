@@ -317,13 +317,46 @@ flowchart TB
   > than a plan change. Component Map, Decision Records, and inter-track
   > dependencies are unchanged.
 
-- [ ] Track 3: Phase A criteria addendum (YTDB-1046)
+- [x] Track 3: Phase A criteria addendum (YTDB-1046)
   > The Phase A technical, risk, and adversarial reviewers apply Java criteria
   > that misfire on a prose track and raise phantom `NOT FOUND` blockers. A
   > marker-gated addendum re-points the criteria to prose; the same three
   > reviewers self-adapt. Detailed description in plan/track-3.md.
-  > **Scope:** ~2 steps covering the workflow-machinery criteria addendum in technical/risk/adversarial.
-  > **Depends on:** Track 2
+  >
+  > **Track episode:**
+  > Added a marker-gated workflow-machinery criteria addendum to the three
+  > Phase A criteria prompts (`technical-review.md`, `risk-review.md`,
+  > `adversarial-review.md`, staged copies). On a workflow-modifying plan it
+  > re-points those reviewers: verify named references as workflow paths and
+  > `§`-anchors via grep and Read rather than Java FQNs via `findClass` (a
+  > non-resolving Java symbol stops being a phantom `NOT FOUND` blocker on a
+  > prose reference), and apply five prose-soundness criteria (rule coherence
+  > and non-contradiction, instruction completeness, prompt-design soundness,
+  > context-budget impact, dependent-prompt or agent breakage) in place of the
+  > Java EDGE-CASES / INTEGRATION / BACKWARD-COMPAT and WAL/crash/migration/
+  > hot-caller concerns for the prose part. A track mixing prose and code keeps
+  > both lenses. The addendum self-gates on the same canonical `§1.7(b)` marker
+  > as Track 2's read caveat (inert on ordinary plans), sits immediately after
+  > it, and reads byte-uniform across the three prompts (S3).
+  > `review-gate-verification.md` stays addendum-free (criteria-agnostic). One
+  > step, no failures.
+  >
+  > Track-level review passed at iteration 1 (5 workflow reviewers). One
+  > should-fix applied (Review fix `641a392`): the enumerated criteria list
+  > named criteria present only in `technical-review.md`, so the byte-uniform
+  > block told the risk and adversarial reviewers to replace criteria they
+  > lack; genericized to "this prompt's Java-oriented criteria, including any
+  > WAL, crash, migration, and hot-caller concerns" (new md5 `b65de1ed`, S3
+  > re-verified) and softened "edits" to "may edit". One suggestion
+  > (ambiguous-reference tie-breaker) declined for economy.
+  >
+  > Self-application carve-out (`§1.7(h)`) hand-injected throughout, since this
+  > branch's fixes do not take effect until the Phase 4 promotion: staged-path
+  > normalization for reviewer selection, staged-read precedence, and the
+  > prose-criteria lens. Depended on Track 2 (its read caveat landed in the
+  > same three prompts first). Independent of Track 4; no cross-track impact.
+  >
+  > **Track file:** `plan/track-3.md` (1 step, 0 failed)
 
 - [ ] Track 4: Review-target delta-scoping for staged copies (YTDB-1038)
   > On a workflow-modifying plan a track's deliverable is a staged copy; when
