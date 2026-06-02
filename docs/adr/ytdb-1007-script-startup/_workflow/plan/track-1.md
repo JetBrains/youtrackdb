@@ -13,6 +13,7 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 - [x] 2026-06-02T15:10Z [ctx=safe] Step 1 complete (commit bf6fca2b3f)
 - [x] 2026-06-02T15:18Z [ctx=safe] Step 2 complete (commit 9cd797f0fc)
 - [x] 2026-06-02T15:27Z [ctx=safe] Step 3 complete (commit d4f5a38eed)
+- [x] 2026-06-02T15:39Z [ctx=safe] Step 4 complete (commit ffb217a754)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -41,6 +42,15 @@ at Phase 1. -->
   fixture branch is `main`, so fixture plan artifacts must live under
   `docs/adr/main/_workflow/` (or pass a matching `default_branch` to
   `GitFixture`). See Episodes §Step 3.
+
+- 2026-06-02T15:39Z Step 4 made the merge-base fold a shared
+  `fold_stamps_to_base("break"|"continue")` function (the Step 6
+  `migrate-range` seam). Track 3's no-drift normalization fires on the
+  empty-range all-stamped path this step reports (`detected=false`,
+  `base_sha` filled, `commit_count=0`) when `STAMPED_SHAS` holds more than one
+  distinct SHA; `DRIFT_NORMALIZATION_LANDED` stays hard-false until Track 3.
+  The fold function and the new `GitFixture` real-commit helpers are reusable
+  by Tracks 2 and 3. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -106,7 +116,7 @@ The `## Concrete Steps` roster below decomposes this into six steps; per the Pha
 1. Scaffold `workflow-startup-precheck.sh` — shebang (no global `set -e`), `§1.6(h)` header, `--mode {full,divergence-only,migrate-range}` + `--bootstrap-sha` parsing, unknown-mode error (non-zero exit + usage, no JSON), the single `emit_json` jq function with the explicit empty→null idiom, and `actions_taken` defined as an empty array; plus the initial Python stand-alone-runner test asserting the unknown-mode path and the jq null-vs-empty contract on synthetic vars — risk: medium (new component behavior: the one-contract-home jq emit + null idiom is the load-bearing S1 emit surface)  [x] commit: bf6fca2b3f
 2. Branch divergence detection + reusable git-fixture builder — `git rev-list --left-right --count HEAD...'@{u}'` with the upstream and fetch guards populating `divergence{detected,ahead,behind,skipped,skip_reason}`; introduce the Python git-fixture builder (temp `git init`, commit/branch/set-upstream, local `file://` bare remote) and clean / divergence / no-upstream / fetch-failed fixtures — risk: medium (new shared test infrastructure + new detection behavior)  [x] commit: 9cd797f0fc
 3. Drift Phase 1 — artifact walk + classification — byte-copy the `§1.6(h)` walk (anchored `§1.6(a1)` regex) classifying stamped/unstamped, plus the `§1.6(h)` source-extraction conformance test (glob-set + regex compared against the canonical block, `STAMPED_PAIRS` pairing whitelisted) and stamped / unstamped / empty-input fixtures — risk: medium (byte-parity logic; the conformance test is the spec-drift guard)  [x] commit: d4f5a38eed
-4. Drift Phase 2 — pairwise merge-base fold + `git log` — the `full`-mode `break`-shape fold deriving `BASE_SHA`, `git log --reverse` on the trailing-slash pathspecs populating `base_sha`/`commit_count`/`first_commits`, the merge-base-failed short-circuit (null scalars), and the shared fold shell function parameterized by failure-handling; drift-detected / merge-base-failed / staged-subtree-exclusion fixtures — risk: medium (subtlest logic in the track; byte-parity with `workflow-drift-check.md § Detection`)  [ ]
+4. Drift Phase 2 — pairwise merge-base fold + `git log` — the `full`-mode `break`-shape fold deriving `BASE_SHA`, `git log --reverse` on the trailing-slash pathspecs populating `base_sha`/`commit_count`/`first_commits`, the merge-base-failed short-circuit (null scalars), and the shared fold shell function parameterized by failure-handling; drift-detected / merge-base-failed / staged-subtree-exclusion fixtures — risk: medium (subtlest logic in the track; byte-parity with `workflow-drift-check.md § Detection`)  [x] commit: ffb217a754
 5. Handoff scan + `state` stub — `ls -t handoff-*.md` (mtime order, empty-safe) populating `handoffs`, and `state` emitted as JSON `null`; handoffs-present (mtime order) and clean (empty `[]`) fixtures — risk: low (default: routine `ls -t` plus a null stub, fully fixture-covered, no MEDIUM trigger)  [ ]
 6. Reduced-mode outputs `divergence-only` + `migrate-range` — `divergence-only` emits only `divergence` + `actions_taken`; `migrate-range` runs the continue-and-collect fold (collect every failing pair), the `STAMPED_PAIRS` `(file=sha)` array resolving `merge_base_failed` to artifact paths, the `--bootstrap-sha` fold-in, and `stamped_artifacts (file,sha)` + `unstamped_files` + `base_sha` + `git log` range, emitting no `state`/`handoffs`/`divergence`; divergence-only / migrate-range-stamped / multi-failure-collect-all / `--bootstrap-sha` fixtures — risk: medium (the continue-vs-break fold distinction is the T1/R1 byte-parity hazard; parameterized fold reuse)  [ ]
 
@@ -225,6 +235,55 @@ WITHOUT `STAMPED_PAIRS`; Step 6's `migrate-range` walk adds the `$f=$SHA`
 pairing as the whitelisted `§1.6(h)` extension, so Step 6 must scope that
 "no STAMPED_PAIRS" assertion to the drift walk only, not the migrate-range
 walk.
+
+### Step 4 — commit ffb217a754, 2026-06-02T15:39Z [ctx=safe]
+**What was done:** Extended the all-stamped drift branch with Phase 2: the
+`break`-on-first-failure pairwise merge-base fold from
+`workflow-drift-check.md § Detection` deriving `BASE_SHA`, then
+`git log --reverse --format='%h %s' BASE_SHA..HEAD -- .claude/workflow/
+.claude/skills/` populating `base_sha` / `commit_count` (full-range total) /
+`first_commits` (first 10, oldest-first, each `{sha, subject}`). A merge-base
+failure short-circuits to `kind="merge-base-failed"` with null fold scalars
+and `detected=true`; an empty range is no-drift with `base_sha` filled and
+`commit_count=0`. The fold lives in a shared `fold_stamps_to_base` function
+parameterized by failure handling (break vs continue) so Step 6's
+`migrate-range` reuses one fold, mirroring the single-sourced prose walk.
+Added five drift fixtures (drift-detected, empty-range no-drift,
+merge-base-failed via orphan branch, staged-subtree exclusion, real-vs-staged
+distinguishing pair) and extended `GitFixture` with `head_sha` / `checkout` /
+`workflow_commit` / `staged_workflow_commit` plus a capturing `_git_out`.
+24/24 tests pass; the script runs clean on the real repo (`detected=false`,
+`kind="stamped"`, `base_sha=0676e2446f`, `commit_count=0`).
+
+**What was discovered:** Step 3's all-stamped seam test pinned the boundary
+with synthetic SHAs (`b*40` / `c*40`); Phase 2 feeds those to
+`git merge-base`, which fails on unresolvable SHAs and routes to
+`kind="merge-base-failed"`, so that test was reworked to stamp with a real
+HEAD commit and assert the resolved-fold no-drift read (renamed
+`drift_all_stamped_classifies_stamped_then_folds`). Phase 2 fixtures must use
+real commit SHAs, not synthetic ones, because the fold resolves them.
+Separately, `GitFixture.orphan_branch` left the prior branch's files as
+untracked working-tree files, blocking `git checkout` back to the default
+branch ("untracked files would be overwritten"); fixed by wiping the working
+tree after `git rm -rfq --cached .` so a later checkout restores the default
+branch's tracked files cleanly.
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (modified)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified)
+
+**Critical context:** `fold_stamps_to_base` is shared and parameterized by
+its first positional arg (`"break"` | `"continue"`), writing `FOLD_BASE_SHA`
+and `FOLD_FAILED_PAIRS` (space-delimited `BASE,SHA` pairs). Step 6's
+`migrate-range` calls it with `"continue"` to collect every failing pair and
+resolves them to artifact paths via its own `STAMPED_PAIRS` table.
+`WORKFLOW_PATHSPECS=".claude/workflow/ .claude/skills/"` (trailing slashes,
+unquoted-splice word list) is script-scoped and reused by the `git log`.
+`GitFixture` now exposes `head_sha()`, `checkout(branch)`, `workflow_commit()`,
+`staged_workflow_commit()`, and `_git_out()` for Step 6's fixtures. The
+conformance test `conformance_script_walk_carries_no_stamped_pairs_yet` still
+pins the drift walk WITHOUT `STAMPED_PAIRS` — Step 6 must scope that assertion
+to the drift walk only when it adds the migrate-range pairing.
 
 ## Validation and Acceptance
 
