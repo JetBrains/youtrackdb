@@ -368,7 +368,7 @@ flowchart TB
   > ("carries the canonical `§1.7(b)` workflow-modifying marker sentence") in
   > both context blocks and must stay byte-uniform between them (S2).
 
-- [ ] Track 4: Review-target delta-scoping for staged copies (YTDB-1038)
+- [x] Track 4: Review-target delta-scoping for staged copies (YTDB-1038)
   > On a workflow-modifying plan a track's deliverable is a staged copy; when
   > that copy is first created in a reviewed commit range, the cumulative diff
   > shows it as a whole-file add with no signal that only the delta against the
@@ -378,9 +378,51 @@ flowchart TB
   > diff-staging step and the high-risk Phase B step-review setup, and the
   > reviewer context block scopes findings to it. Folded under YTDB-1038 (no
   > separate issue). Detailed description in plan/track-4.md.
-  > **Scope:** ~2-3 steps covering the delta pre-staging in `track-code-review.md`
-  > and `step-implementation.md`, with the scope note in the two context blocks.
-  > **Depends on:** Track 2
+  >
+  > **Track episode:**
+  > Added D5 review-target delta-scoping so that when a reviewed range
+  > first-creates a staged copy, reviewers see the change against its live
+  > counterpart instead of a whole-file add. One commit added two pieces to
+  > both parallel review setups: a `diff <live> <staged>` delta-staging `bash`
+  > block (a new step 8 in `track-code-review.md` §Phase C Startup, and in
+  > `step-implementation.md` sub-step 4(a) beside its per-step diff staging)
+  > and a reviewer scope-note context block that directs reviewers to scope
+  > findings to the delta and treat the rest of each whole-file add as
+  > verbatim-copied, already-live content. The trigger is precise: a new-file
+  > add under the anchored `…/_workflow/staged-workflow/.claude/…` prefix with
+  > a live counterpart; an ordinary edit to an already-restaged file stages no
+  > delta. It keys off the staged prefix and needs no marker, and stays inert
+  > (empty delta file) on ordinary plans.
+  >
+  > The scope note and the delta-staging fence read byte-uniform across the two
+  > blocks modulo two forced differences: the deeper code-fence indentation in
+  > `step-implementation.md`, and the per-step versus per-track delta-path
+  > token (S2).
+  >
+  > Key discovery: Track 4's own Phase C did not trigger delta pre-staging.
+  > Both files it edits were first-created as staged copies by Track 2, so
+  > within Track 4's own `base..HEAD` they are ordinary edits, not whole-file
+  > adds. Phase C self-application still needed staged-path normalization,
+  > staged-read precedence, and the prose-criteria lens (hand-injected per
+  > `§1.7(h)`), but not delta pre-staging.
+  >
+  > Track-level review passed at iteration 1 (4 workflow reviewers; baseline
+  > skipped on the workflow-only diff). One `Review fix:` commit
+  > (`c0d3108e6f`) applied two should-fixes the review caught as completion
+  > gaps in the change: the new delta temp file was missing from both cleanup
+  > fences (it would leak across steps and tracks within a session), and three
+  > regeneration anchors in `track-code-review.md` still named only "step 7"
+  > so the step-8 delta would go stale after a `Review fix:` commit. Both
+  > gate-checks verified the fixes with no regression; the byte-uniform
+  > scope-note and bash blocks (S2) held. Two suggestions were declined: a
+  > provenance note on the hot per-spawn scope-note block, and an em-dash-cap
+  > nit on a bookkeeping line whose two extra dashes are sanctioned tokens.
+  >
+  > Cross-track impact: none. Track 4 was the last track, independent of
+  > Track 3; its one dependency (Track 2's read caveat in both context blocks)
+  > was already satisfied.
+  >
+  > **Track file:** `plan/track-4.md` (1 step, 0 failed)
 
 ## Plan Review
 

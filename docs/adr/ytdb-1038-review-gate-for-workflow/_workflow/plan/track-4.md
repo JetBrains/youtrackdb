@@ -16,11 +16,13 @@ the reviewer context block scopes findings to it.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-06-02T08:00Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-02T08:20Z [ctx=safe] Step 1 complete (commit b99294b83135ae6c9ddad957fa53d23e93926fd9)
 - [x] 2026-06-02T08:42Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-02T09:26Z [ctx=info] Track-level code review complete: PASS at iteration 1 (4 workflow reviewers; 0 blockers, 2 should-fix applied, 2 suggestions declined)
+- [x] 2026-06-02T09:26Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -84,6 +86,30 @@ summary at Phase C. -->
   hand-injected: the reviewer ran against the staged technical-review prompt
   (Track 2 caveat + Track 3 addendum) and read the staged copies of the two
   edited files.
+- [x] Track-level code review (Phase C): PASS at iteration 1. The diff was
+  workflow-only, so the four baseline agents were skipped and four workflow
+  reviewers fired (consistency, instruction-completeness, context-budget,
+  writing-style; prompt-design and hook-safety stayed untriggered, since no
+  prompts/SKILL/agents or hooks/scripts/settings file was touched). Two
+  should-fixes applied in one Review fix (c0d3108e6f). WC1 added the new
+  `-delta-` temp file to both cleanup fences, which would otherwise leak
+  across steps and tracks within a session. WI1 changed three regeneration
+  anchors in `track-code-review.md` from "step 7" to "steps 7 and 8" so the
+  step-8 delta re-stages after a Review fix commit. Both gate-checks VERIFIED
+  with no regression; the byte-uniform scope-note and bash blocks (S2) stayed
+  untouched by the fix. Two suggestions declined: WI2 (a provenance note on
+  the hot per-spawn scope-note block, marginal cost given WI1 already corrects
+  the regeneration contract) and WS1 (an em-dash-cap nit on a track-file
+  bookkeeping line whose two extra dashes are sanctioned tokens, a quoted
+  heading literal and the template risk-tag delimiter).
+- Self-application carve-out (`§1.7(h)`): the four workflow reviewers and the
+  fix implementer ran with hand-injected staged-path normalization (Track 1's
+  selection fix is not live yet) and `§1.7(d)` staged-read precedence (Track
+  2's amendment is not live yet), reading the staged copies of the two edited
+  files and the staged prompts. Track 4's own D5 delta-scoping did not fire:
+  both files it edits were first-created as staged copies by Track 2, so
+  within Track 4's own base..HEAD they read as ordinary edits, not whole-file
+  adds, and no delta pre-staging applied to this review.
 
 ## Context and Orientation
 
