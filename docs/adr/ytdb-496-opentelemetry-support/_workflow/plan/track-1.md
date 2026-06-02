@@ -36,7 +36,7 @@ The relevant code lives entirely under `core/src/main/java/com/jetbrains/youtrac
 
 The track touches none of the actual emission code (that lives in Track 3). It adds API surfaces, captures the global listener registry snapshot at `FrontendTransactionImpl.beginInternal()`, refactors the existing single-listener call sites to iterate the per-TX snapshot, and widens the existing exception-isolation wrappers from `Exception` to `Exception | LinkageError | AssertionError`. Concrete deliverables:
 
-1. New default accessors on `QueryMetricsListener.QueryDetails` covering the OTel-emission and routing slots — `Optional<String> getOperationName()`, `Optional<String> getCollectionName()`, `Optional<String> getDatabaseName()`, `Optional<String> getErrorType()`, `Optional<QuerySource> getQuerySource()` (where `QuerySource` is a new public enum with `GREMLIN` / `SQL` values, used by `OTelQueryMetricsListener.queryFinished` to route between the enrich-existing-span and create-new-span paths per design.md §"Context propagation in embedded"), `OptionalLong getResultCount()`, plus the structural-attribute accessors from D19 (`getWherePresent`, `getOrderPresent`, `getLimitPresent`, `getFromClassCount`, `getStepCount`, `getHasSubtraversal`). All default to `Optional.empty()` / `OptionalLong.empty()` so existing inline implementations keep working; `YTDBQueryMetricsStep` populates them only when the classifier resolves a value and from `session.getDatabaseName()` for the namespace.
+1. New default accessors on `QueryMetricsListener.QueryDetails` covering the OTel-emission and routing slots — `Optional<String> getOperationName()`, `Optional<String> getCollectionName()`, `Optional<String> getDatabaseName()`, `Optional<String> getErrorType()`, `Optional<QuerySource> getQuerySource()` (where `QuerySource` is a new public enum with `GREMLIN` / `SQL` values, used by `OTelQueryMetricsListener.queryFinished` to route between the enrich-existing-span and create-new-span paths per design.md §"Context propagation in embedded"), `OptionalLong getResultCount()`, `Optional<String> getInvokedVia()` (D40 — `"gremlin_dsl"` when the SQL fire site detects an outer Gremlin span via `Span.fromContext(capturedContext).getAttribute("youtrackdb.gremlin.dsl_method") != null`, `"native"` otherwise; populated by `InstrumentedSqlResultSet.close()` at fire time), `Map<String, Object> getCustomAttrs()` (D40 — defaults to `Map.of()`; populated by `YTDBQueryMetricsStep.close()` from `Classification.customAttrs()` for the GREMLIN path; carries `youtrackdb.gremlin.*` entries the OTel listener emits as span attributes with appropriate type coercion), plus the structural-attribute accessors from D19 (`getWherePresent`, `getOrderPresent`, `getLimitPresent`, `getFromClassCount`, `getStepCount`, `getHasSubtraversal`), plus `getExplicitTrackingId(): Optional<String>` from D17. All default to `Optional.empty()` / `OptionalLong.empty()` / `Map.of()` so existing inline implementations keep working; `YTDBQueryMetricsStep` populates them only when the classifier resolves a value and from `session.getDatabaseName()` for the namespace.
 2. One new default accessor on `TransactionMetricsListener.TransactionDetails`: `Optional<String> getDatabaseName()`. Populated at the fire site in `FrontendTransactionImpl` from `session.getDatabaseName()`.
 3. A `Classification` value record plus two static-utility classifier classes (`GremlinBytecodeClassifier`, `SqlSyntaxClassifier`) in `core/.../profiler/monitoring/`. Each classifier exposes one public static method (`Classification classify(Traversal)` / `Classification classify(SQLStatement)`); the fire sites call them directly. `GremlinBytecodeClassifier.classify(Traversal)` dispatches internally across three branches: **(A) Path A** — when the traversal's step list contains a `YTDBMatchPlanStep` (PR #1038's translator boundary step), it reads `getClassification()` and returns the precomputed `Classification(operation, collection)` value stored on the step at translation time. **(B) Pure passthrough** (D40) — when the bytecode contains only `CallStep[YTDBCommandService.NAME]` or `CallStep[YTDBCommandService.YQL_NAME]` instances (optionally with terminal aggregates like `toList` / `count`), the classifier extracts `CallStep.parameters["command"]` as raw SQL, parses via `SQLEngine.parse(...)` (cached through `YqlStatementCache`), picks the first non-administrative statement (skipping BEGIN / COMMIT / ROLLBACK), and runs `SqlSyntaxClassifier.classify(...)` on the result. The returned `Classification` carries operation + collection from the SQL classifier plus YTDB-specific custom attributes via the new `customAttrs: Map<String, Object>` field on the `Classification` record (`youtrackdb.gremlin.dsl_method`, `statement_count`, `has_transaction_control`, `statements_summary` when `statement_count > 1`). **(C) Path B fallback** — otherwise walks the bytecode the same way `produceScript()` already does; if the bytecode contains BOTH graph steps AND `CallStep[YTDBCommandService]` (mixed shape), the classifier runs the normal Path B walk for operation + collection and adds `youtrackdb.gremlin.has_graph_steps = true`, `statement_count`, and `embedded_sql.N` (N = 0..4 capped) for the embedded SQL strings. Empty-command edge case sets `youtrackdb.gremlin.no_op = true` and falls back to `youtrackdb` catch-all classification. No SPI, no `ServiceLoader`, no `META-INF/services` manifest — the parsing logic the classifiers contain is already happening at the fire sites, so piggybacking on existing parsing costs almost nothing and avoids a plugin layer for code that has exactly one impl per input type. The `Classification` record gains a `customAttrs: Map<String, Object>` field (default empty) carrying any `youtrackdb.gremlin.*` attributes derived by Path B branches (B) and (C); Track 3's `OTelQueryMetricsListener` reads the map and sets each entry as a span attribute.
 4. A process-global listener registry: a package-private static holder under `internal/common/profiler/monitoring/` (e.g., `GlobalListenerRegistry`) with `CopyOnWriteArrayList` per listener type, exposed via static methods on `YourTracks`: `registerGlobalQueryListener(QueryMetricsListener)`, `unregisterGlobalQueryListener(QueryMetricsListener)`, plus the transaction-listener pair.
@@ -58,7 +58,7 @@ The first edit adds the `getDatabaseName()` default accessor on the nested `Tran
 
 The second edit extends `QueryMetricsListener.QueryDetails` with the routing and emission slots: `getOperationName`, `getCollectionName`, `getDatabaseName`, `getErrorType`, `getQuerySource` (returning `Optional<QuerySource>` where `QuerySource` is the new public enum with `GREMLIN` / `SQL` values), `getResultCount`, plus the six structural-attribute accessors from D19 (`getWherePresent`, `getOrderPresent`, `getLimitPresent`, `getFromClassCount`, `getStepCount`, `getHasSubtraversal`). All as default methods returning `Optional.empty()` / `OptionalLong.empty()`; the inline impl in `YTDBQueryMetricsStep` does not need to override yet.
 
-The third edit defines the `Classification` record plus the two static-utility classifier classes under `internal/common/profiler/monitoring/`. The record is `(Optional<String> operationName, Optional<String> collectionName)` with a `Classification.EMPTY` constant. `GremlinBytecodeClassifier` exposes `static Classification classify(Bytecode bytecode)`, walking the instruction list to extract the start step and the first `hasLabel`/`addV`/`addE` label. `SqlSyntaxClassifier` exposes `static Classification classify(SQLStatement statement)`, dispatching on the AST subclass. Both helpers are pure functions, fail-safe (any unexpected input returns `Classification.EMPTY`), and unit-testable in isolation without spinning up a transaction. Track 3 wires the Gremlin classifier into `YTDBQueryMetricsStep.close()`; Track 4 wires the SQL classifier into the new `InstrumentedSqlResultSet` session-boundary wrapper installed at the three `DatabaseSessionEmbedded` SQL entry points.
+The third edit defines the `Classification` record plus the two static-utility classifier classes under `internal/common/profiler/monitoring/`. The record carries the operation/collection pair from D9, the six structural fields from D19 (`wherePresent`, `orderPresent`, `limitPresent`, `fromClassCount`, `stepCount`, `hasSubtraversal`), and a `customAttrs: Map<String, Object>` map from D40 (defaults to `Map.of()`) carrying any `youtrackdb.gremlin.*` attributes derived during Path B classification. A `Classification.EMPTY` constant covers the unrecognized-shape case. `GremlinBytecodeClassifier.classify(Traversal)` dispatches across three branches: **Path A** reads `YTDBMatchPlanStep.getClassification()` when the step list contains the PR #1038 boundary step. **Pure passthrough (D40)** detects when the bytecode contains only `CallStep[YTDBCommandService.NAME]` or `CallStep[YTDBCommandService.YQL_NAME]` instances (optionally with terminal aggregates `toList` / `count`), extracts `CallStep.parameters["command"]` as raw SQL, parses via `SQLEngine.parse(...)` (cached through `YqlStatementCache`), picks the first non-administrative statement (skipping BEGIN / COMMIT / ROLLBACK), runs `SqlSyntaxClassifier.classify(...)` for operation + collection, sanitizes via `SqlSanitizer` for `db.query.text`, and populates `customAttrs` with `youtrackdb.gremlin.dsl_method`, `statement_count`, `has_transaction_control`, and `statements_summary` (joined string, capped at 5 statements then `"; +N more"`). **Path B fallback** walks the bytecode the same way `produceScript()` already does; on mixed shapes (graph steps AND `CallStep[YTDBCommandService]`), it adds `youtrackdb.gremlin.has_graph_steps = true`, `statement_count`, and `embedded_sql.N` (N = 0..4 capped) to `customAttrs`. Empty-command edge case sets `youtrackdb.gremlin.no_op = true` and falls back to `youtrackdb` catch-all classification. `SqlSyntaxClassifier` exposes `static Classification classify(SQLStatement statement)`, dispatching on the AST subclass. Both helpers are pure functions, fail-safe (any unexpected input returns `Classification.EMPTY`), and unit-testable in isolation without spinning up a transaction. Track 3 wires the Gremlin classifier into `YTDBQueryMetricsStep.close()` (and reads `Classification.customAttrs` to set the `youtrackdb.gremlin.*` attributes on the outer Gremlin span); Track 4 wires the SQL classifier into the new `InstrumentedSqlResultSet` session-boundary wrapper installed at the five `DatabaseSessionEmbedded` wrap sites.
 
 The fourth edit creates the process-global registry: a package-private static holder (e.g., `GlobalListenerRegistry`) under `internal/common/profiler/monitoring/` with a `CopyOnWriteArrayList` per listener type, plus `snapshotQueryListeners()` / `snapshotTransactionListeners()` returning immutable `List.copyOf(...)` snapshots. `YourTracks` gains four public static methods (`registerGlobalQueryListener` / `unregisterGlobalQueryListener` plus the transaction-listener pair) that delegate to the holder.
 
@@ -149,18 +149,28 @@ Library / function signatures introduced:
 // existing nested interface, new default accessors for routing + emission slots
 public interface QueryMetricsListener {
   interface QueryDetails {
+    // operation / collection / namespace / error / source / row count
     default Optional<String> getOperationName() { return Optional.empty(); }
     default Optional<String> getCollectionName() { return Optional.empty(); }
     default Optional<String> getDatabaseName() { return Optional.empty(); }
     default Optional<String> getErrorType() { return Optional.empty(); }
     default Optional<QuerySource> getQuerySource() { return Optional.empty(); }
     default OptionalLong getResultCount() { return OptionalLong.empty(); }
+    // D17 — explicit tracking ID opt-in
+    default Optional<String> getExplicitTrackingId() { return Optional.empty(); }
+    // D19 — structural attributes under db.youtrackdb.*
     default Optional<Boolean> getWherePresent() { return Optional.empty(); }
     default Optional<Boolean> getOrderPresent() { return Optional.empty(); }
     default Optional<Boolean> getLimitPresent() { return Optional.empty(); }
     default Optional<Integer> getFromClassCount() { return Optional.empty(); }
     default Optional<Integer> getStepCount() { return Optional.empty(); }
     default Optional<Boolean> getHasSubtraversal() { return Optional.empty(); }
+    // D40 — Gremlin DSL vs native invocation disambiguation; set by InstrumentedSqlResultSet
+    // when Span.fromContext(capturedContext) carries youtrackdb.gremlin.dsl_method
+    default Optional<String> getInvokedVia() { return Optional.empty(); }
+    // D40 — youtrackdb.gremlin.* attributes derived by GremlinBytecodeClassifier;
+    // YTDBQueryMetricsStep populates from Classification.customAttrs()
+    default Map<String, Object> getCustomAttrs() { return Map.of(); }
     // existing methods unchanged
   }
   // existing method unchanged
@@ -188,12 +198,25 @@ public interface GremlinSpanLifecycleHook {
   void onClose(QueryDetails details, long endEpochNanos);
 }
 
-// new value record + two static-utility classifiers in core
+// new value record + two static-utility classifiers in core.
+// D9 carries operation + collection; D19 adds six structural fields;
+// D40 adds the customAttrs map for youtrackdb.gremlin.* attributes
+// derived during Path B classification.
 public record Classification(
     Optional<String> operationName,
-    Optional<String> collectionName) {
-  public static final Classification EMPTY =
-      new Classification(Optional.empty(), Optional.empty());
+    Optional<String> collectionName,
+    Optional<Boolean> wherePresent,
+    Optional<Boolean> orderPresent,
+    Optional<Boolean> limitPresent,
+    Optional<Integer> fromClassCount,
+    Optional<Integer> stepCount,
+    Optional<Boolean> hasSubtraversal,
+    Map<String, Object> customAttrs) {
+  public static final Classification EMPTY = new Classification(
+      Optional.empty(), Optional.empty(),
+      Optional.empty(), Optional.empty(), Optional.empty(),
+      Optional.empty(), Optional.empty(), Optional.empty(),
+      Map.of());
 }
 
 public final class GremlinBytecodeClassifier {
