@@ -10,7 +10,11 @@ The resolver and its rule type reuse the same machinery as `QueryMonitoringModeR
 ```java
 public final class SlowQueryThresholdResolver {
     private final List<TagRule<Long>> rules;           // immutable, compiled once at startup
-    private final ConcurrentHashMap<String, Long> cache;
+    private final Map<String, Long> cache;             // bounded LRU: Collections.synchronizedMap over
+                                                       // LinkedHashMap(1024, 0.75f, true) with access-order
+                                                       // eviction; INFO-rate-limited (once per 60 s window)
+                                                       // on eviction so unique-tag-per-request misuse cannot
+                                                       // exhaust the heap
 
     public long resolve(Optional<String> tag, long defaultNanos) {
         if (tag.isEmpty()) return defaultNanos;
@@ -55,8 +59,8 @@ The standalone commit span is not threshold-gated in this design. Commit duratio
 
 - Default `0` (emit-all) matches the OTel-standard "emit everything, let downstream samplers decide" pattern and gives operators first-run visibility immediately after `OPENTELEMETRY_ENABLED=true`. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook; errors always bypass regardless.
 - A query whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
-- The gate evaluates before any work the listener would otherwise do — no `tracer.spanBuilder(...)`, no attribute reads from `QueryDetails` beyond `getErrorType()` and `getQuerySummary()` (both cheap, lazy in the impl). Gated-out queries pay only the resolver lookup (`ConcurrentHashMap.computeIfAbsent` once per distinct tag, O(1) on cache hit) and the listener return.
-- Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) grows the `ConcurrentHashMap` without bound. Same caveat as for `QueryMonitoringModeResolver`; documented as host responsibility, no LRU bound in YTDB-496 because typical workloads have dozens of tags.
+- The gate evaluates before any work the listener would otherwise do: no `tracer.spanBuilder(...)`, no attribute reads from `QueryDetails` beyond `getErrorType()` and `getQuerySummary()` (both cheap, lazy in the impl). Gated-out queries pay only the resolver lookup (bounded-LRU lookup once per distinct tag, O(1) on cache hit) and the listener return.
+- Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) would otherwise grow each resolver's cache without bound. Both resolvers use a bounded LRU (`Collections.synchronizedMap` over `LinkedHashMap(1024, 0.75f, true)` with access-order eviction, capacity 1024), so the heap footprint is capped at roughly 2 × 200 KB even under sustained unique-tag-per-request abuse. Eviction logs INFO once per 60 s window with the count of evictions in that window; an evicted tag pays the rule walk again on its next access, and rule walks are deterministic so the resolved value stays stable across miss / re-resolve / re-cache. The heartbeat gate has no resolver and contributes no cache.
 - A tag that matches no rule resolves to the global default. The cache still records the resolution so future identical tags skip the rule walk.
 - Conflicting rules (two rules match the same tag): first-wins by insertion order. Operators order rules from most-specific to most-general. Duplicate exact rules: the first one wins; subsequent rules log WARN at startup and are dropped.
 - The global default is captured at OTel listener construction time and stored in the `defaultThresholdNanos` final field. Mid-process changes to the global default require an SDK rebuild (host calls `YouTrackDBOpenTelemetry.setOpenTelemetry(...)` again, or the server restarts). The tag-rule list is also compiled once at startup; mid-process rule changes are not supported in YTDB-496 (same constraint as for mode rules).
@@ -181,29 +185,37 @@ Pseudo-implementation:
 public final class OTelLogAppender implements LogAppenderHook {
   private final Logger otelLogger;
   private final int minSeverityNumber;
+  private final boolean includeMessageBody;            // OPENTELEMETRY_LOGS_INCLUDE_MESSAGE_BODY (default false)
   private final ThreadLocal<Boolean> reentrant = ThreadLocal.withInitial(() -> false);
   private static final java.util.logging.Logger FALLBACK =
       java.util.logging.Logger.getLogger("io.youtrackdb.otel.appender");
 
-  public OTelLogAppender(LoggerProvider provider, Severity minSeverity) {
+  public OTelLogAppender(LoggerProvider provider, Severity minSeverity, boolean includeMessageBody) {
     this.otelLogger = provider.get("io.youtrackdb");
     this.minSeverityNumber = minSeverity.getSeverityNumber();
+    this.includeMessageBody = includeMessageBody;
   }
 
   @Override
   public void onLog(String requesterName, String dbName,
-                    org.slf4j.event.Level level, String message, Throwable thrown) {
+                    org.slf4j.event.Level level,
+                    String formatString, String formattedMessage,
+                    Throwable thrown, long eventEpochNanos) {
     if (reentrant.get()) return;
     int severityNumber = mapSlf4jLevelToOtel(level);
     if (severityNumber < minSeverityNumber) return;
 
     reentrant.set(true);
     try {
+      // Body-policy default-deny: ship the SLF4J format string unless the host opts in.
+      // Keeps parameter values (raw SQL, record content, user identifiers) out of the log body.
+      String body = includeMessageBody ? formattedMessage : formatString;
       LogRecordBuilder builder = otelLogger.logRecordBuilder()
           .setSeverity(Severity.fromSeverityNumber(severityNumber))
           .setSeverityText(level.name())
-          .setObservedTimestamp(Instant.now())
-          .setBody(message);
+          .setTimestamp(eventEpochNanos, TimeUnit.NANOSECONDS)   // original log-call wall-clock
+          .setObservedTimestamp(Instant.now())                    // appender invocation wall-clock
+          .setBody(body);
 
       if (requesterName != null) {
         builder.setAttribute(AttributeKey.stringKey("code.namespace"), requesterName);
@@ -229,7 +241,9 @@ public final class OTelLogAppender implements LogAppenderHook {
 }
 ```
 
-The `setObservedTimestamp(Instant.now())` follows sem-conv guidance for the "log was observed by the appender" axis. The OTel SDK fills `Timestamp` from the exporter side; the observed timestamp is the hook's wall-clock at invocation time. The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` replaces the `Handler.reportError` channel a JUL Handler would have used. The fallback logger is itself part of the SLF4J→JUL or SLF4J→Logback dispatch chain (via slf4j-jdk14 in server mode), so its output reaches the operator's normal log sink without re-entering the OTel hook (the appender's own logger name is filtered out at install time to keep the cycle impossible).
+The `setTimestamp(eventEpochNanos, NS)` carries the SLF4J `LoggingEvent.getTimeStamp()` value (the wall-clock at the original log call, captured by the SLF4J binding before YTDB's hook fires) lifted from milliseconds to nanoseconds. The OTel sem-conv `Timestamp` field therefore matches the original log-call time even for high-frequency `DEBUG`/`TRACE` records where dispatch latency would otherwise drift `Instant.now()` by tens of microseconds. The `setObservedTimestamp(Instant.now())` follows sem-conv guidance for the "log was observed by the appender" axis. The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` replaces the `Handler.reportError` channel a JUL Handler would have used. The fallback logger is itself part of the SLF4J→JUL or SLF4J→Logback dispatch chain (via slf4j-jdk14 in server mode), so its output reaches the operator's normal log sink without re-entering the OTel hook (the appender's own logger name is filtered out at install time to keep the cycle impossible).
+
+**Body-policy default-deny.** The `body` slot is set from `formatString` when `OPENTELEMETRY_LOGS_INCLUDE_MESSAGE_BODY=false` (the default) and from `formattedMessage` when `true`. The default-false matches the trace-pillar discipline of `OPENTELEMETRY_QUERY_INCLUDE_PARAMETERS=false`: log lines whose format string is `"Query failed: {} with args {}"` ship that string as the body, rather than `"Query failed: SELECT FROM User WHERE id = 42 with args [42]"`. The `exception.stacktrace` attribute (set from `Throwable.getStackTrace()`) and `exception.message` (from `Throwable.getMessage()`) are NOT gated by the same flag because the throwable identity itself is the load-bearing diagnostic signal for failure investigation; hosts that need to redact those install a host-side OTel `LogRecordProcessor` at the collector boundary. The flag is a default-deny knob for the body slot only.
 
 The `SLF4JLogManager` hook iteration runs after the existing `isEnabledForLevel(level)` filter and before the marker/format work the existing path does. Hooks see the same formatted message SLF4J emits, not the raw format string and varargs; that keeps each hook from re-running `String.format(...)` and gives every hook a consistent view.
 
