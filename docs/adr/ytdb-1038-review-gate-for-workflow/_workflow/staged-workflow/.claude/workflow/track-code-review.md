@@ -457,7 +457,7 @@ The unique-suffix requirement from project-level `CLAUDE.md`
 **Regenerate before every fan-out after a `Review fix:` commit.**
 Each iteration's `Review fix:` commit grows the cumulative diff, so
 any previously staged files go stale. Re-run the staging commands
-from Phase C Startup step 7 before composing the next fan-out's
+from Phase C Startup steps 7 and 8 before composing the next fan-out's
 sub-agent prompts — this covers both the in-loop gate-check fan-out
 (§ Iteration loop) and the post-approval re-review fan-out triggered
 by user-requested fixes during § Track Completion (step 3, **Review
@@ -619,7 +619,7 @@ orchestrator never edits source files itself in Phase C.
      The gate-check sub-agents review the new HEAD (after the
      `Review fix:` commit), which they reach via the same
      `git diff {base_commit}..HEAD` instruction. **Re-run the
-     staging logic from Phase C Startup step 7 before composing the
+     staging logic from Phase C Startup steps 7 and 8 before composing the
      gate-check prompts** — the new `Review fix:` commit grew the
      cumulative diff, so the previously staged files are stale (see
      § Sub-agents → § "Pre-staged diff and changed-files list").
@@ -629,7 +629,7 @@ orchestrator never edits source files itself in Phase C.
      substituting:
      - `{dimension}` — the agent's review type (e.g., `Bugs & Concurrency`, `Test behavior`)
      - `{findings_under_recheck}` — open finding IDs and titles for that dimension, copied verbatim from the synthesised list
-     - `{diff_path}`, `{files_path}` — the re-staged temp files from Phase C Startup step 7
+     - `{diff_path}`, `{files_path}` — the re-staged temp files from Phase C Startup steps 7 and 8
      - `{plan_slim_path}` — `/tmp/claude-code-plan-slim-$PPID.md`
      - `{step_file_path}` — `docs/adr/<dir-name>/_workflow/plan/track-{N}.md`
 
@@ -1282,7 +1282,8 @@ proceed directly to track completion **in the same session**.
 
    ```bash
    rm -f /tmp/claude-code-track-{N}-diff-$PPID.patch \
-         /tmp/claude-code-track-{N}-files-$PPID.txt
+         /tmp/claude-code-track-{N}-files-$PPID.txt \
+         /tmp/claude-code-track-{N}-delta-$PPID.txt
    ```
 
    If the user re-opens this track later (e.g., post-PR fixes), the

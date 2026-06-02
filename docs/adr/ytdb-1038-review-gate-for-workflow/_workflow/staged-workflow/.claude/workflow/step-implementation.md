@@ -711,7 +711,8 @@ finding ID prefixes, and gate format.
 
       ```bash
       rm -f /tmp/claude-code-step-{N}-{M}-diff-$PPID.patch \
-            /tmp/claude-code-step-{N}-{M}-files-$PPID.txt
+            /tmp/claude-code-step-{N}-{M}-files-$PPID.txt \
+            /tmp/claude-code-step-{N}-{M}-delta-$PPID.txt
       ```
 
       Skip this on a non-`SUCCESS` exit from the dim-review loop —
