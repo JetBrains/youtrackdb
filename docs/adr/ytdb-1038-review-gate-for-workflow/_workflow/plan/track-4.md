@@ -14,10 +14,11 @@ edit. The orchestrator pre-stages the delta against the live counterpart and
 the reviewer context block scopes findings to it.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-02T08:00Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -30,9 +31,46 @@ scope-downs, dependency reveals, gate-override reasons. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
+- Decomposed to one step, not the ~2-3 the scope indicator estimated. The
+  scope note must read byte-uniformly across the two parallel context blocks
+  (S2), which is guaranteed by authoring it once and placing it in both
+  blocks in a single commit, mirroring Track 3's grouping of its byte-uniform
+  addendum across three prompts and Track 2's caveat across nine. The two
+  delta-staging procedures differ per file (cumulative `base..HEAD` diff in
+  the Phase C setup vs per-step `commit~1..commit` diff in Phase B sub-step
+  4(a)), but both ride in the same commit. The scope indicator is a
+  non-binding estimate.
+- Technical review (iteration 1, PASS; Simple track, Technical only) folded
+  two suggestions into the step description. T1: pin the sub-step 4(a) edit to
+  the step-review reviewer `## Workflow Context` block, not the
+  implementer-template `## Workflow Context (static …)` block elsewhere in the
+  same file. T2: express each delta-staging step as a concrete `bash` fence
+  (`--diff-filter=A` + staged-prefix strip + live-file existence test)
+  mirroring the existing staging fences, not prose. Both are decomposition-time
+  wording requirements, not plan changes.
+- Dependency reveal (affects Phase C self-application). Track 4 edits the
+  staged copies of `track-code-review.md` and `step-implementation.md` that
+  Track 2 first-created (commit `704d847fa6`), so Track 4's own edits are
+  ordinary diffs, not whole-file adds. Track 4's own D5 delta-scoping
+  therefore does not fire on its own Phase C review: the cumulative track diff
+  already shows only Track 4's delta. The `§1.7(h)` hand-injection for Track
+  4's Phase C needs staged-path normalization, staged-read precedence, and the
+  prose-criteria lens, but not delta pre-staging.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 1 (2 findings, both suggestions; 0
+  plan/track edits — both folded into decomposition guidance). T1: pin the
+  sub-step 4(a) `## Workflow Context` edit target unambiguously, since
+  `step-implementation.md` also carries an implementer-template
+  `## Workflow Context (static …)` block at a different sub-step. T2: draft
+  the delta-staging step as a concrete `bash` fence (`--diff-filter=A` +
+  staged-prefix strip + live-file existence test) mirroring the existing
+  staging blocks, not prose. Self-application carve-out (`§1.7(h)`)
+  hand-injected: the reviewer ran against the staged technical-review prompt
+  (Track 2 caveat + Track 3 addendum) and read the staged copies of the two
+  edited files.
 
 ## Context and Orientation
 
@@ -100,12 +138,8 @@ Ordering and invariants:
   staged paths exist only on plans that carry the `§1.7(b)` marker anyway.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+
+1. Add the `diff <live> <staged>` delta-staging step and the reviewer scope note to both parallel review setups in one commit. In `track-code-review.md` (staged copy): add the delta-staging step to `§Phase C Startup` alongside step 7's cumulative-diff staging, and add the scope note to the `§Context passed to all sub-agents` block. In `step-implementation.md` (staged copy): add the delta-staging step to sub-step 4(a) alongside its per-step diff staging, and add the scope note to that sub-step's step-review reviewer `## Workflow Context` block, the one inside sub-step 4(a) — NOT the implementer-prompt-template `## Workflow Context (static — same on every spawn this session)` block at a different sub-step (finding T1). Express each delta-staging step as a concrete `bash` fence mirroring the existing staging blocks: enumerate new-file adds under the anchored `…/_workflow/staged-workflow/.claude/…` prefix via `git diff … --diff-filter=A --name-only`, strip the staged prefix to derive each live counterpart, test the live file exists, then write `diff <live> <staged>` to a delta temp file (finding T2). The scope note directs reviewers to scope findings to the delta and treat the rest as verbatim-copied live content; it is byte-uniform across the two context blocks (S2), modulo the deeper code-fence indentation in `step-implementation.md`. The delta rides in the two context blocks only, not the gate-check prompts `dimensional-review-gate-check.md` or `review-gate-verification.md` (Non-Goal). Verify S2 byte-uniformity of the scope note across the two blocks intra-step. — risk: low (default: additive workflow-doc prose to two already-staged copies under `_workflow/staged-workflow/`; no Java, concurrency, durability, public-API, or build trigger; S2-checkable)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -134,8 +168,21 @@ Track-level behavioral acceptance:
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+The single step is one commit of additive workflow-doc prose (a delta-staging
+`bash` block and a scope note) to two staged copies under
+`_workflow/staged-workflow/.claude/workflow/` (the live tree is untouched
+until Phase 4). Recovery is the standard Phase B revert: `git reset --hard
+HEAD` discards the uncommitted attempt, and re-running re-applies the same
+edits, so the step is idempotent on re-run.
+
+Per-step note:
+- **Step 1** edits the two staged copies in place — Track 2 already created
+  both staged copies (with the read caveat) on its S2 step, so the `§1.7(e)`
+  copy-then-edit-on-first-touch step does not re-fire here. Before inserting
+  the delta-staging block and scope note, check for an existing block to stay
+  idempotent. The S2 byte-uniformity cross-check is a read-only `diff`/`grep`
+  over the two context blocks and has no side effect.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
