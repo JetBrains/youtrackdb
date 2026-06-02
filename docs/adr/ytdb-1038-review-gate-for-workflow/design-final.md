@@ -1,0 +1,478 @@
+<!-- workflow-sha: f97512c02f4dbaaf66c7382397907580fd54391b -->
+# Staging-aware review machinery — Final Design
+
+## Overview
+
+The development workflow reviews its own machinery at three points: a
+plan-level review before execution (Phase 2), a track-level review before
+each track is decomposed (Phase A), and a dimensional code review of each
+track's diff (Phase B/C). An orchestrator picks which agents fire, and each
+reads the relevant workflow documents to judge the change. Before this work,
+every part addressed workflow files by their live `.claude/...` path.
+
+The `§1.7` staging convention moved where that content lives during a
+branch. On a plan that edits `.claude/workflow/**` or `.claude/skills/**`,
+every authored edit accumulates under
+`docs/adr/<dir>/_workflow/staged-workflow/.claude/...`, and the live files
+stay at develop's state until one Phase 4 promotion. The review machinery
+had not learned this, so on such plans it went stale in three ways:
+selection picked the wrong reviewers, reading compared a change against
+develop's version of a rule the branch had already rewritten, and the
+Phase A criteria misfired on a track that edits prose.
+
+The implemented machinery closes all three. Selection strips the staged
+prefix before matching the triggers that pick dimensional reviewers. Every
+review and gate prompt carries a caveat, gated on the plan's
+workflow-modifying marker, that resolves a workflow document through
+`§1.7(d)` precedence: the staged copy when present, the live file
+otherwise. The Phase A technical, risk, and adversarial reviewers carry an
+addendum, also gated on the marker, that re-points their criteria from Java
+to prose.
+
+The read side has a second facet. When a reviewed commit range first
+creates a staged copy, the cumulative diff shows a whole-file add that hides
+the real delta against the live counterpart; the orchestrator now pre-stages
+that delta so the reviewer scopes findings to it.
+
+The work split into three concerns, one per issue: selection (YTDB-1032),
+the read side (YTDB-1038), and the Phase A criteria (YTDB-1046). The read
+side carries two read-time mechanisms, the prompt caveat and the
+orchestrator-staged review delta. The sections below map the components, the
+two changed control flows, then one section per concern, and close with the
+invariants that hold the change together.
+
+## Core Concepts
+
+This design rests on eight load-bearing ideas. Each is named once here and
+used without redefinition below; the entry pairs the concept with what it
+replaced so the delta from the baseline is visible.
+
+**Staged subtree.** The copy of the workflow files that a branch authors,
+kept under `docs/adr/<dir>/_workflow/staged-workflow/.claude/...` while a
+workflow-modifying plan runs. Promotion at Phase 4 copies it over the live
+tree. Replaces the model where a branch edited `.claude/...` in place.
+→ §"Read-side staging awareness".
+
+**Workflow-modifying marker.** The fixed sentence in a plan's
+`### Constraints` that flags the plan as one that edits `.claude/workflow/**`
+or `.claude/skills/**`. Its presence turns on staging and gates both the
+read caveat and the Phase A addendum. Defined in `conventions.md §1.7(b)`.
+→ §"Read-side staging awareness".
+
+**Per-agent trigger.** The glob in the selection rules that decides which
+workflow reviewer fires for a given changed file. Six reviewers exist; two
+always run, the other four are gated on these globs. Lives in
+`review-agent-selection.md` and its mirror in `code-review/SKILL.md`.
+→ §"Selection-side staging awareness".
+
+**Staged-path normalization.** Stripping the
+`…/_workflow/staged-workflow/` prefix from a changed path before matching it
+against the trigger globs, so a staged file is treated as its live
+equivalent for selection. New in this design.
+→ §"Selection-side staging awareness".
+
+**§1.7(d) reads precedence.** The rule that a reader resolves a workflow
+file to its staged copy when one exists and to the live file otherwise. The
+amended `§1.7(d)` now lists two staged-first consumers — the implementer's
+per-spawn read site and review agents on a workflow-modifying plan — so the
+read caveat invokes a rule that already covers reviewers. Defined in
+`conventions.md §1.7(d)`. → §"Read-side staging awareness".
+
+**Staged-copy review delta.** When a track first creates a staged copy
+inside a reviewed commit range, the cumulative diff shows it as a whole-file
+add even though it is a copy of an already-live file plus a small edit. The
+orchestrator pre-stages a `diff` of the live file against the staged copy and
+scopes the reviewer to it. New in this design.
+→ §"Read-side staging awareness".
+
+**Phase A track review.** The pre-decomposition review layer: track-scoped
+technical, risk, and adversarial reviewers plus a gate-verification
+reviewer, run before a track is broken into steps. Their criteria assumed
+Java code. Distinct from the Phase B/C dimensional review that the selection
+and read fixes also touch.
+→ §"Phase A criteria for workflow-machinery tracks".
+
+**Mirror invariant.** The constraint that `review-agent-selection.md` and
+the matching steps of `code-review/SKILL.md` change together in one commit,
+with a sync-date bump. The selection fix touches both.
+→ §"Consistency invariants and self-application".
+
+## Class Design
+
+This change adds no Java types. The components are workflow documents, the
+rules inside them, and the two cross-file mirrors. The diagram models that
+topology so the later sections can refer to it.
+
+```mermaid
+flowchart TB
+    subgraph selection["Agent selection (mirror pair)"]
+        RAS["review-agent-selection.md"]
+        CRS["code-review/SKILL.md"]
+        RAS <-->|"mirror + sync-date"| CRS
+    end
+    subgraph prompts["Review and gate-check prompts"]
+        DIM["Phase B/C: step-implementation 4(a),<br/>track-code-review, dimensional gate-check"]
+        PR["Phase 2: consistency-review,<br/>structural-review"]
+        PA["Phase A: technical, risk, adversarial,<br/>gate-verification"]
+    end
+    NORM(["staged-path normalization"])
+    CAVEAT(["1.7(d) read caveat"])
+    DELTA(["staged-copy review delta pre-staging"])
+    ADD(["workflow-machinery criteria addendum"])
+    MARKER{{"1.7(b) marker in plan Constraints"}}
+
+    NORM --> RAS
+    NORM --> CRS
+    MARKER -->|gates| CAVEAT
+    MARKER -->|gates| ADD
+    CAVEAT --> DIM
+    CAVEAT --> PR
+    CAVEAT --> PA
+    DELTA -->|"two context blocks"| DIM
+    ADD --> PA
+```
+
+Four additions, four reaches. The normalization rule (selection, YTDB-1032)
+lands in the mirror pair. The read caveat (YTDB-1038) lands in every review
+and gate prompt across all three layers. The review-target delta pre-staging,
+also under YTDB-1038, lands in the orchestrator's Phase C diff-staging and
+high-risk Phase B step-review setup and surfaces to the two dimensional
+context blocks. The criteria addendum (YTDB-1046) lands in the three Phase A
+criteria reviewers only; the Phase A gate-verification reviewer is
+criteria-agnostic and takes the read caveat alone. The marker gates the
+caveat and the addendum; the normalization rule and the delta pre-staging are
+keyed off the staged prefix and need no marker, because staged paths exist
+only on plans that carry the marker anyway.
+
+## Workflow
+
+Two flows change. The first is how the orchestrator selects dimensional
+review agents for a diff; the second is how any spawned review agent
+resolves a workflow-document read. The read flow is the same for a Phase A
+reviewer, a Phase 2 plan reviewer, and a Phase B/C dimensional reviewer.
+
+### Selection flow
+
+```mermaid
+flowchart TD
+    A["git diff --name-only"] --> B{"path under<br/>_workflow/staged-workflow/.claude/ ?"}
+    B -->|yes| C["normalize: drop the staged prefix<br/>to the .claude/... counterpart"]
+    B -->|no| D["keep the path as-is"]
+    C --> E["match per-agent trigger globs"]
+    D --> E
+    E --> F["dispatch the matched workflow reviewers"]
+```
+
+On a plan that does not modify the workflow, no staged path exists, so the
+decision always takes the `no` branch and behavior is unchanged. On a
+workflow-modifying plan, a staged file normalizes to its live name and
+matches the globs its live counterpart would, so every reviewer that should
+fire does.
+
+### Read flow
+
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator
+    participant R as Review agent
+    participant P as Slim plan snapshot
+    participant W as Workflow doc
+
+    O->>R: spawn with the prompt
+    R->>P: read the Constraints section
+    alt 1.7(b) marker present
+        R->>W: resolve the read via 1.7(d)
+        Note over R,W: staged copy when present, else live
+    else marker absent
+        R->>W: read the live path
+    end
+    R-->>O: findings against the correct copy
+```
+
+The agent checks the plan's Constraints for the marker before it reads any
+workflow document. The slim plan snapshot retains the Constraints section
+verbatim, so the marker is visible from the snapshot the agent already
+loads. When the marker is absent, the precedence rule reduces to reading the
+live path, so the caveat is inert on ordinary plans and at a fresh plan
+review where no staged copy exists yet.
+
+## Selection-side staging awareness
+
+**TL;DR.** On a workflow-modifying plan, the staged copy of a file is where
+the change lives, but the trigger globs match the live `.claude/...` path. A
+staged path begins with `docs/adr/...`, so three workflow reviewers never
+match and fail to launch. A short normalization rule, added to the selection
+rules and their mirror, strips the staged prefix before the globs run.
+
+The file-set definition already counts anything under `docs/adr/<dir>/` as
+workflow-machinery, so the two always-run reviewers (consistency, context
+budget) fire on a staged diff, and the writing-style reviewer fires through
+its `docs/adr/**/*.md` glob. The gap is the other three reviewers, whose
+globs name `.claude/...` paths only:
+
+- `review-workflow-prompt-design`: `.claude/skills/*/SKILL.md`,
+  `.claude/agents/*.md`, `.claude/workflow/prompts/*.md`
+- `review-workflow-instruction-completeness`: the above plus
+  `.claude/workflow/*.md`
+- `review-workflow-hook-safety`: `.claude/hooks/*.sh`, `.claude/scripts/**`,
+  `.claude/settings*.json`
+
+A staged edit to `.claude/workflow/conventions.md` lands at
+`docs/adr/<dir>/_workflow/staged-workflow/.claude/workflow/conventions.md`,
+which matches none of those globs, so the instruction-completeness reviewer
+that should judge it never launches.
+
+The fix is path normalization. Before matching the per-agent globs, the
+selection logic strips the `docs/adr/<dir>/_workflow/staged-workflow/`
+prefix from any changed path and matches the remainder. A staged file then
+evaluates exactly as its live counterpart would. The rule heads
+`§Workflow-machinery override` of `review-agent-selection.md` and the
+mirrored Step 5d of `code-review/SKILL.md`, with the single canonical
+`<!-- Last sync-checked … -->` date bumped in both. D1 records why one
+normalization rule beats editing each glob.
+
+A worked example in `review-agent-selection.md §Examples` shows the rule in
+action: a staged edit to `code-review/SKILL.md` normalizes to its live name
+and matches the `prompt-design` and `instruction-completeness` globs, so
+both launch alongside the always-run consistency and context-budget pair and
+the writing-style reviewer — five agents. No single changed file matches all
+three glob-gated reviewers at once, because the SKILL/agents/prompts globs
+and the hooks/scripts/settings globs are disjoint; the example therefore
+shows two of the three firing, which is the realizable shape of the rule.
+
+### Edge cases / Gotchas
+
+- The writing-style reviewer already fires on staged paths through
+  `docs/adr/**/*.md`. Normalization makes that intentional and removes the
+  reliance on an incidental overlap; the writing-style outcome does not
+  change.
+- Normalization is scoped to the exact two-level
+  `…/_workflow/staged-workflow/.claude/` prefix. A path that merely contains
+  `.claude/` lower down does not normalize.
+- The file-set categorization is unchanged: a staged file was already
+  workflow-machinery by the `docs/adr/<dir>/` rule. Only the per-agent
+  trigger step needed the prefix strip.
+
+### References
+
+- D-records: D1
+- Invariants: S1
+- Related: YTDB-1032
+
+## Read-side staging awareness
+
+**TL;DR.** Every review and gate prompt tells its agent where to read the
+plan, the track file, and the workflow docs, and named the live `.claude/...`
+path. On a workflow-modifying plan the agent should read the staged copy. A
+caveat, gated on the marker and added to all nine prompts across the three
+review layers, sends the agent through `§1.7(d)` precedence. A second
+staleness affects the review target itself: when a changed file is a
+freshly-created staged copy, the orchestrator pre-stages its delta against
+the live file so the reviewer scopes to the real change rather than the
+whole-file add (D5).
+
+The caveat reaches every prompt that judges a change against workflow-rule
+content:
+
+- Phase B/C dimensional review: the canonical context block in
+  `step-implementation.md` sub-step 4(a), its parallel copy in
+  `track-code-review.md`, and `dimensional-review-gate-check.md`.
+- Phase 2 plan review: `consistency-review.md` and `structural-review.md`.
+- Phase A track review: `technical-review.md`, `risk-review.md`,
+  `adversarial-review.md`, and `review-gate-verification.md`.
+
+It is one short block inside the fenced prompt body of the two context
+blocks, plus a one-line mirror in each of the seven other prompts. It says,
+in effect: when the plan's `### Constraints` carries the canonical `§1.7(b)`
+workflow-modifying marker sentence, resolve every read of a
+`.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking
+the staged copy under `_workflow/staged-workflow/` when present and the live
+file otherwise.
+
+The caveat self-gates on the marker, so the orchestrator no longer
+hand-injects it per review (D2). The agent detects the marker from the slim
+plan snapshot, which retains the `### Constraints` section verbatim because
+the renderer copies the plan's strategic header unchanged and only filters
+the track checklist. Placing the caveat in the prompt body, not as a
+document section, keeps it out of the host file's section structure (D3).
+
+The caveat invokes `§1.7(d)`, which as originally written scoped its
+staged-first precedence to the implementer's per-spawn read site and excluded
+reviewers, on the rationale that no such consumer had a staged copy to read.
+On a workflow-modifying plan that rationale was the YTDB-1038 bug itself: the
+reviewer does have a staged copy, and reading live is what produced the
+phantom mismatch. So `§1.7(d)` was amended to list two staged-first
+consumers — the implementer's read site and review agents on a
+workflow-modifying plan — and the three live-only consumers (the drift gate,
+the plan-slim renderer, sibling-track plan citations) each gained a
+per-consumer rationale, replacing the stale shared one. The amendment landed
+alongside the read caveat, rather than wording the caveat to override a rule
+whose own text still excluded reviewers.
+
+The caveat governs how a reviewer reads a *referenced* rule; a separate
+staleness affects the *changed file* the reviewer is handed. On a
+workflow-modifying plan a track's deliverable is a staged copy under
+`_workflow/staged-workflow/.claude/...`. When that copy is first created
+inside a reviewed commit range, the cumulative diff shows it as a whole-file
+add, even though it is a copy of an already-live, already-reviewed file plus
+a small edit, so the reviewer spends effort on already-promoted content and
+risks phantom findings or scope creep into the live machinery.
+
+The fix is orchestrator-side. In the Phase C diff-staging step and the
+high-risk Phase B step-review setup, the orchestrator detects a changed file
+that is a freshly-created staged copy (it matches the anchored
+`…/_workflow/staged-workflow/.claude/…` prefix, is a new-file add in the
+reviewed range, and has a live counterpart) and additionally stages a
+`diff <live> <staged>` delta to a process-scoped temp file. The canonical
+reviewer context block points reviewers at that delta and tells them to scope
+findings to it, the rest of each whole-file add being verbatim-copied live
+content. D5 records why orchestrator pre-staging beats reviewer-side
+self-diffing.
+
+### Edge cases / Gotchas
+
+- At a fresh State-0 plan review no staged copy exists yet, so `§1.7(d)`
+  resolves to the live file and the caveat changes nothing. The same is true
+  at Phase A of the first track. It bites on a re-run `/review-plan`
+  mid-execution, on a later track's Phase A, and in Phase B/C, once staging
+  has produced copies.
+- The two context blocks are parallel copies, not a shared include, so the
+  caveat and the delta note must land in both with matching meaning. See S2.
+- The gate prompts (`dimensional-review-gate-check.md`,
+  `review-gate-verification.md`) already list the diff, plan, and track file
+  as inputs; the caveat rides next to that input block. The delta note does
+  not — it rides in the two dimensional context blocks only.
+- On a plan that does not modify the workflow, the marker is absent and the
+  caveat stays inert.
+- Delta pre-staging fires only when a staged copy is *first created* in the
+  reviewed range (a new-file add). A later edit to an already-restaged file
+  is an ordinary diff, not a whole-file add, so no delta is staged. Like the
+  selection normalization, it keys off the staged prefix and needs no marker,
+  and the delta file is empty on ordinary plans.
+
+### References
+
+- D-records: D2, D3, D5
+- Invariants: S2
+- Related: YTDB-1038
+
+## Phase A criteria for workflow-machinery tracks
+
+**TL;DR.** The Phase A reviewers (technical, risk, adversarial) review a
+track for Java soundness: find-class on every named symbol, WAL and crash
+edge cases, data-format migrations, hot callers. A workflow-machinery track
+edits prose, so those criteria misfire and the named-symbol check raises
+phantom `NOT FOUND` blockers. A marker-gated addendum re-points the criteria
+to prose; the same three reviewers self-adapt.
+
+`track-review.md §Complexity Assessment` selects which reviews run by step
+count and code cues, with no workflow branch, so a workflow-machinery track
+gets the Java reviewers unchanged. On such a track the names in the track
+file are workflow docs and `§`-anchors, not Java FQNs. The technical
+reviewer's rule to verify every named class via `findClass` then has no
+valid target, and the WAL, crash, migration, and caller criteria have
+nothing to bind to.
+
+The addendum is one block per criteria reviewer
+(`technical-review.md`, `risk-review.md`, `adversarial-review.md`), gated on
+the same canonical `§1.7(b)` marker sentence the read caveat uses and sitting
+immediately after it. It re-points the criteria:
+
+- verify named references as workflow file paths and `§`-anchors with grep
+  and Read, not as Java FQNs via `findClass`, so a non-resolving workflow
+  path or anchor is the finding and a non-resolving Java symbol is no longer
+  a phantom blocker on a prose reference;
+- supersede this prompt's Java-oriented criteria, including any WAL, crash,
+  migration, and hot-caller concerns, with five prose criteria for the prose
+  part: rule coherence and non-contradiction, instruction completeness,
+  prompt-design soundness, context-budget impact, and breakage of dependent
+  prompts or agents.
+
+The same three reviewers still run; they read the marker and switch criteria,
+mirroring how the read caveat self-gates (D4). Because the addendum
+supersedes rather than appends, a track that mixes prose and code keeps both
+lenses: the named-reference rule verifies prose anchors and Java symbols, and
+the criteria swap applies to the prose part. The Phase A gate-verification
+reviewer is criteria-agnostic and takes the read caveat alone, no addendum.
+This fix builds on the read caveat reaching the same prompts, so it lands
+after the read-side work.
+
+### Edge cases / Gotchas
+
+- The complexity-assessment dispatch is untouched: the same technical / risk
+  / adversarial reviewers run, so a track that mixes prose and code still
+  gets a single reviewer that applies both lenses by reading the marker plus
+  the track's in-scope files.
+- A workflow-machinery track names no Java symbols, so the read caveat and
+  the addendum cooperate: the caveat points the reviewer at the staged copy,
+  the addendum tells it to verify that copy's `§`-anchors as paths.
+- `review-gate-verification.md` re-checks prior findings rather than
+  generating criteria, so it needs no addendum.
+
+### References
+
+- D-records: D4
+- Invariants: S3
+- Related: YTDB-1046
+
+## Consistency invariants and self-application
+
+**TL;DR.** Three invariants hold the change together: the selection rules
+and their `/code-review` mirror change in one commit (S1), the two context
+blocks carry the same caveat and delta note (S2), and the read caveat and the
+Phase A addendum stay uniform across the prompts that carry them (S3). The
+fix also could not fix its own review: this branch staged its edits, so its
+own Phase A and Phase C read the live, unfixed machinery, which the
+`§1.7(h)` forward-only rule predicts.
+
+The mirror invariant (S1) is stated in `review-agent-selection.md
+§Maintenance`: that file and Steps 5a/5b/5d/6 of `code-review/SKILL.md`
+mirror each other verbatim, every edit updates both in the same commit, and
+the single canonical `<!-- Last sync-checked … -->` date is bumped. No script
+enforces it; `review-workflow-consistency` catches drift at Phase C. The
+selection fix touches a mirrored section, so it is bound by this rule.
+
+The parallel-block invariant (S2) covers the read fix.
+`step-implementation.md` sub-step 4(a) and `track-code-review.md` hold
+separate but parallel copies of the context block. The caveat and the
+review-target delta note land in both with the same meaning, or a Phase C
+review would behave differently from its Phase B counterpart. The two blocks
+read byte-uniform modulo two forced differences: the deeper code-fence
+indentation in `step-implementation.md`, and the per-step versus per-track
+delta-path token.
+
+The uniformity invariant (S3) covers the breadth of the read and Phase A
+fixes. The read caveat lands in nine prompts and the addendum in three; each
+reads the same across its set, or a reviewer's behavior would depend on which
+prompt spawned it. The three fixes share one trigger, the `§1.7(b)` marker,
+so a future change to the marker's spelling touches every site at once.
+
+Self-application is the last point. This plan edits the workflow, so per
+`§1.7` it staged its own edits and the live machinery stayed at develop's
+state until Phase 4. Its own Phase A and Phase B/C reviews ran against the
+unfixed live rules. The orchestrator absorbed this by hand-injecting the
+staging and prose-criteria guidance into review prompts during this branch's
+execution, the same manual steps the fix removes for later plans. The fix
+takes effect for the first workflow-modifying plan opened after this branch
+promotes, which the forward-only rule in `§1.7(h)` describes.
+
+### Edge cases / Gotchas
+
+- `workflow-reindex.py --check` validates the TOC and stamp schema of the
+  live tree; it does not validate the mirror and does not see staged copies
+  during the branch. The mirror is the consistency reviewer's job; the
+  staged copies are checked at Phase 4 promotion.
+- Promotion is additive: the Phase 4 `cp -r` carries additions and edits,
+  not deletions. These fixes only add text, so promotion is safe.
+- Several `§1.7` subsections address reviewers in their prose yet annotate
+  themselves with no reviewer role, so a reviewer following the `§1.8`
+  read-filter cannot reach the rule that addresses it. This has no behavioral
+  impact, because reviewers act through the prompt caveat rather than a
+  direct `§1.7(d)` read; a future `§1.7`-wide consistency sweep should decide
+  whether those subsections gain reviewer roles.
+
+### References
+
+- D-records: D1, D2, D4, D5
+- Invariants: S1, S2, S3
+- Related: YTDB-1032, YTDB-1038, YTDB-1046
