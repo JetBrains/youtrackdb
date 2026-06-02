@@ -816,7 +816,10 @@ public abstract class AbstractStorage
           // pages past the logical horizon) is crash-only. A rolled-back transaction
           // leaves zero physical footprint (the physical apply runs only inside
           // commitChanges, which endAtomicOperation skips on rollback), and no correct
-          // production read extends a file outside crash recovery, so a cleanly-closed
+          // production read extends a file outside crash recovery (this read-extend
+          // invariant is established in the read-cache-concurrency-bug design:
+          // WOWCache.loadOrAdd's extend branches are unreachable from loadForRead because
+          // no component reads past its own logical horizon), so a cleanly-closed
           // database is orphan-free. An orphan can therefore arise only from a crash,
           // and a crash always leaves isDirty() == true at the next open, which sets
           // wereDataRestoredAfterOpen during recoverIfNeeded(). The pass runs whenever

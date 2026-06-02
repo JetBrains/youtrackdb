@@ -282,7 +282,10 @@ orchestrator, wired post-flush from `open()` (after `recoverIfNeeded`)
 and `DiskStorage.postProcessIncrementalRestore` (after
 `flushAllData`), reads each component's logical pages and dispatches
 a layered shrink (WriteCache-side `shrinkFile` + LFRC range purge).
-EP-only reads keep D2 and D4 intact.
+EP-only reads keep D2 and D4 intact. Per YTDB-1039 the `open()`
+dispatch is now gated on `wereDataRestoredAfterOpen` (a clean reopen
+replays no WAL and is orphan-free, so the pass is skipped);
+`postProcessIncrementalRestore` stays unconditional.
 
 **Alternatives rejected**: marker-bit + adopt-on-existing at the cache
 layer (D5); `reuseOrphanPageForWrite` SPI (re-exposes the discovery
@@ -361,7 +364,9 @@ range-scoped segment-map primitive.
   `DiskStorage.postProcessIncrementalRestore` invoke
   `truncateOrphansAfterRecovery` after WAL replay and flush drain
   (both entry points end up post-flush to avoid the flush-after-
-  truncate hazard).
+  truncate hazard). The `open()` invocation runs only when WAL was
+  replayed (per YTDB-1039); `postProcessIncrementalRestore` invokes it
+  unconditionally.
 - `LinkCollectionsBTreeManagerShared.verifyAndTruncateAllOrphans` is
   the SLBB iteration delegate the orchestrator dispatches into.
 - `IndexHistogramManager.{writeSnapshotToPage, flushSnapshotToPage}`
@@ -550,7 +555,9 @@ range-scoped segment-map primitive.
   truncate per PCV2 entry (the PCV2 helper's siblings hook delegates
   to `.cpm`). Per-component invariants — not per-storage-atomic — are
   the contract: a `.cpm` failure leaves `.pcl` truncated; the next
-  reopen reruns the pass and converges.
+  *crash* reopen reruns the pass and converges (per YTDB-1039 a clean
+  reopen skips the disk pass, so convergence is guaranteed on a later
+  crash reopen, not on the next clean one).
 - `truncateOrphansAfterRecovery` runs after `openCollections` /
   `openIndexes`, so `PaginatedCollectionV2.open`'s FSM-rebuild
   branch can scan physical pages that include orphans not yet

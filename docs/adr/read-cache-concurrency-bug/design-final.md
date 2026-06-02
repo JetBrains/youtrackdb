@@ -330,7 +330,7 @@ sequenceDiagram
     participant WC as WriteCache
     participant AF as AsyncFile
 
-    Note over AS: open() after openIndexes,<br/>or postProcessIncrementalRestore after flushAllData
+    Note over AS: open() after openIndexes (disk: only when wereDataRestoredAfterOpen),<br/>or postProcessIncrementalRestore after flushAllData
     AS->>AS: truncateOrphansAfterRecovery() inside executeInsideAtomicOperation
     loop for each EP-equipped component instance
         AS->>SC: verifyAndTruncateOrphans(op, lfrc, wc)
@@ -359,8 +359,20 @@ sequenceDiagram
 
 The orchestrator runs **after** WAL replay has settled logical state
 and the flush executor has been drained — either via `recoverIfNeeded`
-→ `flushAllData` on the `open()` path (when `isDirty()`) or via the
-explicit `flushAllData` call on the incremental-restore path. Inside
+→ `flushAllData` on the `open()` path or via the explicit
+`flushAllData` call on the incremental-restore path. On the disk
+`open()` path the dispatch is gated on `wereDataRestoredAfterOpen`
+(set true only when this open replayed the WAL), not on a re-read
+`isDirty()`: `recoverIfNeeded → flushAllData → clearStorageDirty` has
+already cleared the dirty flag by the time the pass would run, so the
+field is the surviving "did this open replay WAL" signal. A rolled-back
+disk transaction never reaches `commitChanges`, so it leaves no
+physical extend, and a graceful close flushes nothing past the logical
+horizon; a cleanly-closed disk database is therefore orphan-free and
+the pass is skipped (per YTDB-1039 — see the disk-gate design-choice
+bullet under §"Recovery-time orphan-truncation: design choices").
+`postProcessIncrementalRestore` invokes the pass unconditionally
+(it always replayed pages). Inside
 `executeInsideAtomicOperation`, the orchestrator iterates the
 EP-equipped component instances (single-value BTree, multi-value
 BTree, shared-link-bag BTree, position map + paginated collection),

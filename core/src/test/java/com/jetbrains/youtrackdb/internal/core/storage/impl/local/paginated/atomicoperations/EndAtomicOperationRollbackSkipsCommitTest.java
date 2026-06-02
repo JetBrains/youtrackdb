@@ -13,9 +13,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import org.junit.Before;
@@ -70,7 +72,13 @@ import org.junit.Test;
  * (for example {@code mockOperation} defaulting the operation into rollback, or
  * the commit gate being removed), the {@code never()} assertions in the two
  * rollback tests would pass on every path and silently stop guarding anything;
- * the positive control fails in that case and surfaces the regression.
+ * the positive control fails in that case and surfaces the regression. A second
+ * positive control stubs {@code commitChanges} to return a non-null
+ * {@code LogSequenceNumber} so the durable-commit {@code addEventAt} branch is
+ * actually exercised; the first control leaves {@code commitChanges} unstubbed
+ * (null LSN) and so only reaches the {@code persistOperation} else-branch, which
+ * would leave the rollback tests' {@code addEventAt} {@code never()} assertions
+ * referencing a branch no test ever runs.
  *
  * <p>The overlap with {@link EndAtomicOperationPersistHookTest} is INTENTIONAL.
  * That sibling pins the full persist-hook conversion contract (error-mode
@@ -228,6 +236,42 @@ public class EndAtomicOperationRollbackSkipsCommitTest {
     // commit, not a rollback. This anchors the never-invoked assertions in the
     // rollback tests against a vacuous-pass regression.
     verify(operation, times(1)).commitChanges(DEFAULT_COMMIT_TS, wal);
+    verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
+    verify(table, never()).rollbackOperation(DEFAULT_COMMIT_TS);
+  }
+
+  /**
+   * Positive control anchoring the {@code addEventAt} branch the two rollback tests assert is
+   * never reached. On a durable commit ({@code commitChanges} returns a non-null
+   * {@link LogSequenceNumber}), {@code endAtomicOperation}'s commit branch records the
+   * persist callback via {@code writeAheadLog.addEventAt(lsn, ...)}. The sibling positive
+   * control {@link #commitChangesReachedOnCleanSuccessPath} leaves {@code commitChanges}
+   * unstubbed, so it returns {@code null} and production takes the {@code lsn == null}
+   * else-branch that calls {@code persistOperation} directly -- {@code addEventAt} is never
+   * reached there. Without this control, {@code verify(wal, never()).addEventAt(...)} in the
+   * rollback tests would reference a branch no test ever exercises, so it could not catch a
+   * regression that moved a durable WAL record onto the rollback path. Stubbing a non-null
+   * LSN here proves the branch is reachable on a real commit.
+   */
+  @Test
+  public void addEventAtReachedWhenCommitChangesReturnsLsn() throws IOException {
+    var holder = new IndexCountDeltaHolder();
+    var operation = mockOperation(holder);
+    doNothing().when(storage).persistIndexCountDeltas(operation);
+    // Non-null LSN drives the durable-commit branch: production calls
+    // writeAheadLog.addEventAt(lsn, () -> persistOperation(commitTs)) only when commitChanges
+    // returns a non-null LSN.
+    var lsn = mock(LogSequenceNumber.class);
+    when(operation.commitChanges(DEFAULT_COMMIT_TS, wal)).thenReturn(lsn);
+
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    manager.endAtomicOperation(operation, null);
+
+    // The durable-commit branch records the persist callback against the returned LSN. This
+    // is the branch the rollback tests' never() assertions reference; proving it reachable
+    // here keeps those assertions from guarding nothing.
+    verify(wal, times(1)).addEventAt(any(), any());
     verify(table, times(1)).commitOperation(DEFAULT_COMMIT_TS);
     verify(table, never()).rollbackOperation(DEFAULT_COMMIT_TS);
   }
