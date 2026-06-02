@@ -18,17 +18,20 @@ present, else live).
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-02T03:55Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-02T04:21Z [ctx=safe] Step 1 complete (commit 0894418)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- §1.7 reviewer-annotation gap (Step 1 dim review, declined as out-of-scope for the surgical edit): several §1.7 subsections address reviewers in prose yet annotate themselves with no reviewer role (§1.7(d) after this amendment; §1.7(b) already), so a reviewer following the §1.8 TOC read-filter cannot reach the rule that addresses it. No behavioral impact (reviewers act via the prompt caveat), but a future §1.7-wide consistency sweep should decide whether these subsections gain reviewer roles. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
+- Step 1 review synthesis: declined WC1/WI2 (reviewer-less §1.7(d) annotation) and WI1 (final-designer/migrator not enumerated) as out-of-scope for the surgical §1.7(d) edit; applied none. WC1/WI2 is design-consistent (reviewers routed via the prompt caveat per D3) and shares the §1.7(b) pattern, so a §1.7(d)-only annotation widen would create asymmetry. WI1 conflates section readers with precedence consumers. Neither changes the §1.7(d) edit or its outcome. See Episodes §Step 1.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -161,7 +164,7 @@ Ordering and invariants:
 
 ## Concrete Steps
 
-1. Amend `conventions.md §1.7(d)` surgically per Plan of Work step 1: remove only the reviewer entry from the four-consumer "keep reading live" clause, bring review agents on a workflow-modifying plan into staged-first precedence, and replace the shared rationale so the drift gate, plan-slim renderer, and sibling-track citations stay justified (staged under `_workflow/staged-workflow/`). — risk: high (architecture: `§1.7(d)` is a load-bearing convention in the plan's Component Map / Integration Points, read by the implementer, drift gate, renderer, and reviewers; per finding T1/A1 a non-surgical edit silently breaks the three live-read consumers and no automated check guards it)  [ ]
+1. Amend `conventions.md §1.7(d)` surgically per Plan of Work step 1: remove only the reviewer entry from the four-consumer "keep reading live" clause, bring review agents on a workflow-modifying plan into staged-first precedence, and replace the shared rationale so the drift gate, plan-slim renderer, and sibling-track citations stay justified (staged under `_workflow/staged-workflow/`). — risk: high (architecture: `§1.7(d)` is a load-bearing convention in the plan's Component Map / Integration Points, read by the implementer, drift gate, renderer, and reviewers; per finding T1/A1 a non-surgical edit silently breaks the three live-read consumers and no automated check guards it)  [x] commit: 0894418
 2. Add the caveat block to the two parallel S2 context blocks (`step-implementation.md` sub-step 4(a) and `track-code-review.md`) at the same logical anchor relative to the shared path/tooling guidance, with matching meaning. — risk: medium (override: workflow-machinery multi-file edit to the two parallel context blocks that drive every Phase B/C dimensional review's read behavior; S2 parity is the risk; no HIGH trigger, additive and self-gating, staged)  [ ]
 3. Mirror the one-line caveat into the four Phase A track-review prompts (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `review-gate-verification.md`); this satisfies Track 3's dependency that the caveat be present in technical/risk/adversarial. — risk: low (default: byte-identical one-line caveat mirrors, additive prose, S3-checkable)  [ ]
 4. Mirror the one-line caveat into the gate-check and the two Phase 2 plan-review prompts (`dimensional-review-gate-check.md`, `consistency-review.md`, `structural-review.md`), then verify S3 byte-uniformity of the caveat across all nine sites. — risk: low (default: byte-identical one-line caveat mirrors plus the cross-site S3 verification; additive prose)  [ ]
@@ -170,6 +173,12 @@ Ordering and invariants:
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 0894418, 2026-06-02T04:21Z [ctx=safe]
+**What was done:** Copied the live `conventions.md` into the staged subtree verbatim (first touch, §1.7(e)), then surgically amended the §1.7(d) reads-precedence closing paragraph there. Dropped the reviewer entry from the four-consumer "keep reading live" list, replaced the stale shared rationale ("None of those consumers has a staged copy to read") with a per-consumer rationale for the three remaining live-read consumers (drift gate vs `develop`, plan-slim renderer vs `implementation-plan.md`, sibling-track citations under `docs/adr/**`), and added a paragraph bringing review agents on a workflow-modifying plan into staged-first precedence. The implementer clause and the reviewer clause now read as independent positive statements. The §1.7(d) change is the staged copy's only diff against live (32 lines). Docs-only: no tests, no Spotless.
+**What was discovered:** The risk:high dimensional review (4 workflow agents: consistency, instruction-completeness, context-budget, writing-style) returned PASS at iteration 1, zero blockers, three findings all declined on merit. WC1/WI2 (should-fix, raised by two agents): §1.7(d)'s §1.8 annotation and TOC row carry no reviewer role, so a reviewer following the TOC read-filter would skip the rule the amended prose now addresses to it. Declined: the amendment routes reviewers through the self-contained marker-gated prompt caveat (D3), not a direct §1.7(d) read (its closing sentence says so), and §1.7(b) carries the same pattern (reviewers in prose under `roles=orchestrator,implementer,planner`), so widening only §1.7(d) would introduce asymmetry; the §1.7-wide reviewer-annotation question is a separate consistency sweep. WI1 (should-fix): the closed consumer enumeration omits declared readers final-designer and migrator. Declined: section readers and precedence consumers are different axes (the orchestrator is a declared §1.7(d) reader never in the consumer list), and both roles read live by default before and after, so no behavior changed. WS1 (suggestion): an "is what routes" cleft; declined because the emphasis on the caveat-as-router reinforces the reviewer-routing point. The context-budget agent noted the expected rule_1 staged-residue (the verbatim-copied line 1 carries no `workflow-sha` stamp), which clears at Phase 4 promotion.
+**Key files:** `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/conventions.md` (new staged copy; §1.7(d) amended).
+**Critical context:** Steps 3-4 add the marker-gated read caveat that the new §1.7(d) paragraph names. Keep that caveat wording consistent with this reference: it routes a reviewer's read through §1.7(d), gated on the §1.7(b) marker.
 
 ## Validation and Acceptance
 
