@@ -271,7 +271,7 @@ flowchart TB
   > discovery (review-target delta-scoping) was already folded into Track 4
   > via the post-Track-1 inline replan.
 
-- [ ] Track 2: Read-side staged-read caveat (YTDB-1038)
+- [x] Track 2: Read-side staged-read caveat (YTDB-1038)
   > Every review and gate prompt names the live `.claude/...` path, so on a
   > workflow-modifying plan an agent reads develop's version of a rule the
   > branch already rewrote and reports a phantom mismatch. A marker-gated
@@ -279,7 +279,34 @@ flowchart TB
   > (which this track first amends to cover review agents, not just the
   > implementer).
   > Detailed description in plan/track-2.md.
-  > **Scope:** ~4 steps covering the `§1.7(d)` amendment plus the caveat across nine review/gate prompts.
+  >
+  > **Track episode:**
+  > Added a marker-gated staged-read caveat to all nine review and gate
+  > prompts so that on a workflow-modifying plan every workflow-file read
+  > resolves through `§1.7(d)` precedence (staged copy when present, else
+  > live), ending phantom mismatches against develop's version of an
+  > already-rewritten rule. The caveat self-gates on the `§1.7(b)` marker
+  > (inert on ordinary plans), reads byte-uniform across all nine sites
+  > (S3), and the two parallel Phase B/C context blocks stay in parity
+  > (S2). The track first amended `conventions.md §1.7(d)` surgically to
+  > bring review agents into the staged-first precedence scope it
+  > previously restricted to the implementer, removing only the reviewer
+  > exclusion while keeping the drift gate, plan-slim renderer, and
+  > sibling-track citations on live reads with per-consumer rationale. All
+  > edits stage under `_workflow/staged-workflow/`; live promotes at Phase
+  > 4. Track-level review passed at iteration 1 (5 workflow reviewers); one
+  > should-fix (`Review fix: 154b2478fc`) reworded the caveat's gate clause
+  > to "carries the canonical `§1.7(b)` workflow-modifying marker
+  > sentence", closing a literal-token-vs-sentence ambiguity that would
+  > have misfired on a future plan carrying only the sentence. Cross-track:
+  > satisfies Track 3's dependency (caveat present in
+  > technical/risk/adversarial); Track 4 must match the S3-uniform
+  > sentence's new baseline if it touches the two context blocks. The §1.7
+  > reviewer-annotation gap (sections address reviewers in prose but carry
+  > no reviewer §1.8 role) was logged as a Surprise and deferred to a
+  > §1.7-wide sweep, out of this plan's scope.
+  >
+  > **Track file:** `plan/track-2.md` (4 steps, 0 failed)
 
 - [ ] Track 3: Phase A criteria addendum (YTDB-1046)
   > The Phase A technical, risk, and adversarial reviewers apply Java criteria

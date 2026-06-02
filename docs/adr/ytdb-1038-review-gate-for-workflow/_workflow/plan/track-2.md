@@ -15,14 +15,16 @@ present, else live).
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-06-02T03:55Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-02T04:21Z [ctx=safe] Step 1 complete (commit 0894418)
 - [x] 2026-06-02T04:29Z [ctx=info] Step 2 complete (commit 704d847)
 - [x] 2026-06-02T04:34Z [ctx=info] Step 3 complete (commit 0be6c2e)
 - [x] 2026-06-02T04:41Z [ctx=info] Step 4 complete (commit 11f2367)
 - [x] 2026-06-02T05:35Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-02T05:47Z [ctx=safe] Track-level code review complete: PASS at iteration 1 (5 workflow reviewers; 0 blockers, 1 should-fix applied, 3 suggestions declined)
+- [x] 2026-06-02T05:47Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -65,6 +67,28 @@ summary at Phase C. -->
   prose-criteria (references verified as file paths and §-anchors via
   Read+Grep, not PSI), since the live machinery does not yet carry this
   branch's YTDB-1046 / YTDB-1038 fixes.
+- [x] Track-level code review (Phase C): PASS at iteration 1. Workflow-only
+  diff, so the four baseline agents were skipped and five workflow reviewers
+  fired (consistency, prompt-design, instruction-completeness, context-budget,
+  writing-style; hook-safety untriggered — no hooks/scripts/settings touched).
+  One should-fix applied: WP1 reworded the caveat's gate clause from "carries
+  the §1.7(b) marker" to "carries the canonical §1.7(b) workflow-modifying
+  marker sentence" across all nine sites, removing a literal-token-vs-sentence
+  ambiguity that would have let a future plan carrying only the canonical
+  marker sentence (no §1.7(b) token in its Constraints) misfire and re-introduce
+  the phantom mismatch (Review fix 154b2478fc; S3 re-verified, single normalized
+  md5 across all nine). Three suggestions declined as by-design: WC1 (the §1.7
+  reviewer-annotation gap, deferred to a §1.7-wide sweep — fixing only §1.7(d)
+  creates asymmetry with §1.7(b)), WP2 and WI1 (the one-liner-vs-context-block
+  asymmetry; the block-only inert/rationale sentences are intentional and adding
+  them to the seven one-liners would break S3). Gate-check confirmed:
+  prompt-design VERIFIED WP1, consistency NO REGRESSION on S2/S3/cross-refs.
+- Self-application carve-out (Phase C): the five workflow reviewers and the fix
+  implementer ran with hand-injected staged-path normalization (Track 1's
+  selection fix is not live), Track 4 / D5 delta-scoping (findings scoped to the
+  ~199-line live-vs-staged delta, not the ~5944-line whole-file-add diff), and
+  §1.7(d) staged-read precedence for rule checks, since this branch's own fixes
+  do not take effect until Phase 4 promotion.
 
 ## Context and Orientation
 
