@@ -13,7 +13,7 @@ reviewers self-adapt.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-02T07:05Z [ctx=safe] Review + decomposition complete
