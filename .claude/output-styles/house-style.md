@@ -17,7 +17,7 @@ This file is the single declarative source for project writing rules. Every auth
 - Inline code comments and Javadoc when they describe rationale or trade-offs.
 - Status updates and chat messages that the user will paste into durable artifacts.
 
-Three readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), and the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection). All three cite this file by section name.
+Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the four AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
 
 ## BLUF lead
 
