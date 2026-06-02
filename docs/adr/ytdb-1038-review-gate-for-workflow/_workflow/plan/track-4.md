@@ -20,6 +20,7 @@ the reviewer context block scopes findings to it.
 - [ ] Track completion
 - [x] 2026-06-02T08:00Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-02T08:20Z [ctx=safe] Step 1 complete (commit b99294b83135ae6c9ddad957fa53d23e93926fd9)
+- [x] 2026-06-02T08:42Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
