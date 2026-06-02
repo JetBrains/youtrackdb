@@ -67,39 +67,22 @@ The standalone commit span is not threshold-gated in this design. Commit duratio
 
 ## Time-based sampling
 
-The resolver reuses the same machinery as `SlowQueryThresholdResolver` — only the semantic of the `Long` value differs (heartbeat interval vs duration threshold):
-
-```java
-public final class SampleHeartbeatResolver {
-    private final List<TagRule<Long>> rules;
-    private final ConcurrentHashMap<String, Long> cache;
-
-    public long resolve(Optional<String> tag, long defaultNanos) {
-        if (tag.isEmpty()) return defaultNanos;
-        return cache.computeIfAbsent(tag.get(), t -> resolveUncached(t, defaultNanos));
-    }
-    // resolveUncached walks rules in order, first-wins; values stored as nanoseconds.
-
-    public static SampleHeartbeatResolver global() { ... }
-}
-```
-
-The heartbeat gate sits at the top of `OTelQueryMetricsListener.queryFinished`, BEFORE the slow-query gate. Composition rule: the heartbeat gate runs first; if it claims the slot, the query emits and the slow-query gate is bypassed (saves one resolver lookup); if it does not claim, the slow-query gate evaluates as before. Error queries bypass both gates and always emit; the heartbeat clock is not advanced by error emissions, so a stream of errors does not suppress the heartbeat sample of successful queries.
+The heartbeat gate uses one `AtomicLong` and one final-field interval; no resolver, no tag read, no cache. Composition rule: the heartbeat runs first at the top of `OTelQueryMetricsListener.queryFinished`. If it claims the slot, the query emits and the slow-query gate is bypassed. If it does not claim, the slow-query gate evaluates as before. Error queries bypass both gates and always emit; the heartbeat clock is not advanced by error emissions, so a stream of errors does not suppress the heartbeat sample of successful queries.
 
 Pseudo-implementation:
 
 ```java
 private final AtomicLong lastHeartbeatNanos = new AtomicLong(0);
+private final long defaultHeartbeatNanos;  // populated at SDK init from config
 
 @Override
 public void queryFinished(QueryDetails details, long startedAtMillis, long executionTimeNanos) {
   boolean isError = details.getErrorType().isPresent();
   if (!isError) {
-    Optional<String> tag = Optional.ofNullable(details.getQuerySummary());
-    long heartbeatNanos = SampleHeartbeatResolver.global().resolve(tag, defaultHeartbeatNanos);
-    if (heartbeatNanos > 0 && tryClaimHeartbeat(heartbeatNanos)) {
-      // heartbeat slot claimed — fall through to span emission
+    if (defaultHeartbeatNanos > 0 && tryClaimHeartbeat(defaultHeartbeatNanos)) {
+      // heartbeat slot claimed; fall through to span emission
     } else {
+      Optional<String> tag = Optional.ofNullable(details.getQuerySummary());
       long thresholdNanos = SlowQueryThresholdResolver.global().resolve(tag, defaultThresholdNanos);
       if (thresholdNanos > 0 && executionTimeNanos < thresholdNanos) {
         return;  // both gates dropped this query
@@ -117,23 +100,22 @@ private boolean tryClaimHeartbeat(long heartbeatNanos) {
 }
 ```
 
-The `AtomicLong.compareAndSet` resolves the multi-thread race: under load several queries finish within the same heartbeat window and all see `now - last >= heartbeatNanos`, but only the first CAS succeeds; losers fall through to the slow-query gate. The result is exactly one query per heartbeat window claims the heartbeat slot; the rest either pass the slow-query gate, get dropped, or emit on error.
+The `AtomicLong.compareAndSet` resolves the multi-thread race: under load several queries finish within the same heartbeat window and all see `now - last >= heartbeatNanos`, but only the first CAS succeeds; losers fall through to the slow-query gate. Result: exactly one query per heartbeat window claims the heartbeat slot; the rest either pass the slow-query gate, get dropped, or emit on error.
 
 ### Edge cases / Gotchas
 
 - The heartbeat clock is process-global per `OTelQueryMetricsListener` instance (one `AtomicLong`), not per-thread. This matches "one sample every N ms of wall-clock" semantics regardless of QPS or thread count. Per-thread heartbeat would emit one sample per thread per N ms, which scales noise with parallelism.
-- Per-tag heartbeat intervals share the same clock. A query tagged `findHotpath` and another tagged `batchJob` arriving in the same window both compete for the same `lastHeartbeatNanos` slot; whichever wins the CAS resets the clock for everyone. This is intentional: the heartbeat is a workload-level sample, not a per-tag stream. Operators wanting per-tag streams configure dedicated OTel exporters on the SDK side.
-- A query that's slow AND wins the heartbeat CAS emits only once, not twice. The composition order (heartbeat first, slow-query second) skips the slow-query gate after a heartbeat claim.
+- No per-tag override exists in v1. The heartbeat samples the workload as a whole; whichever tag arrives first after the interval claims the slot. This biases visibility toward high-QPS tags by construction, which is the intent: heartbeat answers "what is the system spending its time on right now". Operators who need per-tag sampling streams configure downstream OTel pipeline filtering on `db.query.summary` against the global heartbeat output.
+- A query that is slow AND wins the heartbeat CAS emits only once, not twice. The composition order (heartbeat first, slow-query second) skips the slow-query gate after a heartbeat claim.
 - Error queries always emit, regardless of heartbeat or slow-query state. The heartbeat clock is NOT advanced by error emissions; an error every N ms does not suppress the heartbeat sample of successful queries.
 - Heartbeat-emitted spans look identical to slow-query-emitted spans in the trace viewer; no `sample.reason` attribute distinguishes them in YTDB-496. Operators wanting to tell "this was a heartbeat sample" apart from "this was actually slow" compare span duration against the configured slow-query threshold downstream. Adding an explicit attribute is a future-ticket concern (low cost; would land alongside the structured-attributes extension).
-- Mid-process changes to the heartbeat interval require an SDK rebuild — same constraint as the slow-query threshold default. The tag-rule list is also compiled once at startup.
-- A heartbeat interval shorter than the resolver's lookup cost (`ConcurrentHashMap.get` on a cached tag, ~50 ns) is wasted — the gate evaluates more often than it can possibly emit. Practical minimum is around 1 ms; sensible production defaults are 100 ms to 10 s.
-- Disabling the heartbeat (interval = 0) makes the gate evaluate `if (0 > 0 && …)`, which short-circuits on the first conjunct. Zero overhead for the disabled case beyond the resolver lookup, which itself short-circuits on `tag.isEmpty()` and returns the default immediately.
-- Tag-rule cache cardinality blow-up if a misuse-pattern host emits unique tags per request (e.g., a UUID) — same caveat as for the other two resolvers; documented as host responsibility, no LRU bound in YTDB-496.
-- Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The heartbeat gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own sampling can call `SampleHeartbeatResolver.global()` themselves.
+- Mid-process changes to the heartbeat interval require an SDK rebuild, same constraint as the slow-query threshold default.
+- A heartbeat interval shorter than the CAS cost (single uncontended CAS on a hot AtomicLong, ~10 ns) is wasted: the gate evaluates more often than it can possibly emit. Practical minimum is around 1 ms; sensible production defaults are 100 ms to 10 s.
+- Disabling the heartbeat (interval = 0) makes the gate evaluate `if (0 > 0 && …)`, which short-circuits on the first conjunct. Zero overhead for the disabled case.
+- Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The heartbeat gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners wanting their own sampling implement it in their own callback.
 
 ### References
-- D-records: D18 (time-based heartbeat sampling alongside slow-query gate, AtomicLong CAS for race-free single-emit per window, per-tag rules via `TagRule<Long>`)
+- D-records: D18 (time-based heartbeat sampling alongside slow-query gate, AtomicLong CAS for race-free single-emit per window, single global interval with no per-tag override)
 
 ## Commit slow-query gating
 
@@ -179,7 +161,7 @@ The `defaultCommitThresholdNanos` final field is initialized at OTel listener co
 
 ## OpenTelemetry logs integration
 
-The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. Track 7 adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, the already-formatted message string, and the optional `Throwable`. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation; the hook surface is not internal-only because a host that wants OTel-independent log routing can register its own.
+The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. Track 7 adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. Before each iteration the manager skips records whose `requesterName` starts with `io.opentelemetry.` or equals `io.youtrackdb.otel.appender`; this name-prefix filter blocks the cross-thread recursive cycle that the OTel exporter would otherwise create through a `jul-to-slf4j` bridge (the exporter writes on its own thread pool where the per-thread re-entrance guard does not apply). Operators who need to admit specific OTel-internal loggers override the prefix via `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` (comma-separated full prefixes; defaults to the two values above). The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, the already-formatted message string, and the optional `Throwable`. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation; the hook surface is not internal-only because a host that wants OTel-independent log routing can register its own.
 
 Severity mapping (slf4j `event.Level` → OTel sem-conv `severityNumber`):
 
@@ -264,7 +246,7 @@ The correlation is automatic only when the log call originates on the thread tha
 - An exception thrown from `OTelLogAppender.onLog(...)`: the `SLF4JLogManager` hook iteration wraps each hook call in `try { hook.onLog(...); } catch (Exception | LinkageError | AssertionError t) { /* fallback */ }` (same union as the listener wrappers per the exception-isolation contract). A throwing hook is logged via the same fallback `Logger.getLogger("io.youtrackdb.otel.appender")` channel and the next hook still fires; YTDB's own log call returns normally. `VirtualMachineError` and `ThreadDeath` propagate.
 - Concurrent `setOpenTelemetry` calls during active logging: when the facade swaps SDKs, the previously-registered `OTelLogAppender` is removed via `SLF4JLogManager.removeAppenderHook(oldHook)` before the new one is installed, so each log record reaches exactly one OTel pipeline. The window between remove and install is small but non-zero; log records in that window are dropped on the OTel side but still reach the bound SLF4J provider (the existing path is untouched). Multiple `LogAppenderHook` implementations coexist by being separate list entries.
 - Bootstrap-time logs (records emitted before `OPENTELEMETRY_LOGS_ENABLED` is read): these reach only the bound SLF4J provider, which is the desired behavior. Operators who need OTel coverage of bootstrap logs configure `OPENTELEMETRY_LOGS_ENABLED=true` via a JVM property (`-Dyoutrackdb.opentelemetry.logs.enabled=true`) so the flag is set before the first log call.
-- Recursive logging from inside the OTel exporter: if the OTel exporter emits a log via `LogManager`, the hook would see its own log and feed it back into OTel, creating an unbounded loop. The thread-local `reentrant` guard above breaks the cycle by short-circuiting `onLog(...)` when an `onLog(...)` is already on the stack for this thread (a `ThreadLocal<Boolean>` flag set on entry and cleared on exit via `try/finally`). The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` channel is independently protected by being filtered out at hook install time.
+- Recursive logging from inside the OTel exporter: if the OTel exporter emits a log via `LogManager`, the hook would see its own log and feed it back into OTel, creating an unbounded loop. Two complementary guards cover the cases. The thread-local `reentrant` guard above breaks the same-thread cycle by short-circuiting `onLog(...)` when an `onLog(...)` is already on the stack for this thread. The cross-thread cycle (OTel exporter writes a log on its own thread pool via `jul-to-slf4j` bridge, which routes JUL into SLF4J and back into `LogManager`) is caught by the `requesterName`-prefix filter in `SLF4JLogManager.log(...)`: records whose requester logger name starts with `io.opentelemetry.` (the OTel SDK's own logger namespace) or equals `io.youtrackdb.otel.appender` (our fallback channel) skip the hook iteration entirely. The `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` config entry lets operators tune the prefix list when a deployment needs to admit specific OTel-internal logger names.
 - Hosts already using the OTel `opentelemetry-instrumentation-logback-appender` (or its log4j equivalent) on their SLF4J binding: that path catches every log record SLF4J emits, including YTDB's. Running both side-by-side double-emits each YTDB log record (once via the host's appender, once via YTDB's hook). Operators run one or the other, not both. The hook is the recommended path because it carries the `Context.current()` read at the YTDB invocation site, not at the host's appender callback site (potentially on a different thread).
 
 ### References

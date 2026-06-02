@@ -40,6 +40,8 @@ Concrete deliverables:
 3. `OTelTransactionMetricsListenerTest`: span hierarchy (TX as parent of Query and Commit); read-only TX (no commit child); failed commit (ERROR status, `error.type`); rollback (OK status, no commit child). Uses both Gremlin and SQL queries inside transactions to cover hierarchy for both sources.
 4. `ContextPropagationTest`: host code wraps a YTDB query in its own span; assert the YTDB query span's parent ID matches the host span's span ID. One assertion per query source (Gremlin + SQL).
 5. `QueryModeResolutionTest`: per-query mode resolution from Gremlin tag (D15). Scenarios: (a) exact-match rule `findActiveUsers=EXACT` matches a tagged Gremlin traversal `g.with(querySummary, "findActiveUsers")`; (b) prefix-match rule `prefix:expensive-=EXACT` matches `expensive-batch-job` tag; (c) regex-match rule `regex:^batch-.*$=EXACT` matches `batch-import` tag; (d) first-wins ordering when multiple rules could match — first declared wins; (e) fallback chain: untagged query falls back to per-TX default; per-TX default fallback to LIGHTWEIGHT when not set; (f) cache hit behavior — second resolution of same tag returns same mode without re-walking rules (assert via instrumented test resolver); (g) SQL empty-tag short-circuit — any SQL statement (`db.query`, `db.command`, MATCH SQL, DDL) passes `Optional.empty()` to the resolver and resolves to per-TX default (or LIGHTWEIGHT when not set), independent of any per-tag rule; assert tag rules have Gremlin-only effective scope; (h) invalid rule config — malformed rule entry → WARN at startup + skip + resolver continues with valid rules. Uses Track 1's `QueryMonitoringModeResolver` directly for some scenarios (unit-level) and an embedded YTDB session for end-to-end scenarios.
+6. `OTelGremlinStrategyOrderingTest`: regression test pinning the TinkerPop strategy-category invariant the design relies on (D20). Asserts: (a) `YTDBQueryMetricsStrategy.class` is declared as `TraversalStrategy.FinalizationStrategy` (reflection on the class hierarchy); (b) `GremlinToMatchStrategy.class` is declared as `TraversalStrategy.ProviderOptimizationStrategy`; (c) for a recognized traversal (e.g., `g.V().hasLabel("Person").has("age", 30)`), `traversal.applyStrategies()` ends with a step list whose terminal step is `YTDBQueryMetricsStep` and whose head is `YTDBMatchPlanStep`; (d) for a declined traversal (e.g., one containing an unrecognized step), `applyStrategies()` ends with `YTDBQueryMetricsStep` as the terminal of the original step chain (no `YTDBMatchPlanStep`). Regression value: refactoring either strategy's declared category, or the metrics-step injection position, breaks this test before reaching production traces.
+7. `OTelHeartbeatSamplerTest`: heartbeat gate behaviour (D18). Scenarios: (a) disabled-by-default no-emit (interval `0`, no spans from heartbeat path); (b) enabled-emit-at-interval (interval `100` ms, one span per window); (c) CAS-race exactly-one-per-window under concurrent queries (multi-threaded fixture firing N queries in the same window, assert exactly one emission); (d) error-bypass without clock advancement (error queries emit without claiming the heartbeat slot, so the next successful query still gets the heartbeat sample); (e) composition with slow-query gate when both would pass — emit exactly once via the heartbeat slot, slow-query gate skipped.
 
 ## Plan of Work
 
@@ -55,7 +57,7 @@ The fourth edit adds `ContextPropagationTest`. The host wraps the YTDB transacti
 
 The fifth edit adds `QueryModeResolutionTest`. Mixes unit-level scenarios (instantiate `QueryMonitoringModeResolver` directly with a known rule list, call `resolve(tag, txDefault)` and assert returned mode) and end-to-end scenarios (configure `OPENTELEMETRY_QUERY_MODE_TAG_RULES` via `GlobalConfiguration`, run a tagged + untagged pair of queries through an embedded YTDB session, assert span durations / clock-source markers reflect resolver decisions). Covers exact / prefix / regex matchers, first-wins ordering, fallback chain, cache behavior, SQL hint parsing per statement type, malformed-rule-config WARN+skip behavior.
 
-Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-5 are independent.
+Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-7 are independent.
 
 ## Concrete Steps
 
@@ -67,7 +69,7 @@ Ordering: edit 1 must come first (everyone depends on `OTelTestBase`). Edits 2-5
 
 After Track 6a:
 
-- `./mvnw -pl youtrackdb-opentelemetry clean test -Dtest='OTelGremlinQueryTest,OTelSqlQueryTest,OTelTransactionMetricsListenerTest,ContextPropagationTest'` passes with all four classes green.
+- `./mvnw -pl youtrackdb-opentelemetry clean test -Dtest='OTelGremlinQueryTest,OTelSqlQueryTest,OTelTransactionMetricsListenerTest,ContextPropagationTest,QueryModeResolutionTest,OTelGremlinStrategyOrderingTest,OTelHeartbeatSamplerTest'` passes with all seven classes green.
 - Each test method has a descriptive name explaining the scenario it covers and the expected outcome (per CLAUDE.md test guideline).
 - No flaky tests: every test runs deterministically with `SimpleSpanProcessor` (synchronous export) and no real network I/O.
 
@@ -89,6 +91,9 @@ In scope:
 - `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/listener/OTelSqlQueryTest.java`
 - `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/listener/OTelTransactionMetricsListenerTest.java`
 - `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/ContextPropagationTest.java`
+- `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/listener/QueryModeResolutionTest.java`
+- `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/listener/OTelGremlinStrategyOrderingTest.java`
+- `youtrackdb-opentelemetry/src/test/java/com/jetbrains/youtrackdb/opentelemetry/listener/OTelHeartbeatSamplerTest.java`
 
 Out of scope:
 - Any production code (Tracks 1-5 own that).
