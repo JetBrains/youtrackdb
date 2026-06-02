@@ -140,6 +140,34 @@ are affected.
 ### Workflow-machinery override (baseline-skip)
 <!-- roles=orchestrator phases=3A,3B,3C summary="Three cases governing baseline/workflow-review/conditional interaction when workflow-machinery is in the diff." -->
 
+**Staged-path normalization (run first).** On a workflow-modifying plan
+the authored `.claude/...` edits live under
+`docs/adr/<dir>/_workflow/staged-workflow/.claude/...` (per `§1.7`) while
+the live tree stays at develop's state. The §Per-agent file-pattern
+triggers globs name live `.claude/...` paths, so a staged path matches
+none of them. Three glob-gated reviewers therefore miss and fail to
+launch: `review-workflow-prompt-design`,
+`review-workflow-instruction-completeness`, and
+`review-workflow-hook-safety`. (`review-workflow-consistency` and
+`review-workflow-context-budget` always run for this group;
+`review-workflow-writing-style` already fires via its `docs/adr/**/*.md`
+glob, and since its `.claude/**/*.md` glob also matches the normalized
+path, it fires regardless of which form this row is evaluated against.)
+Before evaluating the per-agent triggers below against the
+workflow-machinery subset of the diff, normalize each changed path: a
+path matching the anchored prefix
+`docs/adr/<any-dir>/_workflow/staged-workflow/(\.claude/…)` is replaced by
+its captured `.claude/…` remainder; the match is anchored after the
+`docs/adr/<dir>/` head (the `<dir>` segment is variable). A path that
+does not match this exact anchored prefix passes through unchanged,
+including one that merely contains `.claude/` lower down. A staged file
+then evaluates exactly as its live counterpart would, and the three
+glob-gated reviewers launch on the staged edit. Normalization runs ahead
+of the per-agent glob match only; it does not edit the globs themselves
+(those live in §Per-agent file-pattern triggers) and does not change the
+file-set categorization (a staged file is already `workflow-machinery` by
+the `docs/adr/<dir>/` rule).
+
 The three cases below mirror `/code-review` `SKILL.md` Step 5d bullets 1,
 2, and 3 verbatim. They govern how the baseline group, workflow-review
 group, and conditional group interact when `workflow-machinery` is
@@ -223,6 +251,37 @@ full track diff.
   or `.claude/settings*.json` file is touched). Any matching
   conditional agents (e.g., `review-performance` for the B-tree
   change) join the baseline group with the same Java-only filter.
+- **Staged-path diff on a workflow-modifying plan.** Step edits
+  `docs/adr/<dir>/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md`
+  → the staged-path normalization above strips the
+  `docs/adr/<dir>/_workflow/staged-workflow/` prefix, so the path
+  evaluates as `.claude/skills/code-review/SKILL.md`. The only category
+  is `workflow-machinery` (the staged file is workflow-machinery by the
+  `docs/adr/<dir>/` rule); baseline skipped (case 1). The normalized
+  `.claude/skills/*/SKILL.md` path matches the
+  `review-workflow-prompt-design` and
+  `review-workflow-instruction-completeness` globs, so both launch
+  alongside the always-run `review-workflow-consistency` +
+  `review-workflow-context-budget` pair and
+  `review-workflow-writing-style` (which fires via its
+  `docs/adr/**/*.md` glob against the un-normalized staged path).
+  `review-workflow-hook-safety` does not trigger (no `.claude/hooks/`,
+  `.claude/scripts/`, or `.claude/settings*.json` file is touched).
+  5 agents. Without normalization the two glob-gated reviewers would
+  miss the staged path and fail to launch.
+- **Staged path that does not normalize.** Step edits
+  `docs/adr/<dir>/_workflow/staged-workflow/notes/.claude/x.md` → after
+  the `docs/adr/<dir>/_workflow/staged-workflow/` head the remainder is
+  `notes/.claude/x.md`, which does not begin with `.claude/`, so the
+  anchored prefix does not match and the path passes through
+  un-normalized (the rule's "merely contains `.claude/` lower down"
+  case). The file is still `workflow-machinery` by the
+  `docs/adr/<dir>/` rule, so the always-run
+  `review-workflow-consistency` + `review-workflow-context-budget` pair
+  and `review-workflow-writing-style` (via `docs/adr/**/*.md`) still
+  fire, but the three glob-gated reviewers do not, because no
+  normalized `.claude/...` path is produced. Only a `.claude/...`
+  segment immediately after `staged-workflow/` normalizes.
 
 ### Maintenance
 <!-- roles=orchestrator phases=3A,3B,3C summary="The mirrored sections must stay in sync with the /code-review skill; drift is a consistency-review defect." -->
@@ -236,4 +295,4 @@ commit and bump the date in the trailing `<!-- Last sync-checked … -->`
 comment below. Drift between the two files is a defect for
 `review-workflow-consistency`.
 
-<!-- Last sync-checked against `.claude/skills/code-review/SKILL.md` Step 5a/5b/5d/6 on 2026-05-15 (YTDB-817 Track 1 Step 3). Future drift sweeps update this date. -->
+<!-- Last sync-checked against `.claude/skills/code-review/SKILL.md` Step 5a/5b/5d/6 on 2026-06-01 (YTDB-1032 staged-path normalization). Future drift sweeps update this date. -->
