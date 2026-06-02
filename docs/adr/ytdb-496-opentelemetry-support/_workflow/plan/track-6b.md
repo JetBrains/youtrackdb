@@ -92,8 +92,8 @@ Inter-track dependencies:
 Test scenarios that map directly to invariants in the implementation plan:
 
 ```text
-Invariant "TX span boundedness" → ExceptionIsolationTest covers exception paths;
-  OTelTransactionMetricsListenerTest (Track 6a) covers the four exit paths.
+Invariant "Path A vs Path B span counts" → OTelTransactionMetricsListenerTest
+  (Track 6a) covers the four commit-side exit paths under both Gremlin and SQL.
 Invariant "Listener exception isolation" → ExceptionIsolationTest.
 Invariant "Timing-mode uniformity (per-query)" → OTelTimingModeTest asserts
   both fire sites for one query resolve from the same tag to the same mode;
