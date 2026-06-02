@@ -257,3 +257,7 @@ route through `docs/adr/<dir>/_workflow/staged-workflow/.claude/workflow/...`;
 the live files stay at develop's state until Phase 4 promotion.
 
 Full design: design.md §"Read-side staging awareness".
+
+## Base commit
+
+81bc15de39468e00353325955e7c55090b719bd7
