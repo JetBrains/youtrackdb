@@ -25,6 +25,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T16:46Z [ctx=info] Step 4 complete (commit d955c194a1; medium, no dim-review; recovered from RESULT_MISSING)
 - [x] 2026-06-01T16:55Z [ctx=info] Step 5 complete (commit 5b62ae94ef; low, docs)
 - [x] 2026-06-02T04:10Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations; commit 2c4f0b2038, 13 review-fix items applied, 0 blockers)
+- [x] 2026-06-02T04:17Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations; commit d2811afba9, design-final.md convergence-claim consistency fix mirroring the iter-1 adr.md fix)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
