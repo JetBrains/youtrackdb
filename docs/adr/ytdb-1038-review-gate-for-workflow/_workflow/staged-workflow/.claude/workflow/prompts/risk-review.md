@@ -100,6 +100,11 @@ Inputs:
 
 **Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
+**Workflow-machinery criteria (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, this track edits workflow prose, so the criteria below re-point for any reference the track makes to a workflow file:
+
+- Verify every named reference as a workflow file path or `§`-anchor via grep and Read, not as a Java FQN via `findClass`. A named reference that does not resolve to an existing workflow path or anchor is the finding; a named Java symbol that does not resolve is not a blocker when it appears on a prose reference. A track that mixes prose and code keeps both lenses: apply the path/anchor check to its prose references and the `findClass` check to its Java references.
+- Five prose criteria supersede, not merely append to, the Java criteria for this review on any part of the track that is workflow prose. They are rule coherence and non-contradiction, instruction completeness, prompt-design soundness, context-budget impact, and breakage of dependent prompts or agents. They replace the EDGE-CASES, INTEGRATION-POINTS, BACKWARD-COMPAT, and `findClass`-based NAMED-REFERENCES criteria, and the WAL, crash, migration, and hot-caller concerns, for that prose.
+
 Start by reading the track file's `## Purpose / Big Picture`,
 `## Context and Orientation`, `## Plan of Work`, and `## Interfaces
 and Dependencies` sections (plus any track-level component diagram
