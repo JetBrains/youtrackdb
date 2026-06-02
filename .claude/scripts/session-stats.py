@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Compute current-session and calendar-month cost/token stats for the Claude
-Code statusline.
+"""Compute current-session, today, and calendar-month cost/token stats for the
+Claude Code statusline.
 
 Output (single line, second line of the statusline):
 
-  $0.123 (mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  r/5m:5.7x r/1h:-
+  $0.123 (day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  r/5m:5.7x r/1h:-
 
-When invoked with `--worktree` (the statusline adds it whenever the cwd is a
-linked git worktree) a third cost figure for the current worktree's project
-is inserted before the month figure:
+The `day:` figure is today's spend across every project — the calendar-day
+analogue of `mo:` — and is always shown. When invoked with `--worktree` (the
+statusline adds it whenever the cwd is a linked git worktree) a cost figure for
+the current worktree's project is inserted at the front of the parenthetical:
 
-  $0.123 (wt:$1.85 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  …
+  $0.123 (wt:$1.85 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  …
 
 The current session aggregates the orchestrator transcript plus every
 sub-agent transcript under <transcript-stem>/subagents/. The worktree-project
@@ -29,8 +30,8 @@ the current worktree on demand.
 Two non-obvious mechanics, both required to match ccusage:
 
   1. **Record-timestamp bucketing** (not file mtime). A file modified in May
-     can contain April records, and vice versa, so the monthly bucket is
-     decided per record using its own `timestamp` field.
+     can contain April records, and vice versa, so the daily and monthly
+     buckets are each decided per record using its own `timestamp` field.
 
   2. **(message.id, requestId) dedup, max-output wins.** ~40% of records appear
      in multiple transcripts (sub-agent transcripts duplicate their parent's
@@ -96,7 +97,10 @@ CACHE_DIR = pathlib.Path.home() / ".cache" / "claude-code-stats" / "transcripts"
 # from scratch and the stale entries are unlinked lazily by _load_cache.
 # v7: dedup keeps the max-output_tokens snapshot (was first-occurrence); caches
 # written under v6 hold partial-output payloads and must be rebuilt.
-CACHE_VERSION = 7
+# v8: payload index 0 holds the full record date `ts[:10]` (was the month
+# `ts[:7]`) so one cache feeds both the daily and monthly buckets; v7 caches
+# store only the month and must be rebuilt.
+CACHE_VERSION = 8
 PROJECTS_ROOT = pathlib.Path.home() / ".claude" / "projects"
 
 
@@ -314,7 +318,7 @@ def _model_pricing(m):
 
 
 def _record_from_line(raw):
-    """Parse one assistant-turn line into (key, [month, model, in, out, read, w5, w1]).
+    """Parse one assistant-turn line into (key, [date, model, in, out, read, w5, w1]).
 
     The cache stores raw tokens + model id so a future price update takes
     effect on the next render without requiring per-file cache invalidation.
@@ -337,7 +341,10 @@ def _record_from_line(raw):
         # double-count.
         return None
     ts = obj.get("timestamp") or ""
-    month = ts[:7] if len(ts) >= 7 else ""
+    # Full record date `YYYY-MM-DD`: the month bucket slices `date[:7]` and the
+    # day bucket compares the whole string. A short / malformed timestamp yields
+    # "" which matches no current day or month (same as the old month logic).
+    date = ts[:10] if len(ts) >= 10 else ""
     model = msg.get("model") or DEFAULT_MODEL
     # `… or 0` (without the explicit default) handles both missing keys and
     # explicit nulls in one expression — the API emits `null` for some
@@ -351,7 +358,7 @@ def _record_from_line(raw):
     if not (w5 or w1):
         # Older turns only emit the top-level total; treat as 5 m.
         w5 = usage.get("cache_creation_input_tokens") or 0
-    return f"{msg_id}:{req_id}", [month, model, in_t, out_t, read_t, w5, w1]
+    return f"{msg_id}:{req_id}", [date, model, in_t, out_t, read_t, w5, w1]
 
 
 def _cache_path_for(path):
@@ -407,7 +414,7 @@ def _keep_larger_output(records, rid, payload):
 
 
 def aggregate_file(path):
-    """Return {record_id: [month, model, in, out, read, w5, w1]} for one file.
+    """Return {record_id: [date, model, in, out, read, w5, w1]} for one file.
 
     Cost is recomputed at sum time by `_sum_records` against the current
     price table, so a price refresh takes effect on the next render without
@@ -481,12 +488,12 @@ def aggregate_file(path):
 
 
 def _sum_records(records):
-    """Sum a {record_id: [month, model, in, out, read, w5, w1]} dict applying current prices."""
+    """Sum a {record_id: [date, model, in, out, read, w5, w1]} dict applying current prices."""
     out = _zero()
     # Pricing-dict cache, since one model dominates a typical aggregation pass.
     price_cache = {}
     for v in records.values():
-        # v = [month, model, in, out, read, w5, w1]
+        # v = [date, model, in, out, read, w5, w1]
         model = v[1]
         in_t, out_t, read_t, w5, w1 = v[2], v[3], v[4], v[5], v[6]
         out["in"] += in_t
@@ -554,22 +561,39 @@ def project_totals(transcript_path):
     return _sum_records(merged)
 
 
-def month_totals():
-    """Sum every record across all projects whose UTC timestamp is this month.
+def calendar_totals(now=None):
+    """Sum records across all projects into (today, this-month) totals.
 
-    Both the bucket key (`ts[:7]` of the JSONL `timestamp` field, which
-    Claude Code emits as a `Z`-suffixed UTC ISO-8601 string) and `cur_month`
-    must be in the same timezone, otherwise records near the month boundary
-    fall on the wrong side. We standardise on UTC.
+    Returns a `(day, month)` pair of totals dicts. Both are produced in a single
+    walk of ~/.claude/projects: a second full `rglob` purely for the daily figure
+    would re-stat every transcript and re-read every per-file cache entry on each
+    statusline render, so we bucket each record into both accumulators as we go.
+
+    Bucketing is per record (not file mtime): one file can hold records from more
+    than one day, so each record's own date (payload index 0, `ts[:10]`) decides
+    its bucket. The month bucket compares `date[:7]`; the day bucket compares the
+    whole `YYYY-MM-DD`. Claude Code emits `timestamp` as a `Z`-suffixed UTC
+    ISO-8601 string, so `cur_day` / `cur_month` are derived in UTC too —
+    otherwise records near a midnight or month boundary fall on the wrong side.
+
+    The month-start mtime pre-filter bounds both buckets: today lies within the
+    current month, so a file untouched since before the month began cannot hold a
+    current-month *or* current-day record (append always bumps mtime).
+
+    `now` defaults to the current UTC instant; it is injectable so the
+    calendar-bucketing logic can be exercised against fixed dates in tests.
     """
     if not PROJECTS_ROOT.is_dir():
-        return _zero()
-    now = _dt.datetime.now(_dt.timezone.utc)
+        return _zero(), _zero()
+    if now is None:
+        now = _dt.datetime.now(_dt.timezone.utc)
     cur_month = f"{now.year:04d}-{now.month:02d}"
+    cur_day = f"{now.year:04d}-{now.month:02d}-{now.day:02d}"
     month_start_ts = _dt.datetime(
         now.year, now.month, 1, tzinfo=_dt.timezone.utc
     ).timestamp()
-    merged = {}
+    month_merged = {}
+    day_merged = {}
     for proj in PROJECTS_ROOT.iterdir():
         if not proj.is_dir():
             continue
@@ -582,9 +606,12 @@ def month_totals():
             except OSError:
                 continue
             for k, v in aggregate_file(jsonl).items():
-                if v[0] == cur_month:
-                    _keep_larger_output(merged, k, v)  # max-output dedup
-    return _sum_records(merged)
+                if v[0][:7] != cur_month:
+                    continue
+                _keep_larger_output(month_merged, k, v)  # max-output dedup
+                if v[0] == cur_day:
+                    _keep_larger_output(day_merged, k, v)
+    return _sum_records(day_merged), _sum_records(month_merged)
 
 
 def fmt_tokens(n):
@@ -622,34 +649,37 @@ def parse_args(argv):
     return transcript, show_worktree, wt_cost_file
 
 
-def format_stats_line(sess, month, proj=None, no_color=False):
+def format_stats_line(sess, day, month, proj=None, no_color=False):
     """Render the second statusline row.
 
-    When `proj` is given (worktree mode) a `wt:$X` figure for the current
-    worktree's project is inserted ahead of the month figure.
+    The `day:$X` figure (today's spend across all projects) always appears; when
+    `proj` is given (worktree mode) a `wt:$X` figure for the current worktree's
+    project is inserted ahead of it.
 
     Distinct colours so the cost figures are tellable apart at a glance:
     bright cyan = current session (active), bright blue = this worktree's
-    project (cumulative), bright magenta = calendar month across all projects.
-    Deliberately avoiding red / yellow / green — those are reserved for the
-    context-fill bar in statusline-command.sh (critical / warning / safe).
-    Honour NO_COLOR for non-TTY consumers.
+    project (cumulative), bright white = today across all projects, bright
+    magenta = calendar month across all projects. Deliberately avoiding
+    red / yellow / green — those are reserved for the context-fill bar in
+    statusline-command.sh (critical / warning / safe). Honour NO_COLOR for
+    non-TTY consumers.
     """
     if no_color or os.environ.get("NO_COLOR"):
         sess_open = sess_close = mo_open = mo_close = wt_open = wt_close = ""
+        day_open = day_close = ""
     else:
         sess_open = "\033[1;36m"   # bright cyan    — current session
         wt_open = "\033[1;34m"     # bright blue    — this worktree's project
+        day_open = "\033[1;37m"    # bright white   — today, all projects
         mo_open = "\033[1;35m"     # bright magenta — calendar month, all projects
-        sess_close = mo_close = wt_close = "\033[0m"
+        sess_close = mo_close = wt_close = day_close = "\033[0m"
 
+    day_str = f"day:{day_open}${day['cost']:.2f}{day_close}"
+    mo_str = f"mo:{mo_open}${month['cost']:.2f}{mo_close}"
     if proj is not None:
-        scope = (
-            f"(wt:{wt_open}${proj['cost']:.2f}{wt_close} "
-            f"mo:{mo_open}${month['cost']:.2f}{mo_close})"
-        )
+        scope = f"(wt:{wt_open}${proj['cost']:.2f}{wt_close} {day_str} {mo_str})"
     else:
-        scope = f"(mo:{mo_open}${month['cost']:.2f}{mo_close})"
+        scope = f"({day_str} {mo_str})"
 
     return (
         f"{sess_open}${sess['cost']:.3f}{sess_close} "
@@ -669,7 +699,7 @@ def main(argv=None):
     transcript, show_worktree, wt_cost_file = parse_args(argv)
     try:
         sess = session_totals(transcript)
-        month = month_totals()
+        day, month = calendar_totals()
         proj = project_totals(transcript) if show_worktree else None
     except Exception as exc:  # noqa: BLE001 — never break the statusline
         print(f"stats error: {exc}", file=sys.stderr)
@@ -686,7 +716,7 @@ def main(argv=None):
         except Exception:  # noqa: BLE001 — publish is best-effort; never break the statusline
             pass
 
-    print(format_stats_line(sess, month, proj))
+    print(format_stats_line(sess, day, month, proj))
     return 0
 
 

@@ -213,25 +213,29 @@ def test_parse_args_cost_file_missing_value() -> None:
 
 
 def test_format_line_no_worktree_exact() -> None:
-    """Without a project total the line keeps the original `(mo:$…)` shape."""
+    """Without a project total the line shows `(day:$… mo:$…)` — today's spend
+    immediately before the month figure, no worktree figure."""
     sess = _totals(0.123, **{"in": 1200, "out": 8000, "read": 230000, "w5": 40000, "w1": 0})
+    day = _totals(2.34)
     month = _totals(4.56)
-    line = MODULE.format_stats_line(sess, month, proj=None, no_color=True)
+    line = MODULE.format_stats_line(sess, day, month, proj=None, no_color=True)
     expected = (
-        "$0.123 (mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
+        "$0.123 (day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
         "r/5m:5.8x r/1h:-"
     )
     assert line == expected, f"\n got: {line}\nwant: {expected}"
 
 
 def test_format_line_with_worktree_exact() -> None:
-    """A project total inserts `wt:$…` immediately before the month figure."""
+    """A project total inserts `wt:$…` at the front of the parenthetical, ahead
+    of the always-present `day:$…` and the `mo:$…` figure."""
     sess = _totals(0.123, **{"in": 1200, "out": 8000, "read": 230000, "w5": 40000, "w1": 0})
+    day = _totals(2.34)
     month = _totals(4.56)
     proj = _totals(1.85)
-    line = MODULE.format_stats_line(sess, month, proj=proj, no_color=True)
+    line = MODULE.format_stats_line(sess, day, month, proj=proj, no_color=True)
     expected = (
-        "$0.123 (wt:$1.85 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
+        "$0.123 (wt:$1.85 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
         "r/5m:5.8x r/1h:-"
     )
     assert line == expected, f"\n got: {line}\nwant: {expected}"
@@ -240,24 +244,32 @@ def test_format_line_with_worktree_exact() -> None:
 def test_format_line_no_color_has_no_ansi() -> None:
     """no_color=True strips every ANSI escape even if NO_COLOR is unset."""
     with _env("NO_COLOR", None):
-        line = MODULE.format_stats_line(_totals(1.0), _totals(2.0), proj=_totals(3.0), no_color=True)
+        line = MODULE.format_stats_line(
+            _totals(1.0), _totals(2.0), _totals(3.0), proj=_totals(4.0), no_color=True
+        )
     assert "\033" not in line, "expected no ANSI escapes under no_color"
 
 
 def test_format_line_colours_when_enabled() -> None:
     """With colour on, the worktree figure uses the distinct bright-blue code
-    (34) and the existing session/month codes are still present."""
+    (34), the new today figure uses bright white (37), and the existing
+    session/month codes are still present."""
     with _env("NO_COLOR", None):
-        line = MODULE.format_stats_line(_totals(1.0), _totals(2.0), proj=_totals(3.0), no_color=False)
+        line = MODULE.format_stats_line(
+            _totals(1.0), _totals(2.0), _totals(3.0), proj=_totals(4.0), no_color=False
+        )
     assert "\033[1;34m" in line, "worktree figure should be bright blue"
     assert "\033[1;36m" in line, "session figure should be bright cyan"
+    assert "\033[1;37m" in line, "today figure should be bright white"
     assert "\033[1;35m" in line, "month figure should be bright magenta"
 
 
 def test_format_line_no_color_env_respected() -> None:
     """NO_COLOR in the environment disables colour even with no_color=False."""
     with _env("NO_COLOR", "1"):
-        line = MODULE.format_stats_line(_totals(1.0), _totals(2.0), proj=_totals(3.0), no_color=False)
+        line = MODULE.format_stats_line(
+            _totals(1.0), _totals(2.0), _totals(3.0), proj=_totals(4.0), no_color=False
+        )
     assert "\033" not in line, "NO_COLOR env should strip ANSI"
 
 
@@ -365,6 +377,59 @@ def test_streaming_final_snapshot_wins_across_cache_reads() -> None:
 
 
 # ---------------------------------------------------------------------------
+# calendar_totals.
+# ---------------------------------------------------------------------------
+
+
+def test_calendar_totals_buckets_today_and_month() -> None:
+    """calendar_totals returns (today, this-month) totals in a single walk,
+    bucketing per record by its own date (not file mtime). With a fixed `now` of
+    2026-06-15 and three records in one file — dated today, earlier this month,
+    and a prior month — the day bucket gets only today's record while the month
+    bucket gets today + the earlier-this-month record (prior month excluded).
+    The file's mtime is forced past the month-start so the pre-filter, which is
+    keyed off the injected month start, never drops it regardless of run time."""
+    import datetime as dt
+
+    now = dt.datetime(2026, 6, 15, 12, 0, 0, tzinfo=dt.timezone.utc)
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp) / "cache"
+        projects = Path(tmp) / "projects"
+        session = projects / "proj-a" / "session.jsonl"
+        write_jsonl(
+            session,
+            [
+                _assistant_usage("m1", "r1", ts="2026-06-15T12:00:00.000Z", in_t=1_000_000),
+                _assistant_usage("m2", "r2", ts="2026-06-03T09:00:00.000Z", in_t=1_000_000),
+                _assistant_usage("m3", "r3", ts="2026-05-20T09:00:00.000Z", in_t=1_000_000),
+            ],
+        )
+        # Pin mtime just after the injected month start so the mtime pre-filter
+        # (st_mtime < month_start_ts) keeps the file no matter when this runs.
+        month_start_ts = dt.datetime(2026, 6, 1, tzinfo=dt.timezone.utc).timestamp()
+        os.utime(session, (month_start_ts + 10, month_start_ts + 10))
+        with _patched(CACHE_DIR=cache, PROJECTS_ROOT=projects):
+            day, month = MODULE.calendar_totals(now=now)
+        # Day bucket: only the 2026-06-15 record.
+        assert day["in"] == 1_000_000, day["in"]
+        assert _approx(day["cost"], 1 * USD_PER_1M_IN), day["cost"]
+        # Month bucket: 2026-06-15 + 2026-06-03; the 2026-05-20 record is excluded.
+        assert month["in"] == 2_000_000, month["in"]
+        assert _approx(month["cost"], 2 * USD_PER_1M_IN), month["cost"]
+
+
+def test_calendar_totals_missing_projects_root_is_zero_pair() -> None:
+    """When the projects root is not a directory, calendar_totals yields a pair
+    of zeroed totals rather than raising — the statusline must never break."""
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = Path(tmp) / "does-not-exist"
+        with _patched(PROJECTS_ROOT=missing):
+            day, month = MODULE.calendar_totals()
+        assert day == MODULE._zero(), day
+        assert month == MODULE._zero(), month
+
+
+# ---------------------------------------------------------------------------
 # _atomic_write_text.
 # ---------------------------------------------------------------------------
 
@@ -388,35 +453,39 @@ def test_atomic_write_text_writes_and_overwrites() -> None:
 
 
 def test_main_worktree_writes_cost_file_and_shows_wt() -> None:
-    """`main` in worktree mode prints the `wt:` figure and publishes the cost
-    file containing exactly `wt_cost: $<proj cost>`."""
+    """`main` in worktree mode prints the `wt:` and `day:` figures and publishes
+    the cost file containing exactly `wt_cost: $<proj cost>`. `calendar_totals`
+    is stubbed to return the (today, month) pair main now unpacks."""
     with tempfile.TemporaryDirectory() as tmp:
         wt_file = Path(tmp) / "claude-code-worktree-cost-1234.txt"
         buf = io.StringIO()
         with _patched(
             session_totals=lambda _t: _totals(0.123),
-            month_totals=lambda: _totals(4.56),
+            calendar_totals=lambda: (_totals(2.34), _totals(4.56)),
             project_totals=lambda _t: _totals(1.85),
         ), _env("NO_COLOR", "1"), contextlib.redirect_stdout(buf):
             rc = MODULE.main(["t.jsonl", "--worktree", "--worktree-cost-file", str(wt_file)])
         assert rc == 0, rc
         assert wt_file.read_text() == "wt_cost: $1.85", wt_file.read_text()
         assert "wt:$1.85" in buf.getvalue(), buf.getvalue()
+        assert "day:$2.34" in buf.getvalue(), buf.getvalue()
 
 
 def test_main_no_worktree_omits_wt_and_writes_no_file() -> None:
-    """Without worktree flags `main` omits `wt:` and writes no publish file."""
+    """Without worktree flags `main` omits `wt:`, still shows the always-present
+    `day:` figure, and writes no publish file."""
     with tempfile.TemporaryDirectory() as tmp:
         wt_file = Path(tmp) / "should-not-exist.txt"
         buf = io.StringIO()
         with _patched(
             session_totals=lambda _t: _totals(0.123),
-            month_totals=lambda: _totals(4.56),
+            calendar_totals=lambda: (_totals(2.34), _totals(4.56)),
             project_totals=lambda _t: _totals(1.85),
         ), _env("NO_COLOR", "1"), contextlib.redirect_stdout(buf):
             rc = MODULE.main(["t.jsonl"])
         assert rc == 0, rc
         assert "wt:" not in buf.getvalue(), buf.getvalue()
+        assert "day:$2.34" in buf.getvalue(), buf.getvalue()
         assert not wt_file.exists(), "no cost file should be written without the flag"
 
 
@@ -450,6 +519,8 @@ def main() -> int:
         ("project_totals nonexistent file w/ existing parent -> zero", test_project_totals_nonexistent_transcript_does_not_scan_parent),
         ("streaming snapshots in one file keep max output", test_streaming_snapshots_in_one_file_keep_max_output),
         ("streaming final snapshot wins across cache reads", test_streaming_final_snapshot_wins_across_cache_reads),
+        ("calendar_totals buckets today + month", test_calendar_totals_buckets_today_and_month),
+        ("calendar_totals missing projects root -> zero pair", test_calendar_totals_missing_projects_root_is_zero_pair),
         ("atomic_write_text writes + overwrites", test_atomic_write_text_writes_and_overwrites),
         ("main worktree writes file + shows wt", test_main_worktree_writes_cost_file_and_shows_wt),
         ("main no worktree omits wt + no file", test_main_no_worktree_omits_wt_and_writes_no_file),
