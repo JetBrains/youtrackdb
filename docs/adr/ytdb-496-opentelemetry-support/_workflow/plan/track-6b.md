@@ -7,7 +7,7 @@ After this track lands, the OTel module's lifecycle (init/shutdown) is verified 
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Cover server-mode lifecycle (init/close), the exception-isolation invariant, and the timing-mode uniformity invariant. Gremlin span uniqueness and `db.query()` regression coverage land in Track 6c.
+Cover server-mode lifecycle (init/close), the exception-isolation invariant, and the timing-mode uniformity invariant. Path A vs Path B span shape, Gremlin DSL passthrough attribute population, and `db.query()` regression coverage land in Track 6c.
 
 ## Progress
 - [ ] Review + decomposition
@@ -83,7 +83,7 @@ In scope:
 Out of scope:
 - Any production code (Tracks 1-5 own that).
 - Attribute mapping, hierarchy, propagation (Track 6a).
-- Gremlin span uniqueness and `db.query` regression (Track 6c).
+- Path A vs Path B span shape, Gremlin DSL passthrough attributes, and `db.query` regression (Track 6c).
 
 Inter-track dependencies:
 - Depends on Track 6a: reuses `OTelTestBase`.
