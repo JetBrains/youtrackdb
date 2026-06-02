@@ -265,6 +265,11 @@ flowchart TB
   > cross-track impact.
   >
   > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 1
+  > was independent of the remaining tracks, and its one cross-track
+  > discovery (review-target delta-scoping) was already folded into Track 4
+  > via the post-Track-1 inline replan.
 
 - [ ] Track 2: Read-side staged-read caveat (YTDB-1038)
   > Every review and gate prompt names the live `.claude/...` path, so on a
