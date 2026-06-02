@@ -348,11 +348,12 @@ sequenceDiagram
 
     Host->>TX: tx.commit() (write tx)
     TX->>OTL: writeTransactionCommitted(details, commitMs, commitNs)
-    OTL->>TR: spanBuilder("commit <trackingId>").setSpanKind(clientKind).setStartTimestamp(details.committedAtEpochNanos, NS).setParent(Context.current()).startSpan()
+    OTL->>TR: spanBuilder(spanName).setSpanKind(clientKind).setStartTimestamp(details.committedAtEpochNanos, NS).setParent(Context.current()).startSpan()
+    Note over OTL,TR: spanName = "commit " + dbName when getDatabaseName() is present,<br/>else "commit". Tracking ID surfaces as the youtrackdb.transaction.tracking_id<br/>attribute (gated by getExplicitTrackingId().isPresent()), NOT in span name.
     OTL->>TR: span.end(details.committedAtEpochNanos + commitNs, NS)
 ```
 
-`writeTransactionCommitted` fires only for write transactions per existing YTDB semantics. A read-only transaction's implicit close path emits nothing on the TX listener and therefore no commit span. The participant box represents `FrontendTransactionImpl` because the listener fire happens inside `notifyMetricsListener()` on the committing thread, and `YTDBTransaction.commit()` delegates to it through the Gremlin and native-SQL paths alike. The commit span takes its parent from `Context.current()` (host span if the host wrapped the commit, root otherwise); no YTDB-internal TX wrapper span is created. `writeTransactionFailed` follows the same shape with `error.type` populated and span status set to ERROR.
+`writeTransactionCommitted` fires only for write transactions per existing YTDB semantics. A read-only transaction's implicit close path emits nothing on the TX listener and therefore no commit span. The participant box represents `FrontendTransactionImpl` because the listener fire happens inside `notifyMetricsListener()` on the committing thread, and `YTDBTransaction.commit()` delegates to it through the Gremlin and native-SQL paths alike. The commit span takes its parent from `Context.current()` (host span if the host wrapped the commit, root otherwise); no YTDB-internal TX wrapper span is created. **Span name is bounded-cardinality** per sem-conv §"Span name SHOULD be of low cardinality": `"commit"` when no database name is available, `"commit " + dbName` when `TransactionDetails.getDatabaseName()` returns a value. Tracking ID is NEVER included in the span name — a monotonic-counter fallback or per-request UUID would blow span-name cardinality the same way it would blow attribute-value cardinality. The tracking ID surfaces only as the `youtrackdb.transaction.tracking_id` attribute, and only when the host explicitly called `withTrackingId(...)` (gated by `getExplicitTrackingId().isPresent()` per D17). `writeTransactionFailed` follows the same shape with `error.type` populated and span status set to ERROR.
 
 ### Server-mode SDK lifecycle
 
