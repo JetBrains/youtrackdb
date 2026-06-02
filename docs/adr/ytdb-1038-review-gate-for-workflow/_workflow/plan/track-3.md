@@ -18,6 +18,7 @@ reviewers self-adapt.
 - [ ] Track completion
 - [x] 2026-06-02T07:05Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-02T07:17Z [ctx=safe] Step 1 complete (commit 9a671fe)
+- [x] 2026-06-02T07:36Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
