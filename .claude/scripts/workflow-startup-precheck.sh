@@ -78,6 +78,88 @@ case "$MODE" in
 esac
 
 # ---------------------------------------------------------------------------
+# Branch-divergence detection.
+#
+# Byte-source: branch-divergence-check.md § Detection. The three commands run
+# in order:
+#
+#   git rev-parse --abbrev-ref --symbolic-full-name '@{u}'   # upstream guard
+#   git fetch                                                 # fetch guard
+#   git rev-list --left-right --count HEAD...'@{u}'           # ahead<TAB>behind
+#
+# The upstream check runs first so a branch with no upstream skips cleanly
+# without attempting the fetch. `git fetch` (no argument) targets the
+# upstream's remote, which is not always `origin`. `git rev-list
+# --left-right --count HEAD...'@{u}'` prints `<ahead>\t<behind>`
+# (tab-separated). The branch has diverged iff BOTH counts are non-zero —
+# `git status -sb` does not emit the literal word `diverged`, so the prose
+# does not grep for it and neither does this script.
+#
+# The two guards map to the two skip reasons the prose calls out:
+#   * upstream absent  -> skipped=true, skip_reason="no-upstream", detected=false
+#   * fetch fails      -> skipped=true, skip_reason="fetch-failed", detected=false
+# Both are normal, expected states (no upstream configured; offline). The
+# script reports them as data; the conversational resolution stays agent-side.
+#
+# The detection writes plain shell variables only (no JSON here) — the single
+# emit_json site below assembles the `divergence` object from them.
+# ---------------------------------------------------------------------------
+
+# Outputs of detect_divergence, consumed by emit_json. Defaults cover the
+# skip paths so emit_json never reads an unset variable.
+DIVERGENCE_DETECTED="false"
+DIVERGENCE_AHEAD=""
+DIVERGENCE_BEHIND=""
+DIVERGENCE_SKIPPED="false"
+DIVERGENCE_SKIP_REASON=""
+
+detect_divergence() {
+  # Upstream guard. `@{u}` resolves to the configured upstream tracking ref;
+  # absent (no upstream set) means the divergence check cannot run, so skip
+  # cleanly with skip_reason="no-upstream". 2>/dev/null suppresses git's
+  # "no upstream configured" diagnostic so it never reaches the JSON-bearing
+  # stdout.
+  if ! git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    DIVERGENCE_SKIPPED="true"
+    DIVERGENCE_SKIP_REASON="no-upstream"
+    DIVERGENCE_DETECTED="false"
+    return
+  fi
+
+  # Fetch guard. `git fetch` (no argument) targets the upstream's remote.
+  # A failure (offline, removed remote, auth) means the local view of the
+  # upstream may be stale, so skip with skip_reason="fetch-failed" rather
+  # than compute a divergence count against a possibly-stale ref. Output is
+  # routed to stderr so progress lines never contaminate the JSON on stdout.
+  if ! git fetch >/dev/null 2>&1; then
+    DIVERGENCE_SKIPPED="true"
+    DIVERGENCE_SKIP_REASON="fetch-failed"
+    DIVERGENCE_DETECTED="false"
+    return
+  fi
+
+  # Both guards passed: compute ahead/behind. `git rev-list --left-right
+  # --count HEAD...'@{u}'` prints `<ahead>\t<behind>`. The triple-dot
+  # symmetric-difference form is the byte-source idiom; `cut` splits the two
+  # tab-separated counts. The `|| echo` fallback keeps the no-errexit script
+  # from carrying a stale value if rev-list itself fails for an unexpected
+  # reason (treated as a clean no-divergence read, which the first per-commit
+  # push would surface anyway).
+  local counts
+  counts="$(git rev-list --left-right --count HEAD...'@{u}' 2>/dev/null || echo '0	0')"
+  DIVERGENCE_AHEAD="$(printf '%s' "$counts" | cut -f1)"
+  DIVERGENCE_BEHIND="$(printf '%s' "$counts" | cut -f2)"
+
+  # Diverged iff BOTH counts are non-zero. A purely-ahead or purely-behind
+  # branch fast-forwards in one direction and is not a divergence.
+  if [ "$DIVERGENCE_AHEAD" -gt 0 ] 2>/dev/null && [ "$DIVERGENCE_BEHIND" -gt 0 ] 2>/dev/null; then
+    DIVERGENCE_DETECTED="true"
+  else
+    DIVERGENCE_DETECTED="false"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # The single JSON emit point — the one site that knows the JSON shape, so the
 # contract has exactly one authoring home (the one-contract-home invariant).
 #
@@ -93,18 +175,49 @@ esac
 # the prose this script replaces depends on null, not "".
 # ---------------------------------------------------------------------------
 
+# Assemble the `divergence` JSON object from the plain shell variables
+# detect_divergence wrote. Emitted as a compact JSON value on stdout so the
+# per-mode jq below can splice it in via --argjson.
+#
+# `ahead`/`behind` are counts: a number when both guards passed, JSON null on
+# either skip path (no count was computed). The empty->null-then-tonumber
+# idiom collapses the empty skip-path value to null and converts a present
+# value to a JSON number rather than a quoted string. `skip_reason` is a
+# nullable string (null off the skip paths). `detected`/`skipped` are real
+# JSON booleans via the `== "true"` test.
+divergence_json() {
+  jq -nc \
+    --arg detected "$DIVERGENCE_DETECTED" \
+    --arg ahead "$DIVERGENCE_AHEAD" \
+    --arg behind "$DIVERGENCE_BEHIND" \
+    --arg skipped "$DIVERGENCE_SKIPPED" \
+    --arg skip_reason "$DIVERGENCE_SKIP_REASON" \
+    '{
+      detected: ($detected == "true"),
+      ahead: ($ahead | if . == "" then null else tonumber end),
+      behind: ($behind | if . == "" then null else tonumber end),
+      skipped: ($skipped == "true"),
+      skip_reason: ($skip_reason | if . == "" then null else . end)
+    }'
+}
+
 emit_json() {
   # Detection functions in later steps of this track write the plain shell
-  # variables this function reads (divergence_*, drift_*, handoffs, state).
-  # Until they land, the per-mode assembly below emits the pinned scaffold
-  # shape: actions_taken is an empty array (a later change wires the no-drift
-  # normalization commit into it) and `state` is JSON null (a later change
-  # replaces the null with the populated {phase, track, substate} object).
+  # variables this function reads (drift_*, handoffs, state). The divergence
+  # detection above already populates DIVERGENCE_*; emit assembles them via
+  # divergence_json. Until the remaining detection lands, the per-mode
+  # assembly below emits the pinned scaffold shape for the not-yet-built
+  # fields: `drift` is null, `handoffs` is an empty array, actions_taken is an
+  # empty array (a later change wires the no-drift normalization commit into
+  # it), and `state` is JSON null (a later change replaces the null with the
+  # populated {phase, track, substate} object).
   #
   # ACTIONS_TAKEN_JSON is a JSON array literal so callers that record an
   # autonomous mutation can replace the empty `[]` without re-threading the
   # null idiom. The scaffold leaves it empty.
   local actions_taken_json="${ACTIONS_TAKEN_JSON:-[]}"
+  local divergence_obj
+  divergence_obj="$(divergence_json)"
 
   case "$MODE" in
     full)
@@ -113,9 +226,10 @@ emit_json() {
       # it as the JSON value null, not the string "null".
       jq -n \
         --argjson actions_taken "$actions_taken_json" \
+        --argjson divergence "$divergence_obj" \
         --argjson state "${STATE_JSON:-null}" \
         '{
-          divergence: null,
+          divergence: $divergence,
           drift: null,
           handoffs: [],
           state: $state,
@@ -125,8 +239,9 @@ emit_json() {
     divergence-only)
       jq -n \
         --argjson actions_taken "$actions_taken_json" \
+        --argjson divergence "$divergence_obj" \
         '{
-          divergence: null,
+          divergence: $divergence,
           actions_taken: $actions_taken
         }'
       ;;
@@ -155,7 +270,15 @@ emit_json() {
   esac
 }
 
-# In this scaffold step the script runs no detection; it emits the pinned
-# per-mode shape directly. Later steps of this track insert the divergence,
-# drift, and handoff detection ahead of this call.
+# Run the detection each mode needs, then emit. `full` and `divergence-only`
+# both report `divergence`, so they run detect_divergence; `migrate-range`
+# emits no `divergence` and skips it (the byte-source migrate-range walk does
+# not compute ahead/behind). Later steps of this track insert the drift and
+# handoff detection alongside divergence for the `full` mode.
+case "$MODE" in
+  full | divergence-only)
+    detect_divergence
+    ;;
+esac
+
 emit_json
