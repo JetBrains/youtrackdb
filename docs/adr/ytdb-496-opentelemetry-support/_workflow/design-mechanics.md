@@ -53,7 +53,7 @@ The standalone commit span is not threshold-gated in this design. Commit duratio
 
 ### Edge cases / Gotchas
 
-- Default `100` reflects a typical operator threshold for a "slow query worth investigating"; queries faster than that are noise in most trace viewers. Hosts that want to emit every query set `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS=0`; tests that need every span to surface flip the value explicitly.
+- Default `0` (emit-all) matches the OTel-standard "emit everything, let downstream samplers decide" pattern and gives operators first-run visibility immediately after `OPENTELEMETRY_ENABLED=true`. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook; errors always bypass regardless.
 - A query whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
 - The gate evaluates before any work the listener would otherwise do — no `tracer.spanBuilder(...)`, no attribute reads from `QueryDetails` beyond `getErrorType()` and `getQuerySummary()` (both cheap, lazy in the impl). Gated-out queries pay only the resolver lookup (`ConcurrentHashMap.computeIfAbsent` once per distinct tag, O(1) on cache hit) and the listener return.
 - Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) grows the `ConcurrentHashMap` without bound. Same caveat as for `QueryMonitoringModeResolver`; documented as host responsibility, no LRU bound in YTDB-496 because typical workloads have dozens of tags.
@@ -167,7 +167,7 @@ The `defaultCommitThresholdNanos` final field is initialized at OTel listener co
 
 ### Edge cases / Gotchas
 
-- Default `0` preserves today's always-emit behavior. Every existing test setup that asserts on a commit span continues to pass without configuration change. Hosts that want to drop fast commits configure a positive value explicitly. Contrast with the query gate's default `100` ms, which favors "drop noisy short reads" because read volume is naturally high.
+- Default `0` preserves today's always-emit behavior. Every existing test setup that asserts on a commit span continues to pass without configuration change. Hosts that want to drop fast commits configure a positive value explicitly. The query gate's default is also `0` (emit-all) — operators on read-heavy workloads tune the query threshold upward (e.g., to `100` ms) to drop fast successful queries; commits stay at `0` longer because commit volume is bounded by transaction count.
 - A commit whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms commit against a 100 ms threshold passes the gate.
 - Failed commits (`writeTransactionFailed`) bypass the gate unconditionally. The caught cause populates `error.type` and the span status is set to ERROR. A stream of failing commits emits one span per failure regardless of duration.
 - No per-tag override exists in v1. Commits fire at the transaction boundary and have no per-statement query tag context. If operators need per-database or per-host commit thresholds later, the natural extension is a `TagRule<Long>` resolver keyed on `TransactionDetails.getDatabaseName()` and configured via `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_DATABASE_RULES`; the resolver hierarchy already exists (mirrors the query-side `SlowQueryThresholdResolver`), so adding the per-database axis is one row in the OTel listener's gate. Not in v1 scope because no production demand has surfaced.
@@ -326,11 +326,9 @@ public void addRegistrationListener(Consumer<MetricRegistrationEvent> listener);
 public void removeRegistrationListener(Consumer<MetricRegistrationEvent> listener);
 ```
 
-Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>` and fires every listener inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. The fire is synchronous on the registering thread; listeners that need to do heavy work (registering an OTel `ObservableInstrument` is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked.
+Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>` and fires every listener inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. The fire is synchronous on the registering thread; listeners that need to do heavy work (registering an OTel `ObservableInstrument` is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked. Each listener fire runs inside `try { listener.accept(event); } catch (Exception | LinkageError | AssertionError t) { LogManager.instance().warn(this, "metric-registration listener threw", t); }`, so a misconfigured listener logs at WARN and the database-open path completes — the API enforces exception isolation rather than relying on listener-side discipline.
 
 `forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk is a consistent snapshot of `ConcurrentHashMap.entrySet()` — concurrent registrations during the walk may or may not be visible, but every metric registered before `forEachMetric` was called is visited exactly once. The registration listener picks up anything added during or after the walk, so the combination of `forEachMetric` at `start()` plus the listener subscription is a complete enumeration with no race window.
-
-### Async instrument lifecycle
 
 ### Async instrument lifecycle
 
