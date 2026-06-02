@@ -34,10 +34,16 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
     long thresholdNanos = SlowQueryThresholdResolver.global()
         .resolve(Optional.ofNullable(details.getQuerySummary()), defaultThresholdNanos);
     if (thresholdNanos > 0 && executionTimeNanos < thresholdNanos) {
-      return;  // fast successful query — skip span allocation
+      return;  // gate dropped this query
+                // SQL path: returns before spanBuilder(), no allocation.
+                // Gremlin path: GremlinSpanLifecycleHook already allocated the span
+                // at first hasNext(); the early return leaves a skinny span
+                // (no sem-conv attributes set); the hook still ends it at close().
     }
   }
-  // existing span construction (sem-conv attributes, parent context, span.end)
+  // Gremlin path: read Span.fromContext(Context.current()), set sem-conv attributes.
+  // SQL path: spanBuilder(...).setParent(Context.current()).startSpan(); attributes; span.end(...)
+  // dispatched via details.getQuerySource() — see §"Context propagation in embedded".
 }
 ```
 
