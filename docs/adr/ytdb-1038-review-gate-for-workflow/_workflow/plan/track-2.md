@@ -14,7 +14,7 @@ present, else live).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-02T03:55Z [ctx=info] Review + decomposition complete
