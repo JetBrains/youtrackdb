@@ -330,7 +330,7 @@ sequenceDiagram
     participant WC as WriteCache
     participant AF as AsyncFile
 
-    Note over AS: open() after openIndexes,<br/>or postProcessIncrementalRestore after flushAllData
+    Note over AS: open() after openIndexes (disk: only when wereDataRestoredAfterOpen),<br/>or postProcessIncrementalRestore after flushAllData
     AS->>AS: truncateOrphansAfterRecovery() inside executeInsideAtomicOperation
     loop for each EP-equipped component instance
         AS->>SC: verifyAndTruncateOrphans(op, lfrc, wc)
@@ -359,8 +359,20 @@ sequenceDiagram
 
 The orchestrator runs **after** WAL replay has settled logical state
 and the flush executor has been drained — either via `recoverIfNeeded`
-→ `flushAllData` on the `open()` path (when `isDirty()`) or via the
-explicit `flushAllData` call on the incremental-restore path. Inside
+→ `flushAllData` on the `open()` path or via the explicit
+`flushAllData` call on the incremental-restore path. On the disk
+`open()` path the dispatch is gated on `wereDataRestoredAfterOpen`
+(set true only when this open replayed the WAL), not on a re-read
+`isDirty()`: `recoverIfNeeded → flushAllData → clearStorageDirty` has
+already cleared the dirty flag by the time the pass would run, so the
+field is the surviving "did this open replay WAL" signal. A rolled-back
+disk transaction never reaches `commitChanges`, so it leaves no
+physical extend, and a graceful close flushes nothing past the logical
+horizon; a cleanly-closed disk database is therefore orphan-free and
+the pass is skipped (per YTDB-1039 — see the disk-gate design-choice
+bullet under §"Recovery-time orphan-truncation: design choices").
+`postProcessIncrementalRestore` invokes the pass unconditionally
+(it always replayed pages). Inside
 `executeInsideAtomicOperation`, the orchestrator iterates the
 EP-equipped component instances (single-value BTree, multi-value
 BTree, shared-link-bag BTree, position map + paginated collection),
@@ -837,11 +849,24 @@ it merit calling out:
   `flushAllData` — run the pass post-flush so WAL-replay-buffered
   dirty pages settle before truncation. Truncating first would let a
   later flush re-create the orphan.
-- **Unconditional, not `isDirty`-gated.** Orphan creation can survive
-  a crash → clean reopen → clean reclose sequence, so a subsequent
-  open with `isDirty() == false` still needs the pass. The
-  per-component physical-vs-logical compare is cheap enough that the
-  one-shot in-cache EP-page read per storage open is acceptable.
+- **Gated on WAL replay for the disk engine; unconditional where a
+  clean close can orphan.** The general rule is that orphan creation
+  can survive a crash → clean reopen → clean reclose sequence, so a
+  subsequent open with `isDirty() == false` still needs the pass. That
+  rule still holds for the in-memory engine, whose rollback leaves
+  eagerly-installed pages in place. YTDB-1039 refined it for the disk
+  engine: a rolled-back disk transaction never reaches `commitChanges`
+  (the physical apply runs only there, and `endAtomicOperation` skips
+  it while a rollback is in progress), so it leaves no physical extend.
+  A disk orphan therefore requires a crash, and a crash always reopens
+  with WAL replay. The disk pass is gated on `wereDataRestoredAfterOpen`
+  so a gracefully-closed database reopens in O(1) rather than paying a
+  per-component entry-point read. The gate gives up one bounded
+  best-effort retry: a transient `shrinkFile` failure on a readable
+  component is not re-attempted on the next clean reopen. That loss is
+  acceptable because the failure logs a WARN and any later crash
+  re-arms the pass. `DiskStorage.postProcessIncrementalRestore` stays
+  unconditional (it always replayed pages).
 - **EP-page floor.** `targetBytes = max(pageSize, (epLogicalCounter +
   1) * pageSize)` preserves page 0 (the EntryPoint itself) even on
   `epLogicalCounter == 0`. The `+1` arithmetic holds because in all
@@ -857,8 +882,17 @@ it merit calling out:
   call is wrapped: an `IOException` from one component logs a WARN
   and the iteration continues. Per-component invariants — not
   per-storage-atomic invariants — are the contract. If a `.cpm`
-  truncate succeeds but the `.pcl` companion fails, the next reopen
-  reruns the pass and converges.
+  truncate succeeds but the `.pcl` companion fails, the next *crash*
+  reopen reruns the pass and converges (per YTDB-1039 a clean reopen
+  skips the disk pass, so convergence is guaranteed on a later crash
+  reopen, not on the next clean one).
+- **Tests unaffected by the disk gate.** Two coverage points do not
+  observe the YTDB-1039 disk gate. `IndexHistogramSpillRecoveryIT`
+  fabricates an orphan and asserts it survives reopen; the histogram
+  manager has no truncation hook, so the pass never touched it and the
+  gate changes nothing. `AbstractStorageTruncateOrphansAfterRecoveryTest`
+  invokes the orchestrator directly and bypasses `open()`, so the
+  open-time gate is not on its path.
 
 ### Edge cases / Gotchas
 

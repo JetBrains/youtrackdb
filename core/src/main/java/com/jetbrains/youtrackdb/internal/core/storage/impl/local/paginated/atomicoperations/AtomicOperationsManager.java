@@ -318,6 +318,26 @@ public class AtomicOperationsManager {
         final LogSequenceNumber lsn;
         var commitTs = operation.getCommitTs();
         if (!operation.isRollbackInProgress()) {
+          // Load-bearing invariant behind the open-time orphan-pass gate in
+          // AbstractStorage.open (YTDB-1039): a rolled-back atomic operation
+          // must never reach commitChanges. commitChanges is the only path that
+          // performs a physical AsyncFile extend, installs a dirty cache page,
+          // or submits an EnsurePageIsValidInFileTask; if a rollback could
+          // reach it, a rolled-back transaction could leave a physical orphan on
+          // a cleanly-closed file, and the open-time gate (which skips the
+          // recovery orphan-truncation pass whenever the open replayed no WAL)
+          // would then skip a pass that was actually needed. The enclosing if
+          // already guards this, so the assert is structurally redundant today;
+          // it exists to pin the contract AT THE CALL SITE so a future refactor
+          // that merged the branches, moved this call, or weakened the rollback
+          // predicate trips a test (run under -ea) rather than silently breaking
+          // the gate's safety. The assert pins only the write-path half of the
+          // invariant (no physical write on rollback); the read-extend half (no
+          // correct production read extends a file outside crash recovery) is a
+          // separate component-correctness invariant and is not assertable here.
+          assert !operation.isRollbackInProgress()
+              : "commitChanges reached on a rolled-back operation:"
+                  + " a rollback must perform no physical write";
           lsn = operation.commitChanges(commitTs, writeAheadLog);
         } else {
           lsn = null;

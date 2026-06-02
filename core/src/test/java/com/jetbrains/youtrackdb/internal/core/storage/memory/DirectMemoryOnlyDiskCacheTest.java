@@ -531,17 +531,26 @@ public class DirectMemoryOnlyDiskCacheTest {
     assertEquals(4L, cache.getFilledUpTo(fileId));
 
     // Target below current size — must NOT shrink (in-memory engine has no on-disk state)
-    cache.shrinkFile(fileId, PAGE_SIZE);
+    // and must report false so the orchestrator skips the read-cache purge (there is never a
+    // physical truncate to mirror on this engine).
+    assertFalse(
+        "in-memory shrinkFile must report false (no physical truncate) so the orchestrator"
+            + " skips the read-cache purge",
+        cache.shrinkFile(fileId, PAGE_SIZE));
     assertEquals(
         "shrinkFile(WriteCache variant) must be a no-op on the in-memory engine",
         4L, cache.getFilledUpTo(fileId));
 
-    // Target above current size — also a no-op, no growth
-    cache.shrinkFile(fileId, 16L * PAGE_SIZE);
+    // Target above current size — also a no-op, no growth, and still false.
+    assertFalse(
+        "in-memory shrinkFile must report false even when the target exceeds the current size",
+        cache.shrinkFile(fileId, 16L * PAGE_SIZE));
     assertEquals(4L, cache.getFilledUpTo(fileId));
 
-    // Zero target — still a no-op
-    cache.shrinkFile(fileId, 0L);
+    // Zero target — still a no-op and still false.
+    assertFalse(
+        "in-memory shrinkFile must report false on a zero target",
+        cache.shrinkFile(fileId, 0L));
     assertEquals(4L, cache.getFilledUpTo(fileId));
   }
 

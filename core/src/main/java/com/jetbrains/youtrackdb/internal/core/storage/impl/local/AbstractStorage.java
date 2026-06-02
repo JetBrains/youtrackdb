@@ -318,6 +318,17 @@ public abstract class AbstractStorage
   private final Semaphore histogramRebalanceSemaphore;
 
   private boolean wereDataRestoredAfterOpen;
+
+  // Test-observability only: counts how many times the recovery-time orphan-truncation
+  // pass (truncateOrphansAfterRecovery) is dispatched on this storage instance. Production
+  // code never reads it. The open-time dispatch is gated so that a cleanly-closed disk
+  // database that replays no WAL skips the pass entirely (YTDB-1039); a regression test
+  // reads this counter to prove the dispatch did NOT run on a clean reopen and DID run on a
+  // crash (WAL-replay) reopen. File size alone cannot distinguish "pass skipped" from "pass
+  // ran and truncated nothing", so an explicit dispatch counter is the observation hook.
+  // Package-private so only same-package tests can read it; never reset.
+  final AtomicInteger orphanTruncationDispatchCountForTests = new AtomicInteger(0);
+
   protected UUID uuid;
 
   private final AtomicInteger sessionCount = new AtomicInteger(0);
@@ -801,12 +812,36 @@ public abstract class AbstractStorage
 
           // Recovery-time orphan-truncation pass. Restores the per-component
           // logical <= physical invariant before any non-recovery transaction runs.
-          // Unconditional (NOT gated by wereDataRestoredAfterOpen) because an orphan
-          // can survive a crash -> clean-reopen-without-touch -> clean reclose, so a
-          // subsequent open with isDirty() == false still needs the pass. Per-component
-          // helpers each pre-flight to a no-op on a clean shape, so the pass is cheap on
-          // already-consistent storages.
-          atomicOperationsManager.executeInsideAtomicOperation(this::truncateOrphansAfterRecovery);
+          // Gated on wereDataRestoredAfterOpen: on the disk engine an orphan (physical
+          // pages past the logical horizon) is crash-only. A rolled-back transaction
+          // leaves zero physical footprint (the physical apply runs only inside
+          // commitChanges, which endAtomicOperation skips on rollback), and no correct
+          // production read extends a file outside crash recovery (this read-extend
+          // invariant is established in the read-cache-concurrency-bug design:
+          // WOWCache.loadOrAdd's extend branches are unreachable from loadForRead because
+          // no component reads past its own logical horizon), so a cleanly-closed
+          // database is orphan-free. An orphan can therefore arise only from a crash,
+          // and a crash always leaves isDirty() == true at the next open, which sets
+          // wereDataRestoredAfterOpen during recoverIfNeeded(). The pass runs whenever
+          // WAL replay happened. We gate on the field rather than a re-read isDirty()
+          // because recoverIfNeeded -> flushAllData -> clearStorageDirty has already
+          // cleared the dirty flag by the time we reach here, so isDirty() would read
+          // false even on a crash reopen; the field is the surviving "did this open
+          // replay WAL" signal. The field is shared with
+          // IndexManagerEmbedded.autoRecreateIndexesAfterCrash and is set once and never
+          // reset, so it is left alone on close.
+          //
+          // Trade-off: the pass is best-effort: truncateOrphansAfterRecovery wraps each
+          // per-component verifyAndTruncateOrphans dispatch in a try/catch that logs a
+          // truncate IOException as a WARN and continues. Skipping the pass on a clean
+          // reopen drops the cross-clean-cycle retry of a transient truncate failure on
+          // an otherwise readable component. That is bounded-acceptable: such a failure
+          // is loud (it logs a WARN at the reopen where it occurred) and is re-armed by
+          // any later crash, which sets the field again and re-runs the pass.
+          if (wereDataRestoredAfterOpen) {
+            atomicOperationsManager.executeInsideAtomicOperation(
+                this::truncateOrphansAfterRecovery);
+          }
 
           atomicOperationsManager.executeInsideAtomicOperation(
               (atomicOperation) -> {
@@ -1080,6 +1115,13 @@ public abstract class AbstractStorage
    */
   protected void truncateOrphansAfterRecovery(final AtomicOperation atomicOperation)
       throws IOException {
+    // Test-observability only: record that the pass was dispatched (see the field's Javadoc).
+    // Null-guarded because a Mockito CALLS_REAL_METHODS mock of this class skips field
+    // initializers, leaving the counter null; on a real storage instance it is always set.
+    if (orphanTruncationDispatchCountForTests != null) {
+      orphanTruncationDispatchCountForTests.incrementAndGet();
+    }
+
     // Group 1: paginated collections. Each non-null entry truncates the collection's own
     // .pcl data file; the PCV2 helper's siblings hook (verifyAndTruncateOrphansSiblings)
     // then internally truncates the embedded position map's .cpm file.
@@ -3922,6 +3964,16 @@ public abstract class AbstractStorage
 
   public boolean wereDataRestoredAfterOpen() {
     return wereDataRestoredAfterOpen;
+  }
+
+  /**
+   * Test-observability only: the number of times {@code truncateOrphansAfterRecovery} has
+   * been dispatched on this storage instance. Production code never reads it; a regression
+   * test (YTDB-1039) reads it to prove the open-time pass is skipped on a clean reopen and
+   * runs on a crash (WAL-replay) reopen.
+   */
+  int orphanTruncationDispatchCountForTests() {
+    return orphanTruncationDispatchCountForTests.get();
   }
 
   public boolean wereNonTxOperationsPerformedInPreviousOpen() {

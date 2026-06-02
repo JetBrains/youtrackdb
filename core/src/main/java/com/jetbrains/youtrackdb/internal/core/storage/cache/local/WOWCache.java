@@ -1443,9 +1443,9 @@ public final class WOWCache extends AbstractWriteCache
    *       {@code [currentSize, pageIndex]}, and returns the {@link CachePointer} for the
    *       requested {@code pageIndex} only. The intermediate gap pages are stamped on disk
    *       but not held in the read cache. Like the extend branch, the {@code lockManager}
-   *       shared lock is not taken &mdash; once the cache rewiring step lands, the
-   *       caller's outer {@code data.compute} segment write lock publishes the
-   *       freshly-installed pointer before any concurrent flush could observe it.
+   *       shared lock is not taken: the caller's outer {@code data.compute} segment write
+   *       lock publishes the freshly-installed pointer before any concurrent flush could
+   *       observe it.
    * </ul>
    *
    * <p><b>Totality contract.</b> The method never returns {@code null} for any open,
@@ -1457,11 +1457,12 @@ public final class WOWCache extends AbstractWriteCache
    * also fires when the dispatch prelude itself observes a missing entry for {@code fileId}
    * before {@code loadFileContent} would have a chance to.
    *
-   * <p><b>Caller precondition.</b> The post-rewiring design assumes the segment write lock
-   * for the {@code (fileId, pageIndex)} key is held by the caller (via
-   * {@code LockFreeReadCache.data.compute}). That rewiring lands in a follow-up step of the
-   * cache-primitive work; until it lands, the only callers exercising this method are the
-   * dedicated unit tests (no production callers yet). Lock ordering inside this method:
+   * <p><b>Caller precondition.</b> The caller holds the segment write lock for the
+   * {@code (fileId, pageIndex)} key. The production caller is
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache#doLoad},
+   * shared by {@code loadForRead} and {@code loadOrAddForWrite}, which calls this method from
+   * inside {@code data.compute(fileId, pageIndex, ...)} so the segment write lock is held
+   * across the call. Lock ordering inside this method:
    * acquire {@link #filesLock} read lock; on the load branch additionally acquire the
    * {@code lockManager} shared lock for the {@link PageKey}; the dispatch prelude opens
    * one {@code files.acquire(fileId)} cycle and the chosen branch reuses the same handle
@@ -1594,10 +1595,8 @@ public final class WOWCache extends AbstractWriteCache
    * <p>Allocates one page worth of space in the file (atomic {@code getAndAdd}), submits
    * an idempotent {@link EnsurePageIsValidInFileTask} for the single allocated page,
    * returns a magic-stamped empty {@link CachePointer}. No {@code lockManager} shared
-   * lock is taken: once the cache rewiring step lands, the caller's outer
-   * {@code data.compute} segment write lock publishes the freshly-installed pointer
-   * before any concurrent flush could observe it; until that step lands, the only
-   * callers exercising this branch are the dedicated unit tests.
+   * lock is taken: the caller's outer {@code data.compute} segment write lock publishes
+   * the freshly-installed pointer before any concurrent flush could observe it.
    *
    * <p>The {@code fileClassic} reference is supplied by the dispatch prelude under a
    * single {@code files.acquire(fileId)} handle held across this branch; the helper does
@@ -1996,7 +1995,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void shrinkFile(long fileId, final long targetBytes) throws IOException {
+  public boolean shrinkFile(long fileId, final long targetBytes) throws IOException {
     // Argument-validity guards run BEFORE any locking or pre-flight no-op so a contract
     // violation never lands a partial truncate and never racily competes with concurrent
     // file writers for filesLock. These checks run under default JVM flags (no -ea) — the
@@ -2063,7 +2062,11 @@ public final class WOWCache extends AbstractWriteCache
         // filesLock writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
         // stable for the duration of the call.
         if (file.getFileSize() <= targetBytes) {
-          return;
+          // Pre-flight no-op: nothing was truncated. Returning false here (versus true on
+          // the real-truncate fall-through below) is derived from this same getFileSize()
+          // snapshot held under filesLock.writeLock, so the read-cache orchestrator can
+          // skip its purge without reopening a TOCTOU window on a recomputed size compare.
+          return false;
         }
         // Drop write-back layer entries at pageIndex >= minPageIndex BEFORE
         // truncating the AsyncFile. If we truncated first, a concurrent periodic
@@ -2074,6 +2077,21 @@ public final class WOWCache extends AbstractWriteCache
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPages(intId, minPageIndex);
         file.shrink(targetBytes);
+        // Boolean/physical-truncate contract: the true return below is the sole signal
+        // LockFreeReadCache.shrinkFile uses to gate its read-cache purge. Pin that the
+        // file actually reached targetBytes so a future refactor that reorders the return
+        // relative to file.shrink (or inserts an early return between removeCachedPages and
+        // the truncate) cannot silently desync the boolean from the physical state. -ea-only,
+        // zero production cost; coverage-gate.py excludes assert lines.
+        assert file.getFileSize() == targetBytes
+            : "shrinkFile returned true but physical size "
+                + file.getFileSize()
+                + " != target "
+                + targetBytes
+                + " (boolean/truncate desync breaks the read-cache purge gate)";
+        // The file was physically shrunk: signal the read-cache orchestrator to run its
+        // range-scoped purge of cached entries at pageIndex >= minPageIndex.
+        return true;
       } finally {
         files.release(entry);
       }

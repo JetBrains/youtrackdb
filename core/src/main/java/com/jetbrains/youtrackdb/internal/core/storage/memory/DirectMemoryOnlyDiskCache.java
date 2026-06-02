@@ -455,8 +455,10 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
    * a type-test.
    */
   @Override
-  public void shrinkFile(final long fileId, final long targetBytes) {
-    // No-op: in-memory engine cannot produce on-disk orphans.
+  public boolean shrinkFile(final long fileId, final long targetBytes) {
+    // No-op: in-memory engine cannot produce on-disk orphans. Always returns false so the
+    // read-cache orchestrator skips its purge — there is never a physical truncate to mirror.
+    return false;
   }
 
   @Override

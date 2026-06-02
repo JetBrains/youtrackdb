@@ -388,19 +388,32 @@ public interface WriteCache {
    *
    * <p>The in-memory impl ({@code DirectMemoryOnlyDiskCache}) is a no-op: an
    * in-memory engine cannot produce on-disk orphans, so the recovery pass has
-   * nothing to repair.
+   * nothing to repair. It always returns {@code false}.
    *
    * <p>Test-mock implementers throw {@link UnsupportedOperationException}; only the
    * two production implementers (WOWCache and DirectMemoryOnlyDiskCache) need to
    * participate in the recovery pass.
    *
+   * <p><b>Return contract.</b> Returns {@code true} iff the file was physically
+   * shrunk, {@code false} on the pre-flight no-op (a {@code targetBytes} greater
+   * than or equal to the current physical file size, which drops nothing). The
+   * boolean lets the read-cache orchestrator ({@code LockFreeReadCache.shrinkFile})
+   * skip the read-cache purge on a no-op shrink, so the recovery-time pass costs
+   * O(1) per untouched component instead of an O(capacity) sweep. The disk impl
+   * derives the boolean from the same {@code getFileSize()} snapshot held under
+   * {@code filesLock.writeLock} that drives its early-return, so the return is
+   * exact: a recomputed size comparison after the lock drops would reopen a
+   * TOCTOU race.
+   *
    * @param fileId external file id of the target file
    * @param targetBytes new physical size in bytes; must be {@code >= 0} and should be
    *     a multiple of the page size (the recovery pass always supplies a
    *     page-aligned value)
+   * @return {@code true} if the file was physically truncated, {@code false} on the
+   *     pre-flight no-op
    * @throws IOException if the underlying disk I/O fails during the truncate
    */
-  void shrinkFile(long fileId, long targetBytes) throws IOException;
+  boolean shrinkFile(long fileId, long targetBytes) throws IOException;
 
   void renameFile(long fileId, String newFileName) throws IOException;
 

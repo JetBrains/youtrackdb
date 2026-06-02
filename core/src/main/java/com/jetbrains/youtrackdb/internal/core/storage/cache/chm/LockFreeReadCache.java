@@ -709,15 +709,25 @@ public final class LockFreeReadCache implements ReadCache {
               + " pageSize="
               + pageSize);
     }
-    writeCache.shrinkFile(fileId, targetBytes);
-    // LockFreeReadCache and its WriteCache always share the same page size by
-    // construction (the cache stores pages frame-for-frame), so this.pageSize is
-    // the right divisor. Using the local field avoids depending on the WriteCache
-    // impl returning a non-zero pageSize() — TrackingWriteCache returns 0, and a
-    // test-mock that stubs every method should not need to know the page size to
-    // reach the LFRC range-purge.
-    final int minPageIndex = (int) (targetBytes / pageSize);
-    clearFile(fileId, minPageIndex, writeCache);
+    // shrinkFile reports whether the write-back layer physically truncated the
+    // file. The read-cache purge below exists only to evict entries for pages that
+    // were physically dropped; when the target is at or above the current size the
+    // WriteCache no-ops (drops nothing), so there is nothing to purge. Gating the
+    // purge on this flag keeps the recovery-time orphan pass O(1) per component
+    // when nothing is truncated, instead of paying the O(capacity) removeByFileId
+    // sweep on every clean-open dispatch. Invariant: the purge runs iff the
+    // write-cache layer truncated (no dropped pages => no stale cache entries).
+    final boolean truncated = writeCache.shrinkFile(fileId, targetBytes);
+    if (truncated) {
+      // LockFreeReadCache and its WriteCache always share the same page size by
+      // construction (the cache stores pages frame-for-frame), so this.pageSize is
+      // the right divisor. Using the local field avoids depending on the WriteCache
+      // impl returning a non-zero pageSize() — TrackingWriteCache returns 0, and a
+      // test-mock that stubs every method should not need to know the page size to
+      // reach the LFRC range-purge.
+      final int minPageIndex = (int) (targetBytes / pageSize);
+      clearFile(fileId, minPageIndex, writeCache);
+    }
   }
 
   @Override

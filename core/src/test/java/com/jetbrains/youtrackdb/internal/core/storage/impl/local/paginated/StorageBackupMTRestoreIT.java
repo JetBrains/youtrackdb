@@ -83,8 +83,10 @@ import org.junit.experimental.categories.Category;
  *       target-side fabrication.</b> Builds a clean source, takes a backup,
  *       restores into a target, closes the target, fabricates orphan pages on the
  *       target's {@code .pcl} file via {@link RandomAccessFile#setLength(long)},
- *       reopens the target, and asserts the file shrank back to its
- *       pre-fabrication size. Both {@code AbstractStorage.open()} and
+ *       deletes the clean-shutdown markers so the reopen takes the WAL-replay
+ *       (dirty) path the open-time pass is gated on, reopens the target, and asserts
+ *       the file shrank back to its pre-fabrication size. Both
+ *       {@code AbstractStorage.open()} and
  *       {@code DiskStorage.postProcessIncrementalRestore} invoke the same
  *       {@code executeInsideAtomicOperation(this::truncateOrphansAfterRecovery)}
  *       call, so a regression that dropped the recovery-time orphan truncation
@@ -478,11 +480,18 @@ public class StorageBackupMTRestoreIT {
    * the target, then fabricates orphan pages directly on one of the target's
    * {@code .pcl} files via {@link RandomAccessFile#setLength(long)} (the
    * production-equivalent shape for "crash after {@code AsyncFile.allocateSpace}
-   * but before {@code EnsurePageIsValidInFileTask} ran"). Reopens the target via
+   * but before {@code EnsurePageIsValidInFileTask} ran"). Deletes the target's
+   * clean-shutdown markers ({@code dirty.fl} / {@code dirty.flb}) so the reopen takes
+   * the WAL-replay (dirty) recovery path, then reopens via
    * {@link YourTracks#instance(java.nio.file.Path, org.apache.commons.configuration2.Configuration)}
    * + {@code open()}; the open-time recovery pass must shrink the file back to
    * its pre-fabrication size, and a follow-up TX must complete without
    * {@link IllegalStateException}.
+   *
+   * <p>The open-time pass is gated on {@code wereDataRestoredAfterOpen} (set only when
+   * the open replayed the WAL), so the marker deletion is what keeps this scenario on
+   * the path that still runs the pass; a clean reopen would skip it and leave the orphan
+   * tail in place.
    *
    * <p>Both {@code AbstractStorage.open()} and
    * {@code DiskStorage.postProcessIncrementalRestore} invoke the same
@@ -583,9 +592,18 @@ public class StorageBackupMTRestoreIT {
             + " would be vacuous")
         .isEqualTo(sizeBeforeFabrication + (long) ORPHAN_PAGE_COUNT * pageSize);
 
-    // Reopen the target. AbstractStorage.open() runs the recovery-time
-    // truncateOrphansAfterRecovery pass unconditionally; the .pcl file must
-    // shrink back to its pre-fabrication size before any non-recovery TX runs.
+    // Force the reopen onto the WAL-replay (dirty) recovery path so the open-time
+    // orphan pass runs. The restore + graceful close left the target's dirty.fl /
+    // dirty.flb clean-shutdown markers in place, which would make this reopen clean
+    // (wereDataRestoredAfterOpen == false); the open-time pass is gated on that flag,
+    // so on a clean reopen it would not run and the shrink assertion below would never
+    // see the orphan tail removed. Deleting the markers reproduces the on-disk signal
+    // the WAL-replay harness in LocalPaginatedStorageRestoreFromWALIT relies on: the
+    // next open re-creates the marker as dirty and replays the WAL. The data files were
+    // fully flushed by the graceful close, so the replay does not touch the fabricated
+    // orphan tail; the gated recovery pass is what truncates it.
+    java.nio.file.Files.deleteIfExists(storagePath.resolve("dirty.fl"));
+    java.nio.file.Files.deleteIfExists(storagePath.resolve("dirty.flb"));
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     long sizeImmediatelyAfterReopen;
     try (var targetSession = openSession(backupDbName, config)) {
