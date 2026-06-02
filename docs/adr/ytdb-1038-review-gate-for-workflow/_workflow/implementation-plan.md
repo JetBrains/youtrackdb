@@ -307,6 +307,15 @@ flowchart TB
   > §1.7-wide sweep, out of this plan's scope.
   >
   > **Track file:** `plan/track-2.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 2
+  > satisfied Track 3's dependency exactly: the read caveat landed in all
+  > three criteria prompts (`technical-review.md`, `risk-review.md`,
+  > `adversarial-review.md`). Its WP1 gate-clause reword ("carries the
+  > canonical `§1.7(b)` workflow-modifying marker sentence") gives Track 3's
+  > addendum a baseline to mirror, a Phase B implementation detail rather
+  > than a plan change. Component Map, Decision Records, and inter-track
+  > dependencies are unchanged.
 
 - [ ] Track 3: Phase A criteria addendum (YTDB-1046)
   > The Phase A technical, risk, and adversarial reviewers apply Java criteria
