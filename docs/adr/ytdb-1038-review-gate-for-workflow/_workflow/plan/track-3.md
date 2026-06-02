@@ -180,3 +180,7 @@ Staging: per `§1.7`, all three edits route through
 files stay at develop's state until Phase 4 promotion.
 
 Full design: design.md §"Phase A criteria for workflow-machinery tracks".
+
+## Base commit
+
+bdbdfb29850c562c37add11ff674d42d3adff2fa
