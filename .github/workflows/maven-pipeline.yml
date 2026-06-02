@@ -79,7 +79,14 @@ jobs:
             exit 0
           fi
 
-          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
+          # Three-dot (merge-base) diff, NOT two-dot. BASE_SHA is the base
+          # branch tip at event time, which may be ahead of where this branch
+          # forked. A two-dot "git diff BASE_SHA HEAD" would then report every
+          # commit the base branch gained since the fork as a phantom change on
+          # this branch, flagging unrelated code files and forcing a needless
+          # build on docs/workflow-only PRs that have fallen behind develop.
+          # The three-dot form scopes the diff to this branch's own commits.
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA...HEAD")
 
           if [[ -z "$CHANGED_FILES" ]]; then
             echo "No changed files detected — skipping build"
