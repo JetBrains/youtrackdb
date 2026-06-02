@@ -357,6 +357,16 @@ flowchart TB
   > same three prompts first). Independent of Track 4; no cross-track impact.
   >
   > **Track file:** `plan/track-3.md` (1 step, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 3 was independent of Track 4 and
+  > recorded no cross-track impact. Track 4's only dependency (Track 2) is
+  > complete and already landed the read caveat in both context blocks Track 4
+  > extends, so the dependency is satisfied, not merely unblocked. The
+  > Component Map (DELTA node), D5, and the S2 invariant ("Tracks 2 + 4")
+  > already account for Track 4; no plan change. One Phase B note carries
+  > forward: Track 4's delta note layers onto Track 2's WP1-reworded caveat
+  > ("carries the canonical `§1.7(b)` workflow-modifying marker sentence") in
+  > both context blocks and must stay byte-uniform between them (S2).
 
 - [ ] Track 4: Review-target delta-scoping for staged copies (YTDB-1038)
   > On a workflow-modifying plan a track's deliverable is a staged copy; when
