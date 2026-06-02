@@ -15,7 +15,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-01T14:27Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
@@ -26,6 +26,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-01T16:55Z [ctx=info] Step 5 complete (commit 5b62ae94ef; low, docs)
 - [x] 2026-06-02T04:10Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations; commit 2c4f0b2038, 13 review-fix items applied, 0 blockers)
 - [x] 2026-06-02T04:17Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations; commit d2811afba9, design-final.md convergence-claim consistency fix mirroring the iter-1 adr.md fix)
+- [x] 2026-06-02T04:18Z [ctx=info] Track-level code review complete — PASS at iteration 2 (11-agent fan-out, all dimensions VERIFIED, 0 blockers)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -132,6 +133,32 @@ summary at Phase C. -->
   at `endAtomicOperation:267` and `:310-314`. One non-blocking nit NF1 (stale
   `clearStorageDirty` line number) fixed by dropping the line number. Plan-file
   D1 left unedited (rationale refinement only).
+
+- [x] Phase C track-level code review: PASS at iteration 2. An 11-agent
+  fan-out (4 baseline + crash-safety, test-crash-safety, test-structure,
+  performance + 3 workflow-review on the `docs/adr` files) found no blockers:
+  the crash-safety reviewer independently confirmed the gate preserves I6 and
+  the performance reviewer confirmed the O(1) clean reopen. Iteration 1
+  (commit 2c4f0b2038) applied 13 review-fix items — 8 should-fix, 5
+  suggestions — across the gate comment, the two test files, and the
+  read-cache-concurrency-bug docs. The notable test-strengthening: the
+  `cleanReopenAfterRollback` rollback-footprint assertion was vacuous (200
+  small rows fit one page, so a committed control showed no growth either),
+  fixed by scaling the workload to ~2000×256B and adding a committed-control
+  test. Iteration 2 (commit d2811afba9) closed one gate-check residual: the
+  `design-final.md` convergence bullet still implied every reopen reruns the
+  pass, fixed to mirror the iteration-1 `adr.md` qualifier so the durable doc
+  is internally consistent. All gate-checks returned VERIFIED.
+  - Accepted known boundaries (documented, not fixed): no genuine
+    process-kill crash test (the marker-deletion `forceDirtyReopen` is a
+    deliberate Phase A scope choice; the unit test plus the synthetic-orphan
+    component scenarios carry the regression value, and
+    `LocalPaginatedStorageRestoreFromWALIT` covers genuine crash+replay at
+    the storage level); the WARN-test reflection helpers remain duplicated
+    from the sibling orchestrator unit test (a rename fails loudly); failure
+    injection is exercised on Group 1 with a cross-group continue assertion
+    rather than per-group; the orphan-page count stays at 4 across all
+    migrated scenarios (a pre-existing inherited limitation).
 
 ## Context and Orientation
 
