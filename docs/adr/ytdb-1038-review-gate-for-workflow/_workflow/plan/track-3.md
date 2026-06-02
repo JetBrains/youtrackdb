@@ -17,11 +17,18 @@ reviewers self-adapt.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-02T07:05Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-02T07:17Z [ctx=safe] Step 1 complete (commit 9a671fe)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-06-02T07:17Z Step 1 discovered: the Phase A addendum (md5 d38747dc) and
+  Track 2's read caveat now form a contiguous staged-only block in the three
+  criteria prompts, with no live counterpart until Phase 4; Track 4/D5
+  delta-scoping and Phase C's S3 cross-check should treat both as one
+  new-region staged addition. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -108,12 +115,46 @@ Ordering and invariants:
 
 ## Concrete Steps
 
-1. Author the marker-gated workflow-machinery criteria addendum block and add it byte-identically to the three Phase A criteria prompts (`technical-review.md`, `risk-review.md`, `adversarial-review.md` under `.claude/workflow/prompts/`, staged copies), gated on the canonical `§1.7(b)` workflow-modifying marker sentence (the same gate clause as the Track 2 read caveat: "carries the canonical `§1.7(b)` workflow-modifying marker sentence"). Per D4 the addendum re-points the criteria when the marker is present: (a) verify named references as workflow file paths and `§`-anchors via grep + Read — a non-resolving workflow path or anchor is the finding, while a non-resolving Java symbol is NOT a blocker on a prose reference, so a track mixing prose and code keeps both lenses (design edge case; finding T2); (b) the five prose criteria (rule coherence and non-contradiction, instruction completeness, prompt-design soundness, context-budget impact, breakage of dependent prompts or agents) supersede — not merely append to — the prompt's Java EDGE-CASES / INTEGRATION-POINTS / BACKWARD-COMPAT / `findClass` NAMED-REFERENCES criteria for that review (finding T1). Leave `review-gate-verification.md` addendum-free (criteria-agnostic; out of scope). Verify S3 byte-uniformity of the addendum across the three prompts. — risk: low (default: additive marker-gated prose addendum mirrored byte-identically across three Phase A criteria prompts; established Track 2 caveat pattern; staged under `_workflow/staged-workflow/`; S3-checkable)  [ ]
+1. Author the marker-gated workflow-machinery criteria addendum block and add it byte-identically to the three Phase A criteria prompts (`technical-review.md`, `risk-review.md`, `adversarial-review.md` under `.claude/workflow/prompts/`, staged copies), gated on the canonical `§1.7(b)` workflow-modifying marker sentence (the same gate clause as the Track 2 read caveat: "carries the canonical `§1.7(b)` workflow-modifying marker sentence"). Per D4 the addendum re-points the criteria when the marker is present: (a) verify named references as workflow file paths and `§`-anchors via grep + Read — a non-resolving workflow path or anchor is the finding, while a non-resolving Java symbol is NOT a blocker on a prose reference, so a track mixing prose and code keeps both lenses (design edge case; finding T2); (b) the five prose criteria (rule coherence and non-contradiction, instruction completeness, prompt-design soundness, context-budget impact, breakage of dependent prompts or agents) supersede — not merely append to — the prompt's Java EDGE-CASES / INTEGRATION-POINTS / BACKWARD-COMPAT / `findClass` NAMED-REFERENCES criteria for that review (finding T1). Leave `review-gate-verification.md` addendum-free (criteria-agnostic; out of scope). Verify S3 byte-uniformity of the addendum across the three prompts. — risk: low (default: additive marker-gated prose addendum mirrored byte-identically across three Phase A criteria prompts; established Track 2 caveat pattern; staged under `_workflow/staged-workflow/`; S3-checkable)  [x] commit: 9a671fe
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 9a671fe, 2026-06-02T07:17Z [ctx=safe]
+**What was done:** Added a marker-gated workflow-machinery criteria addendum
+byte-identically (md5 d38747dc) to the three staged Phase A criteria prompts
+(`technical-review.md`, `risk-review.md`, `adversarial-review.md` under
+`_workflow/staged-workflow/.claude/workflow/prompts/`). The block sits
+immediately after Track 2's staged-read caveat in each file and gates on the
+same canonical `§1.7(b)` workflow-modifying marker sentence. When the marker
+is present it re-points the Phase A criteria: (a) verify named references as
+workflow file paths and `§`-anchors via grep and Read rather than as Java FQNs
+via `findClass`, where a non-resolving workflow path or anchor is the finding
+and a non-resolving Java symbol is not a blocker on a prose reference, so a
+track mixing prose and code keeps both lenses (T2); (b) five prose criteria
+(rule coherence and non-contradiction, instruction completeness, prompt-design
+soundness, context-budget impact, dependent-prompt or agent breakage) supersede
+rather than append to the Java EDGE-CASES, INTEGRATION-POINTS, BACKWARD-COMPAT,
+and `findClass` NAMED-REFERENCES criteria for the prose part (T1).
+`review-gate-verification.md` was left addendum-free, criteria-agnostic and out
+of scope. Both pre-commit gates passed (no ephemeral identifiers outside
+`_workflow/`; no live `.claude/workflow/` path staged).
+
+**What was discovered:** Track 2's read caveat is already present
+byte-identically in all three staged criteria prompts, so the Track 2
+dependency is satisfied and `§1.7(e)` copy-then-edit-on-first-touch did not
+re-fire. The caveat and the new addendum now form a contiguous staged-only
+block in each of the three files, with no live counterpart until the Phase 4
+promotion (`§1.7(h)`); Track 4's D5 delta-scoping and Phase C's S3 cross-check
+should treat both blocks as one new-region staged addition. The addendum's
+normalized md5 is d38747dc, the key for any future S3 re-verification.
+
+**Key files:**
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/prompts/technical-review.md` (modified)
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/prompts/risk-review.md` (modified)
+- `docs/adr/ytdb-1038-review-gate-for-workflow/_workflow/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (modified)
 
 ## Validation and Acceptance
 
