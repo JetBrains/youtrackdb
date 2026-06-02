@@ -882,8 +882,10 @@ it merit calling out:
   call is wrapped: an `IOException` from one component logs a WARN
   and the iteration continues. Per-component invariants — not
   per-storage-atomic invariants — are the contract. If a `.cpm`
-  truncate succeeds but the `.pcl` companion fails, the next reopen
-  reruns the pass and converges.
+  truncate succeeds but the `.pcl` companion fails, the next *crash*
+  reopen reruns the pass and converges (per YTDB-1039 a clean reopen
+  skips the disk pass, so convergence is guaranteed on a later crash
+  reopen, not on the next clean one).
 - **Tests unaffected by the disk gate.** Two coverage points do not
   observe the YTDB-1039 disk gate. `IndexHistogramSpillRecoveryIT`
   fabricates an orphan and asserts it survives reopen; the histogram
