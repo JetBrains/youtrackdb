@@ -968,6 +968,107 @@ def test_drift_phase2_real_workflow_commit_vs_staged_distinguished() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pending mid-phase handoff scan.
+#
+# `full` mode runs `ls -t <plan_dir>/_workflow/handoff-*.md` (byte-source:
+# workflow.md § Startup Protocol step 4) and reports the file BASENAMES in
+# `handoffs`, most-recent-first by mtime so the agent resumes the newest pause
+# first. Two cases: a plan dir holding multiple handoffs (the basenames appear
+# in mtime order) and a plan dir holding none (`handoffs` is the empty array —
+# the empty-safe path, the common session-start case). Each runs inside a clean
+# GitFixture so the divergence half of the same `full` run does not fetch the
+# runner's real remote.
+# ---------------------------------------------------------------------------
+
+
+def _set_mtime(path: Path, when: float) -> None:
+    """Force a file's mtime so `ls -t` ordering is deterministic regardless of
+    how fast the fixture authored the files. Without this, two handoffs written
+    in the same wall-clock second could sort either way and the order assertion
+    would flake."""
+    os.utime(path, (when, when))
+
+
+def test_handoffs_reported_in_mtime_order_newest_first() -> None:
+    """Three handoff files under the active plan's `_workflow/` are reported in
+    `handoffs` as basenames, most-recent-first by mtime. The fixture forces
+    distinct, ascending mtimes (oldest -> newest), so the expected `ls -t` order
+    is the reverse: newest basename first. This pins that the script preserves
+    `ls -t`'s mtime ordering into the JSON array (the resume protocol depends on
+    processing the newest pause first) and strips the path to the basename."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # Author three handoffs, then stamp distinct ascending mtimes so the
+        # ordering is unambiguous. base is an arbitrary fixed epoch; +10s steps
+        # keep the three well apart even on coarse-mtime filesystems.
+        oldest = fx.handoff("handoff-oldest.md")
+        middle = fx.handoff("handoff-middle.md")
+        newest = fx.handoff("handoff-newest.md")
+        base = 1_700_000_000.0
+        _set_mtime(oldest, base)
+        _set_mtime(middle, base + 10)
+        _set_mtime(newest, base + 20)
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        # ls -t is newest-first, so the array reverses the authored mtime order.
+        assert obj["handoffs"] == [
+            "handoff-newest.md",
+            "handoff-middle.md",
+            "handoff-oldest.md",
+        ], f"handoffs must be ls -t (newest-first) basenames, got {obj['handoffs']!r}"
+
+
+def test_handoffs_empty_when_none_present() -> None:
+    """A plan dir that exists (carries a stamped artifact) but holds no
+    `handoff-*.md` reports `handoffs` as the empty array — the empty-safe scan
+    path. Distinct from `test_full_mode_pinned_shape`, which asserts `[]` on a
+    fixture with no plan dir at all: here the `_workflow/` dir is present and
+    non-empty, so the glob genuinely matches nothing rather than the parent dir
+    being absent. This pins that `ls` matching no file collapses to `[]`, not a
+    one-element array of the unexpanded glob or a script abort."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # A stamped plan artifact makes the _workflow/ dir exist and be
+        # non-empty, but it is not a handoff-*.md, so the handoff glob matches
+        # nothing.
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha())
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        assert obj["handoffs"] == [], (
+            f"no handoff present must yield handoffs=[], got {obj['handoffs']!r}"
+        )
+
+
+def test_state_stub_is_json_null_in_full_mode() -> None:
+    """`full` mode emits `state` as JSON `null` — the seam the state parser
+    fills later. Asserted with `is None` (a strict null check, not a falsy
+    check) so a regression to the string "null" or an empty object is caught.
+    Pinning the stub as exactly JSON null keeps the later state-parser change a
+    clean null -> object diff: the stub shape must be JSON null here, not an
+    empty object or the string "null"."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        assert obj["state"] is None, (
+            f"full mode state must be JSON null (the state-parser seam), got "
+            f"{obj['state']!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # § 1.6(h) source-extraction conformance.
 #
 # The drift walk in the script is byte-copied from conventions.md § 1.6(h)
@@ -1168,6 +1269,9 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_phase2_merge_base_failed_kind_scalars_null", test_drift_phase2_merge_base_failed_kind_scalars_null),
     ("drift_phase2_staged_subtree_excluded_from_range", test_drift_phase2_staged_subtree_excluded_from_range),
     ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
+    ("handoffs_reported_in_mtime_order_newest_first", test_handoffs_reported_in_mtime_order_newest_first),
+    ("handoffs_empty_when_none_present", test_handoffs_empty_when_none_present),
+    ("state_stub_is_json_null_in_full_mode", test_state_stub_is_json_null_in_full_mode),
     ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
     ("conformance_script_walk_carries_no_stamped_pairs_yet", test_conformance_script_walk_carries_no_stamped_pairs_yet),

@@ -411,6 +411,72 @@ detect_drift() {
 }
 
 # ---------------------------------------------------------------------------
+# Pending mid-phase handoff scan.
+#
+# Byte-source: workflow.md § Startup Protocol step 4 and
+# mid-phase-handoff.md § "Both /create-plan and /execute-tracks MUST run this
+# check". The canonical idiom is:
+#
+#   ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
+#
+# `-t` sorts most-recent-first by mtime so the resume protocol processes
+# handoffs in the correct order; on an mtime tie `ls -t` falls back to
+# descending filename order, which matches the byte-source's tie rule
+# (mid-phase-handoff.md § Resume protocol step 2). The active plan dir is
+# `docs/adr/<branch>` per § 1.6(g), the same resolution detect_drift uses.
+#
+# `handoffs` carries the file BASENAMES (e.g. "handoff-track-4-phaseC.md"), not
+# the full paths — the agent resolves them under the known plan dir
+# (design.md § "The JSON contract"). The `2>/dev/null` glob means a plan dir
+# with no handoff yields no lines, so the empty-safe path produces the empty
+# JSON array `[]` (no handoff pending — the common case at session start).
+#
+# scan_handoffs writes the JSON array literal directly into HANDOFFS_JSON
+# (consumed by emit_json via --argjson) because the order must survive into
+# the array and a plain space-delimited word list cannot preserve a basename
+# containing a space — handoff basenames never do, but building the array with
+# jq keeps the emit contract uniform with the other detection objects.
+# ---------------------------------------------------------------------------
+
+# Output of scan_handoffs, consumed by emit_json. Defaults to the empty array
+# so emit_json never reads an unset variable on a mode that skips the scan.
+HANDOFFS_JSON="[]"
+
+scan_handoffs() {
+  # Resolve the active plan dir from the current branch per § 1.6(g), matching
+  # detect_drift's resolution. A detached HEAD yields an empty branch name and
+  # therefore a plan dir that matches no handoff, collapsing cleanly to the
+  # empty-array path rather than aborting the no-errexit script.
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  local plan_dir="docs/adr/${branch}"
+
+  # `ls -t` lists most-recent-first by mtime (filename-descending on a tie).
+  # The trailing `|| true` keeps the no-errexit script from carrying a failure
+  # status when the glob matches nothing (ls exits non-zero on no match even
+  # with 2>/dev/null swallowing the diagnostic). `basename` strips the plan-dir
+  # prefix so the array carries just the file names; the order is preserved
+  # because the loop reads ls's already-sorted lines top to bottom.
+  local listing
+  listing="$(ls -t "$plan_dir/_workflow/"handoff-*.md 2>/dev/null || true)"
+
+  if [ -z "$listing" ]; then
+    # Empty-safe: no handoff pending. The pinned empty array stands.
+    HANDOFFS_JSON="[]"
+    return
+  fi
+
+  # Reduce each full path to its basename, preserving the ls -t order, and
+  # build the JSON array with jq (jq -R reads each raw line; -s slurps the
+  # lines into one array so the emitted order matches the input order).
+  HANDOFFS_JSON="$(printf '%s\n' "$listing" \
+    | while IFS= read -r path; do
+        [ -n "$path" ] && basename "$path"
+      done \
+    | jq -Rnc '[inputs]')"
+}
+
+# ---------------------------------------------------------------------------
 # The single JSON emit point — the one site that knows the JSON shape, so the
 # contract has exactly one authoring home (the one-contract-home invariant).
 #
@@ -481,17 +547,18 @@ drift_json() {
 
 emit_json() {
   # Detection functions write the plain shell variables this function reads.
-  # Divergence (DIVERGENCE_*) and drift (DRIFT_* + the STAMPED_SHAS /
-  # UNSTAMPED_FILES classification) are populated; emit assembles them via
-  # divergence_json and drift_json. The handoff scan and the state parser land
-  # in later steps, so `handoffs` is still a pinned empty array and `state` is
-  # still JSON null. actions_taken stays an empty array (a later track wires the
-  # no-drift normalization commit into it).
+  # Divergence (DIVERGENCE_*), drift (DRIFT_* + the STAMPED_SHAS /
+  # UNSTAMPED_FILES classification), and the handoff scan (HANDOFFS_JSON) are
+  # populated; emit assembles them via divergence_json, drift_json, and the
+  # HANDOFFS_JSON array literal. The state parser lands in a later track, so
+  # `state` is still JSON null. actions_taken stays an empty array (a later
+  # track wires the no-drift normalization commit into it).
   #
   # ACTIONS_TAKEN_JSON is a JSON array literal so callers that record an
   # autonomous mutation can replace the empty `[]` without re-threading the
   # null idiom. The scaffold leaves it empty.
   local actions_taken_json="${ACTIONS_TAKEN_JSON:-[]}"
+  local handoffs_json="${HANDOFFS_JSON:-[]}"
   local divergence_obj drift_obj
   divergence_obj="$(divergence_json)"
   drift_obj="$(drift_json)"
@@ -499,17 +566,20 @@ emit_json() {
   case "$MODE" in
     full)
       # `state` is JSON null in this scaffold; the state parser fills it in a
-      # later change. The null literal is injected via --argjson so jq treats
-      # it as the JSON value null, not the string "null".
+      # later track. The null literal is injected via --argjson so jq treats
+      # it as the JSON value null, not the string "null". `handoffs` is the
+      # scan_handoffs array literal (the empty array when no handoff is
+      # pending), spliced via --argjson so the ls -t mtime order survives.
       jq -n \
         --argjson actions_taken "$actions_taken_json" \
         --argjson divergence "$divergence_obj" \
         --argjson drift "$drift_obj" \
+        --argjson handoffs "$handoffs_json" \
         --argjson state "${STATE_JSON:-null}" \
         '{
           divergence: $divergence,
           drift: $drift,
-          handoffs: [],
+          handoffs: $handoffs,
           state: $state,
           actions_taken: $actions_taken
         }'
@@ -550,14 +620,15 @@ emit_json() {
 
 # Run the detection each mode needs, then emit. `full` and `divergence-only`
 # both report `divergence`, so they run detect_divergence; `full` additionally
-# runs the drift Phase 1 walk via detect_drift. `migrate-range` emits no
+# runs the drift Phase 1+2 walk via detect_drift and the pending-handoff scan
+# via scan_handoffs (only `full` carries `handoffs`). `migrate-range` emits no
 # `divergence` and skips it (the byte-source migrate-range walk does not compute
-# ahead/behind); its own walk + fold land in a later step. A later step also
-# inserts the handoff scan for the `full` mode.
+# ahead/behind); its own walk + fold land in a later step.
 case "$MODE" in
   full)
     detect_divergence
     detect_drift
+    scan_handoffs
     ;;
   divergence-only)
     detect_divergence
