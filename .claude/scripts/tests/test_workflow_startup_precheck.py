@@ -234,6 +234,52 @@ class GitFixture:
         self._git("add", f"orphan-{name}.txt")
         self._git("commit", "-q", "-m", message)
 
+    # -- drift-walk plan-artifact surface ------------------------------------
+
+    @property
+    def plan_dir(self) -> Path:
+        """The active plan dir the precheck's drift walk resolves: the precheck
+        builds `docs/adr/<branch>` from the current branch name (§ 1.6(g)), so a
+        fixture's plan artifacts must live under the matching branch dir."""
+        return self.path / "docs" / "adr" / self.default_branch
+
+    def plan_artifact(
+        self, relpath: str, *, stamp: Optional[str], body: str = "# Title\n"
+    ) -> Path:
+        """Author a `_workflow/` plan artifact for the drift walk to classify.
+
+        `relpath` is relative to `<plan_dir>/_workflow/` (e.g.
+        `implementation-plan.md` or `plan/track-1.md`). `stamp` is a 40-hex SHA
+        written as the line-1 `<!-- workflow-sha: <sha> -->` comment (the
+        stamped case) or None (the unstamped case — the file starts with the
+        `body` and the walk classifies it unstamped). The file is committed so
+        the working tree is clean for the divergence half of the same run.
+        """
+        path = self.plan_dir / "_workflow" / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if stamp is not None:
+            content = f"<!-- workflow-sha: {stamp} -->\n{body}"
+        else:
+            content = body
+        path.write_text(content, encoding="utf-8")
+        rel = path.relative_to(self.path)
+        self._git("add", str(rel))
+        self._git("commit", "-q", "-m", f"add {relpath}")
+        return path
+
+    def handoff(self, name: str = "handoff-test.md") -> Path:
+        """Author a transient `handoff-*.md` under the plan's `_workflow/` — a
+        non-stampable artifact. Used by the empty-input drift fixture: a
+        `_workflow/` holding only a handoff has no stampable artifact, so both
+        the stamped and unstamped sets stay empty (the silent no-drift path)."""
+        path = self.plan_dir / "_workflow" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Handoff\n", encoding="utf-8")
+        rel = path.relative_to(self.path)
+        self._git("add", str(rel))
+        self._git("commit", "-q", "-m", f"add {name}")
+        return path
+
 
 # ---------------------------------------------------------------------------
 # Test cases. Each raises AssertionError on failure with a clear message.
@@ -524,6 +570,292 @@ def test_divergence_object_present_in_full_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Drift Phase 1 — artifact walk + classification.
+#
+# The precheck's `full` mode walks the active plan's `_workflow/**` artifacts
+# (byte-copied from conventions.md § 1.6(h)) and classifies each as stamped or
+# unstamped. Phase 1 resolves three outcomes: empty-input (no stampable
+# artifact -> silent no-drift), any unstamped (-> drift detected,
+# kind="unstamped"), and all-stamped (-> kind="stamped", with the fold scalars
+# left for the Phase 2 merge-base fold + `git log` in a later step). Each
+# fixture sets up the matching plan-artifact state inside a GitFixture and
+# asserts the `drift` object. A clean upstream is added so the divergence half
+# of the same `full` run does not fetch the runner's real remote.
+# ---------------------------------------------------------------------------
+
+
+# A throwaway but well-formed 40-hex SHA distinct from SYNTHETIC_SHA, used to
+# stamp drift-walk fixtures. The walk classifies on the stamp's presence and
+# anchored shape, not on whether the SHA resolves to a real commit.
+STAMP_SHA = "b" * 40
+STAMP_SHA_2 = "c" * 40
+
+
+def _drift(proc: subprocess.CompletedProcess) -> dict:
+    """Parse the `drift` object from a full-mode run, asserting the run itself
+    succeeded first so a script error surfaces clearly rather than as a
+    downstream KeyError."""
+    assert proc.returncode == 0, (
+        f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+    )
+    obj = json.loads(proc.stdout)
+    return obj["drift"]
+
+
+def test_drift_all_stamped_classifies_stamped_scalars_null() -> None:
+    """An all-stamped plan (implementation-plan.md + a track file, both carrying
+    a line-1 workflow-sha) classifies as kind="stamped". Phase 1 owns only the
+    classification: the fold-derived scalars (base_sha, commit_count,
+    first_commits) stay null and detected stays false until the Phase 2 fold (a
+    later step) finalizes them. This pins the Phase-1/Phase-2 seam so the later
+    step's first change is a clean fill of the null scalars."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        fx.plan_artifact("implementation-plan.md", stamp=STAMP_SHA)
+        fx.plan_artifact("plan/track-1.md", stamp=STAMP_SHA_2)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["kind"] == "stamped", f"all-stamped kind should be 'stamped': {drift!r}"
+        assert drift["detected"] is False, (
+            f"all-stamped detected is false until Phase 2 fold lands: {drift!r}"
+        )
+        # Fold scalars are asserted JSON null (not falsy) so the seam is exact.
+        assert drift["base_sha"] is None, f"base_sha should be null in Phase 1: {drift!r}"
+        assert drift["commit_count"] is None, (
+            f"commit_count should be null in Phase 1: {drift!r}"
+        )
+        assert drift["first_commits"] == [], (
+            f"first_commits should be [] in Phase 1: {drift!r}"
+        )
+        assert drift["normalization_landed"] is False, (
+            f"normalization_landed is hard-false in this track: {drift!r}"
+        )
+
+
+def test_drift_unstamped_detects_drift_kind_unstamped() -> None:
+    """A plan with any unstamped artifact short-circuits to drift detected with
+    kind="unstamped": no fold runs, so the fold scalars are JSON null. Asserted
+    via `is None` (a strict null check), the regression the empty->null idiom
+    guards against. The unstamped file here is implementation-plan.md with no
+    line-1 stamp comment; a co-present stamped track file does not suppress the
+    unstamped signal (any unstamped artifact is sufficient)."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        fx.plan_artifact("implementation-plan.md", stamp=None)  # unstamped
+        fx.plan_artifact("plan/track-1.md", stamp=STAMP_SHA)  # stamped sibling
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is True, f"unstamped must detect drift: {drift!r}"
+        assert drift["kind"] == "unstamped", f"kind should be 'unstamped': {drift!r}"
+        assert drift["base_sha"] is None, (
+            f"unstamped base_sha should be JSON null, got {drift['base_sha']!r}"
+        )
+        assert drift["commit_count"] is None, (
+            f"unstamped commit_count should be JSON null, got {drift['commit_count']!r}"
+        )
+        assert drift["first_commits"] == [], (
+            f"unstamped first_commits should be [], got {drift['first_commits']!r}"
+        )
+
+
+def test_drift_empty_input_silent_no_drift_kind_null() -> None:
+    """A `_workflow/` holding only a transient handoff-*.md has no stampable
+    artifact, so both the stamped and unstamped sets stay empty: the silent
+    no-drift path. detected=false and kind is JSON null — distinct from the
+    all-stamped clean case (kind="stamped") and from the unstamped case
+    (kind="unstamped"). The null kind is asserted with `is None` so the
+    empty-input case is told apart from a literal "stamped"/"unstamped"
+    string."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        fx.handoff()  # only a handoff under _workflow/, no stampable artifact
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is False, f"empty-input must not detect drift: {drift!r}"
+        assert drift["kind"] is None, (
+            f"empty-input kind should be JSON null (no classification), got {drift['kind']!r}"
+        )
+        assert drift["base_sha"] is None, f"empty-input base_sha should be null: {drift!r}"
+        assert drift["commit_count"] is None, (
+            f"empty-input commit_count should be null: {drift!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# § 1.6(h) source-extraction conformance.
+#
+# The drift walk in the script is byte-copied from conventions.md § 1.6(h)
+# "Phase 1 walk bash block" (with the anchored § 1.6(a1) value-extraction
+# regex). This test is a SOURCE comparison, not a behavior smoke test: it
+# extracts the canonical walk block from conventions.md and the script's walk
+# from the script, then asserts they share the same `ls`-glob set and the same
+# anchored regex. A future § 1.6(h) edit the script misses (a new artifact kind
+# added to the glob, the regex de-anchored) fails the suite even when every
+# behavior fixture still passes against the stale walk.
+#
+# The one sanctioned divergence is the `migrate-range` walk's `STAMPED_PAIRS`
+# `$f=$SHA` pairing line (migrate-workflow/SKILL.md Step 2 names it explicitly):
+# that line lands in a later step and is whitelisted here so the conformance
+# check does not flag it as drift from § 1.6(h).
+# ---------------------------------------------------------------------------
+
+
+CONVENTIONS_PATH = REPO_ROOT / ".claude" / "workflow" / "conventions.md"
+
+# The four artifact globs the § 1.6(h) walk enumerates, in order. The
+# conformance check confirms both the canonical block and the script's walk
+# enumerate exactly this set (modulo the `$PLAN_DIR` / `<dir-name>` prefix the
+# byte-source declares as substituted at invocation time).
+EXPECTED_GLOB_TAILS = [
+    "_workflow/implementation-plan.md",
+    "_workflow/design.md",
+    "_workflow/design-mechanics.md",
+    "_workflow/plan/track-*.md",
+]
+
+# The anchored § 1.6(a1) value-extraction regex. Both the script and the
+# canonical block must carry it verbatim; the unanchored `[0-9a-f]{40}` variant
+# (no `workflow-sha:` anchor) is explicitly rejected by § 1.6(a1).
+ANCHORED_REGEX_FRAGMENT = "grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$'"
+
+
+def _extract_conventions_h_block() -> str:
+    """Extract the bash fenced block under `### (h) Phase 1 walk bash block`
+    in conventions.md — the canonical byte-source the script's walk copies."""
+    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    # Locate the (h) heading, then the first ```bash fence after it.
+    h_idx = next(
+        (i for i, ln in enumerate(lines) if ln.startswith("### (h) Phase 1 walk")),
+        None,
+    )
+    assert h_idx is not None, "could not find '### (h) Phase 1 walk' heading in conventions.md"
+    fence_start = next(
+        (i for i in range(h_idx, len(lines)) if lines[i].strip() == "```bash"),
+        None,
+    )
+    assert fence_start is not None, "could not find ```bash fence under § 1.6(h)"
+    fence_end = next(
+        (i for i in range(fence_start + 1, len(lines)) if lines[i].strip() == "```"),
+        None,
+    )
+    assert fence_end is not None, "unterminated ```bash fence under § 1.6(h)"
+    return "\n".join(lines[fence_start + 1 : fence_end])
+
+
+def _extract_script_walk() -> str:
+    """Extract the script's Phase 1 walk: the `for f in $(ls ...)` loop through
+    its closing `done`. This is the region the byte-copy contract governs."""
+    text = SCRIPT_PATH.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if "for f in $(ls " in ln),
+        None,
+    )
+    assert start is not None, "could not find the `for f in $(ls ...)` walk loop in the script"
+    end = next(
+        (i for i in range(start, len(lines)) if lines[i].strip() == "done"),
+        None,
+    )
+    assert end is not None, "could not find the walk loop's closing `done` in the script"
+    return "\n".join(lines[start : end + 1])
+
+
+def _glob_tails(block: str) -> List[str]:
+    """The artifact-glob tails an enumerate-and-classify block lists, in order,
+    normalized so the comparison ignores byte-source incidentals that are not
+    drift:
+
+      * the `$PLAN_DIR` / `docs/adr/<dir-name>` prefix — the byte-source
+        declares it is substituted at invocation time, so the script
+        legitimately resolves it from the branch while conventions.md carries
+        the literal placeholder;
+      * shell quotes — the canonical idiom closes the quote mid-path
+        (`"$PLAN_DIR/_workflow/plan/"track-*.md`), so a raw substring match on
+        the un-quoted tail would spuriously miss it;
+      * the trailing `2>/dev/null); do` and line-continuation backslashes.
+
+    The walk's `ls` lines are the only lines mentioning `_workflow/`; each is
+    reduced to the `_workflow/...` suffix after stripping quotes and the prefix.
+    """
+    tails: List[str] = []
+    for raw in block.splitlines():
+        if "_workflow/" not in raw:
+            continue
+        # Drop quotes, the line continuation, and the trailing ls tail so the
+        # remaining token is a clean glob path.
+        cleaned = raw.replace('"', "").replace("\\", "").strip()
+        cleaned = cleaned.split("2>/dev/null")[0].strip()
+        # Keep only the `_workflow/...` suffix (drops the $PLAN_DIR / docs/adr
+        # prefix that differs between the placeholder and the resolved form).
+        idx = cleaned.find("_workflow/")
+        if idx == -1:
+            continue
+        tail = cleaned[idx:].strip()
+        # The continuation line that opens the loop (`for f in $(ls ...`) and
+        # the closing `); do` fragment can leave trailing tokens; the four
+        # artifact globs are exactly the lines whose cleaned tail is one of the
+        # expected entries, so filtering to EXPECTED_GLOB_TAILS membership here
+        # would mask drift. Instead keep every `_workflow/` tail verbatim and
+        # let the caller compare the full ordered list against the expected set.
+        tails.append(tail)
+    return tails
+
+
+def test_conformance_glob_set_matches_canonical() -> None:
+    """The script's walk enumerates exactly the four § 1.6(h) artifact globs,
+    in the same order as the canonical block — a source comparison that catches
+    a glob the script forgot to copy or an extra glob it added."""
+    canonical = _extract_conventions_h_block()
+    script_walk = _extract_script_walk()
+    canonical_tails = _glob_tails(canonical)
+    script_tails = _glob_tails(script_walk)
+    assert canonical_tails == EXPECTED_GLOB_TAILS, (
+        "canonical § 1.6(h) block no longer enumerates the expected glob set; "
+        f"found {canonical_tails!r}. If § 1.6(h) intentionally changed, update "
+        "EXPECTED_GLOB_TAILS and the script's walk together."
+    )
+    assert script_tails == canonical_tails, (
+        "the script's Phase 1 walk glob set drifted from § 1.6(h); "
+        f"script lists {script_tails!r}, canonical lists {canonical_tails!r}"
+    )
+
+
+def test_conformance_anchored_regex_matches_canonical() -> None:
+    """Both the canonical § 1.6(h) block and the script's walk carry the
+    anchored § 1.6(a1) value-extraction regex verbatim. Pinning the anchored
+    form catches a de-anchoring to the bare `[0-9a-f]{40}` variant § 1.6(a1)
+    explicitly rejects (false-positives on H1 titles containing a 40-hex run)."""
+    canonical = _extract_conventions_h_block()
+    script_walk = _extract_script_walk()
+    assert ANCHORED_REGEX_FRAGMENT in canonical, (
+        "canonical § 1.6(h) block no longer carries the anchored regex "
+        f"{ANCHORED_REGEX_FRAGMENT!r}; § 1.6(a1) may have changed."
+    )
+    assert ANCHORED_REGEX_FRAGMENT in script_walk, (
+        "the script's Phase 1 walk does not carry the anchored § 1.6(a1) regex "
+        f"{ANCHORED_REGEX_FRAGMENT!r} verbatim — it must byte-copy § 1.6(h)."
+    )
+
+
+def test_conformance_script_walk_carries_no_stamped_pairs_yet() -> None:
+    """In this track the script's drift (full-mode) walk is byte-identical to
+    § 1.6(h) with no `STAMPED_PAIRS` pairing — that `$f=$SHA` line is the one
+    sanctioned § 1.6(h) extension and belongs only to the later migrate-range
+    walk (migrate-workflow/SKILL.md Step 2). This test documents the whitelist
+    boundary: it pins that the drift walk does NOT carry the pairing line, so
+    when the migrate-range walk adds it in a later step the conformance suite
+    distinguishes the sanctioned extension from accidental drift in the drift
+    walk."""
+    script_walk = _extract_script_walk()
+    assert "STAMPED_PAIRS" not in script_walk, (
+        "the drift (full-mode) walk must not carry STAMPED_PAIRS; the pairing is "
+        "the migrate-range walk's sanctioned § 1.6(h) extension, added in a "
+        "later step, not the drift walk's."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner.
 # ---------------------------------------------------------------------------
 
@@ -542,6 +874,12 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("divergence_no_upstream_skips", test_divergence_no_upstream_skips),
     ("divergence_fetch_failed_skips", test_divergence_fetch_failed_skips),
     ("divergence_object_present_in_full_mode", test_divergence_object_present_in_full_mode),
+    ("drift_all_stamped_classifies_stamped_scalars_null", test_drift_all_stamped_classifies_stamped_scalars_null),
+    ("drift_unstamped_detects_drift_kind_unstamped", test_drift_unstamped_detects_drift_kind_unstamped),
+    ("drift_empty_input_silent_no_drift_kind_null", test_drift_empty_input_silent_no_drift_kind_null),
+    ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
+    ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
+    ("conformance_script_walk_carries_no_stamped_pairs_yet", test_conformance_script_walk_carries_no_stamped_pairs_yet),
 ]
 
 

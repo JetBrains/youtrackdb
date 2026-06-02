@@ -160,6 +160,119 @@ detect_divergence() {
 }
 
 # ---------------------------------------------------------------------------
+# Workflow-SHA drift detection — Phase 1: artifact walk + classification.
+#
+# Byte-source: conventions.md § 1.6(h) "Phase 1 walk bash block" (the
+# enumerate-and-classify walk) and the anchored value-extraction regex in
+# § 1.6(a1). The drift check (workflow-drift-check.md § Detection) and the
+# /migrate-workflow skill both byte-copy the same § 1.6(h) block, so this
+# script's walk must stay byte-faithful to it; a source-extraction conformance
+# test (see tests/) asserts the glob set and regex match the canonical block.
+#
+# The walk classifies each active-plan _workflow/** artifact as stamped (a
+# line-1 `<!-- workflow-sha: <40-hex> -->` comment present) or unstamped, and
+# records the two sets in plain shell variables. Phase 2 (the pairwise
+# merge-base fold + `git log`, a later step) consumes the stamped set to derive
+# BASE_SHA; Phase 1 here only classifies.
+#
+# § 1.6(h) resolves the active plan dir per § 1.6(g): the dir is
+# `docs/adr/<dir-name>` where `<dir-name>` is the current git branch name. The
+# byte-source block carries the literal `PLAN_DIR="docs/adr/<dir-name>"` line
+# with `<dir-name>` as a placeholder downstream writers replace at invocation
+# time; this script resolves it from the branch. The branch resolution is the
+# one line that legitimately differs from the byte-source placeholder (the
+# § 1.6(h) prose states the placeholder is substituted at invocation), so the
+# conformance test compares the walk's glob set and regex, not the PLAN_DIR
+# assignment.
+#
+# Three Phase-1 outcomes (matching workflow-drift-check.md § Detection):
+#   * both sets empty   -> no stampable artifact on disk; silent no-drift
+#                          (detected=false, kind=null, scalars null).
+#   * any unstamped     -> drift detected unconditionally; kind="unstamped",
+#                          fold scalars null (no fold runs for an unstamped set;
+#                          the bootstrap prompt covers it agent-side per
+#                          § 1.6(d)).
+#   * all stamped       -> Phase 2 territory: a later step folds the stamp set
+#                          and runs `git log` to set detected / base_sha /
+#                          commit_count / first_commits. Until that step lands
+#                          this branch reports kind="stamped" with detected=false
+#                          and null fold scalars; the classification is the part
+#                          Phase 1 owns.
+#
+# detect_drift writes plain shell variables only; the single emit point below
+# assembles the `drift` object from them via drift_json.
+# ---------------------------------------------------------------------------
+
+# Outputs of detect_drift, consumed by emit_json via drift_json. Defaults cover
+# the empty-input no-drift path so emit_json never reads an unset variable.
+DRIFT_DETECTED="false"
+DRIFT_KIND=""
+DRIFT_BASE_SHA=""
+DRIFT_COMMIT_COUNT=""
+DRIFT_FIRST_COMMITS_JSON="[]"
+# normalization_landed is hard-false in this branch — the no-drift
+# normalization commit is wired in a later track; nothing here mutates the tree.
+DRIFT_NORMALIZATION_LANDED="false"
+
+# Classification arrays, also script-scoped so the Phase 2 fold (a later step)
+# and migrate-range (a later step) reuse the same walk output rather than
+# re-walking. Leading-space-delimited word lists, matching the byte-source.
+STAMPED_SHAS=""
+UNSTAMPED_FILES=""
+
+detect_drift() {
+  # Resolve the active plan dir from the current branch per § 1.6(g). The
+  # branch name is the <dir-name> placeholder in the § 1.6(h) literal
+  # PLAN_DIR line; an absent branch (detached HEAD) yields an empty name and
+  # therefore a PLAN_DIR that matches no artifact, collapsing cleanly to the
+  # empty-input no-drift path rather than aborting the no-errexit script.
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  local PLAN_DIR="docs/adr/${branch}"
+
+  # --- Phase 1 walk, byte-copied from conventions.md § 1.6(h) --------------
+  # design-mechanics.md is optional; absent until the length trigger fires.
+  # The ls 2>/dev/null swallows the stderr for any artifact kind that is not
+  # yet present on disk, so missing files do not abort the walk.
+  for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
+                "$PLAN_DIR/_workflow/design.md" \
+                "$PLAN_DIR/_workflow/design-mechanics.md" \
+                "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
+      SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
+      if [ -n "$SHA" ]; then
+          STAMPED_SHAS="$STAMPED_SHAS $SHA"
+      else
+          UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
+      fi
+  done
+  # --- end byte-copied walk -------------------------------------------------
+
+  # Phase-1 classification decision (workflow-drift-check.md § Detection).
+  if [ -z "$STAMPED_SHAS" ] && [ -z "$UNSTAMPED_FILES" ]; then
+    # No stampable artifact on disk (a fresh _workflow/ holding only a
+    # transient handoff-*.md). Silent no-drift; kind stays null.
+    DRIFT_DETECTED="false"
+    DRIFT_KIND=""
+    return
+  fi
+
+  if [ -n "$UNSTAMPED_FILES" ]; then
+    # Any unstamped artifact short-circuits to drift detected: no fold, no
+    # `git log`. The fold scalars stay null; the bootstrap prompt that gathers
+    # a base SHA for the unstamped set stays agent-side (§ 1.6(d)).
+    DRIFT_DETECTED="true"
+    DRIFT_KIND="unstamped"
+    return
+  fi
+
+  # Every artifact is stamped. The pairwise merge-base fold and `git log` that
+  # finalize detected / base_sha / commit_count / first_commits are Phase 2 (a
+  # later step). Phase 1 records the classification; the fold scalars stay null
+  # and detected stays false until that step extends this branch.
+  DRIFT_KIND="stamped"
+}
+
+# ---------------------------------------------------------------------------
 # The single JSON emit point — the one site that knows the JSON shape, so the
 # contract has exactly one authoring home (the one-contract-home invariant).
 #
@@ -201,23 +314,49 @@ divergence_json() {
     }'
 }
 
+# Assemble the `drift` JSON object from the plain shell variables detect_drift
+# wrote. `detected`/`normalization_landed` are real JSON booleans via the
+# `== "true"` test. `kind` is a nullable string (null on the empty-input
+# no-drift path, "unstamped"/"stamped"/"merge-base-failed" otherwise) through
+# the empty->null idiom. `base_sha` is a nullable string; `commit_count` is a
+# nullable count routed through `... else tonumber end` so a present value is a
+# JSON number, not a quoted string. `first_commits` is already a JSON array
+# literal (DRIFT_FIRST_COMMITS_JSON), spliced via --argjson; it defaults to the
+# empty array and the Phase 2 fold (a later step) replaces it.
+drift_json() {
+  jq -nc \
+    --arg detected "$DRIFT_DETECTED" \
+    --arg kind "$DRIFT_KIND" \
+    --arg base_sha "$DRIFT_BASE_SHA" \
+    --arg commit_count "$DRIFT_COMMIT_COUNT" \
+    --argjson first_commits "$DRIFT_FIRST_COMMITS_JSON" \
+    --arg normalization_landed "$DRIFT_NORMALIZATION_LANDED" \
+    '{
+      detected: ($detected == "true"),
+      kind: ($kind | if . == "" then null else . end),
+      base_sha: ($base_sha | if . == "" then null else . end),
+      commit_count: ($commit_count | if . == "" then null else tonumber end),
+      first_commits: $first_commits,
+      normalization_landed: ($normalization_landed == "true")
+    }'
+}
+
 emit_json() {
-  # Detection functions in later steps of this track write the plain shell
-  # variables this function reads (drift_*, handoffs, state). The divergence
-  # detection above already populates DIVERGENCE_*; emit assembles them via
-  # divergence_json. Until the remaining detection lands, the per-mode
-  # assembly below emits the pinned scaffold shape for the not-yet-built
-  # fields: `drift` is null, `handoffs` is an empty array, actions_taken is an
-  # empty array (a later change wires the no-drift normalization commit into
-  # it), and `state` is JSON null (a later change replaces the null with the
-  # populated {phase, track, substate} object).
+  # Detection functions write the plain shell variables this function reads.
+  # Divergence (DIVERGENCE_*) and drift (DRIFT_* + the STAMPED_SHAS /
+  # UNSTAMPED_FILES classification) are populated; emit assembles them via
+  # divergence_json and drift_json. The handoff scan and the state parser land
+  # in later steps, so `handoffs` is still a pinned empty array and `state` is
+  # still JSON null. actions_taken stays an empty array (a later track wires the
+  # no-drift normalization commit into it).
   #
   # ACTIONS_TAKEN_JSON is a JSON array literal so callers that record an
   # autonomous mutation can replace the empty `[]` without re-threading the
   # null idiom. The scaffold leaves it empty.
   local actions_taken_json="${ACTIONS_TAKEN_JSON:-[]}"
-  local divergence_obj
+  local divergence_obj drift_obj
   divergence_obj="$(divergence_json)"
+  drift_obj="$(drift_json)"
 
   case "$MODE" in
     full)
@@ -227,10 +366,11 @@ emit_json() {
       jq -n \
         --argjson actions_taken "$actions_taken_json" \
         --argjson divergence "$divergence_obj" \
+        --argjson drift "$drift_obj" \
         --argjson state "${STATE_JSON:-null}" \
         '{
           divergence: $divergence,
-          drift: null,
+          drift: $drift,
           handoffs: [],
           state: $state,
           actions_taken: $actions_taken
@@ -271,12 +411,17 @@ emit_json() {
 }
 
 # Run the detection each mode needs, then emit. `full` and `divergence-only`
-# both report `divergence`, so they run detect_divergence; `migrate-range`
-# emits no `divergence` and skips it (the byte-source migrate-range walk does
-# not compute ahead/behind). Later steps of this track insert the drift and
-# handoff detection alongside divergence for the `full` mode.
+# both report `divergence`, so they run detect_divergence; `full` additionally
+# runs the drift Phase 1 walk via detect_drift. `migrate-range` emits no
+# `divergence` and skips it (the byte-source migrate-range walk does not compute
+# ahead/behind); its own walk + fold land in a later step. A later step also
+# inserts the handoff scan for the `full` mode.
 case "$MODE" in
-  full | divergence-only)
+  full)
+    detect_divergence
+    detect_drift
+    ;;
+  divergence-only)
     detect_divergence
     ;;
 esac
