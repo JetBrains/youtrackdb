@@ -11,6 +11,7 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 ## Progress
 - [x] 2026-06-02T14:51Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-02T15:10Z [ctx=safe] Step 1 complete (commit bf6fca2b3f)
+- [x] 2026-06-02T15:18Z [ctx=safe] Step 2 complete (commit 9cd797f0fc)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -24,6 +25,13 @@ at Phase 1. -->
   and the Track 3 seam (`ACTIONS_TAKEN_JSON` → `[]`) as overridable shell
   variables in `emit_json`; Tracks 2 and 3 set the variable rather than
   re-editing the jq call. See Episodes §Step 1.
+
+- 2026-06-02T15:18Z Step 2 built the reusable `GitFixture` git-fixture
+  builder (`file://` bare remotes, `GIT_CONFIG_GLOBAL`/`SYSTEM=/dev/null`
+  isolation, `orphan_branch` for no-common-ancestor histories); Steps 3, 4,
+  6 and Tracks 2, 3 reuse it for hermetic git state. Precheck tests that hit
+  git detection must run inside a `GitFixture`, never bare-cwd, or they
+  perform a real network `git fetch`. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -87,7 +95,7 @@ The `## Concrete Steps` roster below decomposes this into six steps; per the Pha
 ## Concrete Steps
 
 1. Scaffold `workflow-startup-precheck.sh` — shebang (no global `set -e`), `§1.6(h)` header, `--mode {full,divergence-only,migrate-range}` + `--bootstrap-sha` parsing, unknown-mode error (non-zero exit + usage, no JSON), the single `emit_json` jq function with the explicit empty→null idiom, and `actions_taken` defined as an empty array; plus the initial Python stand-alone-runner test asserting the unknown-mode path and the jq null-vs-empty contract on synthetic vars — risk: medium (new component behavior: the one-contract-home jq emit + null idiom is the load-bearing S1 emit surface)  [x] commit: bf6fca2b3f
-2. Branch divergence detection + reusable git-fixture builder — `git rev-list --left-right --count HEAD...'@{u}'` with the upstream and fetch guards populating `divergence{detected,ahead,behind,skipped,skip_reason}`; introduce the Python git-fixture builder (temp `git init`, commit/branch/set-upstream, local `file://` bare remote) and clean / divergence / no-upstream / fetch-failed fixtures — risk: medium (new shared test infrastructure + new detection behavior)  [ ]
+2. Branch divergence detection + reusable git-fixture builder — `git rev-list --left-right --count HEAD...'@{u}'` with the upstream and fetch guards populating `divergence{detected,ahead,behind,skipped,skip_reason}`; introduce the Python git-fixture builder (temp `git init`, commit/branch/set-upstream, local `file://` bare remote) and clean / divergence / no-upstream / fetch-failed fixtures — risk: medium (new shared test infrastructure + new detection behavior)  [x] commit: 9cd797f0fc
 3. Drift Phase 1 — artifact walk + classification — byte-copy the `§1.6(h)` walk (anchored `§1.6(a1)` regex) classifying stamped/unstamped, plus the `§1.6(h)` source-extraction conformance test (glob-set + regex compared against the canonical block, `STAMPED_PAIRS` pairing whitelisted) and stamped / unstamped / empty-input fixtures — risk: medium (byte-parity logic; the conformance test is the spec-drift guard)  [ ]
 4. Drift Phase 2 — pairwise merge-base fold + `git log` — the `full`-mode `break`-shape fold deriving `BASE_SHA`, `git log --reverse` on the trailing-slash pathspecs populating `base_sha`/`commit_count`/`first_commits`, the merge-base-failed short-circuit (null scalars), and the shared fold shell function parameterized by failure-handling; drift-detected / merge-base-failed / staged-subtree-exclusion fixtures — risk: medium (subtlest logic in the track; byte-parity with `workflow-drift-check.md § Detection`)  [ ]
 5. Handoff scan + `state` stub — `ls -t handoff-*.md` (mtime order, empty-safe) populating `handoffs`, and `state` emitted as JSON `null`; handoffs-present (mtime order) and clean (empty `[]`) fixtures — risk: low (default: routine `ls -t` plus a null stub, fully fixture-covered, no MEDIUM trigger)  [ ]
@@ -124,6 +132,43 @@ jq call.
 **Key files:**
 - `.claude/scripts/workflow-startup-precheck.sh` (new)
 - `.claude/scripts/tests/test_workflow_startup_precheck.py` (new)
+
+### Step 2 — commit 9cd797f0fc, 2026-06-02T15:18Z [ctx=safe]
+**What was done:** Added branch-divergence detection from the
+`branch-divergence-check.md § Detection` byte-source: the upstream guard
+(`@{u}` absent → `skipped=true`, `skip_reason="no-upstream"`), the fetch
+guard (`git fetch` fails → `skipped=true`, `skip_reason="fetch-failed"`),
+and `git rev-list --left-right --count HEAD...'@{u}'` with `detected=true`
+only when both `ahead` and `behind` are non-zero. `detect_divergence` writes
+plain shell variables; a `divergence_json` helper assembles the object
+through the existing empty→null idiom (counts emit JSON `null` on skip, JSON
+numbers otherwise). Divergence is wired into `full` and `divergence-only`;
+`migrate-range` skips it. Introduced the reusable Python git-fixture builder
+(a `GitFixture` context manager: temp `git init`, commit, `file://` bare
+remote via `add_bare_remote` / `advance_remote` / `break_remote`, plus an
+`orphan_branch` helper reserved for Step 4's merge-base-failed fixtures) and
+four divergence fixtures (clean / diverged / no-upstream / fetch-failed)
+plus a full-mode-divergence-present case. 13/13 tests pass.
+
+**What was discovered:** Wiring divergence into `full` / `divergence-only`
+regressed the two pre-existing mode-shape tests: they ran bare-cwd (the
+runner's real checkout), so they began performing a real `git fetch` against
+the GitHub origin — network-dependent and CI-flaky. Fixed by moving both
+onto a clean `GitFixture` (`file://` remote, no network) with unchanged shape
+assertions; the error-path, null-idiom, and `migrate-range` tests stay
+bare-cwd because those paths run no git detection. `GitFixture` isolates from
+host git config via `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM=/dev/null` and pins
+the initial branch with `-b main` so the working repo and bare remote agree
+on the default branch (a mismatch silently breaks the divergence push).
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (modified)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified)
+
+**Critical context:** The `GitFixture` builder is the shared git-fixture
+infrastructure Steps 3, 4, and 6 reuse; its `cwd=` parameter on
+`run_precheck` and the `orphan_branch` helper are the seam those steps
+extend for stamp fabrication and merge-base-failed histories.
 
 ## Validation and Acceptance
 
