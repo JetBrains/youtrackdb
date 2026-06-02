@@ -35,7 +35,20 @@ Concrete deliverables:
 2. Root `pom.xml` updated to include `<module>youtrackdb-opentelemetry</module>` in the reactor.
 3. Module `pom.xml` declares parent `youtrackdb-parent`, lists OTel dependencies (compile-scope for runtime artifacts, test-scope for `opentelemetry-sdk-testing`), depends on `core` for the listener SPI and on `server` (`provided` scope, optional) for the lifecycle hook.
 4. Spotless configuration aligned with the rest of the project. The existing baseline tag (`spotless-baseline`) covers this module by default since it ratchets on changed files.
-5. A static check enforcing dependency direction: a Maven Enforcer rule (`bannedDependencies`) on `core` and `server` that fails the build if any OTel artifact appears in the resolved dependency graph.
+5. A static check enforcing dependency direction: a Maven Enforcer rule (`bannedDependencies`) on `core` and `server` that fails the build if any OTel artifact appears in the resolved dependency graph, EXCEPT `io.opentelemetry:opentelemetry-context` (the ~20 KB API-only artifact `core` consumes for the `Context` propagation handle per the relaxed invariant in `implementation-plan.md`). The rule's `excludes` block lists `io.opentelemetry:*`; the explicit `io.opentelemetry:opentelemetry-context` allowlist sits alongside via the enforcer's `includes` sub-element so the context artifact passes through while every other `io.opentelemetry:*` artifact fails the build. Example `pom.xml` skeleton:
+
+```xml
+<rules>
+  <bannedDependencies>
+    <excludes>
+      <exclude>io.opentelemetry:*</exclude>
+    </excludes>
+    <includes>
+      <include>io.opentelemetry:opentelemetry-context</include>
+    </includes>
+  </bannedDependencies>
+</rules>
+```
 
 ## Plan of Work
 
