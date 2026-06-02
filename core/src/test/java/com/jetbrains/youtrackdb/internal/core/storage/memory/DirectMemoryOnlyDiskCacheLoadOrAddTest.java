@@ -847,19 +847,37 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
    * end, the cache must be in a consistent state — the most recently-added file responds
    * correctly to {@code loadOrAdd}.
    *
-   * <p>This test pins the {@code clearLock.readLock} discipline introduced by the SF1
-   * fix: bumping the readers-referrer must happen INSIDE
-   * {@link MemoryFile#loadOrAddPage} while the readLock is held, so a concurrent
-   * {@link MemoryFile#clear()} cannot drop the in-cache referrer to zero (recycling the
-   * frame to the pool) between publication and the increment. A regression that hoisted
-   * the increment back outside the read-lock would surface here as either an
-   * {@code IllegalStateException} ("Invalid direct memory state, number of readers
-   * cannot be zero") or as a use-after-free on the recycled frame.
+   * <p>This shape pins the OUTER-entry contract of {@code loadOrAdd} under a concurrent
+   * delete/re-add: a call racing a {@code deleteFile + addFile} rotation on the same name
+   * must surface ONLY {@link IllegalArgumentException} (the stale-fileId guard at the
+   * {@code DirectMemoryOnlyDiskCache.loadOrAdd} entry), never an
+   * {@code IllegalStateException} ("Invalid direct memory state, number of readers cannot
+   * be zero"), a use-after-free on a recycled frame, or any other exception, and the cache
+   * must stay consistent afterwards. Because {@code deleteFile} removes the
+   * {@link MemoryFile} from the metadata map before clearing it, a contended installer
+   * almost always trips that outer guard rather than entering
+   * {@link MemoryFile#loadOrAddPage}, so this shape exercises the {@code clearLock.readLock}
+   * window only opportunistically. The deterministic pin for the SF1 read-lock discipline
+   * (the referrer-increment must happen INSIDE {@code loadOrAddPage} while the readLock is
+   * held, so a concurrent {@link MemoryFile#clear()} cannot recycle the frame between
+   * publication and the increment) is {@link #truncateAndLoadOrAddRaceLeavesCacheConsistent},
+   * which keeps the same {@code MemoryFile} instance so every install enters the readLock
+   * path.
    */
   @Test
   public void clearAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
     final int installerThreads = 4;
     final int rotations = 50;
+    // Number of loadOrAdd iterations the installers must log WHILE the destroyer is actively
+    // rotating files. The destroyer keeps churning until this floor is met (see below), so
+    // the contended overlap the test depends on is guaranteed by construction rather than
+    // left to thread scheduling.
+    final long minContendedIterations = installerThreads * 5L;
+    // Safety cap on destroyer rotations so a pathological scheduler that fully starves the
+    // installers cannot spin the destroyer forever. Far above the count a healthy run needs;
+    // if it is ever hit the contended-iteration assertion below fails loudly rather than the
+    // test hanging.
+    final int maxRotations = rotations * 1000;
     final var pool = Executors.newFixedThreadPool(installerThreads + 1);
     try {
       final var stop = new AtomicBoolean(false);
@@ -867,27 +885,46 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       final var unexpected = new ConcurrentLinkedQueue<Throwable>();
       final var startGate = new CountDownLatch(1);
       final var installerDone = new CountDownLatch(installerThreads);
-      // Counts every successful loadOrAdd by the installers. Without this counter, a
-      // destroyer that finishes before installers exit startGate.await() could let the
-      // test pass vacuously — the assertion below pins a realistic floor.
-      final var iterationCounter = new AtomicLong();
+      // Warm-up barrier. Each installer counts this down after one guaranteed-uncontended
+      // loadOrAdd, and the destroyer blocks on it before its first deleteFile. This makes the
+      // race non-vacuous regardless of scheduling. Without it the timed race was a coin flip:
+      // under heavy machine load the OS could run the destroyer to completion (setting stop)
+      // before any installer was ever scheduled, leaving zero contended iterations (observed
+      // as iterations=0 in full-suite runs), or schedule the destroyer far enough ahead that
+      // nearly every installer call hit a deleted file (observed as one success across four
+      // threads on macOS arm / JDK 25).
+      final var installersWarm = new CountDownLatch(installerThreads);
+      // Counts installer loop iterations executed while the destroyer is still rotating
+      // (stop not yet set). The destroyer's loop is bounded by this counter, so reaching the
+      // floor proves the installer loops ran concurrently with active rotations - i.e. the
+      // race is non-vacuous. It does NOT prove any single call entered the readLock window;
+      // a contended call usually trips the outer stale-fileId guard, and that invariant is
+      // pinned deterministically by truncateAndLoadOrAddRaceLeavesCacheConsistent.
+      final var contendedIterations = new AtomicLong();
 
-      // Installers: loop loadOrAdd / decrementReadersReferrer until the destroyer signals
-      // stop. IAE on a deleted file is tolerated (the file may have been dropped between
-      // our metadata read and our install); any other exception fails the test.
+      // Installers: one warm-up install (proves the thread is live and exercises the
+      // publish/increment path uncontended), then loop loadOrAdd / decrementReadersReferrer
+      // against the rotating fileId until the destroyer signals stop. IAE on a deleted file
+      // is tolerated in the contended phase (the file may have been dropped between our
+      // fileIdRef read and the install); any other exception fails the test.
       for (int t = 0; t < installerThreads; t++) {
         pool.submit(
             () -> {
               try {
                 startGate.await();
+                // Warm-up: the destroyer holds off deleting until installersWarm hits zero,
+                // so this call cannot race a delete and is guaranteed to succeed.
+                final var warm = cache.loadOrAdd(fileIdRef.get(), 0L, false);
+                warm.decrementReadersReferrer();
+                installersWarm.countDown();
                 while (!stop.get()) {
                   try {
                     final var p = cache.loadOrAdd(fileIdRef.get(), 0L, false);
-                    iterationCounter.incrementAndGet();
                     p.decrementReadersReferrer();
                   } catch (final IllegalArgumentException ignored) {
                     // Tolerated: file was deleted between fileIdRef read and the install.
                   }
+                  contendedIterations.incrementAndGet();
                 }
               } catch (final Throwable t1) {
                 unexpected.add(t1);
@@ -897,17 +934,27 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
             });
       }
 
-      // Destroyer: rotate deleteFile + addFile a fixed number of times. After the last
+      // Destroyer: wait for every installer to warm up, then rotate deleteFile + addFile.
+      // The loop runs until it has done at least `rotations` cycles AND the installers have
+      // logged at least `minContendedIterations` contended iterations, bounding the
+      // destroyer's lifetime by installer PROGRESS rather than a fixed count. After the last
       // rotation the new fileId is the visible one; installers exit on stop.
       pool.submit(
           () -> {
             try {
               startGate.await();
-              for (int r = 0; r < rotations; r++) {
+              if (!installersWarm.await(20, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(
+                    "installers failed to warm up within the wait window");
+              }
+              int r = 0;
+              while ((r < rotations || contendedIterations.get() < minContendedIterations)
+                  && r < maxRotations) {
                 final var existing = fileIdRef.get();
                 cache.deleteFile(existing);
                 final var fresh = cache.addFile(FILE_NAME + "-rot-" + r);
                 fileIdRef.set(fresh);
+                r++;
               }
             } catch (final Throwable t1) {
               unexpected.add(t1);
@@ -919,15 +966,17 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       startGate.countDown();
       assertTrue(
           "installer threads must finish within the bounded wait window",
-          installerDone.await(20, TimeUnit.SECONDS));
+          installerDone.await(30, TimeUnit.SECONDS));
       assertTrue(
-          "installers must execute the loadOrAdd loop body at least once per thread; "
-              + "vacuous pass detected (iterations=" + iterationCounter.get() + ")",
-          iterationCounter.get() >= installerThreads);
+          "installer loops must run concurrently with active destroyer rotations; "
+              + "vacuous pass detected (contendedIterations=" + contendedIterations.get() + ")",
+          contendedIterations.get() >= minContendedIterations);
 
       if (!unexpected.isEmpty()) {
-        final var first = unexpected.poll();
-        fail("clear/loadOrAdd race surfaced unexpected exception: " + first);
+        // Report every captured throwable, not just the first: a warm-up failure in an
+        // installer and the destroyer's resulting "failed to warm up" timeout can both land
+        // here, and the installer's real exception is the diagnostically useful one.
+        fail("clear/loadOrAdd race surfaced unexpected exception(s): " + unexpected);
       }
 
       // Final consistency probe: the surviving fileId must accept loadOrAdd cleanly.

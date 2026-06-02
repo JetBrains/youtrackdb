@@ -1421,6 +1421,16 @@ public class TruncateOrphansAfterRecoveryIT {
       // cluster's .pcl grows past its initial page.
       session.executeInTx(transaction -> insertGrowthWorkload(transaction, "Committed"));
 
+      // commitChanges writes the new data pages into the WOWCache but does NOT physically
+      // extend the .pcl on disk synchronously - the dirty pages are flushed lazily by the
+      // background commit thread (or at checkpoint/close). File.length() reads the on-disk
+      // size, so without an explicit flush the observed growth depends on background-flush
+      // timing, which varies by platform/JDK (it raced behind the assertion on macOS arm /
+      // JDK 25, where the file was still at its pre-commit size). Force the file's buffered
+      // pages out synchronously so the physical size deterministically reflects the
+      // committed allocation before we measure it.
+      wowCache.flush(fileId);
+
       assertThat(pclPath.length())
           .as("the committed growth workload must physically grow the .pcl -- otherwise the"
               + " rolled-back variant's flat-size assertion would be vacuous")
