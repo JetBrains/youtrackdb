@@ -15,7 +15,8 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 - [x] 2026-06-02T15:27Z [ctx=safe] Step 3 complete (commit d4f5a38eed)
 - [x] 2026-06-02T15:39Z [ctx=safe] Step 4 complete (commit ffb217a754)
 - [x] 2026-06-02T15:46Z [ctx=safe] Step 5 complete (commit 9b91772c76)
-- [ ] Step implementation
+- [x] 2026-06-02T15:58Z [ctx=safe] Step 6 complete (commit fbe9349d0b)
+- [x] 2026-06-02T15:58Z [ctx=safe] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -52,6 +53,15 @@ at Phase 1. -->
   distinct SHA; `DRIFT_NORMALIZATION_LANDED` stays hard-false until Track 3.
   The fold function and the new `GitFixture` real-commit helpers are reusable
   by Tracks 2 and 3. See Episodes §Step 4.
+
+- 2026-06-02T15:58Z Step 6 finalized the `migrate-range` JSON shape that
+  Track 4's `migrate-workflow` SKILL Step 2 rewrite cites:
+  `stamped_artifacts [{file,sha}]`, `unstamped_files [path]`, `base_sha`
+  (`null` on a failed/empty fold), `log_range [{sha,subject}]` with full
+  40-hex `%H` SHAs (distinct from the drift range's short `%h`), and
+  `merge_base_failed [{base,sha,files}]` resolving failing SHAs to owning
+  artifact paths via `STAMPED_PAIRS`. Track 4 reads these fields rather than
+  the prose byte-copy. See Episodes §Step 6.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -119,7 +129,7 @@ The `## Concrete Steps` roster below decomposes this into six steps; per the Pha
 3. Drift Phase 1 — artifact walk + classification — byte-copy the `§1.6(h)` walk (anchored `§1.6(a1)` regex) classifying stamped/unstamped, plus the `§1.6(h)` source-extraction conformance test (glob-set + regex compared against the canonical block, `STAMPED_PAIRS` pairing whitelisted) and stamped / unstamped / empty-input fixtures — risk: medium (byte-parity logic; the conformance test is the spec-drift guard)  [x] commit: d4f5a38eed
 4. Drift Phase 2 — pairwise merge-base fold + `git log` — the `full`-mode `break`-shape fold deriving `BASE_SHA`, `git log --reverse` on the trailing-slash pathspecs populating `base_sha`/`commit_count`/`first_commits`, the merge-base-failed short-circuit (null scalars), and the shared fold shell function parameterized by failure-handling; drift-detected / merge-base-failed / staged-subtree-exclusion fixtures — risk: medium (subtlest logic in the track; byte-parity with `workflow-drift-check.md § Detection`)  [x] commit: ffb217a754
 5. Handoff scan + `state` stub — `ls -t handoff-*.md` (mtime order, empty-safe) populating `handoffs`, and `state` emitted as JSON `null`; handoffs-present (mtime order) and clean (empty `[]`) fixtures — risk: low (default: routine `ls -t` plus a null stub, fully fixture-covered, no MEDIUM trigger)  [x] commit: 9b91772c76
-6. Reduced-mode outputs `divergence-only` + `migrate-range` — `divergence-only` emits only `divergence` + `actions_taken`; `migrate-range` runs the continue-and-collect fold (collect every failing pair), the `STAMPED_PAIRS` `(file=sha)` array resolving `merge_base_failed` to artifact paths, the `--bootstrap-sha` fold-in, and `stamped_artifacts (file,sha)` + `unstamped_files` + `base_sha` + `git log` range, emitting no `state`/`handoffs`/`divergence`; divergence-only / migrate-range-stamped / multi-failure-collect-all / `--bootstrap-sha` fixtures — risk: medium (the continue-vs-break fold distinction is the T1/R1 byte-parity hazard; parameterized fold reuse)  [ ]
+6. Reduced-mode outputs `divergence-only` + `migrate-range` — `divergence-only` emits only `divergence` + `actions_taken`; `migrate-range` runs the continue-and-collect fold (collect every failing pair), the `STAMPED_PAIRS` `(file=sha)` array resolving `merge_base_failed` to artifact paths, the `--bootstrap-sha` fold-in, and `stamped_artifacts (file,sha)` + `unstamped_files` + `base_sha` + `git log` range, emitting no `state`/`handoffs`/`divergence`; divergence-only / migrate-range-stamped / multi-failure-collect-all / `--bootstrap-sha` fixtures — risk: medium (the continue-vs-break fold distinction is the T1/R1 byte-parity hazard; parameterized fold reuse)  [x] commit: fbe9349d0b
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -322,6 +332,57 @@ via `--argjson state "${STATE_JSON:-null}"`, now pinned by
 `test_state_stub_is_json_null_in_full_mode`; Track 2 sets the `STATE_JSON`
 variable to the populated `{phase, track, substate}` object rather than
 re-editing the jq call, and updates that test.
+
+### Step 6 — commit fbe9349d0b, 2026-06-02T15:58Z [ctx=safe]
+**What was done:** Implemented `migrate-range` detection in place of the
+scaffold stub. Added `detect_migrate_range` (after `detect_drift`, keeping
+the drift walk first in the file): a second `§1.6(h)` byte-copy artifact walk
+extended with the whitelisted `STAMPED_PAIRS` (`$f=$SHA`) pairing, the shared
+`fold_stamps_to_base` called with `"continue"` to collect every failing pair,
+an optional `--bootstrap-sha` folded into the input set, a `STAMPED_PAIRS`
+resolver (`mr_files_for_sha`) mapping failing SHAs to artifact paths, and a
+`git log --reverse --format='%H %s'` range over the workflow pathspecs (full
+`%H` SHAs, no head cap). Rewrote the `emit_json` `migrate-range` branch to
+emit `stamped_artifacts ({file,sha})`, `unstamped_files`, `base_sha` (through
+the empty→null idiom, now sourced from the fold), `log_range ({sha,subject})`,
+and `merge_base_failed ({base,sha,files})`. Added four migrate-range behavior
+tests (stamped-pairs+log-range, unstamped-reporting, bootstrap-fold-in,
+multi-failure-collect-all), reworked the null-vs-empty and migrate-range-shape
+tests onto `GitFixture`s, and split the `§1.6(h)` conformance suite to check
+both walks. 32/32 tests pass; all three modes run clean on the real repo.
+
+**What was discovered:** The continue fold's reset-then-reseed shape
+(byte-identical to the SKILL Step 2 byte-source) means a merge-base failure
+consumes the boundary: after a failure the running base resets and the next
+stamp re-seeds without a merge-base call. Collecting TWO failing pairs needs
+the walk order `[real, orphan, real, orphan]`, not three consecutive orphan
+stamps. The `§1.6(h)` walk's `ls` sorts all operands lexically (`design.md` <
+`implementation-plan.md` < `plan/track-1.md` < `plan/track-2.md`), so the
+multi-failure fixture stamps four artifacts real/orphan/real/orphan in that
+sorted order to force two non-consecutive failing merge-base calls.
+
+**What changed from the plan:** none. `divergence-only` was already complete
+from Step 2 (it emits only `{divergence, actions_taken}`), so this step added
+no `divergence-only` code; the existing divergence-only-shape test is the
+step's fixture. `base_sha`'s source moved from `--bootstrap-sha` (scaffold) to
+the fold output, exactly as Step 1's episode anticipated; the empty→null idiom
+and its test stay, now pinned through the fold path.
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (modified)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified)
+
+**Critical context:** The conformance suite now distinguishes the two
+`§1.6(h)` walks by the presence/absence of `STAMPED_PAIRS`, not by file
+position: `_extract_drift_walk` selects the walk WITHOUT the pairing,
+`_extract_migrate_range_walk` selects the one WITH it; the glob-set and
+anchored-regex checks run against both. The old
+`conformance_script_walk_carries_no_stamped_pairs_yet` was renamed to
+`conformance_drift_walk_carries_no_stamped_pairs` and a positive
+`conformance_migrate_range_walk_carries_stamped_pairs` added. This closes the
+last Track 1 read-only detection step — `full` / `divergence-only` /
+`migrate-range` all emit their final JSON shapes (`state` still `null` pending
+Track 2, `actions_taken` still empty pending Track 3).
 
 ## Validation and Acceptance
 
