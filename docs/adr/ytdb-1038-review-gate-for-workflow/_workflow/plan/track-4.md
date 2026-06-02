@@ -218,3 +218,7 @@ guidance during this branch's execution — the same manual step the fix removes
 for later plans.
 
 Full design: design.md §"Read-side staging awareness".
+
+## Base commit
+
+33d3fdf7af3116b8b7ba891a13a32134b7691865
