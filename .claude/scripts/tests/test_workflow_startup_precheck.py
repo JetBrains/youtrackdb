@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -172,6 +173,23 @@ class GitFixture:
             check=True,
         )
 
+    def _git_out(self, *args: str, cwd: Optional[Path] = None) -> str:
+        """Run git and capture stdout (stripped). Used where the fixture needs
+        the command's output — e.g. resolving HEAD's SHA to stamp an artifact
+        with a *real* commit so the Phase 2 merge-base fold resolves it."""
+        env = dict(os.environ)
+        env.update(GIT_ENV)
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd if cwd is not None else self.path),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=True,
+        )
+        return proc.stdout.strip()
+
     # -- builder surface -----------------------------------------------------
 
     def commit(self, message: str, *, filename: Optional[str] = None) -> None:
@@ -221,17 +239,81 @@ class GitFixture:
         dead = f"file:///nonexistent/precheck-dead-remote-{os.getpid()}.git"
         self._git("remote", "set-url", remote, dead)
 
-    def orphan_branch(self, name: str, message: str = "orphan root") -> None:
+    def orphan_branch(self, name: str, message: str = "orphan root") -> str:
         """Start an unrelated history (no common ancestor with the current
-        branch). Reserved for the later merge-base-failed drift fixtures; it is
-        defined here with the rest of the builder so the git-fixture surface
-        lives in one place."""
+        branch) and return the orphan root's SHA. Used by the merge-base-failed
+        drift fixture: a stamp pointing at this orphan SHA and another stamp on
+        the main line share no reachable common ancestor, so the Phase 2 fold's
+        `git merge-base` fails.
+
+        `--orphan` carries the prior branch's working tree forward as untracked
+        files; this would block a later `git checkout` back to the default
+        branch (git refuses to overwrite untracked files). So after clearing the
+        index, wipe the working tree (`git checkout .` cannot help on an orphan
+        with no tracked content, so files are removed directly) before authoring
+        the orphan root. The default branch's files are restored when the
+        fixture checks it back out."""
         self._git("checkout", "-q", "--orphan", name)
-        # `--orphan` carries the working tree forward; clear the index so the
-        # orphan root is a clean unrelated commit.
-        self._git("rm", "-rq", "--cached", ".")
+        # Clear the index so the orphan root carries no tracked content from the
+        # prior branch, then physically remove the carried-forward working-tree
+        # files so a later `checkout(default_branch)` is not blocked by them.
+        self._git("rm", "-rfq", "--cached", ".")
+        for child in self.path.iterdir():
+            if child.name == ".git":
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
         (self.path / f"orphan-{name}.txt").write_text(message + "\n", encoding="utf-8")
         self._git("add", f"orphan-{name}.txt")
+        self._git("commit", "-q", "-m", message)
+        return self.head_sha()
+
+    # -- Phase 2 fold + `git log` surface ------------------------------------
+
+    def head_sha(self) -> str:
+        """The current branch HEAD's full 40-hex SHA. Used to stamp a plan
+        artifact with a *real* commit so the Phase 2 merge-base fold (which runs
+        `git merge-base` over the stamp set) resolves it instead of failing on a
+        synthetic SHA."""
+        return self._git_out("rev-parse", "HEAD")
+
+    def checkout(self, branch: str) -> None:
+        """Switch back to an existing branch (e.g. from an orphan branch to the
+        default branch). The drift walk resolves PLAN_DIR from the current
+        branch, so a fixture that briefly visited an orphan branch must return
+        to the default branch before the precheck runs."""
+        self._git("checkout", "-q", branch)
+
+    def workflow_commit(self, message: str, *, relpath: Optional[str] = None) -> None:
+        """Author a commit that touches a path under `.claude/workflow/` — a path
+        the drift `git log $BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/`
+        range watches. A run of these between the stamp base and HEAD is what
+        makes the Phase 2 range non-empty (the drift-detected case). A distinct
+        relpath per call keeps successive commits real."""
+        rel = relpath or f".claude/workflow/wf-{message.replace(' ', '-')}.md"
+        path = self.path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(message + "\n", encoding="utf-8")
+        self._git("add", rel)
+        self._git("commit", "-q", "-m", message)
+
+    def staged_workflow_commit(self, message: str = "staged wf edit") -> None:
+        """Author a commit that touches ONLY the staged subtree under
+        `<plan_dir>/_workflow/staged-workflow/.claude/workflow/`. The drift
+        range's trailing-slash pathspecs (`.claude/workflow/`, `.claude/skills/`)
+        must NOT match this path — it sits under `docs/adr/.../staged-workflow/`,
+        a different prefix — so a commit touching only the staged subtree stays
+        out of the `git log` range (the staged-subtree-exclusion invariant)."""
+        rel = (
+            f"docs/adr/{self.default_branch}/_workflow/staged-workflow/"
+            f".claude/workflow/staged-{message.replace(' ', '-')}.md"
+        )
+        path = self.path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(message + "\n", encoding="utf-8")
+        self._git("add", rel)
         self._git("commit", "-q", "-m", message)
 
     # -- drift-walk plan-artifact surface ------------------------------------
@@ -585,10 +667,11 @@ def test_divergence_object_present_in_full_mode() -> None:
 
 
 # A throwaway but well-formed 40-hex SHA distinct from SYNTHETIC_SHA, used to
-# stamp drift-walk fixtures. The walk classifies on the stamp's presence and
-# anchored shape, not on whether the SHA resolves to a real commit.
+# stamp the Phase 1 unstamped fixture's stamped sibling. The Phase 1 walk
+# classifies on the stamp's presence and anchored shape, not on whether the SHA
+# resolves to a real commit; the Phase 2 fold fixtures use real commit SHAs
+# (head_sha / orphan_branch) instead, since the fold runs `git merge-base`.
 STAMP_SHA = "b" * 40
-STAMP_SHA_2 = "c" * 40
 
 
 def _drift(proc: subprocess.CompletedProcess) -> dict:
@@ -602,30 +685,39 @@ def _drift(proc: subprocess.CompletedProcess) -> dict:
     return obj["drift"]
 
 
-def test_drift_all_stamped_classifies_stamped_scalars_null() -> None:
-    """An all-stamped plan (implementation-plan.md + a track file, both carrying
-    a line-1 workflow-sha) classifies as kind="stamped". Phase 1 owns only the
-    classification: the fold-derived scalars (base_sha, commit_count,
-    first_commits) stay null and detected stays false until the Phase 2 fold (a
-    later step) finalizes them. This pins the Phase-1/Phase-2 seam so the later
-    step's first change is a clean fill of the null scalars."""
+def test_drift_all_stamped_classifies_stamped_then_folds() -> None:
+    """An all-stamped plan (two artifacts, both carrying a line-1 workflow-sha
+    pointing at the same real commit) classifies as kind="stamped" and the
+    Phase 2 fold runs end to end. With both stamps at the same HEAD commit and
+    no workflow-path commit after it, the fold derives that commit as BASE_SHA
+    and `git log BASE_SHA..HEAD` is empty: detected=false, base_sha filled (the
+    fold ran), commit_count=0, first_commits=[]. This is the closed Phase-1/
+    Phase-2 seam — Phase 1 classifies, Phase 2 folds — using a real stamp so the
+    fold resolves it. normalization_landed stays hard-false in this track."""
     with GitFixture() as fx:
         fx.commit("init")
         fx.add_bare_remote()
-        fx.plan_artifact("implementation-plan.md", stamp=STAMP_SHA)
-        fx.plan_artifact("plan/track-1.md", stamp=STAMP_SHA_2)
+        head = fx.head_sha()
+        # Both stamps point at the same real commit so the pairwise fold resolves
+        # to that commit (merge-base of a SHA with itself is the SHA), exercising
+        # the multi-stamp fold without a merge-base failure.
+        fx.plan_artifact("implementation-plan.md", stamp=head)
+        fx.plan_artifact("plan/track-1.md", stamp=head)
         drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
         assert drift["kind"] == "stamped", f"all-stamped kind should be 'stamped': {drift!r}"
         assert drift["detected"] is False, (
-            f"all-stamped detected is false until Phase 2 fold lands: {drift!r}"
+            f"all stamps at HEAD with no later workflow commit is no drift: {drift!r}"
         )
-        # Fold scalars are asserted JSON null (not falsy) so the seam is exact.
-        assert drift["base_sha"] is None, f"base_sha should be null in Phase 1: {drift!r}"
-        assert drift["commit_count"] is None, (
-            f"commit_count should be null in Phase 1: {drift!r}"
+        # The fold ran: base_sha is the folded commit (not null), commit_count is
+        # 0, and first_commits is empty.
+        assert drift["base_sha"] == head, (
+            f"base_sha should be the folded stamp base {head!r}, got {drift['base_sha']!r}"
+        )
+        assert drift["commit_count"] == 0, (
+            f"empty-range commit_count should be 0, got {drift['commit_count']!r}"
         )
         assert drift["first_commits"] == [], (
-            f"first_commits should be [] in Phase 1: {drift!r}"
+            f"empty-range first_commits should be [], got {drift['first_commits']!r}"
         )
         assert drift["normalization_landed"] is False, (
             f"normalization_landed is hard-false in this track: {drift!r}"
@@ -678,6 +770,200 @@ def test_drift_empty_input_silent_no_drift_kind_null() -> None:
         assert drift["base_sha"] is None, f"empty-input base_sha should be null: {drift!r}"
         assert drift["commit_count"] is None, (
             f"empty-input commit_count should be null: {drift!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Drift Phase 2 — pairwise merge-base fold + `git log`.
+#
+# When every artifact is stamped, the precheck folds the stamp set pairwise
+# through `git merge-base` to derive BASE_SHA (the oldest stamp reachable from
+# HEAD), then ranges `git log $BASE_SHA..HEAD` against the workflow pathspecs
+# (`.claude/workflow/`, `.claude/skills/`). The fixtures here stamp artifacts
+# with *real* commit SHAs (head_sha / orphan_branch) so the fold resolves them,
+# unlike the Phase 1 fixtures' synthetic SHAs. Four cases:
+#
+#   * drift detected   — workflow-path commits sit between the stamp base and
+#                        HEAD: detected=true, base_sha filled, commit_count and
+#                        first_commits (oldest first) reflect those commits.
+#   * no-drift empty   — the fold resolves but no workflow-path commit sits in
+#                        the range: detected=false, base_sha filled,
+#                        commit_count=0, first_commits=[].
+#   * merge-base fail  — two stamps with no reachable common ancestor:
+#                        kind="merge-base-failed", detected=true, fold scalars
+#                        null.
+#   * staged exclusion — a commit touching only the staged subtree under
+#                        `docs/adr/.../staged-workflow/.claude/workflow/` stays
+#                        out of the range (the trailing-slash pathspec excludes
+#                        it by prefix difference).
+# ---------------------------------------------------------------------------
+
+
+def test_drift_phase2_detected_reports_range() -> None:
+    """An all-stamped plan whose single stamp points at a real commit, with two
+    `.claude/workflow/` commits sitting between that stamp base and HEAD, is
+    drift: the Phase 2 fold derives BASE_SHA from the stamp, and
+    `git log BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/` returns the two
+    workflow commits. detected=true, base_sha is the stamp's commit, commit_count
+    is 2, and first_commits lists them oldest-first (the `--reverse` order) with
+    full subjects. The plan-artifact commit itself touches `docs/adr/...`, not a
+    watched path, so it does not inflate the count."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()  # the commit the stamp points at
+        # Two workflow-path commits land *after* the stamp base, so they fall in
+        # the BASE_SHA..HEAD range the drift `git log` watches.
+        fx.workflow_commit("first workflow change")
+        fx.workflow_commit("second workflow change with spaces")
+        # The plan artifact is stamped with the real base SHA; its own commit
+        # touches docs/adr/... (not a watched path) so it stays out of the range.
+        fx.plan_artifact("implementation-plan.md", stamp=base)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is True, f"workflow commits in range must detect drift: {drift!r}"
+        assert drift["kind"] == "stamped", f"kind should be 'stamped': {drift!r}"
+        assert drift["base_sha"] == base, (
+            f"base_sha should be the folded stamp base {base!r}, got {drift['base_sha']!r}"
+        )
+        assert drift["commit_count"] == 2, (
+            f"commit_count should count the two workflow commits, got {drift['commit_count']!r}"
+        )
+        subjects = [c["subject"] for c in drift["first_commits"]]
+        assert subjects == ["first workflow change", "second workflow change with spaces"], (
+            f"first_commits should list both subjects oldest-first, whole: {drift['first_commits']!r}"
+        )
+        # Each entry carries a short sha and the verbatim subject (subjects with
+        # spaces stay in the one field, not split across array elements).
+        for entry in drift["first_commits"]:
+            assert set(entry.keys()) == {"sha", "subject"}, (
+                f"each first_commits entry is {{sha, subject}}, got {entry!r}"
+            )
+            assert entry["sha"], f"first_commits sha should be non-empty: {entry!r}"
+
+
+def test_drift_phase2_empty_range_no_drift_count_zero() -> None:
+    """An all-stamped plan whose stamp points at HEAD itself (no workflow commit
+    sits after it) folds to a BASE_SHA equal to HEAD, so
+    `git log BASE_SHA..HEAD` is empty: no drift in the strict sense. detected is
+    false, but base_sha is still reported (the fold ran), commit_count is 0, and
+    first_commits is the empty array. This is the no-drift read distinct from the
+    Phase 1 all-stamped seam (where the fold had not yet run and base_sha was
+    null) — here the fold ran and base_sha is filled."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # Stamp at HEAD, then commit only the plan artifact (a docs/adr path,
+        # not watched). No workflow-path commit lands after the stamp, so the
+        # range is empty.
+        head = fx.head_sha()
+        fx.plan_artifact("implementation-plan.md", stamp=head)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is False, f"empty range must not detect drift: {drift!r}"
+        assert drift["kind"] == "stamped", f"kind should be 'stamped': {drift!r}"
+        assert drift["base_sha"] == head, (
+            f"base_sha should be the folded stamp base {head!r} (fold ran), got "
+            f"{drift['base_sha']!r}"
+        )
+        assert drift["commit_count"] == 0, (
+            f"empty-range commit_count should be 0, got {drift['commit_count']!r}"
+        )
+        assert drift["first_commits"] == [], (
+            f"empty-range first_commits should be [], got {drift['first_commits']!r}"
+        )
+
+
+def test_drift_phase2_merge_base_failed_kind_scalars_null() -> None:
+    """Two stamped artifacts whose stamps point at commits with no reachable
+    common ancestor (the default branch's HEAD and an orphan branch's root) make
+    the Phase 2 pairwise `git merge-base` fail. The drift gate uses the `break`
+    failure mode: it short-circuits to kind="merge-base-failed", signals drift
+    (detected=true), and leaves the fold scalars JSON null (base_sha,
+    commit_count) — the §1.6(c) recovery prompt that resolves the failing pair
+    stays agent-side. The null scalars are asserted with `is None` so the
+    merge-base-failed short-circuit is told apart from a resolved fold."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        main_sha = fx.head_sha()
+        # An orphan branch root shares no history with the default branch.
+        orphan_sha = fx.orphan_branch("unrelated")
+        # The drift walk resolves PLAN_DIR from the current branch, so return to
+        # the default branch (where the plan artifacts must live) before running.
+        fx.checkout(fx.default_branch)
+        # Two stamps with no common ancestor: the fold's `git merge-base
+        # main_sha orphan_sha` fails, short-circuiting to merge-base-failed.
+        fx.plan_artifact("implementation-plan.md", stamp=main_sha)
+        fx.plan_artifact("plan/track-1.md", stamp=orphan_sha)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is True, f"merge-base failure must detect drift: {drift!r}"
+        assert drift["kind"] == "merge-base-failed", (
+            f"kind should be 'merge-base-failed', got {drift['kind']!r}"
+        )
+        assert drift["base_sha"] is None, (
+            f"merge-base-failed base_sha should be JSON null, got {drift['base_sha']!r}"
+        )
+        assert drift["commit_count"] is None, (
+            f"merge-base-failed commit_count should be JSON null, got {drift['commit_count']!r}"
+        )
+        assert drift["first_commits"] == [], (
+            f"merge-base-failed first_commits should be [], got {drift['first_commits']!r}"
+        )
+
+
+def test_drift_phase2_staged_subtree_excluded_from_range() -> None:
+    """A commit touching ONLY the staged subtree under
+    `docs/adr/<branch>/_workflow/staged-workflow/.claude/workflow/` must not
+    appear in the drift `git log` range. The range's pathspecs (`.claude/workflow/`,
+    `.claude/skills/`) carry trailing slashes and match those top-level
+    directories, not the staged copy under `docs/adr/.../staged-workflow/` (a
+    different path prefix). With the stamp at the base and only a staged-subtree
+    commit after it, the range is empty: detected=false, commit_count=0. This
+    pins the staged-subtree-exclusion invariant the byte-source relies on so a
+    workflow-modifying branch's staged edits do not self-report as drift."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()
+        # A commit touching only the staged subtree — NOT a watched path.
+        fx.staged_workflow_commit("edit dispatch rule")
+        fx.plan_artifact("implementation-plan.md", stamp=base)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is False, (
+            f"a staged-subtree-only commit must not register as drift: {drift!r}"
+        )
+        assert drift["kind"] == "stamped", f"kind should be 'stamped': {drift!r}"
+        assert drift["commit_count"] == 0, (
+            f"staged-subtree commit must be excluded; commit_count should be 0, got "
+            f"{drift['commit_count']!r}"
+        )
+        assert drift["first_commits"] == [], (
+            f"staged-subtree commit must be excluded; first_commits should be [], got "
+            f"{drift['first_commits']!r}"
+        )
+
+
+def test_drift_phase2_real_workflow_commit_vs_staged_distinguished() -> None:
+    """Sanity pairing for the exclusion: a real `.claude/workflow/` commit AND a
+    staged-subtree commit both land after the stamp base, but only the real one
+    enters the range. This confirms the exclusion is selective (it drops the
+    staged copy) rather than dropping everything — guarding against a pathspec
+    typo that would silently match nothing."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()
+        fx.workflow_commit("real workflow edit")  # watched -> in range
+        fx.staged_workflow_commit("staged copy edit")  # excluded -> out of range
+        fx.plan_artifact("implementation-plan.md", stamp=base)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is True, f"the real workflow commit must detect drift: {drift!r}"
+        assert drift["commit_count"] == 1, (
+            f"only the real workflow commit counts (staged excluded), got "
+            f"{drift['commit_count']!r}"
+        )
+        subjects = [c["subject"] for c in drift["first_commits"]]
+        assert subjects == ["real workflow edit"], (
+            f"only the real workflow commit appears in first_commits, got {subjects!r}"
         )
 
 
@@ -874,9 +1160,14 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("divergence_no_upstream_skips", test_divergence_no_upstream_skips),
     ("divergence_fetch_failed_skips", test_divergence_fetch_failed_skips),
     ("divergence_object_present_in_full_mode", test_divergence_object_present_in_full_mode),
-    ("drift_all_stamped_classifies_stamped_scalars_null", test_drift_all_stamped_classifies_stamped_scalars_null),
+    ("drift_all_stamped_classifies_stamped_then_folds", test_drift_all_stamped_classifies_stamped_then_folds),
     ("drift_unstamped_detects_drift_kind_unstamped", test_drift_unstamped_detects_drift_kind_unstamped),
     ("drift_empty_input_silent_no_drift_kind_null", test_drift_empty_input_silent_no_drift_kind_null),
+    ("drift_phase2_detected_reports_range", test_drift_phase2_detected_reports_range),
+    ("drift_phase2_empty_range_no_drift_count_zero", test_drift_phase2_empty_range_no_drift_count_zero),
+    ("drift_phase2_merge_base_failed_kind_scalars_null", test_drift_phase2_merge_base_failed_kind_scalars_null),
+    ("drift_phase2_staged_subtree_excluded_from_range", test_drift_phase2_staged_subtree_excluded_from_range),
+    ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
     ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
     ("conformance_script_walk_carries_no_stamped_pairs_yet", test_conformance_script_walk_carries_no_stamped_pairs_yet),

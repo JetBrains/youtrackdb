@@ -160,20 +160,24 @@ detect_divergence() {
 }
 
 # ---------------------------------------------------------------------------
-# Workflow-SHA drift detection — Phase 1: artifact walk + classification.
+# Workflow-SHA drift detection — Phase 1 (artifact walk + classification) and
+# Phase 2 (pairwise merge-base fold + `git log`).
 #
 # Byte-source: conventions.md § 1.6(h) "Phase 1 walk bash block" (the
 # enumerate-and-classify walk) and the anchored value-extraction regex in
-# § 1.6(a1). The drift check (workflow-drift-check.md § Detection) and the
-# /migrate-workflow skill both byte-copy the same § 1.6(h) block, so this
-# script's walk must stay byte-faithful to it; a source-extraction conformance
-# test (see tests/) asserts the glob set and regex match the canonical block.
+# § 1.6(a1) for Phase 1; workflow-drift-check.md § Detection for the Phase 2
+# fold (the `break`-on-first-failure shape) and the `git log` range. The drift
+# check (workflow-drift-check.md § Detection) and the /migrate-workflow skill
+# both byte-copy the same § 1.6(h) Phase-1 block, so this script's walk must
+# stay byte-faithful to it; a source-extraction conformance test (see tests/)
+# asserts the glob set and regex match the canonical block.
 #
-# The walk classifies each active-plan _workflow/** artifact as stamped (a
+# Phase 1 classifies each active-plan _workflow/** artifact as stamped (a
 # line-1 `<!-- workflow-sha: <40-hex> -->` comment present) or unstamped, and
-# records the two sets in plain shell variables. Phase 2 (the pairwise
-# merge-base fold + `git log`, a later step) consumes the stamped set to derive
-# BASE_SHA; Phase 1 here only classifies.
+# records the two sets in plain shell variables. Phase 2 consumes the all-
+# stamped set, folds it pairwise through `git merge-base` to derive BASE_SHA
+# (conventions.md § 1.6(c)), then runs `git log $BASE_SHA..HEAD` against the
+# workflow pathspecs to populate base_sha / commit_count / first_commits.
 #
 # § 1.6(h) resolves the active plan dir per § 1.6(g): the dir is
 # `docs/adr/<dir-name>` where `<dir-name>` is the current git branch name. The
@@ -192,12 +196,17 @@ detect_divergence() {
 #                          fold scalars null (no fold runs for an unstamped set;
 #                          the bootstrap prompt covers it agent-side per
 #                          § 1.6(d)).
-#   * all stamped       -> Phase 2 territory: a later step folds the stamp set
-#                          and runs `git log` to set detected / base_sha /
-#                          commit_count / first_commits. Until that step lands
-#                          this branch reports kind="stamped" with detected=false
-#                          and null fold scalars; the classification is the part
-#                          Phase 1 owns.
+#   * all stamped       -> Phase 2: fold the stamp set pairwise through
+#                          `git merge-base` to derive BASE_SHA, then run
+#                          `git log $BASE_SHA..HEAD` on the workflow pathspecs.
+#                          A non-empty `git log` is drift (detected=true,
+#                          kind="stamped", base_sha / commit_count /
+#                          first_commits filled); an empty `git log` is no drift
+#                          (detected=false, kind="stamped", base_sha filled,
+#                          commit_count=0, first_commits=[]). A merge-base
+#                          failure during the fold short-circuits to
+#                          kind="merge-base-failed" with null fold scalars (the
+#                          § 1.6(c) recovery prompt stays agent-side).
 #
 # detect_drift writes plain shell variables only; the single emit point below
 # assembles the `drift` object from them via drift_json.
@@ -214,11 +223,86 @@ DRIFT_FIRST_COMMITS_JSON="[]"
 # normalization commit is wired in a later track; nothing here mutates the tree.
 DRIFT_NORMALIZATION_LANDED="false"
 
-# Classification arrays, also script-scoped so the Phase 2 fold (a later step)
-# and migrate-range (a later step) reuse the same walk output rather than
+# Classification arrays, also script-scoped so the Phase 2 fold and
+# migrate-range (a later step) reuse the same walk output rather than
 # re-walking. Leading-space-delimited word lists, matching the byte-source.
 STAMPED_SHAS=""
 UNSTAMPED_FILES=""
+
+# The workflow pathspecs the drift `git log` ranges against. Trailing slashes
+# make the directory intent explicit and exclude the staged subtree at
+# `docs/adr/*/_workflow/staged-workflow/.claude/{workflow,skills}/` by prefix
+# difference (workflow-drift-check.md § Detection is the canonical source for
+# this exclusion). A leading-/internal-space-delimited word list so the `git
+# log` invocation can splice it after `--` unquoted (the two paths contain no
+# shell metacharacters).
+WORKFLOW_PATHSPECS=".claude/workflow/ .claude/skills/"
+
+# ---------------------------------------------------------------------------
+# Shared pairwise merge-base fold (conventions.md § 1.6(c)).
+#
+# Folds a stamp set pairwise through `git merge-base` to derive BASE_SHA, the
+# oldest stamp reachable from HEAD. The two callers differ only in how they
+# handle a merge-base failure (a stamp on a git-gc-pruned commit, or two stamps
+# with no reachable common ancestor in the local repo), so the loop is
+# single-sourced here and parameterized by that one axis:
+#
+#   * "break"    (full / drift-check, workflow-drift-check.md § Detection):
+#                the gate has no recovery prompt to amortise, so it records the
+#                first failing pair and stops folding.
+#   * "continue" (migrate-range, migrate-workflow/SKILL.md Step 2): the
+#                migration's bootstrap re-prompt is user-interactive, so the
+#                fold collects EVERY failing pair into one batch before exiting.
+#
+# Inputs (positional): $1 = failure mode ("break" | "continue"); $2.. = the
+# stamp set to fold (each a 40-hex SHA).
+# Outputs (script-scoped, the caller reads them after the call):
+#   * FOLD_BASE_SHA           — the folded BASE_SHA, or "" when a failure
+#                               reset it (break mode leaves "" on failure;
+#                               continue mode leaves the last successful fold
+#                               value, which the caller discards when
+#                               FOLD_FAILED_PAIRS is non-empty).
+#   * FOLD_FAILED_PAIRS       — space-delimited `BASE,SHA` failing pairs (one
+#                               in break mode, all of them in continue mode);
+#                               empty when the fold succeeded end to end.
+# The function performs no git mutation and prints nothing to stdout.
+# ---------------------------------------------------------------------------
+fold_stamps_to_base() {
+  local fail_mode="$1"
+  shift
+
+  FOLD_BASE_SHA=""
+  FOLD_FAILED_PAIRS=""
+
+  local sha new_base
+  for sha in "$@"; do
+    if [ -z "$FOLD_BASE_SHA" ]; then
+      # Seed the fold with the first stamp.
+      FOLD_BASE_SHA="$sha"
+      continue
+    fi
+    # `git merge-base A B` prints the best common ancestor; the `|| new_base=""`
+    # keeps the no-errexit script from carrying a stale value when the two
+    # SHAs share no reachable ancestor (or one is pruned).
+    new_base="$(git merge-base "$FOLD_BASE_SHA" "$sha" 2>/dev/null)" || new_base=""
+    if [ -z "$new_base" ]; then
+      # Record the failing pair (`BASE,SHA`). Reset FOLD_BASE_SHA so a failed
+      # value never propagates into a subsequent merge-base call.
+      FOLD_FAILED_PAIRS="$FOLD_FAILED_PAIRS $FOLD_BASE_SHA,$sha"
+      FOLD_BASE_SHA=""
+      if [ "$fail_mode" = "break" ]; then
+        # The drift gate stops at the first failure: it has no recovery prompt
+        # to amortise, so it routes this one pair to the unstamped path and
+        # signals drift without continuing the fold.
+        break
+      fi
+      # continue mode (migrate-range): keep folding to collect every failing
+      # pair into FOLD_FAILED_PAIRS for one batched recovery prompt.
+      continue
+    fi
+    FOLD_BASE_SHA="$new_base"
+  done
+}
 
 detect_drift() {
   # Resolve the active plan dir from the current branch per § 1.6(g). The
@@ -265,11 +349,65 @@ detect_drift() {
     return
   fi
 
-  # Every artifact is stamped. The pairwise merge-base fold and `git log` that
-  # finalize detected / base_sha / commit_count / first_commits are Phase 2 (a
-  # later step). Phase 1 records the classification; the fold scalars stay null
-  # and detected stays false until that step extends this branch.
+  # Every artifact is stamped: Phase 2. Fold the stamp set pairwise through
+  # `git merge-base` to derive BASE_SHA, then range `git log` against the
+  # workflow pathspecs (workflow-drift-check.md § Detection). The drift gate
+  # uses the "break" failure mode: it stops at the first merge-base failure
+  # because it has no recovery prompt to amortise.
+  fold_stamps_to_base break $STAMPED_SHAS
+
+  if [ -n "$FOLD_FAILED_PAIRS" ]; then
+    # A merge-base failure routed a stamp pair to the unstamped path
+    # (§ 1.6(c)). The drift gate signals drift; the fold scalars stay null and
+    # the § 1.6(d) bootstrap prompt that recovers the failing set stays
+    # agent-side. The byte-source appends `merge-base-failed:$BASE,$SHA` to
+    # UNSTAMPED_FILES so the agent-side resolver can surface it alongside any
+    # genuinely-unstamped artifacts; the pair is already in FOLD_FAILED_PAIRS
+    # as `$BASE,$SHA`, so prefix it and append.
+    local pair
+    for pair in $FOLD_FAILED_PAIRS; do
+      UNSTAMPED_FILES="$UNSTAMPED_FILES merge-base-failed:$pair"
+    done
+    DRIFT_DETECTED="true"
+    DRIFT_KIND="merge-base-failed"
+    return
+  fi
+
+  # Fold succeeded: BASE_SHA is the oldest stamp reachable from HEAD. Range
+  # `git log --reverse $BASE_SHA..HEAD` against the workflow pathspecs, oldest
+  # first. The pathspecs' trailing slashes exclude the staged subtree by prefix
+  # difference (WORKFLOW_PATHSPECS comment above). `--format=%h %s` yields one
+  # `<short-sha> <subject>` line per commit; the byte-source caps the displayed
+  # list at the first ten (`head -10`).
+  DRIFT_BASE_SHA="$FOLD_BASE_SHA"
+  local log_lines
+  log_lines="$(git log --reverse --format='%h %s' "$FOLD_BASE_SHA..HEAD" \
+                 -- $WORKFLOW_PATHSPECS 2>/dev/null || true)"
+
+  if [ -z "$log_lines" ]; then
+    # Empty range: every stamp is already at or past every workflow commit
+    # reachable from HEAD on the watched paths. No drift in the strict sense.
+    # base_sha is reported (the fold ran); commit_count is 0 and first_commits
+    # is the empty array. (The no-drift normalization sub-step that collapses
+    # multiple distinct stamps to one BASE_SHA is a later track; this branch
+    # only reports the no-drift read.)
+    DRIFT_DETECTED="false"
+    DRIFT_KIND="stamped"
+    DRIFT_COMMIT_COUNT="0"
+    DRIFT_FIRST_COMMITS_JSON="[]"
+    return
+  fi
+
+  # Non-empty range: drift detected. commit_count is the full range total;
+  # first_commits is the first ten subject lines (oldest first), each a
+  # `{sha, subject}` object. Build the JSON array with jq from the capped
+  # `<short-sha> <subject>` lines (jq -R reads each raw line; sub() splits the
+  # first space into sha + subject so a subject containing spaces stays whole).
+  DRIFT_DETECTED="true"
   DRIFT_KIND="stamped"
+  DRIFT_COMMIT_COUNT="$(printf '%s\n' "$log_lines" | grep -c '')"
+  DRIFT_FIRST_COMMITS_JSON="$(printf '%s\n' "$log_lines" | head -10 \
+    | jq -Rnc '[inputs | {sha: (split(" ")[0]), subject: sub("^[^ ]+ *"; "")}]')"
 }
 
 # ---------------------------------------------------------------------------
