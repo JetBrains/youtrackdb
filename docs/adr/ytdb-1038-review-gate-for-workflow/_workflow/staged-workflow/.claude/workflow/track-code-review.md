@@ -247,6 +247,48 @@ of the changes.
    below for the rationale, the path convention, and the
    regeneration rule (the staged files become stale after every
    `Review fix:` commit).
+8. **Stage a `diff <live> <staged>` delta for freshly-created staged
+   copies (workflow-modifying plans).** When the plan's `### Constraints`
+   carries the canonical `§1.7(b)` workflow-modifying marker sentence, a
+   track's deliverable is often a staged copy under
+   `…/_workflow/staged-workflow/.claude/…`. The first commit that creates
+   such a copy shows it as a whole-file add in the cumulative diff, which
+   hides the real change: only the delta against the live counterpart is
+   worth review. Enumerate the new-file adds under the anchored staged
+   prefix in the cumulative range, derive each live counterpart by
+   stripping that prefix, and when the live file exists write
+   `diff <live> <staged>` to a per-track delta temp file:
+
+   ```bash
+   : > /tmp/claude-code-track-{N}-delta-$PPID.txt
+   git diff {base_commit}..HEAD --diff-filter=A --name-only \
+       -- 'docs/adr/*/_workflow/staged-workflow/.claude/*' \
+     | while IFS= read -r staged; do
+         # Strip the staged prefix to derive the live counterpart:
+         # docs/adr/<dir>/_workflow/staged-workflow/.claude/X → .claude/X
+         live=$(printf '%s\n' "$staged" \
+             | sed -E 's#^docs/adr/[^/]+/_workflow/staged-workflow/##')
+         if [ -f "$live" ]; then
+             {
+                 printf '=== delta: %s vs %s ===\n' "$live" "$staged"
+                 diff "$live" "$staged"
+                 printf '\n'
+             } >> /tmp/claude-code-track-{N}-delta-$PPID.txt
+         fi
+       done
+   ```
+
+   The trigger is precise: it fires only on a new-file add
+   (`--diff-filter=A`) under the anchored staged prefix that has a live
+   counterpart. A later edit to an already-restaged file is an ordinary
+   diff, stages no delta, and the reviewer sees the ordinary diff
+   unchanged. The delta file is empty when no freshly-created staged copy
+   is in range — the scope note in the canonical context block points
+   reviewers at it only when it has content. Regenerate it alongside the
+   diff and changed-files list before every gate-check fan-out (each
+   `Review fix:` commit grows the cumulative diff). On plans without the
+   marker no staged copies exist, so the loop produces an empty file and
+   the delta note in the context block stays inert.
 
 ---
 
@@ -353,6 +395,19 @@ live file otherwise. Without the marker this caveat is inert:
 read the live path. Reading the live file when a staged copy
 exists would compare a change against `develop`'s version of a
 rule the branch already rewrote and report a phantom mismatch.
+
+## Review-target delta for freshly-created staged copies
+When a changed file is a staged copy first created in this
+reviewed range, the diff shows a whole-file add even though the
+file is a copy of an already-live, already-reviewed file plus a
+small edit. The delta file at
+  /tmp/claude-code-track-{N}-delta-{PPID}.txt
+lists, per such file, the `diff <live> <staged>` against its live
+counterpart. When that file is non-empty, scope your findings to
+the delta: the rest of each whole-file add is verbatim-copied,
+already-live, already-reviewed content and is out of scope. When
+it is empty (no freshly-created staged copy in range, or an
+ordinary plan), review the diff as usual.
 
 ## Diff
 The full cumulative track diff is at:
