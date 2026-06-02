@@ -16,7 +16,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-01T14:27Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-01T15:05Z [ctx=safe] Step 1 complete (commit acfe1445f7)
 - [x] 2026-06-01T15:50Z [ctx=info] Step 2 complete (commit 1f0c3e0e3e; dim-review PASS iter 2)
@@ -27,6 +27,7 @@ read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
 - [x] 2026-06-02T04:10Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations; commit 2c4f0b2038, 13 review-fix items applied, 0 blockers)
 - [x] 2026-06-02T04:17Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations; commit d2811afba9, design-final.md convergence-claim consistency fix mirroring the iter-1 adr.md fix)
 - [x] 2026-06-02T04:18Z [ctx=info] Track-level code review complete — PASS at iteration 2 (11-agent fan-out, all dimensions VERIFIED, 0 blockers)
+- [x] 2026-06-02T04:23Z [ctx=info] Track complete (user-approved; episode written + Track 2 marked [x] in the plan)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was

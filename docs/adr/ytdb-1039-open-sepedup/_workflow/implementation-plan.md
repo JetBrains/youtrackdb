@@ -200,15 +200,63 @@ flowchart TD
   > both already captured in Track 1's episode. Component Map, D1/D2, and the
   > Track 1→2 dependency hold unchanged.
 
-- [ ] Track 2: Axis A — gate the open-time pass on `wereDataRestoredAfterOpen`
+- [x] Track 2: Axis A — gate the open-time pass on `wereDataRestoredAfterOpen`
   > Skip the orphan pass entirely on a clean (non-WAL-replay) open so a
   > gracefully-closed database reopens in O(1). Gate the `open()` dispatch on
   > `wereDataRestoredAfterOpen`, pin the load-bearing premise (S2) with an
   > assertion, prove safety with a crash-injection regression test, and update
   > the read-cache-concurrency-bug ADR D6/I6 to reflect the refined gating.
-  > Detailed description in plan/track-2.md.
-  > **Scope:** ~4-5 steps covering the gate at `open():809` + comment, the `endAtomicOperation` premise assertion, the crash-injection regression test, and the ADR D6/I6 + design-final update.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Shipped Axis A in 5 steps: a one-line gate `if (wereDataRestoredAfterOpen)`
+  > around the recovery-time orphan-truncation pass dispatch in
+  > `AbstractStorage.open()`, so a gracefully-closed disk database that replays
+  > no WAL skips the pass entirely — reopen cost is now independent of
+  > collection count (the O(N²) `removeByFileId` sweep the issue profiled at
+  > 97.2% of reopen no longer runs on a clean reopen). The load-bearing premise
+  > — a disk orphan is crash-only because a rolled-back transaction never reaches
+  > `commitChanges` — is pinned by a production `assert` at
+  > `AtomicOperationsManager.endAtomicOperation` plus a unit test covering both
+  > rollback entries (inbound-error and index-delta-persist-failure), and proved
+  > by a crash-injection regression suite (dirty WAL-replay reopen repairs the
+  > orphan and re-establishes I6; clean reopen skips the pass and a fabricated
+  > orphan survives). Step 1 migrated the 28 `TruncateOrphansAfterRecoveryIT`
+  > scenarios plus the `StorageBackupMTRestoreIT` open-side fabrication to a
+  > genuinely-dirty reopen (delete `dirty.fl`/`dirty.flb`) so the repair path
+  > still runs post-gate. Step 5 amended the read-cache-concurrency-bug ADR
+  > D6/I6 and design-final to preserve-with-scoping: the disk engine is now
+  > WAL-replay-gated; the general rule (a clean close could leave an orphan) is
+  > retained for the in-memory engine, whose rollback leaves eagerly-installed
+  > pages.
+  >
+  > Phase C track-level review (11 agents) passed at iteration 2 with 0 blockers;
+  > crash-safety independently confirmed the gate preserves I6 and performance
+  > confirmed the O(1) clean reopen. Iteration 1 (`2c4f0b2038`) applied 13
+  > review-fix items; the load-bearing one made the `cleanReopenAfterRollback`
+  > rollback-footprint assertion non-vacuous — 200 small rows fit one page, so
+  > the assertion held trivially; fixed by scaling the workload to ~2000×256 B
+  > and adding a committed-control proving it grows the `.pcl` when committed.
+  > Iteration 2 (`d2811afba9`) closed a durable-doc consistency residual (the
+  > `design-final.md` convergence bullet still implied every reopen reruns the
+  > pass).
+  >
+  > Phase 4 inputs: the open-time pass now has a package-private dispatch-counter
+  > observation hook (`AbstractStorage.orphanTruncationDispatchCountForTests`,
+  > null-guarded for Mockito `CALLS_REAL_METHODS` mocks) because file size alone
+  > cannot distinguish "pass skipped" from "ran and found nothing".
+  > `wereDataRestoredAfterOpen` is shared with
+  > `IndexManagerEmbedded.autoRecreateIndexesAfterCrash` and is never reset
+  > (conservative-safe: a stale `true` only re-runs a now-O(1) pass). Coverage
+  > on this host needs a Track-2-scoped two-stage build (unit subset + a `verify`
+  > run with the IT under `-P coverage,ci-integration-tests`); full multi-module
+  > coverage exceeds the foreground budget. Accepted known boundaries: no genuine
+  > process-kill crash test (marker-deletion was a deliberate Phase A choice;
+  > `LocalPaginatedStorageRestoreFromWALIT` covers genuine crash+replay at the
+  > storage level), failure injection on Group 1 only (with a cross-group
+  > continue assertion), reflection helpers duplicated from the sibling unit
+  > test, orphan-page count fixed at 4.
+  >
+  > **Track file:** `plan/track-2.md` (5 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
