@@ -263,7 +263,7 @@ If you change a threshold here, grep for the others and update them in the same 
 
 ## Cost Monitor
 
-The statusline's second line shows session and calendar-month cost. When the cwd is a linked git worktree, it also shows `wt:$X`, the cumulative spend on the *current worktree's project* (every session ever run in this worktree, orchestrator + sub-agents, deduped). The figure sits between the session and month totals: `$0.123 (wt:$1.85 mo:$4.56) …`.
+The statusline's second line shows session, today, and calendar-month cost. The `day:$X` figure is today's spend across every project (the calendar-day analogue of the month figure, deduped the same way) and always appears: `$0.123 (day:$2.34 mo:$4.56) …`. When the cwd is a linked git worktree, the line also shows `wt:$X`, the cumulative spend on the *current worktree's project* (every session ever run in this worktree, orchestrator + sub-agents, deduped), inserted at the front of the parenthetical: `$0.123 (wt:$1.85 day:$2.34 mo:$4.56) …`.
 
 In a worktree that cost is also published to a per-session file, mirroring the context-usage file, so it can be read on demand:
 ```bash

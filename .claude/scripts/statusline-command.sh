@@ -127,8 +127,10 @@ else
   printf "%s  |  ctx: %s" "$model" "$ctx_str"
 fi
 
-# Second line: cost (current session + calendar month) and per-session token
-# totals across orchestrator + sub-agents. In a linked worktree, also pass the
+# Second line: cost (current session, today, and calendar month) and
+# per-session token totals across orchestrator + sub-agents. The today and
+# month figures are computed by session-stats.py with no shell involvement.
+# In a linked worktree, also pass the
 # per-worktree-project figure (--worktree) and publish its cost to a /tmp file
 # (--worktree-cost-file). Best-effort — never break the primary status line if
 # the helper errors out.
