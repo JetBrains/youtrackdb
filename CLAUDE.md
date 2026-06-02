@@ -127,7 +127,7 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 - `main` - Used for delivery of artifacts once all tests on `develop` have passed (auto-merged from develop nightly after integration tests pass)
 
 ### Commit Messages
-- Git hook `.githooks/prepare-commit-msg` auto-prepends YTDB issue prefix based on branch name
+- The YTDB issue number is carried in the PR title only (auto-prefixed from the branch name by `.github/workflows/pr-title-prefix.yml`). Individual commit subjects do not need it — the squash-merge takes its message from the PR title and description.
 - **Format**:
   ```
   [Imperative summary, under 50 chars]
@@ -142,6 +142,7 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 ### Pull Requests
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
+- **Multiple issues**: when a PR addresses several issues, list them all in the title, comma-separated and wrapped in square brackets: `[YTDB-123, YTDB-456] <summary>`.
 - Target branch: `develop`
 - **1 PR = 1 squashed commit** — all branch commits are squashed on merge
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
