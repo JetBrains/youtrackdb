@@ -11,6 +11,7 @@ Track 3 ports the no-drift normalization path byte-for-byte: recompute the stamp
 ## Progress
 - [x] 2026-06-03T07:33Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-03T09:22Z [ctx=safe] Step 1 complete (commit 059207633f)
+- [x] 2026-06-03T09:31Z [ctx=info] Step 2 complete (commit dee1a9b8f8)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -36,6 +37,13 @@ at Phase 1. -->
   within its fixed-template, no-metacharacter path-quoting assumption, so the
   byte-source is the fix site, not this script. Relevant to Track 4 (which
   rewrites the drift-check prose) and Phase 4. See Episodes §Step 1.
+- **`actions_taken` entry shape is `{action, commit, subject}`** (Step 2): the
+  no-drift normalization success path emits one entry `{action:
+  "normalize-workflow-sha-stamps", commit: "<new-short-sha>", subject:
+  "Normalize workflow-sha stamps to <short-base>"}`. Track 4's rewritten
+  dispatch rule cites `actions_taken` in its resume-recital prose, so that
+  prose must describe the normalization commit with this subject and treat the
+  entry as a report, never a confirmation gate (S2). See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -87,7 +95,7 @@ Ordering constraints and invariants to preserve (S3): the path fires only in `fu
 ## Concrete Steps
 
 1. No-drift normalization mutating path — in `detect_drift`'s no-drift branch, add the distinct-SHA fire gate, recompute `STAMPED_FILES`, line-1 rewrite to `DRIFT_BASE_SHA`, the two diff-shape guards, abort-restore (`exit 1`), the commit, and the success-`return` into `emit_json` (Plan of Work slices 1-4). Lands with all safety fixtures: success (one commit, line-1-only diff, valid `full` JSON, exit 0), uniform-stamp skip, guard-1 abort (pre-dirtied line-2+ body), guard-2 abort (dirty non-stamped `_workflow/` file), narrow-scope no-abort, and `divergence-only`/`migrate-range` no-mutate (slice 5). — risk: high (override: the script's only mutating path — autonomous `git commit` + working-tree rewrite under an all-or-nothing abort-restore; Phase A reviews surfaced one blocker plus three should-fixes on its correctness)  [x] commit: 059207633f
-2. `actions_taken` + `normalization_landed` reporting — on the Step 1 success path set `DRIFT_NORMALIZATION_LANDED=true` and `ACTIONS_TAKEN_JSON` to a one-element entry naming the normalization commit (short SHA + subject); the `full`-mode emit already splices both. Fixtures: a successful normalization emits `full` JSON with `actions_taken` populated and `drift.normalization_landed=true`; the uniform-skip and no-drift paths keep `actions_taken=[]` and `normalization_landed=false` (S1: the only behavior delta vs today is the commit surfacing in `actions_taken`). — risk: medium (observability — populates the JSON reporting contract Track 1 stubbed; observable output change, no new mutation)  [ ]
+2. `actions_taken` + `normalization_landed` reporting — on the Step 1 success path set `DRIFT_NORMALIZATION_LANDED=true` and `ACTIONS_TAKEN_JSON` to a one-element entry naming the normalization commit (short SHA + subject); the `full`-mode emit already splices both. Fixtures: a successful normalization emits `full` JSON with `actions_taken` populated and `drift.normalization_landed=true`; the uniform-skip and no-drift paths keep `actions_taken=[]` and `normalization_landed=false` (S1: the only behavior delta vs today is the commit surfacing in `actions_taken`). — risk: medium (observability — populates the JSON reporting contract Track 1 stubbed; observable output change, no new mutation)  [x] commit: dee1a9b8f8
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -154,6 +162,44 @@ step; populating the commit entry (short SHA plus subject) is Step 2's scope.
 default is declared, so Step 2's wiring point is ready. Any future track
 adding a fourth §1.6(h) ls-walk must extend the conformance extractors,
 keying on what the walk builds, not its position.
+
+### Step 2 — commit dee1a9b8f8, 2026-06-03T09:31Z [ctx=info]
+**What was done:** The no-drift normalization success path now populates
+`ACTIONS_TAKEN_JSON`, closing the last seam Track 1 stubbed for
+`actions_taken`. After the helper lands its stamp-folding commit, it reads
+the new commit's short SHA via `git rev-parse --short HEAD` and assembles a
+one-element array through the script's existing `jq -nc --arg` idiom:
+`{action, commit, subject}`, where `action` is the stable label
+`normalize-workflow-sha-stamps`, `commit` is the new commit's short SHA, and
+`subject` is the byte-identical `Normalize workflow-sha stamps to <short>`.
+`DRIFT_NORMALIZATION_LANDED` already flipped `true` in the prior step. Three
+stale comment blocks were updated to match (the `ACTIONS_TAKEN_JSON`
+declaration, the helper header, and the `emit_json` preamble). One reporting
+fixture pins the success entry's three fields; the uniform-skip and
+narrow-scope-no-abort fixtures gained `actions_taken=[]` assertions. Harness:
+73/73.
+
+**What was discovered:** On a multi-SHA fold the reported `commit` (the new
+commit's hash) and the subject's `<short>` (the `BASE_SHA` abbreviation the
+stamps fold to) are genuinely distinct values. The new fixture asserts they
+differ, guarding against a future regression that conflates the two.
+
+**What changed from the plan:** None. The plan left the entry shape open
+("naming the normalization commit — short SHA plus subject"); the object form
+`{action, commit, subject}` mirrors the existing `first_commits`
+`{sha, subject}` convention and adds a machine-readable `action` label. No new
+API-surface decision.
+
+**Key files:** `.claude/scripts/workflow-startup-precheck.sh` (the
+`actions_taken` population on the normalization success path);
+`.claude/scripts/tests/test_workflow_startup_precheck.py` (the reporting
+fixture plus `actions_taken` assertions on the skip and no-abort paths).
+
+**Critical context:** The reporting wiring is complete. Every path that lands
+no commit (uniform-stamp skip, no-drift, drift detected, both guard aborts)
+leaves `actions_taken=[]`; only the landed-commit success path populates it.
+The no-prompt invariant (S2) holds: the entry is a report, never a
+confirmation gate.
 
 ## Validation and Acceptance
 
