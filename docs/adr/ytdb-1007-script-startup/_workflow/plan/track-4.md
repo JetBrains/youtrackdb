@@ -233,3 +233,6 @@ belong to one specific step. Per-step episode content lives in
 **Staging discipline:** staged-subtree layout per `§1.7(a)`; the `§1.7(b)` marker is declared in the plan's Constraints; reads resolve staged-first per `§1.7(d)`; first touch copies the live file verbatim then edits per `§1.7(e)`; the Phase 4 promotion rebases onto develop first per `§1.7(f)` and is additive and re-entrant per `§1.7(j)`.
 
 **Dependencies:** depends on Tracks 1, 2, and 3 — the `--mode full`, `divergence-only`, and `migrate-range` JSON shapes (including `state` and `actions_taken`) must be final before the prose cites them. No downstream track consumes this one; the Phase 4 promotion is the next consumer.
+
+## Base commit
+a65f3615fc7159521a181a2c82f5f3a74d96dd41
