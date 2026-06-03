@@ -98,6 +98,15 @@ Track-level note: copy-then-edit on first touch is idempotent — a file already
 belong to one specific step. Per-step episode content lives in
 `## Episodes` above. Often empty. -->
 
+- Track 1 review note (WB1, context-budget): when Step 6 rewrites
+  `migrate-workflow/SKILL.md` Step 2 to consume `migrate-range`, have the
+  consumer read the JSON from a `/tmp` file via `Read` with `offset`/`limit`
+  rather than inlining the whole blob into the orchestrator. The
+  `migrate-range.log_range` array is intentionally uncapped (the migration
+  must replay every commit, unlike the drift range's `head -10` display
+  cap), so a long branch range could otherwise dump an unbounded commit
+  list into context on each invocation.
+
 ## Interfaces and Dependencies
 
 **In scope (all STAGED under `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/`):**

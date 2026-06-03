@@ -18,7 +18,7 @@ Track 1 scaffolds `workflow-startup-precheck.sh` with `--mode` plumbing and the 
 - [x] 2026-06-02T15:58Z [ctx=safe] Step 6 complete (commit fbe9349d0b)
 - [x] 2026-06-02T15:58Z [ctx=safe] Step implementation
 - [x] 2026-06-03T03:18Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
-- [ ] Track-level code review
+- [x] 2026-06-03T03:19Z [ctx=safe] Track-level code review (PASS iter 1; WC1/WC2/WB1 deferred via plan corrections)
 - [ ] Track completion
 
 ## Surprises & Discoveries

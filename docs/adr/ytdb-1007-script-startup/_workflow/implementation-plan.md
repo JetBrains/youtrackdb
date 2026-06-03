@@ -308,3 +308,15 @@ track-file pointer, dropping sentences that duplicated each track file's
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
+
+**Phase 4 reconciliation (from Track 1 review, WC1/WC2 — consistency):**
+`design.md § "The JSON contract"` describes the `migrate-range` output as
+`drift` extended with per-artifact pairs plus `actions_taken`, and is
+internally inconsistent on whether `actions_taken` is present. The shipped
+script emits a flat object with five keys and no `drift` wrapper or
+`actions_taken`: `stamped_artifacts`, `unstamped_files`, `base_sha`,
+`log_range`, `merge_base_failed`. `merge_base_failed` is an array of
+`{base, sha, files}` objects, not a scalar flag. `design.md` is frozen
+during execution, so this was not edited mid-branch; `design-final.md` must
+restate the `migrate-range` contract to match the shipped script before
+Track 4's citations and the durable design lock it in.
