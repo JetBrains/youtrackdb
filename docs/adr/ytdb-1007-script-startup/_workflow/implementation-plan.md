@@ -369,16 +369,58 @@ flowchart TD
   > § No-drift normalization`: Track 2's parser findings and Track 1's three
   > deferred items all land on Track 4 or Phase 4, not Track 3.
 
-- [ ] Track 3: No-drift normalization and `actions_taken` wiring
+- [x] Track 3: No-drift normalization and `actions_taken` wiring
   > Port the no-drift normalization path byte-for-byte: recompute the
   > stamped-file list, rewrite each line-1 stamp to the folded `BASE_SHA`
   > with a printf-and-tail pattern, verify the two diff-shape guards, then
   > land one all-or-nothing commit and feed it into `actions_taken`.
   > Detailed description in plan/track-3.md.
-  > **Scope:** ~3-4 steps covering the stamp rewrite, the two diff-shape
-  > guards + abort-restore, the commit + `actions_taken` wiring, and the
-  > normalization fixtures.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Ported the no-drift normalization path, the script's only autonomous
+  > mutating branch, from `workflow-drift-check.md § No-drift normalization`
+  > into `workflow-startup-precheck.sh`'s `no_drift_normalization()` (called
+  > from `detect_drift`'s empty-`git-log` branch), and wired the resulting
+  > commit into `actions_taken`. The port stays byte-faithful to the live
+  > byte-source modulo three plan-sanctioned adaptations: the bare
+  > `$BASE_SHA` binds to the fold result `DRIFT_BASE_SHA` (a literal copy
+  > expands empty under the script's no-`set -u` posture and would blank
+  > every stamp); the success path `return`s into `emit_json` rather than
+  > `exit 0`, so the `full` JSON still carries `actions_taken` and
+  > `drift.normalization_landed`; and the distinct-SHA fire gate, which the
+  > byte-source keeps only in surrounding prose, gains an explicit in-script
+  > home. The source mechanism is intact: fire gate, `STAMPED_FILES`
+  > recompute under the §1.6(h) enumeration, printf+tail line-1 rewrite via
+  > `.tmp`+`mv`, guard 1 (off-line-1 hunks) and guard 2 (untouched dirty
+  > `_workflow/` paths), the all-or-nothing abort-restore, and the
+  > byte-identical `Normalize workflow-sha stamps to <short>` subject.
+  > Step 2 populated `ACTIONS_TAKEN_JSON` with a one-element
+  > `{action, commit, subject}` entry on the success path; every
+  > non-landing path keeps `actions_taken=[]`. The only behavior delta from
+  > today is that the commit surfaces in `actions_taken` — the script never
+  > prompts (S2 holds).
+  >
+  > Discoveries carried forward: the recompute is a third §1.6(h) `ls`-walk,
+  > so the conformance harness now keys on what each walk builds
+  > (`STAMPED_FILES` vs `STAMPED_SHAS`), not position — a future fourth walk
+  > must extend `_extract_all_ls_walks`/`_extract_normalization_walk`. The
+  > `git commit` uses `-q` so its summary cannot corrupt the single JSON
+  > stdout channel. Two shared-byte-source caveats are deferred to Track 4
+  > (prose rewrite) and Phase 4 as the fix site, not this script: guard 2's
+  > `awk '{print $2}'` truncates a porcelain path containing a space, and the
+  > success-path prose is byte-faithful to live.
+  >
+  > Phase C review passed at iteration 1 (4 workflow reviewers; baseline
+  > skipped on the workflow-only diff; 0 blockers, 0 should-fixes). The
+  > hook-safety reviewer empirically verified the mutating path (73/73
+  > harness, both guard aborts, stdout-channel cleanliness, JSON validity,
+  > orphan-`.tmp` handling). One suggestion (WS2) was applied in a Review fix
+  > (`3578e4084f`, gate VERIFIED) recasting a guard-2 comment to drop an
+  > em-dash aside; one suggestion (WS1) was declined as out-of-range
+  > pre-Phase-A content under an em-dash exemption. No findings deferred; no
+  > plan corrections.
+  >
+  > **Track file:** `plan/track-3.md` (2 steps, 0 failed)
 
 - [ ] Track 4: Prose consolidation (staged)
   > Rewrite the six prose surfaces to call or cite the script: `workflow.md
