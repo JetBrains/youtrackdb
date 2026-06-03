@@ -13,6 +13,7 @@ Track 4 rewrites the six prose surfaces to consume the script: `workflow.md § S
 - [x] 2026-06-03T13:35Z [ctx=info] Step 1 complete (commit 92888ad18f)
 - [x] 2026-06-03T13:47Z [ctx=info] Step 2 complete (commit e62746d37a)
 - [x] 2026-06-03T13:52Z [ctx=info] Step 3 complete (commit 169e3f7f55)
+- [x] 2026-06-03T13:58Z [ctx=info] Step 4 complete (commit 13214c4c86)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -170,6 +171,18 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/branch-divergence-check.md` (new staged copy)
 
 **Critical context:** The single expected `rule_1` staged residue this copy adds (four total across the staged subtree) clears at Phase 4 promotion; do not stamp the staged copy.
+
+### Step 4 — commit 13214c4c86, 2026-06-03T13:58Z [ctx=info]
+**What was done:** Pivoted the staged `conventions.md §1.6(h)` walk block from byte-copied-by-tracks framing to spec-plus-implementation: the artifact-walk bash STAYS as the readable spec, and the intro now points at `workflow-startup-precheck.sh` as the single implementation of the walk (drift detection, the migrate-range walk, and the no-drift normalization recompute all run it) and notes the script conforms to this spec, checked by the conformance fixture under `.claude/scripts/tests/`. Reconciled the identical stale byte-copy framing one subsection up in `§1.6(a1)` ("both quoted byte-for-byte by Tracks 3, 4a, and 4b") to the same single-implementation model, since the script embodies both regex idioms. First-touch copy-then-edit: the staged copy is md5-identical to live except the two reconciled subsections; the live `conventions.md` is byte-unchanged.
+
+**What was discovered:** A bare `§1.6` in-file reference trips `workflow-reindex.py` rule_8 (it wants a `:roles:phases` suffix or a backtick span); the established §1.6 convention for sibling-subsection references is the bare parenthetical `(a1)` / `(g)` / `(d)` form, and a parent-section reference is reworded without the `§`-number. The intro was reworded to "the declared single source of truth" to clear rule_8. This refines the cross-file rule_8 note from Step 1: in-file `§X.Y(z)` prose references in a staged copy must be the bare sibling parenthetical, backticked, or suffix-stamped — relevant to Steps 5-6 authoring cross-section references.
+
+**What changed from the plan:** none. The "Tracks 3 / 4a / 4b" prior-plan labels lived inside the byte-copy framing sentences, so reconciling the framing removed them rather than renumbering — matching the plan's "do not renumber the labels, only reconcile the framing" scope limit.
+
+**Key files:**
+- `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/conventions.md` (new staged copy)
+
+**Critical context:** The guard-2 `awk` space-truncation known-debt was NOT duplicated here — it stays in the staged `workflow-drift-check.md` Path-quoting note (R-A5). The staged `conventions.md` adds one expected `rule_1` residue (five total across the staged subtree); it clears at Phase 4 promotion. Do not stamp the staged copy.
 
 ## Validation and Acceptance
 
