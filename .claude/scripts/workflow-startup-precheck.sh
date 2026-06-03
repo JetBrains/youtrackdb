@@ -230,8 +230,10 @@ DRIFT_KIND=""
 DRIFT_BASE_SHA=""
 DRIFT_COMMIT_COUNT=""
 DRIFT_FIRST_COMMITS_JSON="[]"
-# normalization_landed is hard-false in this branch — the no-drift
-# normalization commit is wired in a later track; nothing here mutates the tree.
+# normalization_landed defaults false and flips true only when the no-drift
+# normalization path below lands its single stamp-folding commit. Every other
+# path (drift detected, unstamped, merge-base-failed, empty-input, already-
+# uniform stamps) leaves it false: those paths mutate nothing.
 DRIFT_NORMALIZATION_LANDED="false"
 
 # Classification arrays, also script-scoped so the Phase 2 fold and
@@ -239,6 +241,15 @@ DRIFT_NORMALIZATION_LANDED="false"
 # re-walking. Leading-space-delimited word lists, matching the byte-source.
 STAMPED_SHAS=""
 UNSTAMPED_FILES=""
+
+# actions_taken array literal. The no-drift normalization path below is the
+# script's only autonomous mutation, so it is the only writer of this variable;
+# it replaces the empty `[]` with a one-element array describing the
+# normalization commit. emit_json splices it via ${ACTIONS_TAKEN_JSON:-[]}.
+# Populating the entry with the commit's short SHA and subject is the reporting
+# step that follows this mutating path; this path lands the commit and leaves
+# the array wiring ready.
+ACTIONS_TAKEN_JSON="[]"
 
 # The workflow pathspecs the drift `git log` ranges against. Trailing slashes
 # make the directory intent explicit and exclude the staged subtree at
@@ -313,6 +324,121 @@ fold_stamps_to_base() {
     fi
     FOLD_BASE_SHA="$new_base"
   done
+}
+
+# ---------------------------------------------------------------------------
+# No-drift normalization — the script's only autonomous mutation.
+#
+# Byte-source: workflow-drift-check.md § No-drift normalization. Fires only on
+# the no-drift path (empty `git log` range) AND when the stamp set carries more
+# than one distinct SHA — the active plan's stamps fold to the same BASE_SHA yet
+# sit on different commits on disk. Rewriting every artifact's line-1 stamp to
+# BASE_SHA collapses the next gate's fold input to a single-element set, keeping
+# the gate O(1) on subsequent runs. The fold result the byte-source names
+# $BASE_SHA is the script's $DRIFT_BASE_SHA, passed in as $1; the byte-source's
+# bare $BASE_SHA would expand empty under this script's no-`set -u` posture and
+# rewrite every stamp blank, so binding it to the resolved fold result is the
+# one variable adaptation the move into a function forces.
+#
+# All-or-nothing contract: either every stamp moves to BASE_SHA in one commit,
+# or the on-disk state is unchanged. Two diff-shape guards enforce it. The
+# rewrite is in place (printf + tail, never staged) until both guards pass;
+# `git checkout --` alone restores the tree on mismatch (nothing is staged yet),
+# so the "stamps rewritten without a commit" in-between state is unreachable
+# under correct invocation.
+#
+# Args: $1 = the folded BASE_SHA (the script's DRIFT_BASE_SHA); $2 = the active
+# plan dir (PLAN_DIR, the same value detect_drift resolved from the branch).
+#
+# Control-flow adaptation vs the byte-source: the byte-source ends the success
+# path with a terminal `exit 0`. This function instead `return`s on success so
+# the caller flows into emit_json and the `full`-mode JSON still emits with
+# drift.normalization_landed and actions_taken reflecting the commit. The abort
+# path keeps the byte-source's hard `exit 1` (a non-zero exit that halts the
+# calling session) — that asymmetry, success-`return` vs abort-`exit 1`, is the
+# second sanctioned adaptation. The function sets DRIFT_NORMALIZATION_LANDED on
+# success; the actions_taken entry naming the commit is populated by the
+# reporting step that consumes this path.
+#
+# Path-quoting assumption (byte-source): all `_workflow/**` artifact names are
+# fixed-template (implementation-plan.md, design.md, design-mechanics.md,
+# track-<digits>.md) with no shell metacharacters, so the unquoted expansion of
+# $stamped_files below is safe. A future artifact name carrying spaces or
+# metacharacters would require a NUL-delimited path list first.
+no_drift_normalization() {
+  local base_sha="$1" plan_dir="$2"
+
+  # Recompute the stamped-artifact PATH list. The Phase 1 walk exports
+  # STAMPED_SHAS / UNSTAMPED_FILES but no companion stamped-path list, so recompute
+  # it here under the same enumeration the § 1.6(h) walk uses — keeping the
+  # byte-copy contract with § 1.6(h) intact. The grep guard matches the full
+  # `<!-- workflow-sha: <40-hex> -->` line-1 comment, so an artifact whose first
+  # line merely contains a 40-hex run is not mistaken for a stamped file.
+  local stamped_files="" f
+  for f in $(ls "$plan_dir/_workflow/implementation-plan.md" \
+                "$plan_dir/_workflow/design.md" \
+                "$plan_dir/_workflow/design-mechanics.md" \
+                "$plan_dir/_workflow/plan/"track-*.md 2>/dev/null); do
+    if head -1 "$f" | grep -qE '<!-- workflow-sha: [0-9a-f]{40} -->'; then
+      stamped_files="$stamped_files $f"
+    fi
+  done
+
+  # Rewrite line 1 of every stamped artifact in place. The portable printf +
+  # `tail -n +2` pattern (not `sed -i`, whose `-i` flag differs between BSD and
+  # GNU) writes the new stamp then re-appends lines 2.. via a `.tmp` + `mv`. The
+  # `&&` runs under the no-`set -e` posture: a failed redirect leaves the
+  # original file intact and at worst an orphan `.tmp`, which guard 2 catches as
+  # an untracked path inside the plan's `_workflow/`.
+  for f in $stamped_files; do
+    { printf '<!-- workflow-sha: %s -->\n' "$base_sha"; tail -n +2 "$f"; } > "$f.tmp" \
+      && mv "$f.tmp" "$f"
+  done
+
+  # Diff-shape guard 1: every hunk header in the unstaged diff of the stamped
+  # artifacts must start `@@ -1` (line-1 only). A header naming a different
+  # start line means the rewriter touched more than the stamp — abort.
+  local diff_bad
+  diff_bad="$(git diff -U0 -- $stamped_files | grep -E '^@@' | grep -vE '^@@ -1[, ]' || true)"
+
+  # Diff-shape guard 2: porcelain status scoped to the active plan's `_workflow/`
+  # must list only the stamped artifacts. The narrow scope matches the byte-
+  # source's narrow dirty-check philosophy (workflow-drift-check.md
+  # § No-drift normalization): a whole-repo clean check is too strict — unrelated
+  # edits outside the plan's `_workflow/` have no bearing — so a dirty file
+  # outside `_workflow/` does not abort. Any path inside the plan's `_workflow/`
+  # that the rewrite did not touch (an orphan `.tmp`, a missed artifact type, a
+  # pre-existing dirty file) is a path the gate refuses to swallow — abort.
+  local porcelain_bad
+  porcelain_bad="$(git status --porcelain -- "$plan_dir/_workflow/" | awk '{print $2}' | LC_ALL=C sort -u \
+    | comm -23 - <(printf '%s\n' $stamped_files | LC_ALL=C sort -u))"
+
+  if [ -n "$diff_bad" ] || [ -n "$porcelain_bad" ]; then
+    # Restore the pre-rewrite state for the stamped artifacts and surface a
+    # clear error on stderr (never stdout — the JSON channel stays clean). Nothing
+    # is staged at this point, so `git checkout --` alone is sufficient. The hard
+    # `exit 1` halts the calling session, byte-faithful to the byte-source: the
+    # user inspects the named hunks or paths manually and re-invokes after
+    # resolving them. There is no automatic fallthrough.
+    git checkout -- $stamped_files
+    echo "workflow-sha normalization aborted: diff shape mismatch" >&2
+    [ -n "$diff_bad" ]      && echo "  off-line-1 hunks: $diff_bad" >&2
+    [ -n "$porcelain_bad" ] && echo "  unexpected paths: $porcelain_bad" >&2
+    exit 1
+  fi
+
+  # Diff shape verified. Stage the stamped artifacts and land one commit. The
+  # subject is byte-identical to the byte-source: `Normalize workflow-sha stamps
+  # to <short-BASE_SHA>`, the seven-character abbreviation of BASE_SHA.
+  git add -- $stamped_files
+  local short_base_sha
+  short_base_sha="$(printf '%s' "$base_sha" | cut -c1-7)"
+  git commit -q -m "Normalize workflow-sha stamps to $short_base_sha"
+
+  # Record that the mutation landed. The reporting step that consumes this path
+  # populates ACTIONS_TAKEN_JSON with the commit's short SHA and subject; this
+  # path lands the commit, flips the flag, and `return`s so emit_json runs.
+  DRIFT_NORMALIZATION_LANDED="true"
 }
 
 detect_drift() {
@@ -399,13 +525,31 @@ detect_drift() {
     # Empty range: every stamp is already at or past every workflow commit
     # reachable from HEAD on the watched paths. No drift in the strict sense.
     # base_sha is reported (the fold ran); commit_count is 0 and first_commits
-    # is the empty array. (The no-drift normalization sub-step that collapses
-    # multiple distinct stamps to one BASE_SHA is a later track; this branch
-    # only reports the no-drift read.)
+    # is the empty array.
     DRIFT_DETECTED="false"
     DRIFT_KIND="stamped"
     DRIFT_COMMIT_COUNT="0"
     DRIFT_FIRST_COMMITS_JSON="[]"
+
+    # Fire gate — the distinct-SHA precondition (workflow-drift-check.md
+    # § No-drift normalization: "Fires only when … STAMPED_SHAS carries more than
+    # one distinct SHA"). The byte-source's bash block assumes the caller already
+    # established this precondition; here it gains an explicit in-script home and
+    # is NEW selecting logic, not a body byte-copy. Deduplicate the stamp set and
+    # count the distinct SHAs: a single distinct SHA means the stamps are already
+    # uniform, so skip silently (no mutation, normalization_landed stays false).
+    # More than one means the stamps fold to one BASE_SHA while sitting on
+    # distinct commits — run the normalization. The `grep -c .` counts non-empty
+    # lines so the leading-space word list does not inflate the count.
+    local distinct_count
+    distinct_count="$(printf '%s\n' $STAMPED_SHAS | LC_ALL=C sort -u | grep -c . || true)"
+    if [ "$distinct_count" -gt 1 ] 2>/dev/null; then
+      # Multi-SHA fold on distinct commits: normalize. On clean guards the helper
+      # lands one commit, flips DRIFT_NORMALIZATION_LANDED, and returns here so
+      # the no-drift scalars set above still emit. On a guard mismatch the helper
+      # restores the tree and `exit 1`s, halting the session before emit_json.
+      no_drift_normalization "$DRIFT_BASE_SHA" "$PLAN_DIR"
+    fi
     return
   fi
 

@@ -362,6 +362,50 @@ class GitFixture:
         self._git("commit", "-q", "-m", f"add {name}")
         return path
 
+    # -- no-drift normalization surface --------------------------------------
+
+    def stamped_artifact(self, relpath: str, stamp: str, *, body: str = "# Title\n") -> Path:
+        """Author and commit a stamped `_workflow/` plan artifact, returning its
+        path. Thin wrapper over plan_artifact for the normalization fixtures,
+        where the stamp is always a *real* commit SHA the fold must resolve and a
+        distinct stamp per artifact is the multi-SHA precondition the no-drift
+        normalization path keys on."""
+        return self.plan_artifact(relpath, stamp=stamp, body=body)
+
+    def dirty_workflow_file(self, name: str = "handoff-pending.md") -> Path:
+        """Drop an UNTRACKED non-stampable file inside the active plan's
+        `_workflow/` and leave it uncommitted. This is the guard-2 trigger: a
+        dirty path inside the plan's `_workflow/` that the stamp rewrite did not
+        touch must abort the normalization (the gate refuses to swallow an
+        unexpected dirty path). The name is a handoff-*.md so it is genuinely
+        non-stampable, mirroring the real residue (a mid-phase handoff sitting in
+        the worktree) the guard is built to refuse."""
+        path = self.plan_dir / "_workflow" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# pending handoff\n", encoding="utf-8")
+        return path
+
+    def dirty_outside_file(self, name: str = "outside-edit.txt") -> Path:
+        """Drop an UNTRACKED file OUTSIDE the active plan's `_workflow/` and leave
+        it uncommitted. This is the narrow-scope trigger: a dirty file outside the
+        plan's `_workflow/` must NOT abort the normalization (the guard-2
+        porcelain check is scoped to `$PLAN_DIR/_workflow/`, matching the byte-
+        source's narrow dirty-check philosophy)."""
+        path = self.path / name
+        path.write_text("unrelated working-tree edit\n", encoding="utf-8")
+        return path
+
+    def append_body_to_artifact(self, relpath: str, extra: str = "extra body line\n") -> None:
+        """Append a line-2+ body edit to an already-committed stamped artifact and
+        leave it UNCOMMITTED. This is the guard-1 trigger: with a pre-existing
+        body edit below line 1, the post-rewrite `git diff` spans past line 1, so
+        guard 1 (every hunk must start `@@ -1`) fires and aborts. The edit
+        preserves line 1 (the stamp) so the file still classifies as stamped and
+        enters the rewrite; only lines 2.. differ from HEAD."""
+        path = self.plan_dir / "_workflow" / relpath
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(extra)
+
 
 # ---------------------------------------------------------------------------
 # Test cases. Each raises AssertionError on failure with a clear message.
@@ -1216,6 +1260,339 @@ def test_drift_phase2_real_workflow_commit_vs_staged_distinguished() -> None:
         assert subjects == ["real workflow edit"], (
             f"only the real workflow commit appears in first_commits, got {subjects!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# No-drift normalization — the script's only autonomous mutation.
+#
+# Byte-source: workflow-drift-check.md § No-drift normalization. The path fires
+# on the no-drift read (empty `git log` range) when the stamp set folds to one
+# BASE_SHA but carries more than one distinct SHA (stamps on different commits).
+# It rewrites every artifact's line-1 stamp to BASE_SHA, verifies two diff-shape
+# guards, and lands one commit; on a guard mismatch it restores the tree and
+# exits non-zero with no commit.
+#
+# The fixtures stamp two artifacts at two distinct *real* commits on the same
+# linear history (head_sha captured at two points), so the pairwise fold derives
+# the older commit as BASE_SHA and the range is empty — the exact multi-SHA
+# no-drift precondition. Each `full` run also carries the divergence half, so an
+# upstream is added to keep the fetch from reaching the runner's real remote.
+#
+# Six behaviors, mirroring the track-level acceptance lines:
+#   * success         — one commit (subject `Normalize workflow-sha stamps to
+#                       <short>`), line-1-only diff, both stamps at BASE_SHA,
+#                       valid five-key `full` JSON on stdout, exit 0,
+#                       normalization_landed=true.
+#   * uniform skip    — a single distinct SHA (both stamps at the same commit)
+#                       fires no normalization: no commit, normalization_landed
+#                       false.
+#   * guard-1 abort   — a pre-existing line-2+ body edit makes the post-rewrite
+#                       diff span past line 1: exit non-zero, the off-line-1 hunk
+#                       named on stderr, tree at HEAD, no commit, no JSON.
+#   * guard-2 abort   — a dirty non-stamped file inside the plan's `_workflow/`:
+#                       exit non-zero, the unexpected path named on stderr, tree
+#                       at HEAD, no commit, no JSON.
+#   * narrow no-abort — a dirty file OUTSIDE `_workflow/` does not abort; the
+#                       normalization still lands.
+#   * mode no-mutate  — `divergence-only` and `migrate-range` never call the
+#                       normalization (detect_drift runs in `full` only), so a
+#                       multi-SHA fixture stays unmutated under those modes.
+# ---------------------------------------------------------------------------
+
+
+# The active branch name the normalization fixtures use. Distinct from the
+# divergence fixtures' default `main` so the plan dir matches a realistic
+# branch-named plan dir; any non-`main` name works since PLAN_DIR is resolved
+# from the branch.
+NORM_BRANCH = "ytdb-norm-fixture"
+
+
+def _two_distinct_stamp_commits(fx: "GitFixture") -> Tuple[str, str]:
+    """Author two commits on the linear history and return their SHAs (older,
+    newer). Stamping one artifact at each gives a stamp set that folds to the
+    older SHA (merge-base of two commits on a line is the older) with an empty
+    `BASE_SHA..HEAD` range — the multi-SHA no-drift precondition. The caller
+    authors an `init` commit and sets the upstream BEFORE calling this (the
+    add_bare_remote push needs an existing commit on the branch); these two
+    commits then land ahead of upstream, which is purely-ahead and not a
+    divergence."""
+    fx.commit("base one")
+    older = fx.head_sha()
+    fx.commit("base two")
+    newer = fx.head_sha()
+    return older, newer
+
+
+def _git_top_subject(fx: "GitFixture") -> str:
+    """The subject line of the fixture repo's current HEAD commit. Used to assert
+    a Normalize commit landed (or did not) on the success / abort / skip paths."""
+    return fx._git_out("log", "-1", "--format=%s")
+
+
+def _git_porcelain(fx: "GitFixture") -> str:
+    """The fixture repo's `git status --porcelain` output (working-tree + index).
+    Used to assert the tree is clean after a successful normalization and that an
+    aborted normalization left the stamped artifacts at HEAD."""
+    return fx._git_out("status", "--porcelain")
+
+
+def test_norm_success_one_commit_line1_only_diff_exit0() -> None:
+    """The success path: two artifacts stamped at two distinct real commits fold
+    to the older commit as BASE_SHA with an empty workflow-path range, so the
+    no-drift normalization fires. It rewrites both line-1 stamps to BASE_SHA,
+    verifies the guards, and lands exactly one commit whose subject is
+    `Normalize workflow-sha stamps to <short-BASE_SHA>` and whose diff touches
+    only line 1 of each artifact. The `full` run still emits the five-key JSON on
+    stdout (the success-path `return` into emit_json, not `exit 0`), exits 0, and
+    reports drift.normalization_landed=true with base_sha=BASE_SHA. This is the
+    headline behavior delta vs today: the silent prose normalization becomes a
+    reported, still-silent housekeeping commit."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, newer = _two_distinct_stamp_commits(fx)
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", newer)
+        # Capture the per-artifact line-1 stamps before the run so the rewrite is
+        # provable (track-1 starts at `newer`, must end at `older` = BASE_SHA).
+        plan_path = fx.plan_dir / "_workflow" / "implementation-plan.md"
+        track_path = fx.plan_dir / "_workflow" / "plan" / "track-1.md"
+        before_subject = _git_top_subject(fx)
+
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"success path should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        # The five-key full JSON still emits on stdout (success returns into
+        # emit_json rather than exiting).
+        obj = json.loads(proc.stdout)
+        assert set(obj.keys()) == {
+            "divergence", "drift", "handoffs", "state", "actions_taken"
+        }, f"full JSON must carry the five-key set, got {sorted(obj.keys())!r}"
+        drift = obj["drift"]
+        assert drift["normalization_landed"] is True, (
+            f"a landed normalization must set normalization_landed=true: {drift!r}"
+        )
+        assert drift["base_sha"] == older, (
+            f"base_sha should be the folded older commit {older!r}, got {drift['base_sha']!r}"
+        )
+        assert drift["detected"] is False, (
+            f"the no-drift read is preserved (detected stays false): {drift!r}"
+        )
+
+        # Exactly one Normalize commit landed on top, with the byte-identical
+        # subject and the seven-char short BASE_SHA.
+        short = older[:7]
+        assert _git_top_subject(fx) == f"Normalize workflow-sha stamps to {short}", (
+            f"the commit subject must be the byte-source form, got {_git_top_subject(fx)!r}"
+        )
+        assert before_subject != _git_top_subject(fx), (
+            "a new commit must have landed on top of the plan-artifact commit"
+        )
+
+        # Both stamps now point at BASE_SHA, and the rewrite touched only line 1.
+        assert plan_path.read_text(encoding="utf-8").splitlines()[0] == (
+            f"<!-- workflow-sha: {older} -->"
+        ), "implementation-plan.md line 1 must be the BASE_SHA stamp"
+        assert track_path.read_text(encoding="utf-8").splitlines()[0] == (
+            f"<!-- workflow-sha: {older} -->"
+        ), "track-1.md line 1 must be rewritten from the newer stamp to BASE_SHA"
+        # The committed diff is line-1-only: every hunk header starts `@@ -1`.
+        hunks = fx._git_out("show", "--format=", "--unified=0", "HEAD")
+        hunk_headers = [ln for ln in hunks.splitlines() if ln.startswith("@@")]
+        assert hunk_headers, f"the Normalize commit must carry a diff, got {hunks!r}"
+        for header in hunk_headers:
+            assert header.startswith("@@ -1"), (
+                f"every hunk must start at line 1, got off-line-1 header {header!r}"
+            )
+        # The working tree is clean after the commit (all-or-nothing landed whole).
+        assert _git_porcelain(fx) == "", (
+            f"working tree must be clean after a successful normalization, got "
+            f"{_git_porcelain(fx)!r}"
+        )
+
+
+def test_norm_uniform_stamps_skip_no_commit() -> None:
+    """Stamps already uniform (both artifacts at the SAME commit) make the
+    distinct-SHA fire gate count exactly one, so the normalization does not fire:
+    no commit lands, normalization_landed stays false, and the run still emits the
+    no-drift `full` JSON and exits 0. This pins that the fire gate distinguishes
+    an already-uniform stamp set (skip) from a multi-SHA-folds-to-one set
+    (normalize) — the new selecting logic the byte-source carries only in prose."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, _newer = _two_distinct_stamp_commits(fx)
+        # Both stamps at the SAME commit -> a single distinct SHA -> skip.
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", older)
+        before_subject = _git_top_subject(fx)
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"uniform-skip should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        drift = json.loads(proc.stdout)["drift"]
+        assert drift["normalization_landed"] is False, (
+            f"already-uniform stamps must not normalize: {drift!r}"
+        )
+        assert drift["base_sha"] == older, (
+            f"the fold still ran and reports base_sha {older!r}, got {drift['base_sha']!r}"
+        )
+        assert _git_top_subject(fx) == before_subject, (
+            f"no commit may land on the uniform-skip path, got new HEAD subject "
+            f"{_git_top_subject(fx)!r}"
+        )
+        assert _git_porcelain(fx) == "", (
+            f"the uniform-skip path mutates nothing, got dirty tree {_git_porcelain(fx)!r}"
+        )
+
+
+def test_norm_guard1_off_line1_body_edit_aborts() -> None:
+    """Guard 1: a stamped artifact carrying a pre-existing line-2+ body edit makes
+    the post-rewrite `git diff` span past line 1 (a hunk header naming a start
+    line other than 1), so the rewrite is rejected. The gate restores the stamped
+    artifacts from HEAD, prints the off-line-1 hunk to stderr, exits non-zero, and
+    lands no commit — and emits NO JSON on stdout (the hard `exit 1` halts before
+    emit_json). The aborted artifact returns to its HEAD state (the body edit is
+    discarded by `git checkout --`, byte-faithful to the byte-source's manual-
+    resolution stance)."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, newer = _two_distinct_stamp_commits(fx)
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", newer)
+        before_subject = _git_top_subject(fx)
+        # A pre-existing uncommitted body edit below line 1: the post-rewrite diff
+        # of this artifact spans line 2+, tripping guard 1.
+        fx.append_body_to_artifact("implementation-plan.md")
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode != 0, (
+            f"guard-1 mismatch must exit non-zero, got {proc.returncode}; "
+            f"stdout: {proc.stdout!r}"
+        )
+        assert proc.stdout.strip() == "", (
+            f"the abort path emits no JSON on stdout (exit before emit_json), got "
+            f"{proc.stdout!r}"
+        )
+        assert "off-line-1 hunks:" in proc.stderr, (
+            f"stderr must name the off-line-1 hunk, got {proc.stderr!r}"
+        )
+        assert _git_top_subject(fx) == before_subject, (
+            f"no commit may land on a guard-1 abort, got new HEAD subject "
+            f"{_git_top_subject(fx)!r}"
+        )
+        # The stamped artifacts are restored to HEAD: the body edit is gone and
+        # line 1 is unchanged from the pre-run stamp.
+        plan_path = fx.plan_dir / "_workflow" / "implementation-plan.md"
+        assert plan_path.read_text(encoding="utf-8").splitlines()[0] == (
+            f"<!-- workflow-sha: {older} -->"
+        ), "the restored artifact keeps its original line-1 stamp"
+        assert "extra body line" not in plan_path.read_text(encoding="utf-8"), (
+            "the pre-existing body edit must be discarded by the abort-restore"
+        )
+
+
+def test_norm_guard2_dirty_workflow_file_aborts() -> None:
+    """Guard 2: a dirty non-stamped file inside the active plan's `_workflow/`
+    (an uncommitted handoff-*.md the rewrite did not touch) makes the porcelain
+    status list a path outside the stamped set, so the rewrite is rejected. The
+    gate restores the stamped artifacts from HEAD, prints the unexpected path to
+    stderr, exits non-zero, lands no commit, and emits NO JSON on stdout. The
+    untracked dirty file itself is left in place (the gate refuses to swallow it,
+    surfacing it for manual resolution rather than guessing the recovery)."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, newer = _two_distinct_stamp_commits(fx)
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", newer)
+        before_subject = _git_top_subject(fx)
+        # A dirty non-stamped file inside the plan's _workflow/ trips guard 2.
+        dirty = fx.dirty_workflow_file("handoff-track-1-phaseB.md")
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode != 0, (
+            f"guard-2 mismatch must exit non-zero, got {proc.returncode}; "
+            f"stdout: {proc.stdout!r}"
+        )
+        assert proc.stdout.strip() == "", (
+            f"the abort path emits no JSON on stdout, got {proc.stdout!r}"
+        )
+        assert "unexpected paths:" in proc.stderr, (
+            f"stderr must name the unexpected dirty path, got {proc.stderr!r}"
+        )
+        assert "handoff-track-1-phaseB.md" in proc.stderr, (
+            f"stderr must name the specific dirty file, got {proc.stderr!r}"
+        )
+        assert _git_top_subject(fx) == before_subject, (
+            f"no commit may land on a guard-2 abort, got new HEAD subject "
+            f"{_git_top_subject(fx)!r}"
+        )
+        # The stamps are restored to their pre-run state (track-1 still at newer).
+        track_path = fx.plan_dir / "_workflow" / "plan" / "track-1.md"
+        assert track_path.read_text(encoding="utf-8").splitlines()[0] == (
+            f"<!-- workflow-sha: {newer} -->"
+        ), "the stamped artifacts return to HEAD on a guard-2 abort"
+        # The untracked dirty file is left in place for manual resolution.
+        assert dirty.exists(), "the dirty file the gate refused must be left in place"
+
+
+def test_norm_narrow_scope_dirty_outside_does_not_abort() -> None:
+    """Narrow scope: a dirty file OUTSIDE the active plan's `_workflow/` must not
+    abort the normalization. Guard 2's porcelain check is scoped to
+    `$PLAN_DIR/_workflow/` (the byte-source's narrow dirty-check philosophy: a
+    whole-repo clean check is too strict, so unrelated edits outside the plan's
+    `_workflow/` have no bearing), so an unrelated working-tree edit elsewhere in
+    the repo has no bearing. The normalization still fires and lands its commit;
+    normalization_landed is true."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, newer = _two_distinct_stamp_commits(fx)
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", newer)
+        # A dirty file OUTSIDE _workflow/ — must not abort.
+        fx.dirty_outside_file("unrelated.txt")
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"a dirty file outside _workflow/ must not abort; got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        drift = json.loads(proc.stdout)["drift"]
+        assert drift["normalization_landed"] is True, (
+            f"the normalization still fires past an out-of-scope dirty file: {drift!r}"
+        )
+        assert _git_top_subject(fx) == f"Normalize workflow-sha stamps to {older[:7]}", (
+            f"the normalization commit lands despite the out-of-scope dirty file, got "
+            f"{_git_top_subject(fx)!r}"
+        )
+
+
+def test_norm_reduced_modes_never_mutate() -> None:
+    """`divergence-only` and `migrate-range` never run the no-drift normalization:
+    detect_drift (where the normalization lives) is dispatched only for `--mode
+    full`, so the mode gate is structural and automatic. Run both reduced modes
+    against a multi-SHA fixture that WOULD normalize under `full`, and assert no
+    commit lands and the tree stays clean — the path fires only in `full` mode."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, newer = _two_distinct_stamp_commits(fx)
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", newer)
+        before_subject = _git_top_subject(fx)
+        for mode in ("divergence-only", "migrate-range"):
+            proc = run_precheck("--mode", mode, cwd=fx.path)
+            assert proc.returncode == 0, (
+                f"{mode} should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+            )
+            assert _git_top_subject(fx) == before_subject, (
+                f"{mode} must not land a normalization commit, got new HEAD subject "
+                f"{_git_top_subject(fx)!r}"
+            )
+            assert _git_porcelain(fx) == "", (
+                f"{mode} must leave the tree unmutated, got {_git_porcelain(fx)!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -2402,14 +2779,25 @@ def _extract_conventions_h_block() -> str:
     return "\n".join(lines[fence_start + 1 : fence_end])
 
 
-def _extract_script_walks() -> List[str]:
-    """Extract every Phase 1 walk in the script: each `for f in $(ls ...)` loop
-    through its closing `done`. Returns the loops in file order. The script now
-    carries two walks that both byte-copy § 1.6(h): the drift (full-mode) walk
-    in detect_drift, and the migrate-range walk in detect_migrate_range. The
-    migrate-range walk adds the one sanctioned § 1.6(h) extension — the
-    STAMPED_PAIRS `$f=$SHA` pairing — so the two are distinguished by which
-    carries STAMPED_PAIRS, not by position alone."""
+def _extract_all_ls_walks() -> List[str]:
+    """Extract every `for f in $(ls ...)` loop in the script through its closing
+    `done`, in file order. The script carries THREE such loops, all enumerating
+    the same § 1.6(h) artifact set:
+
+      * the drift (full-mode) classification walk in detect_drift — builds
+        STAMPED_SHAS / UNSTAMPED_FILES;
+      * the migrate-range classification walk in detect_migrate_range — builds
+        STAMPED_SHAS plus the sanctioned STAMPED_PAIRS `$f=$SHA` extension;
+      * the no-drift-normalization RECOMPUTE walk in no_drift_normalization —
+        rebuilds the stamped-PATH list (stamped_files) under the same § 1.6(h)
+        enumeration, because that walk exports no companion path list. It
+        classifies by the full `<!-- workflow-sha: <40-hex> -->` line-1 comment
+        rather than the STAMPED_SHAS value-extraction, so it is a third
+        § 1.6(h)-enumeration walk, not a fourth classification walk.
+
+    `_extract_script_walks` below scopes to the two CLASSIFICATION walks (the
+    STAMPED_SHAS builders); `_extract_normalization_walk` selects the recompute
+    walk. This raw extractor is the shared scanner both build on."""
     text = SCRIPT_PATH.read_text(encoding="utf-8")
     lines = text.splitlines()
     walks: List[str] = []
@@ -2428,6 +2816,38 @@ def _extract_script_walks() -> List[str]:
             continue
         i += 1
     return walks
+
+
+def _extract_script_walks() -> List[str]:
+    """Extract the two § 1.6(h) CLASSIFICATION walks: the drift (full-mode) walk
+    in detect_drift and the migrate-range walk in detect_migrate_range. Both
+    build STAMPED_SHAS, so the classification walks are exactly the `ls` loops
+    that mention STAMPED_SHAS. This deliberately EXCLUDES the no-drift-
+    normalization recompute walk (`_extract_normalization_walk`), which rebuilds
+    a stamped-PATH list and never touches STAMPED_SHAS — it is a § 1.6(h)
+    enumeration walk but not a classification walk, so the drift / migrate-range
+    identification below must not see it.
+
+    The migrate-range walk adds the one sanctioned § 1.6(h) extension — the
+    STAMPED_PAIRS `$f=$SHA` pairing — so the two classification walks are
+    distinguished by which carries STAMPED_PAIRS, not by position alone."""
+    return [w for w in _extract_all_ls_walks() if "STAMPED_SHAS" in w]
+
+
+def _extract_normalization_walk() -> str:
+    """The no-drift-normalization RECOMPUTE walk: the one § 1.6(h)-enumeration
+    `ls` loop that does NOT build STAMPED_SHAS (it rebuilds the stamped-PATH list
+    `stamped_files` for the in-place stamp rewrite). Identified by the ABSENCE of
+    STAMPED_SHAS — the inverse of the classification-walk filter — so a reader
+    sees the third walk is accounted for, not silently dropped, and a future edit
+    that accidentally folds it back into the classification path is caught."""
+    norm = [w for w in _extract_all_ls_walks() if "STAMPED_SHAS" not in w]
+    assert len(norm) == 1, (
+        f"expected exactly one § 1.6(h)-enumeration walk WITHOUT STAMPED_SHAS "
+        f"(the no-drift-normalization recompute walk), found {len(norm)} of "
+        f"{len(_extract_all_ls_walks())} total `ls` walks"
+    )
+    return norm[0]
 
 
 def _extract_drift_walk() -> str:
@@ -2583,6 +3003,46 @@ def test_conformance_migrate_range_walk_carries_stamped_pairs() -> None:
     )
 
 
+def test_conformance_normalization_recompute_walk_enumerates_canonical_globs() -> None:
+    """The no-drift-normalization path adds a THIRD `for f in $(ls ...)` loop: a
+    recompute walk that rebuilds the stamped-PATH list (`stamped_files`) under the
+    same § 1.6(h) enumeration the classification walks use, because the Phase 1
+    walk exports STAMPED_SHAS / UNSTAMPED_FILES but no companion stamped-path
+    list. This documents that the third walk EXISTS and is intentionally excluded
+    from the drift / migrate-range classification identification — the
+    classification selector keys on STAMPED_SHAS, which this recompute walk never
+    builds, so it can never be mistaken for the drift or migrate-range walk.
+
+    The walk is still held to the § 1.6(h) enumeration: it must list exactly the
+    four canonical artifact globs in order. So a future glob change to § 1.6(h)
+    that the recompute walk misses fails here, the same way the classification
+    walks are pinned by `test_conformance_glob_set_matches_canonical`. The
+    recompute walk classifies by the full `<!-- workflow-sha: <40-hex> -->`
+    line-1 comment (the byte-source's `grep -qE` guard), NOT the STAMPED_SHAS
+    value-extraction regex, so it is deliberately NOT asserted against the
+    anchored § 1.6(a1) value-extraction fragment — that contract is the
+    classification walks'."""
+    canonical_tails = _glob_tails(_extract_conventions_h_block())
+    norm_walk = _extract_normalization_walk()
+    assert _glob_tails(norm_walk) == canonical_tails, (
+        "the no-drift-normalization recompute walk's glob set drifted from "
+        f"§ 1.6(h); walk lists {_glob_tails(norm_walk)!r}, canonical lists "
+        f"{canonical_tails!r}"
+    )
+    # The recompute walk must NOT build STAMPED_SHAS (that is the classification-
+    # walk marker the selector keys on) and must NOT carry the migrate-range
+    # STAMPED_PAIRS extension — it is a path-recompute walk, distinct from both.
+    assert "STAMPED_SHAS" not in norm_walk, (
+        "the normalization recompute walk must not build STAMPED_SHAS; building it "
+        "would fold the walk into the classification-walk selector and break the "
+        "drift / migrate-range identification."
+    )
+    assert "STAMPED_PAIRS" not in norm_walk, (
+        "the normalization recompute walk must not carry STAMPED_PAIRS; that "
+        "pairing is the migrate-range walk's sanctioned extension."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Runner.
 # ---------------------------------------------------------------------------
@@ -2614,6 +3074,12 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_phase2_merge_base_failed_kind_scalars_null", test_drift_phase2_merge_base_failed_kind_scalars_null),
     ("drift_phase2_staged_subtree_excluded_from_range", test_drift_phase2_staged_subtree_excluded_from_range),
     ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
+    ("norm_success_one_commit_line1_only_diff_exit0", test_norm_success_one_commit_line1_only_diff_exit0),
+    ("norm_uniform_stamps_skip_no_commit", test_norm_uniform_stamps_skip_no_commit),
+    ("norm_guard1_off_line1_body_edit_aborts", test_norm_guard1_off_line1_body_edit_aborts),
+    ("norm_guard2_dirty_workflow_file_aborts", test_norm_guard2_dirty_workflow_file_aborts),
+    ("norm_narrow_scope_dirty_outside_does_not_abort", test_norm_narrow_scope_dirty_outside_does_not_abort),
+    ("norm_reduced_modes_never_mutate", test_norm_reduced_modes_never_mutate),
     ("handoffs_reported_in_mtime_order_newest_first", test_handoffs_reported_in_mtime_order_newest_first),
     ("handoffs_empty_when_none_present", test_handoffs_empty_when_none_present),
     ("state_0_absent_plan_file", test_state_0_absent_plan_file),
@@ -2654,6 +3120,7 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
     ("conformance_drift_walk_carries_no_stamped_pairs", test_conformance_drift_walk_carries_no_stamped_pairs),
     ("conformance_migrate_range_walk_carries_stamped_pairs", test_conformance_migrate_range_walk_carries_stamped_pairs),
+    ("conformance_normalization_recompute_walk_enumerates_canonical_globs", test_conformance_normalization_recompute_walk_enumerates_canonical_globs),
 ]
 
 
