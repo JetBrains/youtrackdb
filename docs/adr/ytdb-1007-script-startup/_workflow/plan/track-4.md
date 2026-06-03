@@ -35,7 +35,7 @@ Six live prose files carry the detection logic and the gate UX today; this track
 
 The six surfaces and their target shapes:
 
-- **`workflow.md § Startup Protocol`** — today ~full gate prose. Becomes a ~30-50-line dispatch rule: run `--mode full`, parse the JSON, present the divergence and drift gates the script reports without owning, run the handoff resume protocol when `handoffs` is non-empty, then route on `state.phase`.
+- **`workflow.md § Startup Protocol`** — today ~full gate prose. Becomes a ~30-50-line dispatch rule: run `--mode full`, parse the JSON, present the divergence and drift gates the script reports without owning, run the handoff resume protocol when `handoffs` is non-empty, then route on `state.phase` (and on `state.substate` for State C — the shipped `state` object is `{phase, substate}` with no `track` field, so the dispatch re-derives the active track from the `## Checklist` walk).
 - **`workflow-drift-check.md`** — the inline Detection and normalization bash is replaced by a citation of the script; the file keeps the conversational three-resolution prose as a reference doc.
 - **`branch-divergence-check.md`** — the inline ahead/behind detection bash is replaced by a script citation; the resolution prose stays.
 - **`conventions.md §1.6(h)`** — keeps the artifact-walk bash as the readable spec (§1.6 is the declared single source of truth) and gains a one-line pointer to the script implementation. This is a pivot, not a strip.
@@ -106,6 +106,64 @@ belong to one specific step. Per-step episode content lives in
   must replay every commit, unlike the drift range's `head -10` display
   cap), so a long branch range could otherwise dump an unbounded commit
   list into context on each invocation.
+
+- **Phase A review findings (iteration 1, captured pre-replan 2026-06-03) —
+  decomposition guidance.** The Track 4 Phase A reviews (technical / risk /
+  adversarial) ran before the Track 5 inline replan; their blocker (A1, the
+  unscoped SKILL entry points) became Track 5. The remaining should-fix /
+  suggestion items are recorded here so the next Track 4 Phase A
+  decomposition threads them into the step bodies rather than re-deriving
+  them:
+  - **Dispatch rewrite (Step 1) instruction-completeness (R1/A2/A7).** The
+    rewritten `workflow.md § Startup Protocol` must preserve every behavior
+    the script's JSON does *not* carry: the no-default divergence pick, the
+    handoff-resume freeze ("MUST NOT spawn sub-agents / re-run gate-checks /
+    recompile episodes" while a handoff is unresolved), the State A Panel-1
+    skip, the five State C sub-state resumes, the section-discrepancy edge,
+    and "one phase per resume." Route State C on `state.substate`, not
+    `state.phase`. Treat a non-zero script exit (Track 2's total parse-error
+    contract) as halt-and-surface, not resume. Branch on the non-happy-path
+    JSON: `divergence.skipped` / `skip_reason`, `drift.kind`
+    (`unstamped` / `merge-base-failed` / `stamped`), and
+    `drift.normalization_landed` + `actions_taken` (recite the autonomous
+    normalization commit to the user). Treat the ~30-50-line target as a
+    soft goal, not a hard cap — size Step 1 by behaviors-preserved.
+  - **Migrate Step 2 (Step 6) recovery loop must survive (R3/A4).** The
+    `migrate-range` mode emits the walk / fold / range as data, but the
+    script never prompts. Keep the agent-side merge-base-failure recovery
+    loop in the skill: re-prompt with the combined unstamped +
+    `merge_base_failed[].files` set, drop the failed SHAs, enforce the
+    session-wide 3-attempt cap, re-invoke with `--bootstrap-sha`, restart the
+    fold. Clarify whether Step 2.0's walk is replaced by
+    `migrate-range.unstamped_files` (the `migrate-range` mode carries it) so
+    D4's "four byte-copies → one" claim holds rather than collapsing to two.
+  - **Push-failure re-entry (Step 5) gating must survive (R4).** `--mode
+    divergence-only` replaces only the *detection*; keep the
+    first-occurrence-in-session guard and the already-Deferred
+    record-and-continue suppression. Read both `divergence.detected` and
+    `divergence.skipped` / `skip_reason`.
+  - **§1.6(h) pivot (Step 4) stale cross-reference (A3).** Reconcile the
+    `conventions.md §1.6(h)` "Tracks 3 and 4a copy this block byte-for-byte"
+    sentence — replace the byte-copy coordinated-edit framing with
+    "the script is the single implementation; this section is the spec it
+    conforms to, checked by the Track 1 conformance fixture" — or §1.6(h)
+    self-contradicts after the pivot.
+  - **Known-debt note (A5).** Carry a durable note into the rewritten
+    `workflow-drift-check.md` / `conventions.md §1.6(h)` prose: the script's
+    normalization walk inherits the fixed-template path-quoting assumption,
+    and guard 2's `awk '{print $2}'` truncates a porcelain path containing a
+    space. Otherwise the only record vanishes at the `_workflow/` cleanup.
+  - **Cite the live script, not frozen design.md (T3/R5).** JSON field names
+    are cited from the shipped `.claude/scripts/workflow-startup-precheck.sh`
+    `emit_json`, not from frozen design.md, which diverges on the
+    `migrate-range` shape, the omitted `state.track` field, and the substate
+    slug form (Phase 4 reconciliations, plan §Final Artifacts).
+  - **Parity-delta honesty (A6) and handoff order (R6).** The rewritten
+    `branch-divergence-check.md` should note the script bounds the startup
+    fetch with `timeout 10` (parity holds except on a slow-but-reachable
+    remote, caught by the per-commit push re-check). The `handoffs` array
+    order (`ls -t`, most-recent-first) is load-bearing — preserve it and the
+    basename-under-plan-dir resolution when wiring the handoff-resume trigger.
 
 ## Interfaces and Dependencies
 

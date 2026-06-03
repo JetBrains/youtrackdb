@@ -65,6 +65,8 @@ flowchart TD
         CV["conventions.md §1.6(h)"]
         CC["commit-conventions.md § Push failure"]
         MG["migrate-workflow SKILL Step 2"]
+        ET["execute-tracks SKILL startup<br/>(Track 5)"]
+        CP["create-plan SKILL Step 1.5<br/>(Track 5)"]
     end
     WF -->|"full"| SH
     CC -->|"divergence-only"| SH
@@ -72,6 +74,8 @@ flowchart TD
     DC -.cites.-> SH
     BD -.cites.-> SH
     CV -.spec for.-> SH
+    ET -.defers to.-> WF
+    CP -.defers to.-> DC
     T -->|validates| SH
 ```
 
@@ -99,6 +103,13 @@ flowchart TD
 - **`migrate-workflow/SKILL.md` Step 2** (staged) — reuses `--mode
   migrate-range` for the stamp-fold range and per-artifact `(file, sha)`
   pairs instead of a prose byte-copy of the walk.
+- **`execute-tracks/SKILL.md` startup** (staged, Track 5) — its inline
+  startup-protocol recital is trimmed to defer to the rewritten
+  `workflow.md § Startup Protocol` dispatch rule, so the SKILL no longer
+  carries a contradicting old multi-gate sequence.
+- **`create-plan/SKILL.md` Step 1.5** (staged, Track 5) — its drift-check
+  delegation description is synced to the rewritten `workflow-drift-check.md`
+  (script citation), replacing the stale inline-bash parenthetical.
 
 #### D1: Script location and language
 
@@ -201,6 +212,35 @@ flowchart TD
   surface earns the heaviest coverage.
 - **Implemented in**: Tracks 1, 2, 3 (each track adds its own fixtures)
 - **Full design**: design.md §"Testing strategy", §"State determination"
+
+#### D8: SKILL entry points reconciled in a dedicated Track 5
+
+- **Added via inline replanning** after Track 3 (Track 4 Phase A adversarial
+  finding A1, 2026-06-03).
+- **Alternatives considered**: expand Track 4 to add the two SKILLs as a
+  seventh and eighth surface (pushes it past the 5-7 step cap); leave the
+  SKILLs out of scope with a documented post-merge follow-up (leaves the
+  rewritten `workflow.md § Startup Protocol` and `execute-tracks/SKILL.md`
+  describing two different startup procedures after merge).
+- **Decision**: reconcile the two consumer-layer entry points
+  (`execute-tracks/SKILL.md`, `create-plan/SKILL.md`) in a dedicated Track 5
+  that depends on Track 4.
+- **Rationale**: the plan's Goals and Integration Points name
+  `/execute-tracks startup` and `/create-plan Step 1.5` as `--mode full`
+  consumers, but the original six-surface Track 4 scope edited only the
+  workflow docs. `execute-tracks/SKILL.md` re-lists the startup sequence
+  inline rather than purely pointing at `workflow.md`, so editing
+  `workflow.md` alone would leave a contradicting copy; `create-plan/SKILL.md`
+  Step 1.5 carries a stale inline-bash description. A separate track keeps
+  Track 4 within the step cap and isolates the consumer-layer reconciliation.
+- **Risks/Caveats**: the SKILLs are `.claude/skills/**`, so Track 5's edits
+  stage like Track 4's and promote at Phase 4; no live behavior changes on
+  this branch (S4 / I6).
+- **Implemented in**: Track 5.
+- **Full design**: the design Component Map already frames `/execute-tracks`
+  and `/create-plan` as `--mode full` callers; Phase 4 `design-final.md`
+  reconciles that logical framing with Track 5's delegation mechanism (the
+  SKILLs defer to the rewritten `workflow.md` / `workflow-drift-check.md`).
 
 #### Invariants
 
@@ -455,21 +495,26 @@ flowchart TD
   > push-failure re-entry, and the migrate Step 2 reuse.
   > **Depends on:** Tracks 1, 2, 3
 
+- [ ] Track 5: SKILL entry-point reconciliation (staged)
+  > Reconcile the two SKILL entry points the plan names as `--mode full`
+  > consumers — `execute-tracks/SKILL.md` and `create-plan/SKILL.md` — so they
+  > consume the script consistently with Track 4's rewritten `workflow.md
+  > § Startup Protocol` and `workflow-drift-check.md` instead of carrying stale
+  > inline copies of the startup-detection sequence. Closes the consumer-set
+  > gap Track 4's six-surface scope leaves open (D8); all edits STAGED.
+  > Detailed description in plan/track-5.md.
+  > **Scope:** ~2 steps covering the execute-tracks startup-recital trim and
+  > the create-plan Step 1.5 description sync.
+  > **Depends on:** Track 4
+
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 2
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
-**Auto-fixed (mechanical)**: CR1 (should-fix) — corrected the artifact-walk
-byte-copy census in plan D4 and design §"Byte-source consolidation"; the
-walk's three byte-copies are drift-check Detection, `migrate-workflow`
-Step 2.0, and Step 2, not the "drift-check normalization recompute" (a
-distinct presence-check loop consolidated by Track 3). CR2 (suggestion) —
-reworded track-1 §Interfaces: `.claude/scripts/tests/` already exists, so the
-harness is added to it, not created. S1 (should-fix) — trimmed the
-over-budget Track 1/2/3 plan-checklist intros to high-level context plus the
-track-file pointer, dropping sentences that duplicated each track file's
-`## Purpose / Big Picture`.
-
-**Escalated (design decisions)**: none.
+> Reset 2026-06-03 by the inline replan that added Track 5 (D8). The next
+> `/execute-tracks` session re-runs State 0 (consistency + structural) against
+> the revised plan before resuming track execution. The prior audit summary
+> (passed at iteration 2) described the four-track pre-Track-5 plan and is
+> superseded by this re-run.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
