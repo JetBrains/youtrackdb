@@ -1425,10 +1425,14 @@ def test_state_A_first_todo_track_no_track_file() -> None:
 
 def test_state_C_first_todo_track_with_track_file() -> None:
     """State C: Plan Review passed, the first `[ ]` track (Track 2) HAS a
-    `plan/track-2.md` on disk — the steady-state mid-track resume case. substate
-    is null at this step (the State C sub-state map lands in a later step). The
-    track number is parsed from the `Track 2:` tail, so the probed track file is
-    `plan/track-2.md`, not `plan/track-1.md`."""
+    `plan/track-2.md` on disk — the steady-state mid-track resume case. The track
+    number is parsed from the `Track 2:` tail, so the probed track file is
+    `plan/track-2.md`, not `plan/track-1.md`. This fixture's track body carries no
+    `## Progress` section, so the joint read finds no `[x]` "Review +
+    decomposition" entry and reports the decomposition-pending sub-state — the
+    sub-state map is exercised in depth by the dedicated sub-state tests below;
+    here the focus is that the State A/C decision lands on C for the right track
+    number."""
     with GitFixture() as fx:
         fx.commit("init")
         fx.add_bare_remote()
@@ -1442,7 +1446,7 @@ def test_state_C_first_todo_track_with_track_file() -> None:
         # The first [ ] track is Track 2, so author plan/track-2.md.
         fx.plan_artifact("plan/track-2.md", stamp=head, body="# Track 2\n")
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state == {"phase": "C", "substate": None}, (
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
             f"first [ ] track with a track file must be State C, got {state!r}"
         )
 
@@ -1467,7 +1471,10 @@ def test_state_C_track_number_drives_track_file_probe() -> None:
         # Only track-3.md exists; the walk must probe track-3, not track-1.
         fx.plan_artifact("plan/track-3.md", stamp=head, body="# Track 3\n")
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state == {"phase": "C", "substate": None}, (
+        # The track body has no ## Progress section -> decomposition-pending
+        # sub-state. The point of this test is the track-number probe (N=3), not
+        # the sub-state; the sub-state tests below cover the map directly.
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
             f"the probe must target the first [ ] track's number (3), got {state!r}"
         )
 
@@ -1561,7 +1568,10 @@ def test_state_checklist_anchors_to_top_level_track_lines() -> None:
         fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
         fx.plan_artifact("plan/track-2.md", stamp=head, body="# Track 2\n")
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state == {"phase": "C", "substate": None}, (
+        # The track body has no ## Progress section -> decomposition-pending; the
+        # assertion's focus is the Checklist anchoring (Track 2, not the quoted /
+        # fenced lines), so phase C on the right track is what matters here.
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
             "the walk must anchor on the column-0 Track 2 line, not the "
             f"blockquoted or fenced checkbox-shaped lines, got {state!r}"
         )
@@ -1664,7 +1674,10 @@ def test_state_bang_marker_is_recognized_not_malformed() -> None:
         state = json.loads(proc.stdout)["state"]
         # Track 1 is [!] (not the first [ ]); Track 2 is the first [ ] and has a
         # track file -> State C. The point is the run did NOT parse-error on [!].
-        assert state == {"phase": "C", "substate": None}, (
+        # The track body has no ## Progress section, so the sub-state is
+        # decomposition-pending; what this test pins is that [!] is recognized
+        # (exit 0, a valid state) rather than the specific sub-state.
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
             f"[!] must be recognized and the walk continue, got {state!r}"
         )
 
@@ -1673,12 +1686,11 @@ def test_state_real_track_file_fixture() -> None:
     """At least one state fixture is cut from a REAL on-disk track file shape:
     the continuous-log `## Progress` section and a numbered `## Concrete Steps`
     roster, not an idealized four-checkbox block, so coverage tracks the real
-    artifact shape this branch's own track files carry. The top-level walk only
-    reads the plan file's `## Checklist` to reach State C; this fixture confirms
-    a realistically-shaped track file on disk drives the State A/C decision to C.
-    (The State C sub-state map that actually reads `## Progress` /
-    `## Concrete Steps` lands in a later step; this pins the realistic shape is
-    present and accepted at the top-level walk.)"""
+    artifact shape this branch's own track files carry. This body has the
+    `Review + decomposition complete` `[x]` Progress entry and two `[ ]` roster
+    steps, so the joint sub-state read resolves to steps-partial — exercising the
+    full State C path (Checklist walk → track-file probe → Progress + roster
+    joint read) against the realistic shape, not an idealized block."""
     real_track_body = (
         "<!-- a real track file carries a continuous-log Progress section and a\n"
         "     numbered Concrete Steps roster, not a fixed four-checkbox block -->\n"
@@ -1703,14 +1715,351 @@ def test_state_real_track_file_fixture() -> None:
         )
         fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
         # The track file uses the real continuous-log + roster shape (its line 1
-        # is a comment, so plan_artifact's stamp goes above it; the state walk
-        # does not read this file's body at the top-level step, only its
-        # presence, but the realistic shape guards future sub-state reads).
+        # is a comment, so plan_artifact's stamp goes above it). The joint
+        # sub-state read consumes both the Progress log and the roster: decomp is
+        # [x] and both roster steps are [ ], so the resume sub-state is
+        # steps-partial.
         fx.plan_artifact("plan/track-2.md", stamp=head, body=real_track_body)
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state == {"phase": "C", "substate": None}, (
-            f"a realistically-shaped track file on disk must drive State C, got {state!r}"
+        assert state == {"phase": "C", "substate": "steps-partial"}, (
+            "a realistically-shaped track file (decomp done, roster all [ ]) must "
+            f"drive State C steps-partial, got {state!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# State C sub-state map — the joint read over `## Progress` and
+# `## Concrete Steps`.
+#
+# Once the top-level walk reaches State C (Plan Review passed, first `[ ]` track
+# has a track file), the script computes the sub-state from the active track
+# file's `## Progress` continuous log and `## Concrete Steps` roster (plus this
+# track's plan-file checkbox, `[ ]` by construction), mirroring workflow.md
+# § Startup Protocol step 5's sub-state table. The five sub-states and their
+# sources:
+#
+#   * decomposition-pending     — Progress "Review + decomposition" is `[ ]`
+#                                 (short-circuits before the roster is read).
+#   * failed-step               — roster carries a `[!]` (checked before partial).
+#   * steps-partial             — roster has a `[ ]` step and no `[!]`.
+#   * steps-done-review-pending — roster all `[x]`/`[~]`, code-review Progress
+#                                 entry not `[x]`.
+#   * review-done-track-open    — roster all `[x]`/`[~]`, code-review `[x]`,
+#                                 plan-file track checkbox still `[ ]`.
+#
+# Each fixture composes a plan file (first `[ ]` track = Track 2) plus a Track-2
+# track body via `_track_doc`, then asserts the `state.substate` slug. Byte-source:
+# workflow.md § Startup Protocol step 5 + conventions-execution.md § 2.1 (the
+# four pre-seeded Progress phase-checkpoint entries).
+# ---------------------------------------------------------------------------
+
+
+# A plan-file body whose first `[ ]` track is Track 2 — the precondition for
+# every sub-state test (the walk reaches State C on Track 2, then reads
+# track-2.md). Shared so each sub-state test varies only the track body.
+_PLAN_FIRST_TODO_TRACK_2 = _plan_doc(
+    PLAN_REVIEW_PASSED,
+    "- [x] Track 1: done\n- [ ] Track 2: the active track",
+    "- [ ] Phase 4: Final artifacts",
+)
+
+
+def _track_doc(progress: str, concrete_steps: str = "") -> str:
+    """Compose a track-file body from its `## Progress` and `## Concrete Steps`
+    sections (the two surfaces the sub-state read consumes). `progress` is the
+    section's entry lines (the `## Progress` heading is added here);
+    `concrete_steps` is the roster lines (the `## Concrete Steps` heading is added
+    when non-empty, omitted entirely when empty to model the placeholder roster
+    of a not-yet-decomposed track). Line 1 is a comment so the fixture's
+    `plan_artifact` stamp lands above it without disturbing the sections."""
+    parts: List[str] = ["<!-- track-file fixture -->", "# Track 2"]
+    parts.append(f"## Progress\n{progress}")
+    if concrete_steps:
+        parts.append(f"## Concrete Steps\n\n{concrete_steps}")
+    return "\n\n".join(parts) + "\n"
+
+
+def _substate(track_body: str) -> dict:
+    """Run `--mode full` against a State-C plan whose Track 2 carries `track_body`,
+    returning the `state` object. Shared by the sub-state cases below."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=_PLAN_FIRST_TODO_TRACK_2)
+        fx.plan_artifact("plan/track-2.md", stamp=head, body=track_body)
+        return _state(run_precheck("--mode", "full", cwd=fx.path))
+
+
+def test_state_C_substate_decomposition_pending() -> None:
+    """Sub-state 1, decomposition-pending: the `## Progress` "Review +
+    decomposition" entry is `[ ]` (Phase A not yet done). This is the steady-state
+    first entry of a freshly-created track. The roster is the placeholder shape
+    (no `## Concrete Steps` section at all), and the short-circuit must report
+    decomposition-pending WITHOUT quantifying the empty roster — a guard against
+    coercing an empty roster to an all-steps-done sub-state."""
+    body = _track_doc(
+        "- [ ] Review + decomposition\n"
+        "- [ ] Step implementation\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        # No ## Concrete Steps roster — the placeholder shape before Phase A.
+        concrete_steps="",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "decomposition-pending"}, (
+        f"Review + decomposition [ ] must be decomposition-pending, got {state!r}"
+    )
+
+
+def test_state_C_substate_decomposition_pending_empty_roster_vacuous_guard() -> None:
+    """The decomposition-pending vacuous-truth guard: even when a `## Concrete
+    Steps` section exists but is EMPTY (a heading with no roster lines — an
+    interrupted decomposition), a Progress "Review + decomposition" `[ ]` must
+    still report decomposition-pending, NOT an all-steps-done sub-state. An
+    all-`[x]` quantifier over zero roster steps is vacuously true, so a naive
+    "every step is `[x]`" check would wrongly route an empty roster to
+    review-pending; the short-circuit on the Progress entry prevents that."""
+    body = _track_doc(
+        "- [ ] Review + decomposition\n"
+        "- [ ] Step implementation\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        # An empty Concrete Steps section (heading present, no roster lines). The
+        # composer adds the heading; the body below it is whitespace only.
+        concrete_steps="<!-- roster not yet decomposed -->",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "decomposition-pending"}, (
+        "an empty roster with Review + decomposition [ ] must stay "
+        f"decomposition-pending (vacuous-truth guard), got {state!r}"
+    )
+
+
+def test_state_C_substate_steps_partial_mixed() -> None:
+    """Sub-state 3, steps-partial (the common mixed shape): decomposition is `[x]`
+    and the roster mixes `[x]` (done) and `[ ]` (pending) steps. The next `[ ]`
+    step is the resume target."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:29Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [ ] Step implementation",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: medium  [ ]\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        f"a mix of [x] and [ ] roster steps must be steps-partial, got {state!r}"
+    )
+
+
+def test_state_C_substate_steps_partial_all_todo_after_decomposition() -> None:
+    """Sub-state 3, steps-partial (the all-`[ ]` just-decomposed shape):
+    decomposition is `[x]` and EVERY roster step is `[ ]` (no step started yet).
+    The resume target is step 1, so this is steps-partial — NOT an all-steps-done
+    review phase. This pins that the steps-partial predicate is "any `[ ]` step
+    remains", which covers the all-`[ ]` shape as well as the mixed shape, rather
+    than a strict "[x] and [ ] both present" test that would mis-route an
+    all-`[ ]` roster."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [ ] Step implementation",
+        "1. First step — risk: medium  [ ]\n"
+        "2. Second step — risk: medium  [ ]\n"
+        "3. Third step — risk: medium  [ ]\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        "an all-[ ] roster after decomposition must be steps-partial (resume from "
+        f"step 1), not an all-done review phase, got {state!r}"
+    )
+
+
+def test_state_C_substate_failed_step() -> None:
+    """Sub-state 2, failed-step: decomposition is `[x]` and the roster carries a
+    `[!]` (failed) step. The `[!]` glyph is recognized (not a parse error), and a
+    failed roster routes to the failed-step resume."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [!] 2026-06-03T04:29Z [ctx=safe] Step 2 failed",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: high  [!]\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "failed-step"}, (
+        f"a roster with a [!] step must be failed-step, got {state!r}"
+    )
+
+
+def test_state_C_substate_failed_step_precedes_partial() -> None:
+    """failed-step is checked BEFORE steps-partial: a roster that is BOTH failed
+    (`[!]`) and partial (`[ ]`) — a failed step plus a not-yet-retried step —
+    routes to failed-step, matching workflow.md's `[!]` row (check for a retry
+    step) rather than the steps-partial resume. This pins the precedence order."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [!] 2026-06-03T04:29Z [ctx=safe] Step 2 failed",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: high  [!]\n"
+        "3. Third step — risk: medium  [ ]\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "failed-step"}, (
+        "a both-failed-and-partial roster must route to failed-step (failed-step "
+        f"precedes steps-partial), got {state!r}"
+    )
+
+
+def test_state_C_substate_steps_done_review_pending() -> None:
+    """Sub-state 4, steps-done-review-pending: every roster step is `[x]`/`[~]`
+    and the `## Progress` code-review entry is NOT yet `[x]` (review pending).
+    The pre-seeded `Track-level code review` Progress entry is still `[ ]`, so the
+    sub-state is review-pending, not review-done."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:29Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [x] 2026-06-03T04:40Z [ctx=safe] Step 2 complete (commit def456)\n"
+        "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: medium  [x] commit: def456\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "all roster steps [x] with code review [ ] must be "
+        f"steps-done-review-pending, got {state!r}"
+    )
+
+
+def test_state_C_substate_steps_done_review_pending_skip_marker_counts_done() -> None:
+    """A `[~]` (skipped) roster step counts as done for the all-steps-done test:
+    a roster of `[x]` and `[~]` steps (none `[ ]`, none `[!]`) with code review
+    `[ ]` is steps-done-review-pending. This pins that `[~]` is not mistaken for an
+    unfinished `[ ]` step."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Skipped step — risk: low  [~]\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "a roster of [x] and [~] steps (none [ ]) with code review [ ] must be "
+        f"steps-done-review-pending ([~] counts as done), got {state!r}"
+    )
+
+
+def test_state_C_substate_review_done_track_open() -> None:
+    """Sub-state 5, review-done-track-open: every roster step is `[x]`, the
+    `## Progress` code-review entry is `[x]` (review passed), and the plan-file
+    track checkbox is still `[ ]` (track completion pending). The most-recent
+    code-review Progress entry is `[x]`, so the joint read distinguishes this from
+    review-pending; the plan track checkbox is `[ ]` by construction (the
+    Checklist walk reached State C on this first `[ ]` track)."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
+        "- [x] 2026-06-03T05:00Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)\n"
+        "- [x] 2026-06-03T05:01Z [ctx=safe] Track-level code review (PASS iter 1)\n"
+        "- [ ] Track completion",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: medium  [x] commit: def456\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "review-done-track-open"}, (
+        "all roster steps [x], code review [x], plan track [ ] must be "
+        f"review-done-track-open, got {state!r}"
+    )
+
+
+def test_state_C_substate_review_entry_most_recent_wins() -> None:
+    """The code-review Progress read takes the MOST-RECENT matching entry, not the
+    first. An early iteration-1 entry `[x]` followed by a later in-progress
+    entry `[ ]` (iteration 2 underway) must report steps-done-review-pending —
+    the latest entry is `[ ]`. This pins the continuous-log "most-recent relevant
+    entry = current phase" semantics for the code-review read specifically."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
+        "- [x] 2026-06-03T05:00Z [ctx=safe] Track-level code review iteration 1 complete\n"
+        "- [ ] 2026-06-03T05:30Z [ctx=safe] Track-level code review iteration 2 in progress",
+        "1. First step — risk: medium  [x] commit: abc123\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "the most-recent code-review entry ([ ], iteration 2 in progress) must "
+        f"drive review-pending, not the earlier [x] entry, got {state!r}"
+    )
+
+
+def test_state_C_substate_real_completed_track_file_review_done() -> None:
+    """A sub-state fixture cut from a REAL on-disk track file (this branch's own
+    completed Track 1 shape): a continuous-log `## Progress` with the pre-seeded
+    phase checkpoints flipped, interim per-step and per-iteration entries, and a
+    numbered roster with all steps `[x] commit: <sha>`. With the plan-file track
+    checkbox `[ ]` (the track not yet marked complete in the plan), this resolves
+    to review-done-track-open — exercising the full joint read against the
+    realistic artifact shape, not an idealized block. The roster lines carry
+    backtick-bracketed tokens in their descriptions (e.g. inline `[ ]`), so this
+    also pins that the status checkbox is read from the post-`risk:` tail, not the
+    description's inline brackets."""
+    real_progress = (
+        "- [x] 2026-06-02T14:51Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-02T15:10Z [ctx=safe] Step 1 complete (commit bf6fca2b3f)\n"
+        "- [x] 2026-06-02T15:18Z [ctx=safe] Step 2 complete (commit 9cd797f0fc)\n"
+        "- [x] 2026-06-02T15:58Z [ctx=safe] Step implementation\n"
+        "- [x] 2026-06-03T03:18Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)\n"
+        "- [x] 2026-06-03T03:19Z [ctx=safe] Track-level code review (PASS iter 1)"
+    )
+    # Roster descriptions carry inline backtick-bracketed tokens like `[ ]` so the
+    # status-checkbox read must anchor on the post-`risk:` tail, not the first
+    # bracket on the line.
+    real_roster = (
+        "1. Scaffold `workflow-startup-precheck.sh` — `--mode {full,...}` parsing, "
+        "unknown-mode error, the `actions_taken` `[]` seam — risk: medium  "
+        "[x] commit: bf6fca2b3f\n"
+        "2. Branch divergence + git-fixture builder — populate "
+        "`divergence{detected,ahead,behind}` — risk: medium  [x] commit: 9cd797f0fc\n"
+    )
+    body = _track_doc(real_progress, real_roster)
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "review-done-track-open"}, (
+        "a real completed-track shape (all roster [x], code review [x], plan track "
+        f"[ ]) must be review-done-track-open, got {state!r}"
+    )
+
+
+def test_state_C_substate_roster_malformed_status_is_parse_error() -> None:
+    """A malformed status checkbox on a roster step (e.g. `[X]`) is a parse error
+    on the `## Concrete Steps` section: non-zero exit, no stdout JSON, a stderr
+    diagnostic naming the section. The closed-enum rule the top-level walk applies
+    extends to the roster status read — `[!]` is recognized, but `[X]` is not.
+    Decomposition is `[x]` so the read reaches the roster scan (the
+    decomposition-pending short-circuit does not absorb it)."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [ ] Step implementation",
+        "1. First step — risk: medium  [X]\n",  # malformed status glyph
+    )
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=_PLAN_FIRST_TODO_TRACK_2)
+        fx.plan_artifact("plan/track-2.md", stamp=head, body=body)
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+    assert proc.returncode != 0, (
+        f"a malformed roster status glyph must exit non-zero, got {proc.returncode}"
+    )
+    assert proc.stdout.strip() == "", (
+        f"a malformed roster status glyph must emit NO stdout JSON, got {proc.stdout!r}"
+    )
+    assert "malformed checkbox marker" in proc.stderr and "## Concrete Steps" in proc.stderr, (
+        f"stderr must name the malformed roster marker and section, got {proc.stderr!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2002,6 +2351,18 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("state_malformed_marker_is_parse_error", test_state_malformed_marker_is_parse_error),
     ("state_bang_marker_is_recognized_not_malformed", test_state_bang_marker_is_recognized_not_malformed),
     ("state_real_track_file_fixture", test_state_real_track_file_fixture),
+    ("state_C_substate_decomposition_pending", test_state_C_substate_decomposition_pending),
+    ("state_C_substate_decomposition_pending_empty_roster_vacuous_guard", test_state_C_substate_decomposition_pending_empty_roster_vacuous_guard),
+    ("state_C_substate_steps_partial_mixed", test_state_C_substate_steps_partial_mixed),
+    ("state_C_substate_steps_partial_all_todo_after_decomposition", test_state_C_substate_steps_partial_all_todo_after_decomposition),
+    ("state_C_substate_failed_step", test_state_C_substate_failed_step),
+    ("state_C_substate_failed_step_precedes_partial", test_state_C_substate_failed_step_precedes_partial),
+    ("state_C_substate_steps_done_review_pending", test_state_C_substate_steps_done_review_pending),
+    ("state_C_substate_steps_done_review_pending_skip_marker_counts_done", test_state_C_substate_steps_done_review_pending_skip_marker_counts_done),
+    ("state_C_substate_review_done_track_open", test_state_C_substate_review_done_track_open),
+    ("state_C_substate_review_entry_most_recent_wins", test_state_C_substate_review_entry_most_recent_wins),
+    ("state_C_substate_real_completed_track_file_review_done", test_state_C_substate_real_completed_track_file_review_done),
+    ("state_C_substate_roster_malformed_status_is_parse_error", test_state_C_substate_roster_malformed_status_is_parse_error),
     ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
     ("conformance_drift_walk_carries_no_stamped_pairs", test_conformance_drift_walk_carries_no_stamped_pairs),

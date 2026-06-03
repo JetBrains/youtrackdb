@@ -681,11 +681,47 @@ scan_handoffs() {
 #   * Every track `[x]`/`[~]` — read `## Final Artifacts`' first top-level
 #     checkbox: `[ ]`/`[>]` is State D (Phase 4), `[x]` is Done.
 #
-# This step lands the top-level walk only; the State C sub-state map and the
-# section-discrepancy edge land in later steps of this track, so State C here
-# reports a null substate. STATE_JSON is the `{phase, substate}` object the
-# emit point splices into `full`-mode output via --argjson (the track's
-# Interfaces contract); divergence/drift/handoffs are unaffected.
+# The top-level walk resolves State 0/A/C/D/Done. For State C the walk computes
+# the sub-state from the active track file's `## Progress` continuous log and
+# `## Concrete Steps` roster (the joint read below); the section-discrepancy
+# edge — a roster step flipped `[x]` with no matching Progress entry — lands in a
+# later step of this track, so the `section-discrepancy` literal is not yet
+# emitted here. STATE_JSON is the `{phase, substate}` object the emit point
+# splices into `full`-mode output via --argjson (the track's Interfaces
+# contract); divergence/drift/handoffs are unaffected.
+#
+# The five State C sub-states (the strings emitted in state.substate) and their
+# sources, mirroring workflow.md § Startup Protocol step 5's sub-state table:
+#
+#   * "decomposition-pending"        — the `## Progress` "Review + decomposition"
+#                                       entry is `[ ]` (Phase A not yet done).
+#                                       Short-circuits BEFORE the roster is
+#                                       quantified, so the still-empty/placeholder
+#                                       `## Concrete Steps` roster is never coerced
+#                                       to an all-steps-done shape.
+#   * "failed-step"                  — the `## Concrete Steps` roster carries a
+#                                       `[!]` step (a failed step). Checked before
+#                                       steps-partial so a roster that is both
+#                                       failed and partial routes to the failed
+#                                       resume, matching the workflow.md `[!]` row.
+#   * "steps-partial"                — the roster has at least one `[ ]` step (and
+#                                       no `[!]`): the next `[ ]` step is the
+#                                       resume target. Covers both the "mix of
+#                                       `[x]` and `[ ]`" shape and the all-`[ ]`
+#                                       just-decomposed shape (resume from step 1).
+#   * "steps-done-review-pending"    — every roster step is `[x]`/`[~]` and the
+#                                       `## Progress` code-review entry is not yet
+#                                       `[x]` (review pending / partial).
+#   * "review-done-track-open"       — every roster step is `[x]`/`[~]`, the
+#                                       `## Progress` code-review entry is `[x]`,
+#                                       and the plan-file track checkbox is still
+#                                       `[ ]` (track completion pending).
+#
+# Sub-states 2-4 read the `## Concrete Steps` roster; sub-state 5 additionally
+# reads the plan-file track checkbox (already in hand from the Checklist walk);
+# only sub-state 1 is a pure `## Progress` read. The slug strings above are the
+# track's Interfaces contract; design.md's frozen example glosses them with the
+# longer workflow.md row text (a Phase-4 design-final reconciliation).
 #
 # The markers read are the conventions.md § 1.2 § Status markers set
 # (`[ ]` / `[x]` / `[~]` / `[>]`) plus the roster/Progress `[!]` failed-step
@@ -816,6 +852,241 @@ section_first_checkbox_token() {
   done < "$file"
 }
 
+# Set PROGRESS_TOKEN to the classify_marker token of the MOST-RECENT `## Progress`
+# continuous-log entry whose text contains a target phrase. The `## Progress`
+# section is an append-only continuous log (conventions-execution.md § 2.1): the
+# four pre-seeded phase-checkpoint entries (`Review + decomposition`, `Step
+# implementation`, `Track-level code review`, `Track completion`) accrue per-step
+# and per-iteration entries below them, and a resume reader takes the most-recent
+# matching entry as the current phase signal. So this scans every matching entry
+# and keeps the LAST one's token, never the first.
+#
+# A `## Progress` entry is a column-0 `- [<glyph>] <timestamp/ctx> <text>` list
+# item; the checkbox glyph is between `- [` and the first `]`, classified by
+# classify_marker. The phrase match is a substring test on the whole line (the
+# pre-seeded entries carry their phrase verbatim, e.g. "Review + decomposition"
+# / "code review"). The section runs from `## Progress` to the next `## ` heading,
+# and fenced blocks are skipped so a checkbox-shaped template line in a fence is
+# not read as an entry.
+#
+# Sets PROGRESS_TOKEN to the matching entry's token, or the empty string when no
+# entry matches the phrase (caller treats absent as not-yet-done). A malformed
+# glyph on a MATCHING entry routes to parse_error; a malformed glyph on a
+# non-matching Progress entry is ignored (the parser only reads the entries it
+# needs, keeping an unrelated typo elsewhere from aborting the resume read).
+#
+# Runs inline (sets a script-scoped variable, no command substitution) for the
+# same reason section_first_checkbox_token does: parse_error must `exit` the
+# whole script, and a `$(...)` subshell would swallow that exit and let the
+# script emit a state anyway.
+#
+# Args: $1 = track file path; $2 = phrase to match (e.g. "Review + decomposition").
+PROGRESS_TOKEN=""
+progress_entry_token() {
+  local file="$1" phrase="$2"
+  local in_section="0" in_fence="0" line body tok
+  PROGRESS_TOKEN=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '```'*)
+        if [ "$in_fence" = "1" ]; then in_fence="0"; else in_fence="1"; fi
+        continue
+        ;;
+    esac
+    if [ "$in_fence" = "1" ]; then
+      continue
+    fi
+    if [ "$in_section" = "0" ]; then
+      if [ "$line" = "## Progress" ]; then
+        in_section="1"
+      fi
+      continue
+    fi
+    case "$line" in
+      "## "*)
+        return
+        ;;
+    esac
+    # A column-0 `- [<glyph>] ...` Progress entry that contains the target phrase.
+    # The `- [`*`] ` / `- [`*`]` guard matches the checkbox shape; the inner phrase
+    # test selects only the entries this read cares about. The MOST-RECENT (last)
+    # matching entry wins, so PROGRESS_TOKEN is overwritten on every match.
+    case "$line" in
+      "- ["*"] "*"$phrase"* | "- ["*"]"*"$phrase"*)
+        body="${line#- [}"
+        body="${body%%]*}"
+        tok="$(classify_marker "$body")"
+        if [ "$tok" = "BAD" ]; then
+          parse_error "## Progress" "$line"
+        fi
+        PROGRESS_TOKEN="$tok"
+        ;;
+    esac
+  done < "$file"
+}
+
+# Scan the active track file's `## Concrete Steps` roster, setting three script-
+# scoped flags the State C sub-state map branches on:
+#
+#   * ROSTER_HAS_FAIL  — "1" if any roster step is `[!]` (failed-step).
+#   * ROSTER_HAS_TODO  — "1" if any roster step is `[ ]` (an unfinished step).
+#   * ROSTER_STEP_COUNT — the count of roster step lines seen (0 = empty /
+#                         placeholder roster, the decomposition-pending shape).
+#
+# The roster line is the canonical thin-roster shape (conventions-execution.md
+# § 2.1): a column-0 `N. <description> — \`risk: <tag>\`  [<glyph>]` with an
+# optional ` commit: <SHA>` tail. The description can itself contain bracketed
+# tokens (e.g. an inline `\`[ ]\`` in backticks), so the STATUS checkbox is NOT
+# the first `[...]` on the line — it is the checkbox AFTER the `risk:` token. The
+# scan therefore splits each roster line at the last `risk:` and reads the
+# checkbox from that tail, matching the immutable-after-Phase-A roster grammar
+# (the only roster mutation is the status flip `[ ]`→`[x]`/`[!]` plus the
+# optional `commit:` annotation). A line beginning `N. ` with no `risk:` tail is
+# not a well-formed roster step (Phase A guarantees the tag) and is skipped, so a
+# stray numbered prose line never miscounts.
+#
+# Runs inline (sets script-scoped variables, no command substitution) so a
+# parse_error on a malformed status glyph terminates the whole script rather than
+# a subshell.
+ROSTER_HAS_FAIL="0"
+ROSTER_HAS_TODO="0"
+ROSTER_STEP_COUNT="0"
+roster_scan() {
+  local file="$1"
+  local in_section="0" in_fence="0" line tail body tok
+  ROSTER_HAS_FAIL="0"
+  ROSTER_HAS_TODO="0"
+  ROSTER_STEP_COUNT="0"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '```'*)
+        if [ "$in_fence" = "1" ]; then in_fence="0"; else in_fence="1"; fi
+        continue
+        ;;
+    esac
+    if [ "$in_fence" = "1" ]; then
+      continue
+    fi
+    if [ "$in_section" = "0" ]; then
+      if [ "$line" = "## Concrete Steps" ]; then
+        in_section="1"
+      fi
+      continue
+    fi
+    case "$line" in
+      "## "*)
+        return
+        ;;
+    esac
+    # A column-0 numbered roster line: `<digit(s)>. ...`. A leading-space or
+    # blockquoted line is not a column-0 roster step and is skipped (the
+    # description below a step may wrap onto indented continuation lines).
+    case "$line" in
+      [0-9]*". "*) ;;
+      *) continue ;;
+    esac
+    # The status checkbox is the checkbox AFTER the last `risk:` token. Split the
+    # line at the last `risk:`; if there is no `risk:`, the line is not a
+    # well-formed roster step (Phase A guarantees the tag), so skip it without
+    # counting it.
+    case "$line" in
+      *"risk:"*)
+        tail="${line##*risk:}"
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    # Find the status checkbox `[<glyph>]` in the post-`risk:` tail. The tail is
+    # `<space><tag>\`  [<glyph>]( commit: <SHA>)?` (the tag may carry a closing
+    # backtick / paren); the checkbox is the first `[...]` in that tail.
+    case "$tail" in
+      *"["*"]"*)
+        body="${tail#*[}"
+        body="${body%%]*}"
+        ;;
+      *)
+        # A roster step line with a `risk:` tag but no status checkbox is
+        # malformed; name it so the closed-enum contract holds for the roster too.
+        parse_error "## Concrete Steps" "$line"
+        ;;
+    esac
+    tok="$(classify_marker "$body")"
+    if [ "$tok" = "BAD" ]; then
+      parse_error "## Concrete Steps" "$line"
+    fi
+    ROSTER_STEP_COUNT=$((ROSTER_STEP_COUNT + 1))
+    case "$tok" in
+      fail) ROSTER_HAS_FAIL="1" ;;
+      todo) ROSTER_HAS_TODO="1" ;;
+    esac
+  done < "$file"
+}
+
+# Compute the State C sub-state, setting C_SUBSTATE to one of the five slug
+# strings. The joint read over the active track file's `## Progress` continuous
+# log and `## Concrete Steps` roster plus the already-in-hand plan-file track
+# checkbox, mirroring workflow.md § Startup Protocol step 5's sub-state table.
+#
+# Precedence (the order the branches are evaluated):
+#   1. decomposition-pending — the `## Progress` "Review + decomposition" entry is
+#      NOT `[x]` (still `[ ]`, or — defensively — absent). Short-circuits BEFORE
+#      the roster is read, so the still-empty/placeholder roster is never coerced.
+#   2. failed-step — the roster carries a `[!]`. Checked before steps-partial so a
+#      both-failed-and-partial roster routes to the failed resume.
+#   3. steps-partial — the roster has at least one `[ ]` step (and no `[!]`).
+#   4./5. all roster steps done (`[x]`/`[~]`, none `[ ]`, none `[!]`): the
+#      `## Progress` code-review entry decides — not-`[x]` ⇒ steps-done-review-
+#      pending; `[x]` ⇒ review-done-track-open (the plan-file track checkbox is
+#      `[ ]` by construction — the Checklist walk reached State C on the first
+#      `[ ]` track, which is this track).
+#
+# Args: $1 = track file path; $2 = the plan-file track checkbox token for this
+# track (the classify_marker token the Checklist walk read; "todo" here by
+# construction, passed for explicitness and future use).
+C_SUBSTATE=""
+determine_c_substate() {
+  local track_file="$1"
+  # 1. decomposition-pending: pure `## Progress` read, short-circuit.
+  progress_entry_token "$track_file" "Review + decomposition"
+  if [ "$PROGRESS_TOKEN" != "done" ]; then
+    C_SUBSTATE="decomposition-pending"
+    return
+  fi
+
+  # Decomposition is done — quantify the roster.
+  roster_scan "$track_file"
+
+  # 2. failed-step before steps-partial.
+  if [ "$ROSTER_HAS_FAIL" = "1" ]; then
+    C_SUBSTATE="failed-step"
+    return
+  fi
+  # 3. steps-partial: any `[ ]` step remains.
+  if [ "$ROSTER_HAS_TODO" = "1" ]; then
+    C_SUBSTATE="steps-partial"
+    return
+  fi
+  # An all-done roster with zero steps would be a vacuous "all done" — but the
+  # decomposition-pending short-circuit above already absorbs the empty-roster
+  # case (a roster is empty only before decomposition completes), so reaching
+  # here with ROSTER_STEP_COUNT=0 is not expected. Treat it as steps-partial (no
+  # step done yet) rather than coercing to a review phase, the conservative
+  # resume that re-enters Phase B rather than skipping ahead.
+  if [ "$ROSTER_STEP_COUNT" = "0" ]; then
+    C_SUBSTATE="steps-partial"
+    return
+  fi
+
+  # 4./5. all steps done: the code-review Progress entry decides.
+  progress_entry_token "$track_file" "code review"
+  if [ "$PROGRESS_TOKEN" = "done" ]; then
+    C_SUBSTATE="review-done-track-open"
+  else
+    C_SUBSTATE="steps-done-review-pending"
+  fi
+}
+
 determine_state() {
   # Resolve the active plan dir from the current branch per § 1.6(g), the same
   # resolution detect_drift / scan_handoffs use.
@@ -902,11 +1173,16 @@ determine_state() {
 
   if [ -n "$track_num" ]; then
     # First [ ] track found: State A (no track file) or State C (track file
-    # present). substate is null at this step — the State C sub-state map lands
-    # in a later step of this track.
+    # present). For State C, compute the sub-state from the joint read over the
+    # track file's `## Progress` log and `## Concrete Steps` roster (plus this
+    # track's plan-file checkbox, which is `[ ]`/"todo" by construction here).
     local track_file="$plan_dir/_workflow/plan/track-${track_num}.md"
     if [ -f "$track_file" ]; then
-      STATE_JSON='{"phase":"C","substate":null}'
+      determine_c_substate "$track_file" "todo"
+      # The slug is plain ASCII (no quoting hazard), but build the object with jq
+      # so the substate string is JSON-escaped by construction, keeping the
+      # one-contract-home discipline rather than hand-splicing into the literal.
+      STATE_JSON="$(jq -nc --arg s "$C_SUBSTATE" '{phase:"C", substate:$s}')"
     else
       STATE_JSON='{"phase":"A","substate":null}'
     fi
