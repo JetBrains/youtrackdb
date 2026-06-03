@@ -544,11 +544,122 @@ flowchart TD
   RD["direct index read in tx"] -. indexId = -1 .-> THR["getIndexValues throws (F23); planner skips (D13)"]
 ```
 
+## 2a. Adversarial review findings (2026-06-03)
+
+An adversarial sub-agent attacked the spine for contradictions, ungrounded
+claims, and gaps. F33 and F35 were re-verified against live code; the rest are
+logically grounded in the cited entries.
+
+### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
+D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
+to an exclusive write lock." `stateLock` is a `ScalableRWLock`
+(`AbstractStorage:341`), documented "Not Reentrant" and "Has Writer-Preference"
+(`ScalableRWLock.java:64`–`65`), exposing only separate `readLock()` /
+`writeLock()` views plus `sharedLock` / `exclusiveLock` — no upgrade or
+`tryConvert` primitive. The commit holds `stateLock.readLock()` from `:2285`
+through the whole body including `commitIndexes` (`:2375`); `addCollection`
+(`:1444`) and `addIndexEngine` (`:2752`) each independently take
+`stateLock.writeLock()`. On a non-reentrant, writer-preferring RW lock a thread
+holding the read lock cannot acquire the write lock — it self-deadlocks
+(writer-preference parks the upgrade while blocking new readers behind it). So
+D1's "upgrade" is not supported; F22 already half-admitted this ("read-lock-at-
+commit vs write-lock-in-`addIndexEngine` nesting reconciled. Mechanical but
+non-trivial."), contradicting D1's clean framing and D7's deadlock proof (which
+never accounts for the read lock already held). Resolution required: Q12.
+
+```mermaid
+flowchart TD
+  C["schema-carrying commit holds stateLock.readLock (:2285)"]
+  C --> U["D1: upgrade read to write"]
+  U --> X["IMPOSSIBLE: ScalableRWLock non-reentrant, no upgrade primitive (ScalableRWLock:64-65)"]
+  X --> A1["option A: release readLock then acquire writeLock (interleaving window to analyze)"]
+  X --> A2["option B: take writeLock from the start for schema-carrying commits"]
+```
+
+### F34 — D3 and D12 disagree on where engine creation lands in the commit; D3's point is after `lockIndexes` [MAJOR]
+D3 places structural reconciliation "before the record-position-allocation loop
+(`:2300+`)." But `lockIndexes` is at `:2297`, before the allocation loop at
+`:2300`, and F21/D12 both require a new index's engine to exist before
+`lockIndexes` (it resolves engines by `indexId` and throws on `-1`). So "before
+the allocation loop" does not guarantee "before `lockIndexes`," and an
+implementer following D3 literally would create engines too late and hit
+`InvalidIndexEngineIdException` (F23). D12 pins the correct order. Fix: D3 must
+say index-engine creation lands before `lockIndexes` (`:2297`) and collection
+creation before the allocation loop (`:2300`).
+
+```mermaid
+flowchart LR
+  REC["reconcile: create collections + index engines"] --> LI["lockIndexes (:2297)"]
+  LI --> ALLOC["record-position allocation loop (:2300)"]
+  ALLOC --> CI["commitIndexes (:2375): apply tracked changes"]
+```
+
+### F35 — The write-path overlay (F32/D15) reads a once-materialized cached index set, so routing the index manager is necessary but not sufficient [MAJOR]
+`ClassIndexManager` calls the no-arg `SchemaImmutableClass.getRawIndexes()`
+(`:58`/`:78`/`:421`), which returns the cached field `this.indexes`
+(`SchemaImmutableClass:636`), materialized once at snapshot `init` (`:165`) via
+the session-routed `getRawIndexes(session, …)` → `getRawClassIndexes`
+(`:654`/`:670`); the snapshot is cached in `SchemaShared.snapshot` until
+`forceSnapshot` (`SchemaShared:194`–`216`). So D15's "route the index manager"
+surfaces a tx-created index only if the tx-local snapshot is built after the
+overlay exists AND rebuilt after every mid-tx `createIndex`/`dropIndex`. Without
+that, the write path reads a stale cached set and the tx's own inserts into the
+new index are silently untracked — the exact silent-corruption failure F32
+names. New invariant for D15: force a tx-local snapshot rebuild on every overlay
+mutation within a schema-tx.
+
+```mermaid
+flowchart TD
+  CIM["ClassIndexManager: getRawIndexes() no-arg"] --> CACHE["returns cached this.indexes (SchemaImmutableClass:636)"]
+  CACHE --> MAT["materialized once at init (:165) from index manager"]
+  OV["mid-tx createIndex changes the overlay"] -. must force rebuild .-> MAT
+  MAT -. if not rebuilt .-> BUG["new index absent: inserts untracked, silent data loss (F32)"]
+```
+
+### F36 — F31's `:602`–`:612` citation points at helper dispatches, not the schema-API calls [MINOR]
+F31 cites `:602`–`:612` for `createClass`/`createProperty`/`createIndex`, but
+those lines hold the helper dispatches (`createOrUpdateO{SecurityPolicy,Role,User}Class`);
+the actual calls live inside the helpers (`createClass("OUser", …)` `:883`, the
+`OUser.name` index `:899`), and `SecurityShared.create` starts at `:593` (the
+log says `:594`). The substantive conclusion (class creation runs with no active
+tx; data insert is a separate `executeInTx` at `:628`) holds. Re-cite to
+`:883`/`:899`/`:628`.
+
+### F37 — D6/D9 frame the diff as per-property, but a class DROP has no per-class change to inspect [MINOR]
+D6 derives the create/drop set from `EntityImpl` per-property dirty tracking
+over changed records; D9 defines drop as "collection ids in old absent from
+new." But a dropped class's record is deleted (D14), so it produces no per-class
+property change — the only signal is the schema-record link-set losing the link
+(D14). So the diff cannot be purely per-class; it must also read the
+schema-record link-set delta to detect drops. D6/D9 should state this
+cross-reference to D14, or an implementer could build a diff that detects
+creates and edits but silently misses drops.
+
+```mermaid
+flowchart LR
+  DROP["drop class Foo"] --> NOREC["class record deleted: no per-property change"]
+  NOREC --> LINK["only signal: schema-record link-set delta (D14)"]
+  LINK --> DIFF["diff must read the link-set, not just per-class props (D6/D9)"]
+```
+
+### F38 — D7's `finally`-release assumes same-thread; a migrated session throws `IllegalMonitorStateException` [MINOR]
+F13 notes a session re-activated on a different thread mid-tx "strands" the
+metadata-write mutex; in fact a `ReentrantLock` released in `commit`/`rollback`'s
+`finally` on a different thread than acquired throws
+`IllegalMonitorStateException`, masking the original outcome. D7 relies on the
+same-thread assumption (F13) without a guard. Add an assertion that the
+releasing thread equals the acquiring thread, or scope session migration
+mid-schema-tx out as a Non-Goal.
+
 ---
 
 ## 3. Decisions
 
 ### D1 — Invert the dependency: metadata-first, storage reconciles at commit
+**Flagged by F33 (blocker): the "read→write `stateLock` upgrade" below is not
+supported by `ScalableRWLock`; the exclusive-lock mechanism is unresolved
+pending Q12.**
+
 Chosen direction (from the assignee, 2026-06-03). Today storage leads:
 create/drop collection/index at the storage level, then reflect it in the
 metadata record. Invert it:
@@ -950,7 +1061,21 @@ flowchart LR
 ## 4. Open questions
 
 ### Open
-(none — the architecture spine is settled; Q11 resolved by D16.)
+- **Q12 — How does a schema-carrying commit take the exclusive lock without a
+  read→write upgrade? [from F33]** `stateLock` (`ScalableRWLock`) is
+  non-reentrant with writer preference and has no upgrade primitive, so D1's
+  "upgrade read→write" is impossible. Options: (A) for a schema-carrying commit,
+  take `stateLock.writeLock()` from the start instead of `readLock()` —
+  simplest, excludes concurrent data commits for the whole schema commit
+  (acceptable given the low schema-change rate, D5); (B) release the read lock
+  and re-acquire the write lock mid-commit, analyzing the interleaving window
+  for isolation and atomicity; (C) other. Blocks finalizing D1/D3/D7.
+
+```mermaid
+flowchart LR
+  Q12["schema-carrying commit needs exclusive lock"] --> OA["A: writeLock from the start (coarse, simple)"]
+  Q12 --> OB["B: release read, acquire write mid-commit (window to analyze)"]
+```
 
 ### Resolved
 - **Q11 — Inert index rename / id-keyed engine files** → resolved by D17 for
