@@ -486,9 +486,9 @@ Interaction with D1/D7/D8:
 
 Net: D7 is benign at genesis; the real work is restructuring the genesis
 bootstrap into explicit transaction(s) once per-op self-commit and the tx
-guards are removed. Open sub-choice: one unified genesis tx (atomic, fewest
-writes, relies on D3 for schema-then-data) versus a schema tx committed before
-the data tx (simpler, preserves the current two-phase order).
+guards are removed. Sub-choice resolved by D18: a schema tx committed before
+the data tx (two-phase), chosen over a unified genesis tx so the `OUser.name`
+index is built before any user insert.
 
 ```mermaid
 flowchart TD
@@ -865,6 +865,39 @@ user-facing `ALTER INDEX … RENAME` (D16) move to follow-up **YTDB-1066**
 flowchart LR
   V1["v1 this work: metadata-only re-association"] --> A["index accelerates under new class name; name stays stale"]
   FU["follow-up YTDB-1066 (D16): base-keyed engine files"] --> B["inert index-name rename + ALTER INDEX RENAME"]
+```
+
+### D18 — Genesis bootstrap is two-phase: a schema tx, then a data tx
+From the assignee (2026-06-03), resolving F31's sub-choice. Under the
+transactional model, `SecurityShared.create` (and the sibling metadata
+creators) restructure into two transactions: a **schema tx** that creates every
+internal class, property, and index (Identity / OSecurityPolicy / ORole /
+OUser, the `OUser.name` UNIQUE index, and the rest) and commits — reconciling
+structure and building the indexes at commit (D1/D3/D12) — followed by a
+**data tx** that inserts the default roles and admin/reader/writer users into
+the now-committed classes.
+
+- **Why two-phase.** It preserves the current ordering and, crucially, builds
+  the `OUser.name` index before any user insert, so the user-creation code's
+  direct index lookups resolve against a real engine. The unified single-tx
+  alternative would expose a same-tx unbuilt index to any direct (non-planner)
+  lookup, which throws unless routed through a scan fallback (F23/D13). Avoided
+  here.
+- **Still a large write-amplification win.** The schema tx batches every
+  internal class into one commit (versus today's per-op self-commits, F2), and
+  D14's per-class records keep the schema-record writes minimal.
+- **Mutex.** The schema tx acquires the D7 mutex (no contention at genesis,
+  F31); the following data tx is an ordinary record tx that never touches
+  schema, so it does not engage the mutex.
+- **Seeding.** The schema tx is the first-ever schema-tx: D8 seeds the tx-local
+  `SchemaShared` from the empty committed schema, and the commit writes the
+  first schema record (D14).
+
+```mermaid
+flowchart LR
+  P1["Phase 1 schema tx: create internal classes + indexes (D7 mutex)"] --> C1["commit: reconcile structure, build indexes (D1/D3/D12), write schema record (D14)"]
+  C1 --> P2["Phase 2 data tx: insert admin/reader/writer + roles into committed classes"]
+  P2 --> C2["commit: ordinary record writes, no schema, no mutex"]
 ```
 
 ---
