@@ -403,8 +403,8 @@ no_drift_normalization() {
   # Diff-shape guard 2: porcelain status scoped to the active plan's `_workflow/`
   # must list only the stamped artifacts. The narrow scope matches the byte-
   # source's narrow dirty-check philosophy (workflow-drift-check.md
-  # § No-drift normalization): a whole-repo clean check is too strict — unrelated
-  # edits outside the plan's `_workflow/` have no bearing — so a dirty file
+  # § No-drift normalization): a whole-repo clean check is too strict (unrelated
+  # edits outside the plan's `_workflow/` have no bearing), so a dirty file
   # outside `_workflow/` does not abort. Any path inside the plan's `_workflow/`
   # that the rewrite did not touch (an orphan `.tmp`, a missed artifact type, a
   # pre-existing dirty file) is a path the gate refuses to swallow — abort.
