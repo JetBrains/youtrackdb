@@ -499,6 +499,51 @@ flowchart TD
   DATA --> COMMIT["commit: reconcile structure before positions (D3); build index (D12); write first schema record (D14); release mutex"]
 ```
 
+### F32 — ClassIndexManager enqueues through an engine-agnostic path; a same-tx engine-less index behaves identically to a built one
+On every record write, `ClassIndexManager` resolves the entity's class indexes
+via `cls.getRawIndexes()` (`:58`, `:78`, `:421`) and, for each, computes the key
+and calls `index.put` / `index.remove` (`addIndexEntry:396`, `addPut:455`).
+`IndexOneValue.put` (`:527`) validates the value RID, collates the key, and
+calls `transaction.addIndexEntry(this, getName(), PUT, key, rid)` (`:539`): it
+records the change in the per-tx `FrontendTransactionIndexChanges`, keyed by
+index **name**, and never reads `indexId` or the engine. `IndexUnique` does not
+override `put`; it overrides `doPut` (`:52`, the commit-apply path
+`storage.validatedPutIndexValue(indexId, …, uniqueValidator, …)`) and
+`interpretTxKeyChanges` (`:67`). So uniqueness is enforced at commit-apply,
+after the engine exists, and a same-tx put/remove on one key is collapsed first
+(`IndexAbstract:747`–`753`), not at enqueue time.
+
+Consequence for a newly-created index with no engine (`indexId == -1`):
+
+- **Writes during the tx are identical to a built index.** The enqueue path is
+  engine-agnostic, so tracking entries for a brand-new index never touches the
+  missing engine. This confirms F20 from the `ClassIndexManager` side.
+- **Uniqueness is deferred to commit-apply.** A UNIQUE new index enqueues
+  cleanly; the duplicate check runs at commit via `UniqueIndexEngineValidator`
+  once the engine is built (D12).
+- **Load-bearing prerequisite (D15).** `ClassIndexManager` only enqueues for
+  indexes that `cls.getRawIndexes()` returns, so the D15 overlay must surface
+  the tx-created index into that set. If it does not, the tx's own inserts into
+  the new index are silently untracked, and the commit-time build scan (which
+  covers only already-committed rows, D12) would miss them — a silent
+  data-correctness bug, not a loud failure. This is the same coupling D15
+  flagged (`getRawClassIndexes` → `getClassRawIndexes`), seen from the write
+  side.
+- **Writes versus reads.** Writes are always safe (pure enqueue). A direct read
+  of the new index during the tx (`getRidsIgnoreTx` → `storage.getIndexValues(indexId,
+  …)`, `IndexOneValue:91`) still throws on `indexId == -1` (F23); the planner
+  avoids it by skipping unbuilt indexes (D13), which is exactly why genesis is
+  two-phase (D18) for the `OUser.name` direct lookup.
+
+```mermaid
+flowchart TD
+  W["record write in tx"] --> CIM["ClassIndexManager: cls.getRawIndexes() includes new index via D15 overlay"]
+  CIM --> PUT["index.put -> transaction.addIndexEntry (keyed by name)"]
+  PUT --> TRK["FrontendTransactionIndexChanges (no engine, indexId ignored)"]
+  TRK --> CM["commit: build engine (D12); interpretTxKeyChanges; doPut with uniqueness validator"]
+  RD["direct index read in tx"] -. indexId = -1 .-> THR["getIndexValues throws (F23); planner skips (D13)"]
+```
+
 ---
 
 ## 3. Decisions
