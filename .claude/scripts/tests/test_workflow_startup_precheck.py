@@ -1881,6 +1881,7 @@ def test_state_C_substate_failed_step() -> None:
     failed roster routes to the failed-step resume."""
     body = _track_doc(
         "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
         "- [!] 2026-06-03T04:29Z [ctx=safe] Step 2 failed",
         "1. First step — risk: medium  [x] commit: abc123\n"
         "2. Second step — risk: high  [!]\n",
@@ -1898,6 +1899,7 @@ def test_state_C_substate_failed_step_precedes_partial() -> None:
     step) rather than the steps-partial resume. This pins the precedence order."""
     body = _track_doc(
         "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
         "- [!] 2026-06-03T04:29Z [ctx=safe] Step 2 failed",
         "1. First step — risk: medium  [x] commit: abc123\n"
         "2. Second step — risk: high  [!]\n"
@@ -1939,6 +1941,7 @@ def test_state_C_substate_steps_done_review_pending_skip_marker_counts_done() ->
     unfinished `[ ]` step."""
     body = _track_doc(
         "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
         "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
         "- [ ] Track-level code review\n"
         "- [ ] Track completion",
@@ -1961,6 +1964,8 @@ def test_state_C_substate_review_done_track_open() -> None:
     Checklist walk reached State C on this first `[ ]` track)."""
     body = _track_doc(
         "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [x] 2026-06-03T04:30Z [ctx=safe] Step 2 complete (commit def456)\n"
         "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
         "- [x] 2026-06-03T05:00Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)\n"
         "- [x] 2026-06-03T05:01Z [ctx=safe] Track-level code review (PASS iter 1)\n"
@@ -1983,6 +1988,7 @@ def test_state_C_substate_review_entry_most_recent_wins() -> None:
     entry = current phase" semantics for the code-review read specifically."""
     body = _track_doc(
         "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
         "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
         "- [x] 2026-06-03T05:00Z [ctx=safe] Track-level code review iteration 1 complete\n"
         "- [ ] 2026-06-03T05:30Z [ctx=safe] Track-level code review iteration 2 in progress",
@@ -2059,6 +2065,175 @@ def test_state_C_substate_roster_malformed_status_is_parse_error() -> None:
     )
     assert "malformed checkbox marker" in proc.stderr and "## Concrete Steps" in proc.stderr, (
         f"stderr must name the malformed roster marker and section, got {proc.stderr!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section-discrepancy edge — the roster-to-Progress join keyed on step number.
+#
+# A roster step flipped `[x]` (done) and its `Step N complete` `## Progress`
+# entry are written in lockstep (step-implementation.md sub-step 7), so a `[x]`
+# roster step whose number N has NO word-boundary `Step N` Progress entry means
+# the two sections are out of sync. That case reports the literal
+# `section-discrepancy` so the agent reconciles from the `## Episodes` block,
+# rather than resuming on a sub-state computed from inconsistent inputs. A `[!]`
+# failed-step Progress entry counts as present-for-N (a reconciled retry is not a
+# discrepancy). The hazard the Phase A review flagged is a false positive: a
+# healthy track whose `## Progress` interleaves phase-checkpoint lines (`Step
+# implementation`, `Track-level code review`) between per-step lines must NOT
+# trip the edge, because those lines carry no digit after `Step `.
+# ---------------------------------------------------------------------------
+
+
+def test_state_C_substate_section_discrepancy_present() -> None:
+    """The discrepancy edge fires: a roster step is `[x]` (done) but `## Progress`
+    has no `Step 2` entry. Step 1 has its `Step 1 complete` entry, but step 2 was
+    flipped `[x]` without the orchestrator appending the matching Progress entry
+    (the two sections out of sync). The join keyed on step number 2 finds no
+    `Step 2` entry, so the sub-state is the literal `section-discrepancy` —
+    overriding the steps-done/review resolution the roster alone would suggest."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        # Both roster steps are [x], but only step 1 has a Progress entry; step 2
+        # is a [x] roster step with no `Step 2` Progress entry -> discrepancy.
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: medium  [x] commit: def456\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "section-discrepancy"}, (
+        "a [x] roster step (step 2) with no `Step 2` Progress entry must report "
+        f"section-discrepancy, got {state!r}"
+    )
+
+
+def test_state_C_substate_no_discrepancy_when_phase_checkpoints_interleave() -> None:
+    """The false-positive guard: a HEALTHY track whose `## Progress` interleaves
+    the pre-seeded phase-checkpoint lines (`Step implementation`, `Track-level code
+    review`) between per-step lines must NOT trip the discrepancy. Both roster
+    steps are `[x]` and both have their `Step N complete` entries; the interleaved
+    `Step implementation` checkpoint carries no digit after `Step `, so it
+    contributes no spurious step number. The sub-state resolves normally to
+    steps-done-review-pending, not section-discrepancy."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        # A phase-checkpoint line interleaved between the per-step lines: it names
+        # `Step ` but with no digit, so it must not register a step number.
+        "- [x] 2026-06-03T04:40Z [ctx=safe] Step implementation\n"
+        "- [x] 2026-06-03T04:50Z [ctx=safe] Step 2 complete (commit def456)\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: medium  [x] commit: def456\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "a healthy track with interleaved phase-checkpoint lines (no digit after "
+        f"`Step `) must NOT false-positive to section-discrepancy, got {state!r}"
+    )
+
+
+def test_state_C_substate_bang_progress_entry_counts_as_present() -> None:
+    """A `[!]` failed-step Progress entry counts as present-for-N: a roster step 1
+    flipped `[x]` (a step that failed then was retried to done) whose only
+    `## Progress` mention is a `[!]` `Step 1 failed` entry — NO `Step 1 complete` —
+    must NOT report section-discrepancy. `progress_step_numbers` records step 1
+    from the `Step 1 failed` entry regardless of its checkbox glyph, so the join
+    finds step 1 present and the sub-state resolves normally (steps-partial here,
+    since step 2 is still `[ ]`)."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        # The only Progress mention of step 1 is a [!] failed entry; there is no
+        # `Step 1 complete`. It still counts as present-for-N.
+        "- [!] 2026-06-03T04:20Z [ctx=safe] Step 1 failed\n"
+        "- [ ] Step implementation",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Second step — risk: medium  [ ]\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        "a [x] roster step whose only Progress entry is a [!] `Step N failed` must "
+        f"count as present (no discrepancy); step 2 [ ] drives steps-partial, got {state!r}"
+    )
+
+
+def test_state_C_substate_discrepancy_join_is_exact_step_number() -> None:
+    """The roster-to-Progress join is an EXACT step-number match, never a substring
+    test: a `Step 12` Progress entry must not satisfy a roster step `1`. Roster
+    step 1 is `[x]` with no `Step 1` Progress entry, but a `Step 12` entry is
+    present. A naive substring/prefix join would read `Step 12` as covering step 1
+    and miss the discrepancy; the exact numeric-equality join reports
+    section-discrepancy. Pins the digit-run-whole read in `progress_step_numbers`
+    and the equality test in `step_num_in_progress`."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        # A `Step 12` entry is present; `Step 1` is NOT. The whole digit run 12
+        # must not be read as covering step 1.
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 12 complete (commit abc123)\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        "1. First step — risk: medium  [x] commit: abc123\n",
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "section-discrepancy"}, (
+        "a `Step 12` Progress entry must not satisfy roster step 1 (exact "
+        f"numeric-equality join); the missing `Step 1` entry is a discrepancy, got {state!r}"
+    )
+
+
+def test_state_C_substate_skip_roster_step_not_joined() -> None:
+    """A `[~]` (skipped) roster step is NOT subject to the discrepancy join: only
+    `[x]` (done) roster steps are joined to a `Step N` Progress entry. A skipped
+    step the orchestrator never logged a `Step N complete` entry for must not
+    false-positive to section-discrepancy. Roster step 1 is `[x]` with its `Step 1`
+    entry; step 2 is `[~]` with no `Step 2` entry. The sub-state resolves to
+    steps-done-review-pending ([~] counts as done for the all-steps-done test)."""
+    body = _track_doc(
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-03T04:20Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion",
+        "1. First step — risk: medium  [x] commit: abc123\n"
+        "2. Skipped step — risk: low  [~]\n",  # [~] step has no `Step 2` entry
+    )
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "a [~] (skip) roster step is not joined to a Progress entry, so a missing "
+        f"`Step 2` entry must not false-positive to section-discrepancy, got {state!r}"
+    )
+
+
+def test_state_C_substate_discrepancy_real_track_file_shape() -> None:
+    """The discrepancy edge against a REAL on-disk track-file shape: a continuous-log
+    `## Progress` with the pre-seeded phase checkpoints and per-step entries whose
+    roster carries backtick-bracketed tokens in its descriptions. Step 1 has its
+    `Step 1 complete` Progress entry; step 2 was flipped `[x]` in the roster but
+    its `Step 2 complete` Progress entry is missing — the on-disk discrepancy this
+    edge exists to catch. The roster descriptions embed inline `[ ]`/`[x]` tokens,
+    so this also pins the post-`risk:`-tail status read against the realistic
+    shape while exercising the join."""
+    real_progress = (
+        "- [x] 2026-06-02T14:51Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-02T15:10Z [ctx=safe] Step 1 complete (commit bf6fca2b3f)\n"
+        # Step 2 is [x] in the roster below but has NO `Step 2` Progress entry.
+        "- [ ] Step implementation\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion"
+    )
+    real_roster = (
+        "1. Scaffold `workflow-startup-precheck.sh` — `--mode {full,...}` parsing, "
+        "the `[]` seam — risk: medium  [x] commit: bf6fca2b3f\n"
+        "2. Branch divergence — populate `divergence{detected,ahead,behind}` — "
+        "risk: medium  [x] commit: 9cd797f0fc\n"
+    )
+    body = _track_doc(real_progress, real_roster)
+    state = _substate(body)
+    assert state == {"phase": "C", "substate": "section-discrepancy"}, (
+        "a real-shaped track with a [x] roster step 2 lacking its `Step 2` Progress "
+        f"entry must report section-discrepancy, got {state!r}"
     )
 
 
@@ -2363,6 +2538,12 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("state_C_substate_review_entry_most_recent_wins", test_state_C_substate_review_entry_most_recent_wins),
     ("state_C_substate_real_completed_track_file_review_done", test_state_C_substate_real_completed_track_file_review_done),
     ("state_C_substate_roster_malformed_status_is_parse_error", test_state_C_substate_roster_malformed_status_is_parse_error),
+    ("state_C_substate_section_discrepancy_present", test_state_C_substate_section_discrepancy_present),
+    ("state_C_substate_no_discrepancy_when_phase_checkpoints_interleave", test_state_C_substate_no_discrepancy_when_phase_checkpoints_interleave),
+    ("state_C_substate_bang_progress_entry_counts_as_present", test_state_C_substate_bang_progress_entry_counts_as_present),
+    ("state_C_substate_discrepancy_join_is_exact_step_number", test_state_C_substate_discrepancy_join_is_exact_step_number),
+    ("state_C_substate_skip_roster_step_not_joined", test_state_C_substate_skip_roster_step_not_joined),
+    ("state_C_substate_discrepancy_real_track_file_shape", test_state_C_substate_discrepancy_real_track_file_shape),
     ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
     ("conformance_drift_walk_carries_no_stamped_pairs", test_conformance_drift_walk_carries_no_stamped_pairs),

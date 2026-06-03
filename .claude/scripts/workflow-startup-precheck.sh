@@ -925,13 +925,19 @@ progress_entry_token() {
   done < "$file"
 }
 
-# Scan the active track file's `## Concrete Steps` roster, setting three script-
-# scoped flags the State C sub-state map branches on:
+# Scan the active track file's `## Concrete Steps` roster, setting four script-
+# scoped outputs the State C sub-state map branches on:
 #
 #   * ROSTER_HAS_FAIL  — "1" if any roster step is `[!]` (failed-step).
 #   * ROSTER_HAS_TODO  — "1" if any roster step is `[ ]` (an unfinished step).
 #   * ROSTER_STEP_COUNT — the count of roster step lines seen (0 = empty /
 #                         placeholder roster, the decomposition-pending shape).
+#   * ROSTER_PAIRS     — a space-delimited list of `<N>:<token>` per roster step
+#                        (the leading `N.` step number joined to its classified
+#                        status token), so a join keyed on the step number can run
+#                        without re-walking the roster. The flags above are
+#                        derivable from these pairs, but they are kept as direct
+#                        outputs so the existing sub-state branches need no change.
 #
 # The roster line is the canonical thin-roster shape (conventions-execution.md
 # § 2.1): a column-0 `N. <description> — \`risk: <tag>\`  [<glyph>]` with an
@@ -951,12 +957,14 @@ progress_entry_token() {
 ROSTER_HAS_FAIL="0"
 ROSTER_HAS_TODO="0"
 ROSTER_STEP_COUNT="0"
+ROSTER_PAIRS=""
 roster_scan() {
   local file="$1"
-  local in_section="0" in_fence="0" line tail body tok
+  local in_section="0" in_fence="0" line tail body tok step_num
   ROSTER_HAS_FAIL="0"
   ROSTER_HAS_TODO="0"
   ROSTER_STEP_COUNT="0"
+  ROSTER_PAIRS=""
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       '```'*)
@@ -1020,22 +1028,126 @@ roster_scan() {
       fail) ROSTER_HAS_FAIL="1" ;;
       todo) ROSTER_HAS_TODO="1" ;;
     esac
+    # Record the `<N>:<token>` pair. The step number N is the leading digits
+    # before the first `.` (the `[0-9]*". "` guard above already confirmed the
+    # line opens with one or more digits then `. `). The step-number/status join
+    # the section-discrepancy edge runs reads these pairs without re-walking.
+    step_num="${line%%.*}"
+    ROSTER_PAIRS="$ROSTER_PAIRS $step_num:$tok"
   done < "$file"
 }
 
+# Scan the active track file's `## Progress` continuous log, setting
+# PROGRESS_STEP_NUMS to a space-delimited list of the step numbers N that have a
+# word-boundary `Step N` entry. A roster step flips `[x]` in lockstep with the
+# orchestrator appending a `Step N complete (commit <SHA>)` Progress entry
+# (step-implementation.md sub-step 7), so a `[x]` roster step whose number is
+# absent from this list is the section-discrepancy edge.
+#
+# The match is a word-boundary `Step <N>` where <N> is a run of digits: the
+# entry text `Step 1 complete (commit abc123)` contributes 1, but the pre-seeded
+# phase-checkpoint line `Step implementation` (no digit after `Step `) does NOT,
+# so a healthy track whose Progress interleaves phase-checkpoint lines between
+# per-step lines never registers a spurious step number. The digit run is read
+# whole so `Step 12` contributes 12, not 1 — a `Step 1` lookup is an exact
+# numeric-equality test against the collected list, never a substring test.
+#
+# A `[!]` failed-step Progress entry counts as present-for-N: the recovery
+# protocol writes `Step N failed` / `Step N retry` entries, and a failed step
+# that is later flipped `[x]` is reconciled work, not a missing-section edge. So
+# this scan records the step number from ANY Progress entry naming `Step N`
+# regardless of its checkbox glyph.
+#
+# Runs inline (sets a script-scoped variable, no command substitution) for the
+# same reason the other Progress reads do, though this scan calls no parse_error
+# (it reads only the entry text, not a status enum). The section runs from
+# `## Progress` to the next `## ` heading, and fenced blocks are skipped.
+#
+# Args: $1 = track file path.
+PROGRESS_STEP_NUMS=""
+progress_step_numbers() {
+  local file="$1"
+  local in_section="0" in_fence="0" line rest digits
+  PROGRESS_STEP_NUMS=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '```'*)
+        if [ "$in_fence" = "1" ]; then in_fence="0"; else in_fence="1"; fi
+        continue
+        ;;
+    esac
+    if [ "$in_fence" = "1" ]; then
+      continue
+    fi
+    if [ "$in_section" = "0" ]; then
+      if [ "$line" = "## Progress" ]; then
+        in_section="1"
+      fi
+      continue
+    fi
+    case "$line" in
+      "## "*)
+        return
+        ;;
+    esac
+    # Find a `Step <digit>` token anywhere in the entry. The `*"Step "[0-9]*`
+    # glob requires a digit immediately after `Step ` (a single space), so
+    # `Step implementation` (a non-digit follows) does not match. Strip up to and
+    # including the first `Step ` prefix, then take the leading digit run as the
+    # whole step number.
+    case "$line" in
+      *"Step "[0-9]*)
+        rest="${line#*Step }"
+        # Take the leading digit run as the whole step number. `${rest%%[!0-9]*}`
+        # strips the first non-digit and everything after it (so `1 complete`
+        # yields `1`, `12 failed` yields `12`); when `rest` is all digits there is
+        # no non-digit to strip and the run is returned whole.
+        digits="${rest%%[!0-9]*}"
+        if [ -n "$digits" ]; then
+          PROGRESS_STEP_NUMS="$PROGRESS_STEP_NUMS $digits"
+        fi
+        ;;
+    esac
+  done < "$file"
+}
+
+# Test whether a step number N is present in the space-delimited
+# PROGRESS_STEP_NUMS list, by exact numeric token equality (never a substring
+# test, so 1 does not match 12). Returns 0 (present) / 1 (absent).
+step_num_in_progress() {
+  local target="$1" n
+  for n in $PROGRESS_STEP_NUMS; do
+    if [ "$n" = "$target" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Compute the State C sub-state, setting C_SUBSTATE to one of the five slug
-# strings. The joint read over the active track file's `## Progress` continuous
-# log and `## Concrete Steps` roster plus the already-in-hand plan-file track
-# checkbox, mirroring workflow.md § Startup Protocol step 5's sub-state table.
+# strings — or the literal `section-discrepancy` when the roster and the
+# `## Progress` log disagree. The joint read over the active track file's
+# `## Progress` continuous log and `## Concrete Steps` roster plus the
+# already-in-hand plan-file track checkbox, mirroring workflow.md § Startup
+# Protocol step 5's sub-state table.
 #
 # Precedence (the order the branches are evaluated):
 #   1. decomposition-pending — the `## Progress` "Review + decomposition" entry is
 #      NOT `[x]` (still `[ ]`, or — defensively — absent). Short-circuits BEFORE
 #      the roster is read, so the still-empty/placeholder roster is never coerced.
-#   2. failed-step — the roster carries a `[!]`. Checked before steps-partial so a
+#   2. section-discrepancy — a roster step flipped `[x]` (done) whose step number
+#      N has NO word-boundary `Step N` entry in `## Progress`. The roster `[x]`
+#      flip and the `Step N` Progress entry are written in lockstep (step-
+#      implementation.md sub-step 7), so a done step missing its Progress record
+#      means the two sections are out of sync; the agent reconciles from the
+#      `## Episodes` block. Checked before the failed/partial/done split because
+#      it is an inconsistency signal that overrides the normal resume routing. A
+#      `[!]` failed Progress entry counts as present-for-N (the recovery protocol
+#      writes `Step N failed`/`retry`), so a reconciled retry is not a discrepancy.
+#   3. failed-step — the roster carries a `[!]`. Checked before steps-partial so a
 #      both-failed-and-partial roster routes to the failed resume.
-#   3. steps-partial — the roster has at least one `[ ]` step (and no `[!]`).
-#   4./5. all roster steps done (`[x]`/`[~]`, none `[ ]`, none `[!]`): the
+#   4. steps-partial — the roster has at least one `[ ]` step (and no `[!]`).
+#   5./6. all roster steps done (`[x]`/`[~]`, none `[ ]`, none `[!]`): the
 #      `## Progress` code-review entry decides — not-`[x]` ⇒ steps-done-review-
 #      pending; `[x]` ⇒ review-done-track-open (the plan-file track checkbox is
 #      `[ ]` by construction — the Checklist walk reached State C on the first
@@ -1054,15 +1166,30 @@ determine_c_substate() {
     return
   fi
 
-  # Decomposition is done — quantify the roster.
+  # Decomposition is done — quantify the roster, then collect the step numbers
+  # the `## Progress` log records so the discrepancy join below can run.
   roster_scan "$track_file"
+  progress_step_numbers "$track_file"
 
-  # 2. failed-step before steps-partial.
+  # 2. section-discrepancy: any `[x]` (done) roster step whose number has no
+  # matching `Step N` Progress entry. `[~]` (skip) is not a completed-step flip
+  # the orchestrator logs a `Step N` entry for, so only `[x]` (done) is joined.
+  local pair pnum ptok
+  for pair in $ROSTER_PAIRS; do
+    pnum="${pair%%:*}"
+    ptok="${pair#*:}"
+    if [ "$ptok" = "done" ] && ! step_num_in_progress "$pnum"; then
+      C_SUBSTATE="section-discrepancy"
+      return
+    fi
+  done
+
+  # 3. failed-step before steps-partial.
   if [ "$ROSTER_HAS_FAIL" = "1" ]; then
     C_SUBSTATE="failed-step"
     return
   fi
-  # 3. steps-partial: any `[ ]` step remains.
+  # 4. steps-partial: any `[ ]` step remains.
   if [ "$ROSTER_HAS_TODO" = "1" ]; then
     C_SUBSTATE="steps-partial"
     return
@@ -1078,7 +1205,7 @@ determine_c_substate() {
     return
   fi
 
-  # 4./5. all steps done: the code-review Progress entry decides.
+  # 5./6. all steps done: the code-review Progress entry decides.
   progress_entry_token "$track_file" "code review"
   if [ "$PROGRESS_TOKEN" = "done" ]; then
     C_SUBSTATE="review-done-track-open"
