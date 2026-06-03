@@ -936,7 +936,7 @@ def test_drift_all_stamped_classifies_stamped_then_folds() -> None:
     no workflow-path commit after it, the fold derives that commit as BASE_SHA
     and `git log BASE_SHA..HEAD` is empty: detected=false, base_sha filled (the
     fold ran), commit_count=0, first_commits=[]. This is the closed Phase-1/
-    Phase-2 seam — Phase 1 classifies, Phase 2 folds — using a real stamp so the
+    Phase-2 seam (Phase 1 classifies, Phase 2 folds), using a real stamp so the
     fold resolves it. normalization_landed stays hard-false in this track."""
     with GitFixture() as fx:
         fx.commit("init")

@@ -131,7 +131,18 @@ detect_divergence() {
   # upstream may be stale, so skip with skip_reason="fetch-failed" rather
   # than compute a divergence count against a possibly-stale ref. Output is
   # routed to stderr so progress lines never contaminate the JSON on stdout.
-  if ! git fetch >/dev/null 2>&1; then
+  #
+  # Bound the startup fetch so a stalled-but-resolving remote cannot hang
+  # session startup. This deliberately diverges from the byte-source
+  # (branch-divergence-check.md § Detection uses a bare `git fetch`): that
+  # prose runs interactively where a hang is visible, but `full` mode is the
+  # session-startup precheck, so an unbounded fetch would block startup for
+  # the OS TCP timeout. `timeout 10` falls through to the same fetch-failed
+  # skip as an offline remote, so detection parity with the byte-source holds
+  # for every outcome except a slow-but-reachable remote >10s, which the
+  # downstream per-commit push re-check still catches. `--no-tags` trims the
+  # fetch to the branch refs the divergence count actually needs.
+  if ! timeout 10 git fetch --no-tags >/dev/null 2>&1; then
     DIVERGENCE_SKIPPED="true"
     DIVERGENCE_SKIP_REASON="fetch-failed"
     DIVERGENCE_DETECTED="false"
