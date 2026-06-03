@@ -298,6 +298,14 @@ flowchart TD
   > candidates).
   >
   > **Track file:** `plan/track-1.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1 landed the scaffold with the
+  > Track 2 seam intact (`emit_json` reads `${STATE_JSON:-null}`, so Track 2
+  > sets one variable rather than editing the emitter). No downstream impact
+  > on Track 2's parser plan. Track 2 inherits one fixture convention: any
+  > git-touching test runs inside Track 1's `GitFixture` builder, and because
+  > `PLAN_DIR` resolves to `docs/adr/<branch>` with the fixture default branch
+  > `main`, state fixtures live under `docs/adr/main/_workflow/`.
 
 - [ ] Track 2: State determination
   > Build the markdown state parser that reads `## Plan Review`, the track
