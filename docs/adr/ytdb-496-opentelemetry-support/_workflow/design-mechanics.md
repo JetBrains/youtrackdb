@@ -369,3 +369,139 @@ Operators wanting metrics on storage health but not query throughput configure `
 ### References
 - D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task advancing YTDB-side `TimeRate`/`Ratio` independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
 - Invariants: Listener exception isolation (callback exceptions inside `ObservableInstrument` callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
+
+## Quick-start observability stack
+
+Track 11's docker-compose example assembles five containerized services into one Collector pipeline plus three viewer backends, with Grafana provisioning the operator-facing UI surface. The deep mechanism here covers what the upstream tools do, how the Collector pipeline routes the three signals, and what the smoke script actually verifies — material that does not belong in design.md because it is upstream-tool-specific operational detail, not YTDB design.
+
+### Collector pipeline shape
+
+The Collector config (`otel-collector-config.yaml`) defines three pipelines on one process, each consuming the same OTLP receiver pair and routing through shared processors to a signal-specific exporter:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: local
+        action: upsert
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: youtrackdb
+    const_labels:
+      deployment_environment: local
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlp/jaeger]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlphttp/loki]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [prometheus]
+```
+
+Three details matter:
+
+1. **`memory_limiter` runs first** in every pipeline. Order matters — the limiter must see batches before the `batch` processor accumulates them, otherwise a runaway emit overruns the limit before the limiter rejects it.
+2. **`batch` runs before `resource`** so the `deployment.environment=local` attribute lands on the batched envelope, not on every individual span / log / metric. The attribute is identical across all data points in a batch, so per-data-point application wastes CPU.
+3. **Prometheus is pull-not-push**. The Collector's `prometheus` exporter exposes a `/metrics` HTTP endpoint on `:8889`; Prometheus scrapes it at the 15 s interval configured in `prometheus.yml`. The other two exporters push (`otlp/jaeger` to Jaeger's OTLP receiver on `:4317`; `otlphttp/loki` to Loki's OTLP HTTP path on `:3100/otlp`).
+
+### Grafana datasource provisioning and correlator wiring
+
+Grafana provisions the three datasources at startup via `grafana/provisioning/datasources/datasources.yml`. The load-bearing entries are the trace-to-logs and trace-to-metrics correlators on the Jaeger datasource:
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    url: http://jaeger:16686
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -2m
+        spanEndTimeShift: 2m
+        tags: [{ key: service.name, value: service_name }]
+        filterByTraceID: true
+        filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: -2m
+        spanEndTimeShift: 2m
+        tags: [{ key: service.name, value: service_name }]
+  - name: Loki
+    type: loki
+    uid: loki
+    url: http://loki:3100
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus:9090
+```
+
+The `tracesToLogsV2` correlator wires Jaeger's span-detail panel "Logs for this span" button to a Loki query filtered by `trace_id` resolved from the span's trace context. The 2-minute window on either side of the span absorbs clock skew between the YTDB host and the Loki ingester; tightening the window risks missing logs emitted near the span boundary. The `filterByTraceID: true` setting tells Grafana to add `|= "<traceId>"` to the Loki LogQL, scoping the result to one trace.
+
+The `tracesToMetrics` correlator points at Prometheus and joins on `service.name`. Operators clicking the "Metrics for this service" link in Jaeger land in a Prometheus panel filtered to `youtrackdb` metrics within the same 2-minute window.
+
+### Dashboard placeholder strategy
+
+Grafana dashboards reference datasources by UID. The committed JSON files under `grafana/dashboards/` use placeholder strings (`"datasource": "${DS_JAEGER}"`, `"datasource": "${DS_LOKI}"`, `"datasource": "${DS_PROMETHEUS}"`) that Grafana resolves at dashboard load time against the provisioned datasource UIDs. Without placeholders, exported dashboards bake in the UID of whatever Grafana instance authored them and fail to load on a fresh stack with re-provisioned UIDs.
+
+The author workflow for any dashboard edit: bring the stack up, open Grafana, edit the dashboard in the UI, export via "Share → Export → Save to file", run `scripts/normalize-dashboard.sh <file>` to replace the captured UIDs with the placeholder strings, commit. The normalize script is a thin `jq` wrapper that operates on the exported JSON deterministically.
+
+### Smoke-script verification semantics
+
+`scripts/smoke.sh` exits non-zero when any pillar fails to land within 30 seconds. The sequence:
+
+1. **Bring up the stack** if not already healthy (`docker compose up -d --wait`).
+2. **Run a minimal embedded YTDB query** via a one-shot `java -jar` invocation against the Maven-built artifact, with `OPENTELEMETRY_ENABLED=true` and the local Collector endpoint. The query is a fixed `SELECT FROM OUser LIMIT 1` against an in-memory database — small, deterministic, exercises the SQL pillar through `db.query(...)`.
+3. **Poll Jaeger** at `http://localhost:16686/api/services` until `youtrackdb` appears, then `http://localhost:16686/api/traces?service=youtrackdb&limit=1` until at least one trace lands. 30 s timeout per pillar.
+4. **Poll Loki** at `http://localhost:3100/loki/api/v1/labels` until `service_name` appears, then `http://localhost:3100/loki/api/v1/query?query={service_name="youtrackdb"}` until at least one log record returns.
+5. **Poll Prometheus** at `http://localhost:9090/api/v1/label/service_name/values` until `youtrackdb` appears, then `http://localhost:9090/api/v1/query?query=db_client_operation_duration_seconds_count{service_name="youtrackdb"}` until at least one sample returns.
+6. **Exit 0** when all three polls succeed. **Exit non-zero with a diagnostic message naming the missing pillar** when any poll times out at 30 s.
+
+The 30 s timeout is the load-bearing constant. It must be longer than the Collector's `batch` timeout (1 s) plus the worst-case exporter push interval plus the Prometheus scrape interval (15 s), with margin for cold-start container readiness. Shorter timeouts cause false negatives on under-resourced CI runners; longer timeouts mask actual failures by retrying until the optional CI job's outer timeout kicks in.
+
+### Edge cases / Gotchas
+
+- **Loki OTLP HTTP path mismatch**. Loki 3.x accepts OTLP on `/otlp/v1/logs`, not the bare `/otlp` path Loki 2.x advertised. The Collector config writes the full path explicitly (`http://loki:3100/otlp`) and the Collector appends `/v1/logs` per OTLP spec. A common operator surprise on a stale Loki version: logs land in Loki but the OTLP receiver returns 404 because the path resolver fell through. The README troubleshooting section names this case and points at the matching image tag.
+- **Prometheus scrape lag on a fresh stack**. The first scrape happens 15 s after Prometheus starts. The smoke script's 30 s timeout absorbs this; an operator running queries immediately after bring-up may see "no data" in Grafana for up to 15 s. Documented behavior, not a bug.
+- **Collector resource attribute vs span attribute precedence**. The `resource` processor sets `deployment.environment=local` as a resource attribute, which Grafana surfaces alongside span attributes in the trace-detail panel. A host-side `OPENTELEMETRY_SERVICE_NAME` override propagates into the same resource attribute set via the autoconfigure builder; the Collector's `resource` processor uses `action: upsert` so it does not overwrite an already-set `service.name`, only fills it in when absent.
+- **Jaeger Elasticsearch backend swap (out-of-scope)**. The example uses Jaeger's all-in-one binary with in-memory storage, which loses traces on container restart. Operators who want persistence beyond a workstation demo migrate to Jaeger's Elasticsearch backend; the swap is a Jaeger config change and the YTDB side does not move. Documented in the README's "production tightening" section as a pointer.
+- **Cardinality blow-up via per-tenant span names**. Default span-name format `commit <dbName>` produces one span name per database. Multi-tenant hosts with thousands of databases hit Jaeger's span-name aggregation limits; the design's `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME=false` switch drops dbName from the span name, moving identity to the `db.namespace` attribute where Jaeger indexes it cheaply. The example does not flip the switch (single-database demo), but the README points at the operator-facing tuning.
+
+### References
+- D-records: D41 (Quick-start observability stack lands inside YTDB-496 PR as example-files-only deliverable; rationale and alternatives in implementation-plan.md)
+- Invariants: example-files-only (no source-code edits in `core`, `server`, or the OTel module), pinned image versions only (no `latest` tags; periodic refresh tracked under follow-up ticket `YTDB-OTel-EXAMPLE-VERSIONS`), Maven `<resources>` exclusion (example never ships inside the built JAR)
+- Track: Track 11 (`plan/track-11.md`)
