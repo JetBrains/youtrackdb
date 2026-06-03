@@ -34,7 +34,7 @@ flowchart TB
     subgraph core["core module"]
         QML["QueryMetricsListener<br/>(existing SPI)"]
         TML["TransactionMetricsListener<br/>(unchanged outer surface;<br/>D3 / D10 reversed)<br/>nested: TransactionDetails<br/>(+ getDatabaseName)"]
-        QD["QueryMetricsListener.QueryDetails<br/>(extended: +getOperationName,<br/>+getCollectionName, +getDatabaseName)"]
+        QD["QueryMetricsListener.QueryDetails<br/>(extended with OTel-emission accessors —<br/>see design.md Class Design)"]
         YOU["YourTracks<br/>(+ static global listener registry)"]
         TX["FrontendTransactionImpl<br/>(+ TX lifecycle fires in<br/>beginInternal / rollbackInternal)"]
         STEP["YTDBQueryMetricsStep<br/>(Gremlin source; calls Gremlin classifier)"]
@@ -43,6 +43,7 @@ flowchart TB
         ISR["InstrumentedSqlResultSet<br/>(NEW; session-boundary wrapper;<br/>captures clock + Context.current(),<br/>close() fires listener)"]
         GCLS["GremlinBytecodeClassifier<br/>(static utility; new)"]
         SCLS["SqlSyntaxClassifier<br/>(static utility; new)"]
+        SQLS["SqlSanitizer<br/>(static utility; new)"]
         CLR["Classification<br/>(value record; new)"]
         GC["GlobalConfiguration<br/>(+ OPENTELEMETRY_* entries)"]
     end
@@ -55,7 +56,6 @@ flowchart TB
         OTQ["OTelQueryMetricsListener"]
         OTT["OTelTransactionMetricsListener"]
         FAC["YouTrackDBOpenTelemetry<br/>(facade + lifecycle)"]
-        SQLS["SqlSanitizer"]
     end
 
     OTQ -.implements.-> QML
@@ -89,7 +89,7 @@ flowchart TB
 - **`GlobalConfiguration` (core)**: new entries `OPENTELEMETRY_ENABLED`, `OPENTELEMETRY_EXPORTER_ENDPOINT`, `OPENTELEMETRY_EXPORTER_PROTOCOL`, `OPENTELEMETRY_EXPORTER_HEADERS` (comma-separated `key=value` pairs forwarded to the OTLP exporter as request headers; required by hosted OTLP backends — Honeycomb, Grafana Cloud, Datadog — for `Authorization=Bearer <token>`), `OPENTELEMETRY_EXPORTER_TIMEOUT_MILLIS` (default `10000`; OTLP exporter request timeout that prevents an unreachable collector from blocking exporter shutdown), `OPENTELEMETRY_SERVICE_NAME` for the server-mode SDK init, plus `OPENTELEMETRY_QUERY_MODE_TAG_RULES` (default empty; `tag=value` / `prefix:` / `regex:` rules selecting the per-query monitoring mode, D15) and `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `0` = emit-all; operators opt into a positive value to drop fast successful queries) and `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` (default empty, same `tag=value` / `prefix:` / `regex:` format as the mode rules) consumed by `OTelQueryMetricsListener` + the process-global `SlowQueryThresholdResolver` for slow-query gating with per-tag overrides (D16), plus `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` (default `0` = disabled; positive value emits at most one heartbeat span per interval, D18), plus `OPENTELEMETRY_QUERY_INCLUDE_PARAMETERS` (default `false`; trace-side PII knob attaching parameter values as `db.operation.parameter.<index>`, per-tag granularity deferred to YTDB-708), plus `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME` (default `true`; `false` drops the database name from commit-span names for high-cardinality multi-tenant hosts) and `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` (default `0` = emit every successful commit; positive value gates successful commit spans on `executionTimeNanos < threshold`; failed commits always bypass) consumed by `OTelTransactionMetricsListener` for commit-side slow-query gating (D38), plus `OPENTELEMETRY_LOGS_ENABLED` (default `false`), `OPENTELEMETRY_LOGS_MIN_SEVERITY` (default `INFO`), `OPENTELEMETRY_LOGS_INCLUDE_MESSAGE_BODY` (default `false`; body-policy default-deny ships the SLF4J format string so parameter values stay out of the log pipeline), and `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` (default `io.opentelemetry.,io.youtrackdb.otel.appender`; requester-prefix filter defending against cross-thread recursive logging) gating `OTelLogAppender` registration on the `LogManager.instance()` chokepoint (D34), plus `OPENTELEMETRY_METRICS_ENABLED` (default `false`), `OPENTELEMETRY_METRICS_PERIOD_MILLIS` (default `10000`, clamped to `>= 1000` at SDK init), and `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` (default empty = all six groups enabled when metrics ON) gating `OTelMetricsBridge` against `SdkMeterProvider` + driving the six-group filter `queries`/`cache`/`storage`/`wal`/`locks`/`transactions` (D36, D37).
 - **`OTelQueryMetricsListener` / `OTelTransactionMetricsListener` (new module)**: translate listener callbacks into OTel spans, taking the parent from `Context.current()` so embedded propagation is automatic.
 - **`YouTrackDBOpenTelemetry` (new module)**: static facade. `setOpenTelemetry(OpenTelemetry)` for explicit host wiring; falls back to `GlobalOpenTelemetry.get()`. Registers the listeners with the global registry. Idempotent shutdown.
-- **`SqlSanitizer` (new module)**: replaces string / numeric / date literals in raw SQL with `?` placeholders for `db.query.text` sanitization. Parameterized queries pass through unchanged. The only classifier-adjacent helper that stays in the OTel module — its output (`db.query.text`) is OTel-specific.
+- **`SqlSanitizer` (in `core`)**: replaces string / numeric / date literals in raw SQL with `?` placeholders for `db.query.text` sanitization. Parameterized queries pass through unchanged. It lives in `core/.../profiler/monitoring/` next to `SqlSyntaxClassifier` because both walk the parser-output `SQLStatement` AST, a `core` type; the OTel module reaches it only through `QueryDetails.getQuery()`.
 
 #### D1: Global listener registry
 

@@ -1143,4 +1143,30 @@ Companion edits OUT of this skill's scope, applied separately (plan + track-file
 **Findings**:
 - should-fix (resolved iteration 2): heartbeat "per tag" → "per interval"; `QUERY_INCLUDE_PARAMETERS` `db.query.text` → `db.operation.parameter.<index>`.
 
+## Mutation 62 — 2026-06-03 — content-edit (design.md + implementation-plan.md)
+
+**Diff summary**: Synced the Mermaid diagrams to the prose after a staleness audit of all five design diagrams; no decisions changed, only diagram renderings of decisions already in the prose. Class Design `classDiagram`: added `QueryDetails.getParentContext(): Optional<Context>` and `FrontendTransaction.getExplicitTrackingId(): Optional<String>`, both named load-bearing in §Class Design prose (L283, L50-55) but absent from the diagram; updated `LogAppenderHook.onLog` and `OTelLogAppender.onLog` from the stale 5-arg form to the 7-arg signature (`level, formatString, formattedMessage, thrown, eventEpochNanos`) per `design-mechanics.md` L200-203, added the `includeMessageBody` field, and renamed the field `reentranceGuard` → `reentrant` to match `design-mechanics.md` L189. Workflow "Query span lifecycle in embedded" sequence diagram: redrawn to the enrich model. `GremlinSpanLifecycleHook` (new participant) opens the span at first `hasNext()` and ends it at `close()`; `OTelQueryMetricsListener` only enriches on the GREMLIN path. The prior diagram showed the listener calling `spanBuilder().startSpan()` / `span.end()`, a leftover from before the hook model that Mutation 59's cold-read had already flagged. The line-339 caption was aligned to the enrich model. Server-mode diagram: `setOpenTelemetry` shown in its 3-arg form (`ownedByYtdb=true, serverMode=true`) per D5. `implementation-plan.md` Component Map: generalized the `QueryDetails` node, which listed only 3 of the ~15 accessors the design adds.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 blockers. 21 should-fix are all pre-existing debt (top-level section cap of 19, em-dash density across ten paragraphs, ten fragmented-header patterns, one `(per D42)` aside at L1083, `ecosystem` at L57); none sit at an edited line, and the diff adds zero em dashes.
+
+**Cold-read** (scope: bounded — Class Design + Workflow + Overview + Core Concepts + Context propagation in embedded): NEEDS REVISION → PASS after iteration 1. Caught the `onFirstHasNext` arity contradiction (class diagram + redrawn sequence diagram declare 3 args; §"Context propagation in embedded" prose L585 called it with 4, adding `spanName`) and the resulting sequence-diagram self-inconsistency (the call passed 3 args while the next line consumed an unpassed `spanName`). Resolved toward 3 args to match the implementation contract already fixed in the class diagram (L104), `plan/track-1.md` (L45, L198), and `plan/track-3.md` (L40, L148): prose L585 now derives the span name from `details.getQuerySummary()` (else `"youtrackdb"`) instead of receiving a 4th parameter, and the diagram's `spanBuilder(...)` shows the same derivation. Verified by grep that all five `onFirstHasNext` sites are 3-arg consistent; the full sub-agent re-run was skipped in favour of deterministic verification of the single blocker.
+
+**Findings**:
+- blocker (resolved iteration 1): `onFirstHasNext` arity 3-vs-4 contradiction across class diagram, sequence diagram, and Context-propagation prose; resolved to 3 args, prose derives `spanName` from `details.getQuerySummary()`.
+- should-fix (resolved iteration 1): sequence diagram consumed an unpassed `spanName`; fixed to render the derivation.
+
+**Iterations**: 1 of 3 (PASS).
+
+**Carried forward (NOT in this mutation — needs an author decision, not a diagram fix)**: `SqlSanitizer` module placement disagrees across documents. `design.md` §Class Design states `core` three times with a parser-AST rationale (L289, L820, L897), while `implementation-plan.md` L92 and the Component Map node `SQLS` place it in the OTel module ("the only classifier-adjacent helper that stays in the OTel module"). Both diagrams render; the contradiction is in the prose, so it was left for the author to settle. Resolved in Mutation 63 (author chose `core`).
+
+## Mutation 63 — 2026-06-03 — plan-only (implementation-plan.md)
+
+**Diff summary**: Resolved the `SqlSanitizer` module placement carried forward from Mutation 62. The author chose `core`, which `design.md` already states (L289, L292, L820, L897) and which the L626-627 mutation entry recorded; `implementation-plan.md` was the only straggler still placing it in the OTel module. Moved the Component Map flowchart node `SQLS` from the `otel` subgraph to the `core` subgraph next to `SqlSyntaxClassifier`, and reworded the L92 component bullet from "(new module) … stays in the OTel module" to "(in `core`)" with the parser-AST rationale (both walkers sit next to the `SQLStatement` AST, a `core` type; the OTel module reaches the sanitizer only through `QueryDetails.getQuery()`). The `ISR --> SQLS` edge is unchanged and still valid. Flowchart re-rendered via Kroki: OK.
+
+**Mechanical checks / cold-read**: not run — plan-only edit, gated by Phase 2 structural review, not the design-mutation discipline (no `design.md` / `design-mechanics.md` change in this mutation).
+
+**Findings**: none.
+
+**Iterations**: n/a (single mechanical sync of a settled decision).
+
 **Iterations**: 2 of 3 (PASS).
