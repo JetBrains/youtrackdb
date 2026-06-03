@@ -552,14 +552,14 @@ An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
 logically grounded in the cited entries. A second pass (2026-06-03, same day)
 targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
-F39–F40, both re-verified against live code.
+F39–F41, all re-verified against live code.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
 F38 → D7 (same-thread guard added); F39 → D3/D19 (lock-free inner engine
 primitives extracted; reconciliation never calls the public write-lock-taking
 methods); F40 → D15/D17 (rename-mutation third category; commit-only
-re-association).
+re-association); F41 → D8 (tx-local seed pinned to fromStream re-parse).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -735,6 +735,51 @@ flowchart TD
   VIS -- "no (commit-only, chosen)" --> SAFE["className mutates at commit under writeLock (D19); tx scans renamed class unaccelerated (D17 staleness)"]
 ```
 
+### F41 — D8's tx-local seed is load-bearing, not a free planning choice: only fromStream re-parse binds owner + graph into the copy [MAJOR]
+D8 frames the tx-local `SchemaShared` seed as "deep-copy vs fromStream re-parse —
+planning picks," a non-blocker. But "derived state maintained for free by the
+existing mutation methods" holds only when every copied class is a fresh object
+bound to the tx-local owner, and the code makes that contingent on the seed
+mechanism:
+
+- **`SchemaClassImpl.owner` is `final`** (`:72`), set only in the constructor
+  (`:89`/`:108`) — no setter. A field-level deep clone cannot rebind it.
+- **`superClasses`/`subclasses` are `List<SchemaClassImpl>` object references**
+  (`:78`/`:80`); the polymorphic ripple walks them (`SchemaClassEmbedded:644`
+  recurses `superClass.addPolymorphicCollectionId`; `SchemaClassImpl:681` walks
+  `superClasses`).
+- **The mutation methods the ripple rides reach through `owner`:**
+  `owner.acquireSchemaWriteLock(session)` (`:1169`), `owner.getClass(name)`
+  (`:268`/`:830`), `owner.checkEmbedded(session)` (`:1182`).
+
+A naive deep-copy that shares or field-copies references leaves `owner` and the
+superclass/subclass refs pointing at the **committed** `SchemaShared`. Then every
+tx-local schema mutation (a) acquires the **shared** schema write lock —
+serializing all sessions and defeating D5/D8's low-contention isolation premise —
+and (b) ripples `polymorphicCollectionIds` into the **committed** class objects, a
+direct D4 isolation violation and shared-state corruption, the opposite of "free."
+
+`fromStream` re-parse avoids this for free: `createClassInstance` constructs
+`new SchemaClassEmbedded(this, …)` (`SchemaEmbedded:217`/`:478`) bound to the
+tx-local `SchemaShared`, and `fromStream` (`SchemaShared:487`) rebuilds the whole
+graph (owner, superClasses, subclasses) inside the copy. There is no
+copy-constructor or clone on `SchemaShared` today (only the no-arg `SchemaShared()`,
+`:116`), so "deep-copy" would have to reimplement that reconstruction regardless.
+
+Resolution (D8): pin the seed to `fromStream` re-parse (or an equivalent
+fresh-object reconstruction that rebinds `owner` and re-wires the class graph). The
+seed mechanism is load-bearing for correctness and isolation, not a free planning
+choice.
+
+```mermaid
+flowchart TD
+  SEED{"tx-local SchemaShared seed"}
+  SEED -- "fromStream re-parse (safe)" --> FRESH["createClassInstance: new SchemaClassEmbedded(this,…) (:217/:478); owner + graph bound into copy"]
+  FRESH --> FREE["ripple stays inside the copy: D4 isolation holds, private lock"]
+  SEED -- "naive deep-copy (unsafe)" --> SHARE["final owner (:72) + superClasses refs (:78) keep pointing at committed schema"]
+  SHARE --> CORRUPT["owner.acquireSchemaWriteLock locks SHARED schema; ripple mutates committed objects (D4 violation)"]
+```
+
 ---
 
 ## 3. Decisions
@@ -859,7 +904,9 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   cross-class derived state (inheritance, `polymorphicCollectionIds`, subclass
   sets, the global-properties table) is maintained correctly by the existing
   mutation methods — a change to one class ripples to its transitive subclasses'
-  caches, and the full structure gets that right for free. Alongside it, the
+  caches, and the full structure gets that right for free — but only when the
+  tx-local copy is seeded by `fromStream` re-parse so the class graph and each
+  class's `owner` are bound into the copy, not the committed schema (F41). Alongside it, the
   mutation entry points record which classes were touched in a tx-local
   **changed-class set**. The diff lives at the persistence layer, not in the
   in-memory reads: at commit only the class records in the changed-class set are
@@ -884,12 +931,14 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   new, error-prone logic in a correctness-critical area. The full working copy
   reuses the existing machinery and sidesteps that risk; the copy is cheap and
   rare (D5). Revisit if transient memory on very large schemas ever matters.
-- **Planning notes (not blockers):** seeding the tx-local `SchemaShared` once
-  per schema-tx (deep-copy vs `fromStream` re-parse — planning picks);
-  `SchemaProxy` read methods (`getClass`, etc.), not only the snapshot, must
-  also route to the tx-local structure during a schema-tx, since the schema API
-  reads through the proxy. Reuses the existing
-  `toStream`/`fromStream`/`makeSnapshot` machinery.
+- **Planning notes:** the tx-local `SchemaShared` seed is **`fromStream` re-parse**
+  (or an equivalent fresh-object reconstruction), not a field-level deep-copy —
+  `SchemaClassImpl.owner` is `final` and superclass/subclass links are object
+  references, so only constructing fresh classes bound to the tx-local owner keeps
+  the derived-state ripple and locking inside the copy (F41). `SchemaProxy` read
+  methods (`getClass`, etc.), not only the snapshot, must also route to the
+  tx-local structure during a schema-tx, since the schema API reads through the
+  proxy. Reuses the existing `toStream`/`fromStream`/`makeSnapshot` machinery.
 
 ### D15 — Tx-local index-definition overlay (NOT a content copy of the IndexManager)
 From the assignee, 2026-06-03. Indexes also need a tx-local view so a session
