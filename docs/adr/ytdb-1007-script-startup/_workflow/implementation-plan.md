@@ -508,13 +508,28 @@ flowchart TD
   > **Depends on:** Track 4
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1
 
-> Reset 2026-06-03 by the inline replan that added Track 5 (D8). The next
-> `/execute-tracks` session re-runs State 0 (consistency + structural) against
-> the revised plan before resuming track execution. The prior audit summary
-> (passed at iteration 2) described the four-track pre-Track-5 plan and is
-> superseded by this re-run.
+Re-run after the 2026-06-03 inline replan that added Track 5 (D8),
+superseding the prior iteration-2 audit of the four-track plan. Both passes
+cleared at iteration 1 against the revised five-track plan with no fixes
+applied.
+
+**Auto-fixed (mechanical)**: none.
+
+**Escalated (design decisions)**: none.
+
+Consistency verified every current-state claim about the shipped
+`workflow-startup-precheck.sh` (the three `--mode` outputs, the `STATE_JSON`
+and `ACTIONS_TAKEN_JSON` seams, the five State C substate slugs, the no-drift
+normalization contract) against the live script, plus D8's two current-state
+claims about the live SKILL entry points (`execute-tracks/SKILL.md` inline
+startup recital; `create-plan/SKILL.md` Step 1.5 stale inline-bash
+parenthetical). Structural confirmed the eight-surface Track 4 / Track 5
+partition has no double-ownership or orphan, the D8 → Track 5 traceability
+edge, and all per-section budgets. The three frozen `design.md` ↔
+shipped-script divergences stay Phase-4 reconciliations (see
+`## Final Artifacts`); they were not re-raised.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
