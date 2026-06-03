@@ -244,11 +244,9 @@ UNSTAMPED_FILES=""
 
 # actions_taken array literal. The no-drift normalization path below is the
 # script's only autonomous mutation, so it is the only writer of this variable;
-# it replaces the empty `[]` with a one-element array describing the
-# normalization commit. emit_json splices it via ${ACTIONS_TAKEN_JSON:-[]}.
-# Populating the entry with the commit's short SHA and subject is the reporting
-# step that follows this mutating path; this path lands the commit and leaves
-# the array wiring ready.
+# on a landed commit it replaces the empty `[]` with a one-element array naming
+# the normalization commit (action label, short SHA, subject). Every other path
+# leaves the empty array. emit_json splices it via ${ACTIONS_TAKEN_JSON:-[]}.
 ACTIONS_TAKEN_JSON="[]"
 
 # The workflow pathspecs the drift `git log` ranges against. Trailing slashes
@@ -356,9 +354,10 @@ fold_stamps_to_base() {
 # drift.normalization_landed and actions_taken reflecting the commit. The abort
 # path keeps the byte-source's hard `exit 1` (a non-zero exit that halts the
 # calling session) — that asymmetry, success-`return` vs abort-`exit 1`, is the
-# second sanctioned adaptation. The function sets DRIFT_NORMALIZATION_LANDED on
-# success; the actions_taken entry naming the commit is populated by the
-# reporting step that consumes this path.
+# second sanctioned adaptation. On success the function sets
+# DRIFT_NORMALIZATION_LANDED=true and replaces ACTIONS_TAKEN_JSON's empty `[]`
+# with a one-element array naming the commit (action label, short SHA, subject),
+# so emit_json reports the mutation in the `full`-mode JSON.
 #
 # Path-quoting assumption (byte-source): all `_workflow/**` artifact names are
 # fixed-template (implementation-plan.md, design.md, design-mechanics.md,
@@ -431,13 +430,30 @@ no_drift_normalization() {
   # subject is byte-identical to the byte-source: `Normalize workflow-sha stamps
   # to <short-BASE_SHA>`, the seven-character abbreviation of BASE_SHA.
   git add -- $stamped_files
-  local short_base_sha
+  local short_base_sha subject
   short_base_sha="$(printf '%s' "$base_sha" | cut -c1-7)"
-  git commit -q -m "Normalize workflow-sha stamps to $short_base_sha"
+  subject="Normalize workflow-sha stamps to $short_base_sha"
+  git commit -q -m "$subject"
 
-  # Record that the mutation landed. The reporting step that consumes this path
-  # populates ACTIONS_TAKEN_JSON with the commit's short SHA and subject; this
-  # path lands the commit, flips the flag, and `return`s so emit_json runs.
+  # Record that the mutation landed, and report it in actions_taken. This is the
+  # script's only autonomous mutation, so it is the only writer of
+  # ACTIONS_TAKEN_JSON: replace the empty `[]` with a one-element array naming
+  # the commit (the short SHA + the byte-source subject). The commit short SHA is
+  # read back with `git rev-parse --short HEAD` (the commit just landed, so HEAD
+  # is it); `short_base_sha` above is the BASE_SHA abbreviation in the subject,
+  # not the new commit's own hash, so the two are distinct fields. jq assembles
+  # the object so quoting/escaping is correct by construction — the subject is a
+  # fixed template with no metacharacters, but routing it through `--arg` keeps
+  # the one-contract-home idiom the rest of the emit surface uses. `action` is a
+  # stable machine-readable label so a downstream reader can branch on the
+  # mutation kind without parsing the human-facing subject.
+  local commit_sha
+  commit_sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
+  ACTIONS_TAKEN_JSON="$(jq -nc \
+    --arg action "normalize-workflow-sha-stamps" \
+    --arg commit "$commit_sha" \
+    --arg subject "$subject" \
+    '[{action: $action, commit: $commit, subject: $subject}]')"
   DRIFT_NORMALIZATION_LANDED="true"
 }
 
@@ -1584,12 +1600,13 @@ emit_json() {
   # divergence_json, drift_json, the HANDOFFS_JSON array literal, and the
   # STATE_JSON object literal. The state walk fills the top-level phase
   # (0/A/C/D/Done) with a null substate; the State C sub-state map lands in a
-  # later step of this track. actions_taken stays an empty array (a later track
-  # wires the no-drift normalization commit into it).
+  # later step of this track. actions_taken carries the no-drift normalization
+  # commit when that path landed one, otherwise the empty array.
   #
-  # ACTIONS_TAKEN_JSON is a JSON array literal so callers that record an
-  # autonomous mutation can replace the empty `[]` without re-threading the
-  # null idiom. The scaffold leaves it empty.
+  # ACTIONS_TAKEN_JSON is a JSON array literal so the no-drift normalization
+  # path (the only autonomous mutation) can replace the empty `[]` with its
+  # one-element commit record without re-threading the null idiom. Every other
+  # path leaves it empty.
   local actions_taken_json="${ACTIONS_TAKEN_JSON:-[]}"
   local handoffs_json="${HANDOFFS_JSON:-[]}"
   local divergence_obj drift_obj

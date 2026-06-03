@@ -1445,6 +1445,66 @@ def test_norm_uniform_stamps_skip_no_commit() -> None:
         assert _git_porcelain(fx) == "", (
             f"the uniform-skip path mutates nothing, got dirty tree {_git_porcelain(fx)!r}"
         )
+        # The uniform-skip path performs no mutation, so actions_taken stays the
+        # empty array — there is nothing to report.
+        assert json.loads(proc.stdout)["actions_taken"] == [], (
+            f"the uniform-skip path reports no action, got "
+            f"{json.loads(proc.stdout)['actions_taken']!r}"
+        )
+
+
+def test_norm_success_reports_commit_in_actions_taken() -> None:
+    """The reporting half of the success path: a landed normalization populates
+    `actions_taken` with exactly one entry naming the commit. The entry carries a
+    stable `action` label (so a reader branches on the mutation kind without
+    parsing prose), the new commit's own short SHA in `commit` (read back from
+    HEAD, distinct from the BASE_SHA abbreviation that appears in the subject),
+    and the byte-identical `Normalize workflow-sha stamps to <short>` subject.
+    This is the one observable behavior delta vs today's fully silent
+    normalization: the commit now surfaces in the JSON. The script still never
+    prompts — `actions_taken` is a report, not a confirmation gate."""
+    with GitFixture(default_branch=NORM_BRANCH) as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        older, newer = _two_distinct_stamp_commits(fx)
+        fx.stamped_artifact("implementation-plan.md", older)
+        fx.stamped_artifact("plan/track-1.md", newer)
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"success path should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        # normalization_landed and actions_taken move together on the success
+        # path: the flag says a mutation happened, the array names it.
+        assert obj["drift"]["normalization_landed"] is True, (
+            f"a landed normalization must set normalization_landed=true: {obj['drift']!r}"
+        )
+        actions = obj["actions_taken"]
+        assert isinstance(actions, list) and len(actions) == 1, (
+            f"a landed normalization reports exactly one action, got {actions!r}"
+        )
+        entry = actions[0]
+        assert entry["action"] == "normalize-workflow-sha-stamps", (
+            f"the entry must carry the stable action label, got {entry!r}"
+        )
+        # The subject is byte-identical to the byte-source form (BASE_SHA = the
+        # folded older commit, abbreviated to seven chars).
+        short_base = older[:7]
+        assert entry["subject"] == f"Normalize workflow-sha stamps to {short_base}", (
+            f"the entry subject must be the byte-source commit subject, got {entry!r}"
+        )
+        # `commit` is the NEW commit's own short SHA, read back from HEAD — not the
+        # BASE_SHA abbreviation in the subject, which the fixture proves are
+        # distinct (HEAD is the Normalize commit, BASE_SHA is the older stamp).
+        head_short = fx._git_out("rev-parse", "--short", "HEAD")
+        assert entry["commit"] == head_short, (
+            f"the entry commit must be the Normalize commit's short HEAD SHA "
+            f"{head_short!r}, got {entry['commit']!r}"
+        )
+        assert entry["commit"] != short_base, (
+            "the reported commit SHA must be the new commit's own hash, distinct "
+            "from the BASE_SHA abbreviation in the subject"
+        )
 
 
 def test_norm_guard1_off_line1_body_edit_aborts() -> None:
@@ -1566,6 +1626,12 @@ def test_norm_narrow_scope_dirty_outside_does_not_abort() -> None:
             f"the normalization commit lands despite the out-of-scope dirty file, got "
             f"{_git_top_subject(fx)!r}"
         )
+        # A landed commit is reported in actions_taken even when an unrelated
+        # out-of-scope dirty file is present (the report follows the mutation).
+        actions = json.loads(proc.stdout)["actions_taken"]
+        assert len(actions) == 1 and (
+            actions[0]["subject"] == f"Normalize workflow-sha stamps to {older[:7]}"
+        ), f"the landed commit must be reported in actions_taken, got {actions!r}"
 
 
 def test_norm_reduced_modes_never_mutate() -> None:
@@ -3076,6 +3142,7 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
     ("norm_success_one_commit_line1_only_diff_exit0", test_norm_success_one_commit_line1_only_diff_exit0),
     ("norm_uniform_stamps_skip_no_commit", test_norm_uniform_stamps_skip_no_commit),
+    ("norm_success_reports_commit_in_actions_taken", test_norm_success_reports_commit_in_actions_taken),
     ("norm_guard1_off_line1_body_edit_aborts", test_norm_guard1_off_line1_body_edit_aborts),
     ("norm_guard2_dirty_workflow_file_aborts", test_norm_guard2_dirty_workflow_file_aborts),
     ("norm_narrow_scope_dirty_outside_does_not_abort", test_norm_narrow_scope_dirty_outside_does_not_abort),
