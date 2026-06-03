@@ -12,6 +12,7 @@ Track 4 rewrites the six prose surfaces to consume the script: `workflow.md § S
 - [x] 2026-06-03T12:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-03T13:35Z [ctx=info] Step 1 complete (commit 92888ad18f)
 - [x] 2026-06-03T13:47Z [ctx=info] Step 2 complete (commit e62746d37a)
+- [x] 2026-06-03T13:52Z [ctx=info] Step 3 complete (commit 169e3f7f55)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -159,6 +160,16 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/workflow-drift-check.md` (new staged copy)
 
 **Critical context:** The guard-2 `awk '{print $2}'` space-truncation known-debt now lives only in this file's Path-quoting note (R-A5); Step 4's `§1.6(h)` pivot must not duplicate-then-drop it. The single expected `rule_1` staged residue clears at Phase 4 promotion; do not stamp the staged copy.
+
+### Step 3 — commit 169e3f7f55, 2026-06-03T13:52Z [ctx=info]
+**What was done:** Shrank the staged `branch-divergence-check.md` to a reference doc. Replaced the §Detection inline ahead/behind bash (the `@{u}` upstream guard, `git fetch`, `git rev-list --left-right --count HEAD...'@{u}'`) with a citation of the live script's `divergence` object, reported under both `--mode full` (startup) and `--mode divergence-only` (the mid-session push-failure re-check Step 5 wires). The section now documents `divergence.{detected, ahead, behind, skipped, skip_reason}` with `skip_reason` ∈ {`"no-upstream"`, `"fetch-failed"`} and keeps the three-resolution UX (local-authoritative / remote-authoritative / defer) agent-side. Added a parity-delta paragraph stating the `timeout 10 git fetch --no-tags` bound honestly: parity holds except on a slow-but-reachable remote past 10s, where the script reports `skip_reason == "fetch-failed"` and the per-commit push re-check still catches the missed divergence (A6). Genericized the stale "§ Startup Protocol step 3" cross-reference in §Remote-authoritative to the dispatch model (A9). The live file is byte-unchanged.
+
+**What changed from the plan:** none. Scope matched the step description (shrink, three resolutions preserved, the timeout-10 parity-delta stated, the A9 cross-ref genericization).
+
+**Key files:**
+- `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/branch-divergence-check.md` (new staged copy)
+
+**Critical context:** The single expected `rule_1` staged residue this copy adds (four total across the staged subtree) clears at Phase 4 promotion; do not stamp the staged copy.
 
 ## Validation and Acceptance
 
