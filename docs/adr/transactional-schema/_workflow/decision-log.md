@@ -1016,17 +1016,19 @@ sets `superClass`/`superClasses` to names, `:587`–`:597`).
   (immutable committed base + changed-class map) becomes a feasible future
   refinement but is not needed for v1.
 - **New scope this introduces:** `toStream`/`fromStream` rewrite (per-class
-  records + schema-record link set); a schema version bump
-  (`CURRENT_VERSION_NUMBER` 4 → new) plus a one-time, crash-safe migration of
-  existing single-record schemas to per-class records on open. This **overturns
-  the earlier "record format unchanged, no migration" assumption.**
+  records + schema-record link set) and a schema version bump
+  (`CURRENT_VERSION_NUMBER` 4 → new). Existing databases migrate via JSON
+  export/import (D20), not an in-place on-open migration, so there is no
+  partial-migration crash-safety burden and the version bump becomes a
+  reject-and-redirect gate on open. This **overturns the earlier "record format
+  unchanged, no migration" assumption.**
 - **Diff (D6/D9) becomes naturally per-class** — changed class records appear
   directly in the tx's changed-record set.
 - **Scope: v1** (assignee, 2026-06-03). The split is a primary goal of
   YTDB-382 (write-amplification reduction), and doing it alongside the
   transactional work avoids a second schema-format migration later. Carried as
-  its own track with the one-time on-open migration isolated from the
-  transactional-commit work.
+  its own track; existing-database migration is JSON export/import (D20), not an
+  on-open migrator, so the track carries no migration crash-recovery work.
 
 ### D12 — Accept the index build under the exclusive commit lock for v1
 From the assignee, 2026-06-03. Option (a): a transactional index build on an
@@ -1207,6 +1209,47 @@ flowchart TD
   CE["commit entry: does the tx carry schema/index changes?"]
   CE -- no --> RD["readLock fast path (:2285): concurrent data commits (today's behavior)"]
   CE -- yes --> WR["writeLock from the start: exclusive; reconcile structure (D1/D3); no upgrade"]
+```
+
+### D20 — Schema-format migration is operator-driven JSON export/import, not in-place on-open migration
+From the assignee (2026-06-03), superseding D14's "one-time, crash-safe on-open
+migration." The single-record → per-class-record schema-format change (D14) is
+migrated by exporting the old database to JSON with the old binaries and importing
+into a fresh database with the new binaries. No in-place on-open migration runs,
+so its crash-safety is a non-issue — there is no partial-migration state to
+recover.
+
+- **Export reads the logical schema, not raw record bytes.**
+  `DatabaseExport.exportSchema` (`:449`) walks `schema.getClasses()` from the
+  immutable snapshot (`:453`/`:464`) and writes class/property/index definitions
+  as JSON; it never serializes the schema record's on-disk bytes. The source
+  format (single-record) is irrelevant to what is exported.
+- **Import rebuilds through the schema API.** `DatabaseImport.importSchema`
+  (`:495`) recreates classes (`schema.createClass`, `:701`/`:705`), properties
+  (`createProperty`, `:787`), and indexes (`indexManager.createIndex`, `:1420`),
+  so the imported database is written in whatever format the current code produces
+  — per-class records under D14. The existing round-trip test
+  (`DatabaseExportImportRoundTripTest`) covers the path.
+- **The new code never parses the old format.** Migration is old-binary export →
+  JSON → new-binary import, so the new build needs no single-record reader. Opening
+  an old-format database with the new binaries is rejected on a schema version
+  check (D14's `CURRENT_VERSION_NUMBER` bump) with a clear "export from the
+  previous version and import" message, rather than attempted in place.
+- **Composes with the transactional model.** Import builds the schema and then
+  loads records — the same schema-then-data ordering as the genesis bootstrap
+  (D18); the schema-creating API calls run under the new tx-aware path (D1).
+- **Scope effect on D14.** D14 loses the on-open migration sub-task and its
+  crash-safety burden; it keeps the `toStream`/`fromStream` per-class-record
+  rewrite and the version bump, which becomes a reject-and-redirect gate, not a
+  migrator.
+
+```mermaid
+flowchart LR
+  OLD["old DB (single-record schema)"] --> EXP["DatabaseExport, old binaries: logical schema → JSON (:449)"]
+  EXP --> J["JSON dump"]
+  J --> IMP["DatabaseImport, new binaries: rebuild via schema API (:495/:701/:787/:1420)"]
+  IMP --> NEW["fresh DB: per-class records (D14)"]
+  OPEN["open old DB with new binaries"] -. version check, D14 bump .-> REJ["reject + redirect to export/import; no in-place migration"]
 ```
 
 ---
