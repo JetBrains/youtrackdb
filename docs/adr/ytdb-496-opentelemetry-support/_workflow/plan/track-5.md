@@ -96,7 +96,7 @@ After Track 5:
 ## Interfaces and Dependencies
 
 In scope:
-- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` (the OTel enum entries listed in deliverable #1 — SDK-wiring + gating + commit-side per D38 + logs + metrics, ~thirteen entries).
+- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` (the OTel enum entries listed in deliverable #1 — SDK-wiring + gating + commit-side per D38 + logs + metrics, ~nineteen entries).
 - `server/src/main/java/com/jetbrains/youtrackdb/internal/server/YouTrackDBServer.java` (add `ServiceLoader.load(ServerLifecycleListener.class)` inside `activate()` per CR3).
 - `youtrackdb-opentelemetry/.../YouTrackDBOpenTelemetry.java` (extended with registration side-effects through `YourTracks` static methods plus the package-private 2-arg `setOpenTelemetry` variant).
 - `youtrackdb-opentelemetry/.../server/OpenTelemetryServerPlugin.java` (new).
