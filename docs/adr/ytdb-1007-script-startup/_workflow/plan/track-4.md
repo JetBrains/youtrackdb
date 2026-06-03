@@ -14,6 +14,7 @@ Track 4 rewrites the six prose surfaces to consume the script: `workflow.md § S
 - [x] 2026-06-03T13:47Z [ctx=info] Step 2 complete (commit e62746d37a)
 - [x] 2026-06-03T13:52Z [ctx=info] Step 3 complete (commit 169e3f7f55)
 - [x] 2026-06-03T13:58Z [ctx=info] Step 4 complete (commit 13214c4c86)
+- [x] 2026-06-03T14:04Z [ctx=info] Step 5 complete (commit 3a9cc84855)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -183,6 +184,18 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/conventions.md` (new staged copy)
 
 **Critical context:** The guard-2 `awk` space-truncation known-debt was NOT duplicated here — it stays in the staged `workflow-drift-check.md` Path-quoting note (R-A5). The staged `conventions.md` adds one expected `rule_1` residue (five total across the staged subtree); it clears at Phase 4 promotion. Do not stamp the staged copy.
+
+### Step 5 — commit 3a9cc84855, 2026-06-03T14:04Z [ctx=info]
+**What was done:** Rewrote the staged `commit-conventions.md § Push failure handling` so the first in-session `non-fast-forward` push rejection re-runs `workflow-startup-precheck.sh --mode divergence-only` instead of reloading the full divergence gate prose. The re-run reads the reduced `{divergence, actions_taken}` object and routes on two fields: `divergence.detected == true` presents the three resolutions per `branch-divergence-check.md` with the `ahead` / `behind` counts on screen, and `divergence.skipped == true` (`skip_reason` ∈ {`"no-upstream"`, `"fetch-failed"`}) behaves as the skipped-check path (no gate, record the skip, continue). All three gating behaviors survive the detection move (R4): the first-occurrence-in-session guard, the do-not-silently-retry rule, and the already-Deferred record-and-continue suppression. The TOC row and the section `summary=` annotation were reworded in lockstep (under the rule_5c cap). First-touch copy-then-edit; the live `commit-conventions.md` is byte-unchanged.
+
+**What was discovered:** A naive `X — Y` rewrite of the consolidated non-fast-forward bullet stacked four em dashes into one paragraph, over the house-style cap. Reworked with periods and colons to land at zero em dashes, pre-empting a writing-style finding the Phase C review would otherwise raise on the consolidated bullet.
+
+**What changed from the plan:** none. Scope matched the step description (re-entry via `--mode divergence-only`; R4 guard preservation; both `divergence.detected` and `divergence.skipped` / `skip_reason` read).
+
+**Key files:**
+- `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/commit-conventions.md` (new staged copy)
+
+**Critical context:** The new staged `commit-conventions.md` adds the sixth expected `rule_1` staged residue; it clears at Phase 4 promotion. Do not stamp the staged copy.
 
 ## Validation and Acceptance
 
