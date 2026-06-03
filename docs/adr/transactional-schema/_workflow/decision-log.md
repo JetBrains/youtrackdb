@@ -359,6 +359,45 @@ flowchart TD
   CPI --> NUL["returns null: no index, no acceleration"]
 ```
 
+### F29 — Stable-base-keyed engine files are feasible with no on-disk migration
+Feasibility check for making index rename inert (Q11 / F28). Three facts make
+it migration-free:
+
+- **The engine config serializer is already extensible.** `CollectionBasedStorageConfiguration.deserializeIndexEngineProperty` (`:1559`)
+  reads `indexId` only `if (getVersion(atomicOperation) >= 23 || binaryVersion >= 1)`
+  (`:1589`), defaulting otherwise — the canonical version-gated optional-field
+  pattern. It also carries an open `engineProperties` string map (`:1537`,
+  `:1622`) that a new well-known key extends with no format-version bump.
+- **The numeric engine id is already a stable, persisted key.** At reopen,
+  `openIndexes` re-slots each engine at its persisted id
+  (`indexEngines.set(engineData.getIndexId(), engine)`, `:989`), seeding the
+  next-id counter past all persisted ids (`:968`). New ids are monotonic
+  appends (`size()`, `:2786`); dropped slots are nulled but never reused. So
+  `IndexEngineData.indexId` is load-order-independent.
+- **The consumer surface is one seam.** Only `BTree.create` (`:192`–`:193`,
+  data file via `getFullName()`, null file via `getName() + nullFileExtension`)
+  and `IndexHistogramManager` (`.ixs`, `getFullName()` at `:1800`) turn the
+  component name into a file name, both through `StorageComponent.fullName =
+  name + extension` (`:96`; `setName` recomputes it, `:135`). Backup and
+  export/import tools reference no index file names.
+
+No file migration is needed because no rename path ever changed an index name
+(F27/F28), so every legacy index's file name still equals its current logical
+name. A persisted physical-file base therefore defaults to `name` for legacy
+engines (matches the file on disk) and to the stable id for new engines.
+
+```mermaid
+flowchart TD
+  EP["IndexEngineData: persisted indexId (stable) + engineProperties map"]
+  EP --> BASE["new persisted field: physical file base"]
+  BASE --> NEW["new engine: base = stable id"]
+  BASE --> LEG["legacy engine (field absent): base defaults to name = existing file"]
+  NEW --> SC["StorageComponent derives fullName from base, not logical name"]
+  LEG --> SC
+  SC --> BT["BTree .cbt and .nbt (BTree:192-193)"]
+  SC --> HM["histogram .ixs (IndexHistogramManager:1800)"]
+```
+
 ---
 
 ## 3. Decisions
@@ -663,36 +702,61 @@ physical collection mutation. Decoupling removes that path, strengthens D9 from
 `SchemaClassImpl.renameCollection:1392`; the metadata layer is already
 id-based, F15).
 
+### D16 — Stable-base-keyed engine files; index rename is metadata-only
+From the assignee's steer (2026-06-03: "F28 should cause introduction of
+id-keyed engine files"), refined by the F29 feasibility check. Decouple an
+index engine's physical file-name base from its logical name and persist the
+base, so an index rename changes only metadata and never touches the engine,
+its files, or its B-tree data. The base is the stable engine id (F29) for
+indexes created after this change, and defaults to the index name for
+pre-existing engines, so no on-disk file migration runs (F29). Base-keying is
+preferred over literal "id for every file plus migrate legacy files," because
+renaming existing files would re-introduce the non-WAL-safe `writeCache.renameFile`
+path (F18) for zero benefit.
+
+- **Index rename becomes inert and transactional.** At commit it re-keys the
+  in-memory `indexEngineNameMap`, the persisted config entry (delete+add by
+  name via `addIndexEngine`/`deleteIndexEngine`, a WAL-safe config write),
+  `classPropertyIndex`, and `IndexDefinition.className`, while the engine,
+  files, and data stay put. Rollback is free (D4); no rebuild; no D13
+  acceleration loss.
+- **Closes F28.** A class rename can now rename its auto-named indexes
+  (`Foo.prop` to `Bar.prop`) as a pure metadata op that preserves the engine
+  and re-associates the index, instead of orphaning it.
+- **Scopes D9.** D9's "index rename = drop+create" stays correct for genuine
+  create and drop; only same-engine renames go inert under D16.
+- **One new mutability point:** `IndexDefinition.className` has no setter today
+  (F28); rename needs a setter or a definition rebuild. Contained.
+- **Planning notes (not blockers):** carry the base in a reserved
+  `engineProperties` key or a version-gated field (F29 — planning picks); the
+  histogram `.ixs` component must source the same base; both the data file
+  (`getFullName()`) and the null-bucket file (`getName() + nullFileExtension`,
+  `BTree:193`) must derive from the base, so `StorageComponent` stores an
+  immutable file base and `setName` changes only the logical name.
+
+```mermaid
+flowchart LR
+  subgraph d9["D9 (old): rename = drop + create"]
+    o1["engine dropped and recreated"] --> o2["full rebuild; no in-tx acceleration (D13)"]
+  end
+  subgraph d16["D16 (new): base-keyed rename"]
+    n1["metadata rekey only; engine and files kept"] --> n2["no rebuild; acceleration preserved"]
+  end
+```
+
 ---
 
 ## 4. Open questions
 
 ### Open
-- **Q11 — Should index rename get a D11-analog so it stays inert and keeps
-  acceleration?** D9 accepted index rename as drop+create, justified by
-  "rebuilds with no data loss." F27 and F28 show the cost: the rebuild can be
-  large, in-tx acceleration is lost, and class rename currently orphans the
-  index association entirely. An inert index rename (engine preserved, no
-  rebuild, acceleration kept) needs two changes the spine has not decided: name
-  engine files by the stable engine id rather than the index name (the index
-  analog of D11; `setEngineId` already carries the id), and diff indexes at
-  commit by their per-index entity RID (F25) rather than by name, so a rename
-  matches as the same index. Decide: is inert index rename in scope for v1, or
-  is drop+create acceptable for v1 with the D11-analog deferred to a follow-up
-  (alongside YTDB-1064)? Closing this also requires deciding F28's class-rename
-  re-association path, since that gap exists regardless of Q11's outcome.
-
-```mermaid
-flowchart LR
-  subgraph now["current / D9: drop+create"]
-    n1["engine files named by index name"] --> n2["rename forces drop, create, rebuild"]
-  end
-  subgraph alt["D11-analog: inert rename"]
-    a1["engine files named by stable engine id"] --> a2["rename is metadata-only; engine kept"]
-  end
-```
+(none — the architecture spine is settled; Q11 resolved by D16.)
 
 ### Resolved
+- **Q11 — Inert index rename / id-keyed engine files** → D16, with the F29
+  feasibility check. Index rename goes inert via a persisted stable file base
+  (engine id for new indexes, name for legacy, no file migration); this also
+  closes F28's class-rename re-association. Drop+create (D9) stays for genuine
+  create/drop only.
 - **Q1 — Target semantics.** Full transactional schema; single-writer via
   locking is the v1 boundary (D5). Cross-session isolation is record-local,
   same as data (D4).
