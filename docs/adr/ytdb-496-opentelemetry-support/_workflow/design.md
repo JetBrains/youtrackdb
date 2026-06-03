@@ -82,6 +82,7 @@ classDiagram
         +getDatabaseName() Optional~String~
         +getErrorType() Optional~String~
         +getQuerySource() Optional~QuerySource~
+        +getParentContext() Optional~Context~
         +getStartedAtEpochNanos() long
         +getResultCount() OptionalLong
         +getWherePresent() Optional~Boolean~
@@ -129,13 +130,14 @@ classDiagram
     }
     class LogAppenderHook {
         <<interface>>
-        +onLog(String requesterName, String dbName, org.slf4j.event.Level slf4jLevel, String message, Throwable thrown) void
+        +onLog(String requesterName, String dbName, org.slf4j.event.Level level, String formatString, String formattedMessage, Throwable thrown, long eventEpochNanos) void
     }
     class OTelLogAppender {
         -Logger otelLogger
         -int minSeverityNumber
-        -ThreadLocal~Boolean~ reentranceGuard
-        +onLog(String requesterName, String dbName, org.slf4j.event.Level slf4jLevel, String message, Throwable thrown) void
+        -boolean includeMessageBody
+        -ThreadLocal~Boolean~ reentrant
+        +onLog(String requesterName, String dbName, org.slf4j.event.Level level, String formatString, String formattedMessage, Throwable thrown, long eventEpochNanos) void
     }
     class OTelMetricsBridge {
         -Meter meter
@@ -217,6 +219,7 @@ classDiagram
         +resolveQueryMonitoringMode(Optional~String~ tag) QueryMonitoringMode
         +resolveSlowQueryThresholdNanos(Optional~String~ tag) long
         +getTrackingId() String
+        +getExplicitTrackingId() Optional~String~
         +iterateAllQueryListeners() Iterable~QueryMetricsListener~
     }
     class YTDBTransaction {
@@ -317,6 +320,7 @@ sequenceDiagram
     participant TS as host Tracer
     participant G as GraphTraversalSource
     participant Step as YTDBQueryMetricsStep
+    participant HOOK as GremlinSpanLifecycleHook (OTel impl)
     participant CLS as GremlinBytecodeClassifier
     participant OQL as OTelQueryMetricsListener
     participant TR as OTel Tracer
@@ -325,18 +329,24 @@ sequenceDiagram
     Host->>TS: spanBuilder("host-op").startSpan()
     Host->>TS: span.makeCurrent()
     Host->>G: g.V().hasLabel("User").toList()
+    G->>Step: first hasNext()
+    Step->>HOOK: onFirstHasNext(details, startEpochNanos, Context.current())
+    HOOK->>TR: spanBuilder(details.getQuerySummary() else "youtrackdb").setParent(parent).setStartTimestamp(startEpochNanos, NS).startSpan()
+    HOOK->>TR: scope = span.makeCurrent()
     G->>Step: traversal close
     Step->>CLS: classify(traversal)
     CLS-->>Step: Classification(SELECT, User)
     Step->>OQL: queryFinished(details, startMs, durNs)
-    OQL->>TR: spanBuilder("SELECT User").setStartTimestamp(details.startedAtEpochNanos, NS).setParent(Context.current()).startSpan()
-    OQL->>TR: span.end(details.startedAtEpochNanos + durNs, NS)
+    OQL->>TR: Span.fromContext(Context.current()).setAttribute(db.operation.name, db.collection.name)
+    Note over OQL,TR: GREMLIN path enriches the hook-opened span.<br/>It does NOT call spanBuilder() or span.end()
+    Step->>HOOK: onClose(details, endEpochNanos)
+    HOOK->>TR: span.end(endEpochNanos, NS)
     TR-->>EXP: span data
     Host->>TS: hostSpan.end()
     TS-->>EXP: span data
 ```
 
-The flow shows that the host code's active span becomes the parent of the YTDB query span automatically, because `Context.current()` resolves on the same thread the host called `makeCurrent()` on. The classifier runs in `YTDBQueryMetricsStep` before the listener fires, populating `QueryDetails.getOperationName()` and `getCollectionName()`; the listener uses them to build the sem-conv span name `SELECT User`.
+The flow shows that the host code's active span becomes the parent of the YTDB query span automatically, because `Context.current()` resolves on the same thread the host called `makeCurrent()` on. The `GremlinSpanLifecycleHook` (the OTel impl installed on each `YTDBQueryMetricsStep`) opens the Gremlin span at the step's first `hasNext()` and ends it at `close()`. The classifier runs in `YTDBQueryMetricsStep` before the listener fires, populating `QueryDetails.getOperationName()` and `getCollectionName()`; `OTelQueryMetricsListener.queryFinished` reads them and sets the `db.operation.name` / `db.collection.name` attributes on that hook-opened span rather than creating a span of its own (see §"Context propagation in embedded").
 
 The SQL path is symmetric. `InstrumentedSqlResultSet`, the session-boundary wrapper installed at each `db.query()` / `db.command()` / `db.execute()` entry point as the final return-statement wrapper (after any PR #1077 cache-view construction and any `queryStartedLifecycle(...)` decoration on bypass paths), plays the role of `YTDBQueryMetricsStep` as the listener fire site: the constructor captures the start clock right after the entry point's `statement.execute(...)` call returns, and `close()` fires the listener. `SqlSyntaxClassifier` replaces `GremlinBytecodeClassifier` for the accessor population. Span name construction, attribute mapping, and parent-context resolution are identical from the listener's point of view, because the listener reads `QueryDetails` accessors that have already been populated by whichever classifier ran. The wrapper holds the inner `ResultSet` reference (`LocalResultSet` today; `LocalResultSet` or `CachedResultSetView` once YTDB-820 lands) without inspecting its concrete type for fire-site purposes. See §"SQL execution layer hook" for the SQL-side anatomy.
 
@@ -377,7 +387,7 @@ sequenceDiagram
     alt enabled
         Plugin->>Cfg: read endpoint, protocol, service.name
         Plugin->>Sdk: builder().setEndpoint(...).build()
-        Plugin->>Fac: setOpenTelemetry(sdk.openTelemetry)
+        Plugin->>Fac: setOpenTelemetry(sdk.openTelemetry, ownedByYtdb=true, serverMode=true)
     end
     Note over Srv: server runs, transactions emit spans
     Main->>Srv: shutdown()
@@ -572,7 +582,7 @@ The verification:
 
 Gremlin span lifecycle, step by step:
 
-1. **First `hasNext()` of `YTDBQueryMetricsStep`** — the step invokes the installed `GremlinSpanLifecycleHook.onFirstHasNext(details, startEpochNanos, parentContext, spanName)` where `spanName` is the host's `querySummary` tag from `traversal.getConfig(YTDBQueryConfigParam.querySummary)` when present, else the literal `"youtrackdb"` (the sem-conv span-name fallback chain's catch-all). The OTel hook impl calls `tracer.spanBuilder(spanName).setParent(parentContext).setStartTimestamp(startEpochNanos, NS).startSpan()`, then `scope = span.makeCurrent()`. The span carries no sem-conv attributes yet — only the name is pinned. `updateName(...)` is **NOT** called at `close()`: pinning the name at first-`hasNext()` time means the gate-drop case (the "skinny" span) and the emit case carry comparable names, so a dashboard filter on `name = "youtrackdb"` (catch-all) versus `name = "findActiveUsers"` (tagged) stays deterministic regardless of whether the slow-query or heartbeat gate kept the span around. `Span.fromContext(Context.current())` now resolves to this Gremlin span; the step stores the `(span, scope)` pair internally.
+1. **First `hasNext()` of `YTDBQueryMetricsStep`** — the step invokes the installed `GremlinSpanLifecycleHook.onFirstHasNext(details, startEpochNanos, parentContext)`. The OTel hook impl derives the span name from `details.getQuerySummary()` (the host's `querySummary` tag, originally `traversal.getConfig(YTDBQueryConfigParam.querySummary)`) when present, else the literal `"youtrackdb"` (the sem-conv span-name fallback chain's catch-all); it then calls `tracer.spanBuilder(spanName).setParent(parentContext).setStartTimestamp(startEpochNanos, NS).startSpan()`, then `scope = span.makeCurrent()`. The span carries no sem-conv attributes yet — only the name is pinned. `updateName(...)` is **NOT** called at `close()`: pinning the name at first-`hasNext()` time means the gate-drop case (the "skinny" span) and the emit case carry comparable names, so a dashboard filter on `name = "youtrackdb"` (catch-all) versus `name = "findActiveUsers"` (tagged) stays deterministic regardless of whether the slow-query or heartbeat gate kept the span around. `Span.fromContext(Context.current())` now resolves to this Gremlin span; the step stores the `(span, scope)` pair internally.
 2. **During iteration** — any inner `InstrumentedSqlResultSet` constructor reads `Context.current()` into its `capturedContext` field, binding the Gremlin span as the parent for the SQL span the wrapper will emit at `close()`. The wrapper hands that captured context to the listener explicitly through `QueryDetails.getParentContext()`, not through a thread-local `makeCurrent()`, so the linkage does not depend on which thread `close()` later runs on.
 3. **`YTDBQueryMetricsStep.close()`** — the step iterates the listener snapshot and calls `queryFinished(details, startedAtMillis, executionTimeNanos)` on each. `OTelQueryMetricsListener.queryFinished` reads `details.getQuerySource()`: on `GREMLIN`, it reads `Span.fromContext(Context.current())`, sets the sem-conv attributes (`db.system.name`, `db.query.text`, `db.operation.name`, `db.collection.name`, `db.youtrackdb.*`), and sets `error.type` + status `ERROR` when `details.getErrorType().isPresent()`. It does NOT call `spanBuilder()` or `span.end()`. On `SQL`, it creates a new span with `setParent(details.getParentContext())` (the construction-time context the wrapper captured, passed explicitly), as in the workflow diagram.
 4. **After listener iteration** — the step invokes `hook.onClose(details, endEpochNanos)`. The OTel hook impl calls `scope.close()` then `span.end(endEpochNanos, NS)`.
