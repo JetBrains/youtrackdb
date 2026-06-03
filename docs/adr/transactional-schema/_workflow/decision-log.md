@@ -398,6 +398,49 @@ flowchart TD
   SC --> HM["histogram .ixs (IndexHistogramManager:1800)"]
 ```
 
+### F30 — `IndexDefinition.className`: mutable, not a hash key, composites nest; planner resolves by className not by index name
+Investigation of D16's `className` mutability point.
+
+- **Already mutable, low-friction to update.** `className` is non-final
+  (`PropertyIndexDefinition:42` protected, `CompositeIndexDefinition:54`
+  private) and is rebound during deserialization (`fromMap`, `:218` / `:569`).
+- **Never a hash key.** The only definition-holding map is
+  `ImmutableSchema.indexes` (`:60`), keyed by index **name** with the
+  definition as the value. So in-place `className` mutation cannot corrupt a
+  hash bucket; `equals`/`hashCode` participation (`:107`/`:119`, `:439`/`:448`)
+  matters only for value comparisons.
+- **Composites nest.** `CompositeIndexDefinition` holds
+  `List<IndexDefinition> indexDefinitions` (`:52`), each a property definition
+  carrying its own `className`. A rename helper must recurse: update the
+  composite's `className` plus every nested sub-definition's.
+- **Persisted on the entity.** `className` rides `toMap`/`toJson`/`toStream`
+  (`:207`, `:506`), so updating it and re-saving the per-index entity (naturally
+  dirtied, D6/F20) propagates it.
+- **The planner resolves by className, not by index name.**
+  `SelectExecutionPlanner` reads `targetClass.getClassIndexesInternal()`
+  (`:603`) which goes through `classPropertyIndex.get(className)`
+  (`IndexManagerAbstract:99`). Nothing splits an index name on '.' to derive a
+  class, and index names are caller-supplied (`SchemaClassImpl.createIndex(iName,
+  …)`, `:923`), not engine-generated.
+
+**Consequence — F28's correctness fix is metadata-only and does not require
+D16.** On class rename, re-key `classPropertyIndex` (old to new class name) and
+update each affected definition's `className` (recursing composites); the index
+name and engine files need not change, because the planner never parses the
+name. D16's base-keyed files are needed only to make an explicit index-**name**
+rename inert (realigning an auto-named `Foo.prop` to `Bar.prop`, or a user
+`ALTER INDEX RENAME`), which is cosmetic for correctness since names are not
+parsed. So D16 is a capability choice, not a forced consequence of F28.
+
+```mermaid
+flowchart TD
+  REN["class rename Foo to Bar"]
+  REN --> REQ["REQUIRED, metadata-only, no D16 needed:<br/>re-key classPropertyIndex Foo to Bar;<br/>update definition.className (recurse composite);<br/>re-save per-index entity"]
+  REQ --> OK["planner getClassIndexes(Bar) finds the index, accelerated"]
+  REN --> OPT["OPTIONAL, needs D16 base-keyed files:<br/>rename index name Foo.prop to Bar.prop"]
+  OPT --> COS["cosmetic: planner does not parse index names"]
+```
+
 ---
 
 ## 3. Decisions
@@ -720,9 +763,11 @@ path (F18) for zero benefit.
   `classPropertyIndex`, and `IndexDefinition.className`, while the engine,
   files, and data stay put. Rollback is free (D4); no rebuild; no D13
   acceleration loss.
-- **Closes F28.** A class rename can now rename its auto-named indexes
-  (`Foo.prop` to `Bar.prop`) as a pure metadata op that preserves the engine
-  and re-associates the index, instead of orphaning it.
+- **Complements F28's fix (see F30).** F28's required correctness fix is
+  metadata-only — re-key `classPropertyIndex` and update each definition's
+  `className` (recursing composites) — and does not need D16. D16 adds inert
+  index-**name** rename on top, so an auto-named `Foo.prop` can realign to
+  `Bar.prop` without a rebuild instead of going cosmetically stale.
 - **Scopes D9.** D9's "index rename = drop+create" stays correct for genuine
   create and drop; only same-engine renames go inert under D16.
 - **One new mutability point:** `IndexDefinition.className` has no setter today
@@ -754,9 +799,10 @@ flowchart LR
 ### Resolved
 - **Q11 — Inert index rename / id-keyed engine files** → D16, with the F29
   feasibility check. Index rename goes inert via a persisted stable file base
-  (engine id for new indexes, name for legacy, no file migration); this also
-  closes F28's class-rename re-association. Drop+create (D9) stays for genuine
-  create/drop only.
+  (engine id for new indexes, name for legacy, no file migration). F28's
+  class-rename association fix is metadata-only and independent of D16 (F30);
+  D16 additionally makes the index-**name** realignment inert. Drop+create (D9)
+  stays for genuine create/drop only.
 - **Q1 — Target semantics.** Full transactional schema; single-writer via
   locking is the v1 boundary (D5). Cross-session isolation is record-local,
   same as data (D4).
