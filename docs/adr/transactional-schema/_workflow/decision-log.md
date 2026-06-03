@@ -272,6 +272,93 @@ Caveat: a session detached and re-activated on a different thread mid-tx would
 strand the lock on the original thread; v1 assumes the same-thread
 begin→commit lifecycle the thread-local already enforces for active use.
 
+### F26 — A fourth tx guard: `dropIndex` runs its own micro-tx
+`IndexManagerEmbedded.dropIndex` (`:457`) throws
+`IllegalStateException("Cannot drop an index inside a transaction")` (`:459`),
+then runs the whole drop inside its own `session.executeInTxInternal(...)`
+(`:462`): acquire exclusive lock, `removeClassPropertyIndexInternal`,
+`idx.delete(transaction)`, `indexes.remove`. Index drop is its own
+micro-transaction outside any user tx, the same shape as `saveInternal` (F3).
+This is a fourth tx guard alongside F3 (`saveInternal`), F4 (`dropClass`), and
+F21 (`createIndex`); the earlier "three guards to remove" list missed it.
+Making index deletion transactional means removing this guard and reworking
+`dropIndex` into a metadata-only mutation whose engine drop defers to commit.
+The engine-drop path is already commit-safe: `deleteIndexEngine`
+(`AbstractStorage:3046`) runs `engine.delete(atomicOperation)` inside
+`executeInsideAtomicOperation`, reaching `BTree.delete` and
+`deleteFile(atomicOperation, …)` (`BTree.java:863`), which is WAL-revertible
+(F16). So index **deletion** is transactional under the overlay (D15) once the
+guard is gone.
+
+```mermaid
+flowchart LR
+  G3["saveInternal (SchemaShared:817, F3)"]
+  G4["dropClass (SchemaEmbedded:373/417, F4)"]
+  G21["createIndex (IndexManagerEmbedded:306, F21)"]
+  G26["dropIndex (IndexManagerEmbedded:459, F26 new)"]
+  G3 --> R["rework into metadata-only mutation;<br/>structure reconciled at commit"]
+  G4 --> R
+  G21 --> R
+  G26 --> R
+```
+
+### F27 — Index engines are name-keyed; no first-class rename; drop+create costs in-tx acceleration plus a rebuild
+No first-class index rename exists: there is no `ALTER INDEX … RENAME` and no
+`renameIndex` API (only `IndexHistogramManager` matches "rename" in the index
+package). Index engines resolve by name (`indexEngineNameMap`,
+`AbstractStorage:6761`), and the physical B-tree files are named by the index
+name: `new BTree<>(name, ".cbt", ".nbt", storage)`
+(`BTreeSingleValueIndexEngine:80`), with a stable numeric engine id carried
+alongside via `setEngineId(id)` (`:82`). A rename that kept the engine and
+changed only the name would have to rename those files, which hits the
+non-WAL-safe `writeCache.renameFile` path (F18). So D9's "rename = drop+create"
+carries a cost the spine did not spell out: inside the renaming tx the new
+index has `indexId == -1`, the planner skips it (D13), and queries fall back to
+a correct full scan; acceleration returns only after commit rebuilds the engine
+(D12, under the exclusive lock).
+
+```mermaid
+flowchart LR
+  N["index name"] --> M["indexEngineNameMap (AbstractStorage:6761)"]
+  M --> E["IndexEngine (numeric id via setEngineId:82)"]
+  E --> F["B-tree files name.cbt / name.nbt (BTreeSingleValueIndexEngine:80)"]
+```
+
+```mermaid
+flowchart TD
+  R["rename = drop old + create new (D9)"]
+  R --> T["inside tx: new index indexId = -1"]
+  T --> S["planner skips unbuilt index (D13)"]
+  S --> Sc["query falls back to full scan: correct, not accelerated"]
+  R --> C["at commit: build engine (D12, exclusive lock)"]
+  C --> A["accelerated again"]
+```
+
+### F28 — Class rename orphans name-keyed index associations (pre-existing, orthogonal to transactionality)
+Renaming a class breaks index-based acceleration today, before any
+transactional work. `setNameInternal` (`SchemaClassEmbedded:303`) renames the
+collection files but never touches indexes, and `changeClassName`
+(`SchemaShared:452`) rekeys only the `classes` map. The planner resolves a
+class's indexes through `classPropertyIndex.get(className)`
+(`IndexManagerAbstract:99`), keyed by class name, and `IndexDefinition.className`
+has no setter (set only at construction or `fromMap`: `PropertyIndexDefinition:49`,
+`CompositeIndexDefinition:71`). After `Foo` becomes `Bar`,
+`getClassRawIndexes("Bar")` returns nothing: the engine is intact but orphaned
+from the class by name, so the planner stops selecting it. D9 calls collection
+rename structurally inert and D11 decouples collection names, but neither covers
+the class-name to index association. The transactional design must specify how a
+class rename re-associates its indexes: re-key `classPropertyIndex` and update
+each per-index definition's class name, or drop and recreate the indexes.
+
+```mermaid
+flowchart TD
+  REN["rename class Foo to Bar"] --> CN["changeClassName updates classes map only (SchemaShared:452)"]
+  CN -. no update .-> CPI["classPropertyIndex still keyed by Foo (IndexManagerAbstract:99)"]
+  CN -. no update .-> DEF["IndexDefinition.className = Foo, immutable (PropertyIndexDefinition:49)"]
+  PLAN["planner getClassRawIndexes(Bar)"] --> CPI
+  CPI --> NUL["returns null: no index, no acceleration"]
+```
+
 ---
 
 ## 3. Decisions
@@ -580,8 +667,30 @@ id-based, F15).
 
 ## 4. Open questions
 
-(none — the architecture spine D1–D13 is settled; remaining detail is
-plan-level)
+### Open
+- **Q11 — Should index rename get a D11-analog so it stays inert and keeps
+  acceleration?** D9 accepted index rename as drop+create, justified by
+  "rebuilds with no data loss." F27 and F28 show the cost: the rebuild can be
+  large, in-tx acceleration is lost, and class rename currently orphans the
+  index association entirely. An inert index rename (engine preserved, no
+  rebuild, acceleration kept) needs two changes the spine has not decided: name
+  engine files by the stable engine id rather than the index name (the index
+  analog of D11; `setEngineId` already carries the id), and diff indexes at
+  commit by their per-index entity RID (F25) rather than by name, so a rename
+  matches as the same index. Decide: is inert index rename in scope for v1, or
+  is drop+create acceptable for v1 with the D11-analog deferred to a follow-up
+  (alongside YTDB-1064)? Closing this also requires deciding F28's class-rename
+  re-association path, since that gap exists regardless of Q11's outcome.
+
+```mermaid
+flowchart LR
+  subgraph now["current / D9: drop+create"]
+    n1["engine files named by index name"] --> n2["rename forces drop, create, rebuild"]
+  end
+  subgraph alt["D11-analog: inert rename"]
+    a1["engine files named by stable engine id"] --> a2["rename is metadata-only; engine kept"]
+  end
+```
 
 ### Resolved
 - **Q1 — Target semantics.** Full transactional schema; single-writer via
