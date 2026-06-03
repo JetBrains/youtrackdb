@@ -550,11 +550,16 @@ flowchart TD
 
 An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
-logically grounded in the cited entries.
+logically grounded in the cited entries. A second pass (2026-06-03, same day)
+targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
+F39–F40, both re-verified against live code.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
-F38 → D7 (same-thread guard added).
+F38 → D7 (same-thread guard added); F39 → D3/D19 (lock-free inner engine
+primitives extracted; reconciliation never calls the public write-lock-taking
+methods); F40 → D15/D17 (rename-mutation third category; commit-only
+re-association).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -612,7 +617,8 @@ overlay exists AND rebuilt after every mid-tx `createIndex`/`dropIndex`. Without
 that, the write path reads a stale cached set and the tx's own inserts into the
 new index are silently untracked — the exact silent-corruption failure F32
 names. New invariant for D15: force a tx-local snapshot rebuild on every overlay
-mutation within a schema-tx.
+mutation within a schema-tx. (Class rename is commit-only, F40, so it is not an
+overlay mutation and needs no mid-tx rebuild.)
 
 ```mermaid
 flowchart TD
@@ -656,6 +662,78 @@ metadata-write mutex; in fact a `ReentrantLock` released in `commit`/`rollback`'
 same-thread assumption (F13) without a guard. Add an assertion that the
 releasing thread equals the acquiring thread, or scope session migration
 mid-schema-tx out as a Non-Goal.
+
+### F39 — Engine create/delete have no lock-free inner primitive; D19's held write lock self-deadlocks the public methods [BLOCKER]
+D19 has a schema-carrying commit hold `stateLock.writeLock()` from the start, but
+the structural primitives reconciliation must call during the commit each
+re-acquire the same non-reentrant lock. `addIndexEngine` (`AbstractStorage:2738`)
+takes `stateLock.writeLock()` (`:2752`) and inlines the whole
+`calculateInsideAtomicOperation` engine-create body inside it (`:2752`–`:2826`);
+`deleteIndexEngine` (`:3031`) does the same (`:3036`–`:3064`). `ScalableRWLock` is
+"Not Reentrant" (`ScalableRWLock:64`), so re-acquiring `writeLock()` while holding
+it self-deadlocks — the same failure mode F33 named, relocated from the upgrade to
+the nested call. No `doAddIndexEngine`/`doDeleteIndexEngine` lock-free variant
+exists (grep: none), and today's `commit()` body (`:2192`–`:2432`) never calls
+these methods — it only calls `lockIndexes` (`:2297`) and `commitIndexes`
+(`:2455`), so the new design must add engine create/delete to the commit window
+before `lockIndexes` (D3/F34), exactly where D19 already holds the write lock.
+
+Collections do not have this problem: public `addCollection` (`:1441`) delegates
+to a lock-free `doAddCollection(atomicOperation, …)` (`:5002`) and `dropCollection`
+to `dropCollectionInternal(atomicOperation, …)` (`:5094`) (F8). Engines were never
+refactored that way, so the spine's "build the engine at commit" (D12/D15/D18)
+silently assumes a seam that does not exist.
+
+Resolution (D3/D19): extract lock-free `doAddIndexEngine(atomicOperation, …)` and
+`doDeleteIndexEngine(atomicOperation, …)` from the public bodies, leaving the
+public methods as `writeLock + doX`. Commit reconciliation calls the
+`doX(atomicOperation, …)` primitives plus the existing
+`doAddCollection`/`dropCollectionInternal`, never the public write-lock-taking
+methods.
+
+```mermaid
+flowchart TD
+  C["schema commit holds stateLock.writeLock from the start (D19)"]
+  C --> REC["reconcile: create/drop engines before lockIndexes (:2297, D3/F34)"]
+  REC -- "calls public addIndexEngine (:2738)" --> X["re-acquires writeLock: SELF-DEADLOCK (ScalableRWLock non-reentrant :64)"]
+  REC -- "calls new doAddIndexEngine(atomicOperation,…)" --> OK["lock-free under held writeLock: correct"]
+  CO["collections already expose doAddCollection (:5002) / dropCollectionInternal (:5094)"] --> OK
+```
+
+### F40 — D15's overlay and F35's rebuild trigger enumerate create/drop only; D17's class rename is a third category they miss [MAJOR]
+D15 models the tx-local index view as committed + tx-created − tx-dropped, and F35
+forces a tx-local snapshot rebuild "on every mid-tx createIndex/dropIndex." D17's
+class-rename re-association is neither create nor drop: it mutates a committed
+index in place — re-keys `classPropertyIndex` (old→new class) and sets
+`IndexDefinition.className` (recursing composites, F30) on an index that already
+exists. Two gaps fall out:
+
+- **Vocabulary.** D15's overlay has no slot for an in-place definition mutation
+  and explicitly does not copy `Index` objects (thin handles, F25), so "the
+  changed-index set drives the commit" needs the rename-only category defined or
+  the commit never writes the re-keyed association.
+- **Visibility + isolation, unstated.** The log never says whether D17
+  re-association is visible inside the renaming tx or applied only at commit.
+  Tx-local visibility would mutate `className` on the shared committed `Index`
+  object — leaking the uncommitted rename to other sessions (D4 violation) — and
+  would force F35's trigger set to add the rename case. Commit-only re-association
+  has no such hazard: the className mutation lands at commit under D19's write
+  lock, and the renaming tx falls back to a correct unaccelerated scan for the
+  renamed class (the staleness D17 already accepts).
+
+Resolution (D15/D17): adopt commit-only re-association for v1. D17 states it; D15
+adds rename-only mutation as an explicit third category in the changed-index set;
+F35's create/drop-only rebuild trigger stays correct because rename is not
+tx-locally visible.
+
+```mermaid
+flowchart TD
+  REN["class rename Foo→Bar in tx (D17)"] --> CAT["neither create nor drop: in-place mutation of a committed index"]
+  CAT --> D15X["D15 overlay (create/drop) has no slot; Index objects not copied (F25)"]
+  CAT --> VIS{"visible tx-locally?"}
+  VIS -- "yes" --> LEAK["mutate className on shared Index: D4 isolation leak; F35 must add rename"]
+  VIS -- "no (commit-only, chosen)" --> SAFE["className mutates at commit under writeLock (D19); tx scans renamed class unaccelerated (D17 staleness)"]
+```
 
 ---
 
@@ -704,7 +782,12 @@ collection creation **before the record-position-allocation loop (`:2300`)**: a
 record inserted into a new class can only get a position once its collection
 exists, and `lockIndexes` resolves engines by `indexId` and throws on `-1`, so
 "before the allocation loop" alone is too late for engines (F34). Confirmed with
-the assignee.
+the assignee. Reconciliation calls the lock-free inner primitives —
+`doAddCollection`/`dropCollectionInternal` for collections, and new
+`doAddIndexEngine`/`doDeleteIndexEngine(atomicOperation, …)` extracted from the
+public methods for engines — never the public `addCollection`/`addIndexEngine`/
+`dropCollection`/`deleteIndexEngine`, which re-acquire the non-reentrant
+`stateLock.writeLock()` the commit already holds (F39).
 
 ### D4 — Isolation is record-local, identical to data-record updates
 Schema mutations during a tx change only the tx's copies of the metadata
@@ -836,6 +919,14 @@ IndexManager" framing.
   objects, `indexId == -1`, no engine) added to the effective `indexes` /
   `classPropertyIndex`; tx-dropped indexes hidden from them. A tx-local
   **changed-index set** drives the commit.
+- **Rename-mutation is a third overlay category (F40).** D17's class rename
+  mutates a committed index in place (re-key `classPropertyIndex`, update
+  `IndexDefinition.className`), which is neither tx-created nor tx-dropped. v1
+  applies it **commit-only**: the changed-index set carries the rename so the
+  commit re-keys the association and re-saves the per-index entity (`className`
+  rides `toMap`, F30), but the rename is not visible inside the renaming tx, so no
+  shared `Index` object is mutated mid-tx (no D4 leak on the thin handle, F25) and
+  F35's create/drop-only rebuild trigger needs no rename case.
 - **Required coupling — the snapshot reads the index manager.** A class's index
   list in the snapshot is sourced from the index manager:
   `SchemaImmutableClass.getRawClassIndexes` →
@@ -1038,6 +1129,13 @@ but stays correct and accelerated. The inert index-name rename and a
 user-facing `ALTER INDEX … RENAME` (D16) move to follow-up **YTDB-1066**
 (depends on YTDB-382, relates to YTDB-1064).
 
+The re-association is **commit-only** for v1 (F40): inside the renaming tx the
+index stays associated with the old class name, so the tx's own queries on the
+renamed class fall back to a correct unaccelerated scan (the same staleness
+accepted for the index name); the re-key and `className` mutation land at commit
+under the exclusive write lock (D19), avoiding any mid-tx mutation of the shared
+`Index` object.
+
 ```mermaid
 flowchart LR
   V1["v1 this work: metadata-only re-association"] --> A["index accelerates under new class name; name stays stale"]
@@ -1096,6 +1194,13 @@ today's concurrency. This supersedes D1's "upgrade" framing.
   are rare, the same premise that justifies D5/D7/D12.
 - **The branch point already exists.** The schema-carry check is the same signal
   that engages the D7 mutex and builds the diff (D6); no new bookkeeping.
+- **Reconciliation uses lock-free inner primitives (F39).** Because the write
+  lock is held for the whole schema commit and `ScalableRWLock` is non-reentrant,
+  reconciliation must call the lock-free `doAdd*`/`*Internal` primitives under the
+  held lock, never the public structural methods that re-acquire it. Collections
+  already expose them (`doAddCollection`/`dropCollectionInternal`, F8); engines
+  need `doAddIndexEngine`/`doDeleteIndexEngine(atomicOperation, …)` extracted from
+  the inlined bodies of `addIndexEngine`/`deleteIndexEngine`.
 
 ```mermaid
 flowchart TD
