@@ -374,3 +374,17 @@ script emits a flat object with five keys and no `drift` wrapper or
 during execution, so this was not edited mid-branch; `design-final.md` must
 restate the `migrate-range` contract to match the shipped script before
 Track 4's citations and the durable design lock it in.
+
+**Phase 4 reconciliation (from Track 2 Phase A review, T7 — consistency):**
+`design.md § "State determination"` (TL;DR and body) sources the State C
+sub-states from the active track file's `## Progress` section. Track 2's
+Phase A review established that three of the five sub-states are actually
+discriminated by the `## Concrete Steps` roster (steps-partial / `[!]` /
+all-done) and one by the plan-file track checkbox, per the authoritative
+live `workflow.md § Startup Protocol` step 5 row contents and
+`step-implementation.md` sub-step 7.1 (the roster `[x]` flip is the primary
+step-done marker). The live `workflow.md` table header carries the same
+`## Progress`-only gloss, so the simplification is upstream and the track
+file's refinement is faithful. `design.md` is frozen during execution, so
+`design-final.md` must restate the sub-state sources as `## Progress` +
+`## Concrete Steps` + the plan-file track checkbox.
