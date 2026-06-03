@@ -358,6 +358,16 @@ flowchart TD
   > `src/main` Java in the diff).
   >
   > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 3's only dependency (Track 1) is
+  > satisfied with the seam intact. The no-drift `if [ -z "$log_lines" ]`
+  > branch in `workflow-startup-precheck.sh` is the reserved insertion point
+  > (it explicitly defers normalization to "a later track"), and the fold's
+  > `DRIFT_BASE_SHA`, the hard-false `DRIFT_NORMALIZATION_LANDED`, and the
+  > empty `ACTIONS_TAKEN_JSON` are the stubs Track 3 fills. No discovery from
+  > Tracks 1-2 disturbs the byte-for-byte port from `workflow-drift-check.md
+  > § No-drift normalization`: Track 2's parser findings and Track 1's three
+  > deferred items all land on Track 4 or Phase 4, not Track 3.
 
 - [ ] Track 3: No-drift normalization and `actions_taken` wiring
   > Port the no-drift normalization path byte-for-byte: recompute the
