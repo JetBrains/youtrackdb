@@ -14,7 +14,7 @@
 #
 # Usage:
 #   workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} \
-#       [--bootstrap-sha <40-char-sha>]
+#       [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
 #
 # Modes:
 #   full              Full startup detection: {divergence, drift, handoffs,
@@ -23,9 +23,14 @@
 #   migrate-range     The migration stamp-fold range and per-artifact pairs.
 #
 # --bootstrap-sha applies only to migrate-range (folded into the range when
-# supplied). The script emits JSON to stdout and never prompts, never
-# force-pushes, and never resets — those mutations stay agent-side and
-# user-gated (the no-prompt invariant: no mode reads stdin or asks the user).
+# supplied). --exclude-sha also applies only to migrate-range and is
+# repeatable: each value names a stamp SHA to drop from the merge-base fold
+# input, so a stamp on a pruned or unreachable commit cannot re-produce a
+# merge-base failure on a --bootstrap-sha re-invocation (the /migrate-workflow
+# skill's agent-side recovery drives this). The script emits JSON to stdout and
+# never prompts, never force-pushes, and never resets — those mutations stay
+# agent-side and user-gated (the no-prompt invariant: no mode reads stdin or
+# asks the user).
 #
 # No global `set -e`: matching statusline-command.sh and the byte-source
 # detection blocks, the detection paths rely on defensive `|| true` rather
@@ -39,11 +44,15 @@
 
 MODE=""
 BOOTSTRAP_SHA=""
+# Space-delimited accumulator of --exclude-sha values (40-hex SHAs, no
+# metacharacters, so unquoted word-splitting downstream is safe). Each value is
+# dropped from the migrate-range fold input by detect_migrate_range.
+EXCLUDE_SHAS=""
 
 usage() {
   # Usage text goes to stderr so it never contaminates the JSON on stdout.
   cat >&2 <<'USAGE'
-Usage: workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} [--bootstrap-sha <40-char-sha>]
+Usage: workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
 USAGE
 }
 
@@ -55,6 +64,11 @@ while [ "$#" -gt 0 ]; do
       ;;
     --bootstrap-sha)
       BOOTSTRAP_SHA="$2"
+      shift 2
+      ;;
+    --exclude-sha)
+      # Repeatable: accumulate each value into the space-delimited list.
+      EXCLUDE_SHAS="$EXCLUDE_SHAS $2"
       shift 2
       ;;
     *)
@@ -694,10 +708,32 @@ detect_migrate_range() {
   MR_UNSTAMPED_JSON="$(printf '%s\n' $UNSTAMPED_FILES \
     | jq -Rnc '[inputs | select(length > 0)]')"
 
-  # Fold input: $STAMPED_SHAS plus the optional --bootstrap-sha (FOLD_INPUT in
-  # migrate-workflow/SKILL.md Step 2). The continue-and-collect fold collects
-  # EVERY failing pair into FOLD_FAILED_PAIRS for one batched recovery prompt.
-  local fold_input="$STAMPED_SHAS"
+  # Fold input: $STAMPED_SHAS (minus any --exclude-sha values) plus the optional
+  # --bootstrap-sha (FOLD_INPUT in migrate-workflow/SKILL.md Step 2). The
+  # continue-and-collect fold collects EVERY failing pair into FOLD_FAILED_PAIRS
+  # for one batched recovery prompt.
+  #
+  # --exclude-sha drops a pruned- or unreachable-commit stamp from the FOLD
+  # input only: the skill's agent-side recovery passes one --exclude-sha per
+  # merge_base_failed[].sha alongside a fresh --bootstrap-sha, so the restarted
+  # fold no longer runs `git merge-base` over the failing pair and the bootstrap
+  # SHA anchors the excluded artifacts' range. The exclusion does NOT touch the
+  # reported stamped_artifacts / unstamped_files (those stay the raw on-disk walk
+  # result above) — the migration re-stamps every artifact during replay
+  # regardless, so the filter is a fold-input concern only.
+  local fold_input="" sha ex excluded
+  for sha in $STAMPED_SHAS; do
+    excluded=""
+    for ex in $EXCLUDE_SHAS; do
+      if [ "$sha" = "$ex" ]; then
+        excluded="1"
+        break
+      fi
+    done
+    if [ -z "$excluded" ]; then
+      fold_input="$fold_input $sha"
+    fi
+  done
   if [ -n "$BOOTSTRAP_SHA" ]; then
     fold_input="$fold_input $BOOTSTRAP_SHA"
   fi

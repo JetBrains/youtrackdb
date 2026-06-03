@@ -172,12 +172,15 @@ fields Step 2 consumes, so the same JSON file feeds both steps.
   > /tmp/claude-migrate-range-$PPID.json
 ```
 
-The script's stdout is the JSON; redirect it to a `/tmp` file rather
-than capturing it into the conversation. The `migrate-range.log_range`
-array is intentionally uncapped — the migration must replay every
-workflow-touching commit, unlike the drift gate's `head -10` display
-cap — so a long branch range could otherwise dump an unbounded commit
-list into context on every invocation. Read the file with the `Read`
+If the script exits non-zero (it emits no JSON on a usage or flag
+error, exit 2), surface the stderr diagnostic and halt the migration;
+do not `Read` the `/tmp` file, which on a failed invocation holds stale
+or empty content. The script's stdout is the JSON; redirect it to a
+`/tmp` file rather than capturing it into the conversation. The `migrate-range.log_range`
+array is intentionally uncapped, because the migration must replay
+every workflow-touching commit, unlike the drift gate's `head -10`
+display cap. A long branch range could otherwise dump an unbounded
+commit list into context on every invocation. Read the file with the `Read`
 tool's `offset` / `limit` so the uncapped `log_range` never lands in
 context whole; read `unstamped_files` here, and read the range fields
 in Step 2 in bounded slices.
@@ -248,13 +251,14 @@ fi
 
 Store the **canonical 40-char `rev-parse` stdout** (`$CANON_SHA`), not
 the user's raw input, as `$USER_BOOTSTRAP_SHA`. The canonicalization
-is mandatory on two counts: Step 4's per-commit lockstep advance
-writes the value into artifact stamps, and the stamp regex
-`[0-9a-f]{40}` in `§1.6(a1)` rejects shorter values on subsequent
-parse, so a short-prefix stamp would fail every drift-check re-read;
-and Step 2 passes `$USER_BOOTSTRAP_SHA` to the script's
-`--bootstrap-sha <40-char-sha>` flag, whose own validation expects the
-canonical form.
+happens here, in the agent-side `§1.6(d)` `git rev-parse --verify` /
+`git merge-base --is-ancestor` check above; the script does no
+validation of its own `--bootstrap-sha` value (the arg parser folds it
+into `git merge-base` raw). The canonical form is mandatory on two
+counts: Step 4's per-commit lockstep advance writes the value into
+artifact stamps, and the stamp regex `[0-9a-f]{40}` in `§1.6(a1)`
+rejects shorter values on subsequent parse, so a short-prefix stamp
+would fail every drift-check re-read.
 
 **Retry policy (bounded, session-bound counter).** On validation
 failure (either subcommand returns non-zero), print the failure cause
@@ -334,7 +338,7 @@ both-arrays-empty rule, halt the migration with `no artifacts to
 migrate` and exit without computing a range.
 
 **Merge-base failure recovery.** When `merge_base_failed` is non-empty,
-the script's fold hit a merge-base failure — a stamp pointing at a
+the script's fold hit a merge-base failure: a stamp pointing at a
 git-gc-pruned commit, or two stamps with no reachable common ancestor
 in the local repo. The script collects **every** failing pair into
 `merge_base_failed` (the `continue` fold mode) rather than stopping at
@@ -354,14 +358,16 @@ Drive the recovery agent-side (the script cannot prompt):
    prior `$USER_BOOTSTRAP_SHA` (the variable stays singular, matching
    `conventions.md` `§1.6(d)`'s one-SHA-per-prompt shape). The
    re-prompt's user-facing text uses the combined file list.
-2. **Drop the failed SHAs.** The script drops the merge-base-failed
-   SHAs from its fold input on the next invocation: re-invoking with
-   `--bootstrap-sha` reclassifies the failing artifacts as covered by
-   the fresh bootstrap SHA (matching the "treat as unstamped" framing
-   in `conventions.md` `§1.6(c)`), so the restarted fold does not
-   re-run `git merge-base` over the same failing pair and fail again at
-   the same point. Without this, the restarted fold would exhaust the
-   3-attempt cap on input the user cannot fix.
+2. **Drop the failed SHAs.** Pass one `--exclude-sha <sha>` per
+   `merge_base_failed[].sha` on the re-invoke alongside
+   `--bootstrap-sha "$USER_BOOTSTRAP_SHA"`. The repeatable
+   `--exclude-sha` flag drops those stamps from the script's fold input,
+   so the restarted fold does not re-run `git merge-base` over the same
+   failing pair and fail again at the same point; the fresh bootstrap
+   SHA anchors the excluded artifacts' range (matching the "treat as
+   unstamped" framing in `conventions.md` `§1.6(c)`). Without the
+   exclusion the restarted fold would re-walk the same failing stamp and
+   exhaust the 3-attempt cap on input the user cannot fix.
 3. **Enforce the session-wide 3-attempt cap.** The 3-attempt counter is
    **shared** across Step 2.0's initial prompt and this recovery prompt
    — session-wide, not per-prompt — so a user cannot chain failures
@@ -371,20 +377,26 @@ Drive the recovery agent-side (the script cannot prompt):
    the migration halts with `ERROR: three rejected attempts; bootstrap
    aborted` and exits with no edits applied.
 4. **Re-invoke and restart the fold.** On a validated SHA, re-invoke
-   the script with the fresh bootstrap SHA and re-read the JSON file,
-   restarting the fold from the top:
+   the script with the fresh bootstrap SHA and one `--exclude-sha` per
+   `merge_base_failed[].sha`, then re-read the JSON file, restarting the
+   fold from the top:
 
    ```bash
    .claude/scripts/workflow-startup-precheck.sh --mode migrate-range \
      --bootstrap-sha "$USER_BOOTSTRAP_SHA" \
+     --exclude-sha "$FAILED_SHA_1" --exclude-sha "$FAILED_SHA_2" \
      > /tmp/claude-migrate-range-$PPID.json
    ```
 
-   Re-read `merge_base_failed` from the refreshed file. If it is still
-   non-empty (a different pair failed, or the bootstrap SHA itself does
-   not reach the stamps), restart the recovery loop — still under the
-   shared 3-attempt cap. When it is empty, continue to the range
-   computation below.
+   Supply one `--exclude-sha` flag per `merge_base_failed[].sha`. If the
+   script exits non-zero (it emits no JSON on a usage or flag error,
+   exit 2), surface the stderr diagnostic and halt the migration; do not
+   `Read` the `/tmp` file, which on a failed invocation holds stale or
+   empty content. Otherwise re-read `merge_base_failed` from the
+   refreshed file. If it is still non-empty (a different pair failed, or
+   the bootstrap SHA itself does not reach the stamps), restart the
+   recovery loop — still under the shared 3-attempt cap. When it is
+   empty, continue to the range computation below.
 
 **Range computation and the empty-log halt.** Once the script reports
 a non-null `base_sha` with an empty `merge_base_failed`, the range is

@@ -48,12 +48,12 @@ re-invoke `/migrate-workflow` from this worktree.
 ## Detection
 <!-- roles=orchestrator,planner phases=1,2,3A summary="Detection moved to the script's --mode full drift walk; this section cites the JSON the gate reads." -->
 
-Detection no longer lives in this file. The two-phase drift walk —
-Phase 1, the `conventions.md` `§1.6(h)` artifact walk that classifies
-each `_workflow/**` artifact as stamped or unstamped; Phase 2, the
-pairwise `git merge-base` fold to `BASE_SHA` plus the
-`git log BASE_SHA..HEAD` over the workflow pathspecs — runs inside
-`.claude/scripts/workflow-startup-precheck.sh` under `--mode full`.
+Detection no longer lives in this file. The two-phase drift walk runs
+inside `.claude/scripts/workflow-startup-precheck.sh` under `--mode
+full`. Phase 1 is the `conventions.md` `§1.6(h)` artifact walk that
+classifies each `_workflow/**` artifact as stamped or unstamped; Phase
+2 is the pairwise `git merge-base` fold to `BASE_SHA` plus the
+`git log BASE_SHA..HEAD` over the workflow pathspecs.
 The script is the single behavioral home; this file owns only the
 resolution UX below. Cite the script's `emit_json` function for the
 exact field contract, not any frozen design draft.
@@ -130,8 +130,8 @@ line-1 stamp to the folded `BASE_SHA`, verifies two diff-shape guards,
 and lands one all-or-nothing commit with the subject `Normalize
 workflow-sha stamps to <short-BASE_SHA>`. This is the script's only
 autonomous mutation. It reports the commit in the `--mode full`
-`actions_taken` array — a one-element entry
-`{action, commit, subject}` with `action == "normalize-workflow-sha-stamps"` —
+`actions_taken` array as a one-element entry
+`{action, commit, subject}` with `action == "normalize-workflow-sha-stamps"`,
 and flips `drift.normalization_landed` to `true`. The gate cites those
 JSON fields when it recites the housekeeping commit to the user; it
 does not re-derive the normalization itself.

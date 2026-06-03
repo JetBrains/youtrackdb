@@ -82,9 +82,9 @@ slow-but-reachable remote that takes longer than 10s: there the script
 reports `divergence.skipped == true` with `skip_reason ==
 "fetch-failed"` and the divergence goes unreported at startup. The
 per-commit push re-check still catches a divergence a stale or timed-out
-fetch missed — a rejected non-fast-forward push routes here mid-session
-via `--mode divergence-only` — so the bounded fetch trades a rare
-benign startup miss for a startup that cannot stall.
+fetch missed: a rejected non-fast-forward push routes here mid-session
+via `--mode divergence-only`. So the bounded fetch trades a rare benign
+startup miss for a startup that cannot stall.
 
 ---
 

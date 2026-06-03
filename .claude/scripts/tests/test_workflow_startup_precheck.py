@@ -822,6 +822,91 @@ def test_migrate_range_multi_failure_collects_all_pairs() -> None:
         )
 
 
+def test_migrate_range_exclude_sha_clears_merge_base_failure() -> None:
+    """`--exclude-sha` drops a pruned/unreachable-commit stamp from the fold
+    input so a paired `--bootstrap-sha` re-invocation clears the failure. This
+    is the recovery the /migrate-workflow skill drives agent-side: a stamp on a
+    commit with no reachable common ancestor makes plain `--mode migrate-range`
+    report a non-empty `merge_base_failed`; re-invoking with the failing SHA
+    excluded and a reachable bootstrap SHA supplied must fold cleanly.
+
+    Fixture: a stamp on an orphan SHA (no merge-base with the main line) is the
+    failing stamp; a second stamp sits on a real reachable commit. The sorted
+    walk order is design < implementation-plan, so stamping design.md real and
+    implementation-plan.md orphan makes the continue fold seed on the real stamp
+    then fail merge-base(real, orphan) — one collected failing pair. Excluding
+    the orphan SHA leaves only the real stamp in the fold; adding a
+    --bootstrap-sha at an earlier ancestor (with a workflow commit between it and
+    HEAD) yields a clean base and a non-empty range. The exclusion is
+    fold-input-only: stamped_artifacts still reports BOTH artifacts (the raw
+    on-disk walk), since the migration re-stamps every artifact during replay."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        bootstrap = fx.head_sha()  # an earlier, reachable ancestor of HEAD
+        # A workflow commit lands AFTER the bootstrap commit so bootstrap..HEAD
+        # has something to range over once the fold is clean.
+        fx.workflow_commit("change after bootstrap")
+        real = fx.head_sha()  # reachable from HEAD, shares history with bootstrap
+        # An orphan root: no common ancestor with the main line, so a stamp here
+        # makes `git merge-base` fail in the fold.
+        orphan = fx.orphan_branch("unrelated")
+        fx.checkout(fx.default_branch)
+        # Sorted walk order design < implementation-plan: stamp design.md real
+        # and implementation-plan.md orphan so the continue fold seeds on the
+        # real stamp then fails merge-base(real, orphan).
+        fx.plan_artifact("design.md", stamp=real)
+        fx.plan_artifact("implementation-plan.md", stamp=orphan)
+        # Plain migrate-range: the orphan stamp produces a merge-base failure.
+        obj_fail = _migrate_range(run_precheck("--mode", "migrate-range", cwd=fx.path))
+        assert obj_fail["merge_base_failed"], (
+            f"the orphan stamp must produce a non-empty merge_base_failed, got "
+            f"{obj_fail['merge_base_failed']!r}"
+        )
+        assert obj_fail["base_sha"] is None, (
+            f"a failed fold reports base_sha null, got {obj_fail['base_sha']!r}"
+        )
+        # Re-invoke excluding the orphan SHA and supplying the reachable bootstrap
+        # SHA: the fold drops the orphan stamp and folds (real, bootstrap) cleanly.
+        obj_ok = _migrate_range(
+            run_precheck(
+                "--mode", "migrate-range",
+                "--bootstrap-sha", bootstrap,
+                "--exclude-sha", orphan,
+                cwd=fx.path,
+            )
+        )
+        assert obj_ok["merge_base_failed"] == [], (
+            f"excluding the orphan stamp must clear merge_base_failed, got "
+            f"{obj_ok['merge_base_failed']!r}"
+        )
+        assert obj_ok["base_sha"] is not None, (
+            f"a cleared fold must report a non-null base_sha, got "
+            f"{obj_ok['base_sha']!r}"
+        )
+        # bootstrap is the oldest reachable stamp once the orphan is excluded, so
+        # the fold base moves back to it and the workflow commit between bootstrap
+        # and HEAD enters the range.
+        assert obj_ok["base_sha"] == bootstrap, (
+            f"the fold base should be the bootstrap ancestor {bootstrap!r}, got "
+            f"{obj_ok['base_sha']!r}"
+        )
+        subjects = [c["subject"] for c in obj_ok["log_range"]]
+        assert subjects == ["change after bootstrap"], (
+            f"the bootstrap..HEAD range must cover the post-bootstrap workflow "
+            f"commit, got {obj_ok['log_range']!r}"
+        )
+        # The exclusion is fold-input-only: BOTH artifacts still appear in the
+        # raw on-disk classification (the migration re-stamps all artifacts).
+        stamped_files = [a["file"] for a in obj_ok["stamped_artifacts"]]
+        assert any(f.endswith("design.md") for f in stamped_files) and any(
+            f.endswith("implementation-plan.md") for f in stamped_files
+        ), (
+            f"stamped_artifacts must report the raw on-disk walk (both files) "
+            f"regardless of --exclude-sha, got {stamped_files!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Branch-divergence detection.
 #
@@ -3127,6 +3212,7 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("migrate_range_unstamped_files_reported", test_migrate_range_unstamped_files_reported),
     ("migrate_range_bootstrap_sha_folded_into_range", test_migrate_range_bootstrap_sha_folded_into_range),
     ("migrate_range_multi_failure_collects_all_pairs", test_migrate_range_multi_failure_collects_all_pairs),
+    ("migrate_range_exclude_sha_clears_merge_base_failure", test_migrate_range_exclude_sha_clears_merge_base_failure),
     ("divergence_clean_in_sync", test_divergence_clean_in_sync),
     ("divergence_detected_both_nonzero", test_divergence_detected_both_nonzero),
     ("divergence_no_upstream_skips", test_divergence_no_upstream_skips),
