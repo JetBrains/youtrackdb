@@ -241,7 +241,7 @@ flowchart TD
 
 ## Checklist
 
-- [ ] Track 1: Detection core, modes, and JSON emit
+- [x] Track 1: Detection core, modes, and JSON emit
   > Scaffold `workflow-startup-precheck.sh` with `--mode` plumbing and the
   > single jq emit point, then build the read-only detection: branch
   > divergence, the two-phase drift walk (Phase 1 stamp walk + Phase 2 fold
@@ -249,9 +249,55 @@ flowchart TD
   > `migrate-range` outputs (including `(file, sha)` pairs and an optional
   > `--bootstrap-sha`). Defines the `actions_taken` field that Track 3
   > populates. Detailed description in plan/track-1.md.
-  > **Scope:** ~6 steps covering scaffold + mode dispatch, jq emitter,
-  > divergence detection, drift Phase 1+2 walk, handoff scan, and the
-  > reduced-mode outputs.
+  >
+  > **Track episode:**
+  > Built `workflow-startup-precheck.sh` and a 32-test Python harness as the
+  > single behavioral home for session-startup detection: `--mode
+  > {full,divergence-only,migrate-range}` dispatch, branch-divergence
+  > detection, the two-phase drift walk (Phase 1 byte-copies the `§1.6(h)`
+  > artifact walk with the anchored `§1.6(a1)` regex; Phase 2 folds stamps
+  > pairwise through `git merge-base` and runs `git log` over the workflow
+  > pathspecs), the handoff scan, and the reduced-mode outputs. A single jq
+  > assembly point owns the JSON shape, with the explicit empty→null idiom so
+  > absent scalars emit `null` rather than `""`.
+  >
+  > Three downstream seams were plumbed so Tracks 2-4 set a variable rather
+  > than re-editing the emitter: `STATE_JSON` stubbed `null` for Track 2's
+  > state object, `ACTIONS_TAKEN_JSON` as `[]` for Track 3's normalization
+  > commit, and the finalized `migrate-range` shape (`stamped_artifacts
+  > [{file,sha}]`, `unstamped_files`, `base_sha`, `log_range [{sha,subject}]`
+  > with full `%H` SHAs, `merge_base_failed [{base,sha,files}]`) that Track
+  > 4's `migrate-workflow` Step 2 rewrite cites. The merge-base fold is a
+  > shared `fold_stamps_to_base("break"|"continue")` function (first-failure
+  > for `full`, continue-and-collect for `migrate-range`) that Track 3
+  > reuses. A reusable `GitFixture` builder (hermetic `file://` remotes,
+  > `GIT_CONFIG` isolation, real-commit helpers) underpins every git-touching
+  > test; any precheck test that hits git detection must run inside a fixture
+  > or it performs a real network fetch, and because the byte-source resolves
+  > `PLAN_DIR=docs/adr/<branch>` with default fixture branch `main`, fixture
+  > plan artifacts live under `docs/adr/main/_workflow/`.
+  >
+  > Track-level review passed at iteration 1 (4 workflow reviewers, baseline
+  > skipped on the workflow-only diff, 0 blockers). The Review fix bounded
+  > the startup `git fetch` with `timeout 10`, a user-approved tradeoff that
+  > accepts a rare, benign behavior-parity break on a slow-but-reachable
+  > remote (the downstream per-commit push re-check still catches the
+  > divergence) so session startup cannot hang; the script is not yet wired
+  > into any startup path this branch, so the risk it removes is latent until
+  > a post-merge track wires it. Applying it surfaced a workflow nuance: the
+  > ephemeral-identifier pre-commit gate rejected a step label in the new
+  > comment because `.claude/scripts/` files are durable content, so the
+  > comment was rewritten to name the byte-source rather than a branch-local
+  > invariant.
+  >
+  > Three findings were deferred via plan corrections: the `design.md`
+  > migrate-range contract drift (Phase 4 `design-final.md` reconciliation,
+  > recorded under Final Artifacts), the uncapped `migrate-range.log_range`
+  > (recorded in `track-4.md` for the Step 2 consumer), and the Phase A
+  > D1/D2 rationale items (Phase 4 design-final/adr rationale-pass
+  > candidates).
+  >
+  > **Track file:** `plan/track-1.md` (6 steps, 0 failed)
 
 - [ ] Track 2: State determination
   > Build the markdown state parser that reads `## Plan Review`, the track
