@@ -10,6 +10,7 @@ Track 2 builds the markdown state parser. It reads the plan file's `## Plan Revi
 
 ## Progress
 - [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-03T04:29Z [ctx=safe] Step 1 complete (commit 1dd90397d6)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -18,6 +19,9 @@ Track 2 builds the markdown state parser. It reads the plan file's `## Plan Revi
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- **`track` field omitted from the `state` object** (Step 1): design.md's frozen state-object example (line 146) shows `{phase, track, substate}`, but the shipped object is `{phase, substate}` per the track's Interfaces contract. The active track number is computed internally for the `plan/track-N.md` probe but not emitted, so Track 4's dispatch rule must re-derive the active track from the checklist unless a later track adds the field. Phase 4 design-final reconciliation candidate, alongside the existing T7 contract restatement (plan §Final Artifacts). See Episodes §Step 1.
+- **Roster reads must run inline, not in a subshell** (Step 1): `parse_error` calls `exit`, so a helper that reads `## Concrete Steps` / `## Progress` markers through `$(...)` swallows the exit in a subshell and emits a state instead of failing. Step 2's sub-state reads and Step 3's discrepancy join run inline in the main shell, reusing the established `classify_marker` helper (which already maps `[!]` to "fail"). See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -67,7 +71,7 @@ Ordering constraints and invariants to preserve: the walk reads the markers `con
 
 ## Concrete Steps
 
-1. Checkbox helper + parse-error guard + State 0/A/C/D/Done top-level walk + `STATE_JSON` wiring — add `determine_state` and a checkbox-reading helper recognizing `[ ]`/`[x]`/`[~]`/`[>]`/`[!]` (an unrecognized glyph → stderr naming the section/line + non-zero exit before any `state` is emitted; `[!]` is recognized, not an error); top-level precedence: `## Plan Review` absent/`[ ]`/absent-plan-file → State 0; otherwise walk `## Checklist` anchored to top-level `- [<m>] Track N:` lines (column 0, blockquote/fence-excluded, bounded between `## Checklist` and the next `## `) for the first `[ ]` track → State A (no `plan/track-N.md`) or State C (track file present, `substate` null at this step); all tracks `[x]`/`[~]` → `## Final Artifacts` (heading + first top-level checkbox) → State D (`[ ]`/`[>]`) or Done (`[x]`); set `STATE_JSON={phase,substate:null}` and wire `determine_state` into the `full` dispatch before `emit_json`; fixtures for State 0 (three shapes incl. absent-plan), State A, State C top-level, State D, Done, blockquote-anchoring, and the malformed-marker parse-error, reusing `GitFixture.plan_artifact` under `docs/adr/main/_workflow/` — risk: medium (new observable behavior — the `state` key — plus a new parse-error path on the precheck component; no HIGH trigger)  [ ]
+1. Checkbox helper + parse-error guard + State 0/A/C/D/Done top-level walk + `STATE_JSON` wiring — add `determine_state` and a checkbox-reading helper recognizing `[ ]`/`[x]`/`[~]`/`[>]`/`[!]` (an unrecognized glyph → stderr naming the section/line + non-zero exit before any `state` is emitted; `[!]` is recognized, not an error); top-level precedence: `## Plan Review` absent/`[ ]`/absent-plan-file → State 0; otherwise walk `## Checklist` anchored to top-level `- [<m>] Track N:` lines (column 0, blockquote/fence-excluded, bounded between `## Checklist` and the next `## `) for the first `[ ]` track → State A (no `plan/track-N.md`) or State C (track file present, `substate` null at this step); all tracks `[x]`/`[~]` → `## Final Artifacts` (heading + first top-level checkbox) → State D (`[ ]`/`[>]`) or Done (`[x]`); set `STATE_JSON={phase,substate:null}` and wire `determine_state` into the `full` dispatch before `emit_json`; fixtures for State 0 (three shapes incl. absent-plan), State A, State C top-level, State D, Done, blockquote-anchoring, and the malformed-marker parse-error, reusing `GitFixture.plan_artifact` under `docs/adr/main/_workflow/` — risk: medium (new observable behavior — the `state` key — plus a new parse-error path on the precheck component; no HIGH trigger)  [x] commit: 1dd90397d6
 2. State C sub-state map (five sub-states, joint read) — extend `determine_state` for State C, reading `## Progress` as a continuous log (most-recent relevant entry) and the `## Concrete Steps` roster: (1) decomposition-pending = Progress "Review + decomposition" `[ ]`, short-circuit before quantifying the roster; (2) steps-partial = roster mixes `[x]` and `[ ]`; (3) failed-step = roster contains `[!]`; (4) steps-done-review-pending = all roster steps `[x]` + code-review Progress `[ ]`/partial; (5) review-done-track-open = all roster steps `[x]` + code-review Progress `[x]` + plan-file track checkbox `[ ]`; fixtures for each of the five sub-states, the decomposition-pending empty-roster vacuous-truth guard, and at least one fixture cut from a real on-disk track file (continuous-log Progress + numbered roster) — risk: medium (the trickiest logic; new observable behavior; joint multi-surface read)  [ ]
 3. Section-discrepancy edge — extend `determine_state` to join roster step to Progress entry by step number N: a roster line `^N.` flipped `[x]` whose `## Progress` log has no word-boundary `Step N` entry → `substate: "section-discrepancy"` (a `[!]` failed-step Progress entry counts as present-for-N); fixtures for discrepancy-present, a healthy track whose Progress interleaves phase-checkpoint lines between step lines (no false-positive), and the `[!]`-counts-as-present case — risk: medium (subtle join logic; the false-positive/false-negative hazard flagged in Phase A review)  [ ]
 
@@ -75,6 +79,52 @@ Ordering constraints and invariants to preserve: the walk reads the markers `con
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 1dd90397d6, 2026-06-03T04:29Z [ctx=safe]
+**What was done:** The `full`-mode `state` field now carries the top-level
+resume-state walk that Track 1 stubbed as `null`. `determine_state`
+reproduces the `workflow.md § Startup Protocol` step 5 precedence: State 0
+(absent plan file, absent `## Plan Review`, or unchecked first Plan-Review
+checkbox), then the first `[ ]` track in `## Checklist` resolving to State A
+(no `plan/track-N.md`) or State C (track file present), and an all-`[x]`/`[~]`
+checklist routing to State D or Done on the `## Final Artifacts` marker. A
+checkbox-classifying helper recognizes `[ ]`/`[x]`/`[~]`/`[>]`/`[!]`; an
+unrecognized glyph triggers `parse_error`, which names the section and line on
+stderr and exits non-zero before any JSON. The `## Checklist` walk anchors to
+column-0 `- [<m>] Track N:` lines, excludes blockquoted and fenced regions, and
+bounds itself between `## Checklist` and the next `## `. `STATE_JSON={phase,
+substate:null}` wires into the `full` dispatch ahead of `emit_json`. 13 net-new
+fixtures cover State 0 (three shapes including absent-plan), State A, State C
+(three), State D (two), Done, blockquote/fence anchoring, the malformed-marker
+parse error across all three reading sites, the recognized `[!]` case, and a
+real on-disk track-file shape. Suite: 44/44.
+
+**What was discovered:** Two hazards were caught and fixed before commit.
+First, wrapping the section-checkbox helper in a `$(...)` command substitution
+ran `parse_error`'s `exit` in a subshell, so a malformed `## Plan Review` /
+`## Final Artifacts` glyph printed the diagnostic yet the script still exited 0
+with State 0; the helper was refactored to set a script-scoped `SECTION_TOKEN`
+with no command substitution, so the exit terminates the whole script. Second,
+the initial checkbox glob `"- ["?"] "` matched exactly one bracket character
+and silently dropped empty (`[]`) and multi-char (`[ x]`) bodies into State 0;
+both match sites were broadened to `"- ["*"] "` so `[]`/`[ x]`/`[X]` route to
+`parse_error` per the Validation acceptance lines. Cross-track: design.md's
+frozen state-object example (line 146) carries a `track` field that the shipped
+`{phase, substate}` object omits per the authoritative track contract — the
+active track number is computed internally for the `plan/track-N.md` probe but
+not emitted. Track 4 consumes the `state` shape, so Phase 4 design-final must
+reconcile the contract. See Surprises & Discoveries.
+
+**What changed from the plan:** none. The implementation follows the track's
+Interfaces contract (`{phase, substate}`) exactly. The design.md `track`-field
+divergence is a frozen-doc reconciliation deferred to Phase 4, not a plan
+deviation introduced here.
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (modified)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified)
+
+**Critical context:** none
 
 ## Validation and Acceptance
 
