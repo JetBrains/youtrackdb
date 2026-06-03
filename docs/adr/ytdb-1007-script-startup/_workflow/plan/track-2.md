@@ -15,7 +15,7 @@ Track 2 builds the markdown state parser. It reads the plan file's `## Plan Revi
 - [x] 2026-06-03T04:54Z [ctx=safe] Step 3 complete (commit 4f7370ea88)
 - [x] 2026-06-03T04:54Z [ctx=safe] Step implementation
 - [x] 2026-06-03T05:32Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
-- [ ] Track completion
+- [x] 2026-06-03T06:42Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -41,6 +41,7 @@ summary at Phase C. -->
 - [x] Technical: PASS at iteration 2 (6 findings T1-T6, all accepted; iter-1 reshaped the input contract, iter-2 gate VERIFIED all).
 - [x] Adversarial: PASS at iteration 2 (7 findings A1-A7, all accepted; A1/A2 were blockers — `## Progress`-is-a-continuous-log + sub-states-read-the-roster; iter-2 gate VERIFIED all).
 - Gate-check finding T7 (should-fix, non-blocking) deferred to Phase 4: frozen design.md §State determination glosses the sub-state source as `## Progress`; the track refines it to roster + plan-checkbox per live `workflow.md` step 5 rows + `step-implementation.md` sub-step 7.1. See plan §Final Artifacts.
+- [x] Phase C track-level code review: PASS at iteration 1/3. 4 workflow reviewers (consistency, hook-safety, context-budget, writing-style); baseline skipped on the workflow-only diff; 0 blockers, 0 deferred findings. Six findings applied in one Review fix (`c3e4508f26`), all gate-check VERIFIED: WH1+WH2 (should-fix behavior) made the closed-enum parse-error contract total over the bounded `## Checklist` region and the section-heading match trailing-whitespace-tolerant at all five sites, each with a load-bearing regression test (harness 62 → 65); WC1 (should-fix consistency) extended §Final Artifacts to enumerate all three design.md state-object reconciliations (sub-state sources + omitted `track` field + slug-string substate form); WS1 (should-fix style) fixed a Step 3 episode em-dash; WC2+WH3 (suggestions) corrected the lockstep-vs-split-write comment framing and documented the roster parens-only annotation assumption.
 
 ## Context and Orientation
 

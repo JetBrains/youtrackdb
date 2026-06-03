@@ -307,16 +307,57 @@ flowchart TD
   > `PLAN_DIR` resolves to `docs/adr/<branch>` with the fixture default branch
   > `main`, state fixtures live under `docs/adr/main/_workflow/`.
 
-- [ ] Track 2: State determination
+- [x] Track 2: State determination
   > Build the markdown state parser that reads `## Plan Review`, the track
   > checklist, and the active track file's `## Progress` section, then
   > reports `state.phase` (0 / A / C / D / Done) and, for State C, the
   > five-way sub-state plus the `section-discrepancy` edge. Detailed
   > description in plan/track-2.md.
-  > **Scope:** ~4-5 steps covering the State 0/A/C/D/Done precedence walk,
-  > the State C sub-state map, the section-discrepancy edge, and the state
-  > fixtures.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Built the markdown state parser — the one piece of
+  > `workflow-startup-precheck.sh` that reads markdown rather than git output,
+  > isolated here as the riskiest surface. It extends Track 1's `full`-mode
+  > JSON with a `state` object reproducing the `workflow.md § Startup Protocol`
+  > step-5 precedence: State 0 (absent/`[ ]` Plan Review or absent plan file),
+  > the first `[ ]` track resolving to State A (no track file) or State C
+  > (track file present), and an all-`[x]`/`[~]` checklist routing to State D
+  > or Done on the `## Final Artifacts` marker. State C carries one of five
+  > sub-state slugs (`decomposition-pending` / `steps-partial` / `failed-step`
+  > / `steps-done-review-pending` / `review-done-track-open`) read jointly from
+  > `## Progress`, the `## Concrete Steps` roster, and the plan-file track
+  > checkbox, plus the literal `section-discrepancy` edge when a roster step
+  > flipped `[x]` has no matching `Step N` Progress entry. The enum stays
+  > closed: an unrecognized glyph is an explicit stderr parse-error with a
+  > non-zero exit before any JSON, never a coerced sixth state.
+  >
+  > Three discoveries carry into Track 4 (the consumer) and Phase 4: the
+  > emitted object is `{phase, substate}` — the `track` field design.md's
+  > frozen example showed is omitted (computed internally for the
+  > `plan/track-N.md` probe, not emitted), so Track 4's dispatch must
+  > re-derive the active track from the checklist; `substate` values are the
+  > short slugs above, not design.md's verbose `workflow.md`-row gloss; and the
+  > State C sub-state sources are `## Progress` + the roster + the plan-file
+  > track checkbox, not `## Progress` alone as design.md glossed. All three are
+  > frozen-design.md reconciliations folded into the plan's §Final Artifacts
+  > during this track's review, so the Phase 4 design-final author finds them
+  > in one place.
+  >
+  > Phase C review passed at iteration 1 (4 workflow reviewers — consistency,
+  > hook-safety, context-budget, writing-style; baseline skipped on the
+  > workflow-only diff; 0 blockers). One Review fix commit (`c3e4508f26`)
+  > applied six findings: it made the closed-enum parse-error contract *total*
+  > over the bounded `## Checklist` region (a malformed glyph on any track
+  > after the first `[ ]` now halts instead of silently resuming — a
+  > behavior-parity tightening Track 4's dispatch should treat as
+  > halt-and-surface, not resume); made the section-heading match tolerant of
+  > trailing whitespace at all five sites; extended §Final Artifacts with the
+  > three reconciliations above; and landed three comment/typography cleanups.
+  > Two regression tests were added and proven load-bearing; the stand-alone
+  > harness grew 62 → 65, all passing. The Java coverage gate is n/a (no
+  > `src/main` Java in the diff).
+  >
+  > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
 
 - [ ] Track 3: No-drift normalization and `actions_taken` wiring
   > Port the no-drift normalization path byte-for-byte: recompute the
