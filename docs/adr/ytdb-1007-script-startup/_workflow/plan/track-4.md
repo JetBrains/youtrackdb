@@ -65,6 +65,16 @@ at Phase 1. -->
   untouched, I6). The seven files: `workflow.md`, `mid-phase-handoff.md`,
   `workflow-drift-check.md`, `branch-divergence-check.md`, `conventions.md`,
   `commit-conventions.md`, `migrate-workflow/SKILL.md`. See Episodes §Step 6.
+- **WI1 (Phase C review) — the merge-base-failure recovery loop could not terminate.**
+  The Step 6 rewrite removed the inline `PRUNED_STAMPED_SHAS` agent-side drop and instead
+  claimed the script drops merge-base-failed SHAs on a `--bootstrap-sha` re-invoke. The live
+  `workflow-startup-precheck.sh` does no such drop: `detect_migrate_range` re-walks all
+  stamps fresh and `--bootstrap-sha` only appends to the fold input, so the failing stamp
+  re-walks and re-fails on every re-invoke, exhausting the session-wide 3-attempt cap on
+  input the user cannot fix. This is the load-bearing R3/A4 recovery-parity break. Resolved
+  by a user-approved scope expansion (see Decision Log): the live script gains a repeatable
+  `--exclude-sha` flag that drops the named SHAs from the fold input, and the recovery prose
+  cites it. See Decision Log "WI1 resolution".
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -93,6 +103,23 @@ scope-downs, dependency reveals, gate-override reasons. -->
   consolidations of startup gates — the binding contract is parity (S1), so each
   is a Phase C focal point). No code-side HIGH/MEDIUM trigger applies to a
   prose-only track; tags are decomposer overrides under the criteria's intent.
+- **WI1 resolution — scope expansion to add `--exclude-sha` to the live script
+  (user decision, 2026-06-03).** Phase C blocker WI1 found that the Step 6 recovery
+  rewrite dropped the inline agent-side `PRUNED_STAMPED_SHAS` prune and attributed the
+  drop to a script behavior that does not exist, breaking the R3/A4 recovery-parity
+  contract (the loop cannot terminate on a pruned-stamp merge-base failure). The
+  parity-preserving fix needs the script to omit the failing stamps from the fold, which
+  Track 4's prose-only scope and its Interfaces "out of scope: the script" line excluded.
+  Offered: add `--exclude-sha` to the script (parity-preserving, scope expansion) /
+  halt-and-surface recovery (prose-only, parity reduction) / honest-prose-plus-follow-up.
+  User chose **add `--exclude-sha`**. Handled as an in-Phase-C scope expansion (not a
+  State-0-resetting inline replan): the live script gains a repeatable `--exclude-sha`
+  flag that filters the named SHAs out of `detect_migrate_range`'s fold input, the
+  fixture suite gains a test proving the re-invoke clears the failing pair, and the staged
+  recovery prose cites the flag. The script edit is live (not staged) per the D6 staging
+  asymmetry and is inert on this branch (nothing live calls `migrate-range` until the
+  staged prose promotes post-merge). The D2 / migrate-range-contract reconciliation is
+  recorded for Phase 4 in the plan's `## Final Artifacts`.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -330,8 +357,12 @@ belong to one specific step. Per-step episode content lives in
 - `.claude/skills/migrate-workflow/SKILL.md` — Step 2 + Step 2.0 `migrate-range` reuse (both walks, per T1/A10).
 - `.claude/workflow/mid-phase-handoff.md` — one-line cross-ref genericization of the `(step 3)` / `(step 3a)` startup-step references at lines 123-125, a ripple of the Step 1 dispatch rewrite (added as the 7th surface per finding A9; folded into Step 1's commit).
 
+**In scope, live (added by the WI1 review-fix — see Decision Log "WI1 resolution"):**
+- `.claude/scripts/workflow-startup-precheck.sh` — a repeatable `--exclude-sha` flag that drops the named SHAs from `detect_migrate_range`'s fold input, so a `--bootstrap-sha` re-invoke after a merge-base failure no longer re-folds the failing stamp. Edited live, not staged (§1.7(a) does not govern `.claude/scripts/`; D6); inert on this branch until the staged prose promotes post-merge.
+- `.claude/scripts/tests/` — a fixture proving the `--bootstrap-sha … --exclude-sha …` re-invoke clears the failing pair and yields a clean `base_sha` / empty `merge_base_failed`.
+
 **Out of scope:**
-- `.claude/scripts/workflow-startup-precheck.sh` and `.claude/scripts/tests/` — authored live by Tracks 1-3, not staged (§1.7(a) does not govern `.claude/scripts/`; D6).
+- `.claude/scripts/workflow-startup-precheck.sh` and `.claude/scripts/tests/` beyond the `--exclude-sha` flag above — the rest stays as authored live by Tracks 1-3, not staged (§1.7(a) does not govern `.claude/scripts/`; D6).
 - Any live `.claude/workflow/**` or `.claude/skills/**` file — stays at develop state until the Phase 4 promotion (S4 / I6).
 
 **Staging discipline:** staged-subtree layout per `§1.7(a)`; the `§1.7(b)` marker is declared in the plan's Constraints; reads resolve staged-first per `§1.7(d)`; first touch copies the live file verbatim then edits per `§1.7(e)`; the Phase 4 promotion rebases onto develop first per `§1.7(f)` and is additive and re-entrant per `§1.7(j)`.

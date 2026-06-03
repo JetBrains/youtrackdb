@@ -582,3 +582,15 @@ must reconcile alongside the source restatement above:
   `workflow.md` row text (e.g. "Steps [x], code review [x], track still [ ]
   in plan"). `design-final.md` must restate the substate values as the slug
   form the script emits and the dispatch rule consumes.
+
+**Phase 4 reconciliation (from Track 4 Phase C review, WI1 — instruction
+completeness):** the `migrate-range` mode gained a repeatable `--exclude-sha
+<sha>` flag during the Track 4 Phase C review-fix (see `plan/track-4.md`
+Decision Log "WI1 resolution"). The flag drops the named SHAs from
+`detect_migrate_range`'s fold input so the agent-side merge-base-failure
+recovery loop can re-invoke with `--bootstrap-sha … --exclude-sha …` and clear
+a pruned-stamp pair instead of re-folding it forever. The frozen `design.md`
+describes `migrate-range` with only `--mode` and `--bootstrap-sha`; both D2
+("three run modes via a `--mode` flag", which now also documents the
+`--exclude-sha` modifier) and the `migrate-range` contract restatement above
+must note `--exclude-sha` in `design-final.md`.
