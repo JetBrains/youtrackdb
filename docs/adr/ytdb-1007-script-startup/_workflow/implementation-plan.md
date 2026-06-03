@@ -110,6 +110,11 @@ flowchart TD
 - **`create-plan/SKILL.md` Step 1.5** (staged, Track 5) — its drift-check
   delegation description is synced to the rewritten `workflow-drift-check.md`
   (script citation), replacing the stale inline-bash parenthetical.
+- **`mid-phase-handoff.md`** (staged, Track 4 — added per Phase A finding A9) —
+  a one-line cross-reference touch-up, not a rewrite surface: its `(step 3)` /
+  `(step 3a)` references to the numbered startup steps are genericized when the
+  Step 1 dispatch rewrite dissolves that numbering. Folded into Step 1's commit,
+  so the step count stays at six.
 
 #### D1: Script location and language
 
