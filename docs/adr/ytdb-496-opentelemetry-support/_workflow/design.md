@@ -1014,7 +1014,7 @@ The full sem-conv v1.33.0 / `youtrackdb.*` counter inventory (two tables with st
 
 ## Quick-start observability stack (operator example)
 
-**TL;DR.** YTDB-496 ships a self-contained docker-compose example under `youtrackdb-opentelemetry/examples/docker-compose/` that brings up the full open-source OTel viewer stack (OTel Collector, Jaeger, Loki, Prometheus, Grafana) with one command, points YTDB at it via a sample `youtrackdb.properties`, and renders three pre-provisioned Grafana dashboards plus trace-to-logs and trace-to-metrics correlators. The example is the load-bearing surface that turns the nineteen `OPENTELEMETRY_*` config entries Track 5 ships into a five-minute clone-to-first-span experience. It exists for two operator-facing reasons (verifiable claim that YTDB-OTel works end-to-end across all three pillars; a working open-source path that matches the Jaeger / Tempo / Datadog backends the PR description names) and one engineering reason (a smoke script that exits non-zero when traces / logs / metrics fail to land, giving the optional CI job a deterministic signal).
+**TL;DR.** YTDB-496 ships a self-contained docker-compose example under `youtrackdb-opentelemetry/examples/docker-compose/` that brings up the full open-source OTel viewer stack (OTel Collector, Jaeger, Loki, Prometheus, Grafana) with one command, points YTDB at it via a sample `youtrackdb.properties`, and renders three pre-provisioned Grafana dashboards plus trace-to-logs and trace-to-metrics correlators. The example is the load-bearing surface that turns the twenty `OPENTELEMETRY_*` config entries Track 5 ships into a five-minute clone-to-first-span experience. It exists for two operator-facing reasons (verifiable claim that YTDB-OTel works end-to-end across all three pillars; a working open-source path that matches the Jaeger / Tempo / Datadog backends the PR description names) and one engineering reason (a smoke script that exits non-zero when traces / logs / metrics fail to land, giving the optional CI job a deterministic signal).
 
 The stack is **example-files-only**: zero source-code edits in `core`, `server`, or the OTel module. Track 11 contributes a directory tree under `youtrackdb-opentelemetry/examples/docker-compose/` plus an optional, label-gated CI workflow under `.github/workflows/otel-example-smoke.yml`. The directory is excluded from the OTel module's Maven `<resources>` so `mvn package` does not copy the example into the built JAR; the example ships as source-tree files discovered by operators who clone the repo or browse the GitHub UI.
 
@@ -1124,6 +1124,35 @@ Idempotence and ownership transitions:
 - `setOpenTelemetry` called twice with host-owned SDKs in a row: the facade does not close anything (host owns lifecycle for both); it just swaps the reference and re-registers listeners against the new tracer.
 - `shutdown` called twice is a no-op the second time.
 - An exception during SDK shutdown is logged but does not propagate.
+
+### Configuration surface
+
+All twenty knobs are `GlobalConfiguration` entries (env-var capable, created by Track 5); every default keeps YTDB silent on the OTel side, so the operator opts in. `plan/track-5.md` carries the canonical per-entry types; the table below is the operator-facing summary grouped by signal.
+
+| Group | Entry | Default | Role |
+|---|---|---|---|
+| SDK | `OPENTELEMETRY_ENABLED` | `false` | master switch; nothing wires until `true` |
+| SDK | `OPENTELEMETRY_EXPORTER_ENDPOINT` | (none) | OTLP collector URL, e.g. `http://localhost:4317` |
+| SDK | `OPENTELEMETRY_EXPORTER_PROTOCOL` | `grpc` | `grpc` or `http/protobuf` |
+| SDK | `OPENTELEMETRY_EXPORTER_HEADERS` | empty | comma-separated `key=value`; e.g. `Authorization=Bearer <token>` for hosted backends |
+| SDK | `OPENTELEMETRY_EXPORTER_TIMEOUT_MILLIS` | `10000` | OTLP request timeout; bounds exporter-shutdown stall |
+| SDK | `OPENTELEMETRY_SERVICE_NAME` | `youtrackdb` | `service.name` resource attribute |
+| Query | `OPENTELEMETRY_QUERY_MODE_TAG_RULES` | empty | per-tag LIGHTWEIGHT/EXACT monitoring-mode rules (D15) |
+| Query | `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` | `0` | `0` = emit-all; positive drops fast successful queries (D16) |
+| Query | `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` | empty | per-tag slow-threshold overrides (D16) |
+| Query | `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` | `0` | `0` = disabled; positive emits at most one heartbeat span per interval (D18; single global, no per-tag rules) |
+| Query | `OPENTELEMETRY_QUERY_INCLUDE_PARAMETERS` | `false` | trace-side PII knob; `true` attaches parameter values as `db.operation.parameter.<index>` (per-tag deferred to YTDB-708) |
+| Commit | `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME` | `true` | `false` drops dbName from commit-span names for high-cardinality multi-tenant hosts |
+| Commit | `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` | `0` | `0` = emit every successful commit; positive gates on `executionTimeNanos`; failed commits always emit (D38) |
+| Logs | `OPENTELEMETRY_LOGS_ENABLED` | `false` | logs-pillar master switch (D34) |
+| Logs | `OPENTELEMETRY_LOGS_MIN_SEVERITY` | `INFO` | severity floor; below-threshold records drop before any OTel allocation |
+| Logs | `OPENTELEMETRY_LOGS_INCLUDE_MESSAGE_BODY` | `false` | body-policy default-deny; ships the SLF4J format string, not substituted parameter values |
+| Logs | `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` | `io.opentelemetry.,io.youtrackdb.otel.appender` | requester-prefix filter; cross-thread recursive-logging defense |
+| Metrics | `OPENTELEMETRY_METRICS_ENABLED` | `false` | metrics-pillar master switch (D36) |
+| Metrics | `OPENTELEMETRY_METRICS_PERIOD_MILLIS` | `10000` | collection cadence; clamped to at least `1000` at SDK init |
+| Metrics | `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` | empty | empty = all six groups; opt into `queries`/`cache`/`storage`/`wal`/`locks`/`transactions` for cardinality budget (D37) |
+
+The tracking-ID attribute `db.youtrackdb.transaction.tracking_id` has no config flag: it is gated by construction via `QueryDetails.getExplicitTrackingId().isPresent()`, so the host's explicit `withTrackingId(...)` call is the opt-in (M49).
 
 ### Edge cases / Gotchas
 
