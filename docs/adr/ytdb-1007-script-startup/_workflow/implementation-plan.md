@@ -534,6 +534,13 @@ flowchart TD
   > gate-check + a fresh hook-safety pass cleared all findings at iteration 1.
   >
   > **Track file:** `plan/track-4.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 4's staged rewrites (the
+  > `workflow.md § Startup Protocol` dispatch rule and the
+  > `workflow-drift-check.md` script citation) are in place and are the exact
+  > surfaces Track 5 points the two SKILLs at, so the dependency holds. The
+  > dispatch rewrite's deliberate omission of the SKILL-consumer list (A12) is
+  > the seam Track 5 fills by design. No downstream impact on Track 5's plan.
 
 - [ ] Track 5: SKILL entry-point reconciliation (staged)
   > Reconcile the two SKILL entry points the plan names as `--mode full`
