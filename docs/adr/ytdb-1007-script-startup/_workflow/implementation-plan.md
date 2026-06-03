@@ -485,7 +485,7 @@ flowchart TD
   > rides into the script's domain as documented known-debt; it does not
   > change Track 4's scope.
 
-- [ ] Track 4: Prose consolidation (staged)
+- [x] Track 4: Prose consolidation (staged)
   > Rewrite the six prose surfaces to call or cite the script: `workflow.md
   > § Startup Protocol` becomes a ~30-50-line dispatch rule; `workflow-drift-check.md`
   > and `branch-divergence-check.md` shrink to reference docs;
@@ -495,10 +495,45 @@ flowchart TD
   > `migrate-range`. All edits STAGED under `staged-workflow/`; the script's
   > JSON shape must be final before the prose cites it. Detailed description
   > in plan/track-4.md.
-  > **Scope:** ~6 steps covering the workflow.md dispatch rewrite, the
-  > drift-check and divergence-check shrink, the §1.6(h) pivot, the
-  > push-failure re-entry, and the migrate Step 2 reuse.
-  > **Depends on:** Tracks 1, 2, 3
+  >
+  > **Track episode:**
+  > Rewrote seven gate-prose surfaces to consume `workflow-startup-precheck.sh`
+  > instead of carrying inline detection bash: `workflow.md § Startup Protocol`
+  > became a dispatch rule over `--mode full`'s five JSON keys;
+  > `workflow-drift-check.md` and `branch-divergence-check.md` shrank to reference
+  > docs citing the script; `conventions.md §1.6(h)` and its `§1.6(a1)` sibling
+  > pivoted from "byte-copied by Tracks N" framing to "the script is the single
+  > implementation, this section is the spec it conforms to"; `commit-conventions.md
+  > § Push failure handling` re-enters via `--mode divergence-only`; and the migrate
+  > SKILL's two `§1.6(h)` walks (Step 2.0 classify + Step 2 range) collapsed onto
+  > `--mode migrate-range`, holding D4's "four byte-copies → one". `mid-phase-handoff.md`
+  > was added as a seventh surface (a one-line cross-ref genericization, A9). Every
+  > prose edit is staged under `staged-workflow/`; the live tree stays at develop
+  > state until the Phase 4 promotion (S4 / I6).
+  >
+  > Phase C caught one architectural blocker (WI1): the migrate-recovery rewrite
+  > delegated the merge-base fold to the script, but the script had no way to drop a
+  > pruned-commit stamp from the fold, so the agent-side recovery loop — which the
+  > inline version drove by pruning `STAMPED_SHAS` itself — could no longer terminate.
+  > The user-approved fix expanded the track's scope to add a repeatable `--exclude-sha`
+  > flag to the live `workflow-startup-precheck.sh` (plus a fixture proving the
+  > re-invoke clears the failing pair) and pointed the recovery prose at it. This is
+  > the one place a prose-consolidation track touched the live script; it is sound
+  > under the D6 staging asymmetry — the script is inert on this branch (nothing live
+  > calls `migrate-range`) and only matters once the staged prose promotes post-merge.
+  > The `--exclude-sha` flag is now a permanent part of the `migrate-range` contract:
+  > future migrate-workflow or `conventions §1.6` edits describing merge-base-failure
+  > recovery must cite it (one `--exclude-sha` per `merge_base_failed[].sha`), not the
+  > old "the script drops the failed SHAs" framing.
+  >
+  > The rewrite cites the shipped `emit_json` throughout, not frozen `design.md`, which
+  > diverges on the `migrate-range` contract, the omitted `state.track` field, and the
+  > substate slug form. Those three divergences plus the new `--exclude-sha` extension
+  > are recorded as Phase 4 reconciliations in `## Final Artifacts` for `design-final.md`.
+  > Review-fix `421706e637` resolved WI1 + WC1/WP1/WS1/WS2 (74/74 harness tests);
+  > gate-check + a fresh hook-safety pass cleared all findings at iteration 1.
+  >
+  > **Track file:** `plan/track-4.md` (6 steps, 0 failed)
 
 - [ ] Track 5: SKILL entry-point reconciliation (staged)
   > Reconcile the two SKILL entry points the plan names as `--mode full`
