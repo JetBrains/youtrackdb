@@ -479,7 +479,7 @@ When a Gremlin traversal embeds SQL via `g.yql(...)` or `g.command(...)`, the ou
 | `db.youtrackdb.gremlin.has_graph_steps` | bool | True if the traversal contains non-`CallStep` graph steps (mixed shape) | low |
 | `db.youtrackdb.gremlin.has_transaction_control` | bool | True if any embedded SQL is BEGIN / COMMIT / ROLLBACK | low |
 | `db.youtrackdb.gremlin.statements_summary` | string | Semicolon-joined per-statement summary, set only when `statement_count > 1` (e.g., `"BEGIN; INSERT Order; COMMIT"`); capped at 5 statements then `"; +N more"`. **Note**: `statement_count` is the `CallStep[YTDBCommandService]` count in the traversal bytecode, NOT the emitted inner-span count — BEGIN / COMMIT / ROLLBACK short-circuit in `executeCommand` before reaching the SQL execution layer and emit no inner SQL span, so operators correlating span counts to `statement_count` subtract administrative statements (or filter on `db.youtrackdb.gremlin.has_transaction_control = true` and account for the gap directly) | medium (chain shapes) |
-| `db.youtrackdb.gremlin.embedded_sql.N` | string | For mixed shapes, sanitized SQL of the Nth embedded `CallStep` (N = 0..4 capped); set when `has_graph_steps = true` | medium |
+| `db.youtrackdb.gremlin.embedded_sql.N` | string | For mixed shapes, sanitized SQL of the Nth embedded `CallStep` (N = 0..2 capped, so at most 3 entries per outer span); set when `has_graph_steps = true` | medium-high (host responsibility — sanitized SQL is per-query unique by structure even after literal substitution) |
 | `db.youtrackdb.gremlin.no_op` | bool | True when `command.isEmpty()` (YTDBCommandService short-circuit case); outer span uses `youtrackdb` catch-all classification | low |
 
 **Inner SQL span custom attribute (set by `InstrumentedSqlResultSet.close()`):**
@@ -499,7 +499,7 @@ When a Gremlin traversal embeds SQL via `g.yql(...)` or `g.command(...)`, the ou
    - Populate `db.youtrackdb.gremlin.dsl_method` from `callSteps.first().serviceName`; `statement_count` from `callSteps.size()`; `has_transaction_control` from any administrative statement presence; `statements_summary` when `statement_count > 1`.
 3. **Mixed shape** (`callSteps.size() >= 1 AND graphSteps.size() > 0`):
    - Run normal Path B classification on the graph steps (unchanged from D9).
-   - Add `db.youtrackdb.gremlin.has_graph_steps = true`, `db.youtrackdb.gremlin.statement_count`, and `db.youtrackdb.gremlin.embedded_sql.N` (N = 0..4, sanitized SQL from each `CallStep`).
+   - Add `db.youtrackdb.gremlin.has_graph_steps = true`, `db.youtrackdb.gremlin.statement_count`, and `db.youtrackdb.gremlin.embedded_sql.N` (N = 0..2, sanitized SQL from the first three `CallStep` entries; further entries dropped to bound cardinality).
 4. **Empty command** (`callSteps.first().parameters["command"]` is null or empty string): outer span classified as `youtrackdb` catch-all; `db.youtrackdb.gremlin.no_op = true`; `statement_count = 0`. No inner SQL span (YTDBCommandService short-circuits before `session.execute(...)`).
 5. **Pure graph-step traversal** (`callSteps.isEmpty()`): normal Path B classification, no `db.youtrackdb.gremlin.*` attributes set.
 
