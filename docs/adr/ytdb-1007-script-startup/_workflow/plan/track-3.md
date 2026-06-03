@@ -10,6 +10,7 @@ Track 3 ports the no-drift normalization path byte-for-byte: recompute the stamp
 
 ## Progress
 - [x] 2026-06-03T07:33Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-03T09:22Z [ctx=safe] Step 1 complete (commit 059207633f)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -19,11 +20,37 @@ Track 3 ports the no-drift normalization path byte-for-byte: recompute the stamp
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 
+- **§1.6(h) conformance harness now distinguishes three ls-walks** (Step 1):
+  the normalization recompute walk is a third `for f in $(ls …)` enumeration
+  alongside the two `STAMPED_SHAS` classification walks (drift, migrate-range).
+  The conformance extractors now key on what each walk builds, not its
+  position, and a dedicated test documents the recompute walk and pins its
+  glob set. Any future track adding a fourth §1.6(h) ls-walk must extend
+  `_extract_all_ls_walks` / `_extract_normalization_walk` or it trips the
+  recompute-walk uniqueness assertion. See Episodes §Step 1.
+- **Guard-2 porcelain parse truncates spaced paths** (Step 1): guard 2's
+  `git status --porcelain … | awk '{print $2}'` truncates the path of an
+  untracked file whose name contains a space, so such a dirty `_workflow/`
+  file could slip past the guard it exists to catch. The idiom is
+  byte-identical to `workflow-drift-check.md § No-drift normalization` and
+  within its fixed-template, no-metacharacter path-quoting assumption, so the
+  byte-source is the fix site, not this script. Relevant to Track 4 (which
+  rewrites the drift-check prose) and Phase 4. See Episodes §Step 1.
+
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
+
+- **RESULT_MISSING recovery via agent resume** (Step 1, gate-override): the
+  initial implementer spawn returned no RESULT block (budget exhaustion at
+  68/71 tests, mid-fix on the conformance reconciliation). The orchestrator
+  presented the `handle_result_missing` options; the user chose to resume the
+  same agent to finish rather than re-spawn fresh or discard, exercising a
+  recovery path the recovery doc does not formally list (YTDB-1053). The
+  resume completed the step's first attempt with a clean `RESULT: SUCCESS`.
+  See Episodes §Step 1.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -59,13 +86,74 @@ Ordering constraints and invariants to preserve (S3): the path fires only in `fu
 
 ## Concrete Steps
 
-1. No-drift normalization mutating path — in `detect_drift`'s no-drift branch, add the distinct-SHA fire gate, recompute `STAMPED_FILES`, line-1 rewrite to `DRIFT_BASE_SHA`, the two diff-shape guards, abort-restore (`exit 1`), the commit, and the success-`return` into `emit_json` (Plan of Work slices 1-4). Lands with all safety fixtures: success (one commit, line-1-only diff, valid `full` JSON, exit 0), uniform-stamp skip, guard-1 abort (pre-dirtied line-2+ body), guard-2 abort (dirty non-stamped `_workflow/` file), narrow-scope no-abort, and `divergence-only`/`migrate-range` no-mutate (slice 5). — risk: high (override: the script's only mutating path — autonomous `git commit` + working-tree rewrite under an all-or-nothing abort-restore; Phase A reviews surfaced one blocker plus three should-fixes on its correctness)  [ ]
+1. No-drift normalization mutating path — in `detect_drift`'s no-drift branch, add the distinct-SHA fire gate, recompute `STAMPED_FILES`, line-1 rewrite to `DRIFT_BASE_SHA`, the two diff-shape guards, abort-restore (`exit 1`), the commit, and the success-`return` into `emit_json` (Plan of Work slices 1-4). Lands with all safety fixtures: success (one commit, line-1-only diff, valid `full` JSON, exit 0), uniform-stamp skip, guard-1 abort (pre-dirtied line-2+ body), guard-2 abort (dirty non-stamped `_workflow/` file), narrow-scope no-abort, and `divergence-only`/`migrate-range` no-mutate (slice 5). — risk: high (override: the script's only mutating path — autonomous `git commit` + working-tree rewrite under an all-or-nothing abort-restore; Phase A reviews surfaced one blocker plus three should-fixes on its correctness)  [x] commit: 059207633f
 2. `actions_taken` + `normalization_landed` reporting — on the Step 1 success path set `DRIFT_NORMALIZATION_LANDED=true` and `ACTIONS_TAKEN_JSON` to a one-element entry naming the normalization commit (short SHA + subject); the `full`-mode emit already splices both. Fixtures: a successful normalization emits `full` JSON with `actions_taken` populated and `drift.normalization_landed=true`; the uniform-skip and no-drift paths keep `actions_taken=[]` and `normalization_landed=false` (S1: the only behavior delta vs today is the commit surfacing in `actions_taken`). — risk: medium (observability — populates the JSON reporting contract Track 1 stubbed; observable output change, no new mutation)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 059207633f, 2026-06-03T09:22Z [ctx=safe]
+**What was done:** The script's only mutating branch now lives in
+`no_drift_normalization()`, called from `detect_drift`'s empty-`git-log`
+(no-drift) branch. It ports `workflow-drift-check.md § No-drift
+normalization` byte-faithfully: the distinct-SHA fire gate (normalize only
+when the deduplicated stamp set exceeds one), the `STAMPED_FILES` recompute
+under the §1.6(h) enumeration, the `printf`+`tail` line-1 rewrite to
+`DRIFT_BASE_SHA`, guard 1 (reject any off-line-1 hunk) and guard 2 (reject
+any dirty `_workflow/` path the rewrite did not touch), the abort-restore
+(`git checkout -- $stamped_files` then `exit 1`), the all-or-nothing commit
+with the byte-identical `Normalize workflow-sha stamps to <short>` subject,
+and the success-`return` into `emit_json`. Success sets
+`DRIFT_NORMALIZATION_LANDED=true`. Six safety fixtures landed: success,
+uniform-stamp skip, guard-1 abort, guard-2 abort, narrow-scope no-abort, and
+reduced-mode no-mutate. Harness: 72/72.
+
+**What was discovered:** The normalization recompute walk is a third
+`for f in $(ls …)` loop byte-copying the §1.6(h) enumeration, which the
+source-conformance harness did not account for: its drift-walk selector
+matched two walks and three conformance tests failed. Reconciled without
+weakening the D7 byte-source contract: the classification-walk extractor now
+keys on the `STAMPED_SHAS` builders (the recompute walk builds
+`STAMPED_FILES`, never `STAMPED_SHAS`), and a new conformance test documents
+the recompute walk and pins its glob set to the canonical block. The
+byte-source's plain `git commit` writes its summary to stdout, which would
+corrupt the JSON channel, so the in-script commit uses `-q` (output
+suppression, not a subject or diff-shape change). Step-level review
+(hook-safety, consistency, context-budget; baseline skipped on the
+workflow-only diff) passed at iteration 1 with zero findings. It surfaced one
+shared-byte-source caveat out of scope for this step: guard 2's
+`awk '{print $2}'` truncates a porcelain path containing a space, so an
+untracked `_workflow/` file with a spaced name could slip past the guard it
+exists to catch. The idiom is byte-identical to `workflow-drift-check.md` and
+sits within its fixed-template, no-metacharacter path-quoting assumption, so
+the byte-source (Track 4's prose, Phase 4) is the fix site if the
+`_workflow/` naming convention ever admits spaces. Process note: the first
+implementer spawn exited with no RESULT block at 68/71 tests (mid-fix on the
+conformance reconciliation); recovery resumed the same agent to finish rather
+than discard the work (user-approved), exercising the resume-the-agent path
+the recovery doc does not yet list (YTDB-1053).
+
+**What changed from the plan:** None on the mutating path. One addition
+beyond the literal fixture list: a seventh conformance test plus two
+extractor helpers (`_extract_all_ls_walks`, `_extract_normalization_walk`) to
+keep the §1.6(h) conformance suite green now that the recompute walk is a
+third enumeration walk. Test-harness reconciliation, not a behavior-scope
+change.
+
+**Key files:** `.claude/scripts/workflow-startup-precheck.sh`
+(`no_drift_normalization()` plus the fire gate in `detect_drift`'s no-drift
+branch); `.claude/scripts/tests/test_workflow_startup_precheck.py` (six
+normalization fixtures plus the third-walk conformance test and extractor
+helpers).
+
+**Critical context:** `actions_taken` stays `[]` on the success path this
+step; populating the commit entry (short SHA plus subject) is Step 2's scope.
+`DRIFT_NORMALIZATION_LANDED` already flips `true` and `ACTIONS_TAKEN_JSON`'s
+default is declared, so Step 2's wiring point is ready. Any future track
+adding a fourth §1.6(h) ls-walk must extend the conformance extractors,
+keying on what the walk builds, not its position.
 
 ## Validation and Acceptance
 
