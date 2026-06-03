@@ -203,24 +203,33 @@ then drift, then handoffs, then state routing.
 3. **Present the drift gate** from `drift`. The script ran the
    `conventions.md` `§1.6(h)` artifact walk before steps below read
    those files, so a user-driven migration changes the on-disk
-   `_workflow/**` shape first. Branch on `drift.kind`:
-   - `drift.detected == false`, `kind` null: no stampable artifact on
-     disk. No gate; proceed.
-   - `kind == "stamped"` with `drift.detected == true`: real drift —
+   `_workflow/**` shape first. Branch on `drift.detected` first, then
+   sub-branch the `detected == true` kinds:
+   - `drift.detected == false` (either `kind` null, meaning no
+     stampable artifact on disk, or `kind == "stamped"`, meaning every
+     stamp is already current — the steady state for an up-to-date
+     branch): no actionable drift. No gate; proceed. The script may
+     have just normalized the stamps before reporting this state, so
+     check the normalization recital bullet below.
+   - `drift.detected == true`, `kind == "stamped"`: real drift —
      `commit_count` workflow commits sit past the stamp base
      (`base_sha`), with `first_commits` carrying the first ten
      `{sha, subject}`. Load
      workflow-drift-check.md:orchestrator,planner:2,3A and force its
      Migrate now / Defer / Suppress pick (no default). It also owns the
      Remote-authoritative re-entry note.
-   - `kind == "unstamped"`: one or more artifacts carry no line-1
-     stamp. Drift is signalled unconditionally; route to the
-     `/migrate-workflow` bootstrap that gathers a base SHA for the
-     unstamped set (the script never prompts — `conventions.md`
-     `§1.6(d)`).
-   - `kind == "merge-base-failed"`: a stamp sits on a pruned or
-     unreachable commit. Treat as the unstamped path — the
-     `conventions.md` `§1.6(c)` recovery prompt stays agent-side.
+   - `drift.detected == true`, `kind == "unstamped"`: one or more
+     artifacts carry no line-1 stamp. Drift is signalled
+     unconditionally; route to the `/migrate-workflow` bootstrap that
+     gathers a base SHA for the unstamped set. The script never prompts
+     (`conventions.md` `§1.6(d)`); the recovery is user-gated with no
+     default — the agent presents the bootstrap and the user supplies
+     the base SHA.
+   - `drift.detected == true`, `kind == "merge-base-failed"`: a stamp
+     sits on a pruned or unreachable commit. Treat as the unstamped
+     path — the `conventions.md` `§1.6(c)` recovery prompt stays
+     agent-side and is likewise user-gated with no default (the agent
+     surfaces the failing pair and the user supplies the base SHA).
    - **Recite any autonomous normalization.** When
      `drift.normalization_landed == true`, the script already landed
      its one self-authored commit (the no-drift stamp collapse). Read
@@ -669,7 +678,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md:orchestrator,reviewer-design,reviewer-plan:2)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`branch-divergence-check.md`** — the three-resolution divergence gate the Startup Protocol presents when `divergence.detected` is true (detection itself is the script's `--mode full`; this doc owns the local-authoritative / remote-authoritative / defer resolution UX); also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session
-- **`workflow-drift-check.md`** — the three-resolution drift gate the Startup Protocol presents when `drift.kind` is `stamped` with `detected` true (detection and the one autonomous normalization commit are the script's `--mode full`; this doc owns the Migrate now / Defer / Suppress resolution UX); the Remote-authoritative re-entry contract is one-sided pending a symmetric edit to `branch-divergence-check.md` — see the gate file's `## After the choice` section, *Remote-authoritative re-entry — forward-looking note* paragraph
+- **`workflow-drift-check.md`** — the three-resolution drift gate the Startup Protocol presents when `drift.kind` is `stamped` with `detected` true (detection and the one autonomous normalization commit are the script's `--mode full`; this doc owns the Migrate now / Defer / Suppress resolution UX); the Remote-authoritative re-entry contract is one-sided pending a symmetric edit to `branch-divergence-check.md`; see the gate file's `## After the choice` section, *Remote-authoritative re-entry — forward-looking note* paragraph
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md:orchestrator:3B and track-code-review.md:orchestrator,reviewer-dim-track:3C)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step inline `risk:` token from the `## Concrete Steps` roster line directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
