@@ -11,6 +11,7 @@ Track 4 rewrites the six prose surfaces to consume the script: `workflow.md § S
 ## Progress
 - [x] 2026-06-03T12:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-03T13:35Z [ctx=info] Step 1 complete (commit 92888ad18f)
+- [x] 2026-06-03T13:47Z [ctx=info] Step 2 complete (commit e62746d37a)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -46,6 +47,12 @@ at Phase 1. -->
   such refs in backticks. The two `rule_1` line-1-stamp residues every staged copy carries
   are expected and clear at the Phase 4 promotion — do not stamp staged copies. See
   Episodes §Step 1.
+- **`workflow-reindex.py` enforces a 120-char cap on `summary=` annotations (rule_5c),
+  affecting Steps 3-6.** Keep each reworded section-annotation and its matching TOC-table
+  row under 120 characters; over-cap annotations must be shortened in lockstep across both
+  sites. The guard-2 `awk '{print $2}'` space-truncation known-debt now lives only in the
+  staged `workflow-drift-check.md` Path-quoting note (R-A5), so Step 4's `§1.6(h)` pivot
+  must not duplicate-then-drop it. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -140,6 +147,18 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/mid-phase-handoff.md` (new staged copy)
 
 **Critical context:** The dispatch section is the single canonical startup entry point Track 5's two SKILLs defer to; it deliberately omits the SKILL-consumer list (A12 — that reconciliation is Track 5's job). The two `rule_1` line-1-stamp residues the reindex check reports on the staged copies are the normal staged-subtree state and clear when the Phase 4 promotion overwrites and re-stamps the live tree; do not stamp the staged copies to silence them.
+
+### Step 2 — commit e62746d37a, 2026-06-03T13:47Z [ctx=info]
+**What was done:** Shrank the staged `workflow-drift-check.md` from a gate implementation (~552 lines) to a reference doc (~414 lines). Replaced the inline two-phase Detection bash (the `§1.6(h)` stamp walk, the `git merge-base` fold, the `git log` range) and the inline No-drift normalization bash with citations of the live script's `--mode full` drift output: the Detection section now documents the `drift` object (`{detected, kind, base_sha, commit_count, first_commits, normalization_landed}`) and the five outcomes keyed off `drift.detected` and `drift.kind`, and the No-drift section cites the `actions_taken` normalization entry (`{action, commit, subject}`, `action == "normalize-workflow-sha-stamps"`). Kept the three-resolution conversational prose (Migrate now / Defer / Suppress) intact. Preserved the "Path-quoting assumption" note and extended it with the guard-2 `awk '{print $2}'` space-truncation known-debt (R-A5). Corrected the "the rewrite is staged" phrasing (A11), and genericized the dissolved `workflow.md` step-number cross-references (A9-style: the intro, the §After-the-choice next-step ref, and the Remote-authoritative re-entry note).
+
+**What was discovered:** The "the rewrite is staged" phrasing (A11) was not merely imprecise — the shipped script's own comment documents the opposite sequence: the normalization rewrites each stamp in place (`printf` + `tail`, never `git add`-ed) until both diff-shape guards pass, then stages and commits. The correction now matches the script. The reindex check also enforces a 120-char cap on section / TOC `summary=` annotations (rule_5c); two over-cap annotations were caught and shortened in lockstep with their TOC-table rows. Steps 3-6 authoring reference-doc summaries must keep each `summary=` annotation under 120 chars.
+
+**What changed from the plan:** none. Scope matched the step description (shrink, preserve-and-extend the Path-quoting note, the A11 correction, the A9-style cross-ref genericization).
+
+**Key files:**
+- `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/workflow-drift-check.md` (new staged copy)
+
+**Critical context:** The guard-2 `awk '{print $2}'` space-truncation known-debt now lives only in this file's Path-quoting note (R-A5); Step 4's `§1.6(h)` pivot must not duplicate-then-drop it. The single expected `rule_1` staged residue clears at Phase 4 promotion; do not stamp the staged copy.
 
 ## Validation and Acceptance
 
