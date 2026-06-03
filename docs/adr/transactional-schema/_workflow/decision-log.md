@@ -746,6 +746,8 @@ physical collection mutation. Decoupling removes that path, strengthens D9 from
 id-based, F15).
 
 ### D16 — Stable-base-keyed engine files; index rename is metadata-only
+**Status: deferred to follow-up YTDB-1066; v1 ships the metadata-only fix (D17).**
+
 From the assignee's steer (2026-06-03: "F28 should cause introduction of
 id-keyed engine files"), refined by the F29 feasibility check. Decouple an
 index engine's physical file-name base from its logical name and persist the
@@ -789,6 +791,24 @@ flowchart LR
   end
 ```
 
+### D17 — v1 does the metadata-only class-rename re-association; index-name rename deferred
+From the assignee (2026-06-03). Scope the v1 transactional-schema work to the
+metadata-only F28 fix and defer the base-keyed engine files (D16) to a
+follow-up. In v1, a class rename re-keys `classPropertyIndex` (old to new class
+name) and updates each affected definition's `className` (recursing composites,
+F30), then re-saves the per-index entity; the index keeps accelerating queries
+because the planner resolves by class name (F30). The index **name** is left
+unchanged, so an auto-named `Foo.email` reads cosmetically stale on class `Bar`
+but stays correct and accelerated. The inert index-name rename and a
+user-facing `ALTER INDEX … RENAME` (D16) move to follow-up **YTDB-1066**
+(depends on YTDB-382, relates to YTDB-1064).
+
+```mermaid
+flowchart LR
+  V1["v1 this work: metadata-only re-association"] --> A["index accelerates under new class name; name stays stale"]
+  FU["follow-up YTDB-1066 (D16): base-keyed engine files"] --> B["inert index-name rename + ALTER INDEX RENAME"]
+```
+
 ---
 
 ## 4. Open questions
@@ -797,12 +817,12 @@ flowchart LR
 (none — the architecture spine is settled; Q11 resolved by D16.)
 
 ### Resolved
-- **Q11 — Inert index rename / id-keyed engine files** → D16, with the F29
-  feasibility check. Index rename goes inert via a persisted stable file base
-  (engine id for new indexes, name for legacy, no file migration). F28's
-  class-rename association fix is metadata-only and independent of D16 (F30);
-  D16 additionally makes the index-**name** realignment inert. Drop+create (D9)
-  stays for genuine create/drop only.
+- **Q11 — Inert index rename / id-keyed engine files** → resolved by D17 for
+  v1 (metadata-only class-rename re-association; the index keeps accelerating,
+  the name stays stale) with D16 (base-keyed files, inert index-name rename)
+  deferred to follow-up **YTDB-1066**. F28's association fix is metadata-only
+  and independent of base-keyed files (F30); drop+create (D9) stays for genuine
+  create/drop only. Feasibility of the deferred work is in F29.
 - **Q1 — Target semantics.** Full transactional schema; single-writer via
   locking is the v1 boundary (D5). Cross-session isolation is record-local,
   same as data (D4).
