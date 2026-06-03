@@ -552,14 +552,16 @@ An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
 logically grounded in the cited entries. A second pass (2026-06-03, same day)
 targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
-F39–F41, all re-verified against live code.
+F39–F42, all re-verified against live code.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
 F38 → D7 (same-thread guard added); F39 → D3/D19 (lock-free inner engine
 primitives extracted; reconciliation never calls the public write-lock-taking
 methods); F40 → D15/D17 (rename-mutation third category; commit-only
-re-association); F41 → D8 (tx-local seed pinned to fromStream re-parse).
+re-association); F41 → D8 (tx-local seed pinned to fromStream re-parse);
+F42 → D2/D9 (provisional ids must split the `collectionId < 0` predicate;
+re-key the reverse map at commit).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -780,6 +782,54 @@ flowchart TD
   SHARE --> CORRUPT["owner.acquireSchemaWriteLock locks SHARED schema; ripple mutates committed objects (D4 violation)"]
 ```
 
+### F42 — Provisional negative collection ids collide with the pervasive `collectionId < 0` convention; the record→class resolver skips them [BLOCKER]
+D2 gives a new collection a "provisional (sentinel/negative) collection ID …
+mirror[ing] temp RIDs," and D9 constrains it only to be "disjoint from -1." But
+the negative-collection-id space is not free: the schema layer tests
+`collectionId < 0` (not `== -1`) and treats every negative as "no physical
+collection — skip." Representative sites: `SchemaShared.addCollectionClassMap:871`
+and `SchemaEmbedded.removeCollectionClassMap:506` (skip the reverse map),
+`SchemaEmbedded.checkCollectionsAreAbsent:355` and `addCollectionForClass:522`
+(skip uniqueness/assignment), `SchemaShared.checkCollectionCanBeAdded:317` (skip
+blob-collision), `SchemaClassImpl.renameCollection:1397` (skip file rename), plus
+storage bounds checks `collectionId < 0 || >= collections.size()`
+(`AbstractStorage:1526/:1570/:3793/:5456`). A provisional id of -2 is disjoint
+from -1 yet caught by every one.
+
+The load-bearing collision is the record→class resolver.
+`getClassByCollectionId(collectionId)` returns `collectionsToClasses.get(...)`
+(`SchemaShared:341`, `ImmutableSchema:285`), and that map skips negatives on
+population (`addCollectionClassMap:871`). It is called from the record read/write
+path on `rid.getCollectionId()` — `DatabaseSessionEmbedded:2035`/`:2065`/`:3360`/
+`:3455`, `EdgeEntityImpl:79`/`:110`, `JSONSerializerJackson:513`,
+`GremlinResultMapper:89`. So a record the tx inserts into its new (provisional)
+collection cannot resolve back to its class during the tx:
+`getClassByCollectionId(provisionalId)` is `null`, and the callers NPE or
+mis-handle. D9's "disjoint from -1" is necessary but nowhere near sufficient.
+
+The storage-side `< 0` bounds checks are safe — provisional ids never reach
+storage mid-tx (D1/D4) and are resolved to real ids before D3's reconciliation —
+but the in-memory schema maps are not.
+
+Resolution (D2/D9): split the `collectionId < 0` predicate three ways at the
+in-memory schema-map sites — abstract (`== -1`, skip), provisional (`<= -2`, treat
+as a pending real collection: populate `collectionsToClasses`, validate
+uniqueness), real (`>= 0`, today's path) — so the tx-local record→class resolver
+works for new-collection records. At commit, the provisional→real resolution (D2)
+must also re-key `collectionsToClasses` provisional→real; D2's patch list (class
+id-list + record RIDs) currently omits the reverse map. File-op and storage-bounds
+sites keep rejecting negatives (a provisional collection has no files and never
+reaches storage until resolved).
+
+```mermaid
+flowchart TD
+  INS["tx inserts record into new class: RID = (provisional ≤ -2, temp pos)"]
+  INS --> RES["read path: getClassByCollectionId(rid.getCollectionId())"]
+  RES --> MAP["collectionsToClasses.get(provisional) (SchemaShared:341)"]
+  MAP -- "addCollectionClassMap skipped negatives (:871)" --> NUL["null → NPE / mis-handle (DatabaseSessionEmbedded:2035, EdgeEntityImpl:79, …)"]
+  FIX["split < 0 into abstract(-1)/provisional(≤-2)/real(≥0); populate map for provisional; re-key provisional→real at commit"] --> OK["tx-local record→class resolves; commit patches reverse map"]
+```
+
 ---
 
 ## 3. Decisions
@@ -819,6 +869,17 @@ template — `ChangeableRecordId.setCollectionAndPosition(...)`
 form in place at commit, guarded by `assertIdentityChangedAfterCommit`. The
 provisional collection ID adds one prior step: resolve
 `provisionalCollectionId → realCollectionId` before record-position allocation.
+
+**Provisional ids collide with the `collectionId < 0` convention (F42).** The
+negative space is not free: the schema layer tests `collectionId < 0` (not
+`== -1`) in 11+ places and skips every negative, including the
+`collectionsToClasses` reverse map that `getClassByCollectionId` uses to resolve a
+record to its class. So provisional ids must be a disjoint sub-range (`<= -2`)
+**and** the in-memory schema maps must treat provisional ids as pending-real
+(populate the reverse map, validate uniqueness) while file/storage sites keep
+skipping them. The commit-time patch list above gains a fourth item: re-key
+`collectionsToClasses` provisional→real, alongside the class id-list, the record
+RIDs, and the provisional→real resolution step.
 
 ### D3 — Commit ordering: structural reconciliation before record allocation
 At commit, create/drop collections and indexes (driven by the commit's atomic
@@ -1023,7 +1084,11 @@ From the assignee, 2026-06-03. Collection id is the stable structural identity
 - **Abstract classes** carry `collectionIds = {-1}`, so their create/drop is
   pure metadata, no structural op. Constraint folded back into D2: provisional
   ids must use a sentinel range disjoint from `-1` (`NOT_EXISTENT_COLLECTION_ID`)
-  and `COLLECTION_ID_INVALID`.
+  and `COLLECTION_ID_INVALID`. Disjointness from `-1` is necessary but not
+  sufficient: the schema layer tests `collectionId < 0`, not `== -1`, so the
+  predicate must distinguish abstract (`-1`) from provisional (`<= -2`) at the
+  in-memory map sites, and the `collectionsToClasses` reverse map needs the
+  provisional entry to resolve a new collection's records to their class (F42).
 - **Indexes** diff by index identity from the index-manager record. Index
   rename reading as drop+create is acceptable — an index rebuilds with no data
   loss, unlike a collection — so indexes do not need the stable-id treatment
