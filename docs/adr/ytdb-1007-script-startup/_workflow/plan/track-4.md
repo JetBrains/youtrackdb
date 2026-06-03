@@ -15,7 +15,8 @@ Track 4 rewrites the six prose surfaces to consume the script: `workflow.md § S
 - [x] 2026-06-03T13:52Z [ctx=info] Step 3 complete (commit 169e3f7f55)
 - [x] 2026-06-03T13:58Z [ctx=info] Step 4 complete (commit 13214c4c86)
 - [x] 2026-06-03T14:04Z [ctx=info] Step 5 complete (commit 3a9cc84855)
-- [ ] Step implementation
+- [x] 2026-06-03T14:10Z [ctx=info] Step 6 complete (commit b97831dbc3)
+- [x] 2026-06-03T14:10Z [ctx=info] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -56,6 +57,14 @@ at Phase 1. -->
   sites. The guard-2 `awk '{print $2}'` space-truncation known-debt now lives only in the
   staged `workflow-drift-check.md` Path-quoting note (R-A5), so Step 4's `§1.6(h)` pivot
   must not duplicate-then-drop it. See Episodes §Step 2.
+- **All seven Track 4 staged copies are first-touch whole-file adds — Phase C must
+  delta-scope each (D5).** The cumulative track diff shows seven whole-file adds under
+  `_workflow/staged-workflow/.claude/`; the real change in each is only the `diff <live>
+  <staged>` delta. Phase C must compute that delta per copy and scope findings to it, since
+  the live-tree counterparts are already-reviewed develop-state content (the live tree is
+  untouched, I6). The seven files: `workflow.md`, `mid-phase-handoff.md`,
+  `workflow-drift-check.md`, `branch-divergence-check.md`, `conventions.md`,
+  `commit-conventions.md`, `migrate-workflow/SKILL.md`. See Episodes §Step 6.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -196,6 +205,18 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/workflow/commit-conventions.md` (new staged copy)
 
 **Critical context:** The new staged `commit-conventions.md` adds the sixth expected `rule_1` staged residue; it clears at Phase 4 promotion. Do not stamp the staged copy.
+
+### Step 6 — commit b97831dbc3, 2026-06-03T14:10Z [ctx=info]
+**What was done:** Rewrote both `§1.6(h)` byte-copy walks in the staged `migrate-workflow/SKILL.md` to consume `workflow-startup-precheck.sh --mode migrate-range`. Step 2.0's classification walk runs the script once, redirects stdout to a `/tmp` file, and reads `unstamped_files`; Step 2's range-derivation walk reads `base_sha`, `log_range`, and `merge_base_failed` from the same file via the `Read` tool's offset/limit (WB1 — `log_range` is uncapped), dropping the inline `git merge-base` fold. The agent-side merge-base-failure recovery loop is preserved verbatim (combined unstamped + `merge_base_failed[].files` re-prompt, drop the failed SHAs, session-wide 3-attempt cap, `--bootstrap-sha` re-invoke, restart the fold), since the script never prompts. The conversational unstamped-bootstrap prompt and the validation/retry prose are kept. First-touch copy-then-edit; the live SKILL is byte-unchanged.
+
+**What was discovered:** The script's `migrate-range` `merge_base_failed[]` entries already carry a resolved `files` array (the script resolves each failing SHA to its artifact paths via its own pair table), so the skill reads `merge_base_failed[].files` directly rather than re-resolving SHAs agent-side. The two `§1.6(h)` references in Steps 4.5 / 4.8 (the per-commit and final stamp-advance walks) are stamp *rewriting*, not range derivation, so they correctly stay agent-side and unchanged — only the two range-derivation byte-copies collapsed. D4's "four byte-copies → one" therefore holds: zero inline `ls`-walk blocks remain in the skill.
+
+**What changed from the plan:** none. Scope matched the step description (both walks rewritten, recovery loop preserved, the WB1 `/tmp`+`Read` pattern, the bootstrap prompt kept).
+
+**Key files:**
+- `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/skills/migrate-workflow/SKILL.md` (new staged copy)
+
+**Critical context:** The staged copy adds the seventh expected `rule_1` staged residue; it clears at Phase 4 promotion. Do not stamp the staged copy. All seven Track 4 staged copies are first-touch whole-file adds, so Phase C must compute a `diff <live> <staged>` per copy and scope findings to the delta (D5), not the whole-file add.
 
 ## Validation and Acceptance
 
