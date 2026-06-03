@@ -23,7 +23,9 @@ Other subsystems restructured to fit: the nested `QueryMetricsListener.QueryDeta
 
 In embedded mode the SDK resolution chain has three steps in priority order: host-provided via `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, then `GlobalOpenTelemetry.get()` if the host configured the global, then a YTDB-built SDK auto-configured from `OPENTELEMETRY_*` config when neither of the first two yielded a real instance. The flag is never inert; ownership is tracked so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process; an `OpenTelemetrySdk` built from the same config entries wires through a `ServerLifecycleListener`-based plugin.
 
-The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, OpenTelemetry logs integration, metrics integration, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract. The deep-mechanism content for the slow-query gate, the heartbeat sampler, the logs appender, and the metrics bridge lives in the [`design-mechanics.md`](design-mechanics.md) companion file; the four corresponding sections here keep the TL;DR, the configuration entries operators read at configure time, and a Mechanism overview paragraph pointing into the companion.
+Alongside the three pillars the PR also ships a quick-start observability stack under `youtrackdb-opentelemetry/examples/docker-compose/` so a first-time operator goes from clone to first span in under five minutes without assembling the Collector / Jaeger / Loki / Prometheus / Grafana wiring from upstream docs. The stack is example-files-only (zero source-code edits in `core`, `server`, or the OTel module), uses pinned image versions, ships three pre-provisioned Grafana dashboards (overview, queries, storage), and wires Jaeger → Loki and Jaeger → Prometheus correlators so clicking a span navigates to the matching logs and metrics filtered by `trace_id` and `service.name`. A smoke script (`scripts/smoke.sh`) runs a minimal embedded query and exits non-zero when any pillar fails to land within 30 seconds, giving the optional CI job a deterministic signal that the example stack and the YTDB-side wiring agree. § "Quick-start observability stack" below covers the full deliverable list and the production-vs-local-dev trade-offs the example deliberately makes.
+
+The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, OpenTelemetry logs integration, metrics integration, quick-start observability stack, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract. The deep-mechanism content for the slow-query gate, the heartbeat sampler, the logs appender, the metrics bridge, and the Collector pipeline shape of the quick-start stack lives in the [`design-mechanics.md`](design-mechanics.md) companion file; the five corresponding sections here keep the TL;DR, the configuration entries operators read at configure time, and a Mechanism overview paragraph pointing into the companion.
 
 ## Core Concepts
 
@@ -442,6 +444,16 @@ Initial attribute set (MVP):
 | `youtrackdb.transaction.tracking_id` | `FrontendTransaction.getExplicitTrackingId(): Optional<String>` — emits attribute iff `Optional.isPresent()`, i.e. iff the host called `withTrackingId(...)` | bounded by host discipline (the host's chosen ID string; host that templates UUIDs per request blows cardinality consciously) | the default fallback `String.valueOf(getId())` is NEVER emitted as an attribute — the OTel listener reads `getExplicitTrackingId()` and skips the attribute when `Optional.empty()`. No config flag: the explicit setter call IS the opt-in, by construction. |
 
 Cardinality policy. Every attribute in `db.youtrackdb.*` MUST be bounded: boolean, small integer (under ~20 distinct values), enum, or bounded-by-host-discipline (the host's explicit choice carries the cardinality risk consciously). The bound applies to the *attribute value*, not to the *attribute key* (the key set is closed, defined in this table). Trace backends typically index per attribute key per distinct value, so an unbounded value range translates directly to backend storage and query cost. The `youtrackdb.transaction.tracking_id` attribute is bounded-by-host-discipline: hosts who set a low-cardinality ID (`"req-batch-2026-06-02"`) get safe correlation; hosts who set a UUID per request blow cardinality and own that choice.
+
+Advisor-foundation namespace (`db.youtrackdb.advisor.*`). A reserved sub-namespace carrying low-cardinality boolean / small-int flags that an advisory dashboard (Phase 2 follow-up per D42) consumes to recommend operator-tunable settings. The flags are populated by the same classifier walk as the structural attributes above and follow the same bounded-cardinality policy. Initial set:
+
+| Attribute | Source | Cardinality | Recommendation downstream |
+|---|---|---|---|
+| `db.youtrackdb.advisor.full_scan` | SQL: target class has no index covering the WHERE predicate / Gremlin Path B: no index step lands in the bytecode walk | boolean | "Consider adding an index on `<class>.<property>`" |
+| `db.youtrackdb.advisor.cross_class_count` | SQL: multi-target FROM without join hints / Gremlin: multiple `V(...)` start steps | small int (0 = single-class baseline, ≥2 = multi-class candidate for split) | "Cross-class query may benefit from splitting into two indexed queries" |
+| `db.youtrackdb.advisor.large_result` | result count > `OPENTELEMETRY_QUERY_ADVISOR_LARGE_RESULT_THRESHOLD` (default `10000`) AND no `LIMIT`/`limit()` clause | boolean | "Unbounded query returned `<N>` rows; add LIMIT or pagination" |
+
+These flags carry zero implementation cost beyond the existing classifier walk (the `Classification` record gains three additional optional fields per D19's future-extension policy). The Phase 2 advisory dashboard reads them through standard span-attribute filtering and synthesizes recommendations; until then, operators with custom dashboards can already filter on these attributes to identify problematic queries.
 
 Out of MVP (high-cardinality, deferred to follow-up):
 
@@ -1003,6 +1015,92 @@ The full sem-conv v1.33.0 / `youtrackdb.*` counter inventory (two tables with st
 - D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task advancing YTDB-side `TimeRate`/`Ratio` independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
 - Invariants: Listener exception isolation (callback exceptions inside `ObservableInstrument` callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
 - Mechanics: [`design-mechanics.md §"Metrics integration"`](design-mechanics.md)
+
+## Quick-start observability stack (operator example)
+
+**TL;DR.** YTDB-496 ships a self-contained docker-compose example under `youtrackdb-opentelemetry/examples/docker-compose/` that brings up the full open-source OTel viewer stack (OTel Collector, Jaeger, Loki, Prometheus, Grafana) with one command, points YTDB at it via a sample `youtrackdb.properties`, and renders three pre-provisioned Grafana dashboards plus trace-to-logs and trace-to-metrics correlators. The example is the load-bearing surface that turns the seventeen `OPENTELEMETRY_*` config entries Track 5 ships into a five-minute clone-to-first-span experience. It exists for two operator-facing reasons (verifiable claim that YTDB-OTel works end-to-end across all three pillars; a working open-source path that matches the Jaeger / Tempo / Datadog backends the PR description names) and one engineering reason (a smoke script that exits non-zero when traces / logs / metrics fail to land, giving the optional CI job a deterministic signal).
+
+The stack is **example-files-only**: zero source-code edits in `core`, `server`, or the OTel module. Track 11 contributes a directory tree under `youtrackdb-opentelemetry/examples/docker-compose/` plus an optional, label-gated CI workflow under `.github/workflows/otel-example-smoke.yml`. The directory is excluded from the OTel module's Maven `<resources>` so `mvn package` does not copy the example into the built JAR; the example ships as source-tree files discovered by operators who clone the repo or browse the GitHub UI.
+
+Five services, each on a pinned image version with a healthcheck:
+
+| Service | Image (pinned) | Host port | Role |
+|---|---|---|---|
+| OTel Collector | `otel/opentelemetry-collector-contrib:0.110.0` | `4317` (gRPC), `4318` (HTTP) | Receives OTLP from YTDB; fans out to Jaeger, Loki, Prometheus exporter |
+| Jaeger | `jaegertracing/all-in-one:1.62` | `16686` | Traces UI; accepts OTLP from the Collector internally |
+| Loki | `grafana/loki:3.2.0` | `3100` | Logs backend; accepts OTLP HTTP from the Collector |
+| Prometheus | `prom/prometheus:v2.55.0` | `9090` | Metrics backend; scrapes the Collector's `/metrics` endpoint at 15-second interval |
+| Grafana | `grafana/grafana:11.3.0` | `3000` | UI with provisioned datasources and dashboards |
+
+Three pre-provisioned Grafana dashboards as committed JSON under `grafana/dashboards/`:
+
+- **Overview** — query span throughput, P50 / P95 / P99 latency, error rate, top 10 slowest queries (Jaeger embed sorted by duration), top 10 collections by span count, error-log rate from Loki, severity distribution pie.
+- **Queries** — per-operation breakdown (`db.operation.name` SELECT / INSERT / UPDATE / DELETE / MATCH), per-collection breakdown (`db.collection.name`), slow-query gate hit rate, and the six `db.youtrackdb.*` vendor-attribute distributions from D19 (`where_present`, `order_present`, `limit_present` ratio gauges plus `from_class_count`, `step_count`, `has_subtraversal` histograms).
+- **Storage** — the six metric groups from Track 8 (`queries`, `cache`, `storage`, `wal`, `locks`, `transactions`): cache hit ratio, page read rate, WAL pending bytes plus flush rate, lock-wait count, database size growth.
+
+Trace correlation: the Jaeger datasource carries a `tracesToLogsV2` correlator pointing at Loki by `trace_id` and a `tracesToMetrics` correlator pointing at Prometheus by `service.name`, so an operator clicking a span lands in the matching Loki query and Prometheus panel without manual query construction.
+
+Operator deliverables alongside the stack:
+
+- `README.md` walks an operator from clone to first span: prerequisites (Docker plus Compose v2), one-command bring-up (`docker compose up -d --wait`), link table to the four UIs, the YTDB-side `youtrackdb.properties` snippet that points YTDB at the local Collector, troubleshooting for three common failure modes (Collector won't start because port `4317` is taken; Grafana shows "no data" because YTDB has not run a query yet; Loki rejects logs because of an OTLP HTTP path mismatch), one-command tear-down.
+- `sample-youtrackdb.properties` carries every `OPENTELEMETRY_*` setting Track 5 introduces with the defaults Track 5 ships, plus commented-out lines for the gating entries operators commonly tune (`OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS`, `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS`, `OPENTELEMETRY_METRICS_PERIOD_MILLIS`, `OPENTELEMETRY_LOGS_MIN_SEVERITY`).
+- Four shell scripts under `scripts/`: `up.sh` and `down.sh` (thin wrappers around `docker compose up -d --wait` / `docker compose down -v`), `logs.sh` (`docker compose logs -f --tail=100`), and `smoke.sh` running a minimal embedded YTDB query against the stack and exiting non-zero if no spans land in Jaeger within 30 seconds.
+
+Hosted-backend substitution: operators on Honeycomb, Grafana Cloud, or Datadog substitute their exporter endpoint into `OPENTELEMETRY_EXPORTER_ENDPOINT`, drop their auth token into `OPENTELEMETRY_EXPORTER_HEADERS=Authorization=Bearer <token>`, and shut down the local stack (`scripts/down.sh`). The YTDB side does not change. The hosted-backend README is deferred to a follow-up ticket because each backend's auth scheme deserves its own setup notes the local-dev example would clutter.
+
+### Production-vs-local-dev trade-offs
+
+The stack targets local development and smoke testing, not production. Three deliberate omissions an operator productionizing YTDB-OTel must address before deployment:
+
+- **No authentication on the Collector's OTLP receivers**. A production Collector terminates TLS and authenticates the YTDB client. The example binds the receivers to `127.0.0.1` only so the local-only trade-off is safe; operators exposing the Collector beyond localhost MUST add `tls` and `auth` extensions to the Collector config.
+- **No retention or storage tuning**. Loki and Prometheus run with default retention (Loki 7 days, Prometheus 15 days) and filesystem storage. Production deployments use object-storage backends (S3 / GCS) and tuned retention; the example's default suits a workstation demo for hours-to-days of investigation.
+- **No alerting rules**. The example ships datasources and dashboards but no Grafana alert rules. The "queries with error rate above 1 percent" or "commit P99 above 100 ms" rules an operator wants are workload-dependent and stay out of the example. Track 11's README points at Grafana's alerting docs and links to the metric names the rules would target.
+
+### Component selection: why Jaeger and Loki (not Tempo, not Elasticsearch)
+
+Jaeger over Tempo for traces: simpler single-binary deployment (Tempo splits the ingester, querier, and compactor into three processes for production storage tiers, none of which a local-dev example needs), OTLP receiver native since Jaeger 1.35, built-in UI sufficient for the demo. Operators preferring Tempo substitute one image and the Collector's `otlp/jaeger` exporter; the YTDB side does not change.
+
+Loki over an Elasticsearch-style log backend for logs: works through the Collector's `otlphttp/loki` exporter without an additional Fluent Bit / Fluentd hop, and Grafana's Loki datasource is the same UI surface as the Jaeger and Prometheus datasources (one viewer, three signal types). An Elasticsearch backend would need a separate Kibana for the log UI, breaking the single-Grafana experience the dashboards rely on.
+
+### Edge cases / Gotchas
+
+- **Port `4317` already in use** (most common failure on developer laptops running other OTel-instrumented apps). `scripts/up.sh` checks the port before starting and prints a remediation hint (override via `OTLP_GRPC_HOST_PORT` env var that the compose file consumes for the host-side mapping).
+- **Grafana "no data" right after bring-up**. The stack is up but YTDB has not emitted yet because the host process is not running. The README's troubleshooting bullet covers this with the verification sequence: run `scripts/smoke.sh` first, which emits a known query and confirms a span lands in Jaeger before the operator-supplied workload runs.
+- **Image version drift over time**. The pinned tags chosen at Track 11 implementation time bind the example to one known-working set. The Collector config schema changes between minor versions; an unattended `latest` tag bump can silently break the example. Dependabot is not configured against this directory by design; a follow-up ticket (`YTDB-OTel-EXAMPLE-VERSIONS`) covers the periodic refresh with an explicit smoke-script gate.
+- **No interaction with `mvn package`**. The directory is excluded from the OTel module's Maven `<resources>` so the example does not ship inside the built JAR. Operators get the example by cloning the repo, not by depending on the published artifact.
+- **Coexistence with host-managed OTel stack**. A host running its own Collector / viewer combo SHOULD NOT also bring up the example stack; both compete for port `4317` and for `service.name="youtrackdb"`. The README documents the override path (env-var port remap plus `OPENTELEMETRY_SERVICE_NAME` change) and recommends leaving the example stack down in that case.
+
+### Future: advisory dashboards (Phase 2)
+
+The MVP dashboards (overview, queries, storage) are **diagnostic** — they show operator what is happening. A follow-up Phase 2 layer (separate ticket, post-YTDB-496) adds **advisory** dashboards that recommend operator-tunable settings based on observed metric and span-attribute patterns. The current PR ships the foundation for Phase 2 without shipping the dashboards themselves; the foundation is two pre-positioned additions that would otherwise require retrofitting Track 1 and Track 8.
+
+**Foundation in this PR (per D42):**
+
+1. **Four advisor-foundation metrics in Track 8** beyond the five baseline operator-diagnostic entries:
+   - `cache.eviction_rate` (mapped from `BUFFER_POOL_EVICTION_RATE`) — paired with `cache.hit_ratio`, lets advisory engine distinguish "buffer too small" (high eviction + low hit ratio) from "cold workload" (low eviction + low hit ratio); recommends `STORAGE_DISK_CACHE_BUCKET_SIZE` adjustment.
+   - `query.index_lookup_ratio` (mapped from `INDEX_LOOKUP_VS_FULL_SCAN_RATIO`) — per-database ratio of index lookups to full scans; recommends "add index on `<class>.<property>`" when sustained below threshold.
+   - `transaction.rollback_rate` (mapped from `TX_ROLLBACK_RATE`) — pre-existing `TransactionWriteRollbackRate` counter newly surfaced to OTel; recommends transaction-scope review when rollback rate is high relative to commit rate.
+   - `connection.pool_saturation` (mapped from `CONNECTION_POOL_SATURATION`) — current-vs-max ratio in `[0.0, 1.0]`; recommends `NETWORK_SOCKET_MAX_CONNECTIONS` bump when sustained above 0.8.
+
+   All four piggyback on writer-sites that already exist in the YTDB profiler (eviction site in `DiskCache`, index-step branch in the SQL execution layer, `TransactionWriteRollbackRate` increment site, `DatabaseSessionRegistry` active-count read). Track 8 surfaces them to OTel for the first time; the in-JVM profiler already exposed them via JMX and dump-environment.
+
+2. **The `db.youtrackdb.advisor.*` attribute namespace in §"Sem-conv attribute mapping" → "YouTrackDB vendor attributes (intro)"** carrying three boolean / small-int flags populated by the existing classifier walk (`full_scan`, `cross_class_count`, `large_result`). Each flag maps to a concrete recommendation operator-side ("add index", "split into two queries", "add LIMIT clause"). The flags carry zero implementation cost beyond the existing classifier walk because both classifiers already inspect index availability and result-size heuristics for other reasons.
+
+**What Phase 2 adds (deferred to follow-up ticket, NOT in this PR):**
+
+- **Recommendation dashboard** with Grafana stat panels driven by threshold rules — "Cache hit ratio < 80% for 1h" displays a recommendation text panel "Consider increasing `STORAGE_DISK_CACHE_BUCKET_SIZE` from 1024 to 2048".
+- **Tuning guide document** mapping every symptom (Grafana metric / advisor flag combination) to its `GlobalConfiguration` tunable with current default and recommended adjustment magnitude.
+- **Workload classification panels** synthesizing read-vs-write ratio, latency profile, and connection patterns into a workload class label (`OLTP-read-heavy`, `OLTP-write-heavy`, `analytics`, `mixed`) which the recommendation rules consume.
+- **Alert rules with runbook annotations** pointing at the tuning guide so PagerDuty / Slack alerts carry the same recommendation context the dashboards show.
+
+The Phase 2 deferral is intentional — alert thresholds, recommendation magnitudes, and workload-class boundaries need production data to calibrate. Shipping un-calibrated rules carries a real risk of operators acting on misleading recommendations during the first production rollout. The foundation lands now so Phase 2 is a pure addition on top, not a retrofit.
+
+### References
+- D-records: D41 (Quick-start observability stack lands inside YTDB-496 PR as an example-files-only deliverable; rationale below), D42 (advisory framework foundation: four metrics + three attribute flags pre-positioned for Phase 2 advisory dashboards)
+- Track: Track 11 (full deliverable list, validation criteria, in-scope file list, follow-up tickets); Track 8 (four advisor-foundation metrics); Track 1 (three advisor attribute flags on `Classification`)
+- Plan: [`plan/track-11.md`](plan/track-11.md)
+- Mechanics: [`design-mechanics.md §"Quick-start observability stack"`](design-mechanics.md) (Collector pipeline shape, trace-to-logs / trace-to-metrics correlator wiring, smoke-script verification semantics)
+- Follow-up tickets: `YTDB-OTel-ADVISORY-DASHBOARDS` (Phase 2 advisory dashboard implementation, tuning guide, alert rules, workload classification — calibration depends on production data)
 
 ## SDK lifecycle: embedded vs server
 

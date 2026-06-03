@@ -954,3 +954,146 @@ Change set (29 hunks across 9 files):
 **Findings**: 0 blockers introduced. Pre-existing fragmented-header should-fix carry-overs unchanged. The PR description still duplicates ~80% of design.md (N1 from the review report) and will be addressed in a follow-up commit + PR body rewrite (Mutation 56 if and when it lands; the design surface itself is consistent without it).
 
 **Iterations**: 1 of 1 (PASS — single batched mutation against an explicit external review report; mechanical cross-surface grep confirms no orphan `ConcurrentHashMap`-resolver-cache references or stale `OPENTELEMETRY_LOGS_*` entry counts remain).
+
+## Mutation 56 — 2026-06-03 — scope-add (implementation-plan.md + plan/track-11.md)
+
+**Diff summary**: Add Track 11 — Quick-start observability stack (docker-compose example) — at user request after they noticed the PR description names Jaeger / Tempo / Datadog as supported backends but the plan ships no working example operators can clone and run. The track is example-files-only under `youtrackdb-opentelemetry/examples/docker-compose/`; it touches zero source code in `core`, `server`, or the OTel module.
+
+Scope:
+
+1. **`docker-compose.yml`** with five pinned-version services (OTel Collector 0.110.0, Jaeger 1.62, Loki 3.2.0, Prometheus v2.55.0, Grafana 11.3.0), healthchecks, named volumes for Prometheus and Loki persistence, host port mappings for the four UIs (Grafana :3000, Jaeger :16686, Prometheus :9090, Loki :3100) plus the Collector's OTLP receivers (:4317 gRPC, :4318 HTTP).
+
+2. **Collector config** wiring three OTLP-receiver pipelines (traces → Jaeger, logs → Loki, metrics → Prometheus exporter scraped by Prometheus), with `batch` + `memory_limiter` + `resource` processors.
+
+3. **Three Grafana dashboards** as committed JSON: overview (throughput, latency P50/95/99, error rate, top slow queries), queries (per-operation and per-collection breakdown plus the six `db.youtrackdb.*` vendor-attribute distributions from D19), storage (the six metric groups from Track 8 — cache hit ratio, page read rate, WAL pending bytes + flush rate, lock-wait count, database size growth).
+
+4. **Provisioned datasources** with `tracesToLogsV2` and `tracesToMetrics` correlators so an operator clicking a Jaeger span lands in the matching Loki and Prometheus panels filtered by `trace_id` and `service.name`.
+
+5. **`README.md` + `sample-youtrackdb.properties`** giving operators a five-minute clone-to-first-span path; troubleshooting for the three common failure modes (Collector port collision, Grafana "no data" before the first query, Loki OTLP HTTP path mismatch).
+
+6. **Four shell scripts** (`up.sh`, `down.sh`, `logs.sh`, `smoke.sh`) with the smoke script exiting non-zero if no spans land in Jaeger within 30 seconds.
+
+7. **Optional, label-gated CI job** under `.github/workflows/otel-example-smoke.yml` running the smoke script against the example stack so the gate fires only on PRs that touch the OTel module or the example directory itself, not on the default pipeline.
+
+Rationale for landing inside YTDB-496 instead of as a follow-up ticket:
+
+- The seventeen `OPENTELEMETRY_*` config entries Track 5 introduces have no end-to-end verification surface unless an operator can stand up a real collector; shipping the pillars unverified leaves the first operator to try YTDB-OTel debugging upstream OTel docs.
+- The PR body already names Jaeger / Tempo / Grafana Cloud / Honeycomb / Datadog as supported backends. A working open-source example anchors the claim concretely.
+- The three pillars (traces from Tracks 1+3+4, logs from Track 7, metrics from Track 8) need an integrated viewer to demonstrate trace-to-logs / trace-to-metrics correlation, which requires the full stack to assemble.
+
+Naming choice — "Track 11" rather than "Track 9" — preserves the user's explicit numbering ask. The existing track set is 1, 2, 3, 4, 5, 6a, 6b, 6c, 7, 8 (ten checklist items); a future renumber to Track 9 is mechanical if requested.
+
+Change set (2 files):
+
+- `implementation-plan.md` (1 hunk): new Track 11 checklist entry inserted between Track 8 and `## Plan Review` with `>` description, `> **Scope:** ~5 steps` summary, and `> **Depends on:** Track 5, Tracks 1+3+4, Track 7, Track 8` line.
+- `plan/track-11.md` (new file, 162 lines): standard track-file shape — `## Purpose / Big Picture`, `## Progress`, `## Surprises & Discoveries`, `## Decision Log`, `## Outcomes & Retrospective`, `## Context and Orientation` (the twelve-deliverable list), `## Plan of Work` (five edits), `## Concrete Steps` (Phase A placeholder), `## Episodes`, `## Validation and Acceptance` (eight acceptance bullets), `## Idempotence and Recovery`, `## Artifacts and Notes` (three deliberate omissions for production; Jaeger-vs-Tempo and Loki-vs-Elasticsearch choice rationale; Maven-build no-interaction note), `## Interfaces and Dependencies` (in-scope file list, out-of-scope follow-ups, inter-track dependencies).
+
+Out of scope explicitly recorded in track-11.md:
+
+- Production deployment manifests (Kubernetes, Nomad, systemd) — separate follow-up tickets if operator demand surfaces.
+- Hosted-backend example configs (Honeycomb, Datadog, Grafana Cloud) — `OPENTELEMETRY_EXPORTER_HEADERS` already supports them but each auth scheme deserves its own README the local-dev example would clutter.
+- Helm charts for the observability stack itself — users on Kubernetes already run their own collector + UI stack.
+- Alerting rules and a Tempo-instead-of-Jaeger variant.
+
+PR body update is deferred per user's instruction; the design surface lands first and the PR description rewrite (if any) is a separate mutation.
+
+**Mechanical checks** (target=branch-modified surfaces, manual post-edit grep):
+- `Track 11` references appear in `implementation-plan.md` (checklist entry) and `plan/track-11.md` (header + body).
+- No `design.md` or `design-mechanics.md` edits; this is a pure scope-add on the plan side. The design surface (mechanisms, attributes, decision records) is unchanged by Track 11.
+- House-style sweep on `plan/track-11.md`: BLUF lead at every section opening, no banned vocabulary (`leverage`, `robust`, `delve`, `comprehensive`, `seamless`, `foster`, `multifaceted` etc. all absent), em-dash count 19 against a 32-cap baseline in `plan/track-1.md` — within repo voice.
+
+**Cold-read**: not executed in this skill run — Mutation 56 is a pure scope-add on the plan-side. The new track file is self-contained, the new checklist entry follows the established shape of Tracks 7 and 8, and the design.md / design-mechanics.md surfaces are not touched. A whole-doc cold-read on `plan/track-11.md` before the Phase 3 track execution starts is captured as a follow-up under the next mutation log entry if a structural-review pass discovers gaps.
+
+**Findings**: 0 blockers. Pre-existing fragmented-header should-fix carry-overs unchanged.
+
+**Iterations**: 1 of 1 (PASS — single mutation against an explicit user request with clear scope; no structural-review pass needed for a pure scope-add).
+
+## Mutation 57 — 2026-06-03 — section-add (design.md + design-mechanics.md + implementation-plan.md)
+
+**Diff summary**: Expand the design surface to cover Track 11's quick-start observability stack at the same depth as the three pillars. The Mutation 56 scope-add landed only the plan-side entry; user feedback ("musimy rozwinac design") asks for the deliverable to land in the design surfaces too so reviewers see the example stack alongside the traces / logs / metrics sections, not buried in a track file. Three surfaces touched.
+
+`design.md` changes:
+
+- **Overview** (line ~24-26): added a new paragraph between the SDK-resolution paragraph and the sections-list paragraph naming the docker-compose example, the five services, the three dashboards, the trace-to-logs / trace-to-metrics correlators, and the smoke script. The sections-list paragraph gets `quick-start observability stack` inserted into the comma-separated section enumeration and the count of mechanism-overview sections bumped from four to five (slow-query gate + heartbeat + logs appender + metrics bridge + Collector pipeline shape).
+- **New section "Quick-start observability stack (operator example)"** inserted between `## Metrics integration` and `## SDK lifecycle: embedded vs server`. Section shape follows the established TL;DR + tables + edge cases + References pattern. Contents: TL;DR with two operator-facing + one engineering reason for landing inside the PR; example-files-only invariant statement; five-service pinned-version table (Collector 0.110.0, Jaeger 1.62, Loki 3.2.0, Prometheus v2.55.0, Grafana 11.3.0); three-dashboard summary linked to D19 vendor attributes and Track 8 metric groups; trace-correlation paragraph (tracesToLogsV2, tracesToMetrics); operator deliverables (README, sample properties, four shell scripts); hosted-backend substitution paragraph; "### Production-vs-local-dev trade-offs" subsection with three deliberate omissions (no TLS/auth, no retention tuning, no alerting rules); "### Component selection: why Jaeger and Loki (not Tempo, not Elasticsearch)" subsection with the substitution path for operators preferring Tempo; "### Edge cases / Gotchas" subsection covering port 4317 collision, "no data" right after bring-up, image version drift, mvn package interaction, host-managed OTel coexistence; "### References" pointing at D41, Track 11, plan/track-11.md, and the design-mechanics.md companion.
+
+`design-mechanics.md` changes:
+
+- **New section "Quick-start observability stack"** appended after `## Metrics integration` (the last section in the file). Contents: opening paragraph framing the section as upstream-tool-specific operational detail that does not belong in design.md; "### Collector pipeline shape" with the full `otel-collector-config.yaml` snippet inline (three pipelines, four receivers/processors/exporters blocks) plus three order-of-operations notes (memory_limiter first; batch before resource; Prometheus is pull-not-push); "### Grafana datasource provisioning and correlator wiring" with the `datasources.yml` snippet inline and the load-bearing tracesToLogsV2 / tracesToMetrics correlator configuration explained; "### Dashboard placeholder strategy" covering the UID-placeholder + normalize-script author workflow; "### Smoke-script verification semantics" with the six-step poll sequence (bring up, run query, poll Jaeger, Loki, Prometheus, exit 0 or non-zero with diagnostic) and the 30 s timeout rationale (longer than batch timeout + exporter push + Prometheus scrape, with cold-start margin); "### Edge cases / Gotchas" covering Loki OTLP path mismatch (3.x vs 2.x), Prometheus scrape lag on a fresh stack, Collector resource processor `action: upsert` precedence, Jaeger Elasticsearch swap pointer, cardinality blow-up via per-tenant span names with the `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME=false` switch as the operator tuning; "### References" pointing at D41 and Track 11.
+
+`implementation-plan.md` changes:
+
+- **New D-record D41** inserted between D40 and `### Invariants`. Five sub-bullets: Decision (example-files-only, five pinned services, three dashboards, correlators, Maven `<resources>` exclusion); Rationale (three reasons: verification surface for the seventeen config entries, anchor for the PR description's named backends, integrated viewer for the three pillars + smoke script as deterministic CI signal); Alternatives considered (five rejected alternatives: defer to follow-up ticket, ship Helm charts, ship hosted-backend configs, ship Tempo instead of Jaeger, ship Grafana alert rules); Consequences (six consequence bullets covering Track 11 deliverables, smoke-script CI gate, pinned-image policy with the `YTDB-OTel-EXAMPLE-VERSIONS` follow-up ticket, three production omissions, port-collision coexistence); Implemented in (Track 11); Full design (design.md + design-mechanics.md pointers).
+
+Naming note: D41 is the next free D-record number (D40 is the most recent). The "Track 11" naming preserves user's M56 explicit choice; renumbering to Track 9 (the natural sequential next after Track 8 given the 6a/6b/6c split absorbed the Track 6 slot) is a mechanical follow-up if requested.
+
+PR description update remains deferred per user instruction from M56 ("nie zmieniaj na razie opisu pr tylko design"). The seventeen-config-entry count in the PR body is unaffected; the Track 11 deliverable adds zero new config entries (it consumes the existing OPENTELEMETRY_* surface).
+
+Change set (4 hunks across 3 files):
+
+- `design.md` (2 hunks): Overview lines 24-26 (insert example-stack paragraph, update sections-list enumeration); new section "Quick-start observability stack (operator example)" inserted between lines 1005 (end of `## Metrics integration` References) and 1007 (start of `## SDK lifecycle: embedded vs server`).
+- `design-mechanics.md` (1 hunk): new section "Quick-start observability stack" appended after line ~372 (end of `## Metrics integration` References).
+- `implementation-plan.md` (1 hunk): new D41 record inserted after D40's "Full design" line (line ~321) and before `### Invariants` (line ~323).
+
+**Mechanical checks** (target=branch-modified surfaces, manual post-edit grep):
+- `D41` cross-reference appears in design.md §"Quick-start observability stack" References, design-mechanics.md §"Quick-start observability stack" References, and implementation-plan.md (the D-record itself plus the Track 11 checklist entry referencing it).
+- `§"Quick-start observability stack"` appears in design.md Overview sections-list paragraph, the new section header, design-mechanics.md References-back-to-design.md, and design-mechanics.md new section header.
+- Image version pins (`0.110.0`, `1.62`, `3.2.0`, `v2.55.0`, `11.3.0`) appear consistently across design.md table, design-mechanics.md Collector config snippet, and the existing `plan/track-11.md`. Cross-file grep confirms no drift.
+- Smoke-script 30 s timeout: appears in design.md Edge cases bullet, design-mechanics.md "### Smoke-script verification semantics", and `plan/track-11.md` Validation and Acceptance acceptance bullet. Cross-file consistency: PASS.
+- House-style sweep on the new prose paragraphs: BLUF lead at every section opening; no banned vocabulary (`leverage`, `robust`, `delve`, `comprehensive`, `seamless`, `foster`, `multifaceted`, `tapestry` all absent); em-dash discipline spot-checked against the per-paragraph cap, with the highest concentration in the design.md Overview new paragraph (one em-dash: `clone to first span in under five minutes without assembling the Collector / Jaeger / Loki / Prometheus / Grafana wiring from upstream docs`) — within cap.
+
+**Cold-read**: not executed in this skill run — Mutation 57 is a pure section-add against an explicit user request. The new sections are self-contained, the cross-references are mechanical (D41 in three places, Track 11 in three places, image versions in three places), and the existing surfaces are unchanged below the insertion points. A whole-doc cold-read on design.md before Track 11 enters Phase A decomposition is captured as a follow-up under the next mutation log entry if a structural-review pass discovers gaps.
+
+**Findings**: 0 blockers. Pre-existing fragmented-header should-fix carry-overs unchanged.
+
+**Iterations**: 1 of 1 (PASS — single section-add against an explicit user follow-up request with clear scope; cross-file grep confirms D41, image versions, and the 30 s smoke-script timeout are consistent across all three surfaces; no design-mechanism contradictions introduced).
+
+## Mutation 58 — 2026-06-03 — scope-add (design.md + implementation-plan.md + plan/track-1.md + plan/track-8.md)
+
+**Diff summary**: Pre-position the foundation for Phase 2 advisory dashboards inside YTDB-496 by adding four advisor-foundation metrics to Track 8 and three advisor flags to Track 1's `Classification` record. The advisory dashboards themselves remain a follow-up ticket (`YTDB-OTel-ADVISORY-DASHBOARDS`) because threshold rules and recommendation magnitudes need production data to calibrate. User asked whether current dashboards are well-designed for purposes including future tuning recommendations; the honest assessment surfaced two gaps (missing metrics for buffer pool / index usage / rollback rate / connection saturation; missing attribute flags for full-scan / cross-class / large-result) that retrofit cost-justifies pre-positioning now.
+
+Decision logged as D42 in implementation-plan.md.
+
+`design.md` changes:
+
+- **§"Sem-conv attribute mapping" → "### YouTrackDB vendor attributes (intro)"**: added "Advisor-foundation namespace (`db.youtrackdb.advisor.*`)" subsection between the existing attribute table and the "Out of MVP" bullets. Three flags: `full_scan` (boolean — SQL target class has no index covering WHERE / Gremlin Path B walk finds no index step), `cross_class_count` (small int — multi-target FROM count without join hints), `large_result` (boolean — result count exceeds new `OPENTELEMETRY_QUERY_ADVISOR_LARGE_RESULT_THRESHOLD` default `10000` AND no LIMIT clause). Each flag maps to a concrete recommendation. Flags piggyback on the existing classifier walk with zero implementation overhead beyond the additional fields on `Classification`.
+- **§"Quick-start observability stack (operator example)"**: appended new subsection "### Future: advisory dashboards (Phase 2)" between "### Edge cases / Gotchas" and "### References". Documents (a) the Phase 1 diagnostic vs Phase 2 advisory split, (b) the four advisor-foundation metrics landing in Track 8 with their recommendation mappings, (c) the three advisor attribute flags landing in Track 1, (d) the Phase 2 follow-up scope (recommendation dashboard, tuning guide, workload classification, alert rules), (e) the explicit deferral rationale (threshold calibration needs production data). References section updated to cite D42 alongside D41, point at the new follow-up ticket name `YTDB-OTel-ADVISORY-DASHBOARDS`, and link to plan/track-8.md plus plan/track-1.md as the foundation-implementing surfaces.
+
+`implementation-plan.md` changes:
+
+- **New D-record D42** inserted between D41 and `### Invariants`. Five sub-bullets matching the established D-record shape: Decision (foundation lands now, dashboards as follow-up); Rationale (three reasons — retrofit cost, immediate operator usability, zero blocking on Phase 2 timing); Alternatives considered (four rejected — defer everything, ship dashboards now, metrics-only, attributes-only); Consequences (five bullets covering Track 8 scope growth from 5 to 9 new `CoreMetrics`, Track 1 `Classification` growth from 9 to 12 fields, attribute namespace reservation, Phase 2 follow-up bounded to UX layer, cardinality budget impact); Implemented in (Tracks 1 and 8 with concrete file references); Full design pointers.
+- **Track 1 checklist entry** updated: "eleven `QueryDetails` accessors" bumped to "fourteen", with the three new D42 accessor names added to the parenthetical list. `Classification` record summary updated to "extended with six structural fields per D19 plus three advisor flags per D42".
+- **Track 8 checklist entry** updated: "five new `MetricDefinition` entries" bumped to "nine", with the four D42 metric names added in the parenthetical. Total instrument count updated from 16 to 19. Test scope updated to cover the nine new CoreMetrics writer sites.
+
+`plan/track-1.md` changes:
+
+- **Deliverable 1 (`QueryDetails` accessors)**: added the three new advisor accessors (`getAdvisorFullScan`, `getAdvisorCrossClassCount`, `getAdvisorLargeResult`) to the accessor list with default-empty semantics matching the existing D19 accessors.
+- **Deliverable 3 (`Classification` record summary)** and **Plan of Work edit 3 narrative**: extended to mention the three advisor flags alongside the D19 structural fields, populated by the classifiers using index-availability and result-size heuristics.
+- **Java skeleton at line 205**: `Classification` record extended from nine fields to twelve with three new `Optional` fields (`advisorFullScan: Optional<Boolean>`, `advisorCrossClassCount: Optional<Integer>`, `advisorLargeResult: Optional<Boolean>`); `EMPTY` constant updated accordingly.
+
+`plan/track-8.md` changes:
+
+- **Deliverable 3b**: extended from five new `MetricDefinition` entries to nine. The four advisor-foundation entries documented with their writer-site origins: `BUFFER_POOL_EVICTION_RATE` (existing disk-cache eviction site, `TimeRate` 60s window), `INDEX_LOOKUP_VS_FULL_SCAN_RATIO` (new `metric.recordHit(boolean)` call at `IndexLookupStep.execute()` / fallback branches, `MetricScope.Database` `Ratio` matching existing `DiskCacheHitRatio` precedent), `TX_ROLLBACK_RATE` (existing `TransactionWriteRollbackRate` counter newly surfaced to OTel, `MetricScope.Database` `TimeRate`), `CONNECTION_POOL_SATURATION` (`Gauge<Double>` from `DatabaseSessionRegistry.getActiveCount()` / `NETWORK_SOCKET_MAX_CONNECTIONS`).
+- **Deliverable 4 (curated counter inventory)**: extended from 13 to 16 `youtrackdb.*` entries, adding `cache.eviction_rate`, `query.index_lookup_ratio`, `connection.pool_saturation` (the `transaction.rollback_rate` entry doubles as the advisor signal). Total instrument count grows from 16 to 19.
+- **Plan of Work edit 6 (JUnit tests)**: updated count from "all 16 entries — 3 sem-conv + 13 `youtrackdb.*`" to "all 19 entries — 3 sem-conv + 16 `youtrackdb.*` including the four D42 advisor-foundation entries". Test count for new `CoreMetrics` writer sites grew from five to nine.
+- **`Interfaces and Dependencies → In scope` block**: `CoreMetrics.java` entry updated from "five new `MetricDefinition` entries" to "nine new `MetricDefinition` entries: five operator-diagnostic plus four advisor-foundation per D42" with their writer-site layer additions called out (disk-cache, WAL, lock-wrapper, storage, SQL-execution-layer, session-registry).
+
+Change set (5 hunks across 4 files):
+
+- `design.md` (2 hunks): "Advisor-foundation namespace" subsection inserted into §"Sem-conv attribute mapping → vendor attributes (intro)"; "Future: advisory dashboards (Phase 2)" subsection appended to §"Quick-start observability stack" with References update.
+- `implementation-plan.md` (3 hunks): D42 record inserted after D41; Track 1 checklist scope-bullet updated (eleven → fourteen accessors, six → six+three Classification fields); Track 8 checklist scope-bullet updated (five → nine entries, 16 → 19 instruments, five → nine writer-site tests).
+- `plan/track-1.md` (3 hunks): deliverable 1 accessor list extended; deliverable 3 narrative extended; Java skeleton `Classification` record extended.
+- `plan/track-8.md` (4 hunks): deliverable 3b extended; deliverable 4 inventory updated; edit 6 test count updated; In-scope `CoreMetrics.java` description updated.
+
+**Mechanical checks** (target=branch-modified surfaces, manual post-edit grep):
+- `D42` references appear in design.md (References section + new subsection), implementation-plan.md (the record itself + Track 1 / Track 8 scope bullets + Track 11 D-record cross-citations), plan/track-1.md (record skeleton + narrative), plan/track-8.md (deliverable 3b + 4 + edit 6 + In-scope block).
+- Metric name consistency: `BUFFER_POOL_EVICTION_RATE`, `INDEX_LOOKUP_VS_FULL_SCAN_RATIO`, `TX_ROLLBACK_RATE`, `CONNECTION_POOL_SATURATION` appear identically in design.md (Phase 2 subsection), implementation-plan.md (D42 + Track 8 checklist), plan/track-8.md (deliverable 3b). No drift in naming.
+- Attribute flag consistency: `db.youtrackdb.advisor.full_scan`, `db.youtrackdb.advisor.cross_class_count`, `db.youtrackdb.advisor.large_result` appear identically in design.md (table) and implementation-plan.md (D42 + Track 1 scope).
+- Count consistency: `Classification` field count 12 (was 9) appears in plan/track-1.md skeleton and implementation-plan.md D42 Consequences. `QueryDetails` accessor count 14 (was 11) appears in implementation-plan.md Track 1 checklist and D42. `CoreMetrics` new entry count 9 (was 5) appears in plan/track-8.md (deliverable 3b + In-scope) and implementation-plan.md (Track 8 checklist + D42). Total instrument count 19 (was 16) appears in plan/track-8.md (deliverable 4 + edit 6) and implementation-plan.md (Track 8 checklist).
+- House-style sweep on new prose: BLUF lead at each new subsection opening; no banned vocabulary (`leverage`, `robust`, `delve`, `comprehensive`, `seamless`, `foster`, `multifaceted`, `tapestry` all absent); em-dash discipline within cap; advisor flag table follows the same shape as the existing vendor attributes table.
+
+**Cold-read**: not executed in this skill run — Mutation 58 is a pure scope-add pre-positioning Phase 2 foundation. Cross-file consistency is checked by mechanical grep (counts, names, references); no design-mechanism reversal or restructure. A whole-doc cold-read on design.md before Track 1 enters Phase A decomposition will catch any fragmentation introduced by the new subsection.
+
+**Findings**: 0 blockers. Pre-existing fragmented-header should-fix carry-overs unchanged.
+
+**Iterations**: 1 of 1 (PASS — single scope-add against an explicit user follow-up request with clear scope; cross-file grep confirms metric names, attribute names, Classification field count, QueryDetails accessor count, CoreMetrics entry count, and total instrument count are consistent across all four surfaces; no design-mechanism contradictions introduced).
