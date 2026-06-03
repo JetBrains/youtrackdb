@@ -448,7 +448,9 @@ The internal-class bootstrap runs inside `createMetadata`
 sibling subsystem creators. `SecurityShared.create` builds the
 Identity/OSecurityPolicy/ORole/OUser classes plus the `OUser.name` UNIQUE index
 through the normal schema API (`createClass`/`createProperty`/`createIndex`,
-`:602`–`:612`), **then** inserts the default roles and admin/reader/writer users
+inside the helpers — `createClass("OUser", …)` `:883`, the `OUser.name` index
+`:899`; `SecurityShared.create` at `:593`), **then** inserts the default roles
+and admin/reader/writer users
 in `session.executeInTx` blocks (`createDefaultRoles:628`, `createDefaultUsers`).
 
 The class-creation phase runs with **no active tx** — it cannot have one,
@@ -549,6 +551,10 @@ flowchart TD
 An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
 logically grounded in the cited entries.
+
+**Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
+invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
+F38 → D7 (same-thread guard added).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -656,9 +662,10 @@ mid-schema-tx out as a Non-Goal.
 ## 3. Decisions
 
 ### D1 — Invert the dependency: metadata-first, storage reconciles at commit
-**Flagged by F33 (blocker): the "read→write `stateLock` upgrade" below is not
-supported by `ScalableRWLock`; the exclusive-lock mechanism is unresolved
-pending Q12.**
+**Locking resolved by D19: a schema-carrying commit takes `stateLock.writeLock()`
+from the start (not a read→write upgrade — F33); pure-data commits keep the
+read-lock fast path. The "upgrade" wording in the Locking bullet below is
+superseded by D19.**
 
 Chosen direction (from the assignee, 2026-06-03). Today storage leads:
 create/drop collection/index at the storage level, then reflect it in the
@@ -671,9 +678,9 @@ metadata record. Invert it:
   and creates/drops the matching collections/indexes, driven by the commit's
   own atomic operation (F7, F8), so structural changes are atomic with the
   record writes.
-- **Locking:** a commit that carries schema changes upgrades from the shared
-  `stateLock` read lock to an exclusive write lock (F7), since it now mutates
-  storage structure.
+- **Locking:** a commit that carries schema changes takes the exclusive
+  `stateLock` write lock from the start (D19, not a read→write upgrade — F33),
+  since it now mutates storage structure.
 
 Resolves Q2 (allocation is deferred to commit; no eager-allocate-then-reclaim)
 and Q4 (architecture supplied). Shapes Q1 toward full transactional semantics.
@@ -692,9 +699,12 @@ provisional collection ID adds one prior step: resolve
 
 ### D3 — Commit ordering: structural reconciliation before record allocation
 At commit, create/drop collections and indexes (driven by the commit's atomic
-operation) *before* the record-position-allocation loop (`:2300+`). A record
-inserted into a new class can only get a position once its collection exists.
-Confirmed with the assignee.
+operation). Index-engine creation lands **before `lockIndexes` (`:2297`)** and
+collection creation **before the record-position-allocation loop (`:2300`)**: a
+record inserted into a new class can only get a position once its collection
+exists, and `lockIndexes` resolves engines by `indexId` and throws on `-1`, so
+"before the allocation loop" alone is too late for engines (F34). Confirmed with
+the assignee.
 
 ### D4 — Isolation is record-local, identical to data-record updates
 Schema mutations during a tx change only the tx's copies of the metadata
@@ -721,7 +731,10 @@ records (the schema record and index-manager record among them) and the index
 operations; `EntityImpl` already tracks per-property changes. Commit reads the
 old (persisted) metadata against the new (in-tx) metadata and derives the
 collection/index create/drop set from those property-level changes. No new
-tx-side bookkeeping. From the assignee, 2026-06-03.
+tx-side bookkeeping. Drops are detected from the schema-record link-set delta
+(D14), not from per-class property changes — a dropped class's record is
+deleted, so it has no per-property change to inspect (F37). From the assignee,
+2026-06-03.
 
 ### D7 — A dedicated, transaction-scoped metadata-write mutex
 Serialize schema/index-changing txns with a new exclusive lock (a
@@ -734,7 +747,10 @@ Serialize schema/index-changing txns with a new exclusive lock (a
 - **Acquire** when a tx first mutates schema or indexes; **release** in the
   `finally` of the outermost `session.commit()` / `session.rollback()`
   (`DatabaseSessionEmbedded:3131` / `:3253`; nested txs counted via
-  `amountOfNestedTxs()`). Held across the whole tx body.
+  `amountOfNestedTxs()`). Held across the whole tx body. **Guard (F38):** assert
+  the releasing thread equals the acquiring thread; a session migrated to
+  another thread mid-tx would make this `finally` release throw
+  `IllegalMonitorStateException`. v1 scopes mid-tx session migration out (F13).
 - **Does not block** data commits (`stateLock.readLock`) or snapshot-based
   schema reads (F12), so the low-rate → low-contention premise holds.
 - **At commit**, structural reconciliation additionally takes
@@ -829,7 +845,12 @@ IndexManager" framing.
   tx-created index (and D13's skip-unbuilt guard never fires) and
   `ClassIndexManager` will not enqueue its entries. This needs a new per-session
   routing seam for the index manager (a proxy or a session-level resolver),
-  since none exists today.
+  since none exists today. **Invariant (F35):** `ClassIndexManager` reads the
+  **cached** `this.indexes` set, materialized once at snapshot init
+  (`SchemaImmutableClass:165`/`:636`), so routing the index manager is necessary
+  but not sufficient — the tx-local snapshot must be force-rebuilt on every
+  mid-tx `createIndex`/`dropIndex`, or same-tx inserts into the new index are
+  silently untracked (the F32 failure mode).
 - **No D14-style split needed for indexes.** The index manager is *already*
   per-entity records: the manager record holds a `CONFIG_INDEXES` link set to
   per-index entities (F20). Changed index entities are naturally dirtied and
@@ -1056,28 +1077,44 @@ flowchart LR
   P2 --> C2["commit: ordinary record writes, no schema, no mutex"]
 ```
 
+### D19 — Schema-carrying commits take the write lock from the start; pure-data commits keep the read-lock fast path
+From the assignee (2026-06-03), resolving Q12 / F33. The commit decides at entry
+whether the tx carries schema or index changes (the same signal that engages the
+D7 metadata-write mutex and populates the changed-class / changed-index sets). A
+**schema-carrying commit takes `stateLock.writeLock()` from the start** instead
+of `readLock()`, so structural reconciliation (D1/D3) runs under the exclusive
+lock with no read→write upgrade and no interleaving window. A **pure-data
+commit keeps the `readLock()` fast path** (`AbstractStorage:2285`), retaining
+today's concurrency. This supersedes D1's "upgrade" framing.
+
+- **No upgrade, no deadlock window.** The exclusive lock is held for the whole
+  schema commit, so there is nothing to reconcile mid-commit and D7's ordering
+  proof (metadata-mutex → `stateLock.writeLock`) holds without the read-lock
+  caveat F33 raised.
+- **Cost bounded by the low schema-change rate (D5).** A schema commit excludes
+  concurrent data commits for its duration; acceptable because schema changes
+  are rare, the same premise that justifies D5/D7/D12.
+- **The branch point already exists.** The schema-carry check is the same signal
+  that engages the D7 mutex and builds the diff (D6); no new bookkeeping.
+
+```mermaid
+flowchart TD
+  CE["commit entry: does the tx carry schema/index changes?"]
+  CE -- no --> RD["readLock fast path (:2285): concurrent data commits (today's behavior)"]
+  CE -- yes --> WR["writeLock from the start: exclusive; reconcile structure (D1/D3); no upgrade"]
+```
+
 ---
 
 ## 4. Open questions
 
 ### Open
-- **Q12 — How does a schema-carrying commit take the exclusive lock without a
-  read→write upgrade? [from F33]** `stateLock` (`ScalableRWLock`) is
-  non-reentrant with writer preference and has no upgrade primitive, so D1's
-  "upgrade read→write" is impossible. Options: (A) for a schema-carrying commit,
-  take `stateLock.writeLock()` from the start instead of `readLock()` —
-  simplest, excludes concurrent data commits for the whole schema commit
-  (acceptable given the low schema-change rate, D5); (B) release the read lock
-  and re-acquire the write lock mid-commit, analyzing the interleaving window
-  for isolation and atomicity; (C) other. Blocks finalizing D1/D3/D7.
-
-```mermaid
-flowchart LR
-  Q12["schema-carrying commit needs exclusive lock"] --> OA["A: writeLock from the start (coarse, simple)"]
-  Q12 --> OB["B: release read, acquire write mid-commit (window to analyze)"]
-```
+(none — the architecture spine is settled; Q11 resolved by D16, Q12 by D19.)
 
 ### Resolved
+- **Q12 — Exclusive lock for schema-carrying commits** → D19 (writeLock from the
+  start for schema commits; read-lock fast path for pure-data commits; resolves
+  the F33 no-upgrade blocker).
 - **Q11 — Inert index rename / id-keyed engine files** → resolved by D17 for
   v1 (metadata-only class-rename re-association; the index keeps accelerating,
   the name stays stale) with D16 (base-keyed files, inert index-name rename)
