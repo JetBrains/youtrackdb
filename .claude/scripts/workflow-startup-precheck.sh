@@ -663,6 +663,271 @@ scan_handoffs() {
 }
 
 # ---------------------------------------------------------------------------
+# Resume-state determination — the markdown walk over the plan file and the
+# active track file that reproduces the precedence in workflow.md § Startup
+# Protocol step 5.
+#
+# Byte-source: workflow.md § Startup Protocol step 5 (the prose precedence
+# table). The top-level precedence is:
+#
+#   * State 0 first — an absent plan file, an absent `## Plan Review` section,
+#     or a `## Plan Review` first top-level checkbox still `[ ]` means plan
+#     review has not passed. Checked before any track walk.
+#   * Otherwise walk `## Checklist` for the first `[ ]` track. A track file
+#     present at `plan/track-N.md` is State C (mid-track resume); absent is
+#     State A (pre-Phase-A — the rare path, since /create-plan writes every
+#     track file at Phase 1 and the only track-file-deleting action leaves the
+#     track `[~]`, not `[ ]`).
+#   * Every track `[x]`/`[~]` — read `## Final Artifacts`' first top-level
+#     checkbox: `[ ]`/`[>]` is State D (Phase 4), `[x]` is Done.
+#
+# This step lands the top-level walk only; the State C sub-state map and the
+# section-discrepancy edge land in later steps of this track, so State C here
+# reports a null substate. STATE_JSON is the `{phase, substate}` object the
+# emit point splices into `full`-mode output via --argjson (the track's
+# Interfaces contract); divergence/drift/handoffs are unaffected.
+#
+# The markers read are the conventions.md § 1.2 § Status markers set
+# (`[ ]` / `[x]` / `[~]` / `[>]`) plus the roster/Progress `[!]` failed-step
+# marker (step-implementation-recovery.md) that § 1.2's table omits but a later
+# step's State C failed-step sub-state depends on. `[!]` is recognized, not an
+# error. The enum stays closed: an unrecognized glyph (`[X]`, `[ x]`, `[]`,
+# etc.) on a checkbox line the parser reads is an explicit parse error on
+# stderr with a non-zero exit, before any `state` is emitted — never silently
+# coerced into a state. Because determine_state runs in the main shell (no
+# subshell), the parse_error `exit` terminates the script before emit_json, so
+# the malformed-marker path emits no JSON on stdout.
+#
+# determine_state sets STATE_JSON (a compact JSON object) directly rather than
+# writing scalars for a *_json assembler, because the object is small and the
+# phase/substate shape is self-contained; the single emit point still owns
+# splicing it into the mode output.
+# ---------------------------------------------------------------------------
+
+# Output of determine_state, consumed by emit_json's full branch. Defaults to
+# null so a mode that skips state determination (divergence-only, migrate-range)
+# emits `state: null` via the ${STATE_JSON:-null} guard at the emit point.
+STATE_JSON=""
+
+# Print a parse-error diagnostic naming the section and offending line, then
+# exit non-zero. Called for any unrecognized checkbox glyph on a line the state
+# parser reads. The exit terminates the whole script (determine_state runs in
+# the main shell), so no `state` — and no JSON at all — reaches stdout. The
+# diagnostic goes to stderr so it never contaminates the JSON channel.
+parse_error() {
+  local section="$1" line="$2"
+  printf 'workflow-startup-precheck: malformed checkbox marker in %s: %s\n' \
+    "$section" "$line" >&2
+  exit 3
+}
+
+# Classify a single bracketed checkbox glyph, echoing a normalized token the
+# caller branches on. The recognized set is the § 1.2 markers plus the `[!]`
+# failed-step marker:
+#   " " -> "todo"   "x" -> "done"   "~" -> "skip"   ">" -> "wip"   "!" -> "fail"
+# Any other glyph echoes "BAD" so the caller routes it to parse_error with the
+# section/line context (classify_marker itself has no context to name). The
+# glyph is matched exactly — a multi-character or empty bracket body (`[ x]`,
+# `[]`) falls through to "BAD", so `[]`/`[ x]`/`[X]` are all rejected.
+classify_marker() {
+  case "$1" in
+    " ") printf 'todo' ;;
+    "x") printf 'done' ;;
+    "~") printf 'skip' ;;
+    ">") printf 'wip' ;;
+    "!") printf 'fail' ;;
+    *) printf 'BAD' ;;
+  esac
+}
+
+# Set SECTION_TOKEN to the normalized token of the FIRST top-level checkbox line
+# within a named section of the plan file. "Top-level" means a `- [<glyph>]`
+# list item at column 0 (no leading whitespace, no leading `>` blockquote), and
+# outside a fenced code block. The section runs from its `## <heading>` line to
+# the next `## ` heading (or EOF). Used for `## Plan Review` and `## Final
+# Artifacts`, each of which carries exactly one decision checkbox as its first
+# list item.
+#
+# Sets SECTION_TOKEN to the classify_marker token for that checkbox, or the
+# empty string when the section is absent or carries no top-level checkbox. On a
+# malformed glyph it calls parse_error, naming the section.
+#
+# This sets a script-scoped variable rather than echoing to stdout *on purpose*:
+# parse_error must `exit` the whole script before any JSON reaches stdout, and a
+# command substitution `$(...)` would run the body in a subshell whose `exit`
+# only kills the subshell, leaving the main script to continue and emit a state.
+# Setting a global keeps parse_error's exit in the main shell. (The detection
+# functions above follow the same write-plain-shell-variables idiom.)
+#
+# Args: $1 = plan file path; $2 = section heading text (e.g. "Plan Review").
+SECTION_TOKEN=""
+section_first_checkbox_token() {
+  local file="$1" section="$2"
+  local in_section="0" in_fence="0" line body
+  SECTION_TOKEN=""
+  # IFS= and -r keep leading whitespace and backslashes intact so the column-0
+  # anchor test (no leading space) is accurate.
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Toggle fenced-code state on a ``` fence (``` or ```lang). A checkbox-shaped
+    # line inside a fence is template text, not a real marker, so it is skipped.
+    case "$line" in
+      '```'*)
+        if [ "$in_fence" = "1" ]; then in_fence="0"; else in_fence="1"; fi
+        continue
+        ;;
+    esac
+    if [ "$in_fence" = "1" ]; then
+      continue
+    fi
+    if [ "$in_section" = "0" ]; then
+      # Enter the section on its exact `## <heading>` line.
+      if [ "$line" = "## $section" ]; then
+        in_section="1"
+      fi
+      continue
+    fi
+    # In-section: a new `## ` heading ends the section without a checkbox found.
+    case "$line" in
+      "## "*)
+        return
+        ;;
+    esac
+    # Match a column-0 top-level checkbox attempt `- [<body>] ...` where the
+    # closing `]` is followed by a space or end-of-line. The trailing `] `/EOL
+    # guard distinguishes a checkbox from a markdown link `- [text](url)` (whose
+    # `]` is followed by `(`), so a prose link as the first list item is not
+    # misread as a checkbox. A blockquoted (`> - [x]`) or indented checkbox is
+    # not column-0 and does not match, so an episode's quoted checkbox is never
+    # miscounted. The body is then classified: a single recognized glyph yields
+    # a token; an empty (`[]`), multi-char (`[ x]`), or single-unrecognized
+    # (`[X]`) body is BAD and routes to parse_error — the enum stays closed.
+    case "$line" in
+      "- ["*"] "* | "- ["*"]")
+        # Body is everything between `- [` and the FIRST `]`.
+        body="${line#- [}"
+        body="${body%%]*}"
+        SECTION_TOKEN="$(classify_marker "$body")"
+        if [ "$SECTION_TOKEN" = "BAD" ]; then
+          parse_error "## $section" "$line"
+        fi
+        return
+        ;;
+    esac
+  done < "$file"
+}
+
+determine_state() {
+  # Resolve the active plan dir from the current branch per § 1.6(g), the same
+  # resolution detect_drift / scan_handoffs use.
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  local plan_dir="docs/adr/${branch}"
+  local plan_file="$plan_dir/_workflow/implementation-plan.md"
+
+  # --- State 0: plan review not passed -------------------------------------
+  # An absent plan file is State 0 (no plan to review against). An absent
+  # `## Plan Review` section or a first-checkbox `[ ]` is also State 0; both
+  # mean plan review has not passed (workflow.md step 5 row 1: "section missing
+  # entirely" is treated identically to an unchecked entry).
+  if [ ! -f "$plan_file" ]; then
+    STATE_JSON='{"phase":"0","substate":null}'
+    return
+  fi
+  section_first_checkbox_token "$plan_file" "Plan Review"
+  if [ "$SECTION_TOKEN" != "done" ]; then
+    # Empty token (absent section / no checkbox) or "todo" (`[ ]`) -> State 0.
+    # A "wip"/"skip" glyph on the Plan-Review checkbox is not a defined shape,
+    # but it is still not "passed", so it collapses to State 0 here rather than
+    # inventing a state; the parse-error guard already rejects unrecognized
+    # glyphs upstream.
+    STATE_JSON='{"phase":"0","substate":null}'
+    return
+  fi
+
+  # --- Walk the Checklist for the first [ ] track --------------------------
+  # Top-level track lines are `- [<glyph>] Track N:` at column 0 (no leading
+  # `>`), bounded between `## Checklist` and the next `## ` heading, and outside
+  # a fenced code block. A checkbox token inside a blockquoted episode (the
+  # `> **Track episode:**` block carries `- [x]`-shaped lines) sits under a
+  # leading `>` so it is not column-0 and is excluded; a fenced template block
+  # (e.g. a mermaid or bash fence) is skipped by the fence toggle. The first
+  # `[ ]` track is the resume target.
+  local in_checklist="0" in_fence="0" line glyph token track_num=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '```'*)
+        if [ "$in_fence" = "1" ]; then in_fence="0"; else in_fence="1"; fi
+        continue
+        ;;
+    esac
+    if [ "$in_fence" = "1" ]; then
+      continue
+    fi
+    if [ "$in_checklist" = "0" ]; then
+      if [ "$line" = "## Checklist" ]; then
+        in_checklist="1"
+      fi
+      continue
+    fi
+    case "$line" in
+      "## "*)
+        break
+        ;;
+    esac
+    # A column-0 `- [<body>] Track <N>:` line. The `] Track ` tail anchors it to
+    # a real track entry (not an arbitrary checkbox or a markdown link), and the
+    # column-0 `- [` prefix excludes blockquoted episode checkboxes. The body is
+    # everything up to the first `]`; classify_marker rejects an empty / multi-
+    # char / single-unrecognized body as BAD so a malformed track marker
+    # (`- [] Track 1:`, `- [ x] Track 1:`, `- [X] Track 1:`) is a parse error,
+    # the same closed-enum rule the section helper applies.
+    case "$line" in
+      "- ["*"] Track "*)
+        glyph="${line#- [}"
+        glyph="${glyph%%]*}"
+        token="$(classify_marker "$glyph")"
+        if [ "$token" = "BAD" ]; then
+          parse_error "## Checklist" "$line"
+        fi
+        if [ "$token" = "todo" ]; then
+          # First [ ] track: capture its number from `Track <N>:`.
+          local tail
+          tail="${line#*Track }"
+          track_num="${tail%%:*}"
+          break
+        fi
+        ;;
+    esac
+  done < "$plan_file"
+
+  if [ -n "$track_num" ]; then
+    # First [ ] track found: State A (no track file) or State C (track file
+    # present). substate is null at this step — the State C sub-state map lands
+    # in a later step of this track.
+    local track_file="$plan_dir/_workflow/plan/track-${track_num}.md"
+    if [ -f "$track_file" ]; then
+      STATE_JSON='{"phase":"C","substate":null}'
+    else
+      STATE_JSON='{"phase":"A","substate":null}'
+    fi
+    return
+  fi
+
+  # --- No [ ] track: every track is [x]/[~] -> Final Artifacts decides -----
+  # State D (Phase 4 pending: `[ ]` or `[>]`) vs Done (`[x]`). An absent
+  # `## Final Artifacts` section or no checkbox collapses to State D (Phase 4
+  # has not completed), matching workflow.md step 5's "Phase 4 is `[ ]`" row as
+  # the not-yet-Done default.
+  section_first_checkbox_token "$plan_file" "Final Artifacts"
+  if [ "$SECTION_TOKEN" = "done" ]; then
+    STATE_JSON='{"phase":"Done","substate":null}'
+  else
+    # "todo"/"wip" (`[ ]`/`[>]`), absent section, or no checkbox -> State D.
+    STATE_JSON='{"phase":"D","substate":null}'
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # The single JSON emit point — the one site that knows the JSON shape, so the
 # contract has exactly one authoring home (the one-contract-home invariant).
 #
@@ -734,11 +999,13 @@ drift_json() {
 emit_json() {
   # Detection functions write the plain shell variables this function reads.
   # Divergence (DIVERGENCE_*), drift (DRIFT_* + the STAMPED_SHAS /
-  # UNSTAMPED_FILES classification), and the handoff scan (HANDOFFS_JSON) are
-  # populated; emit assembles them via divergence_json, drift_json, and the
-  # HANDOFFS_JSON array literal. The state parser lands in a later track, so
-  # `state` is still JSON null. actions_taken stays an empty array (a later
-  # track wires the no-drift normalization commit into it).
+  # UNSTAMPED_FILES classification), the handoff scan (HANDOFFS_JSON), and the
+  # state walk (STATE_JSON) are populated; emit assembles them via
+  # divergence_json, drift_json, the HANDOFFS_JSON array literal, and the
+  # STATE_JSON object literal. The state walk fills the top-level phase
+  # (0/A/C/D/Done) with a null substate; the State C sub-state map lands in a
+  # later step of this track. actions_taken stays an empty array (a later track
+  # wires the no-drift normalization commit into it).
   #
   # ACTIONS_TAKEN_JSON is a JSON array literal so callers that record an
   # autonomous mutation can replace the empty `[]` without re-threading the
@@ -751,11 +1018,14 @@ emit_json() {
 
   case "$MODE" in
     full)
-      # `state` is JSON null in this scaffold; the state parser fills it in a
-      # later track. The null literal is injected via --argjson so jq treats
-      # it as the JSON value null, not the string "null". `handoffs` is the
-      # scan_handoffs array literal (the empty array when no handoff is
-      # pending), spliced via --argjson so the ls -t mtime order survives.
+      # `state` is the determine_state STATE_JSON object (phase 0/A/C/D/Done
+      # with a null substate at this step). The ${STATE_JSON:-null} guard at the
+      # call below keeps `state: null` for a mode/path that skips the state
+      # walk, so the object is injected via --argjson and jq treats either a
+      # real object or the literal null as a JSON value, never the string
+      # "null". `handoffs` is the scan_handoffs array literal (the empty array
+      # when no handoff is pending), spliced via --argjson so the ls -t mtime
+      # order survives.
       jq -n \
         --argjson actions_taken "$actions_taken_json" \
         --argjson divergence "$divergence_obj" \
@@ -828,6 +1098,7 @@ case "$MODE" in
     detect_divergence
     detect_drift
     scan_handoffs
+    determine_state
     ;;
   divergence-only)
     detect_divergence

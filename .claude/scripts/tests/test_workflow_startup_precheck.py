@@ -412,15 +412,18 @@ def test_unknown_arg_exits_nonzero() -> None:
 
 
 def test_full_mode_pinned_shape() -> None:
-    """`--mode full` emits valid JSON, exits 0, and carries the pinned scaffold
-    shape: the five top-level keys, `handoffs` an empty array, `state` JSON
-    null (the seam the state parser fills later), and `actions_taken` an empty
-    array (the seam the no-drift normalization wiring fills later).
+    """`--mode full` emits valid JSON, exits 0, and carries the pinned top-level
+    shape: the five top-level keys, `handoffs` an empty array, `actions_taken` an
+    empty array (the seam the no-drift normalization wiring fills later), and
+    `state` a `{phase, substate}` object (the state walk fills `state`; the
+    fixture has no plan file, so the resolved phase is State 0).
 
-    Runs inside a clean GitFixture because `full` now performs divergence
-    detection — a bare-cwd run would `git fetch` the runner's real upstream
+    Runs inside a clean GitFixture because `full` performs divergence detection
+    — a bare-cwd run would `git fetch` the runner's real upstream
     (network-dependent and slow on CI). The fixture keeps the shape assertion
-    hermetic; its divergence content is covered separately above."""
+    hermetic; its divergence content is covered separately above. The state
+    content (each phase) is covered by the State 0/A/C/D/Done tests below; here
+    only the key set and the state-object shape are pinned."""
     with GitFixture() as fx:
         fx.commit("init")
         fx.add_bare_remote()
@@ -438,8 +441,12 @@ def test_full_mode_pinned_shape() -> None:
     assert obj["actions_taken"] == [], (
         f"full actions_taken should be [], got {obj['actions_taken']!r}"
     )
-    # `state` must be JSON null, not the string "null" or any object yet.
-    assert obj["state"] is None, f"full state should be null, got {obj['state']!r}"
+    # `state` is now the state-walk object, not the scaffold's null seam. With no
+    # plan file in the fixture, the phase resolves to State 0 with a null
+    # substate (the top-level walk does not populate substate at this step).
+    assert obj["state"] == {"phase": "0", "substate": None}, (
+        f"full state should be the State 0 object (no plan file), got {obj['state']!r}"
+    )
 
 
 def test_divergence_only_mode_pinned_shape() -> None:
@@ -1291,24 +1298,418 @@ def test_handoffs_empty_when_none_present() -> None:
         )
 
 
-def test_state_stub_is_json_null_in_full_mode() -> None:
-    """`full` mode emits `state` as JSON `null` — the seam the state parser
-    fills later. Asserted with `is None` (a strict null check, not a falsy
-    check) so a regression to the string "null" or an empty object is caught.
-    Pinning the stub as exactly JSON null keeps the later state-parser change a
-    clean null -> object diff: the stub shape must be JSON null here, not an
-    empty object or the string "null"."""
+# ---------------------------------------------------------------------------
+# Resume-state determination — the top-level State 0/A/C/D/Done precedence walk.
+#
+# `full` mode now walks the active plan file (and, for State A vs C, probes for
+# the active track file) to reproduce the precedence in workflow.md § Startup
+# Protocol step 5, reporting `state.phase` (0/A/C/D/Done) with a null substate
+# (the State C sub-state map and the section-discrepancy edge land in later
+# steps of this track). Each fixture composes a plan body with the relevant
+# `## Plan Review` / `## Checklist` / `## Final Artifacts` markers, stamps it at
+# a real HEAD commit (so the drift half of the same `full` run is a clean
+# all-stamped no-drift read rather than noise), and asserts the `state` object.
+# Byte-source: workflow.md § Startup Protocol step 5.
+# ---------------------------------------------------------------------------
+
+
+def _state(proc: subprocess.CompletedProcess) -> dict:
+    """Parse the `state` object from a full-mode run, asserting the run itself
+    exited 0 first so a script error surfaces as a clear message rather than a
+    downstream KeyError on the state key."""
+    assert proc.returncode == 0, (
+        f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+    )
+    obj = json.loads(proc.stdout)
+    return obj["state"]
+
+
+def _plan_doc(plan_review: str, checklist: str, final_artifacts: str) -> str:
+    """Compose a plan-file body from its three state-bearing sections. Each
+    argument is the section's content lines (the `## <heading>` line is added
+    here); pass the empty string to omit a section entirely. Composing the body
+    rather than hardcoding whole-file strings keeps each fixture's intent visible
+    in the one section it varies."""
+    parts: List[str] = []
+    if plan_review:
+        parts.append(f"## Plan Review\n{plan_review}")
+    if checklist:
+        parts.append(f"## Checklist\n{checklist}")
+    if final_artifacts:
+        parts.append(f"## Final Artifacts\n{final_artifacts}")
+    return "\n\n".join(parts) + "\n"
+
+
+# A passed `## Plan Review` section — the precondition for every non-State-0
+# test (State 0 is the only state where plan review has not passed).
+PLAN_REVIEW_PASSED = "- [x] Plan review (consistency + structural) — passed"
+
+
+def test_state_0_absent_plan_file() -> None:
+    """State 0, shape 1 of 3: no plan file at the resolved PLAN_DIR. With no
+    `implementation-plan.md` to review against, the walk reports State 0 before
+    reading any section. The fixture writes no plan artifact at all (only a
+    commit + upstream so the divergence/drift halves of `full` run hermetically)
+    so PLAN_DIR resolves but the plan file is absent."""
     with GitFixture() as fx:
         fx.commit("init")
         fx.add_bare_remote()
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "0", "substate": None}, (
+            f"absent plan file must be State 0, got {state!r}"
+        )
+
+
+def test_state_0_plan_review_unchecked() -> None:
+    """State 0, shape 2 of 3: the plan file exists and `## Plan Review`'s first
+    top-level checkbox is `[ ]` (review not yet passed). State 0 is checked
+    before any track walk, so the `[ ]` Plan-Review entry forces State 0
+    regardless of the track checkboxes below it."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        body = _plan_doc(
+            "- [ ] Plan review (not yet passed)",
+            "- [x] Track 1: done\n- [ ] Track 2: pending",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "0", "substate": None}, (
+            f"unchecked Plan Review must be State 0, got {state!r}"
+        )
+
+
+def test_state_0_plan_review_section_absent() -> None:
+    """State 0, shape 3 of 3: the plan file exists but has no `## Plan Review`
+    section at all. workflow.md step 5 row 1 treats "section missing entirely"
+    identically to an unchecked entry, so an absent section is State 0 even
+    when the track checklist below it looks resumable."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        body = _plan_doc(
+            "",  # no ## Plan Review section
+            "- [ ] Track 1: pending",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "0", "substate": None}, (
+            f"absent Plan Review section must be State 0, got {state!r}"
+        )
+
+
+def test_state_A_first_todo_track_no_track_file() -> None:
+    """State A: Plan Review passed, the first `[ ]` track has no `plan/track-N.md`
+    on disk. State A is the rare path (every track file is written at Phase 1;
+    the only track-file-deleting action leaves the track `[~]`, not `[ ]`), but
+    the walk implements it for parity and the manual-delete / corruption case.
+    Here Track 1 is `[x]` and Track 2 is the first `[ ]`; no track-2.md is
+    written, so the walk reports State A."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [x] Track 1: done\n- [ ] Track 2: pending",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        # No plan/track-2.md authored, so the first [ ] track has no track file.
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "A", "substate": None}, (
+            f"first [ ] track with no track file must be State A, got {state!r}"
+        )
+
+
+def test_state_C_first_todo_track_with_track_file() -> None:
+    """State C: Plan Review passed, the first `[ ]` track (Track 2) HAS a
+    `plan/track-2.md` on disk — the steady-state mid-track resume case. substate
+    is null at this step (the State C sub-state map lands in a later step). The
+    track number is parsed from the `Track 2:` tail, so the probed track file is
+    `plan/track-2.md`, not `plan/track-1.md`."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [x] Track 1: done\n- [ ] Track 2: pending",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        # The first [ ] track is Track 2, so author plan/track-2.md.
+        fx.plan_artifact("plan/track-2.md", stamp=head, body="# Track 2\n")
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": None}, (
+            f"first [ ] track with a track file must be State C, got {state!r}"
+        )
+
+
+def test_state_C_track_number_drives_track_file_probe() -> None:
+    """The State A/C decision probes `plan/track-<N>.md` for the *specific* first
+    `[ ]` track number, not track-1 by default. Track 1 is `[~]` (skipped), Track
+    2 is `[x]`, Track 3 is the first `[ ]`; only `plan/track-3.md` exists. The
+    walk must parse N=3 from the `Track 3:` tail and find track-3.md to report
+    State C — a default-to-track-1 probe would miss it and wrongly report State
+    A."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [~] Track 1: skipped\n- [x] Track 2: done\n- [ ] Track 3: pending",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        # Only track-3.md exists; the walk must probe track-3, not track-1.
+        fx.plan_artifact("plan/track-3.md", stamp=head, body="# Track 3\n")
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": None}, (
+            f"the probe must target the first [ ] track's number (3), got {state!r}"
+        )
+
+
+def test_state_D_all_tracks_done_phase4_pending() -> None:
+    """State D: every track is `[x]` or `[~]` (no `[ ]` track), and `## Final
+    Artifacts`' first checkbox is `[ ]` (Phase 4 not yet done). The walk finds no
+    `[ ]` track, falls through to Final Artifacts, and reports State D. A `[~]`
+    track counts as done for the all-tracks-done test."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [x] Track 1: done\n- [~] Track 2: skipped",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "D", "substate": None}, (
+            f"all tracks done + Phase 4 [ ] must be State D, got {state!r}"
+        )
+
+
+def test_state_D_phase4_in_progress() -> None:
+    """State D also covers a Phase 4 marked `[>]` (in progress): an interrupted
+    Phase 4 session resumes in State D, not Done. The `[>]` glyph is recognized
+    (it is the § 1.2 in-progress marker) and resolves to State D, distinct from
+    the `[x]` Done case below."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [x] Track 1: done",
+            "- [>] Phase 4: Final artifacts (in progress)",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "D", "substate": None}, (
+            f"all tracks done + Phase 4 [>] must be State D, got {state!r}"
+        )
+
+
+def test_state_done_phase4_complete() -> None:
+    """Done: every track is `[x]`/`[~]` and `## Final Artifacts` is `[x]`. The
+    walk finds no `[ ]` track and a `[x]` Phase 4 checkbox, so it reports Done —
+    the only state distinguished from State D by the Final-Artifacts glyph."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [x] Track 1: done\n- [x] Track 2: done",
+            "- [x] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "Done", "substate": None}, (
+            f"all tracks done + Phase 4 [x] must be Done, got {state!r}"
+        )
+
+
+def test_state_checklist_anchors_to_top_level_track_lines() -> None:
+    """The Checklist walk anchors to column-0 `- [<m>] Track N:` lines. A
+    blockquoted episode checkbox (`> - [ ] ...`) under a completed Track 1 must
+    NOT be miscounted as the first `[ ]` track. Track 1 is `[x]` with a
+    blockquoted `> - [ ]`-shaped episode line beneath it; Track 2 is the real
+    first `[ ]`. With track-2.md present the walk must report State C anchored on
+    Track 2 — a walk that counted the quoted `> - [ ]` would resolve the wrong
+    (or no) track. A fenced code block containing a `- [ ]` template line is
+    likewise skipped."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        checklist = (
+            "- [x] Track 1: done\n"
+            "  > **Track episode:**\n"
+            "  > - [ ] a quoted checkbox inside an episode, NOT a track entry\n"
+            "  > - [x] Track 99: a quoted line that mimics a track entry\n"
+            "\n"
+            "```bash\n"
+            "- [ ] a checkbox-shaped template line inside a fence\n"
+            "```\n"
+            "- [ ] Track 2: the real first [ ] track"
+        )
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED, checklist, "- [ ] Phase 4: Final artifacts"
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        fx.plan_artifact("plan/track-2.md", stamp=head, body="# Track 2\n")
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": None}, (
+            "the walk must anchor on the column-0 Track 2 line, not the "
+            f"blockquoted or fenced checkbox-shaped lines, got {state!r}"
+        )
+
+
+def _state_parse_error(body: str) -> subprocess.CompletedProcess:
+    """Run `--mode full` against a plan body and return the completed process so
+    the caller can assert the parse-error contract (non-zero exit, no stdout
+    JSON, a stderr diagnostic). Shared by the malformed-marker cases below."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        fx.plan_artifact("implementation-plan.md", stamp=fx.head_sha(), body=body)
+        return run_precheck("--mode", "full", cwd=fx.path)
+
+
+def test_state_malformed_marker_is_parse_error() -> None:
+    """An unrecognized checkbox glyph on a line the state parser reads is an
+    explicit parse error: non-zero exit, NO JSON on stdout, and a stderr
+    diagnostic naming the section and the offending line — never a coerced
+    state. The enum stays closed (no sixth `phase` value). Three malformed
+    bodies are checked across the two reading sites: `[X]` (single unrecognized
+    glyph), `[]` (empty body), and `[ x]` (multi-char body), each in `## Plan
+    Review` and once in `## Checklist`. A `[!]` marker is NOT malformed (it is
+    the recognized failed-step marker) and is checked separately below."""
+    cases = [
+        # (description, plan body, expected section in the stderr message)
+        (
+            "Plan Review [X]",
+            _plan_doc("- [X] Plan review", "- [ ] Track 1: x", "- [ ] Phase 4"),
+            "## Plan Review",
+        ),
+        (
+            "Plan Review [] (empty body)",
+            _plan_doc("- [] Plan review", "- [ ] Track 1: x", "- [ ] Phase 4"),
+            "## Plan Review",
+        ),
+        (
+            "Plan Review [ x] (multi-char body)",
+            _plan_doc("- [ x] Plan review", "- [ ] Track 1: x", "- [ ] Phase 4"),
+            "## Plan Review",
+        ),
+        (
+            "Checklist [X] on a track line",
+            _plan_doc(PLAN_REVIEW_PASSED, "- [X] Track 1: x", "- [ ] Phase 4"),
+            "## Checklist",
+        ),
+        (
+            "Checklist [] on a track line",
+            _plan_doc(PLAN_REVIEW_PASSED, "- [] Track 1: x", "- [ ] Phase 4"),
+            "## Checklist",
+        ),
+        (
+            "Final Artifacts [X]",
+            _plan_doc(PLAN_REVIEW_PASSED, "- [x] Track 1: done", "- [X] Phase 4"),
+            "## Final Artifacts",
+        ),
+    ]
+    for desc, body, section in cases:
+        proc = _state_parse_error(body)
+        assert proc.returncode != 0, (
+            f"{desc}: malformed marker must exit non-zero, got {proc.returncode}"
+        )
+        assert proc.stdout.strip() == "", (
+            f"{desc}: malformed marker must emit NO stdout JSON, got {proc.stdout!r}"
+        )
+        assert "malformed checkbox marker" in proc.stderr, (
+            f"{desc}: stderr must name the malformed marker, got {proc.stderr!r}"
+        )
+        assert section in proc.stderr, (
+            f"{desc}: stderr must name the section {section!r}, got {proc.stderr!r}"
+        )
+
+
+def test_state_bang_marker_is_recognized_not_malformed() -> None:
+    """A `[!]` failed-step marker is RECOGNIZED, not a parse error — it is the
+    roster/Progress failed-step glyph (step-implementation-recovery.md) that a
+    later step's State C failed-step sub-state depends on. Here a Track 1 line
+    carrying `[!]` does not abort the parse; the walk treats `[!]` as a
+    non-`[ ]` (not-the-first-todo) marker and continues to the first genuine
+    `[ ]` track (Track 2), reporting a valid state rather than exiting. This pins
+    that `[!]` is inside the closed enum, distinct from the malformed glyphs
+    above."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [!] Track 1: a failed-step marker, recognized\n- [ ] Track 2: pending",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        fx.plan_artifact("plan/track-2.md", stamp=head, body="# Track 2\n")
         proc = run_precheck("--mode", "full", cwd=fx.path)
         assert proc.returncode == 0, (
-            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+            f"[!] is recognized, the run must exit 0, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
         )
-        obj = json.loads(proc.stdout)
-        assert obj["state"] is None, (
-            f"full mode state must be JSON null (the state-parser seam), got "
-            f"{obj['state']!r}"
+        state = json.loads(proc.stdout)["state"]
+        # Track 1 is [!] (not the first [ ]); Track 2 is the first [ ] and has a
+        # track file -> State C. The point is the run did NOT parse-error on [!].
+        assert state == {"phase": "C", "substate": None}, (
+            f"[!] must be recognized and the walk continue, got {state!r}"
+        )
+
+
+def test_state_real_track_file_fixture() -> None:
+    """At least one state fixture is cut from a REAL on-disk track file shape:
+    the continuous-log `## Progress` section and a numbered `## Concrete Steps`
+    roster, not an idealized four-checkbox block, so coverage tracks the real
+    artifact shape this branch's own track files carry. The top-level walk only
+    reads the plan file's `## Checklist` to reach State C; this fixture confirms
+    a realistically-shaped track file on disk drives the State A/C decision to C.
+    (The State C sub-state map that actually reads `## Progress` /
+    `## Concrete Steps` lands in a later step; this pins the realistic shape is
+    present and accepted at the top-level walk.)"""
+    real_track_body = (
+        "<!-- a real track file carries a continuous-log Progress section and a\n"
+        "     numbered Concrete Steps roster, not a fixed four-checkbox block -->\n"
+        "# Sample track with a realistic on-disk shape\n\n"
+        "## Progress\n"
+        "- [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete\n"
+        "- [ ] Step implementation\n"
+        "- [ ] Track-level code review\n"
+        "- [ ] Track completion\n\n"
+        "## Concrete Steps\n\n"
+        "1. First roster entry — risk: medium  [ ]\n"
+        "2. Second roster entry — risk: medium  [ ]\n"
+    )
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [x] Track 1: done\n- [ ] Track 2: a track with an on-disk file",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        # The track file uses the real continuous-log + roster shape (its line 1
+        # is a comment, so plan_artifact's stamp goes above it; the state walk
+        # does not read this file's body at the top-level step, only its
+        # presence, but the realistic shape guards future sub-state reads).
+        fx.plan_artifact("plan/track-2.md", stamp=head, body=real_track_body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": None}, (
+            f"a realistically-shaped track file on disk must drive State C, got {state!r}"
         )
 
 
@@ -1588,7 +1989,19 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
     ("handoffs_reported_in_mtime_order_newest_first", test_handoffs_reported_in_mtime_order_newest_first),
     ("handoffs_empty_when_none_present", test_handoffs_empty_when_none_present),
-    ("state_stub_is_json_null_in_full_mode", test_state_stub_is_json_null_in_full_mode),
+    ("state_0_absent_plan_file", test_state_0_absent_plan_file),
+    ("state_0_plan_review_unchecked", test_state_0_plan_review_unchecked),
+    ("state_0_plan_review_section_absent", test_state_0_plan_review_section_absent),
+    ("state_A_first_todo_track_no_track_file", test_state_A_first_todo_track_no_track_file),
+    ("state_C_first_todo_track_with_track_file", test_state_C_first_todo_track_with_track_file),
+    ("state_C_track_number_drives_track_file_probe", test_state_C_track_number_drives_track_file_probe),
+    ("state_D_all_tracks_done_phase4_pending", test_state_D_all_tracks_done_phase4_pending),
+    ("state_D_phase4_in_progress", test_state_D_phase4_in_progress),
+    ("state_done_phase4_complete", test_state_done_phase4_complete),
+    ("state_checklist_anchors_to_top_level_track_lines", test_state_checklist_anchors_to_top_level_track_lines),
+    ("state_malformed_marker_is_parse_error", test_state_malformed_marker_is_parse_error),
+    ("state_bang_marker_is_recognized_not_malformed", test_state_bang_marker_is_recognized_not_malformed),
+    ("state_real_track_file_fixture", test_state_real_track_file_fixture),
     ("conformance_glob_set_matches_canonical", test_conformance_glob_set_matches_canonical),
     ("conformance_anchored_regex_matches_canonical", test_conformance_anchored_regex_matches_canonical),
     ("conformance_drift_walk_carries_no_stamped_pairs", test_conformance_drift_walk_carries_no_stamped_pairs),
