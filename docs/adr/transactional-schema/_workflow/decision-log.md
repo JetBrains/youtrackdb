@@ -441,6 +441,64 @@ flowchart TD
   OPT --> COS["cosmetic: planner does not parse index names"]
 ```
 
+### F31 — Genesis bootstrap relies on per-op self-commit and no active tx; D1/D7 force it into explicit transactions
+The internal-class bootstrap runs inside `createMetadata`
+(`DatabaseSessionEmbedded:441`) during session create: `metadata.init` then
+`shared.create(this)`, which drives `SecurityShared.create` (`:594`) and the
+sibling subsystem creators. `SecurityShared.create` builds the
+Identity/OSecurityPolicy/ORole/OUser classes plus the `OUser.name` UNIQUE index
+through the normal schema API (`createClass`/`createProperty`/`createIndex`,
+`:602`–`:612`), **then** inserts the default roles and admin/reader/writer users
+in `session.executeInTx` blocks (`createDefaultRoles:628`, `createDefaultUsers`).
+
+The class-creation phase runs with **no active tx** — it cannot have one,
+because `createIndex` forbids it (F21), and the per-op self-commit
+(`saveInternal`, F2/F3) is what materializes each class/collection/index before
+the next step. The data-insert phase is a separate tx that runs only after the
+classes are already committed. So genesis today is "auto-committing schema ops,
+then a data tx."
+
+Interaction with D1/D7/D8:
+
+- **The bootstrap must become tx-aware.** D1 removes per-op self-commit and the
+  guards (F3/F4/F21/F26), so `createClass`/`createIndex` at genesis no longer
+  materialize a collection or engine until a commit. `SecurityShared.create`
+  (and any sibling metadata creators) must wrap schema creation in an explicit
+  tx. The session is already active at genesis (`executeInTx` is used there
+  today, `:629`), so a tx is available.
+- **D7 does not contend at genesis.** Genesis is single-threaded (one creating
+  session), so the metadata-write mutex is acquired and released without
+  blocking. Its only requirement is that it exists at context-construction time
+  (D7 places it on the shared context/storage, built before `createMetadata`),
+  not created lazily by a schema op.
+- **The tx-local `SchemaShared` seed (D8) must handle the empty/genesis case.**
+  The first-ever schema-tx seeds from an empty committed schema and its commit
+  writes the first schema record (D14); there is no committed schema to copy.
+- **Schema-then-data works in one tx via D3/D2.** Create the class
+  (provisional collection id), insert the admin user (temp RID), and the commit
+  reconciles structure before record-position allocation (D3), builds the
+  `OUser.name` index on the genesis rows (D12), and enforces uniqueness at
+  commit-apply (D13). Reads during genesis (a user-exists check) fall back to
+  the tx-merged scan because the index is not built yet (D13/F23) — correct.
+- **D11 touches the same code.** Internal classes get `minimumCollections = 1`
+  and name-prefixed collection names `ouser_<n>` (`SchemaEmbedded:335`–`:342`);
+  D11's counter-only naming applies here too.
+
+Net: D7 is benign at genesis; the real work is restructuring the genesis
+bootstrap into explicit transaction(s) once per-op self-commit and the tx
+guards are removed. Open sub-choice: one unified genesis tx (atomic, fewest
+writes, relies on D3 for schema-then-data) versus a schema tx committed before
+the data tx (simpler, preserves the current two-phase order).
+
+```mermaid
+flowchart TD
+  CM["createMetadata (DatabaseSessionEmbedded:441)"] --> SC["shared.create -> SecurityShared.create (:594)"]
+  SC --> TX["genesis schema-tx: acquire D7 mutex (no contention, single-threaded)"]
+  TX --> CL["createClass OUser/ORole/...; createIndex OUser.name (tx-local SchemaShared, D8 seeded empty)"]
+  CL --> DATA["insert admin/reader/writer users (same tx, or a following data tx)"]
+  DATA --> COMMIT["commit: reconcile structure before positions (D3); build index (D12); write first schema record (D14); release mutex"]
+```
+
 ---
 
 ## 3. Decisions
