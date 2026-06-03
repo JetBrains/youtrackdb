@@ -12,7 +12,8 @@ Track 2 builds the markdown state parser. It reads the plan file's `## Plan Revi
 - [x] 2026-06-03T04:03Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-03T04:29Z [ctx=safe] Step 1 complete (commit 1dd90397d6)
 - [x] 2026-06-03T04:44Z [ctx=safe] Step 2 complete (commit d94ca3f4f2)
-- [ ] Step implementation
+- [x] 2026-06-03T04:54Z [ctx=safe] Step 3 complete (commit 4f7370ea88)
+- [x] 2026-06-03T04:54Z [ctx=safe] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -76,7 +77,7 @@ Ordering constraints and invariants to preserve: the walk reads the markers `con
 
 1. Checkbox helper + parse-error guard + State 0/A/C/D/Done top-level walk + `STATE_JSON` wiring — add `determine_state` and a checkbox-reading helper recognizing `[ ]`/`[x]`/`[~]`/`[>]`/`[!]` (an unrecognized glyph → stderr naming the section/line + non-zero exit before any `state` is emitted; `[!]` is recognized, not an error); top-level precedence: `## Plan Review` absent/`[ ]`/absent-plan-file → State 0; otherwise walk `## Checklist` anchored to top-level `- [<m>] Track N:` lines (column 0, blockquote/fence-excluded, bounded between `## Checklist` and the next `## `) for the first `[ ]` track → State A (no `plan/track-N.md`) or State C (track file present, `substate` null at this step); all tracks `[x]`/`[~]` → `## Final Artifacts` (heading + first top-level checkbox) → State D (`[ ]`/`[>]`) or Done (`[x]`); set `STATE_JSON={phase,substate:null}` and wire `determine_state` into the `full` dispatch before `emit_json`; fixtures for State 0 (three shapes incl. absent-plan), State A, State C top-level, State D, Done, blockquote-anchoring, and the malformed-marker parse-error, reusing `GitFixture.plan_artifact` under `docs/adr/main/_workflow/` — risk: medium (new observable behavior — the `state` key — plus a new parse-error path on the precheck component; no HIGH trigger)  [x] commit: 1dd90397d6
 2. State C sub-state map (five sub-states, joint read) — extend `determine_state` for State C, reading `## Progress` as a continuous log (most-recent relevant entry) and the `## Concrete Steps` roster: (1) decomposition-pending = Progress "Review + decomposition" `[ ]`, short-circuit before quantifying the roster; (2) steps-partial = roster mixes `[x]` and `[ ]`; (3) failed-step = roster contains `[!]`; (4) steps-done-review-pending = all roster steps `[x]` + code-review Progress `[ ]`/partial; (5) review-done-track-open = all roster steps `[x]` + code-review Progress `[x]` + plan-file track checkbox `[ ]`; fixtures for each of the five sub-states, the decomposition-pending empty-roster vacuous-truth guard, and at least one fixture cut from a real on-disk track file (continuous-log Progress + numbered roster) — risk: medium (the trickiest logic; new observable behavior; joint multi-surface read)  [x] commit: d94ca3f4f2
-3. Section-discrepancy edge — extend `determine_state` to join roster step to Progress entry by step number N: a roster line `^N.` flipped `[x]` whose `## Progress` log has no word-boundary `Step N` entry → `substate: "section-discrepancy"` (a `[!]` failed-step Progress entry counts as present-for-N); fixtures for discrepancy-present, a healthy track whose Progress interleaves phase-checkpoint lines between step lines (no false-positive), and the `[!]`-counts-as-present case — risk: medium (subtle join logic; the false-positive/false-negative hazard flagged in Phase A review)  [ ]
+3. Section-discrepancy edge — extend `determine_state` to join roster step to Progress entry by step number N: a roster line `^N.` flipped `[x]` whose `## Progress` log has no word-boundary `Step N` entry → `substate: "section-discrepancy"` (a `[!]` failed-step Progress entry counts as present-for-N); fixtures for discrepancy-present, a healthy track whose Progress interleaves phase-checkpoint lines between step lines (no false-positive), and the `[!]`-counts-as-present case — risk: medium (subtle join logic; the false-positive/false-negative hazard flagged in Phase A review)  [x] commit: 4f7370ea88
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -164,6 +165,44 @@ was made explicit and documented inline: the steps-partial predicate is "any
 all-`[ ]` just-decomposed shape), and failed-step is evaluated before
 steps-partial so a both-failed-and-partial roster routes to the failed resume,
 matching `workflow.md` step 5's `[!]` row.
+
+**Key files:**
+- `.claude/scripts/workflow-startup-precheck.sh` (modified)
+- `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified)
+
+**Critical context:** none
+
+### Step 3 — commit 4f7370ea88, 2026-06-03T04:54Z [ctx=safe]
+**What was done:** `determine_state`'s State C arm gained the
+section-discrepancy edge: a roster step flipped `[x]` whose number N has no
+word-boundary `Step N` entry in `## Progress` now reports the literal
+`section-discrepancy`. `roster_scan` gained a per-step `<N>:<token>` pairs
+output (`ROSTER_PAIRS`); a new `progress_step_numbers` scan collects the step
+numbers named by `Step N` Progress entries (any glyph, so a `[!]` failed entry
+counts as present-for-N); a `step_num_in_progress` helper does the exact
+numeric-equality membership test. The discrepancy check sits before the
+failed/partial/done split, so the inconsistency signal overrides normal
+routing. Six net-new fixtures cover discrepancy-present, the
+interleaved-phase-checkpoint false-positive guard, the `[!]`-counts-as-present
+case, the exact-number join (`Step 12` is not step 1), the skip-step exclusion,
+and a real track-file shape. Suite: 62/62.
+
+**What was discovered:** Five State C sub-state fixtures added in Step 2
+abbreviated their `## Progress` logs and omitted the per-step `Step N complete`
+entries that a real track carries in lockstep with each roster `[x]` flip.
+Under the new join those abbreviated shapes were genuine discrepancy cases, so
+they failed. The fix made them faithful to the real lockstep shape (adding the
+matching `Step N complete` entries) rather than weakening the edge, so each
+fixture still tests its intended sub-state. A live-branch smoke run
+(`--mode full` against this branch's real plan and track-2.md) reported
+`{phase:C, substate:steps-partial}` — steps 1+2 done with their Progress
+entries, step 3 `[ ]` — confirming behavior parity (S1) with no false-positive
+discrepancy on real artifacts.
+
+**What changed from the plan:** none. The implementation follows Plan of Work
+step 3 and the Interfaces contract (the literal `section-discrepancy`
+substate). Extending `roster_scan` for the per-step pairs, rather than adding a
+sibling scan, was the option the track's Surprises note already sanctioned.
 
 **Key files:**
 - `.claude/scripts/workflow-startup-precheck.sh` (modified)
