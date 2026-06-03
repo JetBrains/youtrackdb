@@ -421,6 +421,24 @@ flowchart TD
   > plan corrections.
   >
   > **Track file:** `plan/track-3.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 4's dependencies (Tracks 1-3)
+  > are all complete and the JSON contract it cites is frozen and verified
+  > against the live script: `full` = `{divergence, drift, handoffs, state,
+  > actions_taken}`, `divergence-only` = `{divergence, actions_taken}`,
+  > `migrate-range` = `{stamped_artifacts, unstamped_files, base_sha,
+  > log_range, merge_base_failed}`. Track 4 cites these shipped field names,
+  > not frozen design.md, which diverges on `state` (`{phase, substate}`, no
+  > `track` field) and `migrate-range`; the three §Final Artifacts
+  > reconciliation notes are Phase 4 concerns, not Track 4's. Three
+  > decomposition-level refinements fold into step bodies: the dispatch rule
+  > re-derives the active track from the `## Checklist` (no `state.track`) and
+  > treats a non-zero script exit as halt-and-surface (Track 2's total
+  > parse-error contract), and the migrate Step 2 consumer reads
+  > `migrate-range` JSON from a `/tmp` file via offset/limit (uncapped
+  > `log_range`, Track 1 WB1). Track 3's guard-2 awk path-with-space item
+  > rides into the script's domain as documented known-debt; it does not
+  > change Track 4's scope.
 
 - [ ] Track 4: Prose consolidation (staged)
   > Rewrite the six prose surfaces to call or cite the script: `workflow.md
