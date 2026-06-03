@@ -119,3 +119,6 @@ belong to one specific step. Per-step episode content lives in
 **Contract:** the parser reproduces the precedence in `workflow.md § Startup Protocol` step 5. Inputs: the plan file's `## Plan Review` / `## Checklist` / `## Final Artifacts` markers, and the active track file's `## Progress` continuous log and `## Concrete Steps` roster (the roster is the authoritative step-status source). It reads the `conventions.md §1.2 § Status markers` set (`[ ]` / `[x]` / `[~]` / `[>]`) plus the roster/Progress `[!]` failed-step marker. `state.phase` is one of `0`, `A`, `C`, `D`, `Done`; `state.substate` is populated only for State C (one of the five sub-state strings) or the literal `section-discrepancy`, and is null otherwise. The enum stays closed: an unrecognized marker glyph is an explicit error on stderr with a non-zero exit before any `state` is emitted, not a sixth `phase` value.
 
 **Dependencies:** depends on Track 1 (the script scaffold, `--mode full` plumbing, jq emit point, and the `GitFixture` test builder). Consumed by Track 4, which cites the `state` shape in the rewritten dispatch rule and collapses the live `workflow.md` State A / C prose into routing on `state.phase` (so the live table's standalone State-A row is superseded post-merge).
+
+## Base commit
+fa84fa2598223b328fd5b6561fb85bba9f50a936
