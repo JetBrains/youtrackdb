@@ -388,3 +388,21 @@ step-done marker). The live `workflow.md` table header carries the same
 file's refinement is faithful. `design.md` is frozen during execution, so
 `design-final.md` must restate the sub-state sources as `## Progress` +
 `## Concrete Steps` + the plan-file track checkbox.
+
+The shipped `state` object introduces two further divergences from the same
+frozen `design.md § "State determination"` example that `design-final.md`
+must reconcile alongside the source restatement above:
+
+- **`track` field omitted.** The frozen state-object example shows
+  `{phase, track, substate}`, but the shipped object is `{phase, substate}`.
+  The active track number is computed internally for the `plan/track-N.md`
+  probe and is not emitted. The downstream consumer (Track 4's dispatch rule)
+  re-derives the active track from the `## Checklist` walk rather than reading
+  a `state.track` field.
+- **Slug-string substate form.** The shipped `state.substate` values are the
+  slugs `decomposition-pending` / `steps-partial` / `failed-step` /
+  `steps-done-review-pending` / `review-done-track-open` (plus the literal
+  `section-discrepancy`). The frozen example glosses these with the longer
+  `workflow.md` row text (e.g. "Steps [x], code review [x], track still [ ]
+  in plan"). `design-final.md` must restate the substate values as the slug
+  form the script emits and the dispatch rule consumes.

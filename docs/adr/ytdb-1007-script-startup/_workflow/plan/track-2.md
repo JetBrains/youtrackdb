@@ -195,8 +195,8 @@ they failed. The fix made them faithful to the real lockstep shape (adding the
 matching `Step N complete` entries) rather than weakening the edge, so each
 fixture still tests its intended sub-state. A live-branch smoke run
 (`--mode full` against this branch's real plan and track-2.md) reported
-`{phase:C, substate:steps-partial}` — steps 1+2 done with their Progress
-entries, step 3 `[ ]` — confirming behavior parity (S1) with no false-positive
+`{phase:C, substate:steps-partial}` (steps 1+2 done with their Progress
+entries, step 3 `[ ]`), confirming behavior parity (S1) with no false-positive
 discrepancy on real artifacts.
 
 **What changed from the plan:** none. The implementation follows Plan of Work

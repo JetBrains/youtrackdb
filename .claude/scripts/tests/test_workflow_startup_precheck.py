@@ -1682,6 +1682,109 @@ def test_state_bang_marker_is_recognized_not_malformed() -> None:
         )
 
 
+def test_state_checklist_malformed_glyph_after_first_todo_is_parse_error() -> None:
+    """The closed-enum parse-error contract is TOTAL over the bounded `## Checklist`
+    region, not just the lines at or before the first `[ ]` track. A malformed
+    checkbox glyph on a track line AFTER the first `[ ]` track must still parse-error
+    rather than being skipped by an early break.
+
+    Regression: the walk previously broke at the first `[ ]` track to record the
+    resume target, so a `[zzz]` glyph on a later track line was never validated and
+    the run reported `{phase:A}` (exit 0). Here the first track line is the first
+    `[ ]` track and the second track line carries the malformed `[zzz]`; the run
+    must exit non-zero with no stdout JSON and a stderr diagnostic naming
+    `## Checklist`, never a coerced state."""
+    body = _plan_doc(
+        PLAN_REVIEW_PASSED,
+        "- [ ] Track 1: the first todo (resume target)\n"
+        "- [zzz] Track 2: a malformed glyph AFTER the first todo",
+        "- [ ] Phase 4: Final artifacts",
+    )
+    proc = _state_parse_error(body)
+    assert proc.returncode != 0, (
+        "a malformed glyph on a track line after the first [ ] must exit "
+        f"non-zero, got {proc.returncode}"
+    )
+    assert proc.stdout.strip() == "", (
+        f"a malformed glyph must emit NO stdout JSON, got {proc.stdout!r}"
+    )
+    assert "malformed checkbox marker" in proc.stderr, (
+        f"stderr must name the malformed marker, got {proc.stderr!r}"
+    )
+    assert "## Checklist" in proc.stderr, (
+        f"stderr must name the ## Checklist section, got {proc.stderr!r}"
+    )
+
+
+def test_state_heading_match_tolerates_trailing_whitespace_plan_review() -> None:
+    """Section entry tolerates a trailing-whitespace run on the `## <heading>` line.
+    A `## Plan Review ` heading (one trailing space) carrying a passed `[x]` checkbox
+    must still be ENTERED and read as passed, not treated as an absent section.
+
+    Regression: heading entry previously used exact-equality
+    (`[ "$line" = "## Plan Review" ]`), so a trailing-space heading did not match
+    and the section was treated as absent, which coerces to State 0. Here the
+    trailing-space Plan Review is passed and the first track line is the first `[ ]`
+    track with a track file present, so a correct (heading-entered) read reports
+    State C; a regressed read that missed the trailing-space heading would report
+    State 0 instead."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        # Build the body directly so the `## Plan Review ` heading carries a literal
+        # trailing space (the _plan_doc helper emits headings with no trailing run).
+        body = (
+            "## Plan Review \n"  # trailing space on the heading line
+            f"{PLAN_REVIEW_PASSED}\n\n"
+            "## Checklist\n"
+            "- [ ] Track 1: the first todo\n\n"
+            "## Final Artifacts\n"
+            "- [ ] Phase 4: Final artifacts\n"
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        fx.plan_artifact("plan/track-1.md", stamp=head, body="# Track 1\n")
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        # State C (not 0) proves the trailing-space Plan Review heading was entered
+        # and read as passed. The track body has no ## Progress section, so the
+        # sub-state is decomposition-pending; the discriminating fact is phase != 0.
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
+            "a trailing-space `## Plan Review ` heading must be entered and read "
+            f"as passed (State C), not coerced to State 0, got {state!r}"
+        )
+
+
+def test_state_heading_match_tolerates_trailing_whitespace_final_artifacts() -> None:
+    """The trailing-whitespace tolerance is applied uniformly at every heading site,
+    not just `## Plan Review`. A `## Final Artifacts ` heading (one trailing space)
+    carrying `[x]` must still be ENTERED so an all-tracks-done plan resolves Done.
+
+    Regression (second literal-heading site): with all tracks `[x]` the walk
+    falls through to Final Artifacts. If the trailing-space `## Final Artifacts `
+    heading were not matched, the section would read as absent and collapse to State
+    D (the not-yet-Done default). Reporting Done discriminates that the heading was
+    entered and its `[x]` checkbox read."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        body = (
+            f"## Plan Review\n{PLAN_REVIEW_PASSED}\n\n"
+            "## Checklist\n"
+            "- [x] Track 1: done\n\n"
+            "## Final Artifacts \n"  # trailing space on the heading line
+            "- [x] Phase 4: Final artifacts complete\n"
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        # Done (not D) proves the trailing-space `## Final Artifacts ` heading was
+        # entered and its `[x]` read. An unmatched heading reads as absent -> State D.
+        assert state == {"phase": "Done", "substate": None}, (
+            "a trailing-space `## Final Artifacts ` heading must be entered and its "
+            f"[x] read (Done), not read as absent (State D), got {state!r}"
+        )
+
+
 def test_state_real_track_file_fixture() -> None:
     """At least one state fixture is cut from a REAL on-disk track file shape:
     the continuous-log `## Progress` section and a numbered `## Concrete Steps`
@@ -2525,6 +2628,9 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("state_checklist_anchors_to_top_level_track_lines", test_state_checklist_anchors_to_top_level_track_lines),
     ("state_malformed_marker_is_parse_error", test_state_malformed_marker_is_parse_error),
     ("state_bang_marker_is_recognized_not_malformed", test_state_bang_marker_is_recognized_not_malformed),
+    ("state_checklist_malformed_glyph_after_first_todo_is_parse_error", test_state_checklist_malformed_glyph_after_first_todo_is_parse_error),
+    ("state_heading_match_tolerates_trailing_whitespace_plan_review", test_state_heading_match_tolerates_trailing_whitespace_plan_review),
+    ("state_heading_match_tolerates_trailing_whitespace_final_artifacts", test_state_heading_match_tolerates_trailing_whitespace_final_artifacts),
     ("state_real_track_file_fixture", test_state_real_track_file_fixture),
     ("state_C_substate_decomposition_pending", test_state_C_substate_decomposition_pending),
     ("state_C_substate_decomposition_pending_empty_roster_vacuous_guard", test_state_C_substate_decomposition_pending_empty_roster_vacuous_guard),

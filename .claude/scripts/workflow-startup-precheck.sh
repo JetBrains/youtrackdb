@@ -757,6 +757,22 @@ parse_error() {
   exit 3
 }
 
+# Test whether a line is the `## <heading>` line for a named section, tolerating
+# trailing whitespace. Section entry must match the heading exactly except for a
+# trailing whitespace run (a `## Plan Review ` heading with a stray trailing space
+# must still enter the section), but must NOT match a longer heading that merely
+# shares the prefix (`## Plan ReviewXYZ` is a different heading). The trailing-run
+# strip `${line%"${line##*[![:space:]]}"}` removes only the suffix of whitespace
+# (a no-op when the line has none), so the equality test stays exact on the
+# visible text. Returns 0 (match) / 1 (no match).
+#
+# Args: $1 = the raw line; $2 = the section heading text (e.g. "Plan Review").
+heading_matches() {
+  local line="$1" heading="$2" trimmed
+  trimmed="${line%"${line##*[![:space:]]}"}"
+  [ "$trimmed" = "## $heading" ]
+}
+
 # Classify a single bracketed checkbox glyph, echoing a normalized token the
 # caller branches on. The recognized set is the § 1.2 markers plus the `[!]`
 # failed-step marker:
@@ -816,8 +832,8 @@ section_first_checkbox_token() {
       continue
     fi
     if [ "$in_section" = "0" ]; then
-      # Enter the section on its exact `## <heading>` line.
-      if [ "$line" = "## $section" ]; then
+      # Enter the section on its `## <heading>` line (trailing whitespace tolerated).
+      if heading_matches "$line" "$section"; then
         in_section="1"
       fi
       continue
@@ -897,7 +913,7 @@ progress_entry_token() {
       continue
     fi
     if [ "$in_section" = "0" ]; then
-      if [ "$line" = "## Progress" ]; then
+      if heading_matches "$line" "Progress"; then
         in_section="1"
       fi
       continue
@@ -976,7 +992,7 @@ roster_scan() {
       continue
     fi
     if [ "$in_section" = "0" ]; then
-      if [ "$line" = "## Concrete Steps" ]; then
+      if heading_matches "$line" "Concrete Steps"; then
         in_section="1"
       fi
       continue
@@ -1008,6 +1024,14 @@ roster_scan() {
     # Find the status checkbox `[<glyph>]` in the post-`risk:` tail. The tail is
     # `<space><tag>\`  [<glyph>]( commit: <SHA>)?` (the tag may carry a closing
     # backtick / paren); the checkbox is the first `[...]` in that tail.
+    #
+    # Assumption: the status box is the FIRST `[...]` after `risk:`. This is safe
+    # because the canonical roster grammar (`conventions-execution.md` § 2.1) writes
+    # risk-note annotations parenthesized `(...)`, never bracketed `[...]`; a
+    # bracketed tail annotation BEFORE the status box (e.g. `risk: high [note]  [ ]`)
+    # would be mis-read as the status box, so risk-note annotations must stay
+    # parenthesized. Switching to the last `[...]` is not the fix — it introduces
+    # its own edge cases with trailing `commit:`-adjacent tokens.
     case "$tail" in
       *"["*"]"*)
         body="${tail#*[}"
@@ -1039,10 +1063,11 @@ roster_scan() {
 
 # Scan the active track file's `## Progress` continuous log, setting
 # PROGRESS_STEP_NUMS to a space-delimited list of the step numbers N that have a
-# word-boundary `Step N` entry. A roster step flips `[x]` in lockstep with the
-# orchestrator appending a `Step N complete (commit <SHA>)` Progress entry
-# (step-implementation.md sub-step 7), so a `[x]` roster step whose number is
-# absent from this list is the section-discrepancy edge.
+# word-boundary `Step N` entry. A roster step `[x]` flip and its `Step N complete
+# (commit <SHA>)` Progress entry are written in adjacent sub-steps
+# (`step-implementation.md` sub-step 7.1 flips the roster, 7.2 appends the Progress
+# entry), so a `[x]` roster step whose number is absent from this list is the
+# interrupted-write state the agent reconciles from the `## Episodes` block.
 #
 # The match is a word-boundary `Step <N>` where <N> is a run of digits: the
 # entry text `Step 1 complete (commit abc123)` contributes 1, but the pre-seeded
@@ -1080,7 +1105,7 @@ progress_step_numbers() {
       continue
     fi
     if [ "$in_section" = "0" ]; then
-      if [ "$line" = "## Progress" ]; then
+      if heading_matches "$line" "Progress"; then
         in_section="1"
       fi
       continue
@@ -1137,9 +1162,10 @@ step_num_in_progress() {
 #      the roster is read, so the still-empty/placeholder roster is never coerced.
 #   2. section-discrepancy — a roster step flipped `[x]` (done) whose step number
 #      N has NO word-boundary `Step N` entry in `## Progress`. The roster `[x]`
-#      flip and the `Step N` Progress entry are written in lockstep (step-
-#      implementation.md sub-step 7), so a done step missing its Progress record
-#      means the two sections are out of sync; the agent reconciles from the
+#      flip and the `Step N` Progress entry are written in adjacent sub-steps
+#      (`step-implementation.md` sub-step 7.1 flips the roster, 7.2 appends the
+#      Progress entry), so a done step flipped `[x]` whose `Step N` Progress entry
+#      is missing is the interrupted-write state; the agent reconciles from the
 #      `## Episodes` block. Checked before the failed/partial/done split because
 #      it is an inconsistency signal that overrides the normal resume routing. A
 #      `[!]` failed Progress entry counts as present-for-N (the recovery protocol
@@ -1262,7 +1288,7 @@ determine_state() {
       continue
     fi
     if [ "$in_checklist" = "0" ]; then
-      if [ "$line" = "## Checklist" ]; then
+      if heading_matches "$line" "Checklist"; then
         in_checklist="1"
       fi
       continue
@@ -1279,6 +1305,13 @@ determine_state() {
     # char / single-unrecognized body as BAD so a malformed track marker
     # (`- [] Track 1:`, `- [ x] Track 1:`, `- [X] Track 1:`) is a parse error,
     # the same closed-enum rule the section helper applies.
+    #
+    # The closed-enum parse-error contract is TOTAL over the bounded `## Checklist`
+    # region: every track line's glyph is validated, not just those at or before the
+    # first `[ ]`. So the first-`[ ]` track only RECORDS the resume target (the walk
+    # does not break on it); the loop keeps running to the next `## ` heading so a
+    # malformed glyph on a LATER track line still parse-errors rather than being
+    # silently skipped. The region is small, so the full validation is cheap.
     case "$line" in
       "- ["*"] Track "*)
         glyph="${line#- [}"
@@ -1287,12 +1320,12 @@ determine_state() {
         if [ "$token" = "BAD" ]; then
           parse_error "## Checklist" "$line"
         fi
-        if [ "$token" = "todo" ]; then
-          # First [ ] track: capture its number from `Track <N>:`.
+        if [ "$token" = "todo" ] && [ -z "$track_num" ]; then
+          # First [ ] track: record the resume target's number from `Track <N>:`.
+          # Do NOT break — later track lines must still be glyph-validated.
           local tail
           tail="${line#*Track }"
           track_num="${tail%%:*}"
-          break
         fi
         ;;
     esac
