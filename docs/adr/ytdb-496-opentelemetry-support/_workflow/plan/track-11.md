@@ -3,7 +3,7 @@
 
 ## Purpose / Big Picture
 
-After this track lands, an operator who clones the repo, runs `docker compose up` inside `youtrackdb-opentelemetry/examples/docker-compose/`, points YTDB at `http://localhost:4317`, and opens `http://localhost:3000` in a browser sees YTDB traces, logs, and metrics flowing into Grafana with pre-provisioned datasources and dashboards. Zero hand-wiring. The track ships a self-contained, reproducible "what does YTDB look like under OTel" demo that doubles as a smoke test for the nineteen `OPENTELEMETRY_*` config entries Track 5 added.
+After this track lands, an operator who clones the repo, runs `docker compose up` inside `youtrackdb-opentelemetry/examples/docker-compose/`, points YTDB at `http://localhost:4317`, and opens `http://localhost:3000` in a browser sees YTDB traces, logs, and metrics flowing into Grafana with pre-provisioned datasources and dashboards. Zero hand-wiring. The track ships a self-contained, reproducible "what does YTDB look like under OTel" demo that doubles as a smoke test for the twenty `OPENTELEMETRY_*` config entries Track 5 added.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
@@ -27,7 +27,7 @@ The stack assembles the OTel Collector (OTLP gRPC/HTTP receivers), Jaeger (trace
 
 Three reasons this lives in YTDB-496's PR rather than as a follow-up ticket:
 
-1. The nineteen `OPENTELEMETRY_*` config entries Track 5 introduces have no end-to-end verification surface unless an operator can stand up a real collector. Without a bundled example, the first operator to try YTDB-OTel has to assemble the stack from upstream OTel docs, debug version-mismatch surprises in the Collector config schema, and write their own dashboards. The friction kills adoption.
+1. The twenty `OPENTELEMETRY_*` config entries Track 5 introduces have no end-to-end verification surface unless an operator can stand up a real collector. Without a bundled example, the first operator to try YTDB-OTel has to assemble the stack from upstream OTel docs, debug version-mismatch surprises in the Collector config schema, and write their own dashboards. The friction kills adoption.
 2. The PR description already names Jaeger, Tempo, Grafana Cloud, Honeycomb, and Datadog as supported backends. Shipping a working example for the open-source path (Jaeger + Loki + Prometheus + Grafana) anchors that claim. Hosted backends substitute their exporter endpoints into the same `OPENTELEMETRY_EXPORTER_*` settings.
 3. The three pillars (traces from Tracks 1+3+4, logs from Track 7, metrics from Track 8) need an integrated viewer to demonstrate trace-to-logs and trace-to-metrics correlation. A separate ticket would mean shipping the pillars unverified and the integration ungrokkable.
 
