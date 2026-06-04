@@ -227,6 +227,27 @@ RID resolution must run before `commitIndexes`. Orthogonal pre-existing
 contract: `applyTxChanges` asserts a RID-valued index *key* is persistent at
 apply (`:2479`) — relevant only to link indexes; not introduced here.
 
+**Verified (2026-06-03, second adversarial pass).** The "extends cleanly" claim
+holds end-to-end for both sides of an index entry, because the tracking machinery
+reacts to *identity changed*, not *position changed*:
+
+- **Value side** confirmed as above — lazy `getIdentity()` at `applyTxChanges:2482`,
+  read after the position loop patches the RID.
+- **Key side** (a link index keys by the linked RID). `setCollectionAndPosition`
+  (`ChangeableRecordId:121`) CASes the whole new RID and fires
+  `fireBeforeIdentityChange`/`fireAfterIdentityChange`;
+  `FrontendTransactionIndexChanges.onBeforeIdentityChange`/`onAfterIdentityChange`
+  (`:115`–`:132`) remove then re-insert the `changesPerKey` TreeMap entry, bridged
+  by object identity, so the key's sort position is corrected after the collection
+  id + position change. Wired when the key `canChangeIdentity()`
+  (`FrontendTransactionImpl:314`–`:318`); `recordIndexOperations` is re-keyed the
+  same way (`:1206`/`:1229`).
+
+Tighter ordering than "before `commitIndexes`": the provisional→real resolution
+must land before the position loop dereferences the collection id at
+`doGetAndCheckCollection` (`:2321`). The existing `collectionOverrides` seam
+(`:2239`/`:2276`/`:2317`) is where it lands — see F42.
+
 ### F25 — Index objects are thin storage-backed handles, not in-memory structures
 `IndexAbstract` holds `indexId` (`:86`, `-1` until built — a handle into
 storage's engine array), a `storage` reference (`:82`), `collectionsToIndex`
@@ -820,6 +841,17 @@ must also re-key `collectionsToClasses` provisional→real; D2's patch list (cla
 id-list + record RIDs) currently omits the reverse map. File-op and storage-bounds
 sites keep rejecting negatives (a provisional collection has no files and never
 reaches storage until resolved).
+
+A further collision site sits in the commit itself: the pre-position pass tests
+`collectionId == COLLECTION_ID_INVALID` (`AbstractStorage:2269`) to route a record
+to its class's default collection via `getCollectionForNewInstance`. A provisional
+id of `-1` would be mis-routed there; a provisional id ≤ `-2` skips that branch and
+falls through to `doGetAndCheckCollection(negative)` (`:2279`), which throws. So the
+provisional→real resolution slots into the existing `collectionOverrides` seam
+(`:2239` declared, `:2276` populated, `:2317` read) — after D3 creates the new
+collection, populate `collectionOverrides` with the new real id for records carrying
+the provisional id, before the position loop dereferences it (`:2321`). Downstream
+index entries then resolve for free (F24, verified).
 
 ```mermaid
 flowchart TD
