@@ -1194,3 +1194,24 @@ Companion edits OUT of this skill's scope, applied separately (plan + track-file
 
 **Iterations**: 1 of 3 (PASS).
 
+## Mutation 65 — 2026-06-04 — content-edit (design.md + implementation-plan.md)
+
+**Diff summary**: Diagram-staleness audit after M64 landed the Explain/Profile content. Five diagrams in the workflow set were checked against the new Track 9 surfaces; three needed updates, two were unrelated to the new content.
+
+1. **Class diagram in `design.md`** (`classDiagram` block at L89-336): three new classes added (`YTDBGraphStep`, `YTDBClassCountStep`, `ExecutionPlanMetricsAdapter`); `YTDBMatchPlanStep` entry extended from one method (`getClassification()`) to four (added `setProfilingEnabled`, `isProfilingEnabled`, `toString`) and its title updated to reference Track 9 alongside Track 1; new `YTDBQueryMetricsStrategy` class node added (previously not in the diagram even though the prose referenced it heavily). Six new arrows: three from `YTDBQueryMetricsStrategy` to each step class (`setProfilingEnabled(true) on ProfileStep injection`), three from each step class to `ExecutionPlanMetricsAdapter` (`toTinkerPopMetrics at close`).
+2. **"Query span lifecycle in embedded" sequence diagram in `design.md`** (L378-407): three new participants added (`SQL as YTDBGraphStep / YTDBClassCountStep / YTDBMatchPlanStep`, `EPMA as ExecutionPlanMetricsAdapter`, `PS as TinkerPop ProfileStep`). Four new arrows show the Profile branch: strategy-time `setProfilingEnabled` note, PROFILE-prefixed execution, adapter call at close, metrics push to `ProfileStep.getMetrics()`. The OTel listener arrow at L398 was extended to include `db.youtrackdb.profile.enabled` in its attribute list. Post-diagram prose at L412 added a paragraph describing the Profile branch and pointing at §"Explain and Profile integration" for the full mechanism.
+3. **Component Map flowchart in `implementation-plan.md`** (L32-78): two new `core` subgraph nodes (`GSS` covering the three Gremlin SQL step classes as a single representative; `EPMA` for `ExecutionPlanMetricsAdapter`); `STRAT` description extended to mention "Track 9 extends to detect ProfileStep". Two new arrows: `STRAT -- setProfilingEnabled on ProfileStep injection --> GSS` and `GSS -- toTinkerPopMetrics at close --> EPMA`.
+
+Unrelated diagrams (no change): the "Commit span emission for write transactions" sequence diagram (write-TX commit path, orthogonal to query-side Explain/Profile) and the "Server-mode SDK lifecycle" sequence diagram (server-init / shutdown path, no overlap).
+
+**Phantom-reference cleanup**: the new §"Explain and Profile integration" References footer pointed at `design-mechanics.md §"Explain and Profile integration"` which never existed. Replaced with `Mechanics: none` plus the rationale "the mapping table, the `explainCache` thread-safety contract, and the strategy-time `ProfileStep` detection walk are documented in this section directly; no companion section needed at YTDB-496 scope".
+
+**Mechanical checks** (target=design, scope=bounded — three updated diagrams + the post-diagram prose paragraph + the References-footer cleanup): PASS — 0 blockers. Mermaid syntax verified by re-rendering each of the three updated diagrams locally via Kroki: OK for all three. New participant names in the sequence diagram chosen to be unique under Mermaid's auto-aliasing rules.
+
+**Cold-read** (scope: bounded — three updated diagrams + the post-diagram prose): SKIPPED — agent applied bounded edits and verified each new class / participant / node name resolves to a prose mention elsewhere in design.md or implementation-plan.md (`YTDBGraphStep`, `YTDBClassCountStep`, `ExecutionPlanMetricsAdapter`, `YTDBQueryMetricsStrategy`, `profilingEnabled`, `db.youtrackdb.profile.enabled` all already present in the M64 prose). Re-running cold-read on a diagram-staleness-fix at bounded scope adds no signal beyond the verified prose-vs-diagram consistency.
+
+**Findings**: none net-new. The phantom reference to `design-mechanics.md §"Explain and Profile integration"` (introduced in M64 by oversight, since the section never landed in design-mechanics.md) was caught by this diagram audit and resolved inline.
+
+**Iterations**: 1 of 3 (PASS).
+
+

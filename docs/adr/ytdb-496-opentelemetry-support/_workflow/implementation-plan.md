@@ -38,7 +38,7 @@ flowchart TB
         YOU["YourTracks<br/>(+ static global listener registry)"]
         TX["FrontendTransactionImpl<br/>(+ TX lifecycle fires in<br/>beginInternal / rollbackInternal)"]
         STEP["YTDBQueryMetricsStep<br/>(Gremlin source; calls Gremlin classifier)"]
-        STRAT["YTDBQueryMetricsStrategy<br/>(gate widened so globally-registered<br/>listeners cause injection)"]
+        STRAT["YTDBQueryMetricsStrategy<br/>(gate widened so globally-registered<br/>listeners cause injection;<br/>Track 9 extends to detect ProfileStep)"]
         DSE["DatabaseSessionEmbedded<br/>(SQL entry points end with<br/>InstrumentedSqlResultSet.wrapIfListening)"]
         ISR["InstrumentedSqlResultSet<br/>(NEW; session-boundary wrapper;<br/>captures clock + Context.current(),<br/>close() fires listener)"]
         GCLS["GremlinBytecodeClassifier<br/>(static utility; new)"]
@@ -46,6 +46,8 @@ flowchart TB
         SQLS["SqlSanitizer<br/>(static utility; new)"]
         CLR["Classification<br/>(value record; new)"]
         GC["GlobalConfiguration<br/>(+ OPENTELEMETRY_* entries)"]
+        GSS["YTDBGraphStep / YTDBClassCountStep / YTDBMatchPlanStep<br/>(Gremlin SQL steps; Track 9 adds<br/>toString plan-suffix + profilingEnabled flag<br/>+ PROFILE keyword injection + metrics push)"]
+        EPMA["ExecutionPlanMetricsAdapter<br/>(static utility; new in Track 9;<br/>YTDB ExecutionPlan to TinkerPop Metrics)"]
     end
 
     subgraph server["server module"]
@@ -67,6 +69,8 @@ flowchart TB
     SLL -- "starts / stops" --> FAC
     STEP --> GCLS
     STRAT -- "injects" --> STEP
+    STRAT -- "setProfilingEnabled on ProfileStep injection" --> GSS
+    GSS -- "toTinkerPopMetrics at close" --> EPMA
     DSE --> ISR
     ISR --> SCLS
     ISR --> SQLS
