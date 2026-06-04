@@ -19,7 +19,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
-| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
+| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, navigability, and explanatory-register checks; reviewer tone relaxes to quote evidence. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
 | §Structural findings (always check) | reviewer-design | 1,4 | Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics. |
@@ -115,10 +115,12 @@ addition to the standard cold-read, verify:
 - Verify glossary-introduction per `.claude/output-styles/house-style.md § Glossary-introduction`.
 - Verify why-before-what per `.claude/output-styles/house-style.md § Why-before-what`.
 - Verify navigability per `.claude/output-styles/house-style.md § Navigability`.
+- Verify explanatory register per `.claude/output-styles/house-style.md § Explanatory register`.
 
-**Reviewer tone** for these four rules relaxes the "one-sentence answers"
+**Reviewer tone** for these five rules relaxes the "one-sentence answers"
 rule in § Tone and depth: quote the prose, list undefined terms, name the
-audience the prose fails, and (for navigability) the opaque section.
+audience the prose fails, and (for navigability) the opaque section or
+(for explanatory register) the disconnected assertions.
 
 ## Reading rules
 <!-- roles=reviewer-design phases=1,4 summary="Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand." -->
@@ -231,7 +233,7 @@ attempt the fix automatically.>
 ## Tone and depth
 <!-- roles=reviewer-design phases=1,4 summary="One-sentence answers, cite don't paraphrase, flag insufficiency, no intent-speculation; human-reader rules excepted." -->
 
-- One-sentence answers where one suffices. **Exception**: the four Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions).
+- One-sentence answers where one suffices. **Exception**: the five Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions).
 - Cite, don't paraphrase.
 - If unanswerable, say "Insufficient — see finding below" and add the structural finding.
 - Don't speculate about intent the doc doesn't state.
