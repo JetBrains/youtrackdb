@@ -163,4 +163,72 @@ public class PromoteStaticRidsFromFiltersTest {
 
     assertThat(aliasRids).isEmpty();
   }
+
+  /**
+   * Disjunction {@code @rid = #N:M OR <other>} must NOT promote. Pinning the
+   * root to the single RID would drop the OR branch and silently lose rows, so
+   * {@code findRidEquality()} returns null for a multi-element OR.
+   */
+  @Test
+  public void orWithLiteralRid_isNotPromoted() {
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", parseWhere(
+        "SELECT FROM Comment WHERE @rid = #25:7 OR name = 'foo'"));
+    Map<String, SQLRid> aliasRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(aliasFilters, aliasRids, ctx);
+
+    assertThat(aliasRids).doesNotContainKey("c");
+  }
+
+  /**
+   * Two RID equalities under an OR ({@code @rid = #N:M OR @rid = #X:Y}) are also
+   * not promoted: the promoter builds a single-RID root, which cannot represent
+   * a two-RID union. Left unpromoted, both RIDs are matched by the normal path.
+   */
+  @Test
+  public void orOfTwoRids_isNotPromoted() {
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", parseWhere(
+        "SELECT FROM Comment WHERE @rid = #25:7 OR @rid = #26:8"));
+    Map<String, SQLRid> aliasRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(aliasFilters, aliasRids, ctx);
+
+    assertThat(aliasRids).doesNotContainKey("c");
+  }
+
+  /**
+   * A RID equality nested inside an OR ({@code name = 'foo' AND (@rid = #N:M OR
+   * name = 'bar')}) is not promoted: the RID term is not a top-level conjunct,
+   * so it is not a necessary condition for the row.
+   */
+  @Test
+  public void nestedOrWithRid_isNotPromoted() {
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", parseWhere(
+        "SELECT FROM Comment WHERE name = 'foo' AND (@rid = #25:7 OR name = 'bar')"));
+    Map<String, SQLRid> aliasRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(aliasFilters, aliasRids, ctx);
+
+    assertThat(aliasRids).doesNotContainKey("c");
+  }
+
+  /**
+   * Parameter RID in an AND ({@code @rid = :rid AND <other>}) promotes, matching
+   * the literal-AND case. Complements {@link #compoundFilterWithLiteralRid_isPromoted}
+   * on the parameter side.
+   */
+  @Test
+  public void compoundFilterWithParameterRid_isPromoted() {
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", parseWhere(
+        "SELECT FROM Comment WHERE @rid = :rid AND name = 'foo'"));
+    Map<String, SQLRid> aliasRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(aliasFilters, aliasRids, ctx);
+
+    assertThat(aliasRids).containsKey("c");
+  }
 }

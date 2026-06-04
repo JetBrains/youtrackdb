@@ -382,4 +382,27 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     assertEquals("c1", result.get(0).getProperty("cName"));
     session.commit();
   }
+
+  /**
+   * OR correctness, end to end: {@code where: (@rid = #c1 OR name = 'c2')} must
+   * return both the pinned record (c1) and the name-matched record (c2). The
+   * promoter must not fire for a disjunction; if it wrongly pinned the root to
+   * #c1 alone, the c2 row would be lost. Two distinct names confirm the OR
+   * branch survives.
+   */
+  @Test
+  public void singleNodeRidOrName_returnsBothBranches() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var result = session.query(
+        "MATCH {class: Comment, as: c, where: (@rid = " + c1 + " OR name = 'c2')}"
+            + " RETURN c.name as cName")
+        .toList();
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("cName"))
+        .collect(java.util.stream.Collectors.toSet());
+    assertEquals("OR must match both the pinned RID and the named record, got: " + names,
+        java.util.Set.of("c1", "c2"), names);
+    session.commit();
+  }
 }
