@@ -9,10 +9,12 @@ After this track, decomposition sizes steps by coherence and a fill-toward-~12-f
 Replace the `~3`-file cap with the three sizing rules (coherence, high-risk isolation, fill-toward-~12) and add the workflow-machinery risk taxonomy that Track 2's reviewer triage depends on. Edits `track-review.md` (§ Step Decomposition rewrite + § Risk tagging summary sync), `conventions.md §1.1` (the "Step" glossary reword), and `risk-tagging.md` (the `~5` MEDIUM clarifying clause + the new `### Workflow machinery` HIGH/MEDIUM/LOW subsection with prose-only cap).
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-06-04T14:18Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -23,11 +25,19 @@ at Phase 1. -->
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
 
+- **Phase A risk tagging — all 4 steps `low`.** Decomposed and tagged under the LIVE `risk-tagging.md`, which classifies `.claude/**` prose edits as docs → LOW default. The workflow-machinery risk taxonomy that would reclassify some of these steps HIGH is exactly what this branch ADDS (D6) and is not yet live; per the §1.7(g) I6 invariant the branch executes under develop's live machinery, and the plan's §Self-application limit routes this branch's review to Phase C track-level (workflow-only diffs hit the baseline-skip override; `low` steps skip step-level review). Tagging any step `high` would pull the live glob-keyed workflow reviewers to the step level, against that intent. All review deferred to Phase C track-level — intentional.
+- **A3 resolution — D2 scope.** The adversarial review found two compatible restatements of "a step is a single atomic change (one commit, fully tested)" in sub-agent preambles (`step-implementation.md:502`, `track-code-review.md:308`) that D2's glossary reword does not touch. Judged known-acceptable non-targets: terse, non-contradictory, and a reviewer preamble needs no footprint pointer. Not expanding Track 1's scope to sync them (that would be a cross-track scope change requiring replanning); recorded here so a later consistency reviewer does not flag them as missed sync sites. If the deeper sync is wanted, it is a separate decision.
+- **Track Pre-Flight gate skipped (State C resume, user-confirmed).** First-ever Phase A entry; the Startup Protocol's State-C routing skips the gate, and the user chose "skip to reviews" over running Panel 2. No gate amendments are in the audit trail by design. The gate-skip-vs-refire split is the known YTDB-1058.
+
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 1 (1 finding, 1 accepted) — all 12 current-state citations verified against the live `.claude/**` files; the load-bearing Track-1→Track-2 dependency (the workflow taxonomy is Track 2's triage trigger) confirmed against the live glob-keyed dispatch. T1 (suggestion, accepted): keep the trivial-merge floor's `(single import, single rename)` parenthetical when copying it across.
+- [x] Risk: PASS at iteration 1 (3 findings, 3 accepted) — R1 (should-fix): state the schema-change-vs-gloss hinge so the HIGH "shared schema / glossary closed terms" line and the prose-only LOW cap do not overlap. R2/R3 (suggestions): keep the prose-only cap's cross-tier scope explicit; distinguish the risk bucket from the file-set predicate. No blockers; cross-session blast radius is bounded by advisory prose, the Phase A user override, and unchanged coverage gates.
+- [x] Adversarial: PASS at iteration 1 (4 findings, 4 accepted) — A1 (should-fix): carry the design's full "no gate/dispatch/schema change" qualifier into the implemented prose-only cap (the track gloss dropped it). A2 (should-fix): fix the hard "Six HIGH categories" count in the § Risk tagging summary sync. A3/A4 (suggestions): record the two compatible "atomic" sub-prompt restatements as accepted non-targets; document the fill→more-mediums interaction. D1/D2/D3/D6 all survive challenge; `conventions-execution.md` edit-atomicity correctly left untouched (a different sense of "atomic").
 
 ## Context and Orientation
 
@@ -54,15 +64,14 @@ The work is four coherent edits. They are loosely coupled, so the ordering below
 
 Invariants to preserve: the trivial-merge floor stays; the existing "when in doubt, high" decomposer override is unchanged (no workflow-specific override added); the MEDIUM `~5` value is unchanged (only its wording is clarified); coverage gates are untouched.
 
-<!-- Phase A appends a per-step sequencing summary referencing the Concrete Steps roster. -->
+**Phase A sequencing (4 steps).** Steps 1 (`track-review.md` § Step Decomposition), 2 (`conventions.md` glossary), and 3 (`risk-tagging.md` taxonomy) touch three different files and are mutually independent; step 2's footprint pointer references the rule step 1 establishes, so 1-before-2 is the sensible default. Step 4 (the `~5`/`~12` clause plus the § Risk tagging summary sync) depends on step 3 — the summary names the taxonomy category step 3 defines — and re-touches `track-review.md` (step 1's file) and `risk-tagging.md` (step 3's file), so it runs last. All four steps are `low`-risk under the live taxonomy (see Decision Log); none reaches step-level dimensional review, and the cumulative diff is reviewed at Phase C.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+
+1. Rewrite `track-review.md` § Step Decomposition (staged copy): replace the `~3`-edited-file cap (`:717`) with the three sizing rules — coherence (all tiers: split a step that does unrelated things); high-risk isolation (each HIGH change in its own `high`-tagged step, sized by the change, no file cap); fill ordinary `low`/`medium` steps toward `~12` edited files and flag `~14+` as overblown, stated as a directive not a permission. Keep the trivial-merge floor verbatim, including its `(single import, single rename)` parenthetical [T1]. — risk: low (default — workflow prose; under the live taxonomy `.claude/**` doc edits are docs/LOW)  [ ]
+2. Reword `conventions.md §1.1` Glossary "Step" row (staged copy, `:70`): "atomic" = one coherent, logically continuous change committed together, explicitly not a minimal file count, with a pointer to the `track-review.md` footprint guidance. Keep it terse (closed-term, `roles=any phases=any` surface) and non-contradictory with the step-1 sizing rules. — risk: low (default — workflow prose/glossary; live taxonomy treats as docs/LOW)  [ ]
+3. Add the workflow-machinery risk taxonomy to `risk-tagging.md` (staged copy): a `### Workflow machinery` subsection under `## HIGH-risk triggers` (`:94`) keyed to whether the artifact executes or drives control flow plus always-loaded blast radius — root `CLAUDE.md` is HIGH; workflow MEDIUM (bounded behavioral) and LOW (prose/clarity) lines under `:156`/`:172`; and a prose-only cap modeled on the `## Tests-only steps` precedent (`:187`). The prose-only cap MUST carry the full qualifier "no hook/script/settings change AND no gate/dispatch/schema change" so it cannot fire on a control-flow-driving prose edit that the HIGH taxonomy also matches [A1]; state the schema-change-vs-gloss hinge explicitly so a meaning-changing glossary/TOC/enum edit reads HIGH while a wording-preserving gloss reads prose-only/LOW [R1]; keep the cap's cross-tier scope unambiguous (a ceiling for prose-only edits, not a HIGH-only carve-out) [R2]; optionally add a half-sentence distinguishing this risk bucket from the `review-agent-selection.md` "workflow-machinery" file-set predicate if it costs no meaningful length [R3]. — risk: low (default — workflow prose; the workflow risk taxonomy this step ADDS is not yet live per the §1.7(g) I6 invariant, so the step is classified under the live docs/LOW default)  [ ]
+4. In `risk-tagging.md` (staged copy), add the `~5`-vs-`~12` clarifying clause at the MEDIUM `~5`-file trigger (`:163`) tying `~5` (raise to `medium`) and `~12` (split cap) as complementary, not rival; the clause should note that fill-toward-`~12` will routinely push ordinary single-module steps past `~5` → a larger `medium`-tagged population at Phase C, which is intended (larger diffs warrant more focal-point attention), not a miscalibration [A4]; the `~5` value itself is unchanged. Then sync `track-review.md` § Risk tagging summary (staged copy, `:733`) to name the new workflow-machinery category AND correct the hard count word "Six HIGH categories" so it matches `risk-tagging.md` after step 3 (no stale "Six") [A2], so `review-workflow-consistency` finds no drift. Depends on step 3 (needs the taxonomy's category name). — risk: low (default — workflow prose; live taxonomy docs/LOW)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -80,14 +89,20 @@ Track-level behavioral acceptance (Phase A turns these into per-step EARS/Gherki
 - `track-review.md` § Risk tagging summary names the workflow category, matching `risk-tagging.md` (no consistency drift).
 - Every edit lives under `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/...`; the live `.claude/**` tree is byte-unchanged from develop.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+Per-step acceptance (Phase B verifies each against the staged copies):
+
+- Step 1: `track-review.md` § Step Decomposition (staged) contains no `~3`-file cap; it states all three sizing rules (coherence; high-risk isolation with no file cap; fill-toward-`~12` with `~14+` flagged) and retains the trivial-merge floor verbatim, including the `(single import, single rename)` parenthetical.
+- Step 2: `conventions.md §1.1` "Step" row (staged) defines "atomic" as one coherent change committed together, explicitly not a minimal file count, with a footprint pointer, and does not contradict the step-1 rules.
+- Step 3: `risk-tagging.md` (staged) carries a `### Workflow machinery` HIGH subsection (root `CLAUDE.md` = HIGH), workflow MEDIUM and LOW lines, and a prose-only cap whose text contains the full "no hook/script/settings change AND no gate/dispatch/schema change" qualifier [A1] and a stated schema-change-vs-gloss hinge [R1].
+- Step 4: the MEDIUM `~5`-file trigger (staged) carries a clause tying `~5` to the `~12` split cap (the `~5` value unchanged); `track-review.md` § Risk tagging summary (staged) names the workflow-machinery category and its HIGH-category count matches `risk-tagging.md` (no stale "Six") [A2], so `review-workflow-consistency` finds no drift.
+- All steps: every edit lives under `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/...`; the live `.claude/**` tree is byte-unchanged from develop.
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+Each step edits a staged copy under `_workflow/staged-workflow/.claude/...` (first touch copies the live file in verbatim per §1.7(e)) and commits once. Idempotence: re-running a step's edit on an already-edited staged copy is a no-op when the target text is already present, so the implementer checks the staged copy's current state before editing. Recovery: an uncommitted step edit is discarded by the implementer's `git reset --hard HEAD`, so each step commits before the next begins (§What You Do sub-step 6); a crashed step re-runs from the live-or-staged read. Step 4 must not run before step 3's commit — it reads the taxonomy's category name from the staged `risk-tagging.md`.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
