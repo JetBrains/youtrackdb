@@ -18,6 +18,7 @@ eada58a9b0c9a9ec9ec6563f94e747f5a6e0281a
 - [ ] Track completion
 
 - [x] 2026-06-04T14:18Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-04T14:38Z [ctx=safe] Step 1 complete (commit 857072a5c41520dea84378d64ae4e5588faea987)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -71,7 +72,7 @@ Invariants to preserve: the trivial-merge floor stays; the existing "when in dou
 
 ## Concrete Steps
 
-1. Rewrite `track-review.md` § Step Decomposition (staged copy): replace the `~3`-edited-file cap (`:717`) with the three sizing rules — coherence (all tiers: split a step that does unrelated things); high-risk isolation (each HIGH change in its own `high`-tagged step, sized by the change, no file cap); fill ordinary `low`/`medium` steps toward `~12` edited files and flag `~14+` as overblown, stated as a directive not a permission. Keep the trivial-merge floor verbatim, including its `(single import, single rename)` parenthetical [T1]. — risk: low (default — workflow prose; under the live taxonomy `.claude/**` doc edits are docs/LOW)  [ ]
+1. Rewrite `track-review.md` § Step Decomposition (staged copy): replace the `~3`-edited-file cap (`:717`) with the three sizing rules — coherence (all tiers: split a step that does unrelated things); high-risk isolation (each HIGH change in its own `high`-tagged step, sized by the change, no file cap); fill ordinary `low`/`medium` steps toward `~12` edited files and flag `~14+` as overblown, stated as a directive not a permission. Keep the trivial-merge floor verbatim, including its `(single import, single rename)` parenthetical [T1]. — risk: low (default — workflow prose; under the live taxonomy `.claude/**` doc edits are docs/LOW)  [x] commit: 857072a5c41520dea84378d64ae4e5588faea987
 2. Reword `conventions.md §1.1` Glossary "Step" row (staged copy, `:70`): "atomic" = one coherent, logically continuous change committed together, explicitly not a minimal file count, with a pointer to the `track-review.md` footprint guidance. Keep it terse (closed-term, `roles=any phases=any` surface) and non-contradictory with the step-1 sizing rules. — risk: low (default — workflow prose/glossary; live taxonomy treats as docs/LOW)  [ ]
 3. Add the workflow-machinery risk taxonomy to `risk-tagging.md` (staged copy): a `### Workflow machinery` subsection under `## HIGH-risk triggers` (`:94`) keyed to whether the artifact executes or drives control flow plus always-loaded blast radius — root `CLAUDE.md` is HIGH; workflow MEDIUM (bounded behavioral) and LOW (prose/clarity) lines under `:156`/`:172`; and a prose-only cap modeled on the `## Tests-only steps` precedent (`:187`). The prose-only cap MUST carry the full qualifier "no hook/script/settings change AND no gate/dispatch/schema change" so it cannot fire on a control-flow-driving prose edit that the HIGH taxonomy also matches [A1]; state the schema-change-vs-gloss hinge explicitly so a meaning-changing glossary/TOC/enum edit reads HIGH while a wording-preserving gloss reads prose-only/LOW [R1]; keep the cap's cross-tier scope unambiguous (a ceiling for prose-only edits, not a HIGH-only carve-out) [R2]; optionally add a half-sentence distinguishing this risk bucket from the `review-agent-selection.md` "workflow-machinery" file-set predicate if it costs no meaningful length [R3]. — risk: low (default — workflow prose; the workflow risk taxonomy this step ADDS is not yet live per the §1.7(g) I6 invariant, so the step is classified under the live docs/LOW default)  [ ]
 4. In `risk-tagging.md` (staged copy), add the `~5`-vs-`~12` clarifying clause at the MEDIUM `~5`-file trigger (`:163`) tying `~5` (raise to `medium`) and `~12` (split cap) as complementary, not rival; the clause should note that fill-toward-`~12` will routinely push ordinary single-module steps past `~5` → a larger `medium`-tagged population at Phase C, which is intended (larger diffs warrant more focal-point attention), not a miscalibration [A4]; the `~5` value itself is unchanged. Then sync `track-review.md` § Risk tagging summary (staged copy, `:733`) to name the new workflow-machinery category AND correct the hard count word "Six HIGH categories" so it matches `risk-tagging.md` after step 3 (no stale "Six") [A2], so `review-workflow-consistency` finds no drift. Depends on step 3 (needs the taxonomy's category name). — risk: low (default — workflow prose; live taxonomy docs/LOW)  [ ]
@@ -80,6 +81,14 @@ Invariants to preserve: the trivial-merge floor stays; the existing "when in dou
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 857072a5c41520dea84378d64ae4e5588faea987, 2026-06-04T14:38Z [ctx=safe]
+**What was done:** Rewrote the staged § Step Decomposition in `track-review.md`, replacing the single `~3`-edited-file cap with three sizing rules: coherence (the only mandatory split, all tiers; file count alone never forces a split), high-risk isolation (each HIGH change in its own `high`-tagged step, sized by the change, no file cap), and a fill-toward-~12-edited-files directive for ordinary `low`/`medium` steps that flags ~14+ as overblown and is phrased as a directive, not a permission. The trivial-merge floor (with its `(single import, single rename)` parenthetical) and the cross-cutting-concerns rule survive verbatim. First touch copied the live file in byte-identical, so the live `.claude/workflow/track-review.md` is unchanged from develop.
+
+**What was discovered:** The branch merge-base is `786f441e`; the diff against it is `_workflow/`-only with zero production source, so the implementer's test-additive shortcut applies even though `git diff origin/develop` lists unrelated production files that sit ahead on develop. Step 4 will sync the § Risk tagging summary block in this same staged file; that block still reads "Six HIGH categories …" unchanged by this step.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/track-review.md` (new — staged copy of the live file carrying the § Step Decomposition rewrite)
 
 ## Validation and Acceptance
 
