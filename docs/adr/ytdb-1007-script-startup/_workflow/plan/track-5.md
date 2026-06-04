@@ -13,8 +13,7 @@ Track 5 closes the consumer-set gap Track 4 leaves open. Track 4 rewrites the si
 - [x] 2026-06-04T03:16Z [ctx=safe] Step 1 complete (commit 92d7a9d8c9)
 - [x] 2026-06-04T03:22Z [ctx=safe] Step 2 complete (commit 7d990fed6a)
 - [x] 2026-06-04T03:23Z [ctx=safe] Step implementation
-- [ ] Track-level code review
-- [ ] Track-level code review
+- [x] 2026-06-04T03:43Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [ ] Track completion
 
 ## Surprises & Discoveries
@@ -80,7 +79,7 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/skills/execute-tracks/SKILL.md` (new)
 
 ### Step 2 — commit 7d990fed6a, 2026-06-04T03:22Z [ctx=safe]
-**What was done:** Synced the staged `create-plan/SKILL.md` Step 1.5 detection description to the script-citation form Track 4's staged `workflow-drift-check.md § Detection` now uses. First touch copied the live SKILL verbatim into `staged-workflow/.claude/skills/create-plan/SKILL.md` (cmp-verified byte-identical), then replaced all three stale inline-bash fragments — the "thin orchestration handoff rather than a re-statement of the bash" framing, the "Phase 1 walk plus Phase 2 fold or unstamped short-circuit" parenthetical, and the "`PLAN_DIR=docs/adr/<resolved-dir-name>` bash line … where the value lands in shell scope" parenthetical — with prose that frames detection as running inside `workflow-startup-precheck.sh` under `--mode full`. A live-vs-staged diff confirms only the detection paragraph changed: the delegation-by-reference to `workflow-drift-check.md` and the conversational Migrate/Defer/Suppress resolution prose stay byte-unchanged, satisfying the step's acceptance criterion. File grew from 546 to 548 lines.
+**What was done:** Synced the staged `create-plan/SKILL.md` Step 1.5 detection description to the script-citation form Track 4's staged `workflow-drift-check.md § Detection` now uses. First touch copied the live SKILL verbatim into `staged-workflow/.claude/skills/create-plan/SKILL.md` (cmp-verified byte-identical), then replaced all three stale inline-bash fragments with prose that frames detection as running inside `workflow-startup-precheck.sh` under `--mode full`. The three fragments were the "thin orchestration handoff rather than a re-statement of the bash" framing, the "Phase 1 walk plus Phase 2 fold or unstamped short-circuit" parenthetical, and the "`PLAN_DIR=docs/adr/<resolved-dir-name>` bash line … where the value lands in shell scope" parenthetical. A live-vs-staged diff confirms only the detection paragraph changed: the delegation-by-reference to `workflow-drift-check.md` and the conversational Migrate/Defer/Suppress resolution prose stay byte-unchanged, satisfying the step's acceptance criterion. File grew from 546 to 548 lines.
 
 **What was discovered:** Like `execute-tracks/SKILL.md`, `create-plan/SKILL.md` is a `§1.8(d)` bootstrap-only file with no generated TOC region, so the edit needs no reindex. For Phase C: the replacement cites the staged `workflow-drift-check.md § Detection` phrasing (two-phase drift walk inside the script under `--mode full`, the script resolving the plan dir), so the track-level review should confirm it still matches the staged drift-check text at review time.
 
