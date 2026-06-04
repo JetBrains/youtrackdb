@@ -309,7 +309,10 @@ The engine-drop path is already commit-safe: `deleteIndexEngine`
 `executeInsideAtomicOperation`, reaching `BTree.delete` and
 `deleteFile(atomicOperation, …)` (`BTree.java:863`), which is WAL-revertible
 (F16). So index **deletion** is transactional under the overlay (D15) once the
-guard is gone.
+guard is gone. Third pass (F46): `addCollectionToIndex`/`removeCollectionFromIndex`
+(`IndexManagerEmbedded:99`/`:131`, `executeInTxInternal:114`) are a fifth and sixth
+self-commit path, reached transitively from class-structural ops via the polymorphic
+ripple, not direct index ops.
 
 ```mermaid
 flowchart LR
@@ -573,7 +576,9 @@ An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
 logically grounded in the cited entries. A second pass (2026-06-03, same day)
 targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
-F39–F44, all re-verified against live code.
+F39–F44, all re-verified against live code. A third pass (2026-06-04) targeted the
+interaction seams between D8/F41 (tx-local seed), D14 (per-class records), and D15
+(index overlay), adding F45–F47, all PSI-verified against live code.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -585,7 +590,13 @@ F42 → D2/D9 (provisional ids must split the `collectionId < 0` predicate;
 re-key the reverse map at commit); F43 → D6/D9 (structural diff is D9's set
 difference over in-memory structures; D6 scoped to which records to write);
 F44 → D7/D19 (dual engage-point at acquireSchemaWriteLock + acquireExclusiveLock;
-index-only txs bypass the schema chokepoint).
+index-only txs bypass the schema chokepoint); F45 → D8/D14 (the tx-local seed must
+carry each existing class's committed per-class record RID; new classes allocate at
+commit); F46 → D15/D7 (collection-membership is an in-place index-mutation category;
+`addCollectionToIndex`/`removeCollectionFromIndex` are the fifth/sixth self-commit
+guards; commit-only via the overlay); F47 → D7/D8 (the changed-class-set hook is one
+lock level above the mutex engage-point; the ripple is lock-free, so it does not pollute
+the set).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -985,6 +996,136 @@ flowchart TD
   IONLY["index-only tx: never calls acquireSchemaWriteLock"] -. must still engage via IC .-> ENG
 ```
 
+### F45 — D14's per-class record identity and D8/F41's tx-local seed are coupled by an unstated invariant: the seed must carry each existing class's committed record RID [MAJOR]
+D14 splits the schema into per-class records, each `SchemaClassImpl` carrying its own
+record RID, committed via load-by-RID + set-properties (mirroring the index-manager
+per-entity pattern, F20). D8/F41 pin the tx-local `SchemaShared` seed to `fromStream`
+re-parse, but for the `owner`/graph-binding reason only (F41), never identity. The two
+are specified independently and assume different things about per-class record identity.
+
+PSI-verified (2026-06-04, third pass):
+
+- `SchemaClassImpl` has exactly one inheritor, `SchemaClassEmbedded`; **neither declares
+  any RID/`Identifiable`/identity field** (`ClassInheritorsSearch` + field scan). The
+  per-class record RID is net-new under D14.
+- Both constructors (`SchemaClassImpl:89`, `:108`) and `createClassInstance(name)`
+  (`SchemaEmbedded:477` → `new SchemaClassEmbedded(this, name)`) carry no RID.
+- `SchemaClassImpl.toStream` (`:569`) emits `session.newEmbeddedEntity()` — an embedded
+  entity with no independent identity; the whole schema is one record at
+  `SchemaShared.identity` (`toStream:647` `session.load(identity)`), confirming F1.
+- The index template D14 mirrors already binds identity at load:
+  `IndexManagerAbstract.load` (`:191`) reads the `CONFIG_INDEXES` link set, loads each
+  entity by RID, and `createIndexInstance(transaction, indexIdentifiable, …)` (`:202`)
+  threads it in; `IndexAbstract.save` (`:720`) loads-by-`identity`-or-creates.
+
+The gap is at the seam, for an **existing** class modified in a tx (the common
+migration case). The tx-local copy must carry that class's committed record RID so
+commit's load-by-RID updates the right record. An implementer following F41 literally
+builds the seed by constructing fresh `SchemaClassEmbedded(this, name)` objects, which
+carry no RID, and commit then has nothing to load: it orphans the committed per-class
+record and writes a fresh one, or, if it re-resolves by class name against the committed
+schema, mishandles a class renamed in the same tx (D17, whose new name is absent from
+the committed schema). New-class records are already covered (D14: temp→persistent RID
+at commit, D2/F24); the unstated half is existing-class identity preservation.
+
+Resolution (D8/D14): state the invariant. The per-class record RID is a field on
+`SchemaClassImpl` bound at load from the schema-record link set (mirroring
+`IndexManagerAbstract.load`); the F41 seed preserves it for existing classes (a
+`toStream`→`fromStream` round-trip through the link-set-aware serializer keeps it; a
+fresh-object reconstruction that drops identity does not); a new class allocates its
+record RID at commit (D2/F24). Commit resolves the per-class record by carried RID, not
+by re-resolving the possibly-renamed class name.
+
+```mermaid
+flowchart TD
+  COMMIT["committed schema: per-class records, each with a RID (D14)"]
+  COMMIT -- "F41 seed: toStream→fromStream round-trip (link-set-aware)" --> TXOK["tx-local class carries committed RID"]
+  COMMIT -. "naive seed: new SchemaClassEmbedded(this,name), no RID" .-> TXBAD["tx-local class has no RID"]
+  TXOK --> CMOK["commit load-by-RID updates the right record"]
+  TXBAD --> CMBAD["commit orphans old record, or re-resolves by name → breaks on D17 rename"]
+```
+
+### F46 — Class-structural ops mutate index collection-membership through a self-committing, shared-`Index`-mutating path the guard inventory and D15 overlay both miss [MAJOR; self-commit + isolation facets BLOCKER]
+The polymorphic collection-id ripple reaches the index manager:
+`SchemaClassEmbedded.addCollectionIdInternal` (`:600`) → `addPolymorphicCollectionId`
+(`:631`, recursing superclasses `:644`) → `addCollectionIdToIndexes` (`:641`) →
+`IndexManagerEmbedded.addCollectionToIndex` (`:99`). PSI-verified callers (2026-06-04):
+`addCollectionToIndex` is called from `SchemaClassEmbedded#addCollectionIdToIndexes` (the
+ripple) and `SchemaEmbedded#createClassInternal`; `addCollectionIdToIndexes` is called
+from `addPolymorphicCollectionId` and `SchemaClassImpl#addPolymorphicCollectionIds` (the
+`addSuperClass`/inheritance path); the symmetric `removeCollectionFromIndex` is reached
+from `SchemaClassImpl#removeCollectionFromIndexes`. So ordinary `createClass`,
+alter-add-collection, and `addSuperClass` mutate index membership, not just explicit
+`createIndex`/`dropIndex`. Three facets, all missed by the first two passes:
+
+- **(a) A fifth/sixth self-commit guard.** `addCollectionToIndex` wraps the mutation in
+  `session.executeInTxInternal` (`IndexManagerEmbedded:114`), the same self-committing
+  shape as F3 (`saveInternal`), F4 (`dropClass`), F21 (`createIndex`), F26 (`dropIndex`);
+  `removeCollectionFromIndex` matches. The guard inventory lists four; these are the
+  fifth and sixth, reached transitively from class-structural ops. Under D1 they must
+  ride the user tx, not self-commit.
+- **(b) In-place mutation of a committed `Index` object (D4 leak).** The path resolves
+  the shared `indexes.get(indexName)` (`:106`/`:117`) and mutates its `collectionsToIndex`
+  then `save(transaction)` (`IndexAbstract.addCollection:667`/`:684`; persisted as
+  `CONFIG_COLLECTIONS`, `save:737`/`toMap:779`). Same hazard F40 named for class rename:
+  mutating a committed thin handle in place leaks the uncommitted membership change to
+  other sessions. Must be commit-only / routed through the D15 overlay.
+- **(c) A missing D15 changed-index category.** A membership-only change to an existing,
+  non-created/non-dropped index that is not a rename is none of D15's enumerated
+  categories (create/drop + the F40 rename third category). If the changed index entity
+  is not tracked, commit does not persist the membership delta and the committed index
+  silently fails to cover the new subclass collection — a polymorphic query under-returns.
+
+Resolution (D15/D7): add collection-membership change to the changed-index set as an
+in-place-mutation category alongside rename (F40), generalizing D15's third category to
+"in-place mutation of a committed index"; de-guard
+`addCollectionToIndex`/`removeCollectionFromIndex` so the membership change rides the
+user tx (extends the F3/F4/F21/F26 inventory to six); route the mutation through the
+tx-local index overlay and apply it commit-only so no shared committed `Index` is mutated
+mid-tx (D4).
+
+```mermaid
+flowchart TD
+  CS["class-structural op: createClass / addCollectionId / addSuperClass"]
+  CS --> RIP["addPolymorphicCollectionId ripple → addCollectionIdToIndexes (:641)"]
+  RIP --> ACI["IndexManagerEmbedded.addCollectionToIndex (:99)"]
+  ACI --> A["(a) executeInTxInternal (:114): self-commit — 5th/6th guard beyond F3/F4/F21/F26"]
+  ACI --> B["(b) mutates shared indexes.get(name).collectionsToIndex + save (:684/:737): D4 leak"]
+  ACI --> C["(c) membership-only change: not create/drop/rename → D15 set misses it → commit drops the delta"]
+```
+
+### F47 — Verified: the polymorphic ripple does not pollute the changed-class set; the changed-class-set hook and the D7-mutex engage-point sit at different lock granularities [VERIFIED + MINOR pitfall]
+Surface-B hypothesis (third pass): does the inheritance ripple drag superclasses into
+D8's changed-class set, eroding D14's write-amplification win? Verified **no**, on two
+grounds:
+
+- `addPolymorphicCollectionId` (`SchemaClassEmbedded:631`) mutates `polymorphicCollectionIds`
+  by direct field write (`:636`–`:639`) and recurses into superclasses (`:644`)
+  **without re-acquiring** the schema write lock; only the originating
+  `addCollectionIdInternal` takes it (`:601`). A changed-class set keyed at a per-class
+  mutation entry point records only the originating class, not the rippled superclasses.
+- `SchemaClassImpl.toStream` (`:569`) does **not** serialize `polymorphicCollectionIds`
+  (nor `subclasses`); it is derived state recomputed on load via
+  `setSuperClassesInternal`/the ripple. The rippled superclass records need no rewrite.
+
+Pitfall to record (D7/D8): the D7-mutex engage-point and the changed-class-set recorder
+sit at different granularities. `SchemaClassImpl.acquireSchemaWriteLock` (`:1168`)
+delegates to `owner.acquireSchemaWriteLock` (`SchemaShared:414`), the owner-level lock
+that carries no class identity, which is all the D7 mutex needs (engage once per tx).
+The changed-class set needs per-class identity, so it must hook at
+`SchemaClassImpl.acquireSchemaWriteLock` / the explicit mutation methods, one level above
+the mutex chokepoint. D7/D8/F44 describe "the chokepoint" as a single place; it is two
+granularities for two purposes. An implementer hooking the changed-class set at the
+owner-level lock has no identity to record and would either pollute the set or defeat the
+per-class write-amplification win.
+
+```mermaid
+flowchart TD
+  MUT["class mutation (e.g. addCollectionIdInternal)"] --> SCWL["SchemaClassImpl.acquireSchemaWriteLock (:1168): per-class identity — changed-class-set hook"]
+  SCWL --> OWL["owner.acquireSchemaWriteLock (SchemaShared:414): no identity — D7-mutex engage hook"]
+  RIP["polymorphic ripple → superclass.addPolymorphicCollectionId (:644)"] -. "lock-free, bypasses per-class acquire" .-> NOREC["superclass NOT recorded (correct: polymorphicCollectionIds not persisted)"]
+```
+
 ---
 
 ## 3. Decisions
@@ -1139,7 +1280,13 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   in-memory reads: at commit only the class records in the changed-class set are
   written (D14), never the full schema. So "we don't write the full schema" is
   satisfied by the changed-class set driving the per-class commit, while reads
-  use the full working structure.
+  use the full working structure. The changed-class set records the touched class
+  at the per-class mutation entry point (`SchemaClassImpl.acquireSchemaWriteLock`,
+  `:1168`, or the explicit mutation methods), one lock level above the identity-free
+  D7-mutex engage-point (`owner.acquireSchemaWriteLock`, `SchemaShared:414`); the
+  polymorphic ripple mutates superclasses lock-free (`addPolymorphicCollectionId:644`),
+  so it does not pollute the set, and `polymorphicCollectionIds` is derived and
+  unserialized, so rippled superclasses need no rewrite (F47).
 - **At commit:** for each changed class, `toStream` writes its own record (D14);
   the diff (D6) over those changed records derives the structural delta,
   reconciliation (D1, D3) applies it, then the tx-local structure is promoted to
@@ -1166,6 +1313,12 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   methods (`getClass`, etc.), not only the snapshot, must also route to the
   tx-local structure during a schema-tx, since the schema API reads through the
   proxy. Reuses the existing `toStream`/`fromStream`/`makeSnapshot` machinery.
+  Under D14 the seed must additionally bind each existing class's committed per-class
+  record RID into the tx-local copy. A `toStream`→`fromStream` round-trip through the
+  link-set-aware serializer preserves it; a fresh-object reconstruction that drops
+  identity does not. Commit's load-by-RID then updates the right record instead of
+  orphaning it, and a new class allocates its record RID at commit (D2/F24).
+  `SchemaClassImpl` has no such field today (F45).
 
 ### D15 — Tx-local index-definition overlay (NOT a content copy of the IndexManager)
 From the assignee, 2026-06-03. Indexes also need a tx-local view so a session
@@ -1203,6 +1356,17 @@ IndexManager" framing.
   rides `toMap`, F30), but the rename is not visible inside the renaming tx, so no
   shared `Index` object is mutated mid-tx (no D4 leak on the thin handle, F25) and
   F35's create/drop-only rebuild trigger needs no rename case.
+- **Collection-membership is a fourth in-place category (F46).** A class-structural op
+  (`createClass`, alter-add-collection, `addSuperClass`) ripples into an existing index's
+  `collectionsToIndex` via `addCollectionIdToIndexes` →
+  `IndexManagerEmbedded.addCollectionToIndex` (`:99`), which today self-commits
+  (`executeInTxInternal:114`, the fifth/sixth tx guard beyond F3/F4/F21/F26) and mutates
+  the shared committed `Index` in place (a D4 leak, like F40's rename). v1 applies it the
+  way rename is applied: de-guard the self-commit so the change rides the user tx, route
+  through the overlay, apply it commit-only, and carry membership-only mutations of
+  committed indexes in the changed-index set. Otherwise the commit drops the
+  `collectionsToIndex` delta and the committed index silently fails to cover the new
+  collection.
 - **Required coupling — the snapshot reads the index manager.** A class's index
   list in the snapshot is sourced from the index manager:
   `SchemaImmutableClass.getRawClassIndexes` →
@@ -1283,8 +1447,11 @@ planner-guard change to scope.
 From the assignee, 2026-06-03. Replace the single schema record (F1, all classes
 in one EMBEDDEDSET) with a schema record that links to per-class entity records,
 mirroring the index-manager pattern (F20: a `CONFIG_INDEXES` link set pointing
-at per-index entities). Each `SchemaClassImpl` carries its own record RID. At
-commit, `toStream` writes each class into its own record (load-by-RID + set
+at per-index entities). Each `SchemaClassImpl` carries its own record RID as a
+net-new field, bound at load from the schema-record link set exactly as
+`IndexManagerAbstract.load` binds each index's identity (`:191`/`:202`);
+`SchemaClassImpl` has no such field today, and the tx-local seed must preserve it
+(F45). At commit, `toStream` writes each class into its own record (load-by-RID + set
 properties); `EntityImpl` per-property dirty tracking (D6) means only the
 actually-changed class records are written — a one-class change no longer
 rewrites the whole schema. This directly attacks the issue's "big amount of
