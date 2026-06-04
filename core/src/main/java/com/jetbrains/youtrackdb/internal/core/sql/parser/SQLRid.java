@@ -140,6 +140,10 @@ public class SQLRid extends SimpleNode {
     this.legacy = b;
   }
 
+  public void setExpression(SQLExpression expression) {
+    this.expression = expression;
+  }
+
   public SQLInteger getCollection() {
     if (expression != null) {
       var rid = toRecordId((Result) null, new BasicCommandContext());
