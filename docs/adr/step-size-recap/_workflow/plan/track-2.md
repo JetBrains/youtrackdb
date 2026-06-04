@@ -20,6 +20,7 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 - [x] 2026-06-04T15:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-04T16:17Z [ctx=safe] Step 1 complete (commit 0fc2ff0fc1)
 - [x] 2026-06-04T16:24Z [ctx=safe] Step 2 complete (commit 774b46aec2)
+- [x] 2026-06-04T16:30Z [ctx=safe] Step 3 complete (commit 6cfc61ca64)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -88,7 +89,7 @@ Steps 2-5 each consume Step 1's selection note (source of truth) but touch disjo
 
 1. Selection note in `review-agent-selection.md`: baseline step-vs-track carve-out at the `## Baseline agents` intro plus a new non-mirrored workflow-reviewer triage note (D4, D5, D7) — risk: low (default; live taxonomy, §Self-application limit)  [x] commit: 0fc2ff0fc1
 2. Step-level dispatch in `step-implementation.md` sub-step 4a, with the `risk-tagging.md` `high` quick-ref cell rewrite riding it (already-staged copy, edit in place) (D4, D5) — risk: low (default)  [x] commit: 774b46aec2 *(parallel with Step 3, Step 4, Step 5)*
-3. Track-level dispatch in `track-code-review.md` § Agent selection and launching; track set unchanged, documents deferred-agent coverage (D4, D5, DL2) — risk: low (default)  [ ] *(parallel with Step 2, Step 4, Step 5)*
+3. Track-level dispatch in `track-code-review.md` § Agent selection and launching; track set unchanged, documents deferred-agent coverage (D4, D5, DL2) — risk: low (default)  [x] commit: 6cfc61ca64 *(parallel with Step 2, Step 4, Step 5)*
 4. SKILL promotion of `review-bugs-concurrency` to a mandatory baseline in `code-review/SKILL.md` (D7) — risk: low (default)  [ ] *(parallel with Step 2, Step 3, Step 5)*
 5. Consistency sweep of stale step-level baseline-count text in `code-review-protocol.md`, `execute-tracks/SKILL.md`, and `conventions-execution.md` (D4 blast radius, DL1) — risk: low (default)  [ ] *(parallel with Step 2, Step 3, Step 4)*
 
@@ -109,6 +110,12 @@ Phase 1; Phase A does not populate. -->
 **Key files:**
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/step-implementation.md` (new)
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/risk-tagging.md` (modified)
+
+### Step 3 — commit 6cfc61ca64, 2026-06-04T16:30Z [ctx=safe]
+**What was done:** Documented the track-level dispatch in `track-code-review.md` § Agent selection and launching (copied live-verbatim on first touch, then edited the staged copy). A 17-line insertion states that the track pass runs the full selection against the cumulative track diff: all four baselines (`review-bugs-concurrency` included), subject only to the workflow-only / `docs-only` baseline-skip override, plus the full trigger-based workflow-reviewer selection. The text names the agents this pass covers for the step level — the three step-deferred baselines (`review-code-quality`, `review-test-behavior`, `review-test-completeness`) and the four step-deferred workflow reviewers (`consistency`, `context-budget`, `writing-style`, `instruction-completeness`) — and cross-references Step 1's `§Step-level vs track-level routing` note as the source of truth. The DL2 guardrail held: the track baseline set stays at four with `review-bugs-concurrency` running at the track pass, and `track-code-review.md:125` (§Multi-Step Tracks) is byte-identical to live.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/track-code-review.md` (new)
 
 ## Validation and Acceptance
 
