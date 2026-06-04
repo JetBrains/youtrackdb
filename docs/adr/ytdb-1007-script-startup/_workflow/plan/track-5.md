@@ -114,3 +114,7 @@ belong to one specific step. Per-step episode content lives in
 **Staging discipline:** staged-subtree layout per `§1.7(a)`; the `§1.7(b)` marker is declared in the plan's Constraints; reads resolve staged-first per `§1.7(d)`; first touch copies the live file verbatim then edits per `§1.7(e)`; the Phase 4 promotion rebases onto develop first per `§1.7(f)` and is additive and re-entrant per `§1.7(j)`.
 
 **Dependencies:** depends on Track 4 — the rewritten `workflow.md § Startup Protocol` (the dispatch rule) and `workflow-drift-check.md` (the script citation) must exist staged before this track points the SKILLs at them. No downstream track consumes this one; the Phase 4 promotion is the next consumer.
+
+## Base commit
+
+fb08f08419bbb394fc39b534174dd57148e52986
