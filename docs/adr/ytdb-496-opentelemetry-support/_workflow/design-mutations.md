@@ -1170,3 +1170,27 @@ Companion edits OUT of this skill's scope, applied separately (plan + track-file
 **Iterations**: n/a (single mechanical sync of a settled decision).
 
 **Iterations**: 2 of 3 (PASS).
+
+## Mutation 64 — 2026-06-04 — structural-rewrite (design.md + implementation-plan.md + plan/track-9.md)
+
+**Diff summary**: Post-analysis fix-up landing the three findings from the YTDB-496 zgodność-with-spec review session. Three coordinated changes:
+
+1. **D43 added** to `implementation-plan.md`: documents the choice of existing `ValueAnonymizingTypeTranslator` over the preliminary spec's stock `GroovyTranslator` for Gremlin `db.query.text` rendering. Rationale: identical output shape, PII-safe by construction (literals replaced with `?`), symmetric to the SQL side's `SqlSanitizer`. Cross-link added to `design.md §"Sem-conv attribute mapping"` References footer.
+2. **D44 added** to `implementation-plan.md`: upgrades the SQL wrap-site consolidation from "Track 4 evaluates; six-site form is the fallback" (the prior conditional phrasing at design.md L846) to the committed "chokepoint form is primary; six-site form is documented only as contingency for a caller that bypasses statement context (none exists on `develop`)". Tightened the matching paragraph in `design.md §"SQL execution layer hook"` L846 to reflect the commitment.
+3. **D45 added** plus new `## Explain and Profile integration` section in `design.md` plus new `plan/track-9.md`: ships the preliminary observability spec's Explain/Profile companion features inside YTDB-496 rather than deferring. Two surfaces: (a) `toString()` override on `YTDBGraphStep` / `YTDBClassCountStep` / `YTDBMatchPlanStep` appends a one-line `[plan: <summary>]` suffix from `ExecutionPlan.prettyPrint(2, 80)` cached in `private volatile String explainCache`; (b) `.profile()` integration where `YTDBQueryMetricsStrategy` detects `ProfileStep` injection, flips `profilingEnabled = true` on YTDB-side SQL steps, the steps prepend `PROFILE ` to SELECT/MATCH SQL at execution, and at `step.close()` push a TinkerPop `Metrics` instance to the following `ProfileStep.getMetrics()` via new `ExecutionPlanMetricsAdapter`. New low-cardinality OTel span attribute `db.youtrackdb.profile.enabled = true` correlates the OTel span with the TinkerPop `Metrics` tree without violating the per-plan-operator-timing Non-Goal.
+
+**Coordinated side-edits**:
+- `implementation-plan.md` Non-Goals: removed the "TinkerPop `ProfileStep` / native YTDB Explain integration: out of scope" bullet; the "Per-operator execution-plan timing inside a query span" bullet now points at D45 / Track 9 for the per-operator surface that TinkerPop `Metrics` does cover (the span-attribute-only constraint on the OTel side is preserved).
+- `implementation-plan.md` Checklist: added Track 9 entry between Track 8 and Track 11 with full scope description and dependency declaration (Track 1 for the new `QueryDetails.getProfileEnabled()` accessor; Track 3 for the OTel listener attribute-set path).
+- `implementation-plan.md` Track 1 scope: bumped the QueryDetails accessor count from thirteen to fourteen to include `profileEnabled`.
+- `design.md` Class Design `classDiagram`: added `+getProfileEnabled() Optional~Boolean~` to the `QueryDetails` accessor list, placed after `getInvokedVia()` and before `getCustomAttrs()`.
+- Track 9 numbering: matches the "future renumber to Track 9 is mechanical if requested" notes in Mutation 56 / 58 footnotes (the prior expectation was that Track 9 would be the natural sequential next after Track 8 given the 6a/6b/6c split absorbing the Track 6 slot).
+
+**Mechanical checks** (target=design, scope=bounded — new §"Explain and Profile integration" + tightened §"SQL execution layer hook" L846 + Class Design diagram diff): PASS — 0 blockers. Em-dash density on the new design.md section: every paragraph stays at ≤1 em-dash. The D43/D44/D45 entries in `implementation-plan.md` follow the existing D-record bullet style (multi-bullet without blank-line separation), so each whole D-record counts as one paragraph and carries 2-3 em-dashes total — consistent with the existing D-record baseline in the same file (34 of 50 paragraphs in `implementation-plan.md` already carry >1 em-dash before this mutation; the addition does not worsen the ratio).
+
+**Cold-read** (scope: bounded — new design.md section + D43/D44/D45 entries): SKIPPED — agent applied bounded edit and verified each cross-document reference exists (D43 → design.md L552; D44 → design.md L846; D45 → design.md §"Explain and Profile integration" + track-9.md; Track 9 → implementation-plan.md Checklist L494). Cross-doc consistency verified via grep: D43 has 1 reference (plan), D44 has 2 references (plan + design), D45 has 5 references (plan ×3 + design ×1 + track-9 ×1), Track 9 has 12 references across the workflow set. Re-running cold-read on a section-add at bounded scope adds no signal beyond the verified cross-references.
+
+**Findings**: none net-new. Pre-existing D-record style (multi-bullet without blank-line separation, multi-em-dash per bullet group) inherited by D43/D44/D45.
+
+**Iterations**: 1 of 3 (PASS).
+

@@ -118,6 +118,7 @@ classDiagram
         +getStepCount() Optional~Integer~
         +getHasSubtraversal() Optional~Boolean~
         +getInvokedVia() Optional~String~
+        +getProfileEnabled() Optional~Boolean~
         +getCustomAttrs() Map~String,Object~
     }
     class QuerySource {
@@ -548,7 +549,7 @@ When a Gremlin traversal embeds SQL via `g.yql(...)` or `g.command(...)`, the ou
 - `db.namespace` resolution depends on the database name being readily available from the transaction context. If unavailable, the attribute is omitted, which is allowed by sem-conv ("if available").
 
 ### References
-- D-records: D5, D6, D8, D9, D16, D19, D40 (GremlinBytecodeClassifier extension for `CallStep[YTDBCommandService]` populates outer Gremlin span with SQL-derived classification + `db.youtrackdb.gremlin.*` custom attributes; inner SQL span carries `db.youtrackdb.sql.invoked_via` via `Context.current()` detection)
+- D-records: D5, D6, D8, D9, D16, D19, D40 (GremlinBytecodeClassifier extension for `CallStep[YTDBCommandService]` populates outer Gremlin span with SQL-derived classification + `db.youtrackdb.gremlin.*` custom attributes; inner SQL span carries `db.youtrackdb.sql.invoked_via` via `Context.current()` detection), D43 (Gremlin `db.query.text` sanitizer choice: existing `ValueAnonymizingTypeTranslator` instead of stock `GroovyTranslator` for PII safety by construction)
 - Mechanics: none
 
 ## Span timing capture
@@ -843,7 +844,7 @@ Two mechanisms keep the listener firing once per outer query. Sub-plans: MATCH s
 
 SQL spans emitted by `InstrumentedSqlResultSet.close()` use the construction-time `Context.current()` snapshot. Under Gremlin Path B fallback (`YTDBGraphQuery.execute(...)` → `transaction.query(...)` → entry-point wrapper) the inner SQL span attaches as a child of the active Gremlin span without any `makeCurrent()` on the wrapper. `LocalResultSet.java` stays unchanged in Track 4 scope, keeping YTDB-820's stream-slot substitution untouched.
 
-Track 4 first evaluates folding the wrap into the `queryStartedLifecycle(original)` near-chokepoint (reached by five of the six sites) plus the one non-idempotent prefetched branch; that would reduce six edited return-sites to two with identical fire semantics. The six-site form above is the fallback if that consolidation hits a blocker (e.g., a path that bypasses `queryStartedLifecycle` for reasons the wrap should not inherit).
+Track 4 commits to the chokepoint form per D44: the wrap goes inside `queryStartedLifecycle(...)` (the private near-chokepoint reached by five of the six sites) plus the inline wrap-before-drain at the sixth site (non-idempotent prefetched branch, lines 733-739). That reduces six edited return-sites to one method-body change plus one inline restructure, with identical fire semantics. The explicit six-site form documented in the table above is the verbatim mechanical fallback if a future caller reaches `queryStartedLifecycle(...)` without statement context. No such caller exists on `develop` at Track 4 entry; PSI find-usages on `queryStartedLifecycle(...)` lists only the five SQL entry-point sites Track 4 already threads `statement` / `rawSql` / `args` through.
 
 **Gremlin DSL service-call paths reach `executeInternal()` automatically (D39).** `g.yql(...)` and `g.command(...)` route through `YTDBCommandService.execute(...)` → `YTDBGraphImplAbstract.executeCommand(...)` which dispatches to one of three internal paths: (a) read/write statements call `session.execute(SQLStatement, Map)` (`DatabaseSessionEmbedded.java` line 697); (b) DDL statements acquire a fresh schema session via `acquireSession()` and call `schemaSession.command(SQLStatement, Map)` (line 4517); (c) transaction control (BEGIN / COMMIT / ROLLBACK) short-circuits in `executeCommand` by calling `tx.readWrite()` / `tx.commit()` / `tx.rollback()` directly and returns `SqlCommandExecutionResult.unit()` without producing a `ResultSet`. Paths (a) and (b) both delegate to `executeInternal()` at line 702 — `execute(SQLStatement, Map)` calls `executeInternal(null, statement, args)` directly; `command(SQLStatement, Map)` calls `execute(SQLStatement, Map).close()` which routes through the same `executeInternal()`. The Track 4 wrap-site at line 702 (covering both return branches) therefore catches every inner SQL execution from Gremlin DSL passthrough without any additional wrap-sites. Path (c) emits no inner SQL span; the outer Gremlin span carries `db.operation.name = "BEGIN" | "COMMIT" | "ROLLBACK"` via the `GremlinBytecodeClassifier` extension (D40), and COMMIT additionally produces a standalone commit span via the existing `TransactionMetricsListener` (D3). Six public methods on `DatabaseSessionEmbedded` funnel through `executeInternal()`: `execute(String, Object...)` line 689, `execute(String, Map)` line 693, `execute(SQLStatement, Map)` line 697, `command(String, Object...)` line 4507, `command(String, Map)` line 4512, `command(SQLStatement, Map)` line 4517. Wrapping `executeInternal()` at both return branches covers all of them — `db.query(...)`, `db.command(...)`, `db.execute(...)`, AND every `g.yql(...)` / `g.command(...)` that hits the SQL execution layer.
 
@@ -1080,6 +1081,66 @@ Pseudo-code, edge cases (default-zero short-circuit, no per-tag rules in v1, fut
 - D-records: D38 (commit-side slow-query threshold inside OTel listener, error bypass, single global threshold, no per-tag rules in v1)
 - Invariants: Listener exception isolation (the gate sits inside the existing try/catch wrapper at the fire site)
 - Mechanics: [`design-mechanics.md §"Commit slow-query gating"`](design-mechanics.md)
+
+## Explain and Profile integration
+
+**TL;DR.** Two operator-facing surfaces expose the SQL execution plans that back Gremlin traversals. First, `toString()` on each Gremlin step that performs a SQL query (`YTDBGraphStep`, `YTDBClassCountStep` on Path B fallback; `YTDBMatchPlanStep` on Path A translated traversals) appends a one-line execution-plan summary so a `g.V()...toString()` rendering shows the YTDB-side plan. Second, when a traversal includes TinkerPop's `.profile()` step, the YTDB-side steps detect the injected `ProfileStep` at strategy time, prepend `PROFILE ` to their generated SQL, and at `step.close()` forward the resulting per-operator metrics into the following `ProfileStep.getMetrics()`. The two surfaces compose with the OTel emission pillar without coupling: a query with `.profile()` emits one OTel span carrying a low-cardinality `db.youtrackdb.profile.enabled = true` attribute plus the TinkerPop `Metrics` for visualizer and dashboard consumption.
+
+### Explain rendering
+
+Each of `YTDBGraphStep`, `YTDBClassCountStep`, and `YTDBMatchPlanStep` overrides `toString()` to append a `[plan: <one-line-summary>]` suffix after the standard TinkerPop step rendering. The summary derives from `ExecutionPlan.prettyPrint(2, 80)` (existing `core` method, indent 2, width 80) collapsed to one line by replacing `\n` with ` | `. The rendering is lazy: the step caches the value on first `toString()` access by running an `EXPLAIN`-prefixed query, so subsequent calls reuse the cached String. Cost: one extra SQL parse plus `ExecutionPlanner.create(...)` call per step instance, paid only when something calls `toString()`. Zero impact on the hot-path execution loop.
+
+The cache slot is `private volatile String explainCache`. The `volatile` modifier matters because `toString()` may run on a thread other than the execution thread (debugger inspection, test-fixture printing); the first-write race is benign because `EXPLAIN` is deterministic for a given parsed statement, so racing threads compute the same value.
+
+### Profile detection at strategy time
+
+`YTDBQueryMetricsStrategy.apply(traversal)` already walks the step list to inject `YTDBQueryMetricsStep`. The same walk extends to detect `ProfileStep` presence. When at least one `ProfileStep` instance lives in the step list, the strategy:
+
+1. Calls `step.setProfilingEnabled(true)` on each `YTDBGraphStep` / `YTDBClassCountStep` (Path B) and on each `YTDBMatchPlanStep` (Path A).
+2. Records the index of each `ProfileStep` so a YTDB-side step can resolve its immediately following `ProfileStep` at `close()` without re-walking the list.
+
+`setProfilingEnabled(true)` flips a `private boolean profilingEnabled` field on the step. At SQL-string construction time inside the execution loop, the step prepends `PROFILE ` when the flag is set AND the underlying statement is a SELECT or MATCH. Non-SELECT shapes (INSERT, UPDATE, DELETE, DDL) treat the flag as a no-op because `PROFILE` applies only to read queries at parse time. Path A traversals are always SELECT or MATCH because PR #1038 Phase 1 only translates read patterns; the check is a defensive guard rather than a routine branch.
+
+### Profile metrics handoff at `step.close()`
+
+After the SQL query runs with the `PROFILE ` prefix, the result-set carries an `executionPlan` field with per-operator timings populated by `SQLProfiler`. At `step.close()` the step:
+
+1. Resolves the immediately following `ProfileStep` from the strategy-recorded index (`profileStepFollower`).
+2. Builds a TinkerPop `Metrics` instance from the YTDB plan via the new `ExecutionPlanMetricsAdapter.toTinkerPopMetrics(ExecutionPlan)` static utility in `core/.../profiler/monitoring/tinkerpop_profile/`.
+3. Appends the `Metrics` to `profileStepFollower.getMetrics()` via the standard TinkerPop `MutableMetrics.addNested(...)` call.
+
+The adapter mapping covers what TinkerPop's `Metrics` surface can represent: total duration via `getDuration(TimeUnit)`, per-operator duration as nested metrics where each `SQLExecutionPlanOperator` becomes one nested `MutableMetrics` with name, ID, and duration, plus an `annotations` map carrying YTDB-specific fields (`indexUsed`, `rowsExamined`, `rowsReturned`) the visualizer surface cannot otherwise represent. The mapping does NOT decompose operators TinkerPop cannot model (plan-internal sub-traversals, generated index-projection operators); those surface only via the `annotations` map.
+
+### Path A vs Path B span shape
+
+Path A (translated, post-PR #1038): the traversal contains exactly one `YTDBMatchPlanStep`. `.profile()` injects one `ProfileStep` immediately after it. The boundary step emits one PROFILE-wrapped MATCH query at execution time; at `close()` it pushes a single `Metrics` with the MATCH plan decomposition to that one `ProfileStep`.
+
+Path B (fallback): the traversal contains the original step chain with `YTDBGraphStep` / `YTDBClassCountStep` / other steps. `.profile()` injects one `ProfileStep` after EACH step. Each YTDB-side SQL step emits its own PROFILE-wrapped per-step SQL query and pushes its own `Metrics` to its own `ProfileStep` follower. The traversal's `.profile().next()` output renders as a tree: top-level traversal duration, then per-step duration, then per-SQL-operator duration. This matches what `.profile()` produces against any TinkerPop backend.
+
+### Coordination with the OTel listener
+
+Profile is orthogonal to OTel emission. When OTel is enabled AND `.profile()` is present:
+
+- Each YTDB-side step still fires `queryFinished(...)` on the listener exactly once at `close()`. No change to the listener fire-site count.
+- The OTel span carries one extra attribute, `db.youtrackdb.profile.enabled = true` (low-cardinality boolean), so operators can filter spans by "this came from a profiled traversal".
+- The OTel span does NOT carry per-plan-operator timing as span attributes. Plan-operator timing surfaces via `Metrics` on the TinkerPop `ProfileStep`, which the host renders alongside the OTel span if needed. The "Per-operator execution-plan timing inside a query span" Non-Goal carve-out stays in place; the per-operator data exists in `Metrics`, just not duplicated on the span.
+
+A host running both surfaces sees one OTel span per public Gremlin call (the existing emission pillar, unchanged) plus the TinkerPop `Metrics` tree available via `traversal.profile().next()` (the new surface this section adds). Correlation between the two uses the span-attribute filter `db.youtrackdb.profile.enabled = true` to find spans whose owning traversal also produced TinkerPop metrics.
+
+### Edge cases / Gotchas
+
+- **Multi-statement scripts** (`db.executeSqlScript(...)`) do NOT participate in profile detection. Profile detection runs at TinkerPop strategy time, but scripts execute via `DatabaseSessionEmbedded.computeScript(...)` which does not pass through TinkerPop. Hosts wanting per-script-statement timing use the existing `SQLProfiler` output directly. The script-vs-traversal asymmetry is documented in §"SQL execution layer hook" multi-script bullet.
+- **`YTDBMatchPlanStep` (Path A) with no following `ProfileStep`**: the strategy walks the step list once and only sets `profilingEnabled = true` when it finds at least one `ProfileStep`. A traversal that contains `YTDBMatchPlanStep` but no `.profile()` runs the plain SELECT (no PROFILE prefix) and pays no profile cost.
+- **PROFILE on writes**: the PROFILE keyword applies only to SELECT and MATCH. The step checks `statement instanceof SQLSelectStatement || statement instanceof SQLMatchStatement` before prepending; for any other shape the prefix is omitted and the underlying SQL runs unchanged.
+- **toString() called before step lifecycle starts**: TinkerPop may call `toString()` on a traversal that has not yet executed (debugger rendering, test-fixture printing). The step's `toString()` runs an `EXPLAIN`-prefixed query against the active session if one is bound; if no session is bound, `toString()` falls back to the standard TinkerPop rendering without the `[plan: ...]` suffix. The plan cache stays `null` so a later invocation after the session is bound produces the suffix.
+- **`.profile().toList()` called twice**: TinkerPop semantics guarantee `.profile()` is consumed once per traversal materialization. A re-iteration starts a new traversal materialization with a fresh `ProfileStep`. Each YTDB-side step's `Metrics` push goes to the current materialization's `ProfileStep`, so no cross-materialization leakage.
+
+### References
+- D-records: D45 (Explain/Profile integration: `toString()` plan rendering, TinkerPop `ProfileStep` metrics handoff, low-cardinality `db.youtrackdb.profile.enabled` attribute, three-step-type coverage Path A + Path B)
+- Invariants: Listener exception isolation (the metrics handoff at `step.close()` runs inside the existing isolation wrapper; an adapter throw is caught and logged at WARN, the listener still fires)
+- Mechanics: [`design-mechanics.md §"Explain and Profile integration"`](design-mechanics.md) (PSI-visible API surfaces, `ExecutionPlanMetricsAdapter` mapping table, `explainCache` thread-safety contract)
+- External: [PR #1038 — Gremlin-to-MATCH translator design](https://github.com/JetBrains/youtrackdb/pull/1038) (Path A source; `YTDBMatchPlanStep` gains the `profilingEnabled` flag plus the `explainCache` slot in Track 9)
+- Plan: [`plan/track-9.md`](plan/track-9.md)
 
 ## OpenTelemetry logs integration
 
