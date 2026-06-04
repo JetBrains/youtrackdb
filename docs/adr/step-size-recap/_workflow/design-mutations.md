@@ -19,3 +19,14 @@ workflow-sha stamped (the log is append-only by contract; see
 - [should-fix, applied] Em-dash discipline, Workflow TL;DR: em-dash parenthetical pair ("— only if `high` —") recast as a clause with a semicolon.
 
 **Notes**: plan_path / plan_dir intentionally omitted (no plan exists yet — design-first split), so the cross-file `**Full design**` / D-code resolution check is skipped; D1–D7 forward references are validated when the plan session creates the Architecture Notes.
+
+## Mutation 2 — 2026-06-04 — content-edit (design.md)
+
+**Diff summary**: Phase 2 consistency-review finding CR2 (mechanical). In §"Step-vs-track reviewer routing", the sentence naming the `§Maintenance`-mirrored sections of `review-agent-selection.md` listed three sections and omitted `§Workflow-machinery file set`. The live §Maintenance block (`review-agent-selection.md:289-291`) names four, and the derived plan §Constraints (`implementation-plan.md:23`) and `track-2.md:36` both list four. Inserted `§Workflow-machinery file set` as the second element so the parenthetical reads "(`§Workflow-review agents`, `§Workflow-machinery file set`, `§Per-agent file-pattern triggers`, `§Workflow-machinery override`)", matching the live source and the derived plan/track. The design's argument (the triage note stays out of all mirrored sections) is unchanged.
+
+**Mechanical checks** (target=design, scope=bounded): PASS (0 findings).
+**Cold-read** (scope: bounded — changed section + the two surrounding sections + Overview + Core Concepts): PASS. Mental-model verdict YES; 0 structural findings. The four-item list parses cleanly and stays consistent with the parallel "mirror set" claims in §"Workflow-machinery risk taxonomy" and §"review-bugs-concurrency across the three review paths".
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS).

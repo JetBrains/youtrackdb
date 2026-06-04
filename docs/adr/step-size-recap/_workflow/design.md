@@ -224,7 +224,7 @@ For the workflow reviewers, the same test partitions the six:
 
 `instruction-completeness` is the one judgment call: it has the localized flavor of a logic reviewer but its "every gate has a resume path" checks span files, so a step lands false positives that a later step resolves. It defers to track. Its trigger is also the only one matching bare `.claude/workflow/*.md`, so deferring it means a high step editing only those files draws no step-level reviewer — consistent with the prose-only cap.
 
-The split's timing cannot live in the `§Maintenance`-mirrored sections (`§Workflow-review agents`, `§Per-agent file-pattern triggers`, `§Workflow-machinery override`), which mirror `SKILL.md` verbatim and `SKILL.md` has no step/track notion. It goes in a new, non-mirrored note in `review-agent-selection.md` plus the dispatch points in `step-implementation.md` (step) and `track-code-review.md` (track).
+The split's timing cannot live in the `§Maintenance`-mirrored sections (`§Workflow-review agents`, `§Workflow-machinery file set`, `§Per-agent file-pattern triggers`, `§Workflow-machinery override`), which mirror `SKILL.md` verbatim and `SKILL.md` has no step/track notion. It goes in a new, non-mirrored note in `review-agent-selection.md` plus the dispatch points in `step-implementation.md` (step) and `track-code-review.md` (track).
 
 ### Edge cases / Gotchas
 

@@ -125,7 +125,11 @@ flowchart LR
   > **Depends on:** Track 1
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed (consistency iter 2, structural iter 1)
+
+**Auto-fixed (mechanical)**: CR1 — two drifted line-number citations in the track files (track-1.md § Tests-only `:188`→`:187`; track-2.md Agent-selection `## :480`→`### :479`). CR2 — design.md §"Step-vs-track reviewer routing" listed three `§Maintenance`-mirrored sections; added the omitted `§Workflow-machinery file set` so the enumeration matches the live §Maintenance block, the plan §Constraints, and track-2.md (applied via `edit-design`, logged as Mutation 2). CR3 — track-2.md §Context heading prefix `## Maintenance`→`### Maintenance` (live heading at `:286` is h3; surfaced by the gate-check regression scan).
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
