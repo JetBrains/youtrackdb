@@ -119,6 +119,7 @@ classDiagram
         +getHasSubtraversal() Optional~Boolean~
         +getInvokedVia() Optional~String~
         +getProfileEnabled() Optional~Boolean~
+        +getFullScan() Optional~Boolean~
         +getCustomAttrs() Map~String,Object~
     }
     class QuerySource {
@@ -193,16 +194,19 @@ classDiagram
     }
     class YTDBMatchPlanStep["YTDBMatchPlanStep (PR #1038, extended by Track 1 + Track 9)"] {
         +getClassification() Classification
+        +getWasFullScan() Optional~Boolean~
         +setProfilingEnabled(boolean) void
         +isProfilingEnabled() boolean
         +toString() String
     }
     class YTDBGraphStep["YTDBGraphStep (Path B fallback; extended by Track 9)"] {
+        +getWasFullScan() Optional~Boolean~
         +setProfilingEnabled(boolean) void
         +isProfilingEnabled() boolean
         +toString() String
     }
     class YTDBClassCountStep["YTDBClassCountStep (Path B fallback; extended by Track 9)"] {
+        +getWasFullScan() Optional~Boolean~
         +setProfilingEnabled(boolean) void
         +isProfilingEnabled() boolean
         +toString() String
@@ -503,7 +507,7 @@ Span kinds per role follow sem-conv v1.33.0 §"Span kind", which mandates CLIENT
 
 ### YouTrackDB vendor attributes (intro)
 
-**TL;DR.** OpenTelemetry's `db.<system>.*` prefix carries DB-implementation-specific structural fields beyond the standard `db.*` set; YTDB-496 reserves the `db.youtrackdb.*` namespace and ships an initial set of seven classifier-derived structural attributes (populated by `GremlinBytecodeClassifier` / `SqlSyntaxClassifier` during the parser-output walk that already extracts operation and collection) plus one host-set attribute (`db.youtrackdb.transaction.tracking_id`) for cross-system correlation. Values are constrained to four bounded shapes (`boolean`, `small int`, `enum`, `host-discipline`) so trace consumers can group and filter queries by structural shape without paying for high-cardinality storage. Higher-resolution fields (predicate values, sort columns, property keys, per-operator timing) stay out of MVP and ship in a follow-up ticket once production demand surfaces.
+**TL;DR.** OpenTelemetry's `db.<system>.*` prefix carries DB-implementation-specific structural fields beyond the standard `db.*` set; YTDB-496 reserves the `db.youtrackdb.*` namespace and ships an initial set of seven classifier-derived structural attributes (populated by `GremlinBytecodeClassifier` / `SqlSyntaxClassifier` during the parser-output walk that already extracts operation and collection), one fire-site mode-derived attribute (`db.youtrackdb.duration_semantics`) populated from the resolved `QueryMonitoringMode` at emission time, plus one host-set attribute (`db.youtrackdb.transaction.tracking_id`) for cross-system correlation. Values are constrained to four bounded shapes (`boolean`, `small int`, `enum`, `host-discipline`) so trace consumers can group and filter queries by structural shape without paying for high-cardinality storage. Higher-resolution fields (predicate values, sort columns, property keys, per-operator timing) stay out of MVP and ship in a follow-up ticket once production demand surfaces.
 
 Initial attribute set (MVP):
 
@@ -518,16 +522,23 @@ Every `Cardinality` cell across the four tables in this section uses one of four
 | `db.youtrackdb.step_count` | Gremlin only: count of top-level bytecode instructions | `small int (1–20 typical)` | rough complexity proxy; SQL omits |
 | `db.youtrackdb.has_subtraversal` | Gremlin only: presence of any `__.*` sub-traversal or `match(...)` pattern | `boolean` | flag composite Gremlin shapes; SQL omits |
 | `db.youtrackdb.gremlin.path` | Gremlin only: `"A"` when the classifier dispatched to the translated boundary step (`YTDBMatchPlanStep` present), `"B"` when the bytecode walk fired (translator declined) | `enum (2 values: "A", "B")` | distinguishes translated vs fallback traversals; lets dashboards filter Path B parent-plus-child duration double-counts without resorting to `parent_span_id IS NULL` heuristics |
+| `db.youtrackdb.duration_semantics` | resolved `QueryMonitoringMode` at the fire-site: `"active_time"` under `EXACT` (span `executionTimeNanos` is the sum of per-call `hasNext()` / `next()` deltas, consumer idle excluded); `"wall_clock"` under `LIGHTWEIGHT` (span `executionTimeNanos` is the ticker delta from fire-site start to close, consumer idle included). Commit spans always emit `"wall_clock"` because commit has no streaming consumer loop, so active-time and wall-clock collapse to the same value. | `enum (2 values: "wall_clock", "active_time")` | required slice dimension for any histogram aggregating `db.client.response.duration` across queries with potentially differing modes (per-tag mode rules can produce mixed-mode spans inside one TX); dashboards aggregating cross-tag without slicing on this attribute mix two duration semantics in the same bucket |
 | `db.youtrackdb.transaction.tracking_id` | `FrontendTransaction.getExplicitTrackingId(): Optional<String>` — emits attribute iff `Optional.isPresent()`, i.e. iff the host called `withTrackingId(...)` | `host-discipline (host's chosen ID string; UUID-per-request blows cardinality)` | the default fallback `String.valueOf(getId())` is NEVER emitted as an attribute — the OTel listener reads `getExplicitTrackingId()` and skips the attribute when `Optional.empty()`. No config flag: the explicit setter call IS the opt-in, by construction. |
 
-Advisor-foundation namespace (`db.youtrackdb.advisor.*`). A reserved sub-namespace carrying low-cardinality boolean / small-int flags that an advisory dashboard (Phase 2 follow-up per D42) consumes to recommend operator-tunable settings. The flags are populated by the same classifier walk as the structural attributes above and follow the same bounded-cardinality policy. Initial set:
+Advisor-foundation namespace (`db.youtrackdb.advisor.*`). A reserved sub-namespace carrying low-cardinality boolean / small-int flags that an advisory dashboard (Phase 2 follow-up per D42) consumes to recommend operator-tunable settings. `cross_class_count` rides the same classifier walk as the structural attributes above. `full_scan` is sourced separately at the fire-site by walking the built execution plan, because index-vs-class-scan is a planner decision not derivable from parser output. Both follow the same bounded-cardinality policy. Initial set:
 
 | Attribute | Source | Cardinality | Recommendation downstream |
 |---|---|---|---|
-| `db.youtrackdb.advisor.full_scan` | SQL: target class has no index covering the WHERE predicate / Gremlin Path B: no index step lands in the bytecode walk | `boolean` | "Consider adding an index on `<class>.<property>`" |
+| `db.youtrackdb.advisor.full_scan` | leaf source step in the built execution plan (collected by walking `ResultSet.getExecutionPlan().getSteps()` at fire-site close): `FetchFromClassExecutionStep` or `FetchFromCollectionExecutionStep` ⇒ `true`; `FetchFromIndexStep` / `FetchFromIndexedFunctionStep` / `FetchFromIndexValuesStep` / `FetchFromRidsStep` ⇒ `false`; metadata virtual tables (`FetchFromIndexManagerStep` / `FetchFromDatabaseMetadataStep` / `FetchFromStorageMetadataStep`) and `FetchFromVariableStep` ⇒ attribute omitted. Path B Gremlin: OR-reduce of per-step `wasFullScan` across `YTDBGraphStep` / `YTDBClassCountStep`. Path A Gremlin: `YTDBMatchPlanStep.getWasFullScan()` walks the MATCH plan's per-alias leaves (same `FetchFrom*` family) with identical precedence. | `boolean` | "Consider adding an index on `<class>.<property>`" |
 | `db.youtrackdb.advisor.cross_class_count` | SQL: multi-target FROM without join hints / Gremlin: multiple `V(...)` start steps | `small int (0 = single-class baseline, ≥2 = multi-class candidate)` | "Cross-class query may benefit from splitting into two indexed queries" |
 
-These flags carry zero implementation cost beyond the existing classifier walk (the `Classification` record gains two additional optional fields per D19's future-extension policy). The Phase 2 advisory dashboard reads them through standard span-attribute filtering and synthesizes recommendations; until then, operators with custom dashboards can already filter on these attributes to identify problematic queries.
+`cross_class_count` rides the existing classifier walk and lands as one additional optional field on the `Classification` record per D19's future-extension policy (multi-target FROM and `V(...)` start-step counts are parser-output shape, no schema lookup). `full_scan` does NOT live on `Classification`. The signal is not derivable from parser output: index-vs-class-scan is a planner decision available only after `SelectExecutionPlan.start()` runs. The fire-site walks `ResultSet.getExecutionPlan().getSteps()` once at close (cost: O(plan depth), one `instanceof` per leaf, dominated by the listener call itself) and populates a new lazy `QueryDetails.getFullScan(): Optional<Boolean>` accessor. Per-leaf taxonomy:
+
+- `FetchFromClassExecutionStep`, `FetchFromCollectionExecutionStep` ⇒ `Optional.of(true)`: full class or full collection scan; recommendation "add an index" applies.
+- `FetchFromIndexStep`, `FetchFromIndexedFunctionStep`, `FetchFromIndexValuesStep`, `FetchFromRidsStep` ⇒ `Optional.of(false)`: indexed fetch (`FetchFromIndexValuesStep` is an index-only sort scan; the recommendation does not apply because an index is in use even when used for ORDER BY only) or explicit-RID lookup.
+- `FetchFromIndexManagerStep`, `FetchFromDatabaseMetadataStep`, `FetchFromStorageMetadataStep`, `FetchFromVariableStep` ⇒ `Optional.empty()`: system-metadata virtual tables and context-variable iteration; the advisor's recommendation does not apply, attribute omitted.
+
+Multi-leaf plans (UNION, multi-target FROM, sub-plans inside `ParallelExecStep` / `LetExpressionStep` / `LetQueryStep`): walk recursively through wrapping steps to collect leaf source-steps, then OR-reduce with `true > false > empty` precedence. Any leaf `true` ⇒ `true`; otherwise any leaf `false` ⇒ `false`; only `empty` ⇒ `empty`. Plan unavailable (`getExecutionPlan()` returns null on `computeScript` script paths, on `EXPLAIN` / `PROFILE` wrappers that render the plan as rows instead of executing, and on consumer abandon before iteration) ⇒ `Optional.empty()`. Gremlin Path B aggregates one `wasFullScan` per `YTDBGraphStep` / `YTDBClassCountStep` with the same rules; Gremlin Path A's `YTDBMatchPlanStep.getWasFullScan()` walks the MATCH plan's per-alias leaves (same `FetchFrom*` family) with identical precedence. The Phase 2 advisory dashboard reads both flags through standard span-attribute filtering and synthesizes recommendations; operators with custom dashboards can already filter on these attributes to identify problematic queries.
 
 Out of MVP (high-cardinality, deferred to follow-up):
 
@@ -540,7 +551,7 @@ Cardinality policy. The key set is closed across the four tables above, with one
 
 Future-extension policy. New attributes land under `db.youtrackdb.*` if they pass two tests: (a) bounded cardinality per the policy above, and (b) extractable from existing parser output without re-walking the query. Attributes failing either test go into the per-operator span-events follow-up, which can carry higher-cardinality fields without cost-amplifying the per-span attribute set.
 
-Extraction site. The shared `Classification` value record gains additional optional fields, one per attribute in the table above, with defaults representing "not present". `GremlinBytecodeClassifier.classify(Traversal)` (dispatching to Path A via the boundary step's precomputed `Classification` or Path B via bytecode walk per §"Gremlin bytecode classification") and `SqlSyntaxClassifier.classify(SQLStatement)` populate the fields during the same walk that already extracts operation and collection. The OTel listener reads the fields from `QueryDetails` accessors (extended in Track 1 alongside the existing operation / collection / namespace / errorType accessors) and sets them on the emitted span; custom (non-OTel) listeners that ignore the new accessors are unaffected.
+Extraction site. The shared `Classification` value record gains additional optional fields for the structural-attribute table and for `advisor.cross_class_count`, with defaults representing "not present". `advisor.full_scan` does NOT live on `Classification`; its source is the execution-plan-leaf walk described in the paragraph immediately above. `GremlinBytecodeClassifier.classify(Traversal)` (dispatching to Path A via the boundary step's precomputed `Classification` or Path B via bytecode walk per §"Gremlin bytecode classification") and `SqlSyntaxClassifier.classify(SQLStatement)` populate the classifier-derived fields during the same walk that already extracts operation and collection. The OTel listener reads the fields from `QueryDetails` accessors (extended in Track 1 alongside the existing operation / collection / namespace / errorType accessors) and sets them on the emitted span; custom (non-OTel) listeners that ignore the new accessors are unaffected.
 
 ### YouTrackDB Gremlin DSL passthrough attributes
 
@@ -718,6 +729,7 @@ Timing capture in `YTDBQueryMetricsStep.close()` follows the per-query mode reso
 - `g.V().union(__.hasLabel("A"), __.hasLabel("B"))`: returns `collectionName = Optional.empty()` because the label is inside a sub-traversal, not a top-level instruction. The classifier does not descend into sub-traversals.
 - `g.addV().property("label", "X")`: returns `collectionName = Optional.empty()` because the label is not a positional argument of `addV()`. Properties are not inspected.
 - Numeric or non-string `hasLabel` argument (TinkerPop allows it via mutation in untyped code): the classifier checks `instanceof String` and returns `Optional.empty()` for non-String arguments.
+- Path B mixed-mode parent-child visual. A Path B traversal whose Gremlin tag matches a `OPENTELEMETRY_QUERY_MODE_TAG_RULES` rule produces the outer Gremlin span in the rule's mode; inner SQL spans spawned by the same traversal have no tag source and resolve to the per-TX default mode (typically `LIGHTWEIGHT`). When the two differ — outer `EXACT` plus inner `LIGHTWEIGHT` is the common case for hot-path traversals on a default-LIGHTWEIGHT TX — the inner SQL span's wall-clock `executionTimeNanos` can exceed the outer Gremlin span's active-time `executionTimeNanos`, because outer EXACT excludes consumer idle that the inner LIGHTWEIGHT wall-clock includes. Trace viewers render the child span extending past the parent's `endTimestamp` in this case. The mathematical relationship is not contradictory (the spans measure different things), but the visual is operator-confusing. Operators wanting homogeneous Path B parent-child spans call `tx.withQueryMonitoringMode(...)` to match the Gremlin tag rule's mode, so the inner SQL span inherits the same semantic. Operators willing to accept the asymmetry slice the trace by `db.youtrackdb.duration_semantics` for interpretation.
 
 ### References
 - D-records: D9
@@ -809,6 +821,22 @@ SQL path (InstrumentedSqlResultSet, constructor + iteration + close):
 ```
 
 The commit fire site has no query in flight; it uses `currentTx.getDefaultQueryMonitoringMode()` directly.
+
+**Mode × threshold combined semantic.** Per-tag mode rules and per-tag threshold rules (the latter parsed from `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` per §"Slow-query threshold gating") share the same `TagRule<T>` matcher infrastructure but resolve independently. When operators configure rules for the same tag in both tables, the combined intent is explicit. The threshold value compares against `executionTimeNanos` whose semantic is determined by the resolved mode for the same tag, so the operator-facing interpretation of "threshold in ms" depends on which mode the same tag resolves to:
+
+| Mode rule for tag | Threshold rule for tag | `executionTimeNanos` represents | Threshold compares against | Operator-facing intent |
+|---|---|---|---|---|
+| `findHotpath=EXACT` | `findHotpath=100` | active-time (consumer idle excluded) | active-time in ns | "emit hot-path span when DB-side active work exceeded 100 ms" |
+| `bulk=LIGHTWEIGHT` | `bulk=5000` | wall-clock (ticker delta, idle included) | wall-clock in ns | "emit bulk-import span when real-time exceeded 5 s" |
+| (no mode rule) → per-TX `EXACT` | `globalDefault=100` | active-time (per-TX mode applies) | active-time in ns | "emit any query whose DB-side active work exceeded 100 ms" |
+| (no mode rule) → per-TX `LIGHTWEIGHT` (default) | `globalDefault=100` | wall-clock | wall-clock in ns | "emit any query whose real-time exceeded 100 ms" |
+| `hot=EXACT` | (no threshold rule) → global default `0` | active-time | gate disabled (`< 0` always false) | "always emit hot-path spans, no threshold filtering" |
+| `bulk=LIGHTWEIGHT` | `bulk=0` | wall-clock | gate disabled | "always emit bulk spans, no threshold filtering" |
+
+Two consequences operators should be aware of:
+
+- A single threshold value cannot be reused across mode tiers as if the semantic were uniform. A threshold of `100ms` paired with `EXACT` filters on active-time; the same value paired with `LIGHTWEIGHT` filters on wall-clock. For a query with substantial consumer idle these two filters yield different gate decisions. Operators tuning thresholds for one tag's mode then copy-pasting to another tag's different mode get unexpected emission rates.
+- Cross-tag dashboard aggregation mixes active-time samples and wall-clock samples in the same series when per-tag mode rules differ. The `db.youtrackdb.duration_semantics` attribute (see §"Sem-conv attribute mapping" MVP table) discriminates per-span. Histograms that aggregate `db.client.response.duration` across queries with differing tags MUST slice on `db.youtrackdb.duration_semantics` to stay semantically coherent.
 
 ### Edge cases / Gotchas
 
@@ -1255,6 +1283,22 @@ Operator deliverables alongside the stack:
 
 Hosted-backend substitution: operators on Honeycomb, Grafana Cloud, or Datadog substitute their exporter endpoint into `OPENTELEMETRY_EXPORTER_ENDPOINT`, drop their auth token into `OPENTELEMETRY_EXPORTER_HEADERS=Authorization=Bearer <token>`, and shut down the local stack (`scripts/down.sh`). The YTDB side does not change. The hosted-backend README is deferred to a follow-up ticket because each backend's auth scheme deserves its own setup notes the local-dev example would clutter.
 
+### Operator guidance: per-TX vs per-tag mode
+
+Two mechanisms select `QueryMonitoringMode` for query timing: a transaction-scoped setter (`tx.withQueryMonitoringMode(EXACT)` invoked on each transaction by the host) and a global rule table (`OPENTELEMETRY_QUERY_MODE_TAG_RULES` parsed once at startup, matching against the Gremlin tag set via `g.with(YTDBQueryConfigParam.querySummary, "X")`). The resolver chain composes them (matcher hit → transaction-scoped default → `LIGHTWEIGHT` fallback), so hosts use one mechanism, the other, or both layered together.
+
+**Default baseline: per-TX uniformity.** The recommended starting point is per-TX. Setting `tx.withQueryMonitoringMode(EXACT)` on transactions an operator cares about produces homogeneous duration semantics across every query span and the commit span in that TX. Cross-TX dashboard aggregation still requires slicing on `db.youtrackdb.duration_semantics` when different TXs use different modes, but within one TX the trace is internally consistent. Path B parent-child relationships (outer Gremlin span plus inner SQL spans, see §"Gremlin bytecode classification" Edge cases) stay homogeneous because the inner SQL fire-site inherits the same per-TX default the outer Gremlin step resolved to.
+
+**Per-tag overrides: selective EXACT cost.** Per-tag rules are appropriate when an operator wants to pay EXACT's two-syscall-per-`next()` cost only for a selected set of Gremlin query classes, leaving other queries in the same TX on the cheaper LIGHTWEIGHT path. The canonical use case (matching the original observability spec's intent: *"EXACT mode should be enabled only for a selected set of queries"*) is a long-running session containing both hot-path queries and incidental setup/logging queries: tag the hot paths with `g.with(YTDBQueryConfigParam.querySummary, "findHotpath")`, configure `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT`, and only the tagged queries pay the EXACT cost. The trade-off operators accept: Path B traversals with mixed-mode parent-child spans render visually awkwardly in trace viewers (child span extending past parent's `endTimestamp`); cross-tag histogram aggregation requires the `db.youtrackdb.duration_semantics` slice to stay semantically homogeneous.
+
+**When to use which.**
+
+- **Use per-TX when**: most queries in the TX share a single intent (all hot-path, all bulk, all setup); the cost of EXACT on every query is acceptable; Path B traversals are present and visual consistency in trace viewers matters; operators prefer one knob in the application code over rule-table parsing at config time.
+- **Use per-tag when**: a TX mixes hot-path queries with incidental queries the operator does not want to pay EXACT cost on; the host can attach `querySummary` tags to its Gremlin traversals; operators prefer config-tunable behavior at startup over recompiling the host application; the additional cardinality dimension `db.youtrackdb.duration_semantics` on dashboards is acceptable.
+- **Use both when**: per-TX default sets the floor (e.g., `LIGHTWEIGHT` for general traffic) and per-tag rules selectively raise specific query classes to `EXACT` (e.g., `findHotpath=EXACT`). The resolver applies rules first; matching tags get the rule's mode, others fall back to the per-TX default.
+
+SQL statements have no tag source. The choice for SQL is exclusively per-TX. Operators needing per-statement SQL granularity restructure their host code so the relevant statements run in their own TX with `withQueryMonitoringMode(EXACT)`.
+
 ### Production-vs-local-dev trade-offs
 
 The stack targets local development and smoke testing, not production. Three deliberate omissions an operator productionizing YTDB-OTel must address before deployment:
@@ -1291,7 +1335,7 @@ The MVP dashboards (overview, queries, storage) are **diagnostic** — they show
 
    All four piggyback on writer-sites that already exist in the YTDB profiler (eviction site in `DiskCache`, index-step branch in the SQL execution layer, `TransactionWriteRollbackRate` increment site, `DatabaseSessionRegistry` active-count read). Track 8 surfaces them to OTel for the first time; the in-JVM profiler already exposed them via JMX and dump-environment.
 
-2. **The `db.youtrackdb.advisor.*` attribute namespace in §"Sem-conv attribute mapping" → "YouTrackDB vendor attributes (intro)"** carrying two boolean / small-int flags populated by the existing classifier walk (`full_scan`, `cross_class_count`). Each flag maps to a concrete recommendation operator-side ("add index", "split into two queries"). The flags carry zero implementation cost beyond the existing classifier walk because both classifiers already inspect index availability and result-size heuristics for other reasons.
+2. **The `db.youtrackdb.advisor.*` attribute namespace in §"Sem-conv attribute mapping" → "YouTrackDB vendor attributes (intro)"** carrying two flags pre-positioned for Phase 2 recommendations. `cross_class_count` rides the existing classifier walk (multi-target FROM count / `V(...)` start-step count are parser-output shape, no schema lookup). `full_scan` walks the built execution plan once at fire-site close: leaf source step in `{FetchFromClassExecutionStep, FetchFromCollectionExecutionStep}` ⇒ `true`; in `{FetchFromIndexStep, FetchFromIndexedFunctionStep, FetchFromIndexValuesStep, FetchFromRidsStep}` ⇒ `false`; metadata-virtual-table sources and `FetchFromVariableStep` ⇒ attribute omitted. Each flag maps to a concrete operator recommendation ("add index" / "split into two queries"). Implementation cost: one classifier-record field for `cross_class_count`; one execution-plan leaf walk per close for `full_scan` (O(plan depth), dominated by the listener call). The per-step `wasFullScan` slot on `YTDBGraphStep` / `YTDBClassCountStep` (Path B) and the `YTDBMatchPlanStep.getWasFullScan()` accessor (Path A) piggyback on the same plan-walk infrastructure that the §"Explain and Profile integration" surface (D45) introduces for `toString()` rendering and TinkerPop `Metrics` handoff.
 
 **What Phase 2 adds (deferred to follow-up ticket, NOT in this PR):**
 
@@ -1304,7 +1348,7 @@ The Phase 2 deferral is intentional — alert thresholds, recommendation magnitu
 
 ### References
 - D-records: D41 (Quick-start observability stack lands inside YTDB-496 PR as an example-files-only deliverable; rationale below), D42 (advisory framework foundation: four metrics + two attribute flags pre-positioned for Phase 2 advisory dashboards)
-- Track: Track 11 (full deliverable list, validation criteria, in-scope file list, follow-up tickets); Track 8 (four advisor-foundation metrics); Track 1 (two advisor attribute flags on `Classification`)
+- Track: Track 11 (full deliverable list, validation criteria, in-scope file list, follow-up tickets); Track 8 (four advisor-foundation metrics); Track 1 (`cross_class_count` field on `Classification`, `getFullScan()` accessor on `QueryDetails`, `wasFullScan` slot on Gremlin-side YTDB SQL steps); Track 4 (SQL-side execution-plan leaf walk inside `InstrumentedSqlResultSet` populating `QueryDetails.getFullScan()`); Track 9 (Path A `YTDBMatchPlanStep.getWasFullScan()` reading MATCH-plan leaves alongside the boundary-step `Classification` extension)
 - Plan: [`plan/track-11.md`](plan/track-11.md)
 - Mechanics: [`design-mechanics.md §"Quick-start observability stack"`](design-mechanics.md) (Collector pipeline shape, trace-to-logs / trace-to-metrics correlator wiring, smoke-script verification semantics)
 - Follow-up tickets: `YTDB-OTel-ADVISORY-DASHBOARDS` (Phase 2 advisory dashboard implementation, tuning guide, alert rules, workload classification — calibration depends on production data)
