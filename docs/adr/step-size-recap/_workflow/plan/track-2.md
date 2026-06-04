@@ -8,6 +8,9 @@ After this track, a high step fires only the reviewers whose findings are locali
 
 Split review-agent dispatch into step-level vs track-level for the first time and promote `review-bugs-concurrency` to a mandatory baseline. Edits `review-agent-selection.md` (baseline carve-out + a new non-mirrored triage note), `step-implementation.md` (sub-step 4a dispatch), `track-code-review.md` (track-level dispatch), the `risk-tagging.md` `high` quick-ref row, and `code-review/SKILL.md` (bugs-concurrency promotion).
 
+## Base commit
+31e38d1d501bd394e35efb6c737bbed3830980ff
+
 ## Progress
 - [x] Review + decomposition
 - [ ] Step implementation
