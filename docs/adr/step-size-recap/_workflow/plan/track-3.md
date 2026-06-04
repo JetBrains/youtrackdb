@@ -20,6 +20,7 @@ dc558590300ee0bbdb199fe40763a4d363a86037
 - [x] 2026-06-04T17:27Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-04T19:20Z [ctx=safe] Step 1 complete (commit 25a74f4394172e5484f9652fd50b73f1bdbfdc21)
 - [x] 2026-06-04T19:27Z [ctx=safe] Step 2 complete (commit a97bea18b5696a454f9ca2b121a1b03f76755beb)
+- [x] 2026-06-04T20:21Z [ctx=info] Step 3 complete (commit 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -92,7 +93,7 @@ Step 1 writes the spec (the source of truth for the `~N files` format). Steps 2-
 
 1. Rewrite the convention spec in the already-staged `conventions.md`: §Scope indicators (required) format `~N steps`→`~N files covering X, Y, Z`, rekey purpose #1 to the footprint size-vs-norm check, keep the "estimates, not exact counts" rule (the `~3-5` example becomes files), and update the §1.2 Checklist examples. Lead with "the footprint is a per-track soft heuristic, not the per-step `~12` split cap" (A3). The §1.1 "Scope indicator" row is format-neutral — touch only to add a format pointer if harmonizing (T3). Edit the staged copy in place; never re-copy from live (R3, §1.7(d)) — risk: low (default; live taxonomy, §Self-application limit)  [x] commit: 25a74f4394172e5484f9652fd50b73f1bdbfdc21
 2. Update the writers (`create-plan/SKILL.md`, `planning.md`): the scope-indicator format the planner emits and the `**Scope:**` caller-tree estimate-refinement note, swapping `~N steps`→`~N files`. Leave the unrelated `~5-7 steps` track-sizing rule untouched — risk: low (default)  [x] commit: a97bea18b5696a454f9ca2b121a1b03f76755beb  *(parallel with Step 3, Step 4, Step 5)*
-3. Rekey the checker sizing checks (`prompts/structural-review.md`, `prompts/consistency-review.md`): swap each file's "Scope indicator" glossary def to `~N files`; rekey the sizing check from claimed-vs-described to footprint size-vs-norm. For structural review, rewrite the `*(cross-file: … Compare both halves.)*` annotation (`:127`–`:134`) to a plan-file-only check comparing footprint count + coverage-list cardinality against the `~12`/`~5` norm — not just the `~2 steps` example (T1, DL1). Consistency review's check stays plan↔design — risk: low (default)  [ ]  *(parallel with Step 2, Step 4, Step 5)*
+3. Rekey the checker sizing checks (`prompts/structural-review.md`, `prompts/consistency-review.md`): swap each file's "Scope indicator" glossary def to `~N files`; rekey the sizing check from claimed-vs-described to footprint size-vs-norm. For structural review, rewrite the `*(cross-file: … Compare both halves.)*` annotation (`:127`–`:134`) to a plan-file-only check comparing footprint count + coverage-list cardinality against the `~12`/`~5` norm — not just the `~2 steps` example (T1, DL1). Consistency review's check stays plan↔design — risk: low (default)  [x] commit: 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c  *(parallel with Step 2, Step 4, Step 5)*
 4. Swap the Phase A review-prompt glossary definitions (`prompts/technical-review.md`, `prompts/risk-review.md`, `prompts/adversarial-review.md`): each "Scope indicator" def from the `~N steps` to the `~N files` format — risk: low (default)  [ ]  *(parallel with Step 2, Step 3, Step 5)*
 5. Renderer + straggler + verify-only sweep: rewrite the `plan-slim-rendering.md` `~6 steps` example to files; correct the `track-code-review.md:1070` "expected step count" straggler to file-footprint phrasing on the already-staged copy, in place (DL2, R3); and verify the three format-agnostic files (`implementation-review.md`, `inline-replanning.md`, `review-workflow-consistency.md`) carry no `~N steps` literal — leave them byte-unchanged and unstaged unless one turns up (DL3) — risk: low (default)  [ ]  *(parallel with Step 2, Step 3, Step 4)*
 
@@ -119,6 +120,17 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/planning.md` (new — staged copy of the live file with the writer-format edits)
 
 **Critical context:** The `~5-7 steps` track-sizing rule (`create-plan/SKILL.md:207`, `planning.md:424`) is byte-verified unchanged. Both files are now staged for the first time, so any later step touching them edits in place per §1.7(d).
+
+### Step 3 — commit 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c, 2026-06-04T20:21Z [ctx=info]
+**What was done:** Rekeyed the checker sizing checks in the staged `structural-review.md` and `consistency-review.md` (both first touched here: copied verbatim from live, then edited). Each "Scope indicator" glossary def now reads `~N files covering X, Y, Z`. Structural review's SCOPE INDICATORS plausibility check moved from the claimed-versus-described cross-file comparison to a plan-file-only footprint-vs-norm check — the `*(cross-file: … Compare both halves.)*` annotation and its track-file read are gone (DL1). Consistency review's check stays a plan↔design comparison; only its example moved to `~2 files`.
+
+**What was discovered:** Two scope-indicator references the Phase A plan did not enumerate. (1) `structural-review.md:166`'s TRACK SIZING check still reads "Does any track's scope indicator suggest more than `~5-7` steps?" — D8 leaves the file-based indicator unable to report a step count. (2) The per-step `~12`/`~5` thresholds had leaked into the track-footprint plausibility check at this step's `:124` rewrite and at Step 1's `conventions.md` purpose #1; a 5-7-step track aggregates many steps and routinely exceeds 12 files, so those per-step numbers mis-flag normal tracks. Both resolved by a user-approved track-level `~20-25`-file ceiling. See Decision Log DL6 and Surprises.
+
+**What changed from the plan:** Per DL6 the `:124` track-footprint threshold committed here (`~12`/`~5`) is superseded by the `~20-25` track-level ceiling; the reconciliation of `:124`, `conventions.md` purpose #1, and the `:166` straggler all land in Step 5. D8 was amended via the edit-design mutation discipline (`design-mutations.md` Mutation 4). See Decision Log DL6.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/structural-review.md` (new — staged copy with the sizing-check rekey + glossary def)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/consistency-review.md` (new — staged copy with the glossary def + example swap)
 
 ## Validation and Acceptance
 
