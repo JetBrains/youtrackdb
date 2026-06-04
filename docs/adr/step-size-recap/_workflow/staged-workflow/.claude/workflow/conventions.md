@@ -291,11 +291,15 @@ Format: `> **Scope:** ~N files covering X, Y, Z`
 
 Scope indicators serve three purposes:
 1. **Structural review** can catch sizing issues by comparing the footprint
-   against the track-size norm — a footprint or coverage list far past the
-   `~12`-file split cap or the `~5`-file MEDIUM threshold signals a track that
-   should split — and ordering problems (scope of Track B implies a dependency
-   on Track A's output). The check is plan-file-only: both the footprint count
-   and the coverage-list cardinality sit on the `**Scope:**` line itself.
+   against the track-level ceiling — a footprint at or above `~20-25` in-scope
+   files signals a track that should split into dependent tracks — and ordering
+   problems (scope of Track B implies a dependency on Track A's output). The
+   `~20-25` ceiling is track-level and distinct from the per-step `~12` split
+   cap and `~5` MEDIUM trigger: a 5-7-step track aggregates many steps, so its
+   footprint sits well above those per-step numbers, and reusing them as the
+   track ceiling would mis-flag normal-sized tracks. The check is plan-file-only:
+   both the footprint count and the coverage-list cardinality sit on the
+   `**Scope:**` line itself.
 2. **Human reviewers** can quickly gauge relative effort across tracks.
 3. **Execution planning** — Phase A uses scope indicators as a starting
    point for just-in-time step decomposition, not as a binding contract.

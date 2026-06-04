@@ -1084,7 +1084,7 @@ implementation plan:
    track, decide where the work belongs:
    - An **existing future track** — if it fits that track's purpose, add
      the item to that track's description. Update the scope indicator if
-     the addition meaningfully changes the expected step count.
+     the addition meaningfully changes the expected file footprint.
    - A **new separate track** — if no existing track covers the work, add
      a new track to the plan's checklist with a description, scope
      indicator, and dependency notation (typically depends on the current

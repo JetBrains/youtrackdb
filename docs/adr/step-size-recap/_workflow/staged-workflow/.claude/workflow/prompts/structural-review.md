@@ -126,14 +126,16 @@ SCOPE INDICATORS
 - Does every track have a **Scope** line with an approximate planned file
   footprint and a brief list of what those files cover? *(plan-file only —
   scope indicators live in the plan checklist regardless of plan shape)*
-- Is the footprint plausible against the track-size norm? Compare the
+- Is the footprint plausible against the track-level ceiling? Compare the
   `~N files` count and the coverage-list cardinality (both on the `**Scope:**`
-  line) against the `~12`/`~5` track-size thresholds: a footprint near or
-  above `~12` files, or a coverage list naming many more changes than the
+  line) against the `~20-25`-file track ceiling: a footprint at or above
+  `~20-25` files, or a coverage list naming many more changes than the
   file count suggests, is suspect — the track likely splits into dependent
-  tracks. *(plan-file only — the `~N files` figure and its coverage list both
-  live on the plan-checklist `**Scope:**` line, so this check reads no
-  track file.)*
+  tracks. The `~20-25` ceiling is track-level, distinct from the per-step
+  `~12` split cap and `~5` MEDIUM trigger (a multi-step track aggregates many
+  steps and routinely exceeds those per-step numbers). *(plan-file only — the
+  `~N files` figure and its coverage list both live on the plan-checklist
+  `**Scope:**` line, so this check reads no track file.)*
 - Are there any full `- [ ] Step:` items or *(provisional)* markers?
   These should NOT be present — step decomposition is deferred to
   execution. *(plan-file only)*
@@ -165,9 +167,12 @@ TRACK DESCRIPTIONS *(track file's `## Purpose / Big Picture` + `## Context and O
   lives in the plan checklist for every track regardless of status.)*
 
 TRACK SIZING
-- Does any track's scope indicator suggest more than ~5-7 steps? If so,
-  the track should be split into separate dependent tracks. *(plan-file
-  only — the Scope line lives in the plan checklist)*
+- Does any track's scope indicator (file footprint) imply a track too large
+  to stay one track — a footprint at or above `~20-25` in-scope files? If so,
+  split into separate dependent tracks. The `~5-7` steps track-sizing rule
+  still guides planning; step count is not knowable from the file-footprint
+  indicator at plan time. *(plan-file only — the Scope line lives in the plan
+  checklist)*
 - Does any track's description cover work that would naturally split into
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
