@@ -36,7 +36,7 @@ capsule (workflow-format commits enter the branch's view only when the
 user explicitly rebases or merges `develop`), so the walk ranges
 against the branch's own HEAD and never fetches `develop`
 independently. The plan dir the
-caller resolved at startup (see `conventions.md` `§1.2` and `§1.6(g)`)
+caller resolved at startup (see conventions.md:orchestrator,planner:1,2,3A `§1.2` and `§1.6(g)`)
 scopes the walk; cross-plan folding is out of scope (D13). Migration
 itself stays in the `/migrate-workflow` skill — the gate detects and
 gates, the skill replays. The skill assumes a fresh session, so the
@@ -49,11 +49,11 @@ re-invoke `/migrate-workflow` from this worktree.
 <!-- roles=orchestrator,planner phases=1,2,3A summary="Detection moved to the script's --mode full drift walk; this section cites the JSON the gate reads." -->
 
 Detection no longer lives in this file. The two-phase drift walk runs
-inside `.claude/scripts/workflow-startup-precheck.sh` under `--mode
-full`. Phase 1 is the `conventions.md` `§1.6(h)` artifact walk that
-classifies each `_workflow/**` artifact as stamped or unstamped; Phase
-2 is the pairwise `git merge-base` fold to `BASE_SHA` plus the
-`git log BASE_SHA..HEAD` over the workflow pathspecs.
+inside `.claude/scripts/workflow-startup-precheck.sh` under
+`--mode full`. Phase 1 is the conventions.md:orchestrator,planner:1,2,3A `§1.6(h)` artifact
+walk that classifies each `_workflow/**` artifact as stamped or
+unstamped; Phase 2 is the pairwise `git merge-base` fold to `BASE_SHA`
+plus the `git log BASE_SHA..HEAD` over the workflow pathspecs.
 The script is the single behavioral home; this file owns only the
 resolution UX below. Cite the script's `emit_json` function for the
 exact field contract, not any frozen design draft.
@@ -99,11 +99,11 @@ The five outcomes the gate routes on, keyed off `drift.detected` and
   the walk runs.
 - **`detected == false`, `kind == null`**: no stampable artifact under
   the active plan's `_workflow/` (both the stamped and unstamped sets
-  are empty). Silent skip per `conventions.md` `§1.6(h)`; the gate
+  are empty). Silent skip per conventions.md:orchestrator,planner:1,2,3A `§1.6(h)`; the gate
   reports no drift and startup continues.
 - **`detected == true`, `kind == "merge-base-failed"`**: a stamp sits
   on a pruned or unreachable commit. The script routes the failing pair
-  to the unstamped short-circuit per `conventions.md` `§1.6(c)`; the
+  to the unstamped short-circuit per conventions.md:orchestrator,planner:1,2,3A `§1.6(c)`; the
   gate signals drift and the bootstrap prompt in `§1.6(d)` covers the
   failing set alongside any other unstamped artifacts in one batched
   user prompt.
@@ -113,7 +113,7 @@ is the byte-source shared with `/migrate-workflow`'s Step 2 range
 computation. The range definition (`BASE_SHA..HEAD`, pairwise fold via
 `git merge-base`, merge-base-failure recovery), the canonical parser
 regex (`workflow-sha:` anchor plus `[0-9a-f]{40}` extraction), and the
-active-plan scope rule live in `conventions.md` `§1.6(c)`, `§1.6(h)`,
+active-plan scope rule live in conventions.md:orchestrator,planner:1,2,3A `§1.6(c)`, `§1.6(h)`,
 and `§1.6(a1)` respectively. The script conforms to that spec, checked
 by the byte-source conformance fixture in `.claude/scripts/tests/`.
 
@@ -200,7 +200,7 @@ skip semantics the gate relies on. Skip #1 and Skip #2 are cheap
 pre-walk on-disk reads (no `git log` needed); Skip #3 is post-fold
 (after `drift.base_sha` is derived and the range `git log` returns its
 result). All three scope to the active plan dir (the plan dir resolved
-at startup per `conventions.md` `§1.6(g)` and `§1.2`); cross-plan
+at startup per conventions.md:orchestrator,planner:1,2,3A `§1.6(g)` and `§1.2`); cross-plan
 folding is out of scope (D13). Order matters for fail-fast: check the
 cheapest first:
 
@@ -265,13 +265,13 @@ Pick one (no default).
 Do **not** pick a default. The user must choose one of the three
 resolutions before startup proceeds. Malformed answers (`yes`, `ok`)
 trigger a re-prompt using the same shape. The retry is bounded at
-three attempts per the policy in `conventions.md` `§1.6(d)`; after
+three attempts per the policy in conventions.md:orchestrator,planner:1,2,3A `§1.6(d)`; after
 three malformed answers the gate halts and the user `/clear`s the
 session.
 
 **Unstamped short-circuit rendering.** When `drift.kind` is
 `"unstamped"` or `"merge-base-failed"` (the unstamped path or a
-`git merge-base` failure routed there per `conventions.md` `§1.6(c)`),
+`git merge-base` failure routed there per conventions.md:orchestrator,planner:1,2,3A `§1.6(c)`),
 the script runs no range `git log` and neither `drift.base_sha` nor
 `drift.commit_count` is derived (both null). The Resolutions prompt
 substitutes:
