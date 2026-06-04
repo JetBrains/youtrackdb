@@ -64,7 +64,7 @@ justified.
 
 | Level | Implementer model | Step-level review (sub-step 4) | Track-level review treatment |
 |---|---|---|---|
-| `high` | `opus` | Full dimensional review (4 baseline + conditional, up to 3 iterations) | Focal point |
+| `high` | `opus` | Step-level dimensional review: `review-bugs-concurrency` (subordinate to the workflow/docs-only baseline-skip override) + triggered conditional + step-level workflow reviewers (`hook-safety`, `prompt-design`), up to 3 iterations | Focal point |
 | `medium` | `opus` | None | Focal point |
 | `low` | `opus` | None | Default coverage |
 
