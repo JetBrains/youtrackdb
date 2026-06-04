@@ -13,7 +13,7 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -22,6 +22,8 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 - [x] 2026-06-04T16:24Z [ctx=safe] Step 2 complete (commit 774b46aec2)
 - [x] 2026-06-04T16:30Z [ctx=safe] Step 3 complete (commit 6cfc61ca64)
 - [x] 2026-06-04T16:35Z [ctx=safe] Step 4 complete (commit 0a2339fd9e)
+- [x] 2026-06-04T16:41Z [ctx=safe] Step 5 complete (commit 8df8a13e0e)
+- [x] 2026-06-04T16:41Z [ctx=safe] Step implementation complete (5/5 steps)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -96,7 +98,7 @@ Steps 2-5 each consume Step 1's selection note (source of truth) but touch disjo
 2. Step-level dispatch in `step-implementation.md` sub-step 4a, with the `risk-tagging.md` `high` quick-ref cell rewrite riding it (already-staged copy, edit in place) (D4, D5) — risk: low (default)  [x] commit: 774b46aec2 *(parallel with Step 3, Step 4, Step 5)*
 3. Track-level dispatch in `track-code-review.md` § Agent selection and launching; track set unchanged, documents deferred-agent coverage (D4, D5, DL2) — risk: low (default)  [x] commit: 6cfc61ca64 *(parallel with Step 2, Step 4, Step 5)*
 4. SKILL promotion of `review-bugs-concurrency` to a mandatory baseline in `code-review/SKILL.md` (D7) — risk: low (default)  [x] commit: 0a2339fd9e *(parallel with Step 2, Step 3, Step 5)*
-5. Consistency sweep of stale step-level baseline-count text in `code-review-protocol.md`, `execute-tracks/SKILL.md`, and `conventions-execution.md` (D4 blast radius, DL1) — risk: low (default)  [ ] *(parallel with Step 2, Step 3, Step 4)*
+5. Consistency sweep of stale step-level baseline-count text in `code-review-protocol.md`, `execute-tracks/SKILL.md`, and `conventions-execution.md` (D4 blast radius, DL1) — risk: low (default)  [x] commit: 8df8a13e0e *(parallel with Step 2, Step 3, Step 4)*
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -129,6 +131,14 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md` (new)
+
+### Step 5 — commit 8df8a13e0e, 2026-06-04T16:41Z [ctx=safe]
+**What was done:** Swept the three overview/summary files that asserted a step-level baseline count of four (one commit; each copied live-verbatim on first touch, then edited). In `code-review-protocol.md`, lifted the "Baseline agents (4)" bullet out of the "For both levels:" list into a level-aware paragraph (step: `review-bugs-concurrency` only; track: all four; both subordinate to the baseline-skip override; cross-referencing `§Step-level vs track-level routing`), leaving the conditional and workflow-review bullets under the for-both-levels framing. In `execute-tracks/SKILL.md`, corrected the step-level review-loop parenthetical from "4 baseline + up to 6 conditional" to the step-level set (`review-bugs-concurrency` subordinate to the skip override, plus up to 6 conditional and the step-level workflow reviewers `hook-safety` and `prompt-design`), keeping the "fires only on steps tagged `risk: high`" clause. In `conventions-execution.md`, reworded the §2.4 two-tier pointer as a cross-tier reviewer inventory and noted the per-tier baseline selection differs (step tier launches a subset). `finding-synthesis-recipe.md:68` and `track-code-review.md:125` were left byte-unchanged from live (track-level contexts where all four baselines run).
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/code-review-protocol.md` (new)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/skills/execute-tracks/SKILL.md` (new)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/conventions-execution.md` (new)
 
 ## Validation and Acceptance
 
