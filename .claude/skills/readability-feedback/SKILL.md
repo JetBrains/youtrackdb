@@ -71,7 +71,7 @@ STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-
 
 STEP 2 — Read `{TARGET_PATH}`, lines {START}-{END} only.
 
-STEP 3 — Find every obscure passage in that range: run-on multi-clause sentences; dense identifier soup with no connective tissue; nominalizations and placeholder nouns; file:line or signature asides wedged mid-clause; inline (1)(2)(3) enumerations; broken or telegraphic grammar (a signature in the subject slot, a missing copula, a dropped relative pronoun, a split predicate); disconnected one-line assertions with no motivation. Audit prose and bullets only — skip Mermaid bodies, D/S codes, References footers, and headings.
+STEP 3 — Find every obscure passage in that range: run-on multi-clause sentences; dense identifier soup with no connective tissue; nominalizations and placeholder words (nouns or pro-verbs); file:line, signature, or code-literal asides wedged into a sentence; inline (1)(2)(3) enumerations; broken or telegraphic grammar (a signature or runtime expression in the subject slot, a missing copula, a dropped relative pronoun, a split predicate); disconnected one-line assertions with no motivation. Audit prose and bullets only — skip Mermaid bodies, D/S codes, References footers, and headings.
 
 STEP 4 — Classify each finding as `CAUGHT by § <exact section>` or `GAP`. Mark GAP only after checking every relevant section; for a GAP, name in one sentence the dimension of unreadability no current rule addresses.
 

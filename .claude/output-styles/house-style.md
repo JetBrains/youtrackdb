@@ -139,20 +139,25 @@ After:  The split path creates the new index entry.
 
 Name the subject. If the actor is genuinely unknown, name that ("on recovery the WAL replay creates…" beats "is created during recovery").
 
-### Nominalization and placeholder nouns
+### Nominalization and placeholder words
 
-Two related moves make prose abstract: turning a verb into a noun ("entry-population requires…" for "populating an entry requires…"), and using a placeholder noun ("material", "data", "content", "logic", "information") where the concrete thing belongs.
+Three related moves make prose abstract: turning a verb into a noun ("entry-population requires…" for "populating an entry requires…", or a hyphen-compound event-noun like "stream-pull-append" for "pull from the stream, then append"); using a placeholder noun ("material", "data", "content", "logic", "information") where the concrete thing belongs; and using a placeholder verb ("do so", "does this", "handles it") where the concrete action belongs.
 
 ```text
 Before: Entry-population for AGGREGATE_* shapes requires per-RID material to seed contributingValues and contributingRids.
 After:  To populate an AGGREGATE_* entry, each contributing RID supplies its value to contributingValues and its own id to contributingRids.
 ```
 
-Use a verb for the action and name the thing the placeholder noun stands for. If you cannot say what "material" or "data" refers to, you do not yet understand the mechanism well enough to write the sentence.
+```text
+Before: next() that pulls from the stream and appends MUST do so atomically with the local position++.
+After:  next() MUST pull from the stream, append, and increment position as one uninterrupted step.
+```
+
+Use a verb for the action and name the thing or action the placeholder word stands for. If you cannot say what "material" or "do so" refers to, you do not yet understand the mechanism well enough to write the sentence.
 
 ### Broken grammar around code identifiers
 
-When the nouns in a sentence are code identifiers, keep the grammar intact anyway: a plain-noun subject, a copula, and the relative pronouns a reader would otherwise have to supply. Three failures recur.
+When the nouns in a sentence are code identifiers, keep the grammar intact anyway: a plain-noun subject, a copula, and the relative pronouns a reader would otherwise have to supply. Four failures recur.
 
 A class declaration or type signature in the subject slot, with no copula to anchor it:
 
@@ -173,6 +178,13 @@ A split coordinate predicate: one subject governing two verbs separated by a lon
 ```text
 Before: Each entry pairs the term with what it replaces, so the delta from the baseline is visible, and points at the section that elaborates it.
 After:  Each entry pairs the term with what it replaces and points at the section that elaborates it. The delta from the baseline is then visible at a glance.
+```
+
+A runtime expression in the subject slot: an assignment or comparison standing where a noun belongs.
+
+```text
+Before: was_extremum = rid.equals(extremumRid) sidesteps the cross-Number-subtype hazard.
+After:  Comparing by RID identity (was_extremum = rid.equals(extremumRid)) sidesteps the cross-Number-subtype hazard.
 ```
 
 Name the thing with a plain noun and attach the identifier as an appositive; never drop "is", "that", or "which" to save a word.
@@ -347,7 +359,7 @@ Heading words and the following paragraph must not have ≥50% content-word over
 
 ### Mechanism traces and inline citations
 
-A sentence that chains a sequence of distinct calls, each with its own arguments, is a run-on the reader has to disassemble. Present a multi-step mechanism as a numbered list, a fenced trace, or (in a design doc) a sequence diagram, one step per line. An inline `(1)… (2)… (3)…` enumeration crammed into one sentence is the same run-on; break it onto separate lines. Keep file:line citations and signature asides at the end of the sentence or in a References footer, never embedded mid-clause where they make the reader hold the main clause in memory while parsing a code reference. An illustrative multi-line code or query literal belongs in a fenced block or on its own line, not wedged into a sentence as a subject or object.
+A sentence that chains a sequence of distinct calls, each with its own arguments, is a run-on the reader has to disassemble. Present a multi-step mechanism as a numbered list, a fenced trace, or (in a design doc) a sequence diagram, one step per line. An inline `(1)… (2)… (3)…` enumeration crammed into one sentence is the same run-on; break it onto separate lines. Keep file:line citations and signature asides at the end of the sentence or in a References footer, never embedded mid-clause where they make the reader hold the main clause in memory while parsing a code reference. An illustrative multi-line code or query literal belongs in a fenced block or on its own line, not wedged into a sentence as a subject, object, or introductory frame.
 
 ```text
 Before: The tap step's internalStart(ctx) calls prev.start(ctx) (prev is the public field on AbstractExecutionStep:66) to obtain the upstream ExecutionStream, then returns a wrapping ExecutionStream whose next(ctx) invokes entry.aggregateState.observe(result) before forwarding the unchanged Result to the consumer.
@@ -412,7 +424,7 @@ If three or more sibling sections share the same internal heading sequence, cons
 
 ### Explanatory register
 
-Mechanism-overview prose under `##` sections carries the explanation. Lead each mechanism with its motivation, walk it in connected sentences whose transitions carry one step to the next, and close with the consequence. Compression here means cutting hedges, filler, and restatement, never the explanatory step that lets a reader follow the reasoning.
+Mechanism-overview prose under `##` and `###` mechanism sections (including `design-mechanics.md` Notes) carries the explanation. Lead each mechanism with its motivation, walk it in connected sentences whose transitions carry one step to the next, and close with the consequence. Compression here means cutting hedges, filler, and restatement, never the explanatory step that lets a reader follow the reasoning.
 
 The "bias toward less text" rule in § Voice and tone governs openers, summaries, and TL;DRs. It does not license a mechanism section built from disconnected one-line assertions. A reader who cannot reconstruct why each step follows from the last is reading prose that is too terse: a finding under § Why-before-what, the same way padding is a finding under § Padding-based finding criterion.
 
@@ -424,7 +436,7 @@ Before handing the output back, scan it for:
 2. **Em dashes.** Count per paragraph. More than one is a finding.
 3. **Negative parallelism and roundabout negation.** "It's not X, it's Y" / "Not just A, but B" / "not uncommon" / "does NOT track X, only Y". Rewrite as a positive statement.
 4. **Sycophantic openers, throat-clearing, closing phrases, trailing hedges, prompt-restating, knowledge-cutoff disclaimers.** Cut.
-5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, nominalization and placeholder nouns, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
+5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, nominalization and placeholder words, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
 6. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
 7. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap); no run-on mechanism sentences or mid-clause file:line citations (present a multi-step sequence as a numbered list, fenced trace, or sequence diagram per § Mechanism traces and inline citations).
 8. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
