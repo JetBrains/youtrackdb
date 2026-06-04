@@ -148,10 +148,15 @@ flowchart LR
   >
   > **Track file:** `plan/track-1.md` (4 steps, 0 failed)
 
-- [ ] Track 2: Review routing
+- [x] Track 2: Review routing
   > Split review-agent dispatch into step-level vs track-level and promote `review-bugs-concurrency` to a mandatory baseline. Edits `review-agent-selection.md` (baseline carve-out + a new non-mirrored triage note), `step-implementation.md` (sub-step 4a dispatch), `track-code-review.md` (track-level dispatch), the `risk-tagging.md` `high` quick-ref row, and `code-review/SKILL.md` (bugs-concurrency promotion).
-  > **Scope:** ~4 steps covering the selection note, the step dispatch, the track dispatch, and the SKILL promotion.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Split review-agent dispatch into step-level and track-level for the first time. At a high step the baseline narrows to `review-bugs-concurrency` (subordinate to the workflow/docs-only baseline-skip override); `review-code-quality`, `review-test-behavior`, and `review-test-completeness` defer to the Phase C track pass, which reads them identically off the cumulative diff. Step-level workflow reviewers (`hook-safety`, `prompt-design`) fire by their file-pattern globs; the other four defer to the track. The track-level set is unchanged: all four baselines plus the full workflow-reviewer selection still run at Phase C (DL2). A new non-mirrored `§Step-level vs track-level routing` note in `review-agent-selection.md` is the single source of truth that `step-implementation.md` sub-step 4a and `track-code-review.md` §Agent selection consume; `review-bugs-concurrency` was promoted to a mandatory baseline in `code-review/SKILL.md`. A Phase-A-added consistency sweep (DL1) corrected stale "4 baseline" step-level counts in three overview files.
+  >
+  > Phase C reviewed a workflow-only diff (baseline group skipped; five workflow-review agents, delta-scoped to the staged-vs-live edit per §1.7(h); prompt-design joined where Track 1's fan-out did not, because two `SKILL.md` files changed). One fix iteration (commit `a753a6d26e`), all gate-checks PASS. The load-bearing fix closed a real completeness gap: the new step-level workflow-reviewer dispatch did not state that it inherits the §Workflow-machinery override staged-path normalization and Case-3 `IN_SCOPE_FILES` scoping the track-level dispatch relies on, so on a future workflow-modifying plan a high step's staged paths would have matched no live-path glob and the step-level workflow reviewers would have silently failed to launch. The dispatch now points at the override mechanics explicitly. No findings deferred; no plan corrections.
+  >
+  > **Track file:** `plan/track-2.md` (5 steps, 0 failed)
 
 - [ ] Track 3: File-footprint scope indicators
   > Rewrite the plan-checklist scope indicator from `~N steps` to `~N files` (D8), so the sizing signal is a plan-time-knowable file footprint rather than a count of steps that only exist after Phase A decomposition. Touches the convention spec, the writers (`create-plan`, `planning.md`), the checkers (`structural-review.md`, `consistency-review.md`), and the renderers.

@@ -14,8 +14,8 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-06-04T15:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-04T16:17Z [ctx=safe] Step 1 complete (commit 0fc2ff0fc1)
@@ -25,6 +25,7 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 - [x] 2026-06-04T16:41Z [ctx=safe] Step 5 complete (commit 8df8a13e0e)
 - [x] 2026-06-04T16:41Z [ctx=safe] Step implementation complete (5/5 steps)
 - [x] 2026-06-04T17:01Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-04T17:06Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -120,7 +121,7 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/risk-tagging.md` (modified)
 
 ### Step 3 — commit 6cfc61ca64, 2026-06-04T16:30Z [ctx=safe]
-**What was done:** Documented the track-level dispatch in `track-code-review.md` § Agent selection and launching (copied live-verbatim on first touch, then edited the staged copy). A 17-line insertion states that the track pass runs the full selection against the cumulative track diff: all four baselines (`review-bugs-concurrency` included), subject only to the workflow-only / `docs-only` baseline-skip override, plus the full trigger-based workflow-reviewer selection. The text names the agents this pass covers for the step level — the three step-deferred baselines (`review-code-quality`, `review-test-behavior`, `review-test-completeness`) and the four step-deferred workflow reviewers (`consistency`, `context-budget`, `writing-style`, `instruction-completeness`) — and cross-references Step 1's `§Step-level vs track-level routing` note as the source of truth. The DL2 guardrail held: the track baseline set stays at four with `review-bugs-concurrency` running at the track pass, and `track-code-review.md:125` (§Multi-Step Tracks) is byte-identical to live.
+**What was done:** Documented the track-level dispatch in `track-code-review.md` § Agent selection and launching (copied live-verbatim on first touch, then edited the staged copy). A 17-line insertion states that the track pass runs the full selection against the cumulative track diff: all four baselines (`review-bugs-concurrency` included), subject only to the workflow-only / `docs-only` baseline-skip override, plus the full trigger-based workflow-reviewer selection. The text names the agents this pass covers for the step level: the three step-deferred baselines (`review-code-quality`, `review-test-behavior`, `review-test-completeness`) and the four step-deferred workflow reviewers (`consistency`, `context-budget`, `writing-style`, `instruction-completeness`). It cross-references Step 1's `§Step-level vs track-level routing` note as the source of truth. The DL2 guardrail held: the track baseline set stays at four with `review-bugs-concurrency` running at the track pass, and `track-code-review.md:125` (§Multi-Step Tracks) is byte-identical to live.
 
 **Key files:**
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/track-code-review.md` (new)
@@ -182,7 +183,7 @@ belong to one specific step. Per-step episode content lives in
 - `.claude/workflow/review-agent-selection.md` — the `## Baseline agents` intro (carve-out) and a new non-mirrored note; explicitly not the `§Maintenance`-mirrored sections.
 - `.claude/workflow/step-implementation.md` — sub-step 4a (step-level dispatch), including the "Baseline agents (4)" count at `:426`.
 - `.claude/workflow/track-code-review.md` — § Agent selection and launching (`:479`, track-level dispatch). The §Multi-Step Tracks "Baseline agents (4)" at `:125` is track-level and stays unchanged.
-- `.claude/workflow/risk-tagging.md` — the `high` quick-ref row only; the rest of this file is Track 1. This file is **already staged** (Track 1 created the staged copy with the `### Workflow machinery` taxonomy), so edit the staged copy in place — locate the `high` row by content, not the live `:65` offset, and never re-copy from live (§1.7(d), DL4/T2).
+- `.claude/workflow/risk-tagging.md` — the `high` quick-ref row only; the rest of this file is Track 1. This file is **already staged** (Track 1 created the staged copy with the `### Workflow machinery` taxonomy), so edit the staged copy in place: locate the `high` row by content, not the live `:65` offset, and never re-copy from live (§1.7(d), DL4/T2).
 - `.claude/skills/code-review/SKILL.md` — the baseline/conditional table row for `review-bugs-concurrency`.
 - `.claude/workflow/code-review-protocol.md` — the `## For both levels` baseline-count framing (`:32`), made level-aware (Phase A scope addition, DL1).
 - `.claude/skills/execute-tracks/SKILL.md` — the step-level dimensional-review-loop description (`:109`), corrected to the step-level set (Phase A scope addition, DL1).
