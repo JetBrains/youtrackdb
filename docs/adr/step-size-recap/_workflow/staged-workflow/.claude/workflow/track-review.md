@@ -726,9 +726,9 @@ full upfront decomposition feasible.
   within ~12 edited files, not the smallest. This is a directive, not a
   permission: collapsing k small coherent steps into one removes (k-1)
   cold-read re-pays, and the measured implementer-context ceiling for
-  steps at this footprint sits well below the warning band. Flag a step
-  at ~14+ edited files as overblown and split it (still respecting
-  coherence). Carve-out: prefer splitting when the work is likely to
+  steps at this footprint sits well below the warning band. Flag a
+  `low`/`medium` step at ~14+ edited files as overblown and split it
+  (still respecting coherence). Carve-out: prefer splitting when the work is likely to
   need heavy per-step iteration (debugging-prone or test-churny), since
   iteration count, not edited-file count, is the measured context
   driver.

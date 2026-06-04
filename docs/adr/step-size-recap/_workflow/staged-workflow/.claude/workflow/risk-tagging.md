@@ -157,13 +157,13 @@ A step is `high` if it does ANY of the following.
 
 ### Workflow machinery
 <!-- roles=decomposer phases=3A summary="Workflow-machinery edits (.claude/**, root CLAUDE.md) that trigger high risk." -->
-The other HIGH categories above are Java/storage-shaped, so a
-workflow-machinery edit (a file under `.claude/**`, or root
-`CLAUDE.md`) matches none of them. This category supplies the missing
-criteria, keyed to the same blast-radius logic recast for machinery:
-does the artifact execute or drive control flow, and how many sessions
-does a defect reach before a human notices. A workflow step is `high`
-if it does ANY of the following.
+A workflow step is `high` if it does ANY of the following. The other
+HIGH categories above are Java/storage-shaped, so a workflow-machinery
+edit (a file under `.claude/**`, or root `CLAUDE.md`) matches none of
+them; this category supplies the missing criteria, keyed to the same
+blast-radius logic recast for machinery: does the artifact execute or
+drive control flow, and how many sessions does a defect reach before a
+human notices.
 
 - Edits a hook, script, or `settings*.json` that runs automatically —
   a defect wedges every session that triggers it.
@@ -256,10 +256,12 @@ prose-only and `low`, even though a control-flow-changing edit to the
 same file is HIGH.
 
 The hinge is whether the edit changes meaning. A meaning-changing
-glossary, TOC, or enum edit alters the shared schema other files key off
-and is HIGH per §"Workflow machinery" above; a gloss that reindexes a
-TOC or rewords a definition while preserving its meaning changes no
-schema and is prose-only/`low`. The full qualifier ("no
+glossary, TOC-format, or enum edit alters the shared schema other files
+key off and is HIGH per §"Workflow machinery" above (a TOC edit reaches
+HIGH only when it changes the table's schema, not when it renames a
+single row — a single-section rename is MEDIUM per §"MEDIUM-risk
+triggers"); a gloss that reindexes a TOC or rewords a definition while
+preserving its meaning changes no schema and is prose-only/`low`. The full qualifier ("no
 hook/script/settings change AND no gate/dispatch/schema change")
 prevents the cap from firing on a control-flow-driving prose edit that
 the HIGH taxonomy also matches: if either half of the qualifier fails,
