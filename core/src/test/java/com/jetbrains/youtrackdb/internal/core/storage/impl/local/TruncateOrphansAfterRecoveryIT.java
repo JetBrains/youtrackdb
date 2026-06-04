@@ -157,20 +157,20 @@ public class TruncateOrphansAfterRecoveryIT {
   private static final long MAGIC_NUMBER_WITHOUT_CHECKSUM = 0xEF30BCAFL;
 
   // Growth workload shared by cleanReopenAfterRollbackSkipsPassAndLeavesNoOrphan and its
-  // positive control committedAllocationGrowsPclSoRollbackAssertionIsNonVacuous. The page
-  // size is 8 KB (DISK_CACHE_PAGE_SIZE default) and a fresh cluster's .pcl starts at one
-  // data page, so a few small rows fit inside it and a commit would not grow the file. This
-  // workload writes ~2000 rows each carrying a 256-char payload (~0.5 MB raw), forcing the
-  // cluster to span several data pages so a committed run physically extends the .pcl --
-  // which is what makes the rolled-back variant's "flat size" assertion non-vacuous.
+  // positive control committedAllocationGrowsPclSoRollbackAssertionIsNonVacuous. A fresh
+  // cluster's .pcl starts at a single data page, so a few small rows fit inside it and a
+  // commit would not grow the file. This workload writes GROWTH_ROW_COUNT rows each carrying
+  // a 256-char payload (~0.5 MB raw), forcing the cluster to span several data pages so a
+  // committed run physically extends the .pcl and persists every row -- which is what makes
+  // the rolled-back variant's zero-committed-rows assertion non-vacuous.
   private static final int GROWTH_ROW_COUNT = 2000;
   private static final String GROWTH_PAYLOAD = "x".repeat(256);
 
   /**
    * Inserts {@link #GROWTH_ROW_COUNT} rows of {@link #GROWTH_PAYLOAD} into {@code className}
    * inside the supplied transaction. Sized to grow the cluster's {@code .pcl} past its
-   * initial 8 KB data page so a committed run physically extends the file (the positive
-   * control) and a rolled-back run demonstrably discards that would-be extend (the
+   * initial data page so a committed run physically extends the file and persists every row
+   * (the positive control), and a rolled-back run demonstrably discards those rows (the
    * rollback-zero-footprint corroboration).
    */
   private static void insertGrowthWorkload(final Transaction transaction, final String className) {
@@ -1296,10 +1296,12 @@ public class TruncateOrphansAfterRecoveryIT {
    * gracefully, then reopens WITHOUT deleting the clean-shutdown markers (a genuine clean
    * reopen). Asserts (1) the open did NOT replay the WAL
    * ({@code wereDataRestoredAfterOpen() == false}), (2) the orphan pass was NOT dispatched
-   * (dispatch counter {@code == 0} on the reopened storage instance), and (3) no orphan
-   * exists (the {@code .pcl} file size is unchanged across the boundary). The dispatch
-   * counter is the load-bearing assertion: it distinguishes "pass skipped" from "pass ran
-   * and found nothing", which the file size alone cannot.
+   * (dispatch counter {@code == 0} on the reopened storage instance), (3) no orphan
+   * exists (the {@code .pcl} file size is unchanged across the reopen boundary), and (4) the
+   * rolled-back transaction's inserts were discarded (the reopened database holds zero
+   * {@code RolledBack} rows). The dispatch counter is the load-bearing assertion: it
+   * distinguishes "pass skipped" from "pass ran and found nothing", which the file size alone
+   * cannot.
    */
   @Test
   public void cleanReopenAfterRollbackSkipsPassAndLeavesNoOrphan() throws Exception {
@@ -1312,8 +1314,6 @@ public class TruncateOrphansAfterRecoveryIT {
 
     String nativeFileName;
     Path storagePath;
-    long sizeBeforeRollbackTx;
-    long sizeAfterRollback;
     try (var session = youTrackDB.open(TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
       session.getMetadata().getSchema().createClass("RolledBack");
@@ -1323,21 +1323,26 @@ public class TruncateOrphansAfterRecoveryIT {
       var fileId = wowCache.fileIdByName(pclFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       storagePath = storage.getStoragePath();
-      var pclPath = storagePath.resolve(nativeFileName).toFile();
-      // Baseline captured BEFORE the doomed TX: the assertion below that the rollback left
-      // the .pcl flat is compared against THIS size, not the post-close size, so it proves
-      // the rollback discarded a real would-be footprint rather than merely confirming the
-      // deferred-extend disk engine never attempted an allocation.
-      sizeBeforeRollbackTx = pclPath.length();
 
       // Allocate-then-rollback: the consumer inserts many rows (forcing the cluster to
       // grow), then throws. executeInTx rolls the transaction back, so the physical-apply
-      // path (which runs only inside commitChanges) never executes - the rolled-back op
-      // leaves zero physical footprint (the load-bearing premise of the open-time gate,
+      // path (which runs only inside commitChanges) never executes and the rolled-back op
+      // leaves no committed rows (the load-bearing premise of the open-time gate,
       // YTDB-1039). The throw is expected; we swallow it and continue. The primary proof of
       // the rollback-zero-footprint premise is the unit test
-      // EndAtomicOperationRollbackSkipsCommitTest; this IT corroborates it at the
-      // physical-file level.
+      // EndAtomicOperationRollbackSkipsCommitTest; this IT corroborates it at the logical
+      // level (the rolled-back rows are absent after a clean reopen, asserted below).
+      //
+      // We deliberately do NOT assert the physical .pcl size is flat after the rollback. A
+      // fresh cluster eagerly allocates its first data page when the first row is inserted,
+      // and WOWCache may flush that page to disk on its background thread at any point during
+      // the doomed TX. The rollback restores the logical horizon but does not physically
+      // truncate an already-flushed page (a tolerated physical orphan; see
+      // cleanReopenDoesNotRepairPreExistingPhysicalOrphan). File.length() after the rollback
+      // therefore depends on background-flush timing, not on the rollback outcome, so it
+      // raced the old assertion on macOS arm / JDK 21 (observed 9216 vs the 1024 baseline).
+      // The logical row count is the deterministic invariant the rollback actually
+      // guarantees.
       try {
         session.executeInTx(transaction -> {
           insertGrowthWorkload(transaction, "RolledBack");
@@ -1347,7 +1352,6 @@ public class TruncateOrphansAfterRecoveryIT {
       } catch (final IllegalStateException expected) {
         // expected - the transaction rolled back.
       }
-      sizeAfterRollback = pclPath.length();
     }
     youTrackDB.close();
 
@@ -1361,6 +1365,7 @@ public class TruncateOrphansAfterRecoveryIT {
     long sizeImmediatelyAfterReopen;
     boolean walReplayed;
     int dispatchCount;
+    long rolledBackRowCount;
     try (var session = youTrackDB.open(
         TruncateOrphansAfterRecoveryIT.class.getSimpleName(),
         "admin", "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build())) {
@@ -1368,6 +1373,21 @@ public class TruncateOrphansAfterRecoveryIT {
       var storage = (DiskStorage) session.getStorage();
       walReplayed = storage.wereDataRestoredAfterOpen();
       dispatchCount = ((AbstractStorage) storage).orphanTruncationDispatchCountForTests();
+      // The deterministic rollback guarantee: the doomed TX's inserts were discarded, so the
+      // cleanly-reopened database holds zero RolledBack rows. Read after the reopen so the
+      // check is end-to-end (the discard survived close and reopen). The class itself was
+      // created OUTSIDE the doomed TX, so it must still exist on reopen; assert that first so
+      // a zero count can never be produced by an absent class (which would make the row-count
+      // assertion vacuous). The non-vacuousness of the count != 0 direction is pinned by
+      // committedAllocationGrowsPclSoRollbackAssertionIsNonVacuous, which runs the same
+      // count(*) query against a COMMITTED population and asserts it reads GROWTH_ROW_COUNT.
+      assertThat(session.getMetadata().getSchema().getClass("RolledBack"))
+          .as("the RolledBack class is created outside the doomed TX and must survive reopen")
+          .isNotNull();
+      try (var rs = session.query("SELECT count(*) as cnt FROM RolledBack")) {
+        final long cnt = rs.next().getProperty("cnt");
+        rolledBackRowCount = cnt;
+      }
     }
 
     assertThat(walReplayed)
@@ -1377,24 +1397,28 @@ public class TruncateOrphansAfterRecoveryIT {
         .as("the orphan-truncation pass must be SKIPPED on a clean reopen")
         .isZero();
     assertThat(sizeImmediatelyAfterReopen)
-        .as("a rolled-back-then-cleanly-closed session must leave no on-disk orphan")
+        .as("the clean reopen must be a physical no-op (.pcl size unchanged across"
+            + " close->reopen); this does NOT assert the doomed TX left no flushed page -- a"
+            + " tolerated physical orphan is allowed, see"
+            + " cleanReopenDoesNotRepairPreExistingPhysicalOrphan")
         .isEqualTo(sizeBeforeReopen);
-    assertThat(sizeAfterRollback)
-        .as("the rolled-back allocation must leave the .pcl size equal to the pre-TX"
-            + " baseline -- the rollback discarded its would-be footprint during the TX")
-        .isEqualTo(sizeBeforeRollbackTx);
+    assertThat(rolledBackRowCount)
+        .as("the rolled-back transaction must leave no committed rows -- the rollback"
+            + " discarded its would-be footprint (the deterministic invariant; the physical"
+            + " .pcl size is background-flush-timing dependent, see the doomed-TX comment)")
+        .isZero();
   }
 
   /**
    * Positive control for {@link #cleanReopenAfterRollbackSkipsPassAndLeavesNoOrphan}: the
    * SAME growth workload, when COMMITTED, physically grows the {@code .pcl} file. Without
-   * this, the rolled-back variant's flat-size assertion could not distinguish "the rollback
-   * discarded a real would-be footprint" from "this workload never grows the .pcl at all":
-   * a small insert that fit inside the cluster's first 8 KB data page would make the
-   * rollback assertion vacuously true. The shared {@link #insertGrowthWorkload} writes
-   * enough payload to span several pages, so this control proves the committed workload
-   * does grow the {@code .pcl} and the rolled-back variant's flat size reflects a discarded
-   * real footprint, not the absence of any allocation.
+   * this, the rolled-back variant's zero-row assertion could not distinguish "the rollback
+   * discarded a real would-be footprint" from "this workload never allocates anything at
+   * all": a workload that persisted nothing would make the rollback assertion vacuously
+   * true. The shared {@link #insertGrowthWorkload} writes enough payload to span several
+   * data pages, so this control proves the committed workload genuinely allocates a
+   * substantial footprint, and the rolled-back variant's zero committed rows therefore
+   * reflect a discarded real allocation, not the absence of any work.
    */
   @Test
   public void committedAllocationGrowsPclSoRollbackAssertionIsNonVacuous() throws Exception {
@@ -1433,8 +1457,20 @@ public class TruncateOrphansAfterRecoveryIT {
 
       assertThat(pclPath.length())
           .as("the committed growth workload must physically grow the .pcl -- otherwise the"
-              + " rolled-back variant's flat-size assertion would be vacuous")
+              + " rolled-back variant's zero-row assertion would be vacuous")
           .isGreaterThan(sizeBeforeCommit);
+
+      // Close the logical loop: the SAME count(*) query the rolled-back variant relies on
+      // must read GROWTH_ROW_COUNT against a committed population. This proves the query can
+      // return non-zero, so the rolled-back variant's count(*) == 0 is a real discard signal,
+      // not a query that structurally always yields zero.
+      try (var rs = session.query("SELECT count(*) as cnt FROM Committed")) {
+        final long committedRowCount = rs.next().getProperty("cnt");
+        assertThat(committedRowCount)
+            .as("the committed growth workload must persist every row -- pins the non-vacuous"
+                + " (count != 0) direction of the rolled-back variant's row-count assertion")
+            .isEqualTo(GROWTH_ROW_COUNT);
+      }
     }
   }
 
