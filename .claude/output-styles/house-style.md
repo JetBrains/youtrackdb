@@ -94,6 +94,7 @@ Update this section quarterly against the Wikipedia "Signs of AI writing" page. 
 These patterns are the highest-confidence AI tells at the sentence shape level. Cut every instance.
 
 - **Negative parallelism.** "It's not X — it's Y.", "It's not X, it's Y.", "Not just A, but B.", "You're not an X, you're a Y." Cut. The pattern adds no information; it performs depth. Rewrite as a positive statement: "Y." or "X plus Y."
+- **Double negation.** "does NOT track the original wrapper, only the bare X", "not unlike", "it is not uncommon". State what IS true: "tracks only the bare X".
 - **Sycophantic openers.** "Great question!", "Certainly!", "Absolutely!", "Of course!", "I'd be happy to…", "I'd love to help.", "I'm here to help.", "What a wonderful question!", "I love this prompt!". Cut the opener; if the sentence collapses without it, cut the sentence.
 - **Throat-clearing.** "It's worth noting that", "It is important to consider", "One thing to keep in mind", "It should be noted that…", "Interestingly,". State the thing directly.
 - **Closing phrases.** "In conclusion,", "In summary,", "Ultimately,", "To summarize,", "To wrap up,". The last paragraph is the conclusion by position; the connective is filler.
@@ -137,6 +138,39 @@ After:  The split path creates the new index entry.
 ```
 
 Name the subject. If the actor is genuinely unknown, name that ("on recovery the WAL replay creates…" beats "is created during recovery").
+
+### Nominalization and placeholder nouns
+
+Two related moves make prose abstract: turning a verb into a noun ("entry-population requires…" for "populating an entry requires…"), and using a placeholder noun ("material", "data", "content", "logic", "information") where the concrete thing belongs.
+
+```text
+Before: Entry-population for AGGREGATE_* shapes requires per-RID material to seed contributingValues and contributingRids.
+After:  To populate an AGGREGATE_* entry, each contributing RID supplies its value to contributingValues and its own id to contributingRids.
+```
+
+Use a verb for the action and name the thing the placeholder noun stands for. If you cannot say what "material" or "data" refers to, you do not yet understand the mechanism well enough to write the sentence.
+
+### Broken grammar around code identifiers
+
+When the nouns in a sentence are code identifiers, keep the grammar intact anyway: a plain-noun subject, a copula, and the relative pronouns a reader would otherwise have to supply. Three failures recur.
+
+A class declaration or type signature in the subject slot, with no copula to anchor it:
+
+```text
+Before: AggregateCacheTapStep extends AbstractExecutionStep is spliced into the plan chain upstream of AggregateProjectionCalculationStep.
+After:  AggregateCacheTapStep, an AbstractExecutionStep, is spliced into the plan chain upstream of AggregateProjectionCalculationStep.
+```
+
+A dropped relative pronoun, turning an appositive into a garden path:
+
+```text
+Before: sumAccumulator evolves through increment, the same call storage's SQLFunctionSum.sum and SQLFunctionAverage.sum make on every value.
+After:  sumAccumulator evolves through increment, the same call that SQLFunctionSum.sum and SQLFunctionAverage.sum make on every value.
+```
+
+A split coordinate predicate: one subject governing two verbs separated by a long clause, so the second verb dangles far from it. Put the second verb beside the first, or start a new sentence.
+
+Name the thing with a plain noun and attach the identifier as an appositive; never drop "is", "that", or "which" to save a word.
 
 ### Hedge stacking
 
@@ -306,6 +340,23 @@ On crash recovery, the WAL replay reads each segment, verifies the checksum, and
 
 Heading words and the following paragraph must not have ≥50% content-word overlap. If they do, either the heading is a label without content (write the paragraph) or the paragraph is filler (cut it and let the heading stand).
 
+### Mechanism traces and inline citations
+
+A sentence that chains a sequence of distinct calls, each with its own arguments, is a run-on the reader has to disassemble. Present a multi-step mechanism as a numbered list, a fenced trace, or (in a design doc) a sequence diagram, one step per line. An inline `(1)… (2)… (3)…` enumeration crammed into one sentence is the same run-on; break it onto separate lines. Keep file:line citations and signature asides at the end of the sentence or in a References footer, never embedded mid-clause where they make the reader hold the main clause in memory while parsing a code reference. An illustrative multi-line code or query literal belongs in a fenced block or on its own line, not wedged into a sentence as a subject or object.
+
+```text
+Before: The tap step's internalStart(ctx) calls prev.start(ctx) (prev is the public field on AbstractExecutionStep:66) to obtain the upstream ExecutionStream, then returns a wrapping ExecutionStream whose next(ctx) invokes entry.aggregateState.observe(result) before forwarding the unchanged Result to the consumer.
+After:
+The tap wraps the upstream stream without changing the rows it carries:
+1. `internalStart` calls `prev.start(ctx)` to get the upstream `ExecutionStream`.
+2. The wrapper's `next(ctx)` calls `entry.aggregateState.observe(result)`, then forwards the unchanged `Result` downstream.
+(`prev` is defined at `AbstractExecutionStep.java:66`.)
+```
+
+The test: read the sentence aloud once. If you cannot hold its structure to the end, split it.
+
+This expansion adds lines, and the per-section line cap counts them. Never compress a sequence back into a run-on to fit the cap: if the readable form pushes a `##` section past ~300 lines, that is the signal to move it to `design-mechanics.md`, not to re-cram.
+
 ## Document-shape rules (design / ADR-specific)
 
 These rules apply when the surface is a design document, ADR draft, or cold-read-reviewed artifact under `docs/adr/**`. They are not enforced on issue bodies, PR descriptions, or status prose, which use the BLUF rule alone.
@@ -340,6 +391,8 @@ Excluded: shape-exempt reference sections (Core Concepts, Class Design, Workflow
 
 Section headers communicate purpose, not just a mechanism name. Each section's opening sentence or TL;DR lets a skimming reader decide whether to drill in. Cross-references to deeper detail (Mechanics links, references to sibling Parts) are present where a reader would need them.
 
+A structure roadmap is one sentence with a verb. A verbless colon-dump of section names ("Subsections below: a, b, c, …") is the failure; when there are too many children to fit one sentence, name the grouping instead of listing every one.
+
 ### Edge cases sub-section required
 
 Every mechanism-overview section ends with an Edge cases / Gotchas sub-section. If there are no edge cases, justify the N/A in one prose sentence. The reviewer treats a missing sub-section without justification as a should-fix.
@@ -352,18 +405,24 @@ Every mechanism-overview section ends with a `### References` footer listing D-r
 
 If three or more sibling sections share the same internal heading sequence, consolidate them under the consolidation form: one TL;DR + comparison table + per-instance short bodies. Three sibling sections each with "Problem", "Solution", "Trade-offs", "References" is the canonical trigger.
 
+### Explanatory register
+
+Mechanism-overview prose under `##` sections carries the explanation. Lead each mechanism with its motivation, walk it in connected sentences whose transitions carry one step to the next, and close with the consequence. Compression here means cutting hedges, filler, and restatement, never the explanatory step that lets a reader follow the reasoning.
+
+The "bias toward less text" rule in § Voice and tone governs openers, summaries, and TL;DRs. It does not license a mechanism section built from disconnected one-line assertions. A reader who cannot reconstruct why each step follows from the last is reading prose that is too terse: a finding under § Why-before-what, the same way padding is a finding under § Padding-based finding criterion.
+
 ## Self-check
 
 Before handing the output back, scan it for:
 
 1. **Banned vocabulary.** Tier 1 (hard ban): replace. Tier 2 (strongly avoid): replace or justify. Tier 3 (promotional): replace. Tier 4 (era-specific): replace.
 2. **Em dashes.** Count per paragraph. More than one is a finding.
-3. **Negative parallelism.** "It's not X, it's Y" / "Not just A, but B". Rewrite as a positive statement.
+3. **Negative parallelism and double negation.** "It's not X, it's Y" / "Not just A, but B" / "does NOT track X, only Y". Rewrite as a positive statement.
 4. **Sycophantic openers, throat-clearing, closing phrases, trailing hedges, prompt-restating, knowledge-cutoff disclaimers.** Cut.
-5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
+5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, nominalization and placeholder nouns, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
 6. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
-7. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap).
-8. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
+7. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap); no run-on mechanism sentences or mid-clause file:line citations (present a multi-step sequence as a numbered list, fenced trace, or sequence diagram per § Mechanism traces and inline citations).
+8. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
 9. **BLUF.** The first paragraph states the decision or symptom directly. Section openers don't restate the section heading.
 10. **Paragraphs that don't add information beyond the previous one.** Delete.
 

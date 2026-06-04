@@ -413,7 +413,7 @@ The sync's cold-read sub-agent gets an extended instruction:
 accurately summarizes the current mechanics file's content for
 the same-named section."* It also runs the Human-reader
 cold-read additions (audience-fit, glossary-introduction,
-why-before-what, navigability — see
+why-before-what, navigability, explanatory register — see
 prompts/design-review.md:reviewer-design:1,4
 § Human-reader cold-read additions), since the rewritten
 Overview is a freshly human-facing artifact that can drift in
