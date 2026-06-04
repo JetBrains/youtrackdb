@@ -151,128 +151,173 @@ cross-track impact.
 ## Startup Protocol (Auto-Resume)
 <!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State detection at startup: where to resume from the plan and track files." -->
 
+Startup is a single dispatch over one JSON blob. Run
+`.claude/scripts/workflow-startup-precheck.sh --mode full` once at
+turn 1 and route on its output; the script does the branch-divergence
+detection, the workflow-SHA drift walk (and its one autonomous
+normalization commit), the pending-handoff scan, and the resume-state
+computation that this protocol used to spell out inline. The
+`emit_json` function in that script is the authoritative field
+contract — cite its keys, not any frozen design draft. The gate
+*resolution* prose still lives in the reference docs
+(`branch-divergence-check.md`, `workflow-drift-check.md`); the
+script reports the facts, the agent presents the choice.
+
+A **non-zero script exit** is halt-and-surface, never resume: the
+script emits no JSON on a usage error (exit 2), a malformed-checkbox
+parse error (exit 3), or an aborted normalization (exit 1). On any
+non-zero exit, surface the stderr diagnostic to the user and stop —
+do not fall back to re-deriving state, and do not treat a missing
+`state` as State 0. The script's no-JSON-on-error contract is total;
+a parsed JSON blob is the only license to dispatch.
+
+The dispatch order mirrors the old numbered protocol — divergence,
+then drift, then handoffs, then state routing.
+
 1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
-   (startup reads only the plan; per-track track files at
-   `plan/track-N.md` are loaded later, when a track enters Phase A
-   or its description is being amended).
+   for orientation (startup reads only the plan; per-track files at
+   `plan/track-N.md` load later, when a track enters Phase A or its
+   description is amended). The script reads the same plan file to
+   compute `state`; the agent re-reads it to inform the user.
 
-2. **Identify all tracks** and their status:
-   - `[ ]` — not started
-   - `[x]` — completed
-   - `[~]` — skipped
+2. **Present the divergence gate** from `divergence`. This is turn-1
+   work, before any per-commit push — including the handoff-resolution
+   commits below. A diverged branch left undetected makes every
+   `git push` reject silently and defeats the "push every commit"
+   safety net (`commit-conventions.md` § Push every commit).
+   - `divergence.detected == true` (both `ahead` and `behind` are
+     non-zero counts): load
+     branch-divergence-check.md:orchestrator:2,3A,3B,3C and present its
+     three resolutions (local-authoritative, remote-authoritative,
+     defer). **No default is picked** — the user chooses. The script
+     detected; the reference doc owns the resolution UX.
+   - `divergence.skipped == true`: no gate. `skip_reason` is
+     `"no-upstream"` (branch has no upstream tracking ref) or
+     `"fetch-failed"` (offline, removed remote, auth failure, or the
+     startup `timeout 10 git fetch` elapsed). Both are normal — the
+     per-commit push re-check catches a divergence that a stale fetch
+     missed. Proceed.
+   - `divergence.detected == false`, not skipped: the branch
+     fast-forwards in at most one direction. Proceed.
 
-3. **Run the Branch Divergence Check.** Load
-   branch-divergence-check.md:orchestrator:2,3A,3B,3C and
-   follow it. This must happen in turn 1, before any per-commit push
-   work — including handoff-resolution commits in the next step. A
-   diverged branch left undetected makes every `git push` across the
-   session reject silently and defeats the "push every commit"
-   safety net (see `commit-conventions.md` § Push every commit). The
-   protocol detects divergence and asks the user to pick one of three
-   resolutions (local-authoritative, remote-authoritative, defer);
-   no default is picked.
+3. **Present the drift gate** from `drift`. The script ran the
+   `conventions.md` `§1.6(h)` artifact walk before steps below read
+   those files, so a user-driven migration changes the on-disk
+   `_workflow/**` shape first. Branch on `drift.detected` first, then
+   sub-branch the `detected == true` kinds:
+   - `drift.detected == false` (either `kind` null, meaning no
+     stampable artifact on disk, or `kind == "stamped"`, meaning every
+     stamp is already current — the steady state for an up-to-date
+     branch): no actionable drift. No gate; proceed. The script may
+     have just normalized the stamps before reporting this state, so
+     check the normalization recital bullet below.
+   - `drift.detected == true`, `kind == "stamped"`: real drift —
+     `commit_count` workflow commits sit past the stamp base
+     (`base_sha`), with `first_commits` carrying the first ten
+     `{sha, subject}`. Load
+     workflow-drift-check.md:orchestrator,planner:2,3A and force its
+     Migrate now / Defer / Suppress pick (no default). It also owns the
+     Remote-authoritative re-entry note.
+   - `drift.detected == true`, `kind == "unstamped"`: one or more
+     artifacts carry no line-1 stamp. Drift is signalled
+     unconditionally; route to the `/migrate-workflow` bootstrap that
+     gathers a base SHA for the unstamped set. The script never prompts
+     (`conventions.md` `§1.6(d)`); the recovery is user-gated with no
+     default — the agent presents the bootstrap and the user supplies
+     the base SHA.
+   - `drift.detected == true`, `kind == "merge-base-failed"`: a stamp
+     sits on a pruned or unreachable commit. Treat as the unstamped
+     path — the `conventions.md` `§1.6(c)` recovery prompt stays
+     agent-side and is likewise user-gated with no default (the agent
+     surfaces the failing pair and the user supplies the base SHA).
+   - **Recite any autonomous normalization.** When
+     `drift.normalization_landed == true`, the script already landed
+     its one self-authored commit (the no-drift stamp collapse). Read
+     it from `actions_taken` — each entry is
+     `{action, commit, subject}` (`action` is
+     `"normalize-workflow-sha-stamps"`) — and tell the user the commit
+     landed. This is the script's only autonomous mutation;
+     force-push and reset stay agent-side and user-gated, so
+     `actions_taken` never carries them.
 
-3a. **Run the Workflow Drift Check.** Load
-   workflow-drift-check.md:orchestrator,planner:2,3A and follow it.
-   This step runs after the divergence check and before the handoff
-   scan, so any user-driven migration changes the on-disk shape of
-   `_workflow/**` before steps 4 and 5 read those files. The gate
-   file owns the resolution detail (Migrate now / Defer / Suppress)
-   and the Remote-authoritative re-entry note — see
-   `workflow-drift-check.md`.
+4. **Run the handoff-resume protocol** when `handoffs` is non-empty.
+   `handoffs` is the array of handoff-file basenames under
+   `docs/adr/<dir-name>/_workflow/`, in **`ls -t` most-recent-first**
+   order (the script preserves the mtime sort; resolve each basename
+   under the known plan dir). Process them in that order. Load
+   mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 and follow
+   its §Resume protocol: re-present the pending decision (or research
+   findings) to the user, delete resolved handoff files and their
+   secondary PAUSED markers, then return to state routing. **While any
+   handoff is unresolved, the orchestrator MUST NOT spawn sub-agents,
+   re-run gate-checks, or recompile episodes** — the resume freeze
+   holds until the handoff set is drained. See `mid-phase-handoff.md`
+   for the full resume contract.
 
-4. **Check for active handoffs.** Run:
-   ```bash
-   ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null
-   ```
-   `-t` sorts most-recent-first by mtime so the resume protocol
-   processes handoffs in the correct order.
-   If any files exist, load
-   mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 and follow its
-   §Resume protocol. That protocol re-presents the pending decision
-   (or research findings) to the user, deletes resolved handoff files
-   and their secondary PAUSED markers, and only then returns control
-   to step 5 below. While a handoff is unresolved, the orchestrator
-   MUST NOT spawn sub-agents, re-run gate-checks, or recompile
-   episodes. See `mid-phase-handoff.md` for the full resume contract.
+5. **Route on `state`.** The script computed the resume state from the
+   plan file and the active track file; `state` is
+   `{ "phase": "0"|"A"|"C"|"D"|"Done", "substate": <slug>|null }`.
+   There is **no `state.track` field** — re-derive the active track by
+   walking the plan's `## Checklist` for the first `[ ]` track, the
+   same walk the script used. Each resume handles exactly **one
+   phase**; end the session after that phase.
 
-5. **Determine session state** from the plan file and track files.
+   - **`phase == "0"`** — plan review has not passed (`## Plan Review`
+     first checkbox is `[ ]`, or the section/plan file is absent).
+     Load `implementation-review.md` on-demand and follow its
+     autonomous loop (consistency review → structural review,
+     classifier-driven auto-fix vs. user escalation). State 0 is the
+     first gate — plan review completes before any track work. End the
+     session after the gate passes; the next `/execute-tracks` re-evaluates
+     from State A.
+   - **`phase == "A"`** — the first `[ ]` track has no track file
+     yet (pre-Phase-A; rare, since `/create-plan` writes every track
+     file at Phase 1 and the only track-file-deleting action leaves
+     the track `[~]`). Run the Track Pre-Flight gate
+     (`track-review.md` § Track Pre-Flight), then Phase A in the same
+     session. **Panel 1 (strategy assessment) is conditionally
+     skipped** via the `**Strategy refresh:**` idempotency check: the
+     very first Phase A entry of the plan skips Panel 1 (no anchor
+     track); subsequent entries run both panels. The panel skip is
+     internal to the gate — State A is the same state either way.
+   - **`phase == "C"`** — mid-track resume; the first `[ ]` track has
+     a track file. Route on **`state.substate`** (not `phase`):
 
-   | Plan file state | Track file state | Session state |
-   |---|---|---|
-   | `## Plan Review` checklist entry is `[ ]` (or section missing entirely) | — | **State 0**: autonomous plan review (load `implementation-review.md` and follow it) |
-   | `## Plan Review` is `[x]`; next track is `[ ]` | No track file | **State A**: pre-Phase-A — runs the Track Pre-Flight gate (`track-review.md` § Track Pre-Flight), then Phase A in the same session. Within the gate, Panel 1 (strategy assessment) is conditionally skipped via the `**Strategy refresh:**` idempotency check — see *State A internal branching* below. |
-   | `## Plan Review` is `[x]`; a track is `[ ]` | Track file exists | **State C**: mid-track resume |
-   | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final artifacts) |
-   | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
+     | `state.substate` | Resume action |
+     |---|---|
+     | `decomposition-pending` | Enter `track-review.md` §Phase A Resume (often a no-op since the track file already has its description from Phase 1), then re-run only missing reviews and decompose. |
+     | `section-discrepancy` | A roster step is `[x]` with no matching `## Progress` `Step N` entry — the sub-step-7 writer was interrupted between the roster flip (7.1) and the Progress append (7.2). The roster `[x]` flip is the primary "episode written" marker; reconcile the missing Progress entry from the `## Episodes` block before continuing. See `step-implementation-recovery.md` §Phase B Resume → "Crash between sub-step 7 and sub-step 8". |
+     | `failed-step` | The roster carries a `[!]` step. Check if a retry `[ ]` step follows — if yes, resume from the retry. If no retry step, present the failed episode to the user. |
+     | `steps-partial` | Resume from the next `[ ]` step (see step-implementation-recovery.md:orchestrator:3B §Phase B Resume for orphan-commit recovery). |
+     | `steps-done-review-pending` | All steps `[x]`/`[~]`, code review not yet `[x]`. Run Phase C from the current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md:orchestrator,reviewer-dim-track:3C). |
+     | `review-done-track-open` | All steps `[x]`/`[~]`, code review `[x]`, track still `[ ]` in the plan. Resume track completion — compile the episode, present to the user for approval. |
 
-   State 0 is checked **first** — plan review must complete before any
-   track-level work begins. After State 0 passes, the session ends and
-   the next `/execute-tracks` invocation re-evaluates the table starting
-   from State A.
-
-   **State A internal branching.** The Track Pre-Flight gate (see
-   `track-review.md` § Track Pre-Flight) auto-detects whether to run
-   Panel 1 (strategy assessment, look-back) based on whether a
-   completed or skipped track exists with no `**Strategy refresh:**`
-   line yet. The very first Phase A entry of the plan skips Panel 1
-   (no anchor track); subsequent entries run both panels. State A is
-   the same session state in either case — the panel skip is internal
-   to the gate.
-
-   **State C sub-states** (from track file Progress section):
-
-   | Progress section | Resume action |
-   |---|---|
-   | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume (often a no-op since the track file already has its description from Phase 1), then re-run only missing reviews and decompose. |
-   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md:orchestrator:3B §Phase B Resume for orphan commit recovery) |
-   | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
-   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md:orchestrator,reviewer-dim-track:3C; includes track completion after review) |
-   | All steps `[x]`, code review `[x]`, track still `[ ]` in plan | Resume track completion — compile episode, present to user for approval |
-
-   Each resume handles exactly **one phase** — end session after that phase.
-
-   **Section-discrepancy edge (roster `[x]` without matching Progress
-   entry).** Sub-step 7's four-section writer may be interrupted
-   between the roster `[ ]`→`[x]` flip (sub-step 7.1) and the
-   Progress append (sub-step 7.2), leaving the on-disk track file in
-   a partially-written state. Per the invariant in
-   `step-implementation.md` sub-step 7.1, the roster `[x]` flip is
-   the primary marker for "episode written"; resume-side
-   reconciliation derives the missing Progress entry from the
-   Episodes block before continuing. See
-   `step-implementation-recovery.md` §Phase B Resume → "Crash
-   between sub-step 7 and sub-step 8" for the procedure.
-
-   **State D** (Phase 4 — final artifacts):
-
-   | Phase 4 marker | Resume action |
-   |---|---|
-   | `[ ]` | Start Phase 4: mark `[>]`, follow `prompts/create-final-design.md` |
-   | `[>]` | Resume Phase 4: check which artifacts exist. If both exist, review and complete. Otherwise, restart from Step 3 of `create-final-design.md` |
-
-   **State 0** (autonomous plan review): load `implementation-review.md`
-   on-demand and follow the autonomous orchestration loop there
-   (consistency review → structural review, classifier-driven
-   auto-fix vs. user escalation). End the session after the gate
-   passes.
+     The Track Pre-Flight gate is **skipped** on State C resume: the
+     track file's four track-level sections (`## Purpose / Big
+     Picture`, `## Context and Orientation`, `## Plan of Work`,
+     `## Interfaces and Dependencies`) are already authoritative.
+   - **`phase == "D"`** — every track is `[x]`/`[~]` and `## Final
+     Artifacts` is `[ ]` or `[>]` (Phase 4 pending). On `[ ]`, start
+     Phase 4: mark `[>]`, follow `prompts/create-final-design.md`. On
+     `[>]`, resume: if both artifacts exist, review and complete;
+     otherwise restart from Step 3 of `create-final-design.md`.
+   - **`phase == "Done"`** — every track is `[x]`/`[~]` and
+     `## Final Artifacts` is `[x]`. Nothing to resume.
 
 6. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why (or that plan review is
-     pending if State 0)
-   - If resuming mid-track: which steps are done, which is next
-   - If Phase 4: whether starting fresh or resuming an interrupted session
+     pending if State 0).
+   - If resuming mid-track: which steps are done, which is next.
+   - If Phase 4: whether starting fresh or resuming an interrupted session.
    - If State 0: that the autonomous plan review is about to run and
-     only design-decision findings will be surfaced
-   - If State A (fresh Phase A entry): note that the Track Pre-Flight
-     gate will run before reviews start — see `track-review.md`
+     only design-decision findings will be surfaced.
+   - If State A (fresh Phase A entry): that the Track Pre-Flight gate
+     will run before reviews start — see `track-review.md`
      §Track Pre-Flight. The gate combines a strategy assessment
      (look-back, when an earlier track has just completed/skipped)
-     with the upcoming track's summary (look-forward). The gate is
-     **skipped** on State C resume because the track file's four
-     track-level sections (`## Purpose / Big Picture`, `## Context
-     and Orientation`, `## Plan of Work`, `## Interfaces and
-     Dependencies`) are already authoritative.
+     with the upcoming track's summary (look-forward).
+   - If the script landed a normalization commit (step 3): that the
+     commit landed and what it did.
 
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
@@ -632,8 +677,8 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md:orchestrator,reviewer-design,reviewer-plan:2)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
-- **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 3; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
-- **`workflow-drift-check.md`** — turn-1 workflow-format drift detection and three-resolution gate (loaded by the Startup Protocol step 3a, immediately after the Branch Divergence Check; the Remote-authoritative re-entry contract is one-sided pending a symmetric edit to `branch-divergence-check.md` — see the gate file's `## After the choice` section, *Remote-authoritative re-entry — forward-looking note* paragraph)
+- **`branch-divergence-check.md`** — the three-resolution divergence gate the Startup Protocol presents when `divergence.detected` is true (detection itself is the script's `--mode full`; this doc owns the local-authoritative / remote-authoritative / defer resolution UX); also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session
+- **`workflow-drift-check.md`** — the three-resolution drift gate the Startup Protocol presents when `drift.kind` is `stamped` with `detected` true (detection and the one autonomous normalization commit are the script's `--mode full`; this doc owns the Migrate now / Defer / Suppress resolution UX); the Remote-authoritative re-entry contract is one-sided pending a symmetric edit to `branch-divergence-check.md`; see the gate file's `## After the choice` section, *Remote-authoritative re-entry — forward-looking note* paragraph
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md:orchestrator:3B and track-code-review.md:orchestrator,reviewer-dim-track:3C)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step inline `risk:` token from the `## Concrete Steps` roster line directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)

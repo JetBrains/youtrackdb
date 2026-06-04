@@ -5,7 +5,7 @@
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §Push every commit | orchestrator,implementer | 3A,3B,3C | Push after every commit so the draft PR stays in sync for team visibility and disk-loss backup. |
-| §Push failure handling | orchestrator,implementer | 3A,3B,3C | Distinguish non-fast-forward rejection (route to divergence check) from other failures (record and continue). |
+| §Push failure handling | orchestrator,implementer | 3A,3B,3C | Route the first non-fast-forward rejection to a divergence-only re-check; record-and-continue other failures. |
 | §Ephemeral-identifier pre-commit gate | orchestrator,implementer | 3A,3B,3C | Grep the staged diff outside _workflow for forbidden Track/Step/finding-ID labels before commit. |
 | §Commit type prefixes | orchestrator,implementer | 3A,3B,3C | The commit-type prefix table (step, review-fix, revert, workflow, Phase 4) and the branch-only-identifier exemption. |
 | §How these are used on resume | orchestrator | 3B | Pointer to the git log reading rules Phase B Resume uses to classify commits. |
@@ -46,21 +46,41 @@ amend has rewritten history that was already pushed — never plain
 carries no CI cost.
 
 ### Push failure handling
-<!-- roles=orchestrator,implementer phases=3A,3B,3C summary="Distinguish non-fast-forward rejection (route to divergence check) from other failures (record and continue)." -->
+<!-- roles=orchestrator,implementer phases=3A,3B,3C summary="Route the first non-fast-forward rejection to a divergence-only re-check; record-and-continue other failures." -->
 
 After every per-commit `git push`, inspect the exit code and stderr.
 Distinguish two failure shapes; do not silently treat them the same.
 
 - **Non-fast-forward rejection** (`! [rejected] ... (non-fast-forward)`).
-  The branch has diverged from `origin`. On the first occurrence
-  in the session, load
-  branch-divergence-check.md:orchestrator:2,3A,3B,3C and
-  follow it; apply the user's chosen resolution and do not silently
-  retry across subsequent commits. The harness git-safety protocol
-  forbids unauthorised `--force-with-lease`, so the resolution must
-  come from the user. If the session has already routed through the
-  gate once (e.g., the user chose **Defer**), subsequent rejections
-  are expected — record and continue.
+  The branch has diverged from `origin`. On the **first occurrence
+  in the session**, re-run
+  `.claude/scripts/workflow-startup-precheck.sh --mode divergence-only`
+  rather than re-deriving the ahead/behind counts by hand. That mode
+  emits the reduced object `{divergence, actions_taken}`; read the
+  `divergence` object from it and route on two fields:
+  - `divergence.detected == true`. The branch genuinely diverged
+    (both `ahead` and `behind` non-zero). Present the three
+    resolutions per
+    branch-divergence-check.md:orchestrator:2,3A,3B,3C, with the
+    `divergence.ahead` / `divergence.behind` counts on screen, and
+    apply the user's chosen resolution. The harness git-safety
+    protocol forbids unauthorised `--force-with-lease`, so the
+    resolution must come from the user.
+  - `divergence.skipped == true` (`skip_reason` ∈ {`"no-upstream"`,
+    `"fetch-failed"`}). The re-check could not compute the counts
+    (no upstream tracking ref, or the `git fetch` failed). Behave as
+    the skipped-check path does: do not gate, record the skip, and
+    continue. The session-end unpushed-commit report still surfaces
+    the residue.
+
+  Apply the chosen resolution and **do not silently retry** the push
+  across subsequent commits. A non-fast-forward push is never
+  re-pushed without going through this handling. The first
+  occurrence is the only one that re-runs the re-check; **subsequent
+  rejections in the same session do not re-route**. If the session
+  has already routed through the gate once (e.g., the user chose
+  **Defer**), subsequent rejections are expected: record and
+  continue without re-running the check.
 - **Any other push failure** (network, auth, pre-receive hook,
   large-file rejection). Record the failure and continue with the
   next phase action; do not block phase progress on a transient

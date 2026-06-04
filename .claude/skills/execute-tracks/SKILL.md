@@ -68,54 +68,22 @@ The implementation plan is at:
 removed in the Phase 4 cleanup commit before merge — see
 `conventions.md` `§1.2` and `workflow.md` § Final Artifacts).
 
-Follow the startup protocol in `workflow.md`:
+Run the startup protocol in workflow.md:orchestrator:2,3A,3B,3C,4
+`§ Startup Protocol (Auto-Resume)`. That section is the single
+detection-and-routing home: it runs
+`.claude/scripts/workflow-startup-precheck.sh --mode full` once at
+turn 1 and routes on its JSON over branch divergence, workflow-SHA
+drift (and the one autonomous normalization commit), pending
+handoffs, and the resume state (the `state.phase` / `state.substate`
+routing for State 0 / A / C / D / Done). Follow that dispatch
+verbatim — do not re-derive the gates or the state routing here.
 
-1. Read the plan file at
-   `docs/adr/<dir-name>/_workflow/implementation-plan.md`.
-2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
-   `[~]` skipped).
-3. **Run the Branch Divergence Check** per
-   `.claude/workflow/branch-divergence-check.md`. This must complete
-   before any commit / push work in this session — including a
-   handoff resolution commit in step 4.
-4. **Check for active handoffs.** Run
-   `ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null`. If any
-   files exist, load `.claude/workflow/mid-phase-handoff.md` and follow
-   its §Resume protocol before any state evaluation below. Do NOT spawn
-   sub-agents, recompile episodes, or re-run gate-checks while a handoff
-   is unresolved.
-5. Determine session state and auto-resume:
-   - **State 0** (`## Plan Review` is `[ ]` or section missing): load
-     `implementation-review.md` on-demand and run the autonomous plan
-     review (consistency + structural). End session after the audit
-     summary lands.
-   - **State A** (pre-Phase-A — next track is `[ ]`, no track file
-     exists): run the Track Pre-Flight gate per `track-review.md`
-     § Track Pre-Flight (Panel 1 strategy assessment when an earlier
-     track has just completed/skipped, plus Panel 2 upcoming-track
-     summary), then proceed to Phase A of the next track in the same
-     session.
-   - **State C** (mid-track resume): read track file Progress section,
-     resume the next incomplete phase:
-     - `Review + decomposition` incomplete → resume Phase A
-     - Steps incomplete → run Phase B (check for orphan commits from
-       interrupted steps — see step-implementation.md:orchestrator:3B `§Phase B Resume`)
-     - Steps done, code review incomplete → run Phase C
-     - All phases done → compile track episode, present to user, write
-       to plan file only after user approval
-   - **State D** (all tracks complete, Phase 4 pending): follow
-     `prompts/create-final-design.md` to produce `design-final.md` and
-     `adr.md`. Mark the Phase 4 checklist entry `[>]` when starting and
-     `[x]` when the commit lands. See workflow.md:orchestrator:3A,3B,3C `§Startup Protocol` for
-     the `[ ]` / `[>]` resume-action table.
-
-   State 0 is checked **before** State A/C/D — plan review must
-   complete before any track-level work begins.
-6. Inform the user of the auto-resume decision. The user can override, but
-   by default proceed without waiting for confirmation.
-7. Load the phase-specific workflow document and execute that phase only.
-8. After the phase completes, end the session. Instruct the user to clear
-   context and re-run `/execute-tracks` for the next phase.
+The phase-doc-loading map above and the self-improvement-reflection
+step below are this SKILL's own additions on top of that protocol.
+Once the protocol resolves a resume state, inform the user of the
+decision (override allowed; by default proceed without confirmation),
+then load the phase-specific workflow document from the map above and
+execute that one phase only.
 
 Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):
 - State 0 (autonomous plan review) → end session after `## Plan Review` is `[x]`

@@ -49,12 +49,14 @@ Invoke the drift gate defined in
 workflow-drift-check.md:planner:1.
 The gate is shared with `/execute-tracks`; its intro names both callers
 and its body is caller-symmetric, so this step is a thin orchestration
-handoff rather than a re-statement of the bash. Run the gate's
-§ Detection (Phase 1 walk plus Phase 2 fold or unstamped
-short-circuit) against the resolved `<dir-name>` from the previous
-block (the gate's `PLAN_DIR=docs/adr/<resolved-dir-name>` bash line is
-where the value lands in shell scope), and follow its § Skip
-conditions, § No-drift normalization, and § Resolutions flow verbatim.
+handoff that defers to the gate rather than restating its detection. Run
+the gate's § Detection against the resolved `<dir-name>` from the
+previous block. Detection now runs the two-phase drift walk inside
+`.claude/scripts/workflow-startup-precheck.sh` under `--mode full` and
+reads the resulting `drift` JSON object; the script resolves the plan
+dir from the active branch, so no inline `PLAN_DIR=` bash line runs
+here. Follow its § Skip conditions, § No-drift normalization, and
+§ Resolutions flow verbatim.
 
 The three-resolution prompt fires only when drift surfaces and no
 skip condition matched. The user picks one:
@@ -78,16 +80,18 @@ skip condition matched. The user picks one:
 
 No-drift (with or without the gate's normalization commit), Defer,
 and Suppress all proceed to Step 1a without further user prompt.
-Ordering: Step 1.5 runs after the `<dir-name>` resolver (so
-`PLAN_DIR=docs/adr/<dir-name>` can be derived inside the gate's bash)
-and before Step 1b's `mkdir` (so the gate's Skip-#1 check
-`[ -d "$PLAN_DIR/_workflow" ]` reads the pre-creation state on fresh
-`/create-plan` invocations).
+Ordering: Step 1.5 runs after the `<dir-name>` resolver (so the
+resolved name is available when the script's `--mode full` walk
+resolves the plan dir from the active branch) and before Step 1b's
+`mkdir` (so the script's internal Skip-#1 directory check reads the
+pre-creation `_workflow/` state on fresh `/create-plan` invocations).
+The skip check is now internal to the script, not an inline gate-bash
+`[ -d … ]`.
 
 **Interaction with Step 1a's handoff scan.** Step 1.5 fires before
 Step 1a. On a `/create-plan` resume where `handoff-*.md` exists in
-`$PLAN_DIR/_workflow/`, the drift gate fires before the handoff
-loader notices. No failure mode loses the handoff: on Migrate now the
+`docs/adr/<dir-name>/_workflow/`, the drift gate fires before the
+handoff loader notices. No failure mode loses the handoff: on Migrate now the
 handoff file persists on disk (it is already committed) and the next
 `/create-plan` invocation's Step 1a picks it up after the drift gate
 clears; on Defer or Suppress, Step 1a's handoff resume runs after

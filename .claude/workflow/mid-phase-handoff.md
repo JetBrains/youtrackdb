@@ -120,10 +120,11 @@ mid-Phase-0 pause before `/create-plan`'s own Step 1b has run.
 
 Both `/create-plan` and `/execute-tracks` MUST run this check early
 in their startup protocol, before any state evaluation. For
-`/execute-tracks`, the check runs at Startup Protocol step 4, after
-the Branch Divergence Check (step 3) and the Workflow Drift Check
-(step 3a). For `/create-plan`, the check runs at Step 1a, after
-Step 1.5's Workflow Drift Check:
+`/execute-tracks`, the handoff scan runs in the Startup Protocol
+dispatch after the divergence gate and the drift gate and before
+state routing — the `handoffs` array the `--mode full` precheck
+returns is the scan result. For `/create-plan`, the check runs at
+Step 1a, after Step 1.5's Workflow Drift Check:
 
 ```bash
 ls -t docs/adr/<dir-name>/_workflow/handoff-*.md 2>/dev/null

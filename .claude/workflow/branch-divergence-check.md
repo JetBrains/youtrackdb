@@ -4,7 +4,7 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Detection | orchestrator | 2,3A,3B,3C | How to detect a diverged branch (ahead+behind both non-zero) and when to skip the check. |
+| §Detection | orchestrator | 2,3A,3B,3C | Detection moved to the script's divergence walk; this section cites the JSON the gate reads. |
 | §Resolutions | orchestrator | 2,3A,3B,3C | Present the three divergence resolutions to the user and wait for an explicit choice. |
 | §Local-authoritative | orchestrator | 2,3A,3B,3C | Force-push the intended local rewrite over a stale remote, never with plain --force. |
 | §Remote-authoritative | orchestrator | 2,3A,3B,3C | Discard local rewrites in favour of origin after confirming local-only commits are unrecoverable. |
@@ -30,35 +30,61 @@ resolution applies for the remainder of the session.
 ---
 
 ## Detection
-<!-- roles=orchestrator phases=2,3A,3B,3C summary="How to detect a diverged branch (ahead+behind both non-zero) and when to skip the check." -->
+<!-- roles=orchestrator phases=2,3A,3B,3C summary="Detection moved to the script's divergence walk; this section cites the JSON the gate reads." -->
 
-Run, in order:
+Detection no longer lives in this file. The upstream guard, the
+`git fetch`, and the `git rev-list --left-right --count HEAD...'@{u}'`
+ahead/behind count all run inside
+`.claude/scripts/workflow-startup-precheck.sh`. The script reports
+the `divergence` object under both `--mode full` (the startup
+dispatch in `workflow.md § Startup Protocol`) and `--mode
+divergence-only` (the mid-session push-failure re-check routed from
+`commit-conventions.md` § Push failure handling). The script is the
+single behavioral home; this file owns only the resolution UX below.
+Cite the script's `emit_json` function for the exact field contract,
+not any frozen design draft.
 
-```bash
-git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1 || exit
-git fetch || exit
-git rev-list --left-right --count HEAD...'@{u}'
-```
+Both modes carry a `divergence` object the gate reads:
 
-The upstream check runs first so a branch with no upstream skips
-cleanly without attempting the fetch. `git fetch` (no argument)
-targets the upstream's remote, which is not always `origin`. The
-final command prints `<ahead>\t<behind>` (tab-separated). The
-branch has diverged iff **both** counts are non-zero — `git status
--sb` does not emit the literal word `diverged`, so do not grep for
-it.
+- `divergence.detected` — boolean. `true` iff **both** `ahead` and
+  `behind` are non-zero (a purely-ahead or purely-behind branch
+  fast-forwards in one direction and is not a divergence). `git
+  status -sb` does not emit the literal word `diverged`, so the
+  script does not grep for it.
+- `divergence.ahead` / `divergence.behind` — the two counts as
+  numbers (null on a skipped check). Surface them to the user when
+  `detected` is true so the resolution choice is informed.
+- `divergence.skipped` — boolean; `true` when the check could not
+  run.
+- `divergence.skip_reason` — `"no-upstream"` (the branch has no
+  upstream tracking ref, so `@{u}` does not resolve) or
+  `"fetch-failed"` (offline, removed remote, auth failure, or the
+  startup `timeout 10 git fetch --no-tags` elapsed); null when not
+  skipped.
 
-If both counts are non-zero, surface them to the user and ask
-which of three resolutions to apply. Do **not** pick a default —
-force-pushing or resetting without explicit consent violates the
-harness git-safety protocol (see user-global `~/.claude/CLAUDE.md`).
+When `divergence.detected` is true, surface `ahead` / `behind` to the
+user and ask which of three resolutions to apply. Do **not** pick a
+default — force-pushing or resetting without explicit consent violates
+the harness git-safety protocol (see user-global `~/.claude/CLAUDE.md`).
 
-**Skip the check** when `git fetch` fails (offline, no remote
-configured) or the branch has no upstream (`@{u}` does not resolve)
-— both `exit` paths above. The first per-commit push will surface
-any later issue, and the session-end unpushed-commit report (see
-`workflow.md` § What to do before ending a session) still covers
+**Skipped check.** `divergence.skipped == true` is the silent-skip
+path: no upstream configured, or the fetch failed. The script reports
+it as data and the gate does not run. The first per-commit push will
+surface any later issue, and the session-end unpushed-commit report
+(see `workflow.md` § What to do before ending a session) still covers
 the silent-failure case.
+
+**Parity-delta — the bounded startup fetch.** The startup `git fetch`
+the script runs is bounded by `timeout 10 git fetch --no-tags`, so
+session startup cannot hang on a stalled remote. Detection parity with
+the old unbounded `git fetch` holds for every outcome except a
+slow-but-reachable remote that takes longer than 10s: there the script
+reports `divergence.skipped == true` with `skip_reason ==
+"fetch-failed"` and the divergence goes unreported at startup. The
+per-commit push re-check still catches a divergence a stale or timed-out
+fetch missed: a rejected non-fast-forward push routes here mid-session
+via `--mode divergence-only`. So the bounded fetch trades a rare benign
+startup miss for a startup that cannot stall.
 
 ---
 
@@ -103,9 +129,10 @@ commits will be discarded.
 
 After the reset, the auto-resume decision computed earlier in the
 Startup Protocol may no longer match the new HEAD. Re-run the
-Startup Protocol's state-determination step
-(workflow.md:orchestrator:2,3A,3B,3C,4 § Startup Protocol step 3)
-before proceeding.
+Startup Protocol's state dispatch
+(workflow.md:orchestrator:2,3A,3B,3C,4 § Startup Protocol) — re-invoke
+the precheck script and re-route on the fresh `state` object — before
+proceeding.
 
 ### Defer
 <!-- roles=orchestrator phases=2,3A,3B,3C summary="Let the user resolve the divergence manually after the session; per-commit pushes keep failing." -->
