@@ -542,7 +542,7 @@ flowchart TD
   > dispatch rewrite's deliberate omission of the SKILL-consumer list (A12) is
   > the seam Track 5 fills by design. No downstream impact on Track 5's plan.
 
-- [ ] Track 5: SKILL entry-point reconciliation (staged)
+- [x] Track 5: SKILL entry-point reconciliation (staged)
   > Reconcile the two SKILL entry points the plan names as `--mode full`
   > consumers — `execute-tracks/SKILL.md` and `create-plan/SKILL.md` — so they
   > consume the script consistently with Track 4's rewritten `workflow.md
@@ -550,9 +550,46 @@ flowchart TD
   > inline copies of the startup-detection sequence. Closes the consumer-set
   > gap Track 4's six-surface scope leaves open (D8); all edits STAGED.
   > Detailed description in plan/track-5.md.
-  > **Scope:** ~2 steps covering the execute-tracks startup-recital trim and
-  > the create-plan Step 1.5 description sync.
-  > **Depends on:** Track 4
+  >
+  > **Track episode:**
+  > Reconciled the two SKILL consumer entry points so the post-merge
+  > workflow describes one startup procedure. `execute-tracks/SKILL.md`
+  > had its inline startup recital (the divergence check, handoff scan,
+  > and State 0/A/C/D/Done routing) trimmed to a pointer that defers all
+  > detection-and-routing to Track 4's rewritten `workflow.md § Startup
+  > Protocol`; the State C routing sub-bullets were removed in full so no
+  > `state.substate`-free or `state.track`-assuming routing survives to
+  > contradict the dispatch rule, and the SKILL's own additions (the
+  > phase-doc-loading map, the one-phase-per-session boundary, the
+  > self-improvement-reflection step) were preserved.
+  > `create-plan/SKILL.md` Step 1.5 had its three stale inline-bash
+  > fragments synced to the script-citation form Track 4's
+  > `workflow-drift-check.md § Detection` now uses, with the
+  > delegation-by-reference and the Migrate/Defer/Suppress resolution
+  > prose kept intact.
+  >
+  > Track-level review passed at iteration 1. The one substantive
+  > finding, raised independently by three reviewers, was that the Step 2
+  > sync left two further paragraphs (the Ordering rationale and the §1a
+  > handoff note) still describing the old inline-gate-bash `PLAN_DIR`
+  > model the detection rewrite had just removed, so the staged SKILL
+  > contradicted itself. The fix (`Review fix: align create-plan Step 1.5
+  > with script-internal drift detection`) reframed both paragraphs to
+  > the script-internal model while preserving the ordering rationale. A
+  > pair of house-style em-dash fixes and the removal of a duplicate
+  > Progress placeholder rounded out the iteration.
+  >
+  > Cross-track note for Phase 4: the design Component Map frames
+  > `/execute-tracks` and `/create-plan` as direct `--mode full` callers,
+  > but Track 5 realizes that as delegation — the SKILLs defer to the
+  > rewritten `workflow.md` / `workflow-drift-check.md` rather than
+  > calling the script themselves. The staged copies carry no line-1
+  > workflow-sha stamp; that is the expected staged-residue state and
+  > clears at the Phase 4 promotion. Both belong in `design-final.md`
+  > alongside the frozen-design reconciliations the earlier tracks
+  > recorded.
+  >
+  > **Track file:** `plan/track-5.md` (2 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1

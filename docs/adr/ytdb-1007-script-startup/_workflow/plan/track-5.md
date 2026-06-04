@@ -14,7 +14,7 @@ Track 5 closes the consumer-set gap Track 4 leaves open. Track 4 rewrites the si
 - [x] 2026-06-04T03:22Z [ctx=safe] Step 2 complete (commit 7d990fed6a)
 - [x] 2026-06-04T03:23Z [ctx=safe] Step implementation
 - [x] 2026-06-04T03:43Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
-- [ ] Track completion
+- [x] 2026-06-04T03:47Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -37,6 +37,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
 summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 1 (3 findings, 3 accepted). No blockers. T1 (should-fix) folded into Step 2 scope (third stale fragment in create-plan Step 1.5). T2 (suggestion) folded into Step 1 as the trim-to-pointer mechanism + explicit State C `state.substate` removal. T3 (suggestion) folded into Step 1's preserve clause (phase-doc map at ~lines 36-42 sits outside the recital — leave untouched). Risk and Adversarial reviews skipped per the Simple-track (1-2 steps) complexity rule.
+- [x] Track-level code review: PASS at iteration 1. Five workflow reviewers ran on the workflow-only diff (consistency, context-budget, writing-style, prompt-design, instruction-completeness); the baseline group was skipped per the workflow-only override, and hook-safety did not trigger because this track's diff carries no `.claude/scripts/`, `.claude/hooks/`, or settings file. The convergent should-fix was a `PLAN_DIR` self-contradiction in the staged `create-plan/SKILL.md`: Step 2's detection rewrite said the script resolves the plan dir with no inline `PLAN_DIR=` bash, but the trailing Ordering and §1a-handoff paragraphs (verbatim-copied from live) still described the old inline-gate-bash model. Three reviewers (WC1 consistency, WP1 prompt-design, WI1 instruction-completeness) flagged it independently; it was in-scope because the edit introduced the contradiction and Track 5's acceptance criterion forbids a stale inline copy. Fixed in Review fix `a2d1e459a5` (implementer reframed all three paragraphs to the script-internal model, ordering rationale preserved). Two writing-style should-fixes cleared the em-dash one-per-paragraph cap: WS1 (the create-plan detection paragraph, fixed in `a2d1e459a5`) and WS2 (the Step 2 episode, fixed by the orchestrator in `446c8c85ed`). The same orchestrator commit removed a duplicate `- [ ] Track-level code review` Progress placeholder (a Phase A decomposition artifact flagged off-axis by the consistency and writing-style reviewers). Declined: WI2 (the "§ Resolutions flow" wording, a suggestion that predates the track and resolves unambiguously to `## Resolutions`). No-action: WB1/WB2 (the staged copies carry no line-1 stamp, the expected staged-residue state that clears at the Phase 4 promotion when the `docs/adr/` prefix disappears). Gate-check re-ran the four affected dimensions; all verdicts VERIFIED, no regressions, no new findings.
 
 ## Context and Orientation
 
