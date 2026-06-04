@@ -849,7 +849,11 @@ mis-handle. D9's "disjoint from -1" is necessary but nowhere near sufficient.
 
 The storage-side `< 0` bounds checks are safe — provisional ids never reach
 storage mid-tx (D1/D4) and are resolved to real ids before D3's reconciliation —
-but the in-memory schema maps are not.
+but the in-memory schema maps are not. (One exception, found in the third pass: the
+index collection-membership ripple calls `getCollectionNameById(provisionalId)` mid-tx,
+which the `< 0` guard answers with `null` rather than a resolution — see F46. F46's
+commit-only deferral of the membership mutation is what keeps "never reaches storage
+mid-tx" true.)
 
 Resolution (D2/D9): split the `collectionId < 0` predicate three ways at the
 in-memory schema-map sites — abstract (`== -1`, skip), provisional (`<= -2`, treat
@@ -1083,6 +1087,21 @@ in-place-mutation category alongside rename (F40), generalizing D15's third cate
 user tx (extends the F3/F4/F21/F26 inventory to six); route the mutation through the
 tx-local index overlay and apply it commit-only so no shared committed `Index` is mutated
 mid-tx (D4).
+
+**Verified (collectionCounter pass, 2026-06-04) — commit-only deferral is required for
+correctness, not just isolation.** Mid-tx the ripple resolves the collection name with
+`session.getCollectionNameById(iId)` (`SchemaClassEmbedded:651`), but under D2 `iId` is the
+provisional id, and `getCollectionNameById` returns `null` for any `collectionId < 0`
+(`DatabaseSessionEmbedded:2660`). So the ripple feeds a `null` name into
+`addCollectionToIndex` → `collectionsToIndex.add(null)` (`IndexAbstract:672`), or
+`browseCollection(null)` throws under `requireEmpty`. The membership mutation therefore
+cannot run mid-tx with a provisional id at all; deferring it to commit (when the real
+collection name exists) is the only correct order. This also refines F42: the membership
+ripple is the one path where a provisional id reaches a storage name lookup mid-tx, and
+F42's `< 0` storage guard returns null there rather than resolving. (Separately confirmed
+clean: `collectionCounter` is the artificial-name counter (`SchemaShared:838`
+`nextCollectionIndex`), decoupled from the storage-assigned collection id by design (D11),
+and transactional under D8, so there is no name/id dual-authority drift.)
 
 ```mermaid
 flowchart TD
