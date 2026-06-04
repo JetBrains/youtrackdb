@@ -1231,3 +1231,19 @@ Surviving residual findings: 28 pre-existing house-style should-fix items (em-da
 
 **Iterations**: 2 of 3 (PASS).
 
+## Mutation 67 — 2026-06-04 — structural-rewrite (design.md)
+
+**Diff summary**: Restructured §"Sem-conv attribute mapping" to fix the table-vs-policy redundancy user surfaced as "nie rozumiem tej tabeli". The four `db.youtrackdb.*` tables (vendor MVP, advisor, Gremlin DSL outer, Gremlin DSL inner) used inconsistent vocabulary in their `Cardinality` columns ("boolean" vs "bool", "small int" vs "low (2 values)", "medium (chain shapes)", "medium-high (host responsibility — ...)"), and the policy paragraph below the MVP table duplicated per-row facts that already lived in the rows themselves. Six changes landed: (1) inserted a one-line legend just under "Initial attribute set (MVP):" naming the four bounded shape labels (`boolean`, `small int (range)`, `enum (N values)`, `host-discipline (cap)`); (2) normalized MVP table `Cardinality` column — every row now uses one of the four shape labels formatted as inline code; (3) normalized advisor table `Cardinality` column; (4) normalized Gremlin DSL outer table `Cardinality` column AND moved the "capped at 5 statements" cap for `statements_summary` and the "N = 0..2 capped, max 3 entries" cap for `embedded_sql.N` from the `Description` column into the `Cardinality` column where they semantically belong; (5) normalized Gremlin DSL inner table `Cardinality` column; (6) removed the verbose Cardinality policy paragraph that sat under the MVP table and replaced it with a slim policy paragraph just before "Future-extension policy" — three sentences covering closure rule + index-cost rationale + four-shape enum without re-enumerating per-attribute facts (since they're in the rows). Cold-read iteration also resolved one TL;DR-legend terminology mismatch: the §"YouTrackDB vendor attributes (intro)" TL;DR called the fourth shape "bounded-by-host-discipline" while the legend, rows, and policy paragraph use `host-discipline` — TL;DR brought into alignment.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 blockers, 24 should-fix, 1 suggestion. The only finding in the edited line range (505-565) is a pre-existing fragmented-header finding on L545 (Gremlin DSL passthrough heading vs. paragraph below) — present before this mutation, surfaced at L542 in M66 and shifted to L545 by the legend insertion. All other 23 should-fix + 1 suggestion are pre-existing house-style debt outside the edited range.
+
+**Cold-read** (scope: whole-doc): PASS after one iteration. Iteration 1 verdict was PASS with one should-fix (the TL;DR-legend terminology mismatch on "host-discipline") and one suggestion (legend's `small int (range)` could be tightened to acknowledge "typical value" qualifiers used in some rows). Iteration 2 applied the should-fix; the suggestion was recorded but not addressed (per the skill's "suggestion findings are not retried" rule).
+
+**Findings**:
+- should-fix [RESOLVED]: TL;DR-legend terminology mismatch — `design.md:506` TL;DR said "bounded-by-host-discipline", legend/rows/policy all say `host-discipline`. Fixed by replacing the TL;DR's parenthetical "(boolean, small integer, enum, bounded-by-host-discipline)" with "(`boolean`, `small int`, `enum`, `host-discipline`)" — exact same labels, inline-code-formatted to match the legend.
+- suggestion [RECORDED, not applied]: legend phrasing `small int (range)` could be widened to `small int (range or typical value)` because some rows use semantic qualifiers ("0 = single-class baseline, ≥2 = multi-class candidate") rather than literal ranges. Not load-bearing; reader can infer the broader meaning from context.
+
+Surviving residual findings: 23 pre-existing house-style should-fix items + 1 pre-existing per-section length suggestion on §"SQL execution layer hook" — all untouched by this mutation, carried forward as known doc debt.
+
+**Iterations**: 2 of 3 (PASS).
+
