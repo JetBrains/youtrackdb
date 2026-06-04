@@ -190,8 +190,28 @@ classDiagram
         <<utility>>
         +classify(Traversal) Classification$
     }
-    class YTDBMatchPlanStep["YTDBMatchPlanStep (PR #1038, extended by YTDB-496 Track 1)"] {
+    class YTDBMatchPlanStep["YTDBMatchPlanStep (PR #1038, extended by Track 1 + Track 9)"] {
         +getClassification() Classification
+        +setProfilingEnabled(boolean) void
+        +isProfilingEnabled() boolean
+        +toString() String
+    }
+    class YTDBGraphStep["YTDBGraphStep (Path B fallback; extended by Track 9)"] {
+        +setProfilingEnabled(boolean) void
+        +isProfilingEnabled() boolean
+        +toString() String
+    }
+    class YTDBClassCountStep["YTDBClassCountStep (Path B fallback; extended by Track 9)"] {
+        +setProfilingEnabled(boolean) void
+        +isProfilingEnabled() boolean
+        +toString() String
+    }
+    class ExecutionPlanMetricsAdapter {
+        <<utility>>
+        +toTinkerPopMetrics(ExecutionPlan) MutableMetrics$
+    }
+    class YTDBQueryMetricsStrategy["YTDBQueryMetricsStrategy (extended by Track 9 for ProfileStep detection)"] {
+        +apply(Traversal) void
     }
     class SqlSyntaxClassifier {
         <<utility>>
@@ -308,6 +328,12 @@ classDiagram
     QueryDetails --> QuerySource : optional source
     YTDBQueryMetricsStep ..> GremlinSpanLifecycleHook : invokes onFirstHasNext / onClose
     YouTrackDBOpenTelemetry --> GremlinSpanLifecycleHook : installs OTel impl on each YTDBQueryMetricsStep
+    YTDBQueryMetricsStrategy ..> YTDBMatchPlanStep : setProfilingEnabled(true) on ProfileStep injection
+    YTDBQueryMetricsStrategy ..> YTDBGraphStep : setProfilingEnabled(true) on ProfileStep injection
+    YTDBQueryMetricsStrategy ..> YTDBClassCountStep : setProfilingEnabled(true) on ProfileStep injection
+    YTDBMatchPlanStep ..> ExecutionPlanMetricsAdapter : toTinkerPopMetrics at close
+    YTDBGraphStep ..> ExecutionPlanMetricsAdapter : toTinkerPopMetrics at close
+    YTDBClassCountStep ..> ExecutionPlanMetricsAdapter : toTinkerPopMetrics at close
 ```
 
 The diagram covers the production classes the design introduces. Three interfaces in `core` are extended: `TransactionMetricsListener` and `QueryDetails` gain default methods (among them `QueryDetails.getParentContext(): Optional<Context>`, carrying the `io.opentelemetry.context.Context` the SQL fire site captured at wrapper construction so the listener parents the SQL span explicitly; the accessor is the only OTel type on the `QueryDetails` SPI, and `core` already compiles against `opentelemetry-context` for the wrapper's `capturedContext` field, so it adds no module dependency); `QueryMetricsListener` itself stays unchanged but is consumed by a new impl; `FrontendTransaction` gains `getDefaultQueryMonitoringMode()` (renamed from the earlier `getQueryMonitoringMode()`), `resolveQueryMonitoringMode(Optional<String> tag)`, `resolveSlowQueryThresholdNanos(Optional<String> tag)`, `getTrackingId(): String` (lifted from `YTDBTransaction`; returns the explicit ID set via `YTDBTransaction.withTrackingId(...)` when present, else `String.valueOf(getId())`), and `iterateAllQueryListeners()`. `YTDBTransaction` already exposes the four builder-style methods this design relies on (`withQueryMonitoringMode(mode)`, `withTrackingId(id)`, `withQueryListener(listener)`, `withTransactionListener(listener)`); YTDB-496 changes the `withQueryListener` / `withTransactionListener` storage from single-slot to additive (see §"Listener registration and ordering") but leaves the method signatures unchanged. Each method returns `this` so they chain.
@@ -347,25 +373,33 @@ sequenceDiagram
     participant TS as host Tracer
     participant G as GraphTraversalSource
     participant Step as YTDBQueryMetricsStep
+    participant SQL as YTDBGraphStep / YTDBClassCountStep / YTDBMatchPlanStep
     participant HOOK as GremlinSpanLifecycleHook (OTel impl)
     participant CLS as GremlinBytecodeClassifier
+    participant EPMA as ExecutionPlanMetricsAdapter
+    participant PS as TinkerPop ProfileStep
     participant OQL as OTelQueryMetricsListener
     participant TR as OTel Tracer
     participant EXP as Span exporter
 
     Host->>TS: spanBuilder("host-op").startSpan()
     Host->>TS: span.makeCurrent()
-    Host->>G: g.V().hasLabel("User").toList()
+    Host->>G: g.V().hasLabel("User").profile().toList()
+    Note over G,SQL: YTDBQueryMetricsStrategy detects ProfileStep injection<br/>and calls SQL.setProfilingEnabled(true) before execution
     G->>Step: first hasNext()
     Step->>HOOK: onFirstHasNext(details, startEpochNanos, Context.current())
     HOOK->>TR: spanBuilder(details.getQuerySummary() else "youtrackdb").setParent(parent).setStartTimestamp(startEpochNanos, NS).startSpan()
     HOOK->>TR: scope = span.makeCurrent()
+    G->>SQL: execute (PROFILE-prefixed SQL when profilingEnabled)
     G->>Step: traversal close
     Step->>CLS: classify(traversal)
     CLS-->>Step: Classification(SELECT, User)
     Step->>OQL: queryFinished(details, startMs, durNs)
-    OQL->>TR: Span.fromContext(Context.current()).setAttribute(db.operation.name, db.collection.name)
-    Note over OQL,TR: GREMLIN path enriches the hook-opened span.<br/>It does NOT call spanBuilder() or span.end()
+    OQL->>TR: Span.fromContext(Context.current()).setAttribute(db.operation.name, db.collection.name, db.youtrackdb.profile.enabled)
+    Note over OQL,TR: GREMLIN path enriches the hook-opened span.<br/>profile.enabled set only when details.getProfileEnabled() == Optional.of(true)
+    SQL->>EPMA: toTinkerPopMetrics(executionPlan) when profilingEnabled
+    EPMA-->>SQL: MutableMetrics(per-operator durations + annotations)
+    SQL->>PS: profileStepFollower.getMetrics().addNested(metrics)
     Step->>HOOK: onClose(details, endEpochNanos)
     HOOK->>TR: span.end(endEpochNanos, NS)
     TR-->>EXP: span data
@@ -374,6 +408,8 @@ sequenceDiagram
 ```
 
 The flow shows that the host code's active span becomes the parent of the YTDB query span automatically, because `Context.current()` resolves on the same thread the host called `makeCurrent()` on. The `GremlinSpanLifecycleHook` (the OTel impl installed on each `YTDBQueryMetricsStep`) opens the Gremlin span at the step's first `hasNext()` and ends it at `close()`. The classifier runs in `YTDBQueryMetricsStep` before the listener fires, populating `QueryDetails.getOperationName()` and `getCollectionName()`; `OTelQueryMetricsListener.queryFinished` reads them and sets the `db.operation.name` / `db.collection.name` attributes on that hook-opened span rather than creating a span of its own (see §"Context propagation in embedded").
+
+The diagram also shows the Profile branch (participants `SQL`, `EPMA`, `PS`): when `.profile()` is present in the traversal, `YTDBQueryMetricsStrategy` flips `setProfilingEnabled(true)` on each YTDB-side SQL step before execution, the step prepends `PROFILE ` to its SELECT or MATCH SQL, the OTel listener sets the low-cardinality `db.youtrackdb.profile.enabled = true` attribute when `details.getProfileEnabled()` returns `Optional.of(true)`, and the step pushes a `MutableMetrics` instance to the following `ProfileStep.getMetrics()` via `ExecutionPlanMetricsAdapter`. Unprofiled traversals skip every arrow involving `SQL` / `EPMA` / `PS`. See §"Explain and Profile integration" for the full mechanism.
 
 The SQL path is symmetric. `InstrumentedSqlResultSet`, the session-boundary wrapper installed at each `db.query()` / `db.command()` / `db.execute()` entry point as the final return-statement wrapper (after any PR #1077 cache-view construction and any `queryStartedLifecycle(...)` decoration on bypass paths), plays the role of `YTDBQueryMetricsStep` as the listener fire site: the constructor captures the start clock right after the entry point's `statement.execute(...)` call returns, and `close()` fires the listener. `SqlSyntaxClassifier` replaces `GremlinBytecodeClassifier` for the accessor population. Span name construction, attribute mapping, and parent-context resolution are identical from the listener's point of view, because the listener reads `QueryDetails` accessors that have already been populated by whichever classifier ran. The wrapper holds the inner `ResultSet` reference (`LocalResultSet` today; `LocalResultSet` or `CachedResultSetView` once YTDB-820 lands) without inspecting its concrete type for fire-site purposes. See §"SQL execution layer hook" for the SQL-side anatomy.
 
@@ -1138,7 +1174,7 @@ A host running both surfaces sees one OTel span per public Gremlin call (the exi
 ### References
 - D-records: D45 (Explain/Profile integration: `toString()` plan rendering, TinkerPop `ProfileStep` metrics handoff, low-cardinality `db.youtrackdb.profile.enabled` attribute, three-step-type coverage Path A + Path B)
 - Invariants: Listener exception isolation (the metrics handoff at `step.close()` runs inside the existing isolation wrapper; an adapter throw is caught and logged at WARN, the listener still fires)
-- Mechanics: [`design-mechanics.md §"Explain and Profile integration"`](design-mechanics.md) (PSI-visible API surfaces, `ExecutionPlanMetricsAdapter` mapping table, `explainCache` thread-safety contract)
+- Mechanics: none (the mapping table, the `explainCache` thread-safety contract, and the strategy-time `ProfileStep` detection walk are documented in this section directly; no companion `design-mechanics.md` section needed at YTDB-496 scope)
 - External: [PR #1038 — Gremlin-to-MATCH translator design](https://github.com/JetBrains/youtrackdb/pull/1038) (Path A source; `YTDBMatchPlanStep` gains the `profilingEnabled` flag plus the `explainCache` slot in Track 9)
 - Plan: [`plan/track-9.md`](plan/track-9.md)
 
