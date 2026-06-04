@@ -21,6 +21,7 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 - [x] 2026-06-04T16:17Z [ctx=safe] Step 1 complete (commit 0fc2ff0fc1)
 - [x] 2026-06-04T16:24Z [ctx=safe] Step 2 complete (commit 774b46aec2)
 - [x] 2026-06-04T16:30Z [ctx=safe] Step 3 complete (commit 6cfc61ca64)
+- [x] 2026-06-04T16:35Z [ctx=safe] Step 4 complete (commit 0a2339fd9e)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -39,6 +40,10 @@ scope-downs, dependency reveals, gate-override reasons. -->
 - **DL2 — Track-level Phase C runs all four baselines; only the step level narrows.** design.md §"review-bugs-concurrency across the three review paths" makes `review-bugs-concurrency` mandatory at the Phase C track pass, the standalone skill, and every high Java step. The track-level set is unchanged (four baselines plus the full trigger-based workflow-reviewer selection). D4/D5 narrow only the step-level set (bugs-concurrency, `hook-safety`, `prompt-design`). "Defer to track" means an agent no longer also runs at the step; its coverage comes from the track pass that already runs it. The Step 3 dispatch edit must not drop `review-bugs-concurrency` from the track pass, which would leave a low/medium-only track with no bug-class coverage.
 - **DL3 — All five steps tagged `risk: low` under the live taxonomy (§Self-application limit).** The I6 invariant keeps the live `.claude/**` workflow at develop's state for the branch's lifetime, so step risk tags read from the live `risk-tagging.md`, which has no workflow-machinery category. Workflow-prose edits fall to the LOW default. The staged `### Workflow machinery` taxonomy (Track 1) is the deliverable, not the operative rulebook for this branch. No step reaches step-level dimensional review; Phase C reviews the cumulative staged-vs-live delta.
 - **DL4 — Accepted suggestions baked into step bodies, no Decision Record change.** R2: the taxonomy decides whether a step is `high`; the per-agent file-pattern globs, not the risk category, select which workflow reviewers fire, so the new note stays about timing. R3: the sub-step 4a edit leaves the `risk_tag == 'high'` gate condition and the baseline-skip-override reference unchanged, editing only the agent-selection list and the count text, so the `RISK_UPGRADE_REQUESTED` valve still re-enters sub-step 4. A2: the note justifies the zero-step-reviewer case for a `.claude/workflow/*.md`-only high step on its own terms (a gate/protocol change's resume-path defect class needs the cumulative diff), not by the prose-only-cap analogy, which covers a disjoint capped-`low` population. A3: the note states `review-bugs-concurrency` absorbs the buriable error-handling subset, so deferring `review-code-quality` loses only style, DRY, and readability. A4: the note states why `prompt-design`'s localized core outweighs its cross-file references. A5: the note cross-references `§Baseline agents` and `§Workflow-review agents`, reconciles the `## Baseline agents (always run)` heading with the carve-out, and `§Maintenance` gains a one-line pointer that the step/track timing lives in the non-mirrored note. T2/A6: edit the already-staged `risk-tagging.md` copy in place, locating the `high` row by content rather than the live `:65` offset.
+
+**Phase B execution decisions (2026-06-04):**
+
+- **DL5 — Promotion wording matched the sibling baseline rows (plural), not the acceptance paraphrase (singular).** Step 4's acceptance paraphrased the target as "is the ONLY category"; the governing instruction was "matching the test-review baselines' exclusion shape". The two test-review baseline rows read "are the ONLY categories", so the promoted `review-bugs-concurrency` row uses that plural form verbatim. It is internally consistent (the three "always launched" baselines are now word-for-word identical) and semantically correct (it covers a pure `docs-only` + `build-config` diff). See Episodes §Step 4.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -90,7 +95,7 @@ Steps 2-5 each consume Step 1's selection note (source of truth) but touch disjo
 1. Selection note in `review-agent-selection.md`: baseline step-vs-track carve-out at the `## Baseline agents` intro plus a new non-mirrored workflow-reviewer triage note (D4, D5, D7) — risk: low (default; live taxonomy, §Self-application limit)  [x] commit: 0fc2ff0fc1
 2. Step-level dispatch in `step-implementation.md` sub-step 4a, with the `risk-tagging.md` `high` quick-ref cell rewrite riding it (already-staged copy, edit in place) (D4, D5) — risk: low (default)  [x] commit: 774b46aec2 *(parallel with Step 3, Step 4, Step 5)*
 3. Track-level dispatch in `track-code-review.md` § Agent selection and launching; track set unchanged, documents deferred-agent coverage (D4, D5, DL2) — risk: low (default)  [x] commit: 6cfc61ca64 *(parallel with Step 2, Step 4, Step 5)*
-4. SKILL promotion of `review-bugs-concurrency` to a mandatory baseline in `code-review/SKILL.md` (D7) — risk: low (default)  [ ] *(parallel with Step 2, Step 3, Step 5)*
+4. SKILL promotion of `review-bugs-concurrency` to a mandatory baseline in `code-review/SKILL.md` (D7) — risk: low (default)  [x] commit: 0a2339fd9e *(parallel with Step 2, Step 3, Step 5)*
 5. Consistency sweep of stale step-level baseline-count text in `code-review-protocol.md`, `execute-tracks/SKILL.md`, and `conventions-execution.md` (D4 blast radius, DL1) — risk: low (default)  [ ] *(parallel with Step 2, Step 3, Step 4)*
 
 ## Episodes
@@ -116,6 +121,14 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/track-code-review.md` (new)
+
+### Step 4 — commit 0a2339fd9e, 2026-06-04T16:35Z [ctx=safe]
+**What was done:** Promoted `review-bugs-concurrency` to a mandatory baseline in `code-review/SKILL.md` (D7). Copied the live file verbatim on first touch, then changed the one baseline/conditional table row's second cell from the seven-domain category list to "Always launched (unless `docs-only` or `build-config` are the ONLY categories)". The three "always launched" baselines (`review-bugs-concurrency`, `review-test-behavior`, `review-test-completeness`) now carry identical exclusion wording. The file has no `§Maintenance` sync stamp, so none was touched; the baseline/conditional table sits outside any mirror set.
+
+**What changed from the plan:** Used the plural sibling form "are the ONLY categories" rather than the singular "is the ONLY category" that the Step 4 acceptance line paraphrases. The governing instruction was to match the test-review baselines' exclusion shape; those rows read "are the ONLY categories", the plural is semantically correct (it covers a pure `docs-only` + `build-config` diff), and matching it keeps the launch table internally consistent. No future step is affected; Step 5's consistency sweep touches different files. See Decision Log DL5.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/skills/code-review/SKILL.md` (new)
 
 ## Validation and Acceptance
 
