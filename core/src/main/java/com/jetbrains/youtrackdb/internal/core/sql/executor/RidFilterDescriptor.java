@@ -14,7 +14,7 @@ import javax.annotation.Nullable;
  * ExpandStep}) and the MATCH engine to skip non-matching vertices without
  * loading them from storage.
  *
- * <p>Three variants are supported:
+ * <p>Four variants are supported:
  * <ul>
  *   <li>{@link DirectRid} — {@code @rid = <expr>}
  *   <li>{@link EdgeRidLookup} — {@code out/in('EdgeClass').@rid = <expr>}
@@ -22,6 +22,8 @@ import javax.annotation.Nullable;
  *       {@code $matched.X.@rid})
  *   <li>{@link IndexLookup} — queries an index to produce the accepted
  *       RID set
+ *   <li>{@link Composite} — combines multiple descriptors by intersecting
+ *       their results at the bitmap level
  * </ul>
  */
 public sealed interface RidFilterDescriptor {
@@ -63,9 +65,9 @@ public sealed interface RidFilterDescriptor {
    * (exceeding {@link TraversalPreFilterHelper#maxRidSetSize()}).
    *
    * <p>Resolution uses only the absolute cap to bound materialization.
-   * Per-vertex ratio checks (comparing RidSet size against the actual
-   * link bag size) are performed by the caller — see
-   * {@link TraversalPreFilterHelper#passesRatioCheck}.
+   * Per-vertex selectivity checks are performed by the caller — the
+   * MATCH engine uses {@link #passesSelectivityCheck}, while the SELECT
+   * engine uses {@link TraversalPreFilterHelper#passesRatioCheck}.
    *
    * <p>Implementations should use the pre-computed {@code cacheKey}
    * when available to avoid re-evaluating the expression.
@@ -91,10 +93,48 @@ public sealed interface RidFilterDescriptor {
   @Nullable Object cacheKey(CommandContext ctx);
 
   /**
+   * Returns {@code true} if this descriptor's pre-filter is worth applying
+   * given the estimated or actual RidSet size and the current vertex's link
+   * bag size.
+   *
+   * <p>This method has dual-use semantics:
+   * <ul>
+   *   <li>In {@code EdgeTraversal.resolveWithCache()} (pre-materialization),
+   *       {@code resolvedSize} is an <em>estimate</em>.</li>
+   *   <li>In {@code MatchEdgeTraverser.applyPreFilter()} (post-materialization),
+   *       {@code resolvedSize} is the actual {@code ridSet.size()}.</li>
+   * </ul>
+   *
+   * <p>Implementations use descriptor-specific formulas:
+   * <ul>
+   *   <li>{@link DirectRid} — always returns {@code true}</li>
+   *   <li>{@link EdgeRidLookup} — overlap-based ratio:
+   *       {@code resolvedSize / linkBagSize <= edgeLookupMaxRatio}</li>
+   *   <li>{@link IndexLookup} — class-level selectivity:
+   *       {@code estimateSelectivity <= indexLookupMaxSelectivity}
+   *       (ignores {@code resolvedSize} and {@code linkBagSize})</li>
+   *   <li>{@link Composite} — returns {@code true} if any child passes</li>
+   * </ul>
+   *
+   * @param resolvedSize the actual or estimated RidSet size
+   * @param linkBagSize  the current vertex's link bag size
+   * @param ctx          command context (for schema/statistics access)
+   */
+  boolean passesSelectivityCheck(int resolvedSize, int linkBagSize, CommandContext ctx);
+
+  /**
    * Direct RID equality: {@code WHERE @rid = <expr>}.
    * Resolves the expression to a single RID and returns a singleton set.
    */
   record DirectRid(SQLExpression ridExpression) implements RidFilterDescriptor {
+
+    /** A single-RID filter is always worth applying — zero cost. */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      return true;
+    }
+
     /** A direct RID filter always produces exactly 1 entry. */
     @Override
     public int estimatedSize(CommandContext ctx, @Nullable Object cacheKey) {
@@ -143,6 +183,23 @@ public sealed interface RidFilterDescriptor {
       String traversalDirection,
       SQLExpression targetRidExpression,
       boolean collectEdgeRids) implements RidFilterDescriptor {
+
+    /**
+     * Overlap-based ratio check: {@code resolvedSize / linkBagSize <=
+     * edgeLookupMaxRatio}. Replicates the original
+     * {@link TraversalPreFilterHelper#passesRatioCheck} formula exactly.
+     * When {@code linkBagSize} is unknown (zero or negative), passes
+     * conservatively.
+     */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      if (linkBagSize <= 0) {
+        return true;
+      }
+      return (double) resolvedSize / linkBagSize
+          <= TraversalPreFilterHelper.edgeLookupMaxRatio();
+    }
 
     /**
      * Returns the reverse link bag size — exact, O(1) stored field.
@@ -201,6 +258,33 @@ public sealed interface RidFilterDescriptor {
       IndexSearchDescriptor indexDescriptor) implements RidFilterDescriptor {
 
     /**
+     * Class-level selectivity check: {@code estimateSelectivity <=
+     * indexLookupMaxSelectivity}. Ignores {@code resolvedSize} and
+     * {@code linkBagSize} — the selectivity is a property of the index
+     * condition and the class, not of any specific vertex's link bag.
+     *
+     * <p>Returns {@code false} (REJECT) when statistics are unavailable
+     * ({@code estimateSelectivity} returns {@code < 0} or {@link Double#NaN}).
+     * Without a known selectivity we cannot bound the build cost {@code B},
+     * which the design's bounded-loss contract requires before committing to
+     * materialise — same rationale as the MATCH runtime path
+     * ({@code EdgeTraversal.checkIndexLookupAmortization} and
+     * {@code EdgeTraversal.evaluateIndexLookupAmortization}), which also
+     * short-circuits to REJECT on unknown selectivity. Keeping the two
+     * paths semantically aligned avoids a silent contract divergence one
+     * planner change away.
+     */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      double selectivity = indexDescriptor.estimateSelectivity(ctx);
+      if (Double.isNaN(selectivity) || selectivity < 0) {
+        return false; // unknown selectivity — reject, see javadoc above.
+      }
+      return selectivity <= TraversalPreFilterHelper.indexLookupMaxSelectivity();
+    }
+
+    /**
      * Returns a histogram-based estimate of index hits. Approximate but
      * cheap (O(1), uses cached statistics). The {@code cacheKey} is not
      * used (index results are constant for the entire query).
@@ -223,11 +307,23 @@ public sealed interface RidFilterDescriptor {
     /**
      * Index query parameters are {@code :namedParams} or literals (never
      * {@code $matched}), so the result is constant for the entire query.
-     * The index name uniquely identifies the result within a single query.
+     *
+     * <p>Delegates to
+     * {@link IndexSearchDescriptor#cacheFingerprint()}, which includes
+     * the index name plus the key condition and any additional range
+     * condition. Index name alone would alias two IndexLookups on the
+     * same index but different conditions — today the MATCH planner
+     * emits at most one IndexLookup per edge (see
+     * {@code MatchExecutionPlanner.findIndexForFilter}), so collisions
+     * cannot occur, but pinning the contract on planner discipline made
+     * the cache key a silent correctness trap one planner change away.
+     * The fingerprint removes that dependency at the cost of one extra
+     * string concatenation per cache miss (bounded by
+     * {@code CACHE_CAPACITY} = 64 per query).
      */
     @Override
     @Nullable public Object cacheKey(CommandContext ctx) {
-      return indexDescriptor.getIndex().getName();
+      return indexDescriptor.cacheFingerprint();
     }
   }
 
@@ -238,6 +334,28 @@ public sealed interface RidFilterDescriptor {
    */
   record Composite(
       List<RidFilterDescriptor> descriptors) implements RidFilterDescriptor {
+
+    /**
+     * Returns {@code true} if ANY child passes. Since the composite
+     * intersects child results, the output is bounded by the smallest
+     * (most selective) child. If even one child is selective enough,
+     * the intersection is worth computing.
+     *
+     * <p>Note: {@code resolvedSize} is the composite's overall estimate
+     * (minimum of children), not individual child estimates. This makes
+     * the {@link EdgeRidLookup} ratio check more permissive (smaller
+     * numerator), which is intentionally conservative.
+     */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      for (var d : descriptors) {
+        if (d.passesSelectivityCheck(resolvedSize, linkBagSize, ctx)) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     /**
      * Returns the minimum of child estimates. Since Composite intersects
@@ -278,6 +396,54 @@ public sealed interface RidFilterDescriptor {
         keys.add(k);
       }
       return keys;
+    }
+
+    /**
+     * Returns the first {@link IndexLookup} child, or {@code null} if none
+     * exists. Used by {@code EdgeTraversal} to apply the build amortization
+     * guard and selectivity caching to Composite descriptors that contain
+     * an expensive index lookup.
+     */
+    @Nullable public IndexLookup findIndexLookup() {
+      for (var d : descriptors) {
+        if (d instanceof IndexLookup il) {
+          return il;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Returns {@code true} if any child whose type is NOT {@code excludeType}
+     * passes its selectivity check. Used by {@code EdgeTraversal} after the
+     * IndexLookup child was rejected by the amortization guard: at that
+     * point we want to know whether any OTHER child (e.g.
+     * {@link EdgeRidLookup} for a back-reference) still justifies
+     * materialisation. Falling back to {@link #passesSelectivityCheck}
+     * would re-include the just-rejected IndexLookup in the {@code anyMatch}
+     * iteration, which is at best redundant and at worst incorrect if
+     * {@code IndexLookup.passesSelectivityCheck} and the amortization
+     * threshold ever diverge.
+     *
+     * @param excludeType  descriptor type to skip when checking
+     * @param resolvedSize estimated/resolved RidSet size (same value
+     *                     passed to {@link #passesSelectivityCheck})
+     * @param linkBagSize  current vertex's link bag size
+     * @param ctx          command context
+     * @return {@code true} if any non-excluded child passes its check
+     */
+    public boolean anyChildPassesExcluding(
+        Class<? extends RidFilterDescriptor> excludeType,
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      for (var d : descriptors) {
+        if (excludeType.isInstance(d)) {
+          continue;
+        }
+        if (d.passesSelectivityCheck(resolvedSize, linkBagSize, ctx)) {
+          return true;
+        }
+      }
+      return false;
     }
   }
 }

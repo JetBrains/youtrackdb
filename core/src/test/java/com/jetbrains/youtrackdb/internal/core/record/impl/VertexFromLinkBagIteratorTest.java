@@ -395,4 +395,165 @@ public class VertexFromLinkBagIteratorTest {
     when(vertex.getIdentity()).thenReturn(rid);
     when(transaction.loadEntity(rid)).thenReturn(entity);
   }
+
+  // =========================================================================
+  // Effectiveness metric flush
+  //
+  // Mirror of the analogous block in EdgeFromLinkBagIteratorTest — verifies
+  // that the symmetric instrumentation on VertexFromLinkBagIterator reports
+  // the true intersection of linkBag ∩ acceptedRids on iterator exhaustion
+  // or close.  Lighter coverage than the Edge tests since the relevant code
+  // paths are identical between the two iterators; the Vertex tests pin the
+  // happy path, the no-filter path, and the early-close path.
+  // =========================================================================
+
+  /**
+   * Minimal recording Ratio used to capture all {@code record(success, total)}
+   * calls in order.
+   */
+  private static final class RecordingRatio
+      implements com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio {
+    final java.util.List<long[]> calls = new java.util.ArrayList<>();
+
+    @Override
+    public void record(long success, long total) {
+      calls.add(new long[] {success, total});
+    }
+
+    @Override
+    public double getRatio() {
+      return 0.0;
+    }
+  }
+
+  /**
+   * Partial-overlap case (the one the broken formula got wrong): linkBag
+   * vertices = {V_a, V_b, V_c}, acceptedRids = {V_b, X, Y} →
+   * intersection = {V_b}, filtered = 2, probed = 3.  Records the true
+   * intersection, not the {@code linkBagSize − ridSet.size()} approximation.
+   */
+  @Test
+  public void testEffectivenessFlush_partialOverlap_recordsTrueIntersection() {
+    var va = new RecordId(10, 1);
+    var vb = new RecordId(10, 2);
+    var vc = new RecordId(10, 3);
+    mockLoadReturnsVertex(vb);
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(vb);
+    acceptedRids.add(new RecordId(10, 88));
+    acceptedRids.add(new RecordId(10, 99));
+    var metric = new RecordingRatio();
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(20, 1), va),
+            RidPair.ofPair(new RecordId(20, 2), vb),
+            RidPair.ofPair(new RecordId(20, 3), vc)).iterator(),
+        session, 3, null, acceptedRids, metric);
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertEquals(1, metric.calls.size());
+    assertEquals(2L, metric.calls.get(0)[0]);
+    assertEquals(3L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * No RID filter (acceptedRids null) → no metric recording, regardless of
+   * how many entries flow through.
+   */
+  @Test
+  public void testEffectivenessFlush_noRidFilter_neverRecords() {
+    var rid = new RecordId(10, 1);
+    mockLoadReturnsVertex(rid);
+    var metric = new RecordingRatio();
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(RidPair.ofPair(new RecordId(20, 1), rid)).iterator(),
+        session, 1, null, null, metric);
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertTrue(metric.calls.isEmpty());
+  }
+
+  /**
+   * Calling close() after partial consumption flushes the partial counts.
+   * Mirrors {@code testEffectivenessFlush_earlyClose_flushesPartialCounts}
+   * in {@code EdgeFromLinkBagIteratorTest}.
+   */
+  @Test
+  public void testEffectivenessFlush_earlyClose_flushesPartialCounts() {
+    var v1 = new RecordId(10, 1);
+    var v2 = new RecordId(10, 2);
+    mockLoadReturnsVertex(v1);
+    mockLoadReturnsVertex(v2);
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(v1);
+    acceptedRids.add(v2);
+    var metric = new RecordingRatio();
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(20, 1), v1),
+            RidPair.ofPair(new RecordId(20, 2), v2)).iterator(),
+        session, 2, null, acceptedRids, metric);
+
+    iterator.next();
+    iterator.close();
+
+    assertEquals(1, metric.calls.size());
+    assertEquals(0L, metric.calls.get(0)[0]);
+    assertEquals(1L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * When {@code loadEntity} throws a runtime exception mid-iteration, a
+   * caller using try-with-resources still gets exactly one flush of the
+   * effectiveness metric — driven by {@code close()} — carrying the
+   * probed/filtered counts accumulated up to the exception. The metric
+   * must not be skipped or double-recorded.
+   */
+  @Test
+  public void testEffectivenessFlush_exceptionMidIteration_closeStillFlushesOnce() {
+    var passing = new RecordId(10, 1);
+    var poisoned = new RecordId(10, 2);
+    var unreached = new RecordId(10, 3);
+    mockLoadReturnsVertex(passing);
+    when(transaction.loadEntity(poisoned))
+        .thenThrow(new IllegalStateException("storage failure"));
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(passing);
+    acceptedRids.add(poisoned);
+    acceptedRids.add(unreached);
+    var metric = new RecordingRatio();
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(20, 1), passing),
+            RidPair.ofPair(new RecordId(20, 2), poisoned),
+            RidPair.ofPair(new RecordId(20, 3), unreached)).iterator(),
+        session, 3, null, acceptedRids, metric);
+
+    boolean caught = false;
+    try (iterator) {
+      iterator.next(); // consumes 'passing'
+      try {
+        iterator.next(); // throws on 'poisoned'
+      } catch (IllegalStateException expected) {
+        caught = true;
+      }
+    }
+
+    assertTrue("Exception must propagate to caller", caught);
+    assertEquals("close() must flush exactly once after a mid-iteration throw",
+        1, metric.calls.size());
+    assertEquals(0L, metric.calls.get(0)[0]);
+    assertEquals(2L, metric.calls.get(0)[1]);
+  }
 }

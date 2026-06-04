@@ -35,13 +35,22 @@ public final class TraversalPreFilterHelper {
   }
 
   /**
-   * Returns the maximum ratio of {@code ridSetSize / linkBagSize} at which
-   * the pre-filter is still considered useful. Above this threshold the
-   * filter lets through too many elements and the overhead of
-   * {@code contains()} checks outweighs the I/O savings.
+   * Returns the maximum overlap ratio for {@link
+   * RidFilterDescriptor.EdgeRidLookup} pre-filters. Above this threshold
+   * the reverse set covers too much of the link bag to be useful.
    */
-  public static double maxSelectivityRatio() {
-    return GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO
+  public static double edgeLookupMaxRatio() {
+    return GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
+        .getValueAsDouble();
+  }
+
+  /**
+   * Returns the maximum class-level selectivity for {@link
+   * RidFilterDescriptor.IndexLookup} pre-filters. Above this threshold
+   * the index condition matches too many records to be useful.
+   */
+  public static double indexLookupMaxSelectivity() {
+    return GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
         .getValueAsDouble();
   }
 
@@ -52,6 +61,18 @@ public final class TraversalPreFilterHelper {
    */
   public static int minLinkBagSize() {
     return GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.getValueAsInteger();
+  }
+
+  /**
+   * Returns the explicitly configured load-to-scan cost ratio, or
+   * {@code -1.0} if not set (callers fall back to
+   * {@code EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO}). Non-positive and
+   * non-finite values are treated as "not set".
+   */
+  public static double configuredLoadToScanRatio() {
+    double value =
+        GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.getValueAsDouble();
+    return value > 0 && Double.isFinite(value) ? value : -1.0;
   }
 
   /** Number of index/edge results between adaptive-abort checks. */
@@ -352,6 +373,6 @@ public final class TraversalPreFilterHelper {
     if (linkBagSize <= 0) {
       return true;
     }
-    return (double) ridSetSize / linkBagSize <= maxSelectivityRatio();
+    return (double) ridSetSize / linkBagSize <= edgeLookupMaxRatio();
   }
 }

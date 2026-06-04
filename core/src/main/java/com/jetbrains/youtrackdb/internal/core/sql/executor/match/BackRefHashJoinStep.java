@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,6 +106,63 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    * proceeds without the index filter.
    */
   private boolean indexRidSetResolved;
+
+  /**
+   * Running sum of reverse-link-bag sizes across per-back-ref builds,
+   * used by the IndexLookup amortization guard (YTDB-651). Mirrors
+   * {@code EdgeTraversal.accumulatedLinkBagTotal} — once the total
+   * justifies the one-time cost of scanning the index filter, the RidSet
+   * is materialized (see {@link
+   * EdgeTraversal#evaluateIndexLookupAmortization}).
+   *
+   * <p>Not copied — a fresh {@link BackRefHashJoinStep} is returned by
+   * {@link #copy(CommandContext)} via the constructor, so the counter
+   * resets for each plan instance.
+   */
+  private long accumulatedLinkBagTotal;
+
+  /**
+   * Back-ref RIDs that have already contributed their link-bag size to
+   * {@link #accumulatedLinkBagTotal}. Guards against double-counting when
+   * an entry is evicted from {@link #cache} (LRU capacity 256) and later
+   * re-enters via a cache miss — without this set, the same back-ref's
+   * link bag would be added to the accumulator a second time, firing the
+   * amortization guard slightly before the strict break-even point.
+   *
+   * <p>Allocated lazily on the first DEFER path. Nulled in {@link #close}
+   * to free memory between query executions, and once
+   * {@link #indexRidSetResolved} flips to {@code true} (the accumulator is
+   * no longer read after that point) further increments are gated out, so
+   * the set can stop growing.
+   */
+  @Nullable private HashSet<RID> backRefsContributedToAccumulator;
+
+  /**
+   * Cached class-level selectivity of {@code descriptor.chain().indexFilter()}.
+   * {@link Double#NaN} until first computation;
+   * {@link IndexSearchDescriptor#estimateSelectivity} may return a negative
+   * sentinel when statistics are unavailable, in which case the amortization
+   * guard conservatively PROCEEDs (same semantics as EdgeTraversal).
+   */
+  private double cachedIndexLookupSelectivity = Double.NaN;
+
+  /**
+   * Cached load-to-scan cost ratio used by the amortization formula.
+   * {@link Double#NaN} means not yet computed. Resolved once per query
+   * lifetime via {@link EdgeTraversal#currentLoadToScanRatio()} — the
+   * first back-ref build reads the current value, and all subsequent
+   * guard evaluations reuse it to avoid repeated metric lookups.
+   */
+  private double cachedLoadToScanRatio = Double.NaN;
+
+  /**
+   * Set to {@code true} when the amortization guard returns
+   * {@link EdgeTraversal.AmortizationDecision#REJECT} (index-lookup
+   * class-level selectivity above the configured threshold). Short-circuits
+   * subsequent back-refs to avoid re-evaluating a decision that will not
+   * change within a query.
+   */
+  private boolean indexLookupRejected;
 
   BackRefHashJoinStep(
       CommandContext ctx,
@@ -523,6 +581,108 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     return new CachedBuild(result, targetEntity);
   }
 
+  /**
+   * Evaluates the IndexLookup amortization guard for the current back-ref
+   * build of a {@link ChainSemiJoin} and updates {@link #cachedIndexRidSet},
+   * {@link #indexRidSetResolved}, {@link #indexLookupRejected}, and
+   * {@link #accumulatedLinkBagTotal} accordingly.
+   *
+   * <p>Extracted from {@link #buildChainHashTable} so that the three switch
+   * branches (REJECT / DEFER / PROCEED) can be exercised in isolation by
+   * unit tests without standing up the full query pipeline. Reads the
+   * effective load-to-scan ratio and class-level selectivity lazily and
+   * caches them on the step instance — repeated calls within one query
+   * reuse the cached values.
+   *
+   * @param chain        the ChainSemiJoin descriptor whose {@code indexFilter}
+   *                     drives the guard
+   * @param backRefRid   the current back-ref RID; used to deduplicate the
+   *                     accumulator contribution when an entry is evicted
+   *                     and later re-enters via a cache miss
+   * @param linkBagSize  reverse link-bag size of the current back-ref
+   *                     (added to the accumulator on first observation)
+   * @param ctx          command context (for index statistics lookup)
+   */
+  void applyIndexLookupAmortizationGuard(
+      ChainSemiJoin chain, RID backRefRid, long linkBagSize,
+      CommandContext ctx) {
+    if (Double.isNaN(cachedIndexLookupSelectivity)) {
+      cachedIndexLookupSelectivity =
+          chain.indexFilter().estimateSelectivity(ctx);
+    }
+    if (Double.isNaN(cachedLoadToScanRatio)) {
+      cachedLoadToScanRatio = EdgeTraversal.currentLoadToScanRatio();
+    }
+    long estimatedHits = chain.indexFilter().estimateHits(ctx);
+    int estimatedSize =
+        estimatedHits < 0 ? -1
+            : (int) Math.min(estimatedHits, Integer.MAX_VALUE);
+    // Accumulate the current back-ref's reverse-link-bag size before
+    // the guard check — mirrors EdgeTraversal's accumulator semantics.
+    // Only count each back-ref once: an entry evicted from the LRU
+    // cache and later re-entering must not be added twice.
+    if (backRefsContributedToAccumulator == null) {
+      backRefsContributedToAccumulator = new HashSet<>();
+    }
+    if (backRefsContributedToAccumulator.add(backRefRid)) {
+      accumulatedLinkBagTotal += linkBagSize;
+    }
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        estimatedSize, cachedIndexLookupSelectivity,
+        accumulatedLinkBagTotal, cachedLoadToScanRatio);
+    switch (decision) {
+      case REJECT -> {
+        // Class-level selectivity above threshold — a later back-ref
+        // won't change this verdict; short-circuit for the rest of
+        // the query.
+        indexLookupRejected = true;
+        cachedIndexRidSet = null;
+        indexRidSetResolved = true;
+        // Accumulator will no longer be read; release the dedup set.
+        backRefsContributedToAccumulator = null;
+      }
+      case DEFER -> {
+        // Accumulator not yet over the break-even threshold. Leave
+        // indexRidSet null for this build; a later back-ref with a
+        // bigger link bag may push the total over.
+        cachedIndexRidSet = null;
+        // indexRidSetResolved stays false — re-evaluate next call.
+      }
+      case PROCEED -> {
+        cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
+            chain.indexFilter(), ctx);
+        indexRidSetResolved = true;
+        // Accumulator will no longer be read; release the dedup set.
+        backRefsContributedToAccumulator = null;
+      }
+    }
+  }
+
+  // =========================================================================
+  // Test-only accessors (package-private) — let unit tests verify the
+  // amortization guard's side effects without reflection.
+  // =========================================================================
+
+  /** Returns {@code true} when the IndexLookup guard recorded a REJECT verdict. */
+  boolean isIndexLookupRejected() {
+    return indexLookupRejected;
+  }
+
+  /** Returns the cached index RidSet after the guard resolved, or {@code null}. */
+  @Nullable RidSet getCachedIndexRidSet() {
+    return cachedIndexRidSet;
+  }
+
+  /** Returns {@code true} after the guard committed (PROCEED or REJECT). */
+  boolean isIndexRidSetResolved() {
+    return indexRidSetResolved;
+  }
+
+  /** Returns the running accumulator of link-bag sizes observed by the guard. */
+  long getAccumulatedLinkBagTotal() {
+    return accumulatedLinkBagTotal;
+  }
+
   @Nullable private CachedBuild buildChainHashTable(
       RID backRefRid, ChainSemiJoin chain, CommandContext ctx) {
     var targetEntity = loadEntity(backRefRid, ctx);
@@ -540,20 +700,31 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
 
     RidSet indexRidSet = null;
-    if (chain.indexFilter() != null) {
+    if (chain.indexFilter() != null && !indexLookupRejected) {
       // When an index filter is present, the effective entry count after
       // filtering may be well below the threshold — skip early pre-check.
       // The index result is query-level constant, so resolve once and
       // reuse across all per-back-ref builds (YTDB-650 regression fix).
+      //
+      // YTDB-651: gate the build behind the same IndexLookup amortization
+      // guard used by the MATCH path (see EdgeTraversal). Previously the
+      // only protection was the raw {@code maxRidSetSize} cap inside
+      // {@link TraversalPreFilterHelper#resolveIndexToRidSet}; with the
+      // auto-scaled cap (up to 10M entries) the scan would complete for
+      // large-but-not-huge indexes, imposing a per-query build cost that
+      // outweighed the filtering benefit (IC5 regression).
       if (!indexRidSetResolved) {
-        cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
-            chain.indexFilter(), ctx);
-        indexRidSetResolved = true;
+        applyIndexLookupAmortizationGuard(
+            chain, backRefRid, linkBag.size(), ctx);
       }
       indexRidSet = cachedIndexRidSet;
-    } else if (maxSize > 0 && linkBag.size() > maxSize) {
-      // No index filter — the full link bag will be iterated, so we can
-      // reject early without loading any edge records.
+    }
+    if (indexRidSet == null && maxSize > 0 && linkBag.size() > maxSize) {
+      // Either there is no index filter, the IndexLookup guard deferred
+      // the build, or the selectivity check rejected it permanently —
+      // without an effective filter the full link bag must be iterated,
+      // so we reject early once the bag is too large to amortize the
+      // hash-table build.
       return null;
     }
 
@@ -701,6 +872,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     cache = null;
     cachedIndexRidSet = null;
     indexRidSetResolved = false;
+    accumulatedLinkBagTotal = 0L;
+    backRefsContributedToAccumulator = null;
+    cachedIndexLookupSelectivity = Double.NaN;
+    cachedLoadToScanRatio = Double.NaN;
+    indexLookupRejected = false;
     super.close();
   }
 

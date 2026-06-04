@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -36,7 +37,8 @@ import javax.annotation.Nullable;
  * exact count of edges yielded, since entries with missing records are
  * silently skipped.
  */
-public class EdgeFromLinkBagIterator implements Iterator<EdgeInternal>, Sizeable {
+public class EdgeFromLinkBagIterator
+    implements Iterator<EdgeInternal>, Sizeable, AutoCloseable {
 
   @Nonnull
   private final Iterator<RidPair> ridPairIterator;
@@ -58,13 +60,29 @@ public class EdgeFromLinkBagIterator implements Iterator<EdgeInternal>, Sizeable
    */
   @Nullable private final Set<RID> acceptedRids;
 
+  /**
+   * When pre-filter effectiveness reporting is enabled, this metric receives a
+   * single {@code record(filtered, probed)} call on iterator exhaustion or
+   * close. {@link Ratio#NOOP} disables reporting. {@code probed} is the number
+   * of RIDs tested against {@link #acceptedRids} (i.e. survived the class
+   * filter); {@code filtered} is the subset rejected by that test. The metric
+   * reflects the true intersection size, not the {@code linkBagSize − ridSet.size()}
+   * approximation.
+   */
+  @Nonnull
+  private final Ratio effectivenessMetric;
+
+  private long probedCount;
+  private long filteredCount;
+  private boolean metricFlushed;
+
   @Nullable private EdgeInternal nextEdge;
 
   public EdgeFromLinkBagIterator(
       @Nonnull Iterator<RidPair> ridPairIterator,
       @Nonnull DatabaseSessionEmbedded session,
       int size) {
-    this(ridPairIterator, session, size, null, null);
+    this(ridPairIterator, session, size, null, null, Ratio.NOOP);
   }
 
   public EdgeFromLinkBagIterator(
@@ -72,7 +90,7 @@ public class EdgeFromLinkBagIterator implements Iterator<EdgeInternal>, Sizeable
       @Nonnull DatabaseSessionEmbedded session,
       int size,
       @Nullable IntSet acceptedCollectionIds) {
-    this(ridPairIterator, session, size, acceptedCollectionIds, null);
+    this(ridPairIterator, session, size, acceptedCollectionIds, null, Ratio.NOOP);
   }
 
   public EdgeFromLinkBagIterator(
@@ -81,17 +99,32 @@ public class EdgeFromLinkBagIterator implements Iterator<EdgeInternal>, Sizeable
       int size,
       @Nullable IntSet acceptedCollectionIds,
       @Nullable Set<RID> acceptedRids) {
+    this(ridPairIterator, session, size, acceptedCollectionIds, acceptedRids, Ratio.NOOP);
+  }
+
+  public EdgeFromLinkBagIterator(
+      @Nonnull Iterator<RidPair> ridPairIterator,
+      @Nonnull DatabaseSessionEmbedded session,
+      int size,
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable Set<RID> acceptedRids,
+      @Nonnull Ratio effectivenessMetric) {
     this.ridPairIterator = ridPairIterator;
     this.session = session;
     this.size = size;
     this.acceptedCollectionIds = acceptedCollectionIds;
     this.acceptedRids = acceptedRids;
+    this.effectivenessMetric = effectivenessMetric;
   }
 
   @Override
   public boolean hasNext() {
     while (nextEdge == null && ridPairIterator.hasNext()) {
       nextEdge = loadEdge(ridPairIterator.next());
+    }
+    if (nextEdge == null) {
+      // Source iterator exhausted — flush the effectiveness metric. Idempotent.
+      flushEffectivenessMetric();
     }
     return nextEdge != null;
   }
@@ -106,6 +139,27 @@ public class EdgeFromLinkBagIterator implements Iterator<EdgeInternal>, Sizeable
     throw new NoSuchElementException();
   }
 
+  /**
+   * Flushes the {@link #effectivenessMetric} with the accumulated probed/filtered
+   * counts and marks the flush as done so it never fires twice. Called from
+   * {@link #hasNext()} on natural exhaustion and from {@link #close()} on
+   * early termination. Safe to call repeatedly.
+   */
+  private void flushEffectivenessMetric() {
+    if (metricFlushed) {
+      return;
+    }
+    metricFlushed = true;
+    if (probedCount > 0) {
+      effectivenessMetric.record(filteredCount, probedCount);
+    }
+  }
+
+  @Override
+  public void close() {
+    flushEffectivenessMetric();
+  }
+
   @Nullable private EdgeInternal loadEdge(RidPair ridPair) {
     ridPair.validateEdgePair();
     var rid = ridPair.primaryRid();
@@ -117,8 +171,15 @@ public class EdgeFromLinkBagIterator implements Iterator<EdgeInternal>, Sizeable
       return null;
     }
 
-    if (acceptedRids != null && !acceptedRids.contains(rid)) {
-      return null;
+    // RID-set pre-filter: count probed/filtered for the effectiveness metric.
+    // Only entries that reach this branch count toward the metric, so the
+    // ratio describes the RID-set filter in isolation (not class filter).
+    if (acceptedRids != null) {
+      probedCount++;
+      if (!acceptedRids.contains(rid)) {
+        filteredCount++;
+        return null;
+      }
     }
 
     try {

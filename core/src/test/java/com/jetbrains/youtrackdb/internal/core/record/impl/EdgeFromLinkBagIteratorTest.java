@@ -457,4 +457,380 @@ public class EdgeFromLinkBagIteratorTest {
     when(edge.getIdentity()).thenReturn(rid);
     when(transaction.loadEntity(rid)).thenReturn(entity);
   }
+
+  // =========================================================================
+  // Effectiveness metric flush
+  //
+  // These tests verify that the iterator reports the TRUE intersection of
+  // linkBag ∩ acceptedRids to the Ratio metric, not the broken
+  // (linkBagSize − ridSet.size()) approximation that PR #973 originally used.
+  // The recording is lazy — it fires on iterator exhaustion or close — and
+  // must happen exactly once per iterator instance.
+  // =========================================================================
+
+  /**
+   * Minimal recording Ratio used to capture all {@code record(success, total)}
+   * calls in order, so tests can assert on the exact flushed values without
+   * pulling in the production Ratio.Impl (which depends on a Ticker).
+   */
+  private static final class RecordingRatio
+      implements com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio {
+    final java.util.List<long[]> calls = new java.util.ArrayList<>();
+
+    @Override
+    public void record(long success, long total) {
+      calls.add(new long[] {success, total});
+    }
+
+    @Override
+    public double getRatio() {
+      return 0.0;
+    }
+  }
+
+  /**
+   * When the iterator is exhausted naturally and {@code acceptedRids} is a
+   * strict subset of the link bag, the flushed {@code filtered} equals
+   * {@code linkBagSize − |acceptedRids|} — the one case where the old
+   * approximation was correct.  {@code probed} equals the link bag size.
+   */
+  @Test
+  public void testEffectivenessFlush_subsetRidSet_recordsCorrectFilteredCount() {
+    var inSet1 = new RecordId(20, 1);
+    var inSet2 = new RecordId(20, 2);
+    var notInSet = new RecordId(20, 3);
+
+    var p1 = RidPair.ofPair(inSet1, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(inSet2, new RecordId(10, 2));
+    var p3 = RidPair.ofPair(notInSet, new RecordId(10, 3));
+    mockLoadReturnsEdge(inSet1);
+    mockLoadReturnsEdge(inSet2);
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(inSet1);
+    acceptedRids.add(inSet2);
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2, p3).iterator(), session, 3,
+        null, acceptedRids, metric);
+
+    // Drain.
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertEquals("Exactly one flush call expected", 1, metric.calls.size());
+    assertEquals("filtered should equal LB-not-in-RS count",
+        1L, metric.calls.get(0)[0]);
+    assertEquals("probed should equal full link bag size",
+        3L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * When {@code acceptedRids} is a superset of the link bag, the old
+   * {@code linkBagSize − ridSet.size()} formula would clip to 0 and silently
+   * under-report.  The lazy flush correctly reports {@code filtered = 0}
+   * because every probed entry is found in the set.
+   */
+  @Test
+  public void testEffectivenessFlush_supersetRidSet_recordsZeroFiltered() {
+    var inSet1 = new RecordId(20, 1);
+    var inSet2 = new RecordId(20, 2);
+    var p1 = RidPair.ofPair(inSet1, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(inSet2, new RecordId(10, 2));
+    mockLoadReturnsEdge(inSet1);
+    mockLoadReturnsEdge(inSet2);
+
+    // RidSet has 4 entries, link bag has 2 — old formula would say
+    // filtered = 2 - 4 = -2 → clipped to 0.
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(inSet1);
+    acceptedRids.add(inSet2);
+    acceptedRids.add(new RecordId(20, 99));
+    acceptedRids.add(new RecordId(20, 100));
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2).iterator(), session, 2,
+        null, acceptedRids, metric);
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertEquals(1, metric.calls.size());
+    assertEquals("0 filtered: every LB entry was in the set",
+        0L, metric.calls.get(0)[0]);
+    assertEquals("probed = link bag size",
+        2L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * The old formula gave the wrong answer whenever {@code acceptedRids} had
+   * entries outside the link bag: it underestimated filtering by counting
+   * those orphan RIDs as if they survived.  This test pins the correct
+   * value (3 probed, 2 filtered) for the case
+   * linkBag={A,B,C}, ridSet={B,X,Y} → intersection={B}, filtered={A,C}.
+   */
+  @Test
+  public void testEffectivenessFlush_partialOverlap_recordsTrueIntersection() {
+    var a = new RecordId(20, 1);
+    var b = new RecordId(20, 2);
+    var c = new RecordId(20, 3);
+    var p1 = RidPair.ofPair(a, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(b, new RecordId(10, 2));
+    var p3 = RidPair.ofPair(c, new RecordId(10, 3));
+    mockLoadReturnsEdge(b);
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(b);
+    acceptedRids.add(new RecordId(20, 88));
+    acceptedRids.add(new RecordId(20, 99));
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2, p3).iterator(), session, 3,
+        null, acceptedRids, metric);
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertEquals(1, metric.calls.size());
+    assertEquals("2 LB entries (A, C) not in ridSet",
+        2L, metric.calls.get(0)[0]);
+    assertEquals(3L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * When {@code acceptedRids} and the link bag are disjoint, every probed
+   * entry is filtered; the metric records {@code filtered == probed}.
+   */
+  @Test
+  public void testEffectivenessFlush_disjointRidSet_recordsAllFiltered() {
+    var a = new RecordId(20, 1);
+    var b = new RecordId(20, 2);
+    var p1 = RidPair.ofPair(a, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(b, new RecordId(10, 2));
+    // No mockLoadReturnsEdge — neither RID survives the filter.
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(new RecordId(20, 88));
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2).iterator(), session, 2,
+        null, acceptedRids, metric);
+    assertFalse(iterator.hasNext());
+
+    assertEquals(1, metric.calls.size());
+    assertEquals(2L, metric.calls.get(0)[0]);
+    assertEquals(2L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * When {@code acceptedRids} is null (the iterator wasn't built for RID
+   * filtering), the effectiveness metric must never be recorded — there is
+   * no pre-filter to measure.
+   */
+  @Test
+  public void testEffectivenessFlush_noRidFilter_neverRecords() {
+    var edgeRid = new RecordId(20, 1);
+    var pair = RidPair.ofPair(edgeRid, new RecordId(10, 1));
+    mockLoadReturnsEdge(edgeRid);
+
+    var metric = new RecordingRatio();
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(pair).iterator(), session, 1,
+        null, null, metric);
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertTrue("No record() call expected when acceptedRids is null",
+        metric.calls.isEmpty());
+  }
+
+  /**
+   * The class filter must short-circuit BEFORE the RID-set probe count, so
+   * entries rejected by class filter don't show up in {@code probed}.  This
+   * keeps the effectiveness ratio describing the RID-set filter in isolation.
+   * Setup: LB={cls20:1, cls30:2, cls20:3}, classFilter={20}, ridSet={cls20:1}
+   * → probed=2 (only cls20 entries reach the probe), filtered=1 (cls20:3).
+   */
+  @Test
+  public void testEffectivenessFlush_classFilterShortCircuit_excludesFromProbed() {
+    var matchClassMatchRid = new RecordId(20, 1);
+    var wrongClass = new RecordId(30, 2);
+    var matchClassWrongRid = new RecordId(20, 3);
+    var p1 = RidPair.ofPair(matchClassMatchRid, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(wrongClass, new RecordId(10, 2));
+    var p3 = RidPair.ofPair(matchClassWrongRid, new RecordId(10, 3));
+    mockLoadReturnsEdge(matchClassMatchRid);
+
+    var classes = IntOpenHashSet.of(20);
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(matchClassMatchRid);
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2, p3).iterator(), session, 3,
+        classes, acceptedRids, metric);
+    while (iterator.hasNext()) {
+      iterator.next();
+    }
+
+    assertEquals(1, metric.calls.size());
+    assertEquals(
+        "filtered counts only cls20:3 (cls30:2 rejected by class filter first)",
+        1L, metric.calls.get(0)[0]);
+    assertEquals(
+        "probed counts only entries that reached the RID-set check (2 of 3)",
+        2L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * Calling {@code close()} after partial iteration flushes the counts
+   * accumulated so far, so consumers that stop iterating early (LIMIT,
+   * exception, manual short-circuit) still contribute to the metric.
+   */
+  @Test
+  public void testEffectivenessFlush_earlyClose_flushesPartialCounts() {
+    var a = new RecordId(20, 1);
+    var b = new RecordId(20, 2);
+    var c = new RecordId(20, 3);
+    var p1 = RidPair.ofPair(a, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(b, new RecordId(10, 2));
+    var p3 = RidPair.ofPair(c, new RecordId(10, 3));
+    mockLoadReturnsEdge(a);
+    mockLoadReturnsEdge(b);
+    mockLoadReturnsEdge(c);
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(a);
+    acceptedRids.add(b);
+    acceptedRids.add(c);
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2, p3).iterator(), session, 3,
+        null, acceptedRids, metric);
+
+    // Only consume the first element, then close.
+    iterator.next();
+    iterator.close();
+
+    assertEquals(1, metric.calls.size());
+    // Probed 1 element so far; 0 filtered.
+    assertEquals(0L, metric.calls.get(0)[0]);
+    assertEquals(1L, metric.calls.get(0)[1]);
+  }
+
+  /**
+   * Repeated {@code hasNext()} calls after exhaustion, plus a redundant
+   * {@code close()}, must trigger exactly one {@code record()} — the flush
+   * is idempotent.
+   */
+  @Test
+  public void testEffectivenessFlush_idempotent_acrossRepeatedCalls() {
+    var a = new RecordId(20, 1);
+    var p1 = RidPair.ofPair(a, new RecordId(10, 1));
+    mockLoadReturnsEdge(a);
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(a);
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1).iterator(), session, 1,
+        null, acceptedRids, metric);
+    iterator.next();
+    // Exhausted now.  Call hasNext repeatedly + close() — none should
+    // double-record.
+    assertFalse(iterator.hasNext());
+    assertFalse(iterator.hasNext());
+    iterator.close();
+    iterator.close();
+
+    assertEquals(1, metric.calls.size());
+  }
+
+  /**
+   * When the iterator has no link bag entries at all, no probed count is
+   * accumulated and the metric must NOT be recorded (the {@code probed > 0}
+   * guard inside {@code flushEffectivenessMetric} avoids feeding zero
+   * totals to {@code Ratio.Impl}, which would reject {@code total <= 0}).
+   */
+  @Test
+  public void testEffectivenessFlush_emptyLinkBag_doesNotRecord() {
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(new RecordId(20, 1));
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        Collections.<RidPair>emptyIterator(), session, 0,
+        null, acceptedRids, metric);
+    assertFalse(iterator.hasNext());
+
+    assertTrue("Empty link bag must not produce a record(0,0) call",
+        metric.calls.isEmpty());
+  }
+
+  /**
+   * When {@code loadEntity} throws a runtime exception mid-iteration (e.g.
+   * the legacy-lightweight-edge {@code IllegalStateException} at
+   * {@code EdgeFromLinkBagIterator:194-198}), a caller using
+   * try-with-resources still gets exactly one flush of the effectiveness
+   * metric — driven by {@code close()} — carrying the probed/filtered
+   * counts accumulated up to the exception. The metric must not be
+   * skipped or double-recorded.
+   */
+  @Test
+  public void testEffectivenessFlush_exceptionMidIteration_closeStillFlushesOnce() {
+    var passing = new RecordId(20, 1);
+    var poisoned = new RecordId(20, 2);
+    var unreached = new RecordId(20, 3);
+
+    var p1 = RidPair.ofPair(passing, new RecordId(10, 1));
+    var p2 = RidPair.ofPair(poisoned, new RecordId(10, 2));
+    var p3 = RidPair.ofPair(unreached, new RecordId(10, 3));
+
+    mockLoadReturnsEdge(passing);
+    // The poisoned RID's load throws IllegalStateException, mirroring the
+    // legacy-lightweight-edge path inside loadEdge().
+    when(transaction.loadEntity(poisoned))
+        .thenThrow(new IllegalStateException("legacy lightweight edge"));
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(passing);
+    acceptedRids.add(poisoned);
+    acceptedRids.add(unreached);
+    var metric = new RecordingRatio();
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(p1, p2, p3).iterator(), session, 3,
+        null, acceptedRids, metric);
+
+    // Drain via try-with-resources; the second hasNext() triggers the throw.
+    boolean caught = false;
+    try (iterator) {
+      iterator.next(); // consumes 'passing' (probed=1, filtered=0)
+      try {
+        iterator.next(); // attempts 'poisoned' → throws
+        fail("Expected IllegalStateException to propagate");
+      } catch (IllegalStateException expected) {
+        caught = true;
+      }
+    }
+
+    assertTrue("Exception must propagate to caller", caught);
+    assertEquals("close() must flush exactly once after a mid-iteration throw",
+        1, metric.calls.size());
+    // probed counts entries that reached the acceptedRids check: 'passing'
+    // succeeded, 'poisoned' was probed then threw inside loadEntity (still
+    // counted because the probe increments before storage I/O), 'unreached'
+    // is never visited.
+    assertEquals("filtered=0: every probed RID was in the accepted set",
+        0L, metric.calls.get(0)[0]);
+    assertEquals("probed=2: passing succeeded, poisoned counted before throw",
+        2L, metric.calls.get(0)[1]);
+  }
 }

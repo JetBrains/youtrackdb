@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -572,19 +573,53 @@ public class MatchEdgeTraverser implements ExecutionStream {
     // it returns null without materializing. Only the first vertex whose
     // link bag is large enough triggers actual resolution and caching.
     if (edge.getIntersectionDescriptor() != null) {
+      // Resolve effectiveness metric from the EdgeTraversal's cache,
+      // avoiding per-vertex MetricsRegistry map lookups. The metric is
+      // recorded lazily by the iterator wrapping pfli — see
+      // EdgeFromLinkBagIterator#flushEffectivenessMetric — so probed/filtered
+      // reflect the true intersection size rather than the broken
+      // (linkBagSize − ridSet.size()) approximation, which would have been
+      // wrong whenever ridSet was not a subset of the link bag.
+      Ratio effectiveness = edge.resolveEffectivenessMetric();
       int linkBagSize = pfli.size();
-      if (linkBagSize >= TraversalPreFilterHelper.minLinkBagSize()) {
+      if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
+        // Link bag too small for pre-filter to be worthwhile.
+        edge.recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
+      } else {
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
-        if (ridSet != null
-            && TraversalPreFilterHelper.passesRatioCheck(
-                ridSet.size(), linkBagSize)) {
-          this.currentPreFilterRids = ridSet;
-          if (logger.isDebugEnabled()) {
-            logger.debug(
-                "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
-                linkBagSize, ridSet.size(), edge.getIntersectionDescriptor());
+        // ridSet == null → skip reason already set by resolveWithCache().
+        // IndexLookup selectivity is class-level (constant per query) — if
+        // resolveWithCache returned non-null the check already passed, so
+        // skip the redundant per-vertex recomputation.  EdgeRidLookup still
+        // needs the per-vertex re-check because resolveWithCache used an
+        // estimate, but applyPreFilter has the actual ridSet.size().
+        if (ridSet != null) {
+          // IndexLookup selectivity is class-level (verified once in
+          // resolveWithCache) — skip the redundant per-vertex recheck.
+          // Applies to both standalone IndexLookup and Composite
+          // containing an IndexLookup child.
+          var desc = edge.getIntersectionDescriptor();
+          boolean indexLookupVerified =
+              desc instanceof RidFilterDescriptor.IndexLookup
+                  || (desc instanceof RidFilterDescriptor.Composite c
+                      && c.findIndexLookup() != null);
+          if (indexLookupVerified
+              || desc.passesSelectivityCheck(
+                  ridSet.size(), linkBagSize, ctx)) {
+            this.currentPreFilterRids = ridSet;
+            edge.recordPreFilterApplied();
+            if (logger.isDebugEnabled()) {
+              logger.debug(
+                  "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
+                  linkBagSize, ridSet.size(),
+                  edge.getIntersectionDescriptor());
+            }
+            pfli = pfli.withRidFilter(ridSet, effectiveness);
+          } else {
+            // EdgeRidLookup ratio check failed on actual ridSet.size().
+            edge.recordPreFilterSkip(
+                PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
           }
-          pfli = pfli.withRidFilter(ridSet);
         }
       }
     }

@@ -529,7 +529,8 @@ public class ExpandStepTest extends DbTestBase {
     @Nonnull
     @Override
     public PreFilterableLinkBagIterable withRidFilter(
-        @Nonnull Set<RID> ridSet) {
+        @Nonnull Set<RID> ridSet,
+        @Nonnull com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio effectivenessMetric) {
       ridFilterRequested.set(true);
       return new StubPreFilterableIterable(
           elements, classFilterRequested, ridFilterRequested);

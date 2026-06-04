@@ -349,6 +349,95 @@ public class GlobalConfigurationTest {
   }
 
   // ---------------------------------------------------------------------------------------------
+  // resetToDefault — restores the default sentinel and propagates to change callback.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * {@link GlobalConfiguration#resetToDefault()} flips {@code isChanged()} back to {@code false}
+   * and {@link GlobalConfiguration#getValue()} back to the declared default, undoing any prior
+   * {@code setValue}. Pinned against {@code MEMORY_PROFILING_REPORT_INTERVAL} (Integer default
+   * 15) — set a non-default value first to force {@code isChanged() == true}, then reset.
+   */
+  @Test
+  public void resetToDefaultRestoresDefaultSentinel() {
+    var cfg = GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL;
+    cfg.setValue(123);
+    assertTrue(cfg.isChanged());
+
+    cfg.resetToDefault();
+
+    assertFalse("resetToDefault must clear isChanged()", cfg.isChanged());
+    assertEquals(cfg.getDefValue(), cfg.getValue());
+  }
+
+  /**
+   * {@code resetToDefault} fires the {@code changeCallback} with {@code (oldValue, null)} when
+   * one is installed — the {@code newValue} is null because the reset replaces the assigned
+   * value with the {@code nullValue} sentinel rather than substituting the default value
+   * itself. The callback also sees the prior {@code setValue}'d value as {@code oldValue}.
+   *
+   * <p>No enum entry declares a callback today (the field is initialized to {@code null} in
+   * every constructor), so the callback branch is reached only via reflection — same approach
+   * used by the JaCoCo coverage gate to exercise otherwise-dead defensive guards in API code
+   * that should still be load-bearing if a future entry adds a callback.
+   */
+  @Test
+  public void resetToDefaultFiresChangeCallbackWithOldValueAndNullNew()
+      throws ReflectiveOperationException {
+    var cfg = GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL;
+    cfg.setValue(77);
+    var captured = new Object[2];
+    var callback =
+        (com.jetbrains.youtrackdb.internal.core.config.ConfigurationChangeCallback) (oldValue,
+            newValue) -> {
+          captured[0] = oldValue;
+          captured[1] = newValue;
+        };
+    var field = GlobalConfiguration.class.getDeclaredField("changeCallback");
+    field.setAccessible(true);
+    Object prior = field.get(cfg);
+    try {
+      field.set(cfg, callback);
+      cfg.resetToDefault();
+    } finally {
+      field.set(cfg, prior);
+    }
+
+    assertEquals("callback received the prior setValue'd value", 77, captured[0]);
+    assertNull("callback's newValue is null on reset", captured[1]);
+  }
+
+  /**
+   * A {@code changeCallback} that throws must not propagate the exception out of {@code
+   * resetToDefault} — the method's javadoc documents it as test-teardown-grade and the
+   * implementation catches and logs. The reset must still complete: {@code isChanged()} flips
+   * back to {@code false} regardless of the callback outcome.
+   */
+  @Test
+  public void resetToDefaultSwallowsCallbackException()
+      throws ReflectiveOperationException {
+    var cfg = GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL;
+    cfg.setValue(42);
+    var throwing =
+        (com.jetbrains.youtrackdb.internal.core.config.ConfigurationChangeCallback) (oldValue,
+            newValue) -> {
+          throw new RuntimeException("callback boom");
+        };
+    var field = GlobalConfiguration.class.getDeclaredField("changeCallback");
+    field.setAccessible(true);
+    Object prior = field.get(cfg);
+    try {
+      field.set(cfg, throwing);
+      cfg.resetToDefault();
+    } finally {
+      field.set(cfg, prior);
+    }
+
+    assertFalse(
+        "resetToDefault must still complete even when callback throws", cfg.isChanged());
+  }
+
+  // ---------------------------------------------------------------------------------------------
   // Static helpers: findByKey, getEnvKey, setConfiguration, dumpConfiguration.
   // ---------------------------------------------------------------------------------------------
 
