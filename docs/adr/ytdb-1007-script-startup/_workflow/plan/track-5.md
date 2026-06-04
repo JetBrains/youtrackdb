@@ -11,6 +11,7 @@ Track 5 closes the consumer-set gap Track 4 leaves open. Track 4 rewrites the si
 ## Progress
 - [x] 2026-06-03T15:19Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-04T03:16Z [ctx=safe] Step 1 complete (commit 92d7a9d8c9)
+- [x] 2026-06-04T03:22Z [ctx=safe] Step 2 complete (commit 7d990fed6a)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -62,7 +63,7 @@ Ordering constraints and invariants to preserve: this track depends on Track 4 s
 ## Concrete Steps
 
 1. Trim `execute-tracks/SKILL.md`'s inline startup recital (the "Follow the startup protocol in `workflow.md`:" block — the divergence-check step, the handoff `ls -t` scan, and the State 0/A/C/D/Done routing sub-bullets, ~lines 71-118; verify line numbers on read) so the SKILL defers all detection-and-routing to the staged `workflow.md § Startup Protocol` dispatch rule. Mechanism is trim-to-pointer, not rewrite-recital-to-mirror (T2): remove the State C routing sub-bullets in full so no `state.substate`-free or `state.track`-assuming routing survives in the SKILL to contradict the dispatch rule. PRESERVE the SKILL-owned orientation `workflow.md` does not own, which already sits outside the recital — the standalone phase-doc-loading map (~lines 36-42, do NOT touch — T3), the one-phase-per-session boundary, the user-interaction model, and the self-improvement-reflection step. Copy-then-edit on first touch under `staged-workflow/.claude/skills/execute-tracks/SKILL.md`; read the dispatch rule it defers to from the STAGED `workflow.md` per §1.7(d). — risk: medium (architecture-adjacent: realizes the `execute-tracks → workflow.md` "defers to" Component-Map edge with cross-file coherence stakes from the State C `state.substate` correction; prose-only with no code HIGH trigger, so step-level review is skipped and the always-on Phase C track-level workflow review covers the cumulative diff with this step as a focal point)  [x] commit: 92d7a9d8c9
-2. Sync `create-plan/SKILL.md` Step 1.5's stale inline-bash description to the staged `workflow-drift-check.md § Detection` script citation. Replace all THREE stale fragments (T1), not only the two the Phase 1 `## Plan of Work` named: the "thin orchestration handoff rather than a re-statement of the bash" framing (~lines 51-52), the "Phase 1 walk plus Phase 2 fold or unstamped short-circuit" parenthetical (~line 53), and the "`PLAN_DIR=docs/adr/<resolved-dir-name>` bash line … where the value lands in shell scope" parenthetical (~lines 55-56); verify line numbers on read. The replacement frames detection as running inside `workflow-startup-precheck.sh` (no inline bash). KEEP the delegation-by-reference to `workflow-drift-check.md` and the conversational Migrate/Defer/Suppress resolution prose byte-unchanged. Copy-then-edit on first touch under `staged-workflow/.claude/skills/create-plan/SKILL.md`; read the citation target from the STAGED `workflow-drift-check.md` per §1.7(d). — risk: low (default: prose stale-text sync; delegation-by-reference and resolution prose unchanged; no code, no Component-Map relationship change)  [ ]
+2. Sync `create-plan/SKILL.md` Step 1.5's stale inline-bash description to the staged `workflow-drift-check.md § Detection` script citation. Replace all THREE stale fragments (T1), not only the two the Phase 1 `## Plan of Work` named: the "thin orchestration handoff rather than a re-statement of the bash" framing (~lines 51-52), the "Phase 1 walk plus Phase 2 fold or unstamped short-circuit" parenthetical (~line 53), and the "`PLAN_DIR=docs/adr/<resolved-dir-name>` bash line … where the value lands in shell scope" parenthetical (~lines 55-56); verify line numbers on read. The replacement frames detection as running inside `workflow-startup-precheck.sh` (no inline bash). KEEP the delegation-by-reference to `workflow-drift-check.md` and the conversational Migrate/Defer/Suppress resolution prose byte-unchanged. Copy-then-edit on first touch under `staged-workflow/.claude/skills/create-plan/SKILL.md`; read the citation target from the STAGED `workflow-drift-check.md` per §1.7(d). — risk: low (default: prose stale-text sync; delegation-by-reference and resolution prose unchanged; no code, no Component-Map relationship change)  [x] commit: 7d990fed6a
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -76,6 +77,14 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/skills/execute-tracks/SKILL.md` (new)
+
+### Step 2 — commit 7d990fed6a, 2026-06-04T03:22Z [ctx=safe]
+**What was done:** Synced the staged `create-plan/SKILL.md` Step 1.5 detection description to the script-citation form Track 4's staged `workflow-drift-check.md § Detection` now uses. First touch copied the live SKILL verbatim into `staged-workflow/.claude/skills/create-plan/SKILL.md` (cmp-verified byte-identical), then replaced all three stale inline-bash fragments — the "thin orchestration handoff rather than a re-statement of the bash" framing, the "Phase 1 walk plus Phase 2 fold or unstamped short-circuit" parenthetical, and the "`PLAN_DIR=docs/adr/<resolved-dir-name>` bash line … where the value lands in shell scope" parenthetical — with prose that frames detection as running inside `workflow-startup-precheck.sh` under `--mode full`. A live-vs-staged diff confirms only the detection paragraph changed: the delegation-by-reference to `workflow-drift-check.md` and the conversational Migrate/Defer/Suppress resolution prose stay byte-unchanged, satisfying the step's acceptance criterion. File grew from 546 to 548 lines.
+
+**What was discovered:** Like `execute-tracks/SKILL.md`, `create-plan/SKILL.md` is a `§1.8(d)` bootstrap-only file with no generated TOC region, so the edit needs no reindex. For Phase C: the replacement cites the staged `workflow-drift-check.md § Detection` phrasing (two-phase drift walk inside the script under `--mode full`, the script resolving the plan dir), so the track-level review should confirm it still matches the staged drift-check text at review time.
+
+**Key files:**
+- `docs/adr/ytdb-1007-script-startup/_workflow/staged-workflow/.claude/skills/create-plan/SKILL.md` (new)
 
 ## Validation and Acceptance
 
