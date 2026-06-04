@@ -159,41 +159,56 @@ the side-effect protection is no longer needed.
 ## Step 2.0 — Bootstrap unstamped artifacts
 <!-- roles=migrator phases=any summary="Stamp any artifact still missing a line-1 workflow-sha before the replay range is computed." -->
 
-Walk the active plan's `_workflow/**` per `conventions.md` `§1.6(h)` and
-classify each artifact as stamped (line-1 stamp parses) or unstamped
-(no stamp). The classification feeds both this step's bootstrap prompt
-and Step 2's range derivation.
+Run the startup script in `migrate-range` mode and read the
+`unstamped_files` array it reports. The script owns the
+`conventions.md` `§1.6(h)` artifact walk and the stamp classification;
+the skill reads the result instead of re-deriving the walk in prose.
+The one `migrate-range` invocation here also produces the
+`stamped_artifacts` / `base_sha` / `log_range` / `merge_base_failed`
+fields Step 2 consumes, so the same JSON file feeds both steps.
 
 ```bash
-STAMPED_SHAS=""
-UNSTAMPED_FILES=""
-# design-mechanics.md is optional; absent until the length trigger fires.
-# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
-# yet present on disk, so missing files do not abort the walk.
-for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
-              "$PLAN_DIR/_workflow/design.md" \
-              "$PLAN_DIR/_workflow/design-mechanics.md" \
-              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
-    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
-    if [ -n "$SHA" ]; then
-        STAMPED_SHAS="$STAMPED_SHAS $SHA"
-    else
-        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
-    fi
-done
+.claude/scripts/workflow-startup-precheck.sh --mode migrate-range \
+  > /tmp/claude-migrate-range-$PPID.json
 ```
 
-The walk pattern matches `conventions.md` `§1.6(h)`; `$PLAN_DIR` is
-documentary here (resolved in Step 1), versus the literal
-placeholder `docs/adr/<resolved-dir-name>` in `§1.6(h)`'s canonical
-form. Step 2 repeats the walk with a paired `(file, sha)` array so
-merge-base failures can name artifact paths; this step only needs
-the classification, so the simpler form lands here.
+If the script exits non-zero (it emits no JSON on a usage or flag
+error, exit 2), surface the stderr diagnostic and halt the migration;
+do not `Read` the `/tmp` file, which on a failed invocation holds stale
+or empty content. The script's stdout is the JSON; redirect it to a
+`/tmp` file rather than capturing it into the conversation. The `migrate-range.log_range`
+array is intentionally uncapped, because the migration must replay
+every workflow-touching commit, unlike the drift gate's `head -10`
+display cap. A long branch range could otherwise dump an unbounded
+commit list into context on every invocation. Read the file with the `Read`
+tool's `offset` / `limit` so the uncapped `log_range` never lands in
+context whole; read `unstamped_files` here, and read the range fields
+in Step 2 in bounded slices.
 
-**When `$UNSTAMPED_FILES` is empty.** No prompt fires. Continue to
-Step 2.
+The `migrate-range` JSON shape (cite the live shipped
+`.claude/scripts/workflow-startup-precheck.sh` `emit_json`
+`migrate-range` branch, which is authoritative over any frozen design
+text):
 
-**When `$UNSTAMPED_FILES` is non-empty.** Print the list of unstamped
+```json
+{
+  "stamped_artifacts": [{"file": "<path>", "sha": "<40-hex>"}, ...],
+  "unstamped_files": ["<path>", ...],
+  "base_sha": "<40-hex>" | null,
+  "log_range": [{"sha": "<40-hex>", "subject": "<commit subject>"}, ...],
+  "merge_base_failed": [{"base": "<40-hex>", "sha": "<40-hex>", "files": ["<path>", ...]}, ...]
+}
+```
+
+`unstamped_files` is the set of `_workflow/**` artifacts the script
+found with no parseable line-1 stamp — exactly the classification this
+step needs. `$PLAN_DIR` is documentary here (resolved in Step 1); the
+script resolves the active plan dir from the branch the same way.
+
+**When `unstamped_files` is empty.** No prompt fires. Continue to
+Step 2 (which reads the same JSON file for the range fields).
+
+**When `unstamped_files` is non-empty.** Print the list of unstamped
 artifacts and ask the user once for a base SHA covering the set. The
 prompt must include the rationale below so the user understands why
 the migration cannot guess:
@@ -236,8 +251,12 @@ fi
 
 Store the **canonical 40-char `rev-parse` stdout** (`$CANON_SHA`), not
 the user's raw input, as `$USER_BOOTSTRAP_SHA`. The canonicalization
-is mandatory: Step 4's per-commit lockstep advance writes the value
-into artifact stamps, and the stamp regex `[0-9a-f]{40}` in `§1.6(a1)`
+happens here, in the agent-side `§1.6(d)` `git rev-parse --verify` /
+`git merge-base --is-ancestor` check above; the script does no
+validation of its own `--bootstrap-sha` value (the arg parser folds it
+into `git merge-base` raw). The canonical form is mandatory on two
+counts: Step 4's per-commit lockstep advance writes the value into
+artifact stamps, and the stamp regex `[0-9a-f]{40}` in `§1.6(a1)`
 rejects shorter values on subsequent parse, so a short-prefix stamp
 would fail every drift-check re-read.
 
@@ -270,230 +289,132 @@ SHA silently skips needed migrations. Both failure modes are
 documented in `conventions.md` `§1.6(d)` so debug sessions have a
 starting point.
 
-Step 2 consumes `$USER_BOOTSTRAP_SHA` (when set) alongside
-`$STAMPED_SHAS` in its fold input set. When Step 2.0 did not fire
-(because `$UNSTAMPED_FILES` was empty), `$USER_BOOTSTRAP_SHA` stays
-unset and the fold runs over `$STAMPED_SHAS` alone.
+Step 2 re-invokes the script with `--bootstrap-sha $USER_BOOTSTRAP_SHA`
+(when set) so the script folds the bootstrap SHA into the range
+alongside the stamped artifacts. When Step 2.0 did not fire (because
+`unstamped_files` was empty), `$USER_BOOTSTRAP_SHA` stays unset and
+Step 2 reads the range fields straight from the JSON file this step
+already produced, with no re-invocation.
 
 ## Step 2 — Compute commit range
 <!-- roles=migrator phases=any summary="Derive the replay range from per-artifact stamps and HEAD, bounding retries on an unresolvable stamp." -->
 
-The range derivation runs in two phases. **Phase 1** walks the active
-plan's `_workflow/**` artifacts and classifies each as stamped or
-unstamped (byte-copied from `conventions.md` `§1.6(h)` so the migration
-and the drift check agree on what "drift" means). **Phase 2** folds
-the stamp set pairwise through `git merge-base` to derive `BASE_SHA`,
-then runs `git log $BASE_SHA..HEAD` against workflow paths.
+The range comes from the script's `migrate-range` output, not from a
+re-derived walk in this skill. The script owns both the
+`conventions.md` `§1.6(h)` artifact walk and the `git merge-base` fold
+that collapses the stamp set to `base_sha` (the oldest stamp reachable
+from HEAD per `conventions.md` `§1.6(c)`), then emits the path-scoped
+`git log base_sha..HEAD` range as `log_range`. The skill reads those
+fields and drives the conversational recovery the script cannot — the
+script never prompts.
 
-Step 2.0 has already walked the same artifacts and set
-`$STAMPED_SHAS` / `$UNSTAMPED_FILES` / `$USER_BOOTSTRAP_SHA`. This step
-repeats the walk because the fold needs a **paired `(file, sha)`
-array** so merge-base failures can name artifact paths in the recovery
-re-prompt rather than bare SHAs; Step 2.0's simpler-form walk did not
-carry that pairing.
+Step 2.0 already produced the `migrate-range` JSON at
+`/tmp/claude-migrate-range-$PPID.json`. Read the range fields from the
+**same file** with the `Read` tool's `offset` / `limit` so the
+uncapped `log_range` array never lands in context whole (WB1): read
+`base_sha` and `merge_base_failed` first (both bounded), and read
+`log_range` in bounded slices when building the per-commit queue. The
+fields this step consumes:
 
-The Phase 1 walk block, byte-for-byte from `conventions.md` `§1.6(h)`,
-extended with a paired path-and-SHA array (`STAMPED_PAIRS` — one
-`<path>=<sha>` entry per stamped artifact) so the Phase 2 recovery
-path can name failing artifact paths:
+- `base_sha` — the folded `BASE_SHA` (full `%H` SHA), or JSON `null`
+  when the fold produced no clean base (no stamps and no
+  `--bootstrap-sha`, or one or more merge-base failures).
+- `log_range` — `[{sha, subject}, ...]` for `base_sha..HEAD` over the
+  workflow pathspecs, oldest first; the empty array when there is no
+  clean base or the range is empty. Uncapped by design.
+- `merge_base_failed` — `[{base, sha, files}, ...]`, one entry per
+  failing merge-base pair, with `files` already naming the artifact
+  paths that emitted the failing SHAs (the script resolves them via
+  its `STAMPED_PAIRS` table). The empty array on a clean fold.
+- `stamped_artifacts` / `unstamped_files` — the classification Step 2.0
+  consumed; available here too if a recovery re-prompt needs the
+  current stamped set.
 
-```bash
-PLAN_DIR="docs/adr/<resolved-dir-name>"
-STAMPED_SHAS=""
-UNSTAMPED_FILES=""
-STAMPED_PAIRS=""
-# design-mechanics.md is optional; absent until the length trigger fires.
-# The ls 2>/dev/null swallows the stderr for any artifact kind that is not
-# yet present on disk, so missing files do not abort the walk.
-for f in $(ls "$PLAN_DIR/_workflow/implementation-plan.md" \
-              "$PLAN_DIR/_workflow/design.md" \
-              "$PLAN_DIR/_workflow/design-mechanics.md" \
-              "$PLAN_DIR/_workflow/plan/"track-*.md 2>/dev/null); do
-    SHA="$(head -1 "$f" | grep -oE 'workflow-sha: [0-9a-f]{40}' | grep -oE '[0-9a-f]{40}$')"
-    if [ -n "$SHA" ]; then
-        STAMPED_SHAS="$STAMPED_SHAS $SHA"
-        STAMPED_PAIRS="$STAMPED_PAIRS $f=$SHA"
-    else
-        UNSTAMPED_FILES="$UNSTAMPED_FILES $f"
-    fi
-done
-```
+**Halt — no stampable artifacts.** When both `stamped_artifacts` and
+`unstamped_files` are empty, the active plan has no stampable artifacts
+on disk (a freshly-created `_workflow/` dir holding only a transient
+`handoff-*.md`, for example). Per `conventions.md` `§1.6(h)`'s
+both-arrays-empty rule, halt the migration with `no artifacts to
+migrate` and exit without computing a range.
 
-The `<resolved-dir-name>` placeholder is the active plan dir captured
-as `$PLAN_DIR` in Step 1 per `conventions.md` `§1.6(g)`; substitute it
-literally at invocation time. The walk silently skips artifacts not
-yet on disk (`design-mechanics.md` before the length trigger, any
-`track-*.md` not yet created), so absent optional artifacts contribute
-neither a stamp nor an unstamped flag. Apart from the `STAMPED_PAIRS`
-extension, the loop body is text-identical to the drift check's copy
-in `workflow-drift-check.md`; a future edit to the `§1.6(h)` block
-applies to both files in lockstep.
+**Merge-base failure recovery.** When `merge_base_failed` is non-empty,
+the script's fold hit a merge-base failure: a stamp pointing at a
+git-gc-pruned commit, or two stamps with no reachable common ancestor
+in the local repo. The script collects **every** failing pair into
+`merge_base_failed` (the `continue` fold mode) rather than stopping at
+the first, so one recovery re-prompt covers the full failing set; the
+break-shape the drift gate uses would re-prompt once per failing pair
+serially. Each entry's `files` array already names the artifact paths
+that emitted the failing SHAs, so the skill does not re-resolve SHAs to
+paths — it reads them straight from `merge_base_failed[].files`.
 
-**Phase 1 halt — no stampable artifacts.** When both `$STAMPED_SHAS`
-and `$UNSTAMPED_FILES` are empty after the walk, the active plan has
-no stampable artifacts on disk (a freshly-created `_workflow/` dir
-holding only a transient `handoff-*.md`, for example). Per
-`conventions.md` `§1.6(h)`'s both-arrays-empty rule, halt the migration
-with `no artifacts to migrate` and exit without entering Phase 2. This
-case is distinct from the all-stamped case (where Phase 2 runs the
-fold) and from the partially-stamped case (where Step 2.0 already
-prompted for `$USER_BOOTSTRAP_SHA`).
+Drive the recovery agent-side (the script cannot prompt):
 
-```bash
-if [ -z "$STAMPED_SHAS" ] && [ -z "$UNSTAMPED_FILES" ]; then
-    echo "ERROR: no artifacts to migrate (the active plan's _workflow/ has no stampable files)."
-    exit 1
-fi
-```
+1. **Re-prompt the combined set.** Route the union of the
+   originally-unstamped files (`unstamped_files`) and every
+   `merge_base_failed[].files` entry back through Step 2.0's bootstrap
+   prompt per `conventions.md` `§1.6(c)`. The user supplies one new SHA
+   covering the combined set; the validated value **replaces** the
+   prior `$USER_BOOTSTRAP_SHA` (the variable stays singular, matching
+   `conventions.md` `§1.6(d)`'s one-SHA-per-prompt shape). The
+   re-prompt's user-facing text uses the combined file list.
+2. **Drop the failed SHAs.** Pass one `--exclude-sha <sha>` per
+   `merge_base_failed[].sha` on the re-invoke alongside
+   `--bootstrap-sha "$USER_BOOTSTRAP_SHA"`. The repeatable
+   `--exclude-sha` flag drops those stamps from the script's fold input,
+   so the restarted fold does not re-run `git merge-base` over the same
+   failing pair and fail again at the same point; the fresh bootstrap
+   SHA anchors the excluded artifacts' range (matching the "treat as
+   unstamped" framing in `conventions.md` `§1.6(c)`). Without the
+   exclusion the restarted fold would re-walk the same failing stamp and
+   exhaust the 3-attempt cap on input the user cannot fix.
+3. **Enforce the session-wide 3-attempt cap.** The 3-attempt counter is
+   **shared** across Step 2.0's initial prompt and this recovery prompt
+   — session-wide, not per-prompt — so a user cannot chain failures
+   across both prompts to escape the bound. A user who already burned 2
+   attempts in Step 2.0's initial run has 1 attempt left here. On three
+   rejections (across any combination of initial + recovery attempts)
+   the migration halts with `ERROR: three rejected attempts; bootstrap
+   aborted` and exits with no edits applied.
+4. **Re-invoke and restart the fold.** On a validated SHA, re-invoke
+   the script with the fresh bootstrap SHA and one `--exclude-sha` per
+   `merge_base_failed[].sha`, then re-read the JSON file, restarting the
+   fold from the top:
 
-Phase 2 — fold the stamp set pairwise through `git merge-base` to
-derive `BASE_SHA`, the oldest stamp reachable from HEAD per
-`conventions.md` `§1.6(c)`. The fold input set is `$STAMPED_SHAS` plus
-`$USER_BOOTSTRAP_SHA` when Step 2.0 fired; when Step 2.0 was a no-op
-(every artifact stamped), `$USER_BOOTSTRAP_SHA` stays unset and the
-fold runs over `$STAMPED_SHAS` alone:
+   ```bash
+   .claude/scripts/workflow-startup-precheck.sh --mode migrate-range \
+     --bootstrap-sha "$USER_BOOTSTRAP_SHA" \
+     --exclude-sha "$FAILED_SHA_1" --exclude-sha "$FAILED_SHA_2" \
+     > /tmp/claude-migrate-range-$PPID.json
+   ```
 
-```bash
-FOLD_INPUT="$STAMPED_SHAS"
-if [ -n "$USER_BOOTSTRAP_SHA" ]; then
-    FOLD_INPUT="$FOLD_INPUT $USER_BOOTSTRAP_SHA"
-fi
+   Supply one `--exclude-sha` flag per `merge_base_failed[].sha`. If the
+   script exits non-zero (it emits no JSON on a usage or flag error,
+   exit 2), surface the stderr diagnostic and halt the migration; do not
+   `Read` the `/tmp` file, which on a failed invocation holds stale or
+   empty content. Otherwise re-read `merge_base_failed` from the
+   refreshed file. If it is still non-empty (a different pair failed, or
+   the bootstrap SHA itself does not reach the stamps), restart the
+   recovery loop — still under the shared 3-attempt cap. When it is
+   empty, continue to the range computation below.
 
-# Continue-and-collect fold: every failing pair contributes to
-# MERGE_BASE_FAILED. The fold continues past failures rather than
-# breaking on the first one so a single recovery re-prompt covers the
-# full failing set, matching the batch semantics in conventions.md
-# §1.6(c).
-BASE_SHA=""
-MERGE_BASE_FAILED=""
-for SHA in $FOLD_INPUT; do
-    if [ -z "$BASE_SHA" ]; then
-        BASE_SHA="$SHA"; continue
-    fi
-    NEW_BASE="$(git merge-base "$BASE_SHA" "$SHA" 2>/dev/null)" || NEW_BASE=""
-    if [ -z "$NEW_BASE" ]; then
-        # merge-base failure: a stamp pointing at a git-gc-pruned commit,
-        # or two stamps with no reachable common ancestor in the local
-        # repo. Collect both SHAs into MERGE_BASE_FAILED; the recovery
-        # path below routes their owning artifacts back through the
-        # bootstrap prompt per conventions.md §1.6(c).
-        MERGE_BASE_FAILED="$MERGE_BASE_FAILED $BASE_SHA $SHA"
-        # Reset BASE_SHA so the fold continues from the next stamp
-        # without propagating the failed value into subsequent
-        # merge-base calls.
-        BASE_SHA=""
-        continue
-    fi
-    BASE_SHA="$NEW_BASE"
-done
-```
+**Range computation and the empty-log halt.** Once the script reports
+a non-null `base_sha` with an empty `merge_base_failed`, the range is
+`log_range`. If `log_range` is empty, halt with:
+> No workflow-touching commits between stamp base `<short-base_sha>` and HEAD `<short-HEAD>`. Nothing to migrate.
 
-The drift check uses `break` on its first merge-base failure because
-the gate has no recovery prompt to amortise. The migration's
-bootstrap re-prompt is user-interactive, so the fold continues past
-each failure to collect every failing SHA into `MERGE_BASE_FAILED`
-before exiting the loop. A single recovery re-prompt then covers the
-combined unstamped + merge-base-failed set in one user interaction;
-the break-shape would re-prompt the user once per failing pair
-encountered serially.
+The empty-log halt fires on a fully-stamped branch whose stamps already
+point at HEAD (or at every workflow-touching commit between them and
+HEAD): the fold collapses to a stamp that is itself the newest
+workflow-format commit reachable from HEAD, so the range is empty and
+the migration has nothing to replay.
 
-**Merge-base failure recovery.** When `$MERGE_BASE_FAILED` is
-non-empty, resolve each failing SHA to the artifact path that emitted
-it via the `$STAMPED_PAIRS` table, then route the **combined**
-unstamped + merge-base-failed file set back through Step 2.0's
-bootstrap prompt per `conventions.md` `§1.6(c)`. The user supplies one
-new SHA covering the combined set; the validated value **replaces**
-the prior `$USER_BOOTSTRAP_SHA` (the variable stays singular, matching
-`conventions.md` `§1.6(d)`'s one-SHA-per-prompt shape).
-
-Drop the merge-base-failed SHAs from `STAMPED_SHAS` before restarting
-the fold. Their owning artifacts are reclassified as unstamped for
-the rest of the session (matching the "treat as unstamped" framing in
-`conventions.md` `§1.6(c)`), so the user's fresh `$USER_BOOTSTRAP_SHA`
-serves as the bootstrap anchor for both the originally-unstamped set
-and the dropped stamps' artifacts. Without this drop, the restarted
-fold would re-run `git merge-base` over the same failing pair and
-fail again at the same point regardless of how valid the user's
-bootstrap SHA is, exhausting the 3-attempt cap on input the user
-cannot fix. After the re-prompt, restart this step's Phase 2 fold
-from the top with the pruned `$STAMPED_SHAS` plus the fresh
-`$USER_BOOTSTRAP_SHA` in `FOLD_INPUT`:
-
-```bash
-if [ -n "$MERGE_BASE_FAILED" ]; then
-    # Resolve failing SHAs to artifact paths via STAMPED_PAIRS.
-    FAILED_FILES=""
-    for FAILED_SHA in $MERGE_BASE_FAILED; do
-        for PAIR in $STAMPED_PAIRS; do
-            case "$PAIR" in
-                *"=$FAILED_SHA")
-                    FAILED_FILES="$FAILED_FILES ${PAIR%=*}"
-                    ;;
-            esac
-        done
-    done
-    # Drop the merge-base-failed SHAs from STAMPED_SHAS so the
-    # restarted fold does not re-run git merge-base over the same
-    # failing pair. The dropped stamps' artifacts are now covered by
-    # the upcoming $USER_BOOTSTRAP_SHA.
-    PRUNED_STAMPED_SHAS=""
-    for SHA in $STAMPED_SHAS; do
-        DROP=0
-        for FAILED_SHA in $MERGE_BASE_FAILED; do
-            [ "$SHA" = "$FAILED_SHA" ] && DROP=1 && break
-        done
-        [ "$DROP" = "0" ] && PRUNED_STAMPED_SHAS="$PRUNED_STAMPED_SHAS $SHA"
-    done
-    STAMPED_SHAS="$PRUNED_STAMPED_SHAS"
-    # Combine with any pre-existing unstamped files and re-enter the
-    # bootstrap prompt. The 3-attempt cap in conventions.md §1.6(d) is
-    # SHARED with Step 2.0's initial prompt; the counter is session-
-    # wide, not per-prompt. A user who already burned 2 attempts in
-    # Step 2.0's initial run has 1 attempt left here.
-    UNSTAMPED_FILES="$UNSTAMPED_FILES$FAILED_FILES"
-    # After the append, $UNSTAMPED_FILES is guaranteed non-empty
-    # because the recovery only fires when $MERGE_BASE_FAILED is
-    # non-empty; Step 2.0's prompt branch fires unconditionally on
-    # re-entry.
-    # Re-enter Step 2.0's prompt with the combined file set; on
-    # success, restart Phase 2 with the pruned STAMPED_SHAS plus the
-    # fresh $USER_BOOTSTRAP_SHA. On three rejected attempts (shared
-    # counter), halt the session.
-fi
-```
-
-The re-prompt's user-facing text uses the combined file list. The
-3-attempt counter is **shared** across Step 2.0's initial prompt and
-this recovery prompt — the counter is session-wide so a user cannot
-chain failures across both prompts to escape the bound. On three
-rejections (across any combination of initial + recovery attempts)
-the migration halts with `ERROR: three rejected attempts; bootstrap
-aborted` and exits with no edits applied.
-
-**Range computation and the empty-log halt.** Once Phase 2 produces
-a non-empty `BASE_SHA` with no outstanding merge-base failures, run
-the path-scoped `git log` over the range `BASE_SHA..HEAD`:
-
-```bash
-# Workflow-touching commits in chronological order (oldest first)
-git log --reverse --format='%H %s' "$BASE_SHA..HEAD" \
-  -- .claude/workflow/ .claude/skills/
-```
-
-If the list is empty, halt with:
-> No workflow-touching commits between stamp base `<short-BASE_SHA>` and HEAD `<short-HEAD>`. Nothing to migrate.
-
-The empty-log halt fires on a fully-stamped branch whose stamps
-already point at HEAD (or at every workflow-touching commit between
-them and HEAD): the fold collapses to a stamp that is itself the
-newest workflow-format commit reachable from HEAD, so the range is
-empty and the migration has nothing to replay.
-
-Otherwise, record the commit list as an in-conversation note, and
-record `$BASE_SHA`. Both values are referenced in the progress file
-and the final summary. Do NOT call `TaskCreate` per commit here; per-commit tasks
-are added at the start of Step 4, after Step 3 has trimmed the resume
-queue, so the task list never drifts from the actual queue.
+Otherwise, record `base_sha` and the `log_range` commit list (read in
+bounded slices via `Read` offset/limit, never inlined whole). Both
+values are referenced in the progress file and the final summary. Do
+NOT call `TaskCreate` per commit here; per-commit tasks are added at
+the start of Step 4, after Step 3 has trimmed the resume queue, so the
+task list never drifts from the actual queue.
 
 ## Step 3 — Load or initialize progress file
 <!-- roles=migrator phases=any summary="Load an existing .migration-progress file to resume, or initialize a fresh one when the migration starts clean." -->

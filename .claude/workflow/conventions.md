@@ -527,7 +527,10 @@ regex in (a1) after any mutation sequence.
 ### (a1) Canonical parser idioms
 <!-- roles=migrator,orchestrator phases=3A,3B,3C,4 summary="Reusable bash/python snippets that read the stamp consistently." -->
 
-Two regex forms, both quoted byte-for-byte by Tracks 3, 4a, and 4b:
+Two regex forms. `workflow-startup-precheck.sh` is the single
+implementation that embodies both idioms; this subsection is the spec
+it conforms to, checked by the conformance fixture under
+`.claude/scripts/tests/`:
 
 - Value extraction (drift check, range derivation):
   ```bash
@@ -673,12 +676,20 @@ force a rethink of this section.
 ### (h) Phase 1 walk bash block
 <!-- roles=planner,orchestrator phases=1 summary="The bash walk that stamps the initial plan artifacts at Phase 1." -->
 
-The shared enumerate-and-classify block is the durable single source
-for the Phase 1 walk. Tracks 3 and 4a copy this block byte-for-byte so
-the coordinated-edit cost on a future format change stays bounded to
-the writer sites enumerated in `## Interfaces and Dependencies` of
-each track. The block survives Phase 4 (`design.md` is removed in the
-cleanup commit; `conventions.md` is not):
+The enumerate-and-classify block below is the readable spec for the
+Phase 1 walk; this section is the declared single source of truth for
+the stamp format, parser idioms, and walk, so the block lives here.
+`workflow-startup-precheck.sh` is the single implementation of this
+walk (the drift detection, the migrate-range walk, and the no-drift
+normalization recompute all run it); this subsection is the spec it
+conforms to, checked by the conformance fixture under
+`.claude/scripts/tests/` (the fixture extracts this block and asserts
+the script's walk enumerates the same artifact globs with the same
+anchored regex, so a future spec edit the script misses fails the
+suite). A future format change edits this block and the script
+together; the spec and its one implementation move in lockstep. The
+block survives Phase 4 (`design.md` is removed in the cleanup commit;
+`conventions.md` is not):
 
 ```bash
 PLAN_DIR="docs/adr/<dir-name>"
