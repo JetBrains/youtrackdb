@@ -18,6 +18,7 @@ Split review-agent dispatch into step-level vs track-level for the first time an
 - [ ] Track completion
 
 - [x] 2026-06-04T15:56Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-04T16:17Z [ctx=safe] Step 1 complete (commit 0fc2ff0fc1)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -84,7 +85,7 @@ Phase B appends. -->
 
 Steps 2-5 each consume Step 1's selection note (source of truth) but touch disjoint file sets, so they may run in any order after Step 1.
 
-1. Selection note in `review-agent-selection.md`: baseline step-vs-track carve-out at the `## Baseline agents` intro plus a new non-mirrored workflow-reviewer triage note (D4, D5, D7) — risk: low (default; live taxonomy, §Self-application limit)  [ ]
+1. Selection note in `review-agent-selection.md`: baseline step-vs-track carve-out at the `## Baseline agents` intro plus a new non-mirrored workflow-reviewer triage note (D4, D5, D7) — risk: low (default; live taxonomy, §Self-application limit)  [x] commit: 0fc2ff0fc1
 2. Step-level dispatch in `step-implementation.md` sub-step 4a, with the `risk-tagging.md` `high` quick-ref cell rewrite riding it (already-staged copy, edit in place) (D4, D5) — risk: low (default)  [ ] *(parallel with Step 3, Step 4, Step 5)*
 3. Track-level dispatch in `track-code-review.md` § Agent selection and launching; track set unchanged, documents deferred-agent coverage (D4, D5, DL2) — risk: low (default)  [ ] *(parallel with Step 2, Step 4, Step 5)*
 4. SKILL promotion of `review-bugs-concurrency` to a mandatory baseline in `code-review/SKILL.md` (D7) — risk: low (default)  [ ] *(parallel with Step 2, Step 3, Step 5)*
@@ -94,6 +95,12 @@ Steps 2-5 each consume Step 1's selection note (source of truth) but touch disjo
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 0fc2ff0fc1, 2026-06-04T16:17Z [ctx=safe]
+**What was done:** Staged `review-agent-selection.md` (copy-then-edit per §1.7(e); live tree byte-unchanged) and added the step-vs-track routing note that Steps 2 and 3 consume as their source of truth. At the `## Baseline agents (always run)` intro, a baseline carve-out: a `high` step runs only `review-bugs-concurrency` from the baseline group (subordinate to the baseline-skip override), and the other three baselines defer to the Phase C track pass. A new non-mirrored `## Step-level vs track-level routing` H2, placed between the conditional-agents `### Examples` and `## Workflow-review agents` (outside the four `§Maintenance`-mirrored sections), carries the workflow-reviewer triage (`hook-safety` + `prompt-design` at the step by their file-pattern globs; `consistency`, `context-budget`, `writing-style`, `instruction-completeness` at the track) and the rule excluding `review-bugs-concurrency` from workflow-machinery changes. The note bakes in the five DL4 points: glob-not-risk-category selection (R2), the zero-step-reviewer justification on its own resume-path-defect-class terms rather than the prose-only-cap analogy (A2), `review-bugs-concurrency` absorbing the buriable error-handling subset so deferring `review-code-quality` loses only style/DRY/readability (A3), `prompt-design`'s localized core outweighing its cross-file references (A4), and the membership cross-references plus the "always run" heading reconciliation and the one-line `§Maintenance` pointer (A5). File grew 298 → 383 lines.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/review-agent-selection.md` (new)
 
 ## Validation and Acceptance
 
