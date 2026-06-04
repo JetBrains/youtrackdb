@@ -30,3 +30,15 @@ workflow-sha stamped (the log is append-only by contract; see
 **Findings**: none.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 3 — 2026-06-04 — section-add (design.md)
+
+**Diff summary**: Inline-replanning revision after the Track Pre-Flight escalation; introduces decision D8 and a new Track 3. Added the section "Scope indicators measure file footprint, not steps" after "The two file-count numbers", documenting the rewrite of the plan-checklist `**Scope:**` line from `~N steps covering X, Y, Z` to `~N files covering X, Y, Z`: a step count pre-judges Phase A decomposition (steps do not exist until execution), while a planned file count is a plan-time-knowable fact riding the same ~12 / ~5 thresholds. The plan-file-only sizing check in structural and consistency review rekeys from claimed-versus-described to size-versus-norm. Rejected alternatives (line counts as fabricated precision; full removal) are recorded. Coherence edits: §Overview structure roadmap (three → four rule changes, naming the scope-indicator unit) and §Core Concepts (eight → nine ideas, added the "File-footprint scope indicator" gloss). Single file, no mechanics companion.
+
+**Mechanical checks** (target=design, scope=bounded): PASS. First run surfaced 1 should-fix (`dsc-ai-tell` fragmented-header — the TL;DR shared 71% of content words with the heading because the section's subject inherently reuses scope/file/footprint/steps); fixed by rephrasing the TL;DR to avoid four of the six heading words while keeping the concrete before/after; re-run clean (0 findings). A pre-mechanical house-style pass also recast the TL;DR's paired em-dash to a semicolon clause (em-dash cap).
+
+**Cold-read** (scope: bounded — changed section + the two surrounding sections + Overview + Core Concepts): PASS. Mental-model verdict YES; 0 structural findings. Confirmed the "nine load-bearing ideas" count and the "four rule changes" roadmap stay coherent with the added section, and the Core Concepts gloss pointer matches the section heading verbatim.
+
+**Findings**: none surviving.
+
+**Iterations**: 2 of 3 (PASS).

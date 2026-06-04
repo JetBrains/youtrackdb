@@ -21,14 +21,15 @@ This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/
 
 - **Staging.** Every edit target is workflow machinery, so each `.claude/...` edit stages under `docs/adr/step-size-recap/_workflow/staged-workflow/` per `conventions.md §1.7`; the live tree stays at develop's state for the branch lifetime, and the staged-vs-live delta gets the Phase C `§1.7(h)` review. Phase C reviewers delta-scope to the live-vs-staged diff (the D5 delta-scoping convention), not the whole-file staged copy.
 - **Mirror-set wiring.** The step-vs-track timing must not live in the `§Maintenance`-mirrored sections of `review-agent-selection.md` (`§Workflow-review agents`, `§Workflow-machinery file set`, `§Per-agent file-pattern triggers`, `§Workflow-machinery override`), which mirror `code-review/SKILL.md` verbatim and `SKILL.md` carries no step/track notion. It goes in a new, non-mirrored note. See design.md §"Constraints: mirror, staging, and self-application".
-- **Cross-track file.** `risk-tagging.md` is touched by both tracks in disjoint sections (Track 1: HIGH/MEDIUM/LOW criteria + the `~5`-file MEDIUM clause; Track 2: the `high` quick-ref row). The staged copy accumulates both tracks' edits; each track's Phase C review delta-scopes to its own sections.
-- **Self-application limit.** This branch's diffs are workflow-only, so the baseline-skip override removes the whole baseline group at every step, `review-bugs-concurrency` included. The branch exercises the step sizing rules, the workflow risk taxonomy, the workflow-reviewer triage, and the `§1.7(h)` staged-vs-live review; it does not exercise `review-bugs-concurrency`-at-a-Java-step. The baseline-routing change reviews its own diff at Phase C, not at a step.
+- **Cross-track file (`risk-tagging.md`).** `risk-tagging.md` is touched by Track 1 and Track 2 in disjoint sections (Track 1: HIGH/MEDIUM/LOW criteria + the `~5`-file MEDIUM clause; Track 2: the `high` quick-ref row). The staged copy accumulates both tracks' edits; each track's Phase C review delta-scopes to its own sections.
+- **Cross-track file (`conventions.md`).** `conventions.md` is touched by Track 1 (§1.1 Glossary "Step" row) and Track 3 (§1.2, §Scope indicators, and the §1.1 "Scope indicator" row) in disjoint sections. The staged copy accumulates both tracks' edits; each track's Phase C review delta-scopes to its own sections.
+- **Self-application limit.** This branch's diffs are workflow-only, so the baseline-skip override removes the whole baseline group at every step, `review-bugs-concurrency` included. The branch exercises the step sizing rules, the workflow risk taxonomy, the workflow-reviewer triage, the scope-indicator file-footprint rewrite, and the `§1.7(h)` staged-vs-live review; it does not exercise `review-bugs-concurrency`-at-a-Java-step. The baseline-routing change reviews its own diff at Phase C, not at a step.
 
 ### Architecture Notes
 
 #### Component Map
 
-The change touches seven workflow-machinery files across two tracks. `risk-tagging.md` appears in both (disjoint sections). The load-bearing edge: the new workflow risk taxonomy (Track 1) is the trigger the workflow-reviewer triage (Track 2) keys off, which is why Track 2 depends on Track 1.
+The change spans workflow-machinery files across three tracks. `conventions.md` and `risk-tagging.md` each appear in two tracks (disjoint sections). The load-bearing edge: the new workflow risk taxonomy (Track 1) is the trigger the workflow-reviewer triage (Track 2) keys off, which is why Track 2 depends on Track 1. Track 3 (the scope-indicator file-footprint rewrite, D8) is independent — it shares `conventions.md` with Track 1 across disjoint §1.1 rows and depends on neither track.
 
 ```mermaid
 flowchart LR
@@ -44,9 +45,16 @@ flowchart LR
         RT_REF["risk-tagging.md<br/>high quick-ref row"]
         SKILL["code-review/SKILL.md<br/>bugs-concurrency promotion"]
     end
+    subgraph T3["Track 3 — File-footprint scope indicators (independent)"]
+        CONV3["conventions.md §1.2 + §Scope<br/>+ §1.1 'Scope indicator' row"]
+        WRITERS["create-plan/SKILL.md<br/>planning.md"]
+        CHECKERS["structural-review.md<br/>consistency-review.md<br/>technical/risk/adversarial-review.md<br/>implementation-review.md"]
+        RENDER["plan-slim-rendering.md<br/>inline-replanning.md<br/>review-workflow-consistency.md"]
+    end
     RT_TAX ==>|"workflow HIGH/MEDIUM/LOW<br/>gives the triage its trigger"| RAS
     RAS --> SI
     RAS --> TCR
+    GLOSS -.->|"same file, disjoint §1.1 rows"| CONV3
 ```
 
 - **`track-review.md`** (Track 1) — rewrite the `~3`-file cap line in § Step Decomposition as the three sizing rules (coherence, high-risk isolation, fill-toward-~12); keep the trivial-merge floor. Add a workflow mention to the § Risk tagging summary so its category enumeration doesn't drift. (D1)
@@ -57,6 +65,11 @@ flowchart LR
 - **`track-code-review.md`** (Track 2) — track-level dispatch for the deferred baselines and the deferred workflow reviewers at Phase C. (D4, D5)
 - **`risk-tagging.md` quick-ref** (Track 2) — the `high` quick-ref row's step-level cell reflects the step-vs-track split. (D5)
 - **`code-review/SKILL.md`** (Track 2) — promote `review-bugs-concurrency` to "Always launched (unless `docs-only` or `build-config` is the ONLY category)". (D7)
+- **`conventions.md §Scope indicators`** (Track 3) — rewrite §Scope indicators (required), the §1.1 Glossary "Scope indicator" row, and the §1.2 Checklist examples from `~N steps covering X, Y, Z` to `~N files covering X, Y, Z`. Shares the file with Track 1 across disjoint §1.1 rows. (D8)
+- **`create-plan/SKILL.md`, `planning.md`** (Track 3) — the writers: update the scope-indicator format the planner emits. (D8)
+- **`structural-review.md`, `consistency-review.md`** (Track 3) — the checkers: rekey the sizing check from "claims ~2 steps but describes 8 changes" to footprint-vs-track-size, staying plan-file-only. (D8)
+- **`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `implementation-review.md`** (Track 3) — the Phase A review-prompt glossaries and the remaining scope-indicator mentions, updated to the file-footprint format. (D8)
+- **`plan-slim-rendering.md`, `inline-replanning.md`, `review-workflow-consistency.md`** (Track 3) — the renderers and the glossary-term reference, updated to the new format. (D8)
 
 #### D1: Raise the per-step footprint cap to ~12 with a fill-toward-cap directive
 - **Alternatives considered**: keep the `~3` cap; per-tier file caps; a staged `~8` intermediate cap.
@@ -107,12 +120,20 @@ flowchart LR
 - **Implemented in**: Track 2
 - **Full design**: design.md §"review-bugs-concurrency across the three review paths"
 
+#### D8: Scope indicators measure planned file footprint, not step count
+- **Alternatives considered**: keep `~N steps`; a coarse size band (small/medium/large); remove the scope indicator entirely; a line count.
+- **Rationale**: a step count pre-judges Phase A decomposition (steps do not exist until execution), anchoring the reader on a number the workflow itself calls non-binding. A planned file footprint is a plan-time-knowable scope fact — the in-scope file set already lives in each track file's §Interfaces and Dependencies — riding the same `~12`/`~5` thresholds the sizing rules use. The plan-file-only sizing check in structural and consistency review rekeys from claimed-versus-described to size-versus-norm. A line count was rejected as fabricated precision (no implementation exists at plan time); full removal was rejected (it loses the plan-file-only sizing check and the human effort gauge for no gain over dropping just the misleading unit).
+- **Risks/Caveats**: blast radius spans the convention spec, the writers, the checkers, and the renderers (~12 files). This branch's own `implementation-plan.md` keeps `~N steps` for its lifetime — the live convention is unchanged until Phase 4 promotion and the plan file is removed at the cleanup commit, so its scope lines never reach develop. The file footprint is a track-level soft heuristic, not a per-step cap; it does not reintroduce the `~3`-file step cap this plan removes.
+- **Implemented in**: Track 3 (independent — no dependency on Track 1 or Track 2)
+- **Full design**: design.md §"Scope indicators measure file footprint, not steps"
+
 #### Non-Goals
 - Changing the MEDIUM `~5`-file threshold *value* — only its wording is clarified (D3).
 - Adding step-level review for `low`/`medium` steps — only `high` steps reach step-level review, unchanged.
 - Widening any conditional reviewer's trigger or forcing any agent on — the split changes only which mandatory baselines run at the step.
 - A workflow-specific "when in doubt, high" decomposer override — the existing override applies unchanged.
 - Editing the verified non-targets: `conventions.md` mcp-steroid refactor `~3`-files rule, `conventions-execution.md` edit-atomicity "atomic", and the `step-implementation.md` high-only step-review gate / session-end context gate (cited as load-bearing guardrails, not edited).
+- Migrating this branch's own `implementation-plan.md` scope lines from `~N steps` to `~N files` mid-branch (D8) — the live convention is unchanged until Phase 4 promotion and the plan file is removed at the cleanup commit, so its scope lines never reach develop. The durable change is to future plans; a cosmetic Phase 4 promotion migration remains optional.
 
 ## Checklist
 - [ ] Track 1: Sizing & risk taxonomy
@@ -124,12 +145,14 @@ flowchart LR
   > **Scope:** ~4 steps covering the selection note, the step dispatch, the track dispatch, and the SKILL promotion.
   > **Depends on:** Track 1
 
+- [ ] Track 3: File-footprint scope indicators
+  > Rewrite the plan-checklist scope indicator from `~N steps` to `~N files` (D8), so the sizing signal is a plan-time-knowable file footprint rather than a count of steps that only exist after Phase A decomposition. Touches the convention spec, the writers (`create-plan`, `planning.md`), the checkers (`structural-review.md`, `consistency-review.md`), and the renderers.
+  > **Scope:** ~4 steps covering the convention spec rewrite, the writers, the checkers, and the renderers.
+
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed (consistency iter 2, structural iter 1)
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
 
-**Auto-fixed (mechanical)**: CR1 — two drifted line-number citations in the track files (track-1.md § Tests-only `:188`→`:187`; track-2.md Agent-selection `## :480`→`### :479`). CR2 — design.md §"Step-vs-track reviewer routing" listed three `§Maintenance`-mirrored sections; added the omitted `§Workflow-machinery file set` so the enumeration matches the live §Maintenance block, the plan §Constraints, and track-2.md (applied via `edit-design`, logged as Mutation 2). CR3 — track-2.md §Context heading prefix `## Maintenance`→`### Maintenance` (live heading at `:286` is h3; surfaced by the gate-check regression scan).
-
-**Escalated (design decisions)**: none.
+Reset by the inline replan that added Track 3 (D8) after the Track Pre-Flight escalation. The next `/execute-tracks` re-runs State 0 (consistency + structural) against the revised plan before any track work.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

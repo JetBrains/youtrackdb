@@ -11,11 +11,11 @@ The split needs a precondition the workflow lacks: criteria for risk-tagging a w
 
 Two existing guardrails carry the safety the file cap nominally provided: the session-end context gate (the orchestrator backstop, which fires less often with fewer, larger steps) and the mid-implementation `RISK_UPGRADE_REQUESTED` valve (re-enables step-level review when a grouped step turns out more invasive than tagged).
 
-The rest of this document is structured as: Core Concepts → Class Design → Workflow → the three rule changes (sizing, the two file-count numbers, the workflow risk taxonomy) → reviewer routing → the `review-bugs-concurrency` three-path rule → the consistency and self-application constraints.
+The rest of this document is structured as: Core Concepts → Class Design → Workflow → the four rule changes (sizing, the two file-count numbers, the scope-indicator unit, the workflow risk taxonomy) → reviewer routing → the `review-bugs-concurrency` three-path rule → the consistency and self-application constraints.
 
 ## Core Concepts
 
-This design introduces eight load-bearing ideas. Each is named here with its delta from today's behavior and a pointer to the section that elaborates it.
+This design introduces nine load-bearing ideas. Each is named here with its delta from today's behavior and a pointer to the section that elaborates it.
 
 **Footprint cap.** The per-step edited-file ceiling, raised from ~3 to ~12 soft / ~14+ flagged overblown, applied to all tiers. Replaces the unmeasured ~3 cap that never bound. → §"Step sizing: coherence, isolation, and fill-toward-cap".
 
@@ -32,6 +32,8 @@ This design introduces eight load-bearing ideas. Each is named here with its del
 **Prose-only cap.** A workflow step editing only prose (no hook/script/settings, no gate/dispatch/schema change) is at most `low`, the workflow analog of the existing tests-only cap. Keeps ordinary workflow `.md` rewording out of the step-level review path. → §"Workflow-machinery risk taxonomy".
 
 **review-bugs-concurrency exclusion from workflow.** The Java bug/logic reviewer never reviews workflow-machinery files — already true behaviorally (scope-filtering on mixed diffs plus the workflow-only baseline skip), made an explicit triage rule so the two review paths read as deliberately disjoint. → §"review-bugs-concurrency across the three review paths".
+
+**File-footprint scope indicator.** The plan-checklist `**Scope:**` line reports `~N files covering X, Y, Z` instead of `~N steps`, because steps do not exist until Phase A while the in-scope file set is known at plan time. Replaces the step count that anchored readers on a non-binding pre-decomposition number. → §"Scope indicators measure file footprint, not steps".
 
 ## Class Design
 
@@ -178,6 +180,30 @@ Bumping ~5 toward ~12 is rejected. It would drop 6–11-file logic changes to `l
 ### References
 
 - D3: keep ~5 as the medium threshold, distinct from the ~12 split cap
+- Invariants: none new
+- Mechanics: none
+
+## Scope indicators measure file footprint, not steps
+
+**TL;DR.** The checklist sizing line is rewritten from `~N steps covering X, Y, Z` to `~N files covering X, Y, Z`. A step count pre-judges Phase A decomposition, since steps do not exist until execution; it anchors the reader on a number the workflow itself calls non-binding. A planned file count is a knowable plan-time fact that rides the same ~12 / ~5 thresholds the sizing rules use. The sizing check in structural and consistency review rekeys from a claimed-versus-described mismatch to a size-versus-norm comparison, staying plan-file-only.
+
+The `**Scope:**` line (`conventions.md` §Scope indicators (required), format `~N steps covering X, Y, Z`) serves three purposes: structural review's sizing check, a human effort gauge, and a Phase A decomposition starting point. The step count is the misleading part — decomposition happens only at Phase A, and `conventions.md` itself calls scope indicators "strategic signals, not tactical commitments," so a pre-decomposition count anchors the orchestrator on a number the workflow explicitly treats as non-binding. The file footprint replaces it: the planned in-scope file set already lives in each track file's §Interfaces and Dependencies at plan time, so `~N files` reports scope, not a decomposition prediction.
+
+The sizing check survives in rekeyed form. Structural and consistency review today flag "a track claiming ~2 steps but describing 8 distinct changes." After the change they compare the file footprint and the coverage-list cardinality against the track-size norm, and the footprint number is the same ~12 (split) / ~5 (MEDIUM) axis the per-step sizing rules already use, so the plan-level and step-level sizing signals read in one unit. Structural review stays plan-file-only: the `~N files` figure lives in the plan-checklist `**Scope:**` line, so the check needs no track-file read.
+
+Lines were considered as the unit and rejected: a line count depends on implementation that does not exist when the scope line is written, so a `~N lines` figure would be fabricated precision — the same misleading-number failure in a worse unit. Removing the indicator entirely was also rejected: it drops the plan-file-only sizing check and the human effort gauge for no gain over dropping just the misleading unit.
+
+The blast radius is the convention spec (`conventions.md` §Scope indicators, §1.1 glossary "Scope indicator" row, §1.2 checklist examples), the writers (`create-plan/SKILL.md`, `planning.md`), the checkers (`structural-review.md`, `consistency-review.md`, the Phase A review-prompt glossaries, `implementation-review.md`), and the renderers (`plan-slim-rendering.md`, `inline-replanning.md`, the `review-workflow-consistency` glossary term). Every target is workflow machinery and stages under §1.7.
+
+### Edge cases / Gotchas
+
+- The file footprint is an estimate like the step count was; "~3-5 files" stays acceptable, exact counts are not required. The win is that the unit is knowable at plan time, not that it is precise.
+- This branch's own `implementation-plan.md` keeps `~N steps` for its lifetime: the live convention is unchanged until Phase 4 promotion, the next State 0 re-validates against live prompts, and the plan file is removed at the Phase 4 cleanup commit, so its scope lines never reach develop. The durable change is to future plans.
+- The file footprint is a track-level soft heuristic, not a per-step cap; it does not reintroduce the ~3-file step cap this design removes. The branch keeps file-count signals at ~12 / ~5 and rejects file count only as the *definition* of a step.
+
+### References
+
+- D8: scope indicators measure planned file footprint, not step count
 - Invariants: none new
 - Mechanics: none
 
