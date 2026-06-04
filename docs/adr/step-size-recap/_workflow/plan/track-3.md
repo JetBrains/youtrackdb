@@ -8,6 +8,9 @@ After this track, the plan-checklist scope indicator reports a planned file foot
 
 Rewrite the scope indicator from `~N steps` to `~N files` (D8). A step count pre-judges Phase A decomposition; a planned file footprint is knowable at plan time and reads in the same file unit as the per-step sizing rules — a per-track soft heuristic, not the per-step `~12` split cap (A3). Edits the convention spec (`conventions.md` §Scope indicators / §1.2), the writers (`create-plan/SKILL.md`, `planning.md`), the checkers (`prompts/structural-review.md`, `prompts/consistency-review.md`, the three Phase A review-prompt glossaries, and the `track-code-review.md:1070` straggler), and the renderer (`plan-slim-rendering.md`). Three files first listed as targets are verify-only — they carry no format literal (`implementation-review.md`, `inline-replanning.md`, `review-workflow-consistency.md`; DL3).
 
+## Base commit
+dc558590300ee0bbdb199fe40763a4d363a86037
+
 ## Progress
 - [x] Review + decomposition
 - [ ] Step implementation
