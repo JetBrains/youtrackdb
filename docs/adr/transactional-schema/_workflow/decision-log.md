@@ -578,7 +578,10 @@ logically grounded in the cited entries. A second pass (2026-06-03, same day)
 targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
 F39–F44, all re-verified against live code. A third pass (2026-06-04) targeted the
 interaction seams between D8/F41 (tx-local seed), D14 (per-class records), and D15
-(index overlay), adding F45–F47, all PSI-verified against live code.
+(index overlay), adding F45–F47, all PSI-verified against live code. A performance pass
+(2026-06-04) assessed the 400-class / 4,000-index batch workload against the design, adding
+F48–F51 (concentration costs and one F35 implementation invariant), with quantities
+code-grounded.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -660,7 +663,12 @@ overlay mutation and needs no mid-tx rebuild.) The concrete site is
 `schema.forceSnapshot()` to invalidate the *shared* snapshot on every index
 create/drop (via `SchemaShared.snapshotLock`, not the mutation lock — F44); under
 the tx model it must become tx-aware — invalidate the *tx-local* snapshot during
-the tx, the shared one only at commit.
+the tx, the shared one only at commit. The invalidation must be **lazy** (null the
+tx-local snapshot, rebuild on the next read, today's `forceSnapshot` O(1) shape), not an
+eager reconstruction per createIndex — an eager rebuild is O(N²) for a 4,000-index batch
+(F51). A single-column `createIndex` reads no snapshot (F51/Q3), so a pure-DDL batch
+triggers no mid-batch rebuild; composite indexes and data-interleaved batches do carry the
+rebuild cost.
 
 ```mermaid
 flowchart TD
@@ -1145,6 +1153,112 @@ flowchart TD
   RIP["polymorphic ripple → superclass.addPolymorphicCollectionId (:644)"] -. "lock-free, bypasses per-class acquire" .-> NOREC["superclass NOT recorded (correct: polymorphicCollectionIds not persisted)"]
 ```
 
+**Performance pass (2026-06-04).** A fourth pass assessed the headline migration workload
+— 400 classes × 10 properties, every property indexed, created in one batch — against the
+design with the F45–F47 fixes. The design delivers the YTDB-382 win decisively: one commit
+versus ~8,400 per-op self-commits today, and the single-schema-record O(N²) rewrite (F2)
+plus the index-manager-record O(N²) rewrite both drop to O(N). It concentrates the cost
+into one large exclusive-locked atomic operation. F48–F51 record the concentration costs
+and one implementation invariant. Quantities are code-grounded: 8 collections per class
+(`CLASS_COLLECTIONS_COUNT`, `GlobalConfiguration:812`), 4 files per collection (F19), 3
+files per index engine (`.cbt`/`.nbt` plus the always-created `.ixs` histogram,
+`AbstractStorage:2802`/`:2808`).
+
+### F48 — The batch concentrates ~24,800 file creates, ~4,400 record writes, and 4,000 engine builds into one atomic operation under the exclusive write lock [MAJOR — envelope, not defect]
+For 400 classes × 8 collections = 3,200 collections × 4 files = 12,800 collection files,
+plus 4,000 indexes × 3 files = 12,000 index files, the commit creates ~24,800 files in one
+atomic operation, alongside ~4,402 metadata record writes (400 per-class records, 4,000
+per-index entity records, the schema root, the index-manager record) and 4,000 B-tree
+engine inits. All of it runs under `stateLock.writeLock()` for the whole commit (D19), so
+it blocks every concurrent data commit for the build's duration.
+
+- **D12's "schema changes are rare" premise is the tension.** D12 accepts the build under
+  the exclusive lock because schema change is low-rate; a 4,000-index batch is the
+  counterexample. The offline migration envelope (D20: export/import into a fresh database
+  with no concurrent load) absorbs it cleanly; a large batch DDL against a live production
+  database stalls all data commits for seconds-plus. Off-lock / streamed build is the
+  YTDB-1064 follow-up.
+- **Memory bound.** File creates are buffered intent (`FileChanges`) applied only in
+  `commitChanges` (F16); ~24,800 `FileChanges` plus the record deltas plus B-tree root
+  pages buffer in the atomic operation until commit. Bounded (tens of MB) but real; a
+  documented per-tx batch-size limit, or chunked migration, is the safe stance for very
+  large schemas.
+
+```mermaid
+flowchart TD
+  TX["one schema tx: 400 classes, 4,000 indexes"] --> CM["single commit, one atomic op, stateLock.writeLock held throughout (D19)"]
+  CM --> F["~24,800 file creates: 3,200 collections×4 (F49) + 4,000 indexes×3"]
+  CM --> R["~4,402 record writes: 400 class + 4,000 index-entity + schema + manager"]
+  CM --> E["4,000 B-tree engine inits"]
+  CM -. "blocks data commits for the build" .-> STALL["live-DB stall; safe only in the offline D20 envelope; off-lock build = YTDB-1064"]
+```
+
+### F49 — `CLASS_COLLECTIONS_COUNT` default of 8 is the dominant file multiplier; the D20 import should set it low [MAJOR — operational]
+A non-abstract user class allocates `minimumCollections = CLASS_COLLECTIONS_COUNT`
+collections, default **8** (`SchemaEmbedded:328`/`:341`–`343`, `GlobalConfiguration:812`),
+not one. So 400 classes create 3,200 collections = 12,800 files, more than the 12,000 index
+files. The multiplier is pre-existing, but the batch concentrates it into one commit. D20's
+import rebuilds through the schema API and inherits the default, so a 400-class
+export/import migration creates 3,200 collections unless the import sets
+`CLASS_COLLECTIONS_COUNT` low (1 for a single-threaded migration target). D11's artificial
+collection names are unaffected; this is purely the per-class collection count. The
+migration should document the knob.
+
+```mermaid
+flowchart LR
+  C["400 classes"] --> M["× CLASS_COLLECTIONS_COUNT = 8 (GlobalConfiguration:812)"]
+  M --> COL["3,200 collections"]
+  COL --> FILES["× 4 files (F19) = 12,800 collection files"]
+  C -. "import sets count = 1" .-> LOW["400 collections / 1,600 files (D20 knob)"]
+```
+
+### F50 — Latent: the index-manager record's link set is monolithic, so incremental index creation keeps the O(N²) write amplification D14 removed for classes [MINOR — latent, folds YTDB-1064]
+D15 says no D14-style split is needed for indexes because the per-index definitions are
+already separate entity records (F20). True for the per-index entities, but the index
+**manager** record holds one `CONFIG_INDEXES` link set of all index RIDs
+(`IndexManagerAbstract:52`/`:215`–`216`), and adding one index re-serializes the whole
+record. For the batch this is O(N) (one serialization of all 4,000 links at commit, a win);
+for steady-state incremental index creation on a large schema it is O(N²), the exact
+amplification D14 eliminated on the class side, still present on the manager record. Not a
+v1 blocker (the batch is fine); recorded as a latent asymmetry for the YTDB-1064
+optimization scope.
+
+```mermaid
+flowchart TD
+  ADD["createIndex: add RID to manager CONFIG_INDEXES link set (IndexManagerAbstract:216)"] --> SER["whole manager record re-serialized (all N links)"]
+  SER --> BATCH["batch: serialized once at commit → O(N) (win)"]
+  SER --> INCR["incremental: re-serialized per add → O(N²) (D14 amp, still present)"]
+```
+
+### F51 — F35's tx-local snapshot rebuild must be lazy invalidation, not eager reconstruction, or the batch pays O(N²) [MAJOR — implementation invariant]
+F35 requires "force a tx-local snapshot rebuild on every mid-tx createIndex/dropIndex" so
+`ClassIndexManager` sees the new index. Read as **eager reconstruction**, that is O(current
+schema size) per createIndex → O(N²) for a 4,000-index batch. It must be **lazy
+invalidation**: null the tx-local snapshot (today's `forceSnapshot` shape,
+`SchemaShared:218`, O(1)) and rebuild only on the next snapshot read. Verified (Q3,
+2026-06-04): a single-column `createIndex` does not read the schema snapshot — the security
+check that would (`IndexManagerEmbedded:405`) returns early for one-field indexes
+(`:399`–`401`), and the rest of the create path builds none — so a pure-DDL batch triggers
+no mid-batch rebuild and the cost stays O(N). Two cases reintroduce it:
+
+- **Composite indexes.** A multi-field `createIndex` runs the security check, which builds a
+  snapshot per call → O(N²) for a batch of composite indexes.
+- **Data interleaved with index creation.** A record write after a mid-tx createIndex runs
+  `ClassIndexManager`, forcing a tx-local snapshot rebuild (F35); interleaving inserts and
+  index creates reintroduces per-operation rebuilds.
+
+Resolution (F35/D15): pin F35's trigger to lazy invalidation (null-and-rebuild-on-read);
+the cheap-rebuild property holds for pure single-column DDL batches, while composite indexes
+and data-interleaved batches carry the rebuild cost.
+
+```mermaid
+flowchart TD
+  CI["mid-tx createIndex ×4,000"] --> TRIG["F35: invalidate tx-local snapshot"]
+  TRIG -- "lazy null + rebuild-on-read (forceSnapshot:218): O(1)" --> OK["pure single-col DDL: no rebuild (Q3), O(N) total"]
+  TRIG -- "eager reconstruct per call: O(N)" --> BAD["O(N²) for the batch — must NOT do this"]
+  COMP["composite index OR data interleaved"] -. "forces snapshot build per op" .-> COST["per-op rebuild cost returns"]
+```
+
 ---
 
 ## 3. Decisions
@@ -1405,7 +1519,11 @@ IndexManager" framing.
   per-entity records: the manager record holds a `CONFIG_INDEXES` link set to
   per-index entities (F20). Changed index entities are naturally dirtied and
   only those are written at commit; the per-record diff (D6) is already
-  per-index. D14's write-amplification fix is a classes-only concern.
+  per-index. D14's write-amplification fix is a classes-only concern. Latent caveat
+  (F50): the index **manager** record's `CONFIG_INDEXES` link set stays monolithic, so
+  incremental index creation re-serializes the whole link set per add (O(N²) over N
+  indexes), the amplification D14 removed for classes but left here. The batch case is O(N)
+  (serialized once at commit); the incremental case folds into YTDB-1064.
 - **Commit / rollback.** At commit, the changed-index set drives: create engines
   for tx-created indexes (D12, F22), drop engines for tx-dropped ones, write the
   changed per-index entities and update the manager link set, then publish the
@@ -1512,6 +1630,13 @@ ordering still holds: create engine → populate from committed data →
 `lockIndexes` → write tx records → `commitIndexes` applies tracked changes (each
 key counted once; build scan precedes the record-write loop). Follow-up issue:
 YTDB-1064 (depends on YTDB-382).
+
+The "low schema-change rate" premise is the load-bearing assumption. A large batch (the
+F48 scenario: 400 classes / 4,000 indexes builds ~24,800 files and 4,000 engines under
+`stateLock.writeLock`) is the counterexample, acceptable only in the offline D20 migration
+envelope; a live-DB batch DDL stalls all data commits for the build (F48). Off-lock /
+streamed / empty-class-scoped build is the YTDB-1064 optimization (F50 folds the monolithic
+index-manager link-set rewrite into the same scope).
 
 ### D10 — Structural revertibility via the existing atomic-operation WAL; no pool
 From the assignee, 2026-06-03. Collection/index create and drop run inside the
@@ -1704,7 +1829,10 @@ recover.
   (`createProperty`, `:787`), and indexes (`indexManager.createIndex`, `:1420`),
   so the imported database is written in whatever format the current code produces
   — per-class records under D14. The existing round-trip test
-  (`DatabaseExportImportRoundTripTest`) covers the path.
+  (`DatabaseExportImportRoundTripTest`) covers the path. Performance note (F49): the import
+  inherits `CLASS_COLLECTIONS_COUNT` (default 8), so a 400-class import allocates 3,200
+  collections / 12,800 files; setting the count low (1 for a single-threaded target) for the
+  import cuts the collection-file count 8×.
 - **The new code never parses the old format.** Migration is old-binary export →
   JSON → new-binary import, so the new build needs no single-record reader. Opening
   an old-format database with the new binaries is rejected on a schema version
