@@ -13,7 +13,7 @@ eada58a9b0c9a9ec9ec6563f94e747f5a6e0281a
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -21,6 +21,7 @@ eada58a9b0c9a9ec9ec6563f94e747f5a6e0281a
 - [x] 2026-06-04T14:38Z [ctx=safe] Step 1 complete (commit 857072a5c41520dea84378d64ae4e5588faea987)
 - [x] 2026-06-04T14:44Z [ctx=safe] Step 2 complete (commit 4c1804d4d332510e73aad43e58b2cbc227d966b5)
 - [x] 2026-06-04T14:50Z [ctx=safe] Step 3 complete (commit ea12eade9896281b6f477157f476ed5b8dd9cf27)
+- [x] 2026-06-04T14:54Z [ctx=safe] Step 4 complete (commit 394d8965dddcbfeabdf59672838479c2485fba67)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -80,7 +81,7 @@ Invariants to preserve: the trivial-merge floor stays; the existing "when in dou
 1. Rewrite `track-review.md` § Step Decomposition (staged copy): replace the `~3`-edited-file cap (`:717`) with the three sizing rules — coherence (all tiers: split a step that does unrelated things); high-risk isolation (each HIGH change in its own `high`-tagged step, sized by the change, no file cap); fill ordinary `low`/`medium` steps toward `~12` edited files and flag `~14+` as overblown, stated as a directive not a permission. Keep the trivial-merge floor verbatim, including its `(single import, single rename)` parenthetical [T1]. — risk: low (default — workflow prose; under the live taxonomy `.claude/**` doc edits are docs/LOW)  [x] commit: 857072a5c41520dea84378d64ae4e5588faea987
 2. Reword `conventions.md §1.1` Glossary "Step" row (staged copy, `:70`): "atomic" = one coherent, logically continuous change committed together, explicitly not a minimal file count, with a pointer to the `track-review.md` footprint guidance. Keep it terse (closed-term, `roles=any phases=any` surface) and non-contradictory with the step-1 sizing rules. — risk: low (default — workflow prose/glossary; live taxonomy treats as docs/LOW)  [x] commit: 4c1804d4d332510e73aad43e58b2cbc227d966b5
 3. Add the workflow-machinery risk taxonomy to `risk-tagging.md` (staged copy): a `### Workflow machinery` subsection under `## HIGH-risk triggers` (`:94`) keyed to whether the artifact executes or drives control flow plus always-loaded blast radius — root `CLAUDE.md` is HIGH; workflow MEDIUM (bounded behavioral) and LOW (prose/clarity) lines under `:156`/`:172`; and a prose-only cap modeled on the `## Tests-only steps` precedent (`:187`). The prose-only cap MUST carry the full qualifier "no hook/script/settings change AND no gate/dispatch/schema change" so it cannot fire on a control-flow-driving prose edit that the HIGH taxonomy also matches [A1]; state the schema-change-vs-gloss hinge explicitly so a meaning-changing glossary/TOC/enum edit reads HIGH while a wording-preserving gloss reads prose-only/LOW [R1]; keep the cap's cross-tier scope unambiguous (a ceiling for prose-only edits, not a HIGH-only carve-out) [R2]; optionally add a half-sentence distinguishing this risk bucket from the `review-agent-selection.md` "workflow-machinery" file-set predicate if it costs no meaningful length [R3]. — risk: low (default — workflow prose; the workflow risk taxonomy this step ADDS is not yet live per the §1.7(g) I6 invariant, so the step is classified under the live docs/LOW default)  [x] commit: ea12eade9896281b6f477157f476ed5b8dd9cf27
-4. In `risk-tagging.md` (staged copy), add the `~5`-vs-`~12` clarifying clause at the MEDIUM `~5`-file trigger (`:163`) tying `~5` (raise to `medium`) and `~12` (split cap) as complementary, not rival; the clause should note that fill-toward-`~12` will routinely push ordinary single-module steps past `~5` → a larger `medium`-tagged population at Phase C, which is intended (larger diffs warrant more focal-point attention), not a miscalibration [A4]; the `~5` value itself is unchanged. Then sync `track-review.md` § Risk tagging summary (staged copy, `:733`) to name the new workflow-machinery category AND correct the hard count word "Six HIGH categories" so it matches `risk-tagging.md` after step 3 (no stale "Six") [A2], so `review-workflow-consistency` finds no drift. Depends on step 3 (needs the taxonomy's category name). — risk: low (default — workflow prose; live taxonomy docs/LOW)  [ ]
+4. In `risk-tagging.md` (staged copy), add the `~5`-vs-`~12` clarifying clause at the MEDIUM `~5`-file trigger (`:163`) tying `~5` (raise to `medium`) and `~12` (split cap) as complementary, not rival; the clause should note that fill-toward-`~12` will routinely push ordinary single-module steps past `~5` → a larger `medium`-tagged population at Phase C, which is intended (larger diffs warrant more focal-point attention), not a miscalibration [A4]; the `~5` value itself is unchanged. Then sync `track-review.md` § Risk tagging summary (staged copy, `:733`) to name the new workflow-machinery category AND correct the hard count word "Six HIGH categories" so it matches `risk-tagging.md` after step 3 (no stale "Six") [A2], so `review-workflow-consistency` finds no drift. Depends on step 3 (needs the taxonomy's category name). — risk: low (default — workflow prose; live taxonomy docs/LOW)  [x] commit: 394d8965dddcbfeabdf59672838479c2485fba67
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -110,6 +111,15 @@ Phase 1; Phase A does not populate. -->
 
 **Key files:**
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/risk-tagging.md` (new — staged copy with the workflow-machinery taxonomy and the prose-only cap)
+
+### Step 4 — commit 394d8965dddcbfeabdf59672838479c2485fba67, 2026-06-04T14:54Z [ctx=safe]
+**What was done:** Added the `~5`-vs-`~12` clarifying clause to the MEDIUM `~5`-file trigger in the staged `risk-tagging.md`, then synced the § Risk tagging summary in the staged `track-review.md`. The clause ties `~5` (raises a logic step to `medium`) and `~12` (the fill/split cap) as two readings of the same edited-file count for two decisions, complementary not rival, and notes that fill-toward-`~12` routinely pushes single-module steps past `~5` into a larger `medium`-tagged Phase C population — intended, not a miscalibration. The `~5` value is unchanged. The summary's HIGH-category count moved from "Six" to "Seven", "workflow machinery" joined the HIGH enumeration, and the MEDIUM and LOW bands gained their workflow phrasings, so the summary no longer drifts from `risk-tagging.md`. Both edits landed on already-staged copies in place; the live files are unchanged from develop.
+
+**What was discovered:** The staged `risk-tagging.md` has seven HIGH-category `###` subsections after step 3 (concurrency, crash-safety/durability, public API, security, architecture, performance hot path, workflow machinery), so the summary's "Six" was off by exactly one: the workflow-machinery category step 3 added. Any later edit that re-enumerates HIGH categories must hold this count at seven.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/risk-tagging.md` (modified — `~5`/`~12` clarifying clause)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/track-review.md` (modified — § Risk tagging summary sync)
 
 ## Validation and Acceptance
 
