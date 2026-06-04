@@ -18,6 +18,7 @@ dc558590300ee0bbdb199fe40763a4d363a86037
 - [ ] Track completion
 
 - [x] 2026-06-04T17:27Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-04T19:20Z [ctx=safe] Step 1 complete (commit 25a74f4394172e5484f9652fd50b73f1bdbfdc21)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -83,7 +84,7 @@ Phase B appends. -->
 
 Step 1 writes the spec (the source of truth for the `~N files` format). Steps 2-5 each cite that format but touch disjoint file sets, so they may run in any order after Step 1.
 
-1. Rewrite the convention spec in the already-staged `conventions.md`: §Scope indicators (required) format `~N steps`→`~N files covering X, Y, Z`, rekey purpose #1 to the footprint size-vs-norm check, keep the "estimates, not exact counts" rule (the `~3-5` example becomes files), and update the §1.2 Checklist examples. Lead with "the footprint is a per-track soft heuristic, not the per-step `~12` split cap" (A3). The §1.1 "Scope indicator" row is format-neutral — touch only to add a format pointer if harmonizing (T3). Edit the staged copy in place; never re-copy from live (R3, §1.7(d)) — risk: low (default; live taxonomy, §Self-application limit)  [ ]
+1. Rewrite the convention spec in the already-staged `conventions.md`: §Scope indicators (required) format `~N steps`→`~N files covering X, Y, Z`, rekey purpose #1 to the footprint size-vs-norm check, keep the "estimates, not exact counts" rule (the `~3-5` example becomes files), and update the §1.2 Checklist examples. Lead with "the footprint is a per-track soft heuristic, not the per-step `~12` split cap" (A3). The §1.1 "Scope indicator" row is format-neutral — touch only to add a format pointer if harmonizing (T3). Edit the staged copy in place; never re-copy from live (R3, §1.7(d)) — risk: low (default; live taxonomy, §Self-application limit)  [x] commit: 25a74f4394172e5484f9652fd50b73f1bdbfdc21
 2. Update the writers (`create-plan/SKILL.md`, `planning.md`): the scope-indicator format the planner emits and the `**Scope:**` caller-tree estimate-refinement note, swapping `~N steps`→`~N files`. Leave the unrelated `~5-7 steps` track-sizing rule untouched — risk: low (default)  [ ]  *(parallel with Step 3, Step 4, Step 5)*
 3. Rekey the checker sizing checks (`prompts/structural-review.md`, `prompts/consistency-review.md`): swap each file's "Scope indicator" glossary def to `~N files`; rekey the sizing check from claimed-vs-described to footprint size-vs-norm. For structural review, rewrite the `*(cross-file: … Compare both halves.)*` annotation (`:127`–`:134`) to a plan-file-only check comparing footprint count + coverage-list cardinality against the `~12`/`~5` norm — not just the `~2 steps` example (T1, DL1). Consistency review's check stays plan↔design — risk: low (default)  [ ]  *(parallel with Step 2, Step 4, Step 5)*
 4. Swap the Phase A review-prompt glossary definitions (`prompts/technical-review.md`, `prompts/risk-review.md`, `prompts/adversarial-review.md`): each "Scope indicator" def from the `~N steps` to the `~N files` format — risk: low (default)  [ ]  *(parallel with Step 2, Step 3, Step 5)*
@@ -93,6 +94,14 @@ Step 1 writes the spec (the source of truth for the `~N files` format). Steps 2-
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 25a74f4394172e5484f9652fd50b73f1bdbfdc21, 2026-06-04T19:20Z [ctx=safe]
+**What was done:** Rewrote §Scope indicators (required) in the staged `conventions.md` from `~N steps covering X, Y, Z` to `~N files covering X, Y, Z`. The intro leads with the per-track-soft-heuristic framing — the footprint estimates whole-track file count, not the per-step `~12` split cap — and notes that a file count is plan-time-knowable (the in-scope set lives in each track's §Interfaces) where a step count pre-judges Phase A decomposition. Purpose #1, structural review's sizing check, is rekeyed to a plan-file-only footprint-vs-norm comparison against the `~12`/`~5` thresholds. The "estimates, not exact counts" rule survives with its example moved to `~3-5 files`; the two §1.2 Checklist examples now read `~N files`; the §1.1 "Scope indicator" glossary row gained a format pointer (T3). Edited the already-staged copy in place per §1.7(d).
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/conventions.md` (modified — edited in place; already staged by Track 1)
+
+**Critical context:** This commit is the source-of-truth `~N files covering X, Y, Z` wording Steps 2-5 cite. The `~5-7 steps` track-sizing rule (glossary "Track" row) is byte-unchanged, a distinct concept D8 does not touch, and Track 1's §1.1 "Step" edit is intact.
 
 ## Validation and Acceptance
 
