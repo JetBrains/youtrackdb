@@ -42,3 +42,15 @@ workflow-sha stamped (the log is append-only by contract; see
 **Findings**: none surviving.
 
 **Iterations**: 2 of 3 (PASS).
+
+## Mutation 4 — 2026-06-04 — content-edit (design.md)
+
+**Diff summary**: Calibrated D8's track-footprint threshold in §"Scope indicators measure file footprint, not steps". Three coordinated edits (TL;DR, the body sizing-check paragraph, the Edge cases / Gotchas bullet) replace the claim that the footprint "rides the same ~12 / ~5 thresholds the sizing rules use" with a track-level ceiling of ~20-25 in-scope files, distinct from the per-step ~12 / ~5. Rationale: ~12 is the per-step split cap and ~5 the per-step MEDIUM trigger, so a legitimate 5-7-step track aggregates many steps and routinely sits past 12 files; reusing the per-step numbers as the track ceiling would mis-flag normal-sized tracks. D8's core decision (the scope indicator measures planned file footprint, not step count) is unchanged; the per-step ~12 / ~5 (Track 1's domain) are untouched. User-approved mid-Track-3 execution, recorded as DL6 in track-3.md.
+
+**Mechanical checks** (target=design, scope=bounded): PASS (0 findings).
+**Cold-read** (scope: bounded — changed section + surrounding sections + Overview): PASS. Mental-model verdict YES; 1 suggestion.
+
+**Findings**:
+- suggestion: the TL;DR names only the ~20-25-file footprint ceiling, while the body says the check compares the footprint *and* the coverage-list cardinality against the track-level norm. The TL;DR under-describes the two-dimensional check. Not retried per the suggestion-handling rule; the footprint number is the load-bearing one and reads cleanly. Carried as known debt.
+
+**Iterations**: 1 of 3 (PASS).
