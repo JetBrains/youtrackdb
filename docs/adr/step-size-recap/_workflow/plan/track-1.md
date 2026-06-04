@@ -8,6 +8,9 @@ After this track, decomposition sizes steps by coherence and a fill-toward-~12-f
 
 Replace the `~3`-file cap with the three sizing rules (coherence, high-risk isolation, fill-toward-~12) and add the workflow-machinery risk taxonomy that Track 2's reviewer triage depends on. Edits `track-review.md` (§ Step Decomposition rewrite + § Risk tagging summary sync), `conventions.md §1.1` (the "Step" glossary reword), and `risk-tagging.md` (the `~5` MEDIUM clarifying clause + the new `### Workflow machinery` HIGH/MEDIUM/LOW subsection with prose-only cap).
 
+## Base commit
+eada58a9b0c9a9ec9ec6563f94e747f5a6e0281a
+
 ## Progress
 - [x] Review + decomposition
 - [ ] Step implementation
