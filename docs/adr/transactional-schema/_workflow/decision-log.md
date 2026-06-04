@@ -573,7 +573,7 @@ An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
 logically grounded in the cited entries. A second pass (2026-06-03, same day)
 targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
-F39–F43, all re-verified against live code.
+F39–F44, all re-verified against live code.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -583,7 +583,9 @@ methods); F40 → D15/D17 (rename-mutation third category; commit-only
 re-association); F41 → D8 (tx-local seed pinned to fromStream re-parse);
 F42 → D2/D9 (provisional ids must split the `collectionId < 0` predicate;
 re-key the reverse map at commit); F43 → D6/D9 (structural diff is D9's set
-difference over in-memory structures; D6 scoped to which records to write).
+difference over in-memory structures; D6 scoped to which records to write);
+F44 → D7/D19 (dual engage-point at acquireSchemaWriteLock + acquireExclusiveLock;
+index-only txs bypass the schema chokepoint).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -913,6 +915,57 @@ flowchart TD
   DROP["dropped class: record deleted, no per-property signal (F37)"] -. old collectionIds from committed SchemaShared .-> STRUCT
 ```
 
+### F44 — D7's mutex engage-point: schema and index use disjoint locks, so both chokepoints must be instrumented; an index-only tx bypasses the schema one [MAJOR]
+D7 engages the metadata-write mutex "when a tx first mutates schema or indexes,"
+and D19 branches the commit lock on the same signal. A reliable chokepoint
+exists — and it is two chokepoints, not one:
+
+- **Schema mutations** funnel through `SchemaShared.acquireSchemaWriteLock(session)`
+  (`:414`), which drives persistence: `releaseSchemaWriteLock` fires `saveInternal`
+  at the outermost release (`:426`–`:433`). Every persisting schema mutation passes
+  through it (a bypass would already fail to persist today), so it is as reliable as
+  today's save path, and it is exactly the method D1/D8 modify — the engage hook
+  lands there naturally.
+- **Index-definition mutations** funnel through
+  `IndexManagerEmbedded.acquireExclusiveLock(transaction)` (`:188`), bracketing
+  createIndex (`:325`) / dropIndex (`:463`).
+
+The two families use **disjoint** locks: `acquireSchemaWriteLock` callers are
+confined to the schema package; `IndexManagerEmbedded` never calls it. So a tx that
+only does `createIndex` on an existing class (no class/property change) never
+touches the schema chokepoint — yet it builds an engine at commit (D12) and must
+take the write lock (D19) and serialize (D7). The single D7 mutex must therefore
+engage at **both** chokepoints, and D19's commit-entry write-lock branch must fire
+if **either** fired; instrumenting only the schema chokepoint would let index-only
+txs commit on the read-lock fast path while building an engine — re-introducing the
+F33/D19 hazard for that case. D7/D19 already say "one lock for both" / "schema OR
+index changes," so the design is internally consistent; this confirms "both" is
+necessary, not merely tidy.
+
+Two wiring caveats:
+
+- **Active-tx guard.** `acquireSchemaWriteLock` is also called during load / reload
+  / genesis bootstrap; the engage must fire only inside an active user tx, or it
+  spuriously engages outside transactional work.
+- **Mutation-time, not commit-time (D5).** The mutex must engage at the chokepoint
+  during the tx, so a second schema-changing tx blocks. A commit-time-only check
+  would let two schema txs race to a commit-time conflict, which D5 rejects.
+
+Resolution (D7/D19): pin the engage-point to the two chokepoints
+(`acquireSchemaWriteLock` + `acquireExclusiveLock`), engage the single mutex
+idempotently at either, guard on active user tx, and have D19 read the unified
+"either changed-set non-empty" signal.
+
+```mermaid
+flowchart TD
+  SM["schema mutation"] --> SC["acquireSchemaWriteLock (:414, drives saveInternal)"]
+  IMM["index-def mutation (createIndex/dropIndex)"] --> IC["acquireExclusiveLock (:188)"]
+  SC --> ENG["engage single D7 mutex (idempotent); mark tx schema-carrying; guard: active user tx"]
+  IC --> ENG
+  ENG --> CK["D19 commit: write-lock branch if either set non-empty"]
+  IONLY["index-only tx: never calls acquireSchemaWriteLock"] -. must still engage via IC .-> ENG
+```
+
 ---
 
 ## 3. Decisions
@@ -1026,6 +1079,14 @@ Serialize schema/index-changing txns with a new exclusive lock (a
   the releasing thread equals the acquiring thread; a session migrated to
   another thread mid-tx would make this `finally` release throw
   `IllegalMonitorStateException`. v1 scopes mid-tx session migration out (F13).
+  **Engage-point (F44):** the two mutation chokepoints —
+  `SchemaShared.acquireSchemaWriteLock` (`:414`, also drives `saveInternal`) for
+  schema and `IndexManagerEmbedded.acquireExclusiveLock` (`:188`) for index
+  definitions. They use disjoint locks, so the single mutex engages idempotently at
+  both; an index-only tx never touches the schema chokepoint yet must still engage.
+  Engage only inside an active user tx (the chokepoints also fire during
+  load/reload/genesis) and at mutation time, not commit time, so a second
+  schema-changing tx blocks (D5).
 - **Does not block** data commits (`stateLock.readLock`) or snapshot-based
   schema reads (F12), so the low-rate → low-contention premise holds.
 - **At commit**, structural reconciliation additionally takes
@@ -1400,7 +1461,11 @@ today's concurrency. This supersedes D1's "upgrade" framing.
   concurrent data commits for its duration; acceptable because schema changes
   are rare, the same premise that justifies D5/D7/D12.
 - **The branch point already exists.** The schema-carry check is the same signal
-  that engages the D7 mutex and builds the diff (D6); no new bookkeeping.
+  that engages the D7 mutex and builds the diff (D6); no new bookkeeping. The check
+  reads the unified signal — schema OR index changes — because the two mutation
+  families use disjoint chokepoints (F44); an index-only tx (engine built at commit,
+  D12) must take the write-lock branch even though it never touched the schema
+  chokepoint.
 - **Reconciliation uses lock-free inner primitives (F39).** Because the write
   lock is held for the whole schema commit and `ScalableRWLock` is non-reentrant,
   reconciliation must call the lock-free `doAdd*`/`*Internal` primitives under the
