@@ -21,7 +21,7 @@ These rules replace Claude Code's default terminal-output tone. The coding, tool
 Apply these four sections of `.claude/output-styles/house-style.md` to everything you type in chat. Read them once per session if a reply starts drifting:
 
 - `## Banned vocabulary`: the Tier 1-4 word bans.
-- `## Banned sentence patterns`: negative parallelism ("not X, but Y"), double negation, sycophantic openers, throat-clearing, closing connectives, trailing hedges, prompt-restating.
+- `## Banned sentence patterns`: negative parallelism ("not X, but Y"), roundabout negation, sycophantic openers, throat-clearing, closing connectives, trailing hedges, prompt-restating.
 - `## Banned analysis patterns`: superficial -ing clauses, copula avoidance, passive voice, nominalization and placeholder nouns, broken grammar around code identifiers, hedge stacking, vague attribution, generic positive conclusions, signposting, elegant variation, false ranges.
 - `### Em-dash discipline`: at most one em dash per paragraph; prefer a period.
 

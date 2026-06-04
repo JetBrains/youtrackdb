@@ -94,7 +94,7 @@ Update this section quarterly against the Wikipedia "Signs of AI writing" page. 
 These patterns are the highest-confidence AI tells at the sentence shape level. Cut every instance.
 
 - **Negative parallelism.** "It's not X — it's Y.", "It's not X, it's Y.", "Not just A, but B.", "You're not an X, you're a Y." Cut. The pattern adds no information; it performs depth. Rewrite as a positive statement: "Y." or "X plus Y."
-- **Double negation.** "does NOT track the original wrapper, only the bare X", "not unlike", "it is not uncommon". State what IS true: "tracks only the bare X".
+- **Roundabout negation.** Litotes ("not uncommon", "not unlike") and negation-then-exception ("does NOT track X, only the bare Y"). State what IS true: "common", "tracks only the bare Y".
 - **Sycophantic openers.** "Great question!", "Certainly!", "Absolutely!", "Of course!", "I'd be happy to…", "I'd love to help.", "I'm here to help.", "What a wonderful question!", "I love this prompt!". Cut the opener; if the sentence collapses without it, cut the sentence.
 - **Throat-clearing.** "It's worth noting that", "It is important to consider", "One thing to keep in mind", "It should be noted that…", "Interestingly,". State the thing directly.
 - **Closing phrases.** "In conclusion,", "In summary,", "Ultimately,", "To summarize,", "To wrap up,". The last paragraph is the conclusion by position; the connective is filler.
@@ -164,11 +164,16 @@ After:  AggregateCacheTapStep, an AbstractExecutionStep, is spliced into the pla
 A dropped relative pronoun, turning an appositive into a garden path:
 
 ```text
-Before: sumAccumulator evolves through increment, the same call storage's SQLFunctionSum.sum and SQLFunctionAverage.sum make on every value.
+Before: sumAccumulator evolves through increment, the same call SQLFunctionSum.sum and SQLFunctionAverage.sum make on every value.
 After:  sumAccumulator evolves through increment, the same call that SQLFunctionSum.sum and SQLFunctionAverage.sum make on every value.
 ```
 
 A split coordinate predicate: one subject governing two verbs separated by a long clause, so the second verb dangles far from it. Put the second verb beside the first, or start a new sentence.
+
+```text
+Before: Each entry pairs the term with what it replaces, so the delta from the baseline is visible, and points at the section that elaborates it.
+After:  Each entry pairs the term with what it replaces and points at the section that elaborates it. The delta from the baseline is then visible at a glance.
+```
 
 Name the thing with a plain noun and attach the identifier as an appositive; never drop "is", "that", or "which" to save a word.
 
@@ -417,7 +422,7 @@ Before handing the output back, scan it for:
 
 1. **Banned vocabulary.** Tier 1 (hard ban): replace. Tier 2 (strongly avoid): replace or justify. Tier 3 (promotional): replace. Tier 4 (era-specific): replace.
 2. **Em dashes.** Count per paragraph. More than one is a finding.
-3. **Negative parallelism and double negation.** "It's not X, it's Y" / "Not just A, but B" / "does NOT track X, only Y". Rewrite as a positive statement.
+3. **Negative parallelism and roundabout negation.** "It's not X, it's Y" / "Not just A, but B" / "not uncommon" / "does NOT track X, only Y". Rewrite as a positive statement.
 4. **Sycophantic openers, throat-clearing, closing phrases, trailing hedges, prompt-restating, knowledge-cutoff disclaimers.** Cut.
 5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, nominalization and placeholder nouns, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
 6. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
