@@ -644,7 +644,12 @@ that, the write path reads a stale cached set and the tx's own inserts into the
 new index are silently untracked — the exact silent-corruption failure F32
 names. New invariant for D15: force a tx-local snapshot rebuild on every overlay
 mutation within a schema-tx. (Class rename is commit-only, F40, so it is not an
-overlay mutation and needs no mid-tx rebuild.)
+overlay mutation and needs no mid-tx rebuild.) The concrete site is
+`IndexManagerEmbedded.releaseExclusiveLock` (`:201`–`:208`), which today calls
+`schema.forceSnapshot()` to invalidate the *shared* snapshot on every index
+create/drop (via `SchemaShared.snapshotLock`, not the mutation lock — F44); under
+the tx model it must become tx-aware — invalidate the *tx-local* snapshot during
+the tx, the shared one only at commit.
 
 ```mermaid
 flowchart TD
@@ -941,6 +946,20 @@ txs commit on the read-lock fast path while building an engine — re-introducin
 F33/D19 hazard for that case. D7/D19 already say "one lock for both" / "schema OR
 index changes," so the design is internally consistent; this confirms "both" is
 necessary, not merely tidy.
+
+**Snapshot-cache coupling (not the mutation lock).** "Disjoint" is about the
+*mutation* locks. An index mutation is not fully independent of the schema: at the
+outermost index-lock release, `IndexManagerEmbedded.releaseExclusiveLock` (`:201`)
+calls `schema.forceSnapshot()` (`:205`–`:208`), which takes `SchemaShared`'s
+separate `snapshotLock` (`:92`/`:223`) to null the cached `ImmutableSchema` —
+because the snapshot caches the per-class index set (F35). It never acquires
+`acquireSchemaWriteLock` (`lock.writeLock()`, `:414`), and `SchemaClassImpl.createIndex`
+(`:951`) does not either. So the two *mutation* locks stay disjoint and the dual
+engage-point holds; this only reinforces it — since no index path takes the schema
+mutation lock, an index-only tx truly bypasses the schema chokepoint. No deadlock:
+the reverse path (`makeSnapshot` holding `snapshotLock` while building the snapshot)
+reads the index manager lock-free (`getClassRawIndexes:85` takes no index lock), so
+there is no `snapshotLock`↔index-lock inversion.
 
 Two wiring caveats:
 
