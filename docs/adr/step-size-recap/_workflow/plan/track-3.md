@@ -21,6 +21,7 @@ dc558590300ee0bbdb199fe40763a4d363a86037
 - [x] 2026-06-04T19:20Z [ctx=safe] Step 1 complete (commit 25a74f4394172e5484f9652fd50b73f1bdbfdc21)
 - [x] 2026-06-04T19:27Z [ctx=safe] Step 2 complete (commit a97bea18b5696a454f9ca2b121a1b03f76755beb)
 - [x] 2026-06-04T20:21Z [ctx=info] Step 3 complete (commit 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c)
+- [x] 2026-06-04T20:24Z [ctx=info] Step 4 complete (commit 2591bcbf2fc72c1a4f9a21083aacc20d147f33b3)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -94,7 +95,7 @@ Step 1 writes the spec (the source of truth for the `~N files` format). Steps 2-
 1. Rewrite the convention spec in the already-staged `conventions.md`: §Scope indicators (required) format `~N steps`→`~N files covering X, Y, Z`, rekey purpose #1 to the footprint size-vs-norm check, keep the "estimates, not exact counts" rule (the `~3-5` example becomes files), and update the §1.2 Checklist examples. Lead with "the footprint is a per-track soft heuristic, not the per-step `~12` split cap" (A3). The §1.1 "Scope indicator" row is format-neutral — touch only to add a format pointer if harmonizing (T3). Edit the staged copy in place; never re-copy from live (R3, §1.7(d)) — risk: low (default; live taxonomy, §Self-application limit)  [x] commit: 25a74f4394172e5484f9652fd50b73f1bdbfdc21
 2. Update the writers (`create-plan/SKILL.md`, `planning.md`): the scope-indicator format the planner emits and the `**Scope:**` caller-tree estimate-refinement note, swapping `~N steps`→`~N files`. Leave the unrelated `~5-7 steps` track-sizing rule untouched — risk: low (default)  [x] commit: a97bea18b5696a454f9ca2b121a1b03f76755beb  *(parallel with Step 3, Step 4, Step 5)*
 3. Rekey the checker sizing checks (`prompts/structural-review.md`, `prompts/consistency-review.md`): swap each file's "Scope indicator" glossary def to `~N files`; rekey the sizing check from claimed-vs-described to footprint size-vs-norm. For structural review, rewrite the `*(cross-file: … Compare both halves.)*` annotation (`:127`–`:134`) to a plan-file-only check comparing footprint count + coverage-list cardinality against the `~12`/`~5` norm — not just the `~2 steps` example (T1, DL1). Consistency review's check stays plan↔design — risk: low (default)  [x] commit: 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c  *(parallel with Step 2, Step 4, Step 5)*
-4. Swap the Phase A review-prompt glossary definitions (`prompts/technical-review.md`, `prompts/risk-review.md`, `prompts/adversarial-review.md`): each "Scope indicator" def from the `~N steps` to the `~N files` format — risk: low (default)  [ ]  *(parallel with Step 2, Step 3, Step 5)*
+4. Swap the Phase A review-prompt glossary definitions (`prompts/technical-review.md`, `prompts/risk-review.md`, `prompts/adversarial-review.md`): each "Scope indicator" def from the `~N steps` to the `~N files` format — risk: low (default)  [x] commit: 2591bcbf2fc72c1a4f9a21083aacc20d147f33b3  *(parallel with Step 2, Step 3, Step 5)*
 5. Renderer + straggler + verify-only sweep: rewrite the `plan-slim-rendering.md` `~6 steps` example to files; correct the `track-code-review.md:1070` "expected step count" straggler to file-footprint phrasing on the already-staged copy, in place (DL2, R3); and verify the three format-agnostic files (`implementation-review.md`, `inline-replanning.md`, `review-workflow-consistency.md`) carry no `~N steps` literal — leave them byte-unchanged and unstaged unless one turns up (DL3) — risk: low (default)  [ ]  *(parallel with Step 2, Step 3, Step 4)*
 
 ## Episodes
@@ -131,6 +132,16 @@ Phase 1; Phase A does not populate. -->
 **Key files:**
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/structural-review.md` (new — staged copy with the sizing-check rekey + glossary def)
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/consistency-review.md` (new — staged copy with the glossary def + example swap)
+
+### Step 4 — commit 2591bcbf2fc72c1a4f9a21083aacc20d147f33b3, 2026-06-04T20:24Z [ctx=info]
+**What was done:** Swapped the "Scope indicator" glossary definition in the three Phase A review-prompt files — `technical-review.md`, `risk-review.md`, `adversarial-review.md` — from `> **Scope:** ~N steps covering X, Y, Z` to `> **Scope:** ~N files covering X, Y, Z`, matching Step 1's source-of-truth spec. Each is a pure glossary def with no track-footprint threshold, so the edit is a one-line format swap per file. All three were first touched here: staged verbatim from live, then edited (§1.7(e)).
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/technical-review.md` (new — staged copy with the glossary-def swap)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/risk-review.md` (new — staged copy with the glossary-def swap)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (new — staged copy with the glossary-def swap)
+
+**Critical context:** The `~5-7 steps` per-track sizing rule (the "Track" glossary line) is byte-unchanged in all three files. These glossaries carry no track-footprint threshold, so the DL6 `~20-25` calibration does not reach them.
 
 ## Validation and Acceptance
 
