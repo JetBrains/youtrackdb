@@ -87,6 +87,8 @@ agent.
 - **Step modifies WAL replay with lock changes** → all 10 agents
   (storage + performance + concurrency all apply).
 
+*These counts assume the track-level full baseline group; at a high step the baseline group narrows to `review-bugs-concurrency` only per §Step-level vs track-level routing.*
+
 ---
 
 ## Step-level vs track-level routing
@@ -96,7 +98,10 @@ Which agents fire at a high step differs from which review the cumulative
 track diff at Phase C. An agent runs at a step only when its findings are
 localized to that step's diff and would be buried if deferred to the
 cumulative diff; otherwise it defers to the track pass, which loses no
-coverage because the track pass runs the full selection. This note is the
+coverage because the track pass runs the full selection. The per-agent
+assignment in the paragraphs below is the operative rule; the
+localized-versus-buried test explains why each agent lands where it does and
+is not re-evaluated at dispatch time. This note is the
 single source of truth for that timing; the dispatch points in
 `step-implementation.md` (step) and `track-code-review.md` (track) consume
 it. The note sits outside the four `§Maintenance`-mirrored sections below,
@@ -120,7 +125,10 @@ workflow reviewers are selected by their existing per-agent file-pattern
 globs in §Per-agent file-pattern triggers, not by the risk taxonomy. The
 taxonomy decides only whether a step is tagged `high`; once a step reaches
 step-level review, its changed-file globs decide which workflow reviewers
-fire. Of the six, `review-workflow-hook-safety` and
+fire. Those globs are evaluated after the §Workflow-machinery override
+staged-path normalization (the same normalization the track-level path
+inherits), so a step's staged `docs/adr/<dir>/_workflow/staged-workflow/.claude/...`
+edits match their live-path globs rather than silently missing. Of the six, `review-workflow-hook-safety` and
 `review-workflow-prompt-design` run at the step: hook-safety's findings
 (script correctness, `/tmp` collisions, JSON validity) and prompt-design's
 findings (one prompt's internal decision rules, frontmatter, `$ARGUMENTS`)
@@ -150,7 +158,11 @@ completeness in isolation.
 is a Java-code reviewer and never reviews workflow machinery. On a
 workflow-only diff the baseline-skip override removes the whole baseline
 group; on a mixed Java + workflow diff `IN_SCOPE_FILES` scopes
-`review-bugs-concurrency` to the Java files. The Java review path
+`review-bugs-concurrency` to the Java files. The same Case-3
+`IN_SCOPE_FILES` pre-filter complementarily scopes the step-level workflow
+reviewers (`hook-safety`, `prompt-design`) to the workflow-machinery subset
+of the diff (see the §Workflow-machinery override Case 3); the mechanics
+live there and are not duplicated here. The Java review path
 (`review-bugs-concurrency`) and the workflow review path (the six
 workflow reviewers) are deliberately disjoint.
 

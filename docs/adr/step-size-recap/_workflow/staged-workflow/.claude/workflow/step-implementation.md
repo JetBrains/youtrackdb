@@ -433,9 +433,14 @@ finding ID prefixes, and gate format.
       the baseline-skip override in `review-agent-selection.md`), which
       removes the whole baseline group, `review-bugs-concurrency`
       included. The step-level workflow reviewers (`hook-safety`,
-      `prompt-design`) fire by their existing file-pattern triggers;
-      conditional agents are added based on the step description and
-      changed files.
+      `prompt-design`) fire by their existing file-pattern triggers,
+      evaluated after the §Workflow-machinery override staged-path
+      normalization and, on a mixed Java + workflow step, scoped to the
+      workflow-machinery subset by the same Case-3 `IN_SCOPE_FILES`
+      pre-filter that scopes `review-bugs-concurrency` to the Java files
+      (see §Step-level vs track-level routing in
+      `review-agent-selection.md`); conditional agents are added based on
+      the step description and changed files.
 
       Before composing prompts, **pre-stage the step diff and the
       changed-files list** so the canonical context block references

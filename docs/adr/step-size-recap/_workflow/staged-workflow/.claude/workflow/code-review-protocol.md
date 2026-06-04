@@ -27,7 +27,7 @@ review-agent-selection.md:orchestrator:3A,3B,3C).
   reviewers receive the per-step risk tags and treat `medium` and
   `high` step ranges as focal points within the diff.
 
-The baseline agents differ by level. At a **step**, only
+The baseline agents differ by level. At a **high** step, only
 `review-bugs-concurrency` runs from the baseline group; the other three
 baselines defer to the track pass. At a **track**, all four baselines
 run. Both selections sit under the baseline-skip override: a
