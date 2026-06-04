@@ -733,6 +733,18 @@ jobs:
       - name: Verify embedded code examples in documentation
         run: npx embedme --verify **/*.md
 
+      # Fold workflow TOC + annotation validation into the required CI Status
+      # gate. The standalone `workflow-toc-check.yml` workflow gives fast,
+      # path-filtered PR feedback, but it is not a required status check, so a
+      # red TOC check there cannot block a merge (this is how a schema
+      # violation reached develop unblocked). Running `--check` here makes a
+      # violation fail CI Status — the blocking gate — on pull requests and on
+      # develop pushes alike. The check is stdlib-only and finishes in ~1s, and
+      # it runs before the should_build early-exit below so it also covers
+      # workflow-only PRs that skip the build matrix.
+      - name: Validate workflow TOC + annotations
+        run: python3 .claude/scripts/workflow-reindex.py --check
+
       - name: Check results
         env:
           DETECT_RESULT: ${{ needs.detect-changes.result }}
