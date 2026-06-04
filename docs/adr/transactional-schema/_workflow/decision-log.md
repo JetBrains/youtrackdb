@@ -573,7 +573,7 @@ An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
 logically grounded in the cited entries. A second pass (2026-06-03, same day)
 targeted this session's less-reviewed additions (D16–D19, F26–F38) and added
-F39–F42, all re-verified against live code.
+F39–F43, all re-verified against live code.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -582,7 +582,8 @@ primitives extracted; reconciliation never calls the public write-lock-taking
 methods); F40 → D15/D17 (rename-mutation third category; commit-only
 re-association); F41 → D8 (tx-local seed pinned to fromStream re-parse);
 F42 → D2/D9 (provisional ids must split the `collectionId < 0` predicate;
-re-key the reverse map at commit).
+re-key the reverse map at commit); F43 → D6/D9 (structural diff is D9's set
+difference over in-memory structures; D6 scoped to which records to write).
 
 ### F33 — D1's read→write `stateLock` upgrade is impossible; `ScalableRWLock` is non-reentrant with writer preference [BLOCKER]
 D1 says a schema-carrying commit "upgrades from the shared `stateLock` read lock
@@ -862,6 +863,56 @@ flowchart TD
   FIX["split < 0 into abstract(-1)/provisional(≤-2)/real(≥0); populate map for provisional; re-key provisional→real at commit"] --> OK["tx-local record→class resolves; commit patches reverse map"]
 ```
 
+### F43 — D6 (per-property record diff) and D9 (collection-id set difference) describe the diff at two levels; the drop path forces D9's in-memory set difference [MAJOR]
+D6's drop-detection premise is sound and verified: the schema-record link set can
+be a tracked `EntityImpl` multi-value whose delta is recoverable at commit.
+Confirmed on the `CONFIG_INDEXES` mirror D14 copies — `IndexManagerAbstract`
+mutates it via `indexEntity.getOrCreateLinkSet(CONFIG_INDEXES).add(...)` (`:216`),
+a tracked link-set add, and `EntityImpl` retains both the per-property `original`
+(`:1851`/`:1991`) and a `MultiValueChangeTimeLine` of add/remove events (`:2301`).
+So D14's schema-record link set mirrors it and the link-set delta is reliable.
+
+But D6 and D9 frame the structural diff at different levels and conflate two
+distinct computations:
+
+- **Which records to persist** — D14's write-amplification win: `EntityImpl` dirty
+  tracking writes only changed class records. Record-level, per-property.
+- **Which collections/indexes to create/drop** — D9's set difference: collection
+  ids in the old set absent from the new (drop) or new absent from old (create).
+
+The drop case proves D6's "derive create/drop from property-level changes" framing
+wrong: a dropped class's record is deleted, so it carries no per-property "new"
+value (F37). The link-set delta tells you *which* class records were unlinked, but
+the collections to drop are that class's *old* collectionIds — recoverable only
+from the still-unmodified committed in-memory `SchemaShared` (at committed state
+until commit-apply, D4/D8), not from the deleted record's per-property diff. The
+clean mechanism for the whole structural diff is therefore D9's set difference over
+the committed `SchemaShared` (old) vs the tx-local `SchemaShared` (new)
+collection-id sets; per-property dirty tracking (D6/D14) is the separate "which
+records to write" concern.
+
+Resolution (D6/D9): scope D6's per-property/dirty tracking to "which records get
+persisted (D14)," and state the structural collection/index create/drop set is
+D9's set difference over the committed vs tx-local in-memory structures (the old
+side, including a dropped class's collectionIds, comes from the committed
+`SchemaShared`/`IndexManager`, not record-level property changes). An implementer
+who built the collection diff purely from `EntityImpl` dirty fields would miss
+drops — deleted records have no dirty fields — orphaning collections that should be
+freed.
+
+```mermaid
+flowchart TD
+  subgraph WRITE["which records to persist (D6/D14 — per-property)"]
+    DT["EntityImpl dirty tracking"] --> WR["write only changed class records"]
+  end
+  subgraph STRUCT["which collections to create/drop (D9 — set difference)"]
+    OLD["committed SchemaShared collection-id set (D4/D8: pre-commit state)"] --> DIFF["set difference"]
+    NEW["tx-local SchemaShared collection-id set"] --> DIFF
+    DIFF --> CRD["create = new − old; drop = old − new"]
+  end
+  DROP["dropped class: record deleted, no per-property signal (F37)"] -. old collectionIds from committed SchemaShared .-> STRUCT
+```
+
 ---
 
 ## 3. Decisions
@@ -954,8 +1005,11 @@ old (persisted) metadata against the new (in-tx) metadata and derives the
 collection/index create/drop set from those property-level changes. No new
 tx-side bookkeeping. Drops are detected from the schema-record link-set delta
 (D14), not from per-class property changes — a dropped class's record is
-deleted, so it has no per-property change to inspect (F37). From the assignee,
-2026-06-03.
+deleted, so it has no per-property change to inspect (F37). The per-property/dirty
+tracking here governs *which records are written* at commit (the D14
+write-amplification win); the *structural* collection/index create/drop set is
+D9's set difference over the committed vs tx-local in-memory structures, not the
+record-level property diff (F43). From the assignee, 2026-06-03.
 
 ### D7 — A dedicated, transaction-scoped metadata-write mutex
 Serialize schema/index-changing txns with a new exclusive lock (a
@@ -1112,7 +1166,12 @@ From the assignee, 2026-06-03. Collection id is the stable structural identity
   classes carry provisional (negative) ids during the tx (D2), resolved to real
   ids at commit.
 - **Drop** = real collection ids in the old schema absent from the new — drop
-  the collection (intended data loss, e.g. drop-class).
+  the collection (intended data loss, e.g. drop-class). The diff is a set
+  difference computed over the committed in-memory `SchemaShared` (old) vs the
+  tx-local `SchemaShared` (new) collection-id sets; a dropped class's old
+  collectionIds come from the committed structure (at committed state until
+  commit-apply, D4/D8), since its record is deleted and carries no per-property
+  signal (F43).
 - **Abstract classes** carry `collectionIds = {-1}`, so their create/drop is
   pure metadata, no structural op. Constraint folded back into D2: provisional
   ids must use a sentinel range disjoint from `-1` (`NOT_EXISTENT_COLLECTION_ID`)
