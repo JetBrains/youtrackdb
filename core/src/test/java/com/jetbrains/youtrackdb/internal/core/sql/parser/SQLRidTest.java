@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -47,5 +48,30 @@ public class SQLRidTest {
 
     assertNotNull("expression branch should resolve the RID", recordId);
     assertEquals("#12:0", recordId.toString());
+  }
+
+  /**
+   * setExpression on a node that already holds a legacy {@code #c:p} literal
+   * must fully transition it to the expression form: the new expression
+   * resolves the RID and the stale collection/position pair is cleared, so no
+   * contradictory hybrid state survives.
+   */
+  @Test
+  public void setExpression_onLegacyLiteral_clearsPairAndUsesExpression() {
+    var rid = new SQLRid(-1);
+    var c = new SQLInteger(-1);
+    c.setValue(99);
+    var p = new SQLInteger(-1);
+    p.setValue(9);
+    rid.setCollection(c);
+    rid.setPosition(p);
+    rid.setLegacy(true);
+
+    rid.setExpression(parseRidValueExpression("@rid = #12:0"));
+
+    assertEquals("#12:0",
+        rid.toRecordId((Result) null, new BasicCommandContext()).toString());
+    assertNull("legacy collection must be cleared", rid.collection);
+    assertNull("legacy position must be cleared", rid.position);
   }
 }

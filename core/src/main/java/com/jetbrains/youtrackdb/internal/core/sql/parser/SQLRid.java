@@ -142,10 +142,15 @@ public class SQLRid extends SimpleNode {
 
   public void setExpression(SQLExpression expression) {
     this.expression = expression;
-    // An expression-backed RID is by definition not a legacy literal pair.
-    // Without this, a stale legacy=true would make toRecordId short-circuit to
-    // the collection:position pair and ignore the expression.
+    // Fully transition this node to the expression form, matching what the
+    // grammar produces for {"@rid": <expr>} (legacy=false, no literal pair).
+    // Otherwise a node previously holding a #c:p literal keeps a stale
+    // collection/position: toRecordId honours the guard and uses the
+    // expression, but toString(String)/equals/copy would still reflect the old
+    // pair, leaving a contradictory hybrid state.
     this.legacy = false;
+    this.collection = null;
+    this.position = null;
   }
 
   public SQLInteger getCollection() {
