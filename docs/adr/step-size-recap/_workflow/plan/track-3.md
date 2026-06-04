@@ -22,6 +22,7 @@ dc558590300ee0bbdb199fe40763a4d363a86037
 - [x] 2026-06-04T19:27Z [ctx=safe] Step 2 complete (commit a97bea18b5696a454f9ca2b121a1b03f76755beb)
 - [x] 2026-06-04T20:21Z [ctx=info] Step 3 complete (commit 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c)
 - [x] 2026-06-04T20:24Z [ctx=info] Step 4 complete (commit 2591bcbf2fc72c1a4f9a21083aacc20d147f33b3)
+- [x] 2026-06-04T20:31Z [ctx=info] Step 5 complete (commit 7ab849e8f299cda7746d7c2aef07a138383a0d6e)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -96,7 +97,7 @@ Step 1 writes the spec (the source of truth for the `~N files` format). Steps 2-
 2. Update the writers (`create-plan/SKILL.md`, `planning.md`): the scope-indicator format the planner emits and the `**Scope:**` caller-tree estimate-refinement note, swapping `~N steps`→`~N files`. Leave the unrelated `~5-7 steps` track-sizing rule untouched — risk: low (default)  [x] commit: a97bea18b5696a454f9ca2b121a1b03f76755beb  *(parallel with Step 3, Step 4, Step 5)*
 3. Rekey the checker sizing checks (`prompts/structural-review.md`, `prompts/consistency-review.md`): swap each file's "Scope indicator" glossary def to `~N files`; rekey the sizing check from claimed-vs-described to footprint size-vs-norm. For structural review, rewrite the `*(cross-file: … Compare both halves.)*` annotation (`:127`–`:134`) to a plan-file-only check comparing footprint count + coverage-list cardinality against the `~12`/`~5` norm — not just the `~2 steps` example (T1, DL1). Consistency review's check stays plan↔design — risk: low (default)  [x] commit: 6cb1c00ec7b3192e8fe74c6242412b485a0c9e7c  *(parallel with Step 2, Step 4, Step 5)*
 4. Swap the Phase A review-prompt glossary definitions (`prompts/technical-review.md`, `prompts/risk-review.md`, `prompts/adversarial-review.md`): each "Scope indicator" def from the `~N steps` to the `~N files` format — risk: low (default)  [x] commit: 2591bcbf2fc72c1a4f9a21083aacc20d147f33b3  *(parallel with Step 2, Step 3, Step 5)*
-5. Renderer + straggler + verify-only sweep: rewrite the `plan-slim-rendering.md` `~6 steps` example to files; correct the `track-code-review.md:1070` "expected step count" straggler to file-footprint phrasing on the already-staged copy, in place (DL2, R3); and verify the three format-agnostic files (`implementation-review.md`, `inline-replanning.md`, `review-workflow-consistency.md`) carry no `~N steps` literal — leave them byte-unchanged and unstaged unless one turns up (DL3) — risk: low (default)  [ ]  *(parallel with Step 2, Step 3, Step 4)*
+5. Renderer + straggler + verify-only sweep: rewrite the `plan-slim-rendering.md` `~6 steps` example to files; correct the `track-code-review.md:1070` "expected step count" straggler to file-footprint phrasing on the already-staged copy, in place (DL2, R3); and verify the three format-agnostic files (`implementation-review.md`, `inline-replanning.md`, `review-workflow-consistency.md`) carry no `~N steps` literal — leave them byte-unchanged and unstaged unless one turns up (DL3) — risk: low (default)  [x] commit: 7ab849e8f299cda7746d7c2aef07a138383a0d6e  *(parallel with Step 2, Step 3, Step 4; scope expanded by DL6 — see episode)*
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -142,6 +143,21 @@ Phase 1; Phase A does not populate. -->
 - `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (new — staged copy with the glossary-def swap)
 
 **Critical context:** The `~5-7 steps` per-track sizing rule (the "Track" glossary line) is byte-unchanged in all three files. These glossaries carry no track-footprint threshold, so the DL6 `~20-25` calibration does not reach them.
+
+### Step 5 — commit 7ab849e8f299cda7746d7c2aef07a138383a0d6e, 2026-06-04T20:31Z [ctx=info]
+**What was done:** Four-part sweep closing out the track. (a) DL6 track-footprint calibration applied in place to the three checks: `conventions.md` §Scope indicators purpose #1, `structural-review.md`'s SCOPE INDICATORS plausibility check (`:124`), and its TRACK SIZING check (`:166`) now compare against a track-level `~20-25`-file ceiling, stated as distinct from the per-step `~12` split cap and `~5` MEDIUM trigger; the `:166` rewrite keeps the `~5-7` steps track-sizing rule and notes step count is not knowable from a file-footprint indicator at plan time. (b) `plan-slim-rendering.md` (first touch, staged from live) example moved from `~6 steps` to `~6 files`. (c) the `track-code-review.md` inline-replan Categorize-path straggler corrected from "expected step count" to "expected file footprint" on the Track-2-staged copy, in place. (d) the three format-agnostic files verified clean and left unstaged (DL3).
+
+**What was discovered:** No `~12`/`~5`-as-track-footprint comparison or "scope indicator → steps" derivation beyond the three Part (a) spots. The other `~12`/`~5` occurrences in `structural-review.md` are unrelated (a `~12 classes` diagram count, a `~5 lines` invariant-length cap) and were left untouched. The `~5-7 steps` rule survives at all five sites (`conventions.md` Track-glossary row + Planning rule; `structural-review.md` intro, the kept TRACK SIZING reference, and the Track-sizing red-flag entry).
+
+**What changed from the plan:** Step 5's roster scope (renderer + `:1070` straggler + verify sweep) was expanded mid-execution by DL6 to also apply the `~20-25` track-footprint calibration in place to `conventions.md` purpose #1 and `structural-review.md:124`/`:166`. No future steps affected — this is the track's final step. See Decision Log DL6.
+
+**Key files:**
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/conventions.md` (modified in place — purpose #1 ~20-25 calibration)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/prompts/structural-review.md` (modified in place — :124 + :166 ~20-25 calibration)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/plan-slim-rendering.md` (new — staged copy with the `~6 files` example)
+- `docs/adr/step-size-recap/_workflow/staged-workflow/.claude/workflow/track-code-review.md` (modified in place — :1070 straggler)
+
+**Critical context:** The staged scope-indicator surface is now uniformly file-footprint: zero `~N steps` scope-indicator literals remain anywhere in the staged tree. The `~5-7 steps` track-sizing rule and the per-step `~12`/`~5` thresholds (`risk-tagging.md`/`track-review.md`) are intact.
 
 ## Validation and Acceptance
 
