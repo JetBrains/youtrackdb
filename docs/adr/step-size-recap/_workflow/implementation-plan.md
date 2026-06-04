@@ -150,9 +150,13 @@ flowchart LR
   > **Scope:** ~4 steps covering the convention spec rewrite, the writers, the checkers, and the renderers.
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed at iteration 1 (re-validation of the Track-3-revised plan)
 
-Reset by the inline replan that added Track 3 (D8) after the Track Pre-Flight escalation. The next `/execute-tracks` re-runs State 0 (consistency + structural) against the revised plan before any track work.
+**Auto-fixed (mechanical)**: none — both reviews returned zero findings.
+
+**Escalated (design decisions)**: none.
+
+Re-validation after the inline replan that added Track 3 (D8). The consistency review verified every current-state citation in the three track files against the live `.claude/**` machinery and confirmed DR↔design traceability; the structural review confirmed ordering (Track 1 → Track 2 depends-on-1 → Track 3 independent), sizing, scope indicators, and absence of bloat. The plan's own `~N steps` scope lines are correct under the unchanged live convention (D8 switches the convention to `~N files` for future plans only).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
