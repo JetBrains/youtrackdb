@@ -184,7 +184,16 @@ A step is `medium` if no HIGH trigger fires AND it has any of:
 
 - New non-public methods or classes that change observable behavior of
   one component (i.e., not pure refactoring)
-- Logic changes touching more than ~5 files within one module
+- Logic changes touching more than ~5 files within one module. This
+  `~5` and the `~12` fill/split cap from `track-review.md`
+  §"Step Decomposition" measure the same edited-file count for two
+  different decisions, so they are complementary, not rival: `~5`
+  raises a logic step to `medium`, while `~12` bounds how large a
+  coherent step should grow. Fill-toward-`~12` will routinely push
+  ordinary single-module steps past `~5`, producing a larger
+  `medium`-tagged population that reaches Phase C focal-point review.
+  That is intended (larger diffs warrant more focal-point attention),
+  not a miscalibration; the `~5` value is unchanged.
 - Changes to test infrastructure or shared test fixtures
 - New Maven dependencies, version bumps, or non-trivial build-config
   changes

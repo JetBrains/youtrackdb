@@ -747,11 +747,12 @@ Phase C always runs against the cumulative track diff regardless of
 the per-step distribution.
 
 Apply the criteria in risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C — load that
-file at the start of decomposition. Six HIGH categories (concurrency,
+file at the start of decomposition. Seven HIGH categories (concurrency,
 crash-safety/durability, public API, security, architecture,
-performance hot path), one MEDIUM band (multi-file logic, test
-infrastructure, build config, observability changes), and a LOW
-default for refactoring / new tests / docs / isolated bug fixes. When
+performance hot path, workflow machinery), one MEDIUM band (multi-file
+logic, test infrastructure, build config, observability changes,
+bounded behavioral workflow edits), and a LOW default for refactoring /
+new tests / docs / isolated bug fixes / prose-only workflow edits. When
 in doubt, mark `high` — over-tagging costs an extra review, but
 missing a real high-risk step ships bugs.
 
