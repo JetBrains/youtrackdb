@@ -136,9 +136,17 @@ flowchart LR
 - Migrating this branch's own `implementation-plan.md` scope lines from `~N steps` to `~N files` mid-branch (D8) — the live convention is unchanged until Phase 4 promotion and the plan file is removed at the cleanup commit, so its scope lines never reach develop. The durable change is to future plans; a cosmetic Phase 4 promotion migration remains optional.
 
 ## Checklist
-- [ ] Track 1: Sizing & risk taxonomy
+- [x] Track 1: Sizing & risk taxonomy
   > Replace the `~3`-file cap with the three sizing rules and add the workflow-machinery risk taxonomy that Track 2's triage depends on. Edits `track-review.md` (§ Step Decomposition rewrite + § Risk tagging summary sync), `conventions.md §1.1` (the "Step" glossary reword), and `risk-tagging.md` (the `~5` MEDIUM clarifying clause + the new `### Workflow machinery` HIGH/MEDIUM/LOW subsection with prose-only cap).
-  > **Scope:** ~4 steps covering the sizing-rule rewrite, the glossary reword, the workflow risk taxonomy, and the risk-summary sync.
+  >
+  > **Track episode:**
+  > Replaced the `~3`-edited-file step cap with three sizing rules (coherence as the only mandatory split, high-risk isolation with no file cap, fill-toward-`~12`) in `track-review.md` § Step Decomposition; reworded the `conventions.md §1.1` "Step" glossary so "atomic" means coherent-not-minimal; and added the workflow-machinery risk taxonomy to `risk-tagging.md` (`### Workflow machinery` HIGH, workflow MEDIUM/LOW, the `## Prose-only workflow steps` cap, the `~5`/`~12` clause), with the § Risk tagging summary synced to seven HIGH categories. The taxonomy is the trigger Track 2's reviewer triage keys off, so it landed first.
+  >
+  > Phase C reviewed a workflow-only diff (baseline group skipped; four workflow-review agents, delta-scoped to the staged-vs-live edit per §1.7(h)). One fix iteration (commit `39fbacc84d`) tightened two tier boundaries in the new taxonomy: the prose-only hinge now scopes "TOC" to TOC-format so a single-section rename stays MEDIUM, and the `~14+` overblown flag is scoped to `low`/`medium` steps so it no longer collides with high-risk isolation's no-file-cap.
+  >
+  > Branch-wide blocker surfaced (out of this track's scope): as the first branch to exercise §1.7 staging end-to-end, it revealed that `workflow-reindex.py` rule_1 demands a line-1 `workflow-sha` stamp on staged `.claude/workflow/**` copies, contradicting §1.6(f) (staged copies are not in the stamped set), §1.7(e) (verbatim copy of the unstamped live file), and the Phase 4 `cp -r` promotion (no stamp strip — a stamp would corrupt the live file). CI `workflow-toc-check.yml` runs `--check` on non-draft PRs, so this branch and Tracks 2/3 fail the TOC-check gate once the PR is marked ready. The staged copies are correct as-is; the fix is to exempt staged copies from rule_1 in `workflow-reindex.py` (a live edit, outside staging scope), filed as a dev-workflow YouTrack issue. The PR stays in draft until resolved.
+  >
+  > **Track file:** `plan/track-1.md` (4 steps, 0 failed)
 
 - [ ] Track 2: Review routing
   > Split review-agent dispatch into step-level vs track-level and promote `review-bugs-concurrency` to a mandatory baseline. Edits `review-agent-selection.md` (baseline carve-out + a new non-mirrored triage note), `step-implementation.md` (sub-step 4a dispatch), `track-code-review.md` (track-level dispatch), the `risk-tagging.md` `high` quick-ref row, and `code-review/SKILL.md` (bugs-concurrency promotion).
