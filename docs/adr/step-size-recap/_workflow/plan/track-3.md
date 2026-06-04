@@ -13,7 +13,7 @@ dc558590300ee0bbdb199fe40763a4d363a86037
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
