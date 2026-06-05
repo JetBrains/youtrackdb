@@ -175,12 +175,16 @@ flowchart LR
   > **Scope:** ~4 steps covering the convention spec rewrite, the writers, the checkers, and the renderers.
 
 - [ ] Track 4: Reindex rule_1 staged-mirror exemption (YTDB-1068)
-  > Fix the `workflow-reindex.py` rule_1 false-positive that fails the CI TOC-check gate on every workflow-modifying branch that stages a workflow copy. Rule_1 demands a line-1 `workflow-sha` stamp on `docs/adr/`-rooted in-scope paths, but the script's in-scope globs are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file. Exempt the staged subtree, sync the now-stale rule_1 docstring, and invert the regression test that asserts the pre-fix behavior. This is a live `.claude/scripts/` edit, outside §1.7 staging scope; the I6 staged-set invariant is unaffected.
+  > Fix the `workflow-reindex.py` rule_1 false-positive that fails the CI TOC-check gate on every workflow-modifying branch that stages a workflow copy. Rule_1 demands a line-1 `workflow-sha` stamp on `docs/adr/`-rooted in-scope paths, but the script's in-scope globs are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file. Exempt the staged subtree, sync the now-stale rule_1 docstring, and invert the regression test that asserts the pre-fix behavior.
   > **Scope:** ~3 steps covering the rule_1 staged-mirror exemption, the regression test, and the docstring and cross-ref sync.
   > **Depends on:** none (independent)
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed (re-validation after the Track 4 inline replan); consistency iter-1 + gate PASS, structural iter-1 + gate PASS
+
+**Auto-fixed (mechanical)**: CR1 — sharpened the `IN_SCOPE_GLOBS` citation in `plan/track-4.md` (lines 9, 39, 43): the tuple spans `workflow-reindex.py:118`–`:156` and mixes nine live-path globs with the staged-mirror globs; rule_1's `docs/adr/` early-return (`:1562`) is what restricts the stamp check to the staged mirror, so the wrong `:142`–`:155` range and the "entirely the mirror" overstatement are corrected. S1 — trimmed the Track 4 plan-checklist intro from 4 sentences to 3, dropping a duplicated I6/`.claude/scripts`-outside-staging caveat that already lives in `track-4.md` and D9.
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
