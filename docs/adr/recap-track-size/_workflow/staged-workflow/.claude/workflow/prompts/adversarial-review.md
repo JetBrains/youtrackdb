@@ -68,6 +68,11 @@ What changes from the Phase 3A track review below:
   forces a design revision before cold-read runs; `should-fix` strengthens
   the design's rationale; `suggestion` is recorded. There is no `skip`
   severity in design scope — a design is not a track that can be dropped.
+  The severity guide below carries a track-shaped `skip` for the Phase 3A
+  review; in design scope, if you would otherwise emit `skip`, **raise it
+  to `blocker`** instead — a design that should be abandoned is a blocking
+  design revision (rethink it before the plan derives from it), not a
+  track drop.
 
 Everything below this section (`## Workflow Context` onward) describes the
 Phase 3A track review. Read it for the certificate mechanics and output

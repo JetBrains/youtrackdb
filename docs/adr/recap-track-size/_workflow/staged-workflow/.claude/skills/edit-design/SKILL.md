@@ -433,7 +433,13 @@ severity schema as the mechanical and cold-read findings: an adversarial
 `blocker` forces a design revision in the Step 6 iterate loop before
 cold-read runs; `should-fix` and `suggestion` carry into the merged list in
 Step 5. There is no `skip` severity in design scope — a design is not a
-track that can be dropped.
+track that can be dropped. The adversarial template is shared with the
+Phase-3A track review, which carries a track-shaped `skip` severity; if the
+shared template emits a would-be `skip` against a design, **treat it as a
+`blocker`** — a design that should be abandoned is a blocking design revision
+(rethink it before the plan derives from it), not a track drop. This keeps
+the severity mapping fully deterministic for every value the template can
+produce.
 
 ### Step 4: Run the cold-read sub-agent
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects." -->

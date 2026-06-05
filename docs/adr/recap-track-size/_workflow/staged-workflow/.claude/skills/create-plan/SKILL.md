@@ -135,13 +135,37 @@ ls docs/adr/<dir-name>/_workflow/design.md docs/adr/<dir-name>/_workflow/impleme
 
 Route on what exists:
 
-- **`design.md` exists, `implementation-plan.md` does not** — the
-  design seed is frozen but the plan has not been derived. **Auto-resume
-  into Step 4b** (plan derivation): skip Step 2's aim prompt and Step 3's
-  Phase 0 research loop entirely — the aim and research are already
-  captured in the frozen `design.md` and the conversation that produced
-  it. Read `planning.md` (deferred from Step 1) and derive the plan from
-  the frozen design.
+- **`design.md` exists, `implementation-plan.md` does not** — the design
+  seed may be frozen, but file presence alone is not proof: `edit-design`
+  writes `design.md` to disk in its *apply* step, **before** the
+  adversarial + cold-read review runs and before Step 5 commits it. A
+  Step 4a session interrupted after the write but before the review
+  passed (context-full `/clear`, crash, no handoff) leaves an
+  **unreviewed, uncommitted** `design.md` on disk. So before auto-resuming
+  into Step 4b, confirm the design is **committed and clean** — the
+  on-disk proxy for "frozen and reviewed", since Step 5 commits `design.md`
+  only after its review passes:
+
+  ```bash
+  # committed: at least one commit touches design.md
+  git log -1 --format=%h -- docs/adr/<dir-name>/_workflow/design.md
+  # clean: no uncommitted changes to design.md (empty output = clean)
+  git status --porcelain docs/adr/<dir-name>/_workflow/design.md
+  ```
+
+  - **Committed (non-empty `git log`) AND clean (empty `git status`)** —
+    the design is frozen and reviewed. **Auto-resume into Step 4b** (plan
+    derivation): skip Step 2's aim prompt and Step 3's Phase 0 research
+    loop entirely — the aim and research are already captured in the frozen
+    `design.md` and the conversation that produced it. Read `planning.md`
+    (deferred from Step 1) and derive the plan from the frozen design.
+  - **Uncommitted (empty `git log`) OR dirty (non-empty `git status`)** —
+    Step 4a was interrupted mid-authoring. **Resume Step 4a**, not Step 4b:
+    re-enter the `edit-design` review loop so the adversarial + cold-read
+    passes run and the design is committed before any plan derives from it.
+    Re-entering the loop on an already-good design is idempotent and
+    harmless, so this branch is safe even on a false alarm (e.g., a stray
+    editor write left the file dirty).
 - **Neither file exists** — fresh start. Proceed to Step 2 (aim), then
   Step 3 (research), then Step 4a (design authoring).
 - **Both files exist** — the plan is already derived; this is a normal
@@ -151,11 +175,12 @@ Route on what exists:
   common case is the session has nothing new to plan.
 
 This check has a defined resume path for every artifact combination, so a
-frozen `design.md` with no plan is never a dead end — it always routes to
-Step 4b. The check runs **after** the drift and handoff gates so a pending
-migration or handoff resolves first (those can change what is on disk),
-and **before** the aim prompt so a Step-4b resume does not re-ask for an
-aim already captured in the design.
+**committed, clean** `design.md` with no plan is never a dead end — it
+always routes to Step 4b, and an uncommitted or dirty one routes back to
+Step 4a to finish authoring. The check runs **after** the drift and handoff
+gates so a pending migration or handoff resolves first (those can change
+what is on disk), and **before** the aim prompt so a Step-4b resume does
+not re-ask for an aim already captured in the design.
 
 **Step 2 — Ask the user for the aim.**
 
@@ -204,16 +229,20 @@ the boundary already enforced between Phases A, B, and C:
 **Design→plan session boundary and auto-resume.** Step 4a ends the session
 once `design.md` is frozen and committed; it does **not** flow straight into
 Step 4b. The user re-invokes `/create-plan`, and the startup protocol
-auto-resumes into Step 4b when **`design.md` exists and
-`implementation-plan.md` does not** — the design seed is on disk but the plan
-has not been derived yet. This is checked after Step 1.5 (drift) and Step 1a
-(handoff) have cleared and before the aim prompt (Step 2): a resume into Step
-4b skips the aim prompt and the Phase 0 research loop, because the aim and
-research are already captured in the frozen `design.md` and the conversation
-that produced it. When **neither** file exists, `/create-plan` starts at
-Phase 0 research as usual; when **both** exist, the plan is already derived
-and the session resumes via the normal handoff / drift / state routing rather
-than re-running Step 4. The resume path is never a dead end: a frozen
+auto-resumes into Step 4b when **`design.md` is committed and clean and
+`implementation-plan.md` does not exist** — the frozen design seed is on disk
+but the plan has not been derived yet. The committed-and-clean test (not bare
+file presence) is what proves the design is reviewed rather than abandoned
+mid-authoring; Step 1c spells out the exact `git log` / `git status` check and
+the resume-Step-4a fallback for an uncommitted or dirty design. This is
+checked after Step 1.5 (drift) and Step 1a (handoff) have cleared and before
+the aim prompt (Step 2): a resume into Step 4b skips the aim prompt and the
+Phase 0 research loop, because the aim and research are already captured in
+the frozen `design.md` and the conversation that produced it. When **neither**
+file exists, `/create-plan` starts at Phase 0 research as usual; when **both**
+exist, the plan is already derived and the session resumes via the normal
+handoff / drift / state routing rather than re-running Step 4. The resume path
+is never a dead end: a committed, clean frozen
 `design.md` with no plan always routes to Step 4b plan derivation.
 
 **Step 4a — Author the design first.**

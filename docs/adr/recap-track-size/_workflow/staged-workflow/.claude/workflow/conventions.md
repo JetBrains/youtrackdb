@@ -1124,7 +1124,7 @@ migrator            — /migrate-workflow agent
 pr-reviewer         — /review-workflow-pr agent
 reviewer-technical  — Phase 3A technical review (prompts/technical-review.md)
 reviewer-risk       — Phase 3A risk review
-reviewer-adversarial — Phase 3A adversarial review
+reviewer-adversarial — Phase 1 design adversarial + Phase 3A track adversarial review
 reviewer-plan       — Phase 2 consistency + structural reviewers (paired role)
 reviewer-design     — design-mutation cold-read (prompts/design-review.md)
 reviewer-dim-step   — Phase 3B step-level dimensional reviewers (10 baseline + conditional)
