@@ -78,8 +78,9 @@ incorrect code.
   reads the plan and design document to guide implementation. It decomposes
   scope indicators into concrete steps, implements them, and writes episodes.
 - **Scope indicator**: A rough sketch of expected work in a track
-  (`> **Scope:** ~N steps covering X, Y, Z`). A strategic signal for effort
-  estimation, not a binding contract.
+  (`> **Scope:** ~N files covering X, Y, Z`). The `~N files` figure is the
+  planned file footprint, knowable at plan time, not a step count. A
+  strategic signal for effort estimation, not a binding contract.
 - **Decision Records**: Design choices in the plan's Architecture Notes
   section. Each has alternatives, rationale, risks, and track references.
   Immutable during execution — changes require formal replanning.
@@ -236,7 +237,7 @@ finding and the classification rules below will route it correctly.
   a Decision Record?
 - Are scope indicators in the plan consistent with the complexity shown in
   the design document? (e.g., if the design shows 5 interacting classes
-  but the track scope says "~2 steps", that's suspicious)
+  but the track scope says "~2 files", that's suspicious)
 
 ### GAPS
 <!-- roles=reviewer-plan phases=2 summary="Plan parts with no design coverage, design parts no track covers, and codebase constructs the documents skip." -->

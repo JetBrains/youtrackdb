@@ -651,14 +651,18 @@ def _clean_workflow_body_with_h3() -> str:
 
 
 def test_rule_1_stamp_present_on_staged_path_passes() -> None:
-    """A staged copy under docs/adr/.../staged-workflow/.claude/ with a
-    valid workflow-sha stamp on line 1 passes rule 1.
+    """A staged copy under docs/adr/.../staged-workflow/.claude/ passes
+    rule 1 via the staged-mirror exemption.
 
     The fixture mirrors the workflow-modifying staging layout: the staged
     workflow file sits under `docs/adr/<plan>/_workflow/staged-workflow/.claude/workflow/`
-    and starts with a 40-char-hex `workflow-sha:` comment. The validator's
-    rule 1 gate (the `docs/adr/` path prefix branch) accepts the file
-    without a rule_1 finding.
+    and happens to start with a 40-char-hex `workflow-sha:` comment. After
+    the staged-mirror exemption the validator returns no rule_1 finding
+    for any staged path regardless of line-1 content — the exemption is
+    stamp-agnostic, so the stamp on this fixture is incidental, not the
+    reason the file passes. (Pre-exemption this passed because the stamp
+    matched `_STAMP_LINE_RE`; the assertion is unchanged but the cause is
+    now the exemption.)
     """
     with _make_fixture_root() as tmp:
         root = Path(tmp)
@@ -694,13 +698,19 @@ def test_rule_1_stamp_present_on_staged_path_passes() -> None:
         assert not rule1, f"staged file with valid stamp should pass rule_1; got {rule1}"
 
 
-def test_rule_1_missing_stamp_on_staged_path_fails() -> None:
+def test_rule_1_missing_stamp_on_staged_path_exempt() -> None:
     """A staged copy under docs/adr/.../staged-workflow/.claude/ that
-    lacks the workflow-sha stamp on line 1 fails rule 1.
+    lacks the workflow-sha stamp on line 1 is EXEMPT from rule 1.
 
-    The fixture starts the file with an H1, not the stamp comment, so the
-    `_STAMP_LINE_RE` match fails and the validator records a rule_1
-    finding at line 1.
+    The fixture starts the file with an H1, not the stamp comment. This
+    mirrors the real staging layout, where a staged copy is a byte-verbatim
+    duplicate of the unstamped live file (conventions.md §1.7(e)) and is
+    intentionally absent from the §1.6(f) stamped set. The staged-mirror
+    exemption skips these paths before the stamp check, so the validator
+    records no rule_1 finding. (Pre-exemption this case asserted the
+    opposite — that the missing stamp produced a rule_1 finding — which
+    false-positived on every staged copy; this test now pins the fixed
+    behavior.)
     """
     with _make_fixture_root() as tmp:
         root = Path(tmp)
@@ -732,9 +742,8 @@ def test_rule_1_missing_stamp_on_staged_path_fails() -> None:
         rule1 = [
             f for f in findings if f.rule == "rule_1" and staged_rel in f.path
         ]
-        assert rule1, f"staged file without stamp should fail rule_1; got {findings}"
-        assert rule1[0].line == 1, (
-            f"rule_1 finding should anchor at line 1; got line {rule1[0].line}"
+        assert not rule1, (
+            f"unstamped staged copy should be exempt from rule_1; got {rule1}"
         )
 
 
@@ -773,6 +782,66 @@ def test_rule_1_live_workflow_file_without_stamp_passes() -> None:
         assert not rule1, (
             f"live workflow file should not trigger rule_1; got {rule1}"
         )
+
+
+def test_rule_1_empty_and_malformed_branches_fire_on_non_exempt_path() -> None:
+    """`check_rule_1_stamp_present` still flags an empty file and a
+    malformed line-1 stamp when called directly on a non-exempt,
+    non-staged `docs/adr/` path.
+
+    The staged-mirror exemption added to `check_rule_1_stamp_present`
+    short-circuits before the `docs/adr/` stamp gate for every
+    `docs/adr/<dir>/_workflow/staged-workflow/.claude/...` path, and the
+    live globs in `IN_SCOPE_GLOBS` are filtered out by the `docs/adr/`
+    early-return. So after the exemption no `IN_SCOPE_GLOBS` path reaches
+    the empty-file or malformed-stamp branches via `validate` / `--check`,
+    and they are no longer exercised by the fixture-driven rule_1 tests
+    above. This test pins those two branches by calling the checker
+    directly on a synthetic `ParsedFile` whose path is rooted under
+    `docs/adr/` (so it passes the `docs/adr/` gate) but NOT under
+    `staged-workflow/` (so the exemption does not skip it). Without this
+    coverage the branches would silently rot if the gate logic changed.
+    """
+    # A path under docs/adr/ but outside the staged-workflow subtree: it
+    # clears the exemption (not a staged mirror) and the `docs/adr/` gate
+    # (it is docs/adr/-rooted), so it reaches the stamp branches below.
+    non_exempt_rel = "docs/adr/some-plan/_workflow/notes.md"
+
+    # Empty-file branch: no lines at all -> the "file is empty" finding.
+    empty_parsed = MODULE.ParsedFile(
+        path=non_exempt_rel,
+        abs_path=Path("/nonexistent") / non_exempt_rel,
+        lines=[],
+    )
+    empty_findings = MODULE.check_rule_1_stamp_present(empty_parsed)
+    assert len(empty_findings) == 1, (
+        f"empty non-exempt docs/adr/ file should yield one rule_1 finding; "
+        f"got {empty_findings}"
+    )
+    assert empty_findings[0].rule == "rule_1"
+    assert empty_findings[0].line == 1
+    assert "empty" in empty_findings[0].explanation, (
+        f"expected the empty-file explanation; got {empty_findings[0].explanation!r}"
+    )
+
+    # Malformed-stamp branch: line 1 present but not a workflow-sha stamp
+    # comment -> the "line 1 is not a workflow-sha stamp" finding.
+    malformed_parsed = MODULE.ParsedFile(
+        path=non_exempt_rel,
+        abs_path=Path("/nonexistent") / non_exempt_rel,
+        lines=["# Not a workflow-sha stamp comment", "", "Body."],
+    )
+    malformed_findings = MODULE.check_rule_1_stamp_present(malformed_parsed)
+    assert len(malformed_findings) == 1, (
+        f"non-stamp line 1 on a non-exempt docs/adr/ file should yield one "
+        f"rule_1 finding; got {malformed_findings}"
+    )
+    assert malformed_findings[0].rule == "rule_1"
+    assert malformed_findings[0].line == 1
+    assert "not a workflow-sha stamp" in malformed_findings[0].explanation, (
+        f"expected the malformed-stamp explanation; "
+        f"got {malformed_findings[0].explanation!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4822,12 +4891,16 @@ def main() -> int:
             test_rule_1_stamp_present_on_staged_path_passes,
         ),
         (
-            "rule_1 missing stamp on staged path fails",
-            test_rule_1_missing_stamp_on_staged_path_fails,
+            "rule_1 missing stamp on staged path exempt",
+            test_rule_1_missing_stamp_on_staged_path_exempt,
         ),
         (
             "rule_1 live workflow file without stamp passes",
             test_rule_1_live_workflow_file_without_stamp_passes,
+        ),
+        (
+            "rule_1 empty and malformed branches fire on non-exempt path",
+            test_rule_1_empty_and_malformed_branches_fire_on_non_exempt_path,
         ),
         (
             "rule_2 missing TOC fails when file has H2",

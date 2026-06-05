@@ -1544,21 +1544,46 @@ def scan_cross_file_refs(
 def check_rule_1_stamp_present(parsed: ParsedFile) -> List[Finding]:
     """Rule 1: line 1 carries the workflow-SHA stamp.
 
-    Note: this validator runs on workflow files (`.claude/workflow/`,
-    `.claude/skills/`). The workflow-SHA stamp rule applies to
-    `_workflow/**` artifacts per conventions.md §1.6; live workflow
-    files do NOT carry a stamp. Rule 1 is enforced only on files that
-    look like `_workflow/**` artifacts based on the staged copy probe —
-    a live `.claude/workflow/` file with no stamp passes. The design
-    text says "Already enforced by drift gate; reindex script re-checks
-    for consistency" — i.e., the script does not duplicate the drift
-    gate's enforcement; the reindex script's rule 1 is satisfied
-    automatically for live workflow files (no stamp expected).
+    After the staged-mirror exemption below, rule 1 has no reachable
+    in-scope target. This is not obvious from `IN_SCOPE_GLOBS` alone:
 
-    This implementation therefore treats rule 1 as a presence check for
-    staged copies only — files whose repo-relative path begins with
-    `docs/adr/`. Live workflow files pass.
+    - This script's `IN_SCOPE_GLOBS` mix live-path globs
+      (`.claude/workflow/**`, `.claude/skills/**`) with staged-workflow-
+      mirror globs (`docs/adr/*/_workflow/staged-workflow/.claude/...`).
+    - The `docs/adr/` early-return below discards every live path before
+      the stamp check, so the only in-scope paths that could reach the
+      check are the staged-workflow mirror.
+    - The staged mirror is a byte-verbatim copy of the unstamped live
+      file per conventions.md §1.7(e), and §1.6(f) excludes staged copies
+      from the stamped artifact set. So those copies correctly carry no
+      stamp, and the exemption below skips them.
+
+    Nothing else in `IN_SCOPE_GLOBS` is `docs/adr/`-rooted, so after the
+    exemption no in-scope path reaches the stamp check via
+    `validate` / `--check`. Rule 1 is kept as a harmless guard: if a
+    future change re-introduces a non-exempt `docs/adr/`-rooted glob into
+    `IN_SCOPE_GLOBS`, this check would resume firing on it.
+
+    The §1.6(f) stamped artifact set (the `_workflow/**` plan
+    artifacts) is enforced elsewhere, by the
+    `workflow-startup-precheck.sh` drift gate. That set is DISJOINT from
+    this script's `IN_SCOPE_GLOBS` (the drift gate does not re-check
+    rule 1's staged-mirror target, and this script does not re-check the
+    drift gate's stamped set), so rule 1 neither duplicates nor depends
+    on the drift gate's enforcement.
+
+    The empty-file and malformed-stamp branches below stay covered by a
+    direct-call regression test on a synthetic non-exempt
+    `docs/adr/`-rooted `ParsedFile`; no `IN_SCOPE_GLOBS` path reaches
+    them after the exemption.
     """
+    # Exempt the staged-workflow mirror (conventions.md §1.7(e)): those
+    # copies are byte-verbatim duplicates of the unstamped live files and
+    # are intentionally absent from the §1.6(f) stamped set, so a missing
+    # line-1 stamp is correct, not a defect. Checked before the
+    # `docs/adr/` gate below, which would otherwise demand a stamp.
+    if _STAGED_SUBTREE_PREFIX_RE.match(parsed.path):
+        return []
     if not parsed.path.startswith("docs/adr/"):
         return []
     if not parsed.lines:

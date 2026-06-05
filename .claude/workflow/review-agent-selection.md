@@ -7,6 +7,7 @@
 | §Baseline agents (always run) | orchestrator | 3A,3B,3C | The four baseline review agents (code quality, bugs/concurrency, test behavior, test completeness) and when they skip. |
 | §Conditional agents | orchestrator | 3A,3B,3C | Add crash-safety, security, performance, or test-structure agents based on what the step or track touches. |
 | §Examples | orchestrator | 3A,3B,3C | Worked agent-selection examples for storage, refactor, public-API, and WAL-replay changes. |
+| §Step-level vs track-level routing | orchestrator | 3A,3B,3C | Non-mirrored note: which baseline and workflow reviewers run at a high step versus the cumulative track pass. |
 | §Workflow-review agents | orchestrator | 3A,3B,3C | The six workflow-machinery review agents and their finding prefixes; they ignore Java code. |
 | §Workflow-machinery file set | orchestrator | 3A,3B,3C | What counts as workflow-machinery (.claude/, root CLAUDE.md, docs/adr/<dir>/); exclusive with docs-only. |
 | §Per-agent file-pattern triggers | orchestrator | 3A,3B,3C | Which workflow-review agents fire on which changed-file patterns; consistency and context-budget always launch. |
@@ -45,6 +46,17 @@ The baseline group runs **unless the diff is workflow-only or
 workflow-machinery + docs-only** — see the baseline-skip override under
 *Workflow-machinery override* below.
 
+The "always run" in the heading is the track-level reading. At a high
+step only `review-bugs-concurrency` runs from this group; the other
+three (`review-code-quality`, `review-test-behavior`,
+`review-test-completeness`) read identically on the cumulative diff and
+defer to the Phase C track pass that runs the full group. The
+step-vs-track timing for both the baseline group and the workflow-review
+group lives in §Step-level vs track-level routing below, not here; this
+carve-out stays subordinate to the baseline-skip override, so a
+workflow-only or docs-only diff still skips the whole group,
+`review-bugs-concurrency` included.
+
 ---
 
 ## Conditional agents
@@ -74,6 +86,89 @@ agent.
   6 agents.
 - **Step modifies WAL replay with lock changes** → all 10 agents
   (storage + performance + concurrency all apply).
+
+*These counts assume the track-level full baseline group; at a high step the baseline group narrows to `review-bugs-concurrency` only per §Step-level vs track-level routing.*
+
+---
+
+## Step-level vs track-level routing
+<!-- roles=orchestrator phases=3A,3B,3C summary="Non-mirrored note: which baseline and workflow reviewers run at a high step versus the cumulative track pass." -->
+
+Which agents fire at a high step differs from which review the cumulative
+track diff at Phase C. An agent runs at a step only when its findings are
+localized to that step's diff and would be buried if deferred to the
+cumulative diff; otherwise it defers to the track pass, which loses no
+coverage because the track pass runs the full selection. The per-agent
+assignment in the paragraphs below is the operative rule; the
+localized-versus-buried test explains why each agent lands where it does and
+is not re-evaluated at dispatch time. This note is the
+single source of truth for that timing; the dispatch points in
+`step-implementation.md` (step) and `track-code-review.md` (track) consume
+it. The note sits outside the four `§Maintenance`-mirrored sections below,
+which mirror `code-review/SKILL.md` verbatim and carry no step/track
+notion.
+
+**Baseline group (§Baseline agents).** At a high step only
+`review-bugs-concurrency` runs; `review-code-quality`,
+`review-test-behavior`, and `review-test-completeness` defer to the track
+pass. `review-bugs-concurrency` catches bug, logic-error, resource-leak,
+and null-safety defects that get buried once a step's diff folds into the
+cumulative diff, so it must see each step's diff in isolation. Deferring
+`review-code-quality` loses only style, DRY, and readability findings: its
+buriable error-handling subset is already covered by
+`review-bugs-concurrency` at the step. The two test-review baselines read
+whole-suite quality off the cumulative diff identically, so the step adds
+nothing.
+
+**Workflow-review group (§Workflow-review agents).** The step-level
+workflow reviewers are selected by their existing per-agent file-pattern
+globs in §Per-agent file-pattern triggers, not by the risk taxonomy. The
+taxonomy decides only whether a step is tagged `high`; once a step reaches
+step-level review, its changed-file globs decide which workflow reviewers
+fire. Those globs are evaluated after the §Workflow-machinery override
+staged-path normalization (the same normalization the track-level path
+inherits), so a step's staged `docs/adr/<dir>/_workflow/staged-workflow/.claude/...`
+edits match their live-path globs rather than silently missing. Of the six, `review-workflow-hook-safety` and
+`review-workflow-prompt-design` run at the step: hook-safety's findings
+(script correctness, `/tmp` collisions, JSON validity) and prompt-design's
+findings (one prompt's internal decision rules, frontmatter, `$ARGUMENTS`)
+are localized to the changed file. `prompt-design` stays at the step
+because its core is that localized per-prompt surface; its cross-file
+references are secondary and the track pass re-checks them. The other four
+defer to the track pass: `review-workflow-consistency` (cross-file pairs,
+where one step lands one side), `review-workflow-context-budget`
+(whole-system always-loaded surface), `review-workflow-writing-style`
+(diff-agnostic, identical per file), and
+`review-workflow-instruction-completeness` (its gate and resume-path
+checks span files, so a step lands false positives a later step resolves).
+
+**High step editing only `.claude/workflow/*.md`.** Such a step matches
+neither step-level workflow trigger (neither `hook-safety`'s
+script/settings globs nor `prompt-design`'s `SKILL.md` / agent /
+prompt globs), so it draws zero step-level reviewers and fully defers to
+the track pass. This is correct on its own terms, independent of the
+prose-only cap (which governs a disjoint capped-`low` population): the
+defect class a `.claude/workflow/*.md` high step risks is a gate or
+control-flow change whose resume-path correctness can only be judged
+against the cumulative diff, which is exactly what the track pass reviews.
+A single step's slice of a multi-file gate change cannot be checked for
+completeness in isolation.
+
+**Exclusion from workflow-machinery changes.** `review-bugs-concurrency`
+is a Java-code reviewer and never reviews workflow machinery. On a
+workflow-only diff the baseline-skip override removes the whole baseline
+group; on a mixed Java + workflow diff `IN_SCOPE_FILES` scopes
+`review-bugs-concurrency` to the Java files. The same Case-3
+`IN_SCOPE_FILES` pre-filter complementarily scopes the step-level workflow
+reviewers (`hook-safety`, `prompt-design`) to the workflow-machinery subset
+of the diff (see the §Workflow-machinery override Case 3); the mechanics
+live there and are not duplicated here. The Java review path
+(`review-bugs-concurrency`) and the workflow review path (the six
+workflow reviewers) are deliberately disjoint.
+
+The split changes only which mandatory reviewers run at the step. No
+conditional reviewer's trigger is widened and no agent is forced on; the
+track-level selection is unchanged.
 
 ---
 
@@ -293,6 +388,8 @@ Step 5a/5b/5d/6 verbatim per `implementation-plan.md` D8. Any edit to
 either file's mirrored sections MUST update both files in the same
 commit and bump the date in the trailing `<!-- Last sync-checked … -->`
 comment below. Drift between the two files is a defect for
-`review-workflow-consistency`.
+`review-workflow-consistency`. The step-vs-track timing for the baseline
+and workflow-review groups lives in §Step-level vs track-level routing, a
+non-mirrored section, because `SKILL.md` carries no step/track notion.
 
 <!-- Last sync-checked against `.claude/skills/code-review/SKILL.md` Step 5a/5b/5d/6 on 2026-06-01 (YTDB-1032 staged-path normalization). Future drift sweeps update this date. -->

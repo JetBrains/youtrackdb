@@ -16,7 +16,7 @@
 | §Architecture Notes rules | planner | 1 | The nine Architecture Notes rules: mandatory sections, immutability, traceability, budgets, no plan/design duplication. |
 | §Track descriptions | planner | 1 | Each track is described across the thin plan-file checklist entry and the four Phase 1 track-level sections. |
 | §Track-level component interaction diagrams | planner | 1 | Optional per-track Mermaid diagrams live in the track file's Interfaces and Dependencies section, not the plan. |
-| §Scope indicators | planner | 1 | Every track carries a `> **Scope:** ~N steps covering X, Y, Z` line; format and purpose live in conventions. |
+| §Scope indicators | planner | 1 | Every track carries a `> **Scope:** ~N files covering X, Y, Z` line; format and purpose live in conventions. |
 | §Design Document | planner | 1 | The plan ships a separate design doc (class/workflow diagrams, complex-part sections), frozen after Phase 1. |
 | §Checklist decomposition rules | planner | 1 | Step decomposition is deferred to Phase 3; the canonical rules live in the track-review §Step Decomposition. |
 | §Tooling — PSI-backed Component Map and integration points | planner | 1 | Verify symbols, callers, and SPI consumers named in Architecture Notes through PSI via mcp-steroid before they land. |
@@ -453,11 +453,11 @@ Rules:
   during Phase B/C).
 
 ## Scope indicators
-<!-- roles=planner phases=1 summary="Every track carries a `> **Scope:** ~N steps covering X, Y, Z` line; format and purpose live in conventions." -->
+<!-- roles=planner phases=1 summary="Every track carries a `> **Scope:** ~N files covering X, Y, Z` line; format and purpose live in conventions." -->
 
 Format, rules, and purpose: see `conventions.md` `§1.2` (Scope indicators).
 
-Every track must include `> **Scope:** ~N steps covering X, Y, Z` in its
+Every track must include `> **Scope:** ~N files covering X, Y, Z` in its
 description block. Focus planner energy on track descriptions and
 architecture, not premature step decomposition.
 
@@ -550,8 +550,9 @@ are particularly useful during planning:
   enumerate them before deciding whether the contract change is
   in-scope for one track or needs to fan out across several.
 - **`call-hierarchy`** — when a Decision Record contemplates
-  changing a low-level signature, use this recipe to estimate
-  caller-tree depth and refine the track's `**Scope:**` estimate.
+  changing a low-level signature, use this recipe to enumerate the
+  caller sites a signature change touches and refine the track's
+  `**Scope:** ~N files` footprint estimate.
 - **`project-dependencies`** — when sketching the Component Map
   spans across modules, use this recipe to confirm the dependency
   edges in the diagram match the Maven reactor.

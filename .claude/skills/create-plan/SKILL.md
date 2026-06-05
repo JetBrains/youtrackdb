@@ -208,8 +208,10 @@ Help the user develop the plan:
      it into separate dependent tracks. The execution agent handles
      sequencing and episode propagation between dependent tracks.
 5. For each track, include a **Scope indicator**:
-   - Format: `> **Scope:** ~N steps covering X, Y, Z`
-   - Approximate step count + brief list of major work pieces
+   - Format: `> **Scope:** ~N files covering X, Y, Z`
+   - Approximate file footprint + brief list of major work pieces. The
+     footprint is a per-track soft heuristic, not the per-step `~12` split
+     cap; the in-scope file set already lives in the track file's §Interfaces.
    - These are strategic signals, not tactical commitments — step
      decomposition happens during Phase 3 execution.
    - Do NOT include full `- [ ] Step:` items or *(provisional)* markers.
@@ -326,11 +328,11 @@ SHA into the `$WORKFLOW_SHA` placeholder on line 1.
 ## Checklist
 - [ ] Track 1: <title>
   > <intro paragraph — high-level context; detailed description in plan/track-1.md>
-  > **Scope:** ~N steps covering X, Y, Z
+  > **Scope:** ~N files covering X, Y, Z
 
 - [ ] Track 2: <title>
   > <intro paragraph — high-level context; detailed description in plan/track-2.md>
-  > **Scope:** ~N steps covering A, B
+  > **Scope:** ~N files covering A, B
   > **Depends on:** Track 1
 
 ## Plan Review

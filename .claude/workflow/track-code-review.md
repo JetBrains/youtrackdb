@@ -483,6 +483,23 @@ Select agents per review-agent-selection.md:orchestrator:3A,3B,3C.
 Use the track description and `git diff {base_commit}..HEAD --name-only` to
 determine which conditional agents to include alongside the baseline.
 
+The track pass runs the full review selection against the cumulative track
+diff, so it is where the step-deferred agents get their coverage. All four
+baselines run here — `review-bugs-concurrency`, `review-code-quality`,
+`review-test-behavior`, and `review-test-completeness` — subject only to the
+workflow-only / `docs-only` baseline-skip override; the track set is not
+narrowed. The three baselines that step-level review defers
+(`review-code-quality`, `review-test-behavior`, `review-test-completeness`)
+are covered at this pass, alongside `review-bugs-concurrency`, which runs at
+both the step and the track. The full trigger-based workflow-reviewer
+selection also runs here, so the four workflow reviewers that defer from the
+step (`consistency`, `context-budget`, `writing-style`,
+`instruction-completeness`) get their coverage at the track pass, alongside
+`hook-safety` and `prompt-design`, which run at both levels by their
+file-pattern triggers. The step-versus-track split is defined in
+review-agent-selection.md:orchestrator:3A,3B,3C §Step-level vs track-level
+routing; this section is the track-level dispatch point that consumes it.
+
 Each agent's prompt is:
 
 ```
@@ -1067,7 +1084,7 @@ implementation plan:
    track, decide where the work belongs:
    - An **existing future track** — if it fits that track's purpose, add
      the item to that track's description. Update the scope indicator if
-     the addition meaningfully changes the expected step count.
+     the addition meaningfully changes the expected file footprint.
    - A **new separate track** — if no existing track covers the work, add
      a new track to the plan's checklist with a description, scope
      indicator, and dependency notation (typically depends on the current
