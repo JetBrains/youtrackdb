@@ -18,6 +18,7 @@ its size is the first calibration data point for the threshold open questions.
 
 ## Progress
 - [x] 2026-06-05T16:58Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-05T17:22Z [ctx=safe] Step 1 complete (commit a3a1be4a77)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -235,7 +236,7 @@ dependency).
 
 ## Concrete Steps
 
-1. Sizing definition (arc 1, D1/D2/D3): write the two-sided footprint rule, the maximize directive, the file-based floor (≤~12), and the argumentation gate across `conventions.md` §1.1 Track row + §1.2 planning rule, `planning.md` §Track descriptions, `track-review.md` §Step Decomposition, and `create-plan/SKILL.md` Step-4 sizing rule; consolidate the existing `~20-25` ceiling prose into the new rule; retire `~5-7` as the *sizing metric* (step definition at `conventions.md:70` unchanged). — risk: high (workflow machinery: edits the §1.1 closed glossary term and the sizing gate the Phase 2 classifier keys on)  [ ]
+1. Sizing definition (arc 1, D1/D2/D3): write the two-sided footprint rule, the maximize directive, the file-based floor (≤~12), and the argumentation gate across `conventions.md` §1.1 Track row + §1.2 planning rule, `planning.md` §Track descriptions, `track-review.md` §Step Decomposition, and `create-plan/SKILL.md` Step-4 sizing rule; consolidate the existing `~20-25` ceiling prose into the new rule; retire `~5-7` as the *sizing metric* (step definition at `conventions.md:70` unchanged). — risk: high (workflow machinery: edits the §1.1 closed glossary term and the sizing gate the Phase 2 classifier keys on)  [x] commit: a3a1be4a77
 2. Enforcement propagation (arc 2, D4/D5): move the five review prompts (`structural` ×3 spots, `technical`, `adversarial`, `risk`, `consistency`) to the two-sided cap and add the sync-list anchor, folding the `structural-review.md` two-tier sizing block into the new rule rather than nulling lines; add the Phase B running `git diff base..HEAD --stat` early-warning to `step-implementation.md` and the Phase C review-burden line check (>~2,000 / >~4,000 total +/-, generated excluded, test kept) to `track-code-review.md`. — risk: high (workflow machinery: edits the Phase 2 sizing gate prompt and adds enforcement to the Phase B/C control-flow protocols)  [ ]
 3. Design freeze (arc 3, D6): remove the inline-replan `design.md`-mutation trigger at all three sites (`design-document-rules.md` §Mutation discipline + Direct-mutation example; `inline-replanning.md` design-coherence/working-vs-direct/invocation blocks, replaced by a short DR-revision routing clause; `edit-design/SKILL.md:59` MUST-use entry); narrow the stale `3A,3C` annotations across each file's TOC rows + section comments (keep Phase 4); narrow only the `edit-design` clause of `conventions.md` §1.8(b) and its §1.1 Phase-enum-row twin (`:84`); add the `implementer-rules.md` frozen-design guard and reconcile `:73`/`:89`; add the divergence-is-expected note (covering section-mechanism divergence, not only links) to `consistency-review.md`. — risk: high (workflow machinery: edits the §1.8 phase-enum schema and the inline-replan control-flow protocol)  [ ]
 4. Design-first reorder (arc 4, D7): reorder `create-plan/SKILL.md` Step 4 to author `design.md` first, add the design→plan session boundary and the auto-resume condition (design.md exists, implementation-plan.md absent); re-frame `planning.md` §Goal and §Design Document; list the design/plan sub-phases in `workflow.md`; add the design-scoped role/phase to `adversarial-review.md`; note cold-read-after-adversarial in `design-review.md`; insert the adversarial step before cold-read in the `edit-design/SKILL.md` `phase1-creation` loop. — risk: high (workflow machinery: reorders the create-plan control flow / state machine and edits the §1.8 role/phase schema)  [ ]
@@ -243,6 +244,46 @@ dependency).
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step,
 identified by step number + commit SHA. Empty at Phase 1. -->
+
+### Step 1 — commit a3a1be4a77, 2026-06-05T17:22Z [ctx=safe]
+**What was done:** Authored arc 1 (sizing definition) by first-touch-copying
+the four arc-1 live files into the staged tree and editing the staged copies.
+Retired "~5-7 steps" as the track-sizing metric in all five arc-1 enforcement
+positions (`conventions.md` §1.1 Track row + §1.2 planning rule, `planning.md`
+§Track descriptions, `track-review.md` §Step Decomposition,
+`create-plan/SKILL.md` Step 4) and replaced it with the two-sided file-footprint
+rule: the maximize directive stated before any clamp, the ≤~12-file
+merge-candidate floor, the >~20-25-file split-candidate ceiling, and the
+argumentation gate. The full rule lives once in `planning.md` §Track
+descriptions; the other four positions point there. Consolidated the
+pre-existing `~20-25` ceiling prose in `conventions.md` §Scope indicators into
+the new rule so no duplicate ceiling survives; the step definition at
+`conventions.md:70` is unchanged. Primary commit `713d7de51a`; review-fix
+commit `a3a1be4a77` applied finding M1.
+
+**What was discovered:** The `conventions.md` §Scope indicators intro still
+called the per-step `~12` a "split cap," while the live `track-review.md`
+machinery (from `step-size-jsutification`) had reframed `~12` as a "fill
+target." The consolidated purpose-1 bullet uses "fill target," so the intro was
+aligned to match — a coherence fix inside the consolidated section, not the
+broader `~12`-terminology cleanup, which is a separate-branch concern.
+
+**What changed from the plan:** No design change; arc 1 landed as planned, with
+the `>~40` overblown tier and the Phase B/C line-burden checks deferred to step
+2 per the arc split. The dimensional review (prompt-design) raised finding M1:
+the argumentation gate's middle trigger ("below the maximize target") had no
+observable anchor, so a decomposer could not reproducibly decide when a
+mid-range track owes a justification. The fix reworded the trigger to fire on
+"a mergeable autonomous unit left unpacked," preserving D3's two-sided
+argumentation and the `~12`/`~20-25` thresholds. Step 2's review-prompt
+propagation should cite the gate's observable wording, not "below the maximize
+target," to keep the enforcement copies reproducible.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/conventions.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/planning.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/track-review.md` (new — staged)
+- `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (new — staged)
 
 ## Validation and Acceptance
 
