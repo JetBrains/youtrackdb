@@ -27,6 +27,7 @@ convention (base = tip after Phase A).
 - [x] 2026-06-05T05:10Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-05T05:56Z [ctx=safe] Step 1 complete (commit e5876ad740)
 - [x] 2026-06-05T06:00Z [ctx=safe] Step 2 complete (commit f212477a82)
+- [x] 2026-06-05T06:20Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
