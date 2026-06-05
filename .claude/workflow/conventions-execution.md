@@ -113,17 +113,25 @@ is tabulated in the *Section lifecycle* subsection below.
 
 8. **`## Concrete Steps`** — plan-at-start. Phase A decomposition
    writes a thin numbered roster: one entry per step with description,
-   `risk:` tag, and a status checkbox. **No nested blockquote** — per
-   D9 the per-step episode lives in `## Episodes` below, not here. The
-   roster is immutable after Phase A except for the status checkbox
-   flip (`[ ]` → `[x]` / `[!]`) and the optional `commit: <SHA>`
-   annotation Phase B appends.
+   `risk:` tag, an optional `size:` clause, and a status checkbox.
+   **No nested blockquote** — per D9 the per-step episode lives in
+   `## Episodes` below, not here. The roster is immutable after Phase A
+   except for the status checkbox flip (`[ ]` → `[x]` / `[!]`) and the
+   optional `commit: <SHA>` annotation Phase B appends after the
+   checkbox (`commit: <SHA>` is appended after any `— size:` clause). The optional
+   inline `— size: ~N files; <reason>` clause is written at Phase A and
+   appears only on a `low`/`medium` step whose planned footprint lands
+   below the `~12` fill target, naming a closed-set reason it is not
+   maximized (rule in `track-review.md` §"Step Decomposition" →
+   Under-fill justification); a maximized step omits it.
 
    ```markdown
    ## Concrete Steps
    1. <Step description> — `risk: low`  [ ]
    2. <Step description> — `risk: high`  [ ]
    3. <Step description> — `risk: medium`  [ ]
+   4. <Step description> — `risk: low` — size: ~N files; <closed-set reason>  [ ]
+   5. <Step description> — `risk: low` — size: ~N files; <closed-set reason>  [x] commit: <SHA>
    ```
 
 9. **`## Episodes`** — continuous-log, workflow-specific sibling (D11).
@@ -221,7 +229,7 @@ per D6 and D10:
 | `## Outcomes & Retrospective` | (empty) | Phase A review iteration entries (prefix: `Technical:` / `Risk:` / `Adversarial:`) | (occasional — dimensional review iteration entries) | review iteration entries + track completion summary (prefix: `Track-level code review iteration N…` / `Track complete`) | Phase A reviews; Phase 4 |
 | `## Context and Orientation` | "what's there today" prose | Pre-Flight clarifications (appended as `### Clarifications` subsection) | — | — | Phase A/B/C orchestration; Phase 4 |
 | `## Plan of Work` | "what we'll change" prose | per-step sequencing summary referencing Concrete Steps | — | — | Phase A/B/C orchestration; Phase 4 |
-| `## Concrete Steps` | Phase A placeholder | thin numbered roster (description + `risk:` tag + `[ ]` checkbox per step) | status checkbox flip + optional `commit:` annotation | — | Phase A reviews; Phase B sub-step 4 (risk tag); Phase C track review; Phase 4 |
+| `## Concrete Steps` | Phase A placeholder | thin numbered roster (description + `risk:` tag + optional `size:` clause on under-filled `low`/`medium` steps + `[ ]` checkbox per step) | status checkbox flip + optional `commit:` annotation | — | Phase A reviews; Phase B sub-step 4 (risk tag); Phase C track review; Phase 4 |
 | `## Episodes` | (empty) | (empty — Phase A does not populate) | one block per completed step at sub-step 7 **(D12 statusline read → `[ctx=<level>]` on block header; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | — | Phase A Pre-Flight Panel 1 strategy assessment; Phase C track-completion compile-episode; Phase 4 |
 | `## Validation and Acceptance` | track-level acceptance + Phase A placeholder for per-step lines + Move 3 placeholder | per-step EARS/Gherkin lines (when decomposition surfaces them) | — | — | Phase B implementer; Phase C track review; Phase 4 |
 | `## Idempotence and Recovery` | Phase A placeholder | per-step recovery paths | — | — | Phase B/C orchestration; Phase 4 |

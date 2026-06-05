@@ -411,11 +411,13 @@ Steps roster.>
 
 ## Concrete Steps
 <!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, and a
-`[ ]` status checkbox. Per-step episodes do NOT live here; they live
-in `## Episodes` below. The roster is immutable after Phase A except
-for the status checkbox flip and the optional `commit:` annotation
-Phase B appends. -->
+roster here: one entry per step with description, `risk:` tag, an
+optional `size:` clause, and a `[ ]` status checkbox. The `size:`
+clause (`— size: ~N files; <reason>`) appears only on an under-filled
+`low`/`medium` step (rule in `track-review.md` §Step Decomposition).
+Per-step episodes do NOT live here; they live in `## Episodes` below.
+The roster is immutable after Phase A except for the status checkbox
+flip and the optional `commit:` annotation Phase B appends. -->
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per

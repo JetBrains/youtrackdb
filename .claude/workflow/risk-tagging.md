@@ -194,6 +194,19 @@ A step is `medium` if no HIGH trigger fires AND it has any of:
   `medium`-tagged population that reaches Phase C focal-point review.
   That is intended (larger diffs warrant more focal-point attention),
   not a miscalibration; the `~5` value is unchanged.
+  - **Tagging a merged step.** When the decomposer merges several
+    `low`/`medium` changes into one step toward the `~12` fill target
+    (per `track-review.md` §"Step Decomposition"), tag the merged step
+    by re-applying these criteria to its *combined* content, not by
+    carrying any constituent's tag forward. The result equals the max
+    of the constituents' tags: `low+low → low`, `low+medium → medium`,
+    `medium+medium → medium`. The `~5`-files-of-logic trigger above
+    does the only non-obvious work — it raises a `low+low` logic merge
+    to `medium` when the combined logic footprint crosses five files,
+    with no merge-specific rule needed. A `high` change is never merged
+    (it stays its own isolated step per `track-review.md`), so a merged
+    step is never `high`; re-applying the criteria is always at least
+    as heavy as the largest constituent, never less.
 - Changes to test infrastructure or shared test fixtures
 - New Maven dependencies, version bumps, or non-trivial build-config
   changes
