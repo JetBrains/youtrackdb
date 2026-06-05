@@ -13,9 +13,11 @@
 | §Security | decomposer | 3A | Security-sensitive changes that trigger high risk. |
 | §Architecture / cross-component coordination | decomposer | 3A | Architectural or cross-component changes that trigger high risk. |
 | §Performance hot path | decomposer | 3A | Hot-path performance changes that trigger high risk. |
+| §Workflow machinery | decomposer | 3A | Workflow-machinery edits (`.claude/**`, root `CLAUDE.md`) that trigger high risk. |
 | §MEDIUM-risk triggers | decomposer | 3A | Conditions that put a step at medium risk. |
 | §LOW-risk default | decomposer | 3A | The default low-risk classification for routine steps. |
 | §Tests-only steps | decomposer | 3A | Risk handling for steps that add only tests. |
+| §Prose-only workflow steps | decomposer | 3A | The prose-only cap for workflow-machinery steps that change no behavior. |
 | §Override rules | decomposer,orchestrator | 3A,3B | How and when a risk tag may be overridden. |
 | §Decomposer-time override | decomposer | 3A | Overriding the computed risk during decomposition. |
 | §User override at Phase A end | orchestrator | 3A | Letting the user adjust a risk tag at the end of Pre-Flight. |
@@ -62,7 +64,7 @@ justified.
 
 | Level | Implementer model | Step-level review (sub-step 4) | Track-level review treatment |
 |---|---|---|---|
-| `high` | `opus` | Full dimensional review (4 baseline + conditional, up to 3 iterations) | Focal point |
+| `high` | `opus` | Step-level dimensional review: `review-bugs-concurrency` (subordinate to the workflow/docs-only baseline-skip override) + triggered conditional + step-level workflow reviewers (`hook-safety`, `prompt-design`), up to 3 iterations | Focal point |
 | `medium` | `opus` | None | Focal point |
 | `low` | `opus` | None | Default coverage |
 
@@ -153,6 +155,28 @@ A step is `high` if it does ANY of the following.
 - Introduces or removes allocation in a known hot path
 - Modifies cache lookup, hashing, or eviction logic
 
+### Workflow machinery
+<!-- roles=decomposer phases=3A summary="Workflow-machinery edits (.claude/**, root CLAUDE.md) that trigger high risk." -->
+A workflow step is `high` if it does ANY of the following. The other
+HIGH categories above are Java/storage-shaped, so a workflow-machinery
+edit (a file under `.claude/**`, or root `CLAUDE.md`) matches none of
+them; this category supplies the missing criteria, keyed to the same
+blast-radius logic recast for machinery: does the artifact execute or
+drive control flow, and how many sessions does a defect reach before a
+human notices.
+
+- Edits a hook, script, or `settings*.json` that runs automatically —
+  a defect wedges every session that triggers it.
+- Edits a load-bearing gate or control-flow protocol: the auto-resume
+  state machine, the drift/divergence gate, the review-iteration
+  protocol, the `§1.7` staging convention, or the `§1.6` stamp scheme.
+- Edits the shared schema every file keys off: the `§1.8` role/phase
+  enums, the document-index TOC format, or a closed glossary term.
+- Edits the always-loaded context surface, root `CLAUDE.md`, whose
+  content reaches every session of every project regardless of which
+  workflow path runs. Always-loaded content has every-session blast
+  radius, so it is HIGH and not MEDIUM.
+
 ## MEDIUM-risk triggers
 <!-- roles=decomposer phases=3A summary="Conditions that put a step at medium risk." -->
 
@@ -160,7 +184,16 @@ A step is `medium` if no HIGH trigger fires AND it has any of:
 
 - New non-public methods or classes that change observable behavior of
   one component (i.e., not pure refactoring)
-- Logic changes touching more than ~5 files within one module
+- Logic changes touching more than ~5 files within one module. This
+  `~5` and the `~12` fill/split cap from `track-review.md`
+  §"Step Decomposition" measure the same edited-file count for two
+  different decisions, so they are complementary, not rival: `~5`
+  raises a logic step to `medium`, while `~12` bounds how large a
+  coherent step should grow. Fill-toward-`~12` will routinely push
+  ordinary single-module steps past `~5`, producing a larger
+  `medium`-tagged population that reaches Phase C focal-point review.
+  That is intended (larger diffs warrant more focal-point attention),
+  not a miscalibration; the `~5` value is unchanged.
 - Changes to test infrastructure or shared test fixtures
 - New Maven dependencies, version bumps, or non-trivial build-config
   changes
@@ -168,6 +201,12 @@ A step is `medium` if no HIGH trigger fires AND it has any of:
   log channel, changes log levels of known signals)
 - Changes to error-handling code (exception types, retry logic, fallback
   paths) that aren't covered by a HIGH trigger
+- Workflow machinery that is behavioral but bounded: one phase prompt's
+  or skill's decision/dispatch logic, a single review-agent spec, adding
+  or removing or renaming a section other files cross-reference, or
+  multi-file prose that changes agent-observable behavior. (Edits that
+  run automatically or drive a load-bearing gate are HIGH per
+  §"Workflow machinery" above.)
 
 ## LOW-risk default
 <!-- roles=decomposer phases=3A summary="The default low-risk classification for routine steps." -->
@@ -183,6 +222,10 @@ A step is `low` if no HIGH or MEDIUM trigger fires. Typical cases:
 - Adding configuration constants or new enum values that aren't yet
   wired to behavior
 - Spotless / formatting fixes
+- Workflow machinery that is prose or clarity only, with no behavioral
+  change: a house-style reword, a typo fix, a TOC reindex, a glossary
+  gloss that preserves meaning, a non-load-bearing example edit, or
+  single-file prose touching no gate, dispatch, or schema
 
 ## Tests-only steps
 <!-- roles=decomposer phases=3A summary="Risk handling for steps that add only tests." -->
@@ -194,6 +237,41 @@ Otherwise `low`.
 
 If a step adds production code AND its tests in one commit, rate by the
 production code.
+
+## Prose-only workflow steps
+<!-- roles=decomposer phases=3A summary="The prose-only cap for workflow-machinery steps that change no behavior." -->
+
+A workflow-machinery step that edits ONLY prose (no hook/script/settings
+change AND no gate/dispatch/schema change) is at most `low`. This is the
+workflow analog of the tests-only cap above: the same way a test-only
+commit cannot break production behavior, a prose-only workflow commit
+cannot wedge a session or redirect control flow, so it skips the
+step-level dimensional review path.
+
+The cap is a ceiling for prose-only edits at every tier, not a carve-out
+that fires only on files the HIGH category would otherwise tag. A step
+qualifies for the cap on the content of the change, never on the
+identity of the file: a wording-preserving edit to root `CLAUDE.md` is
+prose-only and `low`, even though a control-flow-changing edit to the
+same file is HIGH.
+
+The hinge is whether the edit changes meaning. A meaning-changing
+glossary, TOC-format, or enum edit alters the shared schema other files
+key off and is HIGH per §"Workflow machinery" above (a TOC edit reaches
+HIGH only when it changes the table's schema, not when it renames a
+single row — a single-section rename is MEDIUM per §"MEDIUM-risk
+triggers"); a gloss that reindexes a TOC or rewords a definition while
+preserving its meaning changes no schema and is prose-only/`low`. The full qualifier ("no
+hook/script/settings change AND no gate/dispatch/schema change")
+prevents the cap from firing on a control-flow-driving prose edit that
+the HIGH taxonomy also matches: if either half of the qualifier fails,
+the step is not prose-only and the cap does not apply.
+
+This risk bucket is orthogonal to the `review-agent-selection.md`
+"workflow-machinery" file-set predicate: that predicate decides which
+files the workflow reviewers scope to, while this cap decides how
+dangerous a prose-only edit to such a file is. A file can be in the
+reviewers' workflow-machinery set and still be capped at `low` here.
 
 ## Override rules
 <!-- roles=decomposer,orchestrator phases=3A,3B summary="How and when a risk tag may be overridden." -->

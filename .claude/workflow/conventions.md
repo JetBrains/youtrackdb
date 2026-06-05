@@ -67,9 +67,9 @@ during Phase 3 execution.
 | Term | Definition |
 |---|---|
 | **Track** | A coherent stream of related work within a plan. Contains steps. Max ~5-7 steps. If larger, split into dependent tracks during planning. |
-| **Step** | A single atomic change = one commit. Fully tested. |
+| **Step** | One atomic change = one commit, fully tested. "Atomic" means one coherent, logically continuous change committed together — not a minimal file count. For how large a step should be, see the footprint guidance in `track-review.md` §Step Decomposition. |
 | **Episode** | Structured record of what happened during a step or track. |
-| **Scope indicator** | Rough sketch of expected work in a track. |
+| **Scope indicator** | Rough sketch of expected work in a track: the planned file footprint and what it covers (`~N files covering X, Y, Z`). Format and rules in §Scope indicators (required). |
 | **Risk tag** | Per-step `low` / `medium` / `high` label assigned by the Phase A decomposer. Gates whether Phase B runs step-level dimensional review (`high` only) and signals focal points to Phase C track-level review (`medium` and `high`). Locked once the step is implemented. Criteria, override rules, and lifecycle live in `risk-tagging.md`; sub-step gating reads only the tag value, not the criteria. |
 | **Research** | Phase 0 — interactive exploration before planning. The agent answers questions, explores code, and does internet research. Completes only when the user explicitly asks to create the plan. Same session as Phase 1. |
 | **Session** | One invocation of `/execute-tracks`. Handles one sub-phase (A, B, or C) of one track. Sessions are separated by context clearing. Episodes bridge context across sessions. The only exception: the Track Pre-Flight gate + Phase A share a single session. |
@@ -200,10 +200,10 @@ realign.
 ## Checklist
 - [ ] Track 1: <title>
   > <intro paragraph — high-level context; detailed description in plan/track-1.md>
-  > **Scope:** ~N steps covering X, Y, Z
+  > **Scope:** ~N files covering X, Y, Z
 - [ ] Track 2: <title>
   > <intro paragraph — high-level context; detailed description in plan/track-2.md>
-  > **Scope:** ~N steps covering X, Y, Z
+  > **Scope:** ~N files covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
 
 ## Plan Review
@@ -277,17 +277,29 @@ for pending tracks) and by Phase A/B/C of the active track.
 <!-- roles=planner,reviewer-plan phases=1,2 summary="In-scope / out-of-scope markers required on every plan and track." -->
 
 Every track must include a **Scope** line in its description block: a rough
-sketch of the expected work — approximate step count and a brief list of
-what they'd cover. Scope indicators are strategic signals, not tactical
-commitments. Phase A always does full step decomposition at execution
+sketch of the expected work — the planned file footprint and a brief list of
+what those files cover. The footprint is a per-track soft heuristic, not the
+per-step `~12` split cap: it estimates how many files the whole track touches,
+not how large any one step is. A file count is knowable at plan time (the
+in-scope file set already lives in each track file's §Interfaces and
+Dependencies), whereas a step count pre-judges Phase A decomposition, which
+happens only at execution time. Scope indicators are strategic signals, not
+tactical commitments. Phase A always does full step decomposition at execution
 time regardless.
 
-Format: `> **Scope:** ~N steps covering X, Y, Z`
+Format: `> **Scope:** ~N files covering X, Y, Z`
 
 Scope indicators serve three purposes:
-1. **Structural review** can catch sizing issues (a track claiming ~2 steps
-   but describing 8 distinct changes) and ordering problems (scope of
-   Track B implies a dependency on Track A's output).
+1. **Structural review** can catch sizing issues by comparing the footprint
+   against the track-level ceiling (a footprint at or above `~20-25` in-scope
+   files signals a track that should split into dependent tracks) and ordering
+   problems (scope of Track B implies a dependency on Track A's output). The
+   `~20-25` ceiling is track-level and distinct from the per-step `~12` split
+   cap and `~5` MEDIUM trigger: a 5-7-step track aggregates many steps, so its
+   footprint sits well above those per-step numbers, and reusing them as the
+   track ceiling would mis-flag normal-sized tracks. The check is plan-file-only:
+   both the footprint count and the coverage-list cardinality sit on the
+   `**Scope:**` line itself.
 2. **Human reviewers** can quickly gauge relative effort across tracks.
 3. **Execution planning** — Phase A uses scope indicators as a starting
    point for just-in-time step decomposition, not as a binding contract.
@@ -295,7 +307,7 @@ Scope indicators serve three purposes:
 **Rules:**
 - The planner should focus energy on track descriptions, architecture notes,
   and inter-track dependencies — not premature step decomposition.
-- Scope indicators are estimates. "~3-5 steps" is fine; exact counts are
+- Scope indicators are estimates. "~3-5 files" is fine; exact counts are
   not required.
 - The brief list (covering X, Y, Z) names the major pieces of work, not
   individual commits. Think "what" not "how."

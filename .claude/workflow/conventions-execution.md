@@ -398,9 +398,11 @@ at session startup. Load on demand:
   rule in ephemeral-identifier-rule.md:implementer,final-designer:3B,3C,4)
   applies to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
-  sub-agent reviews, 4 baseline + up to 6 conditional + up to 6
-  workflow-review, max 3 iterations):
-  code-review-protocol.md:orchestrator:3B,3C.
+  sub-agent reviews; the reviewer pool across both tiers is 4 baseline
+  + up to 6 conditional + up to 6 workflow-review, max 3 iterations).
+  The per-tier baseline selection differs — the step tier launches a
+  subset (`review-bugs-concurrency` only), the track tier all four;
+  see code-review-protocol.md:orchestrator:3B,3C.
 - **Complexity tiers** (which pre-execution reviews to run for Simple /
   Moderate / Complex tracks): covered in
   track-review.md:orchestrator:3A §Complexity Assessment.

@@ -188,7 +188,7 @@ There are **16 specialized review agents** in three groups:
 | Agent | Launch when ANY of these categories are present |
 |---|---|
 | **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
-| **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
+| **review-bugs-concurrency** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
 | **review-crash-safety** | `crash-durability` |
 | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
 | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |

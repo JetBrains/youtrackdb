@@ -714,7 +714,24 @@ full upfront decomposition feasible.
 - Each step = one commit.
 - Each step = fully tested, self-contained change with 85% line / 70%
   branch coverage.
-- If a step touches more than ~3 files or does unrelated things, split it.
+- **Coherence (all tiers).** A step is one coherent, logically
+  continuous change. If a step does unrelated things, split it. This is
+  the only mandatory split rule; file count alone never forces a split.
+- **High-risk isolation.** Put each HIGH-category change in its own
+  `high`-tagged step, sized by the change itself with no file cap — a
+  HIGH change that legitimately spans many files stays one step so its
+  step-level dimensional review sees the whole change at once.
+- **Fill ordinary steps toward ~12 edited files.** For `low`/`medium`
+  steps, decompose toward the *largest* coherent change that stays
+  within ~12 edited files, not the smallest. This is a directive, not a
+  permission: collapsing k small coherent steps into one removes (k-1)
+  cold-read re-pays, and the measured implementer-context ceiling for
+  steps at this footprint sits well below the warning band. Flag a
+  `low`/`medium` step at ~14+ edited files as overblown and split it
+  (still respecting coherence). Carve-out: prefer splitting when the work is likely to
+  need heavy per-step iteration (debugging-prone or test-churny), since
+  iteration count, not edited-file count, is the measured context
+  driver.
 - If a step feels trivial (single import, single rename), merge it into
   a neighbor.
 - Note **cross-cutting concerns** (shared types, refactors) as separate
@@ -730,11 +747,12 @@ Phase C always runs against the cumulative track diff regardless of
 the per-step distribution.
 
 Apply the criteria in risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C — load that
-file at the start of decomposition. Six HIGH categories (concurrency,
+file at the start of decomposition. Seven HIGH categories (concurrency,
 crash-safety/durability, public API, security, architecture,
-performance hot path), one MEDIUM band (multi-file logic, test
-infrastructure, build config, observability changes), and a LOW
-default for refactoring / new tests / docs / isolated bug fixes. When
+performance hot path, workflow machinery), one MEDIUM band (multi-file
+logic, test infrastructure, build config, observability changes,
+bounded behavioral workflow edits), and a LOW default for refactoring /
+new tests / docs / isolated bug fixes / prose-only workflow edits. When
 in doubt, mark `high` — over-tagging costs an extra review, but
 missing a real high-risk step ships bugs.
 

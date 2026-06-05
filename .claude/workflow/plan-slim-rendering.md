@@ -163,7 +163,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
   > alongside the existing overlay mode, with a per-file flag controlling
   > which path is used.
   >
-  > **Scope:** ~6 steps covering direct-buffer write path, flush ordering,
+  > **Scope:** ~6 files covering direct-buffer write path, flush ordering,
   > undo log integration.
   >
   > **Depends on:** Track 1

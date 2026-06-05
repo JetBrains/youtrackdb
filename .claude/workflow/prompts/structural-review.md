@@ -62,9 +62,11 @@ descriptions, oversized tracks, contradictions — directly impair execution.
   contain `- [ ] Step:` items or *(provisional)* markers. Only scope
   indicators exist at this point.
 - **Scope indicator**: A rough sketch of expected work in a track
-  (`> **Scope:** ~N steps covering X, Y, Z`). A strategic signal for effort
+  (`> **Scope:** ~N files covering X, Y, Z`). The `~N files` figure is the
+  planned file footprint — a plan-time-knowable scope fact, not a count of
+  steps that exist only after Phase A. A strategic signal for effort
   estimation, not a binding contract. Phase A (first sub-phase of execution)
-  decomposes scope indicators into concrete steps just-in-time.
+  decomposes the track into concrete steps just-in-time.
 - **Execution agent**: The agent that implements tracks during Phase 3. It
   reads the plan and design document to guide implementation. It decomposes
   scope indicators into concrete steps, implements them, and writes episodes.
@@ -121,17 +123,21 @@ each check to the right source.
 Review the plan against these criteria:
 
 SCOPE INDICATORS
-- Does every track have a **Scope** line with approximate step count and
-  brief list of what they cover? *(plan-file only — scope indicators live
-  in the plan checklist regardless of plan shape)*
-- Are scope indicators plausible given the track description? (e.g., a
-  track describing 8 distinct changes but claiming ~2 steps is suspect)
-  *(cross-file: the scope indicator is in the plan-file entry; the track
-  description is in the track file's `## Purpose / Big Picture` +
-  `## Context and Orientation` + `## Plan of Work` + `## Interfaces
-  and Dependencies` sections for pending tracks,
-  in the plan-file entry for completed/skipped tracks. Compare both
-  halves.)*
+- Does every track have a **Scope** line with an approximate planned file
+  footprint and a brief list of what those files cover? *(plan-file only —
+  scope indicators live in the plan checklist regardless of plan shape)*
+- Is the footprint plausible against the track-level ceiling? Compare the
+  `~N files` count and the coverage-list cardinality (both on the `**Scope:**`
+  line) against the `~20-25`-file track ceiling: a footprint at or above
+  `~20-25` files is suspect, as is a coverage list naming far more distinct
+  changes than the file count plausibly absorbs (for example, a `~3 files`
+  footprint whose coverage list enumerates ten distinct subsystems). Either
+  signals a track that likely splits into dependent tracks. The `~20-25`
+  ceiling is track-level, distinct from the per-step
+  `~12` split cap and `~5` MEDIUM trigger (a multi-step track aggregates many
+  steps and routinely exceeds those per-step numbers). *(plan-file only — the
+  `~N files` figure and its coverage list both live on the plan-checklist
+  `**Scope:**` line, so this check reads no track file.)*
 - Are there any full `- [ ] Step:` items or *(provisional)* markers?
   These should NOT be present — step decomposition is deferred to
   execution. *(plan-file only)*
@@ -163,9 +169,12 @@ TRACK DESCRIPTIONS *(track file's `## Purpose / Big Picture` + `## Context and O
   lives in the plan checklist for every track regardless of status.)*
 
 TRACK SIZING
-- Does any track's scope indicator suggest more than ~5-7 steps? If so,
-  the track should be split into separate dependent tracks. *(plan-file
-  only — the Scope line lives in the plan checklist)*
+- Does any track's scope indicator (file footprint) imply a track too large
+  to stay one track (a footprint at or above `~20-25` in-scope files)? If so,
+  split into separate dependent tracks. The `~5-7` steps track-sizing rule
+  still guides planning; step count is not knowable from the file-footprint
+  indicator at plan time. *(plan-file only — the Scope line lives in the plan
+  checklist)*
 - Does any track's description cover work that would naturally split into
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
