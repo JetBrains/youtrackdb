@@ -9,10 +9,12 @@ After this track lands, the Phase A decomposer may merge low/medium steps (relat
 Edits five files so the Phase A decomposer may merge low/medium steps (related or not) toward the ~12 fill target, keeps high steps isolated, tags a merged step by re-applying the risk criteria, and requires an inline size-justification clause on any low/medium roster line still below the fill target.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-06-05T09:11Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -28,6 +30,8 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 1 (2 findings, 2 accepted). 0 blockers. All six named workflow-file anchors verified against the live tree; S1 high-isolation routing confirmed load-bearing (`review-agent-selection.md:25`, `code-review-protocol.md:20`, `risk-tagging.md` quick-ref); D4 `>~5-files` MEDIUM trigger and D5 closed reason set confirmed coherent. T1 (D1 misattributed `~14` to `conventions.md §1.2`; `~14` is in `track-review.md`) fixed in plan Constraints + D1 rationale. T2 (roster-format `size:` clause leaves `step-implementation.md` / `track-code-review.md` non-exhaustive) resolved by documenting the 5-file scoping decision in D6 Risks/Caveats + this track's out-of-scope bullet.
 
 ## Context and Orientation
 The change touches five files: four under `.claude/workflow/` that the Phase A decomposer reads, plus the create-plan seed template under `.claude/skills/`:
@@ -61,11 +65,7 @@ Ordering constraint: edits 1-2 establish the rule; edits 3-5 align the risk-tag,
 Per-step sequencing is deferred to Phase A decomposition. Note the reflexive case: this very change governs how the decomposer sizes steps, so the Phase A decomposition of this track may itself merge low/medium edits across the five files.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster
-here: one entry per step with description, `risk:` tag, and a `[ ]` status
-checkbox. Per-step episodes do NOT live here; they live in `## Episodes`
-below. The roster is immutable after Phase A except for the status checkbox
-flip and the optional `commit:` annotation Phase B appends. -->
+1. Relax `low`/`medium` coherence and add the under-fill justification, editing all five files in one commit so the glossary, the decomposition rules, the risk-tag rule, the roster format, and the seed template stay one non-contradicting story (S3). Edit order per `## Plan of Work`: (1) `conventions.md §1.1` glossary "Step": coherence mandatory for `high`, preferred for `low`/`medium`; (2) `track-review.md` §Step Decomposition: scope the Coherence bullet to `high`, extend Fill-toward-~12 with the merge allowance plus the under-fill justification (closed reason set; "unrelated" and inter-step dependency excluded), add the optional `size:` clause to the roster-line example; (3) `risk-tagging.md`: merged-step tag is the re-applied criteria (max of constituents), HIGH never merged; (4) `conventions-execution.md §2.1`: optional inline `size:` clause in the roster format plus the lifecycle-table row; (5) `create-plan/SKILL.md`: `size:` clause in the track-N.md seed-template placeholder. — risk: high (workflow machinery)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -105,7 +105,7 @@ In scope:
 
 Out of scope:
 - `.claude/workflow/track-code-review.md` — no Phase C verification gate (D6).
-- `.claude/workflow/prompts/**`, `.claude/workflow/step-implementation*.md` — unaffected by the sizing-rule change.
+- `.claude/workflow/prompts/**`, `.claude/workflow/step-implementation*.md` — the sizing-rule change does not alter their behavior. Their roster-format descriptions enumerate only the `commit:` annotation and stay that way by design: both serve roster→episode joining, which the optional `size:` clause does not affect (see D6 Risks/Caveats). The canonical optional-annotation set lives in `conventions-execution.md §2.1`.
 
 Inter-track dependencies: none — single-track plan.
 

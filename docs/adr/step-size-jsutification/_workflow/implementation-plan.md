@@ -34,8 +34,9 @@ directive already names as its own rationale.
 - This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
 - Reuse the existing `~12` fill number as the justification trigger.
   Introduce no new per-step threshold: `conventions.md §1.2` already keeps
-  `~5`, `~12`, `~14`, and `~20-25` distinct and warns against conflating
-  them.
+  `~5`, `~12`, and `~20-25` distinct and warns against conflating them, and
+  `~14` (the overblown-split line) is fixed in `track-review.md` §Step
+  Decomposition.
 - Preserve `high`-step isolation and the step-level-review routing that
   depends on it. Step-level dimensional review fires only on `risk: high`;
   isolating high is the property that makes coherence relaxation safe.
@@ -86,10 +87,12 @@ graph TD
 #### D1: Reuse `~12` as the justification trigger, not a new threshold
 - **Alternatives considered**: a separate `< 10 files` trigger (the opening
   proposal); tie the trigger to the existing `~12` fill target (chosen).
-- **Rationale**: `conventions.md §1.2` already maintains four distinct
-  per-step / per-track numbers and warns against conflating them. Reusing
-  `~12` keeps "fill toward the ceiling" and "justify if you land below it"
-  as two halves of one number; a fifth number adds confusion for no gain.
+- **Rationale**: the workflow already maintains several distinct per-step /
+  per-track numbers and warns against conflating them — `conventions.md §1.2`
+  keeps `~5`, `~12`, and `~20-25` distinct, and `~14` is the overblown-split
+  line in `track-review.md`. Reusing `~12` keeps "fill toward the ceiling"
+  and "justify if you land below it" as two halves of one number; a fifth
+  number adds confusion for no gain.
 - **Risks/Caveats**: a step at 11 files is technically "below ~12." The `~`
   approximate convention absorbs it; the rule reads "below the fill target,"
   not a hard cutoff.
@@ -159,7 +162,14 @@ graph TD
   edit). The decomposer self-applies the rule at Phase A, where the roster is
   written.
 - **Risks/Caveats**: no automated verification; a decomposer could omit the
-  clause. Accepted; revisit if under-filling persists in practice.
+  clause. Accepted; revisit if under-filling persists in practice. Two
+  reader-side roster-format descriptions outside the edit set
+  (`step-implementation.md`, `track-code-review.md`) keep enumerating only
+  the `commit:` annotation. Both serve roster→episode joining, which the
+  optional `size:` clause does not affect, so they stay as-is by design; the
+  canonical optional-annotation set lives in `conventions-execution.md §2.1`.
+  The five-file blast radius therefore holds for behavioral routing and the
+  canonical format.
 - **Implemented in**: Track 1
 
 #### Invariants
