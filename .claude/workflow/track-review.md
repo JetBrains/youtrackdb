@@ -714,24 +714,49 @@ full upfront decomposition feasible.
 - Each step = one commit.
 - Each step = fully tested, self-contained change with 85% line / 70%
   branch coverage.
-- **Coherence (all tiers).** A step is one coherent, logically
-  continuous change. If a step does unrelated things, split it. This is
-  the only mandatory split rule; file count alone never forces a split.
+- **Coherence (mandatory for `high`, preferred for `low`/`medium`).**
+  For `high` steps coherence is mandatory: a `high` step is one
+  coherent, logically continuous change, and if it does unrelated
+  things, split it. For `low`/`medium` steps coherence is a preference,
+  not a wall: the decomposer may merge several changes, related or not,
+  into one step to reach the fill target below. The mandatory split
+  rules are high-isolation (next bullet) and the `~14`-edited-files
+  overblown line (the Fill bullet below); coherence alone forces a
+  split only at `high`, and file count alone never forces a split.
 - **High-risk isolation.** Put each HIGH-category change in its own
   `high`-tagged step, sized by the change itself with no file cap — a
   HIGH change that legitimately spans many files stays one step so its
   step-level dimensional review sees the whole change at once.
 - **Fill ordinary steps toward ~12 edited files.** For `low`/`medium`
-  steps, decompose toward the *largest* coherent change that stays
-  within ~12 edited files, not the smallest. This is a directive, not a
-  permission: collapsing k small coherent steps into one removes (k-1)
-  cold-read re-pays, and the measured implementer-context ceiling for
-  steps at this footprint sits well below the warning band. Flag a
-  `low`/`medium` step at ~14+ edited files as overblown and split it
-  (still respecting coherence). Carve-out: prefer splitting when the work is likely to
-  need heavy per-step iteration (debugging-prone or test-churny), since
+  steps, decompose toward the *largest* change that stays within ~12
+  edited files, not the smallest, merging available `low`/`medium`
+  work (related or not) into one step to reach the target. This is a
+  directive, not a permission: collapsing k small steps into one
+  removes (k-1) cold-read re-pays, and the measured implementer-context
+  ceiling for steps at this footprint sits well below the warning band.
+  Flag a `low`/`medium` step at ~14+ edited files as overblown and
+  split it. Carve-out: prefer splitting when the work is likely to need
+  heavy per-step iteration (debugging-prone or test-churny), since
   iteration count, not edited-file count, is the measured context
   driver.
+  - **Under-fill justification.** A `low`/`medium` step whose planned
+    footprint still lands below the ~12 fill target must carry an
+    inline `— size: ~N files; <reason>` clause on its `## Concrete
+    Steps` roster line naming why it is not maximized. The reason is
+    drawn from a closed set of two: **(a) no mergeable `low`/`medium`
+    work fits**: the rest of the track is `high`, it is the end of the
+    track, or the only remaining `low`/`medium` unit is a single
+    coherent change large enough that merging it would trip the `~14`
+    overblown line; or **(b) heavy-iteration carve-out**: the
+    debugging-prone or test-churny work above, kept small on purpose.
+    "Unrelated to the rest of the track" is **not** a valid reason:
+    under the relaxed coherence rule unrelated `low`/`medium` work is
+    merged, so "unrelated" can only signal that the step should have
+    absorbed more, so merge more rather than justify. "An inter-step
+    dependency forces sequencing" is **not** valid either: interdependent
+    `low`/`medium` steps are merged into one with the dependency
+    becoming intra-step ordering. A step at or near ~12 is maximized and
+    carries no clause.
 - If a step feels trivial (single import, single rename), merge it into
   a neighbor.
 - Note **cross-cutting concerns** (shared types, refactors) as separate
@@ -761,7 +786,13 @@ Write the tag inline on each step's `## Concrete Steps` roster line
 
 ```markdown
 1. <description> — risk: <level> (<category, "default", or "override: <reason>">)  [ ]
+2. <description> — risk: low (default) — size: ~N files; <closed-set reason>  [ ]
 ```
+
+The optional `— size: ~N files; <reason>` clause is present only when
+an under-filled `low`/`medium` step triggers it (see the Under-fill
+justification rule under §"Decomposition rules" above); a maximized
+step omits it.
 
 The tag stays in place through Phase B (where it gates
 `step-implementation.md` sub-step 4) and Phase C (where `medium` and

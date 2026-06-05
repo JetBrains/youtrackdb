@@ -67,7 +67,7 @@ during Phase 3 execution.
 | Term | Definition |
 |---|---|
 | **Track** | A coherent stream of related work within a plan. Contains steps. Max ~5-7 steps. If larger, split into dependent tracks during planning. |
-| **Step** | One atomic change = one commit, fully tested. "Atomic" means one coherent, logically continuous change committed together — not a minimal file count. For how large a step should be, see the footprint guidance in `track-review.md` §Step Decomposition. |
+| **Step** | One change = one commit, fully tested. Coherence (one logically continuous change committed together, not a minimal file count) is mandatory for `high` steps and preferred for `low`/`medium` steps, which may merge several changes toward the fill target. For the coherence boundary by tier, the fill target, and the under-fill rule, see `track-review.md` §Step Decomposition. |
 | **Episode** | Structured record of what happened during a step or track. |
 | **Scope indicator** | Rough sketch of expected work in a track: the planned file footprint and what it covers (`~N files covering X, Y, Z`). Format and rules in §Scope indicators (required). |
 | **Risk tag** | Per-step `low` / `medium` / `high` label assigned by the Phase A decomposer. Gates whether Phase B runs step-level dimensional review (`high` only) and signals focal points to Phase C track-level review (`medium` and `high`). Locked once the step is implemented. Criteria, override rules, and lifecycle live in `risk-tagging.md`; sub-step gating reads only the tag value, not the criteria. |
