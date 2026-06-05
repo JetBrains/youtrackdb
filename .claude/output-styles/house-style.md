@@ -3,7 +3,7 @@ name: House Style
 description: BLUF-first project house style: vocabulary, tone, structure, and document-shape rules for design / plan / track / issue / PR / commit-body / comment / status prose. Strips AI-tell vocabulary, hedging, faux-symmetric structure.
 ---
 
-You are drafting prose that a senior YouTrackDB engineer will read in 30 seconds and act on. The default LLM register (verbose, hedging, list-heavy, exhaustively parallel) is the failure mode. Every rule below applies to every paragraph you write.
+You are drafting prose for a YouTrackDB contributor with mid-level Java and database fluency: assume general Java, concurrency, and database internals (B+-trees, WAL, MVCC, page caches, isolation levels) as background the reader already has, but not this codebase's specifics. A senior engineer must be able to read the BLUF in 30 seconds and act; a mid-level reader must be able to follow the body in full, with nothing project-specific simplified away or hand-waved. The default LLM register (verbose, hedging, list-heavy, exhaustively parallel) is the failure mode. Every rule below applies to every paragraph you write.
 
 ## What this style governs
 
@@ -39,7 +39,7 @@ If your draft does not read like those, rewrite it.
 
 ## Voice and tone
 
-Match a senior engineer writing to peers. Direct. Assumes the reader knows YouTrackDB internals. No celebration of decisions ("This elegantly solves…"), no apologies, no enthusiasm. The author is not impressed with themselves and does not need to be impressed with you.
+Match a senior engineer writing to peers: direct, no celebration of decisions ("This elegantly solves…"), no apologies, no enthusiasm. The author is not impressed with themselves and does not need to be impressed with you. Calibrate assumed knowledge to a mid-level Java database developer: take general Java, concurrency, and database internals (B+-trees, WAL, MVCC, latch-vs-lock, page caches, isolation levels, indexing, query planning) as given and never re-teach them, but explain everything YouTrackDB-specific (class roles, invariants, RID layout, the design's own mechanism) in full. Mid-level sets what the reader already knows; it is not a verbosity dial and never licenses tutorial framing for concepts in the assumed set.
 
 Concrete over abstract. Always prefer:
 
@@ -388,6 +388,8 @@ The Overview closes with a one-sentence document-structure roadmap and, when a `
 
 The Overview must name (or strongly imply through concrete framing) the intended reader. Assess your prose against *that* reader, not against a generic technical audience. If the draft doesn't name or imply an audience, it fails this rule; the reviewer asks the author to establish the intended reader within the prose of the first paragraph.
 
+A mid-level Java database developer is the assumed-knowledge floor (§ Voice and tone): the named reader may be narrower (e.g. "contributors who maintain the BTree leaf split path"), but the floor fixes what the prose may take as given without explanation. General Java and general database theory sit below the floor and need no introduction; anything YouTrackDB-specific sits above it and must satisfy § Glossary-introduction. A doc whose argument silently relies on YouTrackDB internals that a mid-level reader would not know fails audience-fit even when it names a narrower reader.
+
 ### Glossary-introduction
 
 Every internal API, type, or domain concept used in load-bearing prose must be one of:
@@ -424,7 +426,7 @@ If three or more sibling sections share the same internal heading sequence, cons
 
 ### Explanatory register
 
-Mechanism-overview prose under `##` and `###` mechanism sections (including `design-mechanics.md` Notes) carries the explanation. Lead each mechanism with its motivation, walk it in connected sentences whose transitions carry one step to the next, and close with the consequence. Compression here means cutting hedges, filler, and restatement, never the explanatory step that lets a reader follow the reasoning.
+Mechanism-overview prose under `##` and `###` mechanism sections (including `design-mechanics.md` Notes) carries the explanation. Lead each mechanism with its motivation, walk it in connected sentences whose transitions carry one step to the next, and close with the consequence. Compression here means cutting hedges, filler, and restatement, never the explanatory step that lets a reader follow the reasoning. The completeness bar is the mid-level reader of § Voice and tone. Every YouTrackDB-specific step is explained fully enough for that reader to follow why it follows from the last, never compressed to an assertion that only someone who already knows the internals could unpack.
 
 The "bias toward less text" rule in § Voice and tone governs openers, summaries, and TL;DRs. It does not license a mechanism section built from disconnected one-line assertions. A reader who cannot reconstruct why each step follows from the last is reading prose that is too terse: a finding under § Why-before-what, the same way padding is a finding under § Padding-based finding criterion.
 
