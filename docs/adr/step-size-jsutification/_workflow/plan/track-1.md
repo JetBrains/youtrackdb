@@ -16,6 +16,9 @@ Edits five files so the Phase A decomposer may merge low/medium steps (related o
 
 - [x] 2026-06-05T09:11Z [ctx=safe] Review + decomposition complete
 
+## Base commit
+4edab3ce9a120f471d67dd288c07cb4bbf3db3e9
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
