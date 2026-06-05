@@ -30,6 +30,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Step 1.5: Distillation (only for `design-sync`) | orchestrator,planner,final-designer | 1,4 | For design-sync only, re-distill the polished design from the current mechanics companion before the cold read. |
 | §Step 2: Determine cold-read scope | orchestrator,planner,final-designer | 1,4 | Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table. |
 | §Step 3: Run mechanical checks | orchestrator,planner,final-designer | 1,4 | Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read. |
+| §Step 3.5: Run the adversarial sub-agent (`phase1-creation` only) | orchestrator,planner | 1 | For phase1-creation, challenge the design's decisions and assumptions before the cold-read assesses comprehension. |
 | §Step 4: Run the cold-read sub-agent | orchestrator,planner,final-designer | 1,4 | Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects. |
 | §Step 5: Merge findings | orchestrator,planner,final-designer | 1,4 | Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step. |
 | §Step 6: Iterate | orchestrator,planner,final-designer | 1,4 | Apply fixes and re-run the cold read until findings clear or the iteration cap is reached. |
@@ -151,10 +152,14 @@ things and trigger different actions; do not collapse them mentally:
 See design-document-rules.md:planner,final-designer:1,4 `§ Mutation discipline § Cold-read scope by mutation kind` for the canonical statement of both counters.
 
 ## Workflow
-<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The nine-step mutation loop: apply, distill, scope, check, cold-read, merge, iterate, log, present." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The mutation loop: apply, distill, scope, check, adversarial (phase1-creation), cold-read, merge, iterate, log, present." -->
 
 The high-level steps are the same across all mutation kinds; the differences
-are in which checks fire and whether cold-read runs.
+are in which checks fire and whether the adversarial and cold-read passes run.
+One step is kind-conditional: Step 3.5 (adversarial) runs **only** for
+`phase1-creation`, where it precedes the cold read so a fresh reader is not
+asked to assess a design the adversarial pass may still change. Every other
+kind goes straight from Step 3 (mechanical checks) to Step 4 (cold-read).
 
 ### Step 1: Apply the edit
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Apply the requested mutation to the target design file(s), stamping only on the creation kinds." -->
@@ -390,6 +395,46 @@ The script prints JSON to stdout. Exit code `0` ⇒ no blockers; `1` ⇒ NEEDS
 REVISION. Capture and parse the JSON; do not act on the exit code alone —
 the findings list is what drives iteration.
 
+### Step 3.5: Run the adversarial sub-agent (`phase1-creation` only)
+<!-- roles=orchestrator,planner phases=1 summary="For phase1-creation, challenge the design's decisions and assumptions before the cold-read assesses comprehension." -->
+
+**Run this step only for `phase1-creation`.** Every other mutation kind
+skips it and goes straight to Step 4 (cold-read). For `phase1-creation` the
+adversarial pass runs **before** cold-read: it challenges the design's
+decisions and hidden assumptions against the real code while the design can
+still move cheaply, so the cold-read in Step 4 is not asked to assess the
+comprehension of a design the adversarial pass may still force to change
+(the design-first ordering, D7 / `design-document-rules.md` § Working / sync).
+
+**Skip when mechanical checks have any `blocker` finding** — same rule as
+cold-read below. Fix the structure first, then challenge the design once it
+is structurally sound.
+
+When mechanical has zero blockers, spawn the adversarial sub-agent via the
+`Agent` tool:
+
+- `subagent_type`: `general-purpose`
+- `description`: `"Adversarial design review (phase1-creation)"`
+- `prompt`: the full content of
+  `.claude/workflow/prompts/adversarial-review.md`. The reviewer reads its
+  § Design-scoped review (Phase 1) section and challenges `design.md`
+  (and `design-mechanics.md` when present) rather than a plan track. Pass
+  the design paths in the prompt's `## Inputs` block:
+
+```
+- design_path: <abs path>
+- design_mechanics_path: <abs path or "(none)">
+- mutation_kind: phase1-creation
+```
+
+The sub-agent returns the two-part adversarial output (Part 1 challenge
+certificates, Part 2 `Finding A<N>` entries). Map its findings into the same
+severity schema as the mechanical and cold-read findings: an adversarial
+`blocker` forces a design revision in the Step 6 iterate loop before
+cold-read runs; `should-fix` and `suggestion` carry into the merged list in
+Step 5. There is no `skip` severity in design scope — a design is not a
+track that can be dropped.
+
 ### Step 4: Run the cold-read sub-agent
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects." -->
 
@@ -402,6 +447,12 @@ cold-read against the re-distilled `design.md`.
 point asking a sub-agent to assess comprehension if the structure is broken
 — iterate on mechanical first, then cold-read once the doc is structurally
 sound.
+
+For `phase1-creation`, the adversarial pass (Step 3.5) has already run and
+its blockers were cleared in the Step 6 iterate loop before control reaches
+here — cold-read assesses the comprehension of a design whose decisions have
+already survived challenge. For all other kinds, cold-read is the first
+review pass.
 
 For all other kinds, when mechanical has zero blockers, spawn the cold-read
 sub-agent via the `Agent` tool:
@@ -434,12 +485,16 @@ schema as mechanical findings.
 ### Step 5: Merge findings
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step." -->
 
-Combine mechanical + cold-read findings into a single list. Sort by
-severity: `blocker` → `should-fix` → `suggestion`. Mechanical findings
-carry a structured `rule` field; cold-read findings are free-form
-bullets and won't usually duplicate the mechanical set, but if a
-cold-read bullet plainly restates a mechanical finding (same severity,
-same location, same shape rule), drop the cold-read copy.
+Combine mechanical + cold-read findings into a single list (plus the Step 3.5
+adversarial findings for `phase1-creation`). Sort by severity: `blocker` →
+`should-fix` → `suggestion`. Mechanical findings carry a structured `rule`
+field; cold-read and adversarial findings are free-form bullets and won't
+usually duplicate the mechanical set, but if a cold-read or adversarial bullet
+plainly restates a mechanical finding (same severity, same location, same
+shape rule), drop the duplicate. For `phase1-creation`, the adversarial pass
+ran first (Step 3.5) and its blockers were already iterated to resolution
+before cold-read; any adversarial `should-fix` / `suggestion` that carried
+forward is merged here alongside the cold-read findings.
 
 ### Step 6: Iterate
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Apply fixes and re-run the cold read until findings clear or the iteration cap is reached." -->

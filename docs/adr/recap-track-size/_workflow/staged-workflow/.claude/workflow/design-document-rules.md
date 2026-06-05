@@ -165,9 +165,14 @@ Each mutation invocation receives:
 The action runs:
 
 1. **Apply edit.** Write the change to disk.
-2. **Auto-review.** Two halves:
+2. **Auto-review.** Mechanical checks, then (for `phase1-creation`)
+   an adversarial pass, then cold-read:
    - **Mechanical checks** — cheap, always run. See checks
      table below.
+   - **Adversarial** (`phase1-creation` only) — sub-agent
+     challenges the design's decisions and assumptions against
+     the real code, before cold-read. See § Working / sync for
+     the adversarial-then-cold-read ordering.
    - **Cold-read** — sub-agent reads the doc fresh, no prior
      context. Scope depends on mutation kind (see scope table
      below).
@@ -381,6 +386,22 @@ and produces churn in the human-facing summary. Working mode lets
 mechanics evolve freely under cheap mechanical checks; sync
 batches the distillation into one expensive review pass at a
 deliberate publish point.
+
+**`phase1-creation` review order — adversarial, then cold-read.**
+The Phase 1.1 `phase1-creation` review runs **adversarial first,
+then cold-read**, not cold-read alone. The adversarial pass
+(`prompts/adversarial-review.md` § Design-scoped review (Phase 1),
+invoked by `edit-design` Step 3.5) challenges the design's decisions
+and hidden assumptions against the real code; the cold-read pass
+(`prompts/design-review.md`, Step 4) then assesses whether a fresh
+reader can build a working mental model. The order is load-bearing:
+cold-read must not assess the readability of a design the adversarial
+pass may still force to change, so the adversarial blockers are
+iterated to resolution before cold-read runs. This pairs with the
+design-first authoring flow — `design.md` is authored and reviewed in
+its own `create-plan` session (Step 4a) before the plan derives from
+it. Only `phase1-creation` runs the adversarial pass; the direct
+mutation kinds and `design-sync` run cold-read alone.
 
 **Stable reference for review.** Between syncs, `design.md` stays
 **frozen** relative to mechanics. The user reads `design.md` to
