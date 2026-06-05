@@ -29,7 +29,7 @@ This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/
 
 #### Component Map
 
-The change spans workflow-machinery files across three tracks. `conventions.md` and `risk-tagging.md` each appear in two tracks (disjoint sections). The load-bearing edge: the new workflow risk taxonomy (Track 1) is the trigger the workflow-reviewer triage (Track 2) keys off, which is why Track 2 depends on Track 1. Track 3 (the scope-indicator file-footprint rewrite, D8) is independent — it shares `conventions.md` with Track 1 across disjoint §1.1 rows and depends on neither track.
+The change spans workflow-machinery files across four tracks. `conventions.md` and `risk-tagging.md` each appear in two tracks (disjoint sections). The load-bearing edge: the new workflow risk taxonomy (Track 1) is the trigger the workflow-reviewer triage (Track 2) keys off, which is why Track 2 depends on Track 1. Track 3 (the scope-indicator file-footprint rewrite, D8) is independent — it shares `conventions.md` with Track 1 across disjoint §1.1 rows and depends on neither track. Track 4 (the `workflow-reindex.py` rule_1 fix, D9) is also independent and shares no file with the others: it edits live `.claude/scripts/` files, outside §1.7 staging.
 
 ```mermaid
 flowchart LR
@@ -51,6 +51,10 @@ flowchart LR
         CHECKERS["structural-review.md<br/>consistency-review.md<br/>technical/risk/adversarial-review.md<br/>implementation-review.md"]
         RENDER["plan-slim-rendering.md<br/>inline-replanning.md<br/>review-workflow-consistency.md"]
     end
+    subgraph T4["Track 4 — Reindex rule_1 fix (independent, live .claude/scripts/)"]
+        REINDEX["workflow-reindex.py<br/>check_rule_1_stamp_present<br/>staged-subtree exemption"]
+        RTEST["test_workflow_reindex.py<br/>invert staged-copy case"]
+    end
     RT_TAX ==>|"workflow HIGH/MEDIUM/LOW<br/>gives the triage its trigger"| RAS
     RAS --> SI
     RAS --> TCR
@@ -70,6 +74,7 @@ flowchart LR
 - **`structural-review.md`, `consistency-review.md`** (Track 3) — the checkers: rekey the sizing check from "claims ~2 steps but describes 8 changes" to footprint-vs-track-size, staying plan-file-only. (D8)
 - **`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `implementation-review.md`** (Track 3) — the Phase A review-prompt glossaries and the remaining scope-indicator mentions, updated to the file-footprint format. (D8)
 - **`plan-slim-rendering.md`, `inline-replanning.md`, `review-workflow-consistency.md`** (Track 3) — the renderers and the glossary-term reference, updated to the new format. (D8)
+- **`workflow-reindex.py`, `test_workflow_reindex.py`** (Track 4) — exempt the staged-workflow subtree from rule_1 via the existing `_STAGED_SUBTREE_PREFIX_RE`, sync the stale rule_1 docstring, and invert the regression test. A live `.claude/scripts/` edit outside §1.7 staging; independent of Tracks 1-3. (D9)
 
 #### D1: Raise the per-step footprint cap to ~12 with a fill-toward-cap directive
 - **Alternatives considered**: keep the `~3` cap; per-tier file caps; a staged `~8` intermediate cap.
@@ -127,6 +132,13 @@ flowchart LR
 - **Implemented in**: Track 3 (independent — no dependency on Track 1 or Track 2)
 - **Full design**: design.md §"Scope indicators measure file footprint, not steps"
 
+#### D9: Exempt the staged-workflow mirror from reindex rule_1
+- **Alternatives considered**: prepend a `workflow-sha` stamp to each staged copy (rejected: §1.7(e) mandates a byte-verbatim copy of the unstamped live file, and Phase 4 promotes staged copies with a plain `cp -r`, so a stamp would corrupt the live file on promotion); keep the PR in draft indefinitely (rejected: merging requires a non-draft PR); relocate the staged mirror outside `docs/adr/` so rule_1's path gate skips it (rejected: §1.7(a) fixes the staging location).
+- **Rationale**: `workflow-reindex.py check_rule_1_stamp_present` demands a line-1 `workflow-sha` stamp on every `docs/adr/`-rooted in-scope path, but the script's `IN_SCOPE_GLOBS` are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file (§1.6(f) excludes staged copies from the stamped set). Rule_1 therefore false-positives on every staged copy, and CI `workflow-toc-check.yml --check` fails on a non-draft PR. Exempt the staged subtree from rule_1 by reusing the existing `_STAGED_SUBTREE_PREFIX_RE` at `workflow-reindex.py:166`. The edit is a live `.claude/scripts/` change, outside §1.7 staging scope, so the I6 staged-set invariant is unaffected and the fix unblocks this branch's own gate.
+- **Risks/Caveats**: once the staged mirror is exempt, rule_1 may have no remaining in-scope target in this script, since its globs are entirely the mirror; the docstring at `workflow-reindex.py:1547-1560` describing rule_1 as a presence check for staged copies becomes stale and must be synced. Whether to keep rule_1 as a harmless guard or document its enforcement as the drift gate's job is a Track 4 Phase A decision. The existing test `test_rule_1_missing_stamp_on_staged_path_fails` asserts the pre-fix behavior, so it must invert to expect a pass.
+- **Implemented in**: Track 4 (independent — no dependency on Tracks 1-3)
+- **Full design**: design.md §"Constraints: mirror, staging, and self-application"
+
 #### Non-Goals
 - Changing the MEDIUM `~5`-file threshold *value* — only its wording is clarified (D3).
 - Adding step-level review for `low`/`medium` steps — only `high` steps reach step-level review, unchanged.
@@ -162,18 +174,13 @@ flowchart LR
   > Rewrite the plan-checklist scope indicator from `~N steps` to `~N files` (D8), so the sizing signal is a plan-time-knowable file footprint rather than a count of steps that only exist after Phase A decomposition. Touches the convention spec, the writers (`create-plan`, `planning.md`), the checkers (`structural-review.md`, `consistency-review.md`), and the renderers.
   > **Scope:** ~4 steps covering the convention spec rewrite, the writers, the checkers, and the renderers.
 
+- [ ] Track 4: Reindex rule_1 staged-mirror exemption (YTDB-1068)
+  > Fix the `workflow-reindex.py` rule_1 false-positive that fails the CI TOC-check gate on every workflow-modifying branch that stages a workflow copy. Rule_1 demands a line-1 `workflow-sha` stamp on `docs/adr/`-rooted in-scope paths, but the script's in-scope globs are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file. Exempt the staged subtree, sync the now-stale rule_1 docstring, and invert the regression test that asserts the pre-fix behavior. This is a live `.claude/scripts/` edit, outside §1.7 staging scope; the I6 staged-set invariant is unaffected.
+  > **Scope:** ~3 steps covering the rule_1 staged-mirror exemption, the regression test, and the docstring and cross-ref sync.
+  > **Depends on:** none (independent)
+
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1 (re-validation of the Track-3-revised plan)
-
-**Auto-fixed (mechanical)**: none — both reviews returned zero findings.
-
-**Escalated (design decisions)**: none.
-
-Re-validation after the inline replan that added Track 3 (D8). The consistency review verified every current-state citation in the three track files against the live `.claude/**` machinery and confirmed DR↔design traceability; the structural review confirmed ordering (Track 1 → Track 2 depends-on-1 → Track 3 independent), sizing, scope indicators, and absence of bloat. The plan's own `~N steps` scope lines are correct under the unchanged live convention (D8 switches the convention to `~N files` for future plans only).
-
-**PAUSED 2026-06-05 at Track-3-Phase-B-complete pending inline replan to add Track 4 (YTDB-1068)**
-- Handoff: docs/adr/step-size-recap/_workflow/handoff-inline-replan-track4.md
-- The handoff file drives resume; execute the inline replan (add Track 4) before any Phase C routing. Plan Review reset to `[ ]` happens as part of that replan, not here.
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

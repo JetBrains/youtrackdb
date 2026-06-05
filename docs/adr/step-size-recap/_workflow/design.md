@@ -296,6 +296,7 @@ Self-application has a limit worth stating plainly. The issue's "dogfood it" fra
 
 - `risk-tagging.md` is touched by both planned tracks (sizing & risk taxonomy; review routing) in disjoint sections; under §1.7 staging the staged copy accumulates both tracks' edits, and each track's Phase C review delta-scopes to its own sections.
 - The workflow-reviewer triage (review routing) depends on the workflow risk taxonomy (sizing & risk taxonomy track) for its trigger, so the routing track follows the taxonomy track.
+- §1.7 staging collides with the reindex validator's rule_1. `workflow-reindex.py check_rule_1_stamp_present` demands a line-1 `workflow-sha` stamp on every in-scope `docs/adr/`-rooted path, but the script's `IN_SCOPE_GLOBS` are entirely the staged-workflow mirror — and §1.7(e) mandates those copies be byte-verbatim duplicates of the unstamped live files, which §1.6(f) excludes from the stamped set. So rule_1 false-positives on every staged copy and `workflow-toc-check.yml --check` fails the gate on a non-draft PR. D9 exempts the staged subtree from rule_1 via the existing `_STAGED_SUBTREE_PREFIX_RE`. The fix is a live `.claude/scripts/` edit, outside §1.7 staging scope, so the staged-set invariant I6 is unaffected.
 
 ### References
 
@@ -304,5 +305,6 @@ Self-application has a limit worth stating plainly. The issue's "dogfood it" fra
 - D5: workflow-reviewer triage, `hook-safety` and `prompt-design` at the step
 - D6: add the workflow-machinery risk taxonomy
 - D7: `review-bugs-concurrency` mandatory in three paths, excluded from workflow
+- D9: exempt the staged-workflow mirror from reindex rule_1 so staged copies stay unstamped
 - Invariants: none new
 - Mechanics: none

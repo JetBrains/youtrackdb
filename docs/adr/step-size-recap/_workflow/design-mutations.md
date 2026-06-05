@@ -54,3 +54,16 @@ workflow-sha stamped (the log is append-only by contract; see
 - suggestion: the TL;DR names only the ~20-25-file footprint ceiling, while the body says the check compares the footprint *and* the coverage-list cardinality against the track-level norm. The TL;DR under-describes the two-dimensional check. Not retried per the suggestion-handling rule; the footprint number is the load-bearing one and reads cleanly. Carried as known debt.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 5 — 2026-06-05 — content-edit (design.md)
+
+**Diff summary**: Inline-replan for Track 4 (YTDB-1068). Appended a third Edge-cases bullet to §"Constraints: mirror, staging, and self-application" documenting the collision between §1.7 staging and `workflow-reindex.py` rule_1: the validator demands a line-1 `workflow-sha` stamp on every in-scope `docs/adr/`-rooted path, but its `IN_SCOPE_GLOBS` are entirely the staged-workflow mirror, which §1.7(e) mandates be byte-verbatim copies of the unstamped live files (excluded from the stamped set by §1.6(f)). Rule_1 therefore false-positives on every staged copy and `workflow-toc-check.yml --check` fails the gate on a non-draft PR. The fix (D9) exempts the staged subtree via the existing `_STAGED_SUBTREE_PREFIX_RE` — a live `.claude/scripts/` edit outside §1.7 staging scope, so the staged-set invariant I6 is unaffected. Added a matching `- D9: ...` line to the section's References footer, giving DR D9 a resolvable `**Full design**` target. Single file, no mechanics companion.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS. Mutation 5 trips the periodic whole-doc counter (M1-M4 are all design-touching, non-mechanics-edit), so the cold-read and the per-section shape check ran whole-doc. The first run surfaced one blocker unrelated to this edit — a truncated `**Full design**`-shaped citation in `plan/track-3.md:49` (the DL6 prose read `design.md §"Scope indicators measure file footprint"`, missing `, not steps`) that the whole-doc ref scan exposed; fixed in place to match the canonical heading. Re-run clean (0 findings).
+
+**Cold-read** (scope: whole-doc): PASS. Mental-model verdict YES; 1 suggestion.
+
+**Findings**:
+- suggestion: the new bullet names the reuse regex `_STAGED_SUBTREE_PREFIX_RE`, verifiable only against `workflow-reindex.py` (outside cold-read scope). Already satisfied — the orchestrator grounded the symbol against the live script before the edit; the handoff's `_STAGED_PREFIX_RE` was a stale name, and the actual symbol is `_STAGED_SUBTREE_PREFIX_RE` at `workflow-reindex.py:166`.
+
+**Iterations**: 1 of 3 (PASS).
