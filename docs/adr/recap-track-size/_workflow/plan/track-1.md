@@ -20,6 +20,7 @@ its size is the first calibration data point for the threshold open questions.
 - [x] 2026-06-05T16:58Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-05T17:22Z [ctx=safe] Step 1 complete (commit a3a1be4a77)
 - [x] 2026-06-05T17:40Z [ctx=info] Step 2 complete (commit 004c706616)
+- [x] 2026-06-05T17:55Z [ctx=info] Step 3 complete (commit da75f3c7d8)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -31,6 +32,11 @@ its size is the first calibration data point for the threshold open questions.
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- 2026-06-05T17:55Z Step 3 found a pre-existing reindex lint (rule_8: an
+  unstamped §1.2-citing note at the staged `conventions.md:301`, in step 1's
+  §Scope indicators region). It is `--write-fixable` and was left untouched as
+  out of step-3 scope; the Phase 4 promotion reindex should resolve it. See
+  Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -239,7 +245,7 @@ dependency).
 
 1. Sizing definition (arc 1, D1/D2/D3): write the two-sided footprint rule, the maximize directive, the file-based floor (≤~12), and the argumentation gate across `conventions.md` §1.1 Track row + §1.2 planning rule, `planning.md` §Track descriptions, `track-review.md` §Step Decomposition, and `create-plan/SKILL.md` Step-4 sizing rule; consolidate the existing `~20-25` ceiling prose into the new rule; retire `~5-7` as the *sizing metric* (step definition at `conventions.md:70` unchanged). — risk: high (workflow machinery: edits the §1.1 closed glossary term and the sizing gate the Phase 2 classifier keys on)  [x] commit: a3a1be4a77
 2. Enforcement propagation (arc 2, D4/D5): move the five review prompts (`structural` ×3 spots, `technical`, `adversarial`, `risk`, `consistency`) to the two-sided cap and add the sync-list anchor, folding the `structural-review.md` two-tier sizing block into the new rule rather than nulling lines; add the Phase B running `git diff base..HEAD --stat` early-warning to `step-implementation.md` and the Phase C review-burden line check (>~2,000 / >~4,000 total +/-, generated excluded, test kept) to `track-code-review.md`. — risk: high (workflow machinery: edits the Phase 2 sizing gate prompt and adds enforcement to the Phase B/C control-flow protocols)  [x] commit: 004c706616
-3. Design freeze (arc 3, D6): remove the inline-replan `design.md`-mutation trigger at all three sites (`design-document-rules.md` §Mutation discipline + Direct-mutation example; `inline-replanning.md` design-coherence/working-vs-direct/invocation blocks, replaced by a short DR-revision routing clause; `edit-design/SKILL.md:59` MUST-use entry); narrow the stale `3A,3C` annotations across each file's TOC rows + section comments (keep Phase 4); narrow only the `edit-design` clause of `conventions.md` §1.8(b) and its §1.1 Phase-enum-row twin (`:84`); add the `implementer-rules.md` frozen-design guard and reconcile `:73`/`:89`; add the divergence-is-expected note (covering section-mechanism divergence, not only links) to `consistency-review.md`. — risk: high (workflow machinery: edits the §1.8 phase-enum schema and the inline-replan control-flow protocol)  [ ]
+3. Design freeze (arc 3, D6): remove the inline-replan `design.md`-mutation trigger at all three sites (`design-document-rules.md` §Mutation discipline + Direct-mutation example; `inline-replanning.md` design-coherence/working-vs-direct/invocation blocks, replaced by a short DR-revision routing clause; `edit-design/SKILL.md:59` MUST-use entry); narrow the stale `3A,3C` annotations across each file's TOC rows + section comments (keep Phase 4); narrow only the `edit-design` clause of `conventions.md` §1.8(b) and its §1.1 Phase-enum-row twin (`:84`); add the `implementer-rules.md` frozen-design guard and reconcile `:73`/`:89`; add the divergence-is-expected note (covering section-mechanism divergence, not only links) to `consistency-review.md`. — risk: high (workflow machinery: edits the §1.8 phase-enum schema and the inline-replan control-flow protocol)  [x] commit: da75f3c7d8
 4. Design-first reorder (arc 4, D7): reorder `create-plan/SKILL.md` Step 4 to author `design.md` first, add the design→plan session boundary and the auto-resume condition (design.md exists, implementation-plan.md absent); re-frame `planning.md` §Goal and §Design Document; list the design/plan sub-phases in `workflow.md`; add the design-scoped role/phase to `adversarial-review.md`; note cold-read-after-adversarial in `design-review.md`; insert the adversarial step before cold-read in the `edit-design/SKILL.md` `phase1-creation` loop. — risk: high (workflow machinery: reorders the create-plan control flow / state machine and edits the §1.8 role/phase schema)  [ ]
 
 ## Episodes
@@ -327,6 +333,51 @@ placement as a sub-step 6 continuation rather than a new numbered sub-step.
 - `…/staged-workflow/.claude/workflow/prompts/consistency-review.md` (new — staged)
 - `…/staged-workflow/.claude/workflow/step-implementation.md` (new — staged)
 - `…/staged-workflow/.claude/workflow/track-code-review.md` (new — staged)
+
+### Step 3 — commit da75f3c7d8, 2026-06-05T17:55Z [ctx=info]
+**What was done:** Authored arc 3 (design freeze, D6). Removed the Phase-3
+inline-replan→`design.md`-mutation path at all three sites:
+`design-document-rules.md` dropped the §Mutation-discipline trigger bullet
+(replaced with a frozen-after-Phase-1 statement routing to the Decision Records
++ track narrative) and rewrote the Direct-mutation example from a Phase-3 case
+to a Phase-1 iteration case; `inline-replanning.md` excised the design-coherence
+/ working-vs-direct-mutation / `edit-design`-invocation blocks, replacing them
+with a clause routing replan design intent to the revised Decision Record + the
+track narrative; `edit-design/SKILL.md:59` struck the "inline replanning during
+Phase 3 ESCALATE" MUST-use entry. Narrowed every now-stale `3A,3C`
+design-mutation annotation to `1,4` (Step 8 to `1`) across TOC rows, section
+comments, and cross-file ref suffixes, keeping `phase4-creation` /
+`phase1-creation` intact. Narrowed only the `edit-design` clause of
+`conventions.md` §1.8(b) and its §1.1 Phase-enum-row twin (`:84`), leaving the
+ESCALATE/inline-replanning and review-mode `3A,3C` clauses verbatim. Added the
+`implementer-rules.md` frozen-design guard (read for context, return
+`DESIGN_DECISION_NEEDED` rather than resolve a decision from frozen `design.md`)
+and reconciled `:73`/`:89`. Added the divergence-is-expected note to
+`consistency-review.md` § DESIGN↔PLAN, covering both a stale `Full design` link
+and a DR diverging from a frozen section's mechanism.
+
+**What was discovered:** The `edit-design/SKILL.md` cross-refs to
+`conventions.md` §1.6 (stamp discipline) correctly stay `1,3A,3C,4` — §1.6's
+phase set is unaffected by the freeze, so narrowing them would make the suffix
+an invalid subset. A pre-existing reindex lint (rule_8, an unstamped
+§1.2-citing note at the staged `conventions.md:301`, inside step 1's §Scope
+indicators region) is `--write-fixable` and out of this step's scope; the Phase
+4 promotion reindex resolves it.
+
+**What changed from the plan:** No design change; arc 3 landed as planned, and
+the freeze closes the live self-contradiction (the §Mutation-discipline trigger
+versus Rule 15). For step 4: `edit-design/SKILL.md` and `conventions.md` §1.1
+are now staged with this step's edits, so step 4 reads the staged copies and
+layers its `phase1-creation` adversarial step and §1.1 edits on top, leaving the
+§1.8(b) ESCALATE/inline-replanning and review-mode `3A,3C` clauses untouched.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/design-document-rules.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/inline-replanning.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/implementer-rules.md` (new — staged)
+- `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/conventions.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/consistency-review.md` (modified — staged)
 
 ## Validation and Acceptance
 
