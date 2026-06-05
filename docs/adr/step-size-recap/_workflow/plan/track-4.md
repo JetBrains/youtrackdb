@@ -11,6 +11,13 @@ Exempt the staged-workflow subtree from rule_1 (D9). Rule_1 demands a line-1 `wo
 ## Base commit
 6ca35362c6eda080410264802f2909418bb81df8
 
+Note: recorded base 6ca35362c6 was a stale inline-replan placeholder
+(written by "Inline replan: add Track 4 (YTDB-1068 rule_1 fix)",
+predating Track 4 Phase A). Phase B uses the actual Phase-B-start HEAD
+d40b66fcc7 ("Phase A review and decomposition for Track 4") as the base
+for orphan detection and the step revert floor, matching the Track 3
+convention (base = tip after Phase A).
+
 ## Progress
 - [x] Review + decomposition
 - [ ] Step implementation
