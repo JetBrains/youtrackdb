@@ -183,6 +183,8 @@ flowchart LR
   > Two design-narrative findings deferred to Phase 4 (DL7): `design.md`'s "sizing check survives" before/after framing and its blast-radius list lag DL1 and DL3, and the `design-final.md` author reconciles them from the as-built state. The `workflow-reindex.py rule_1` exit-1 on staged copies is the known YTDB-1068 blocker that Track 4 fixes. Independent track; shares only the already-staged `conventions.md` (Track 1) and `track-code-review.md` (Track 2), edited in place. I6 holds.
   >
   > **Track file:** `plan/track-3.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Tracks 1-3 edits are staged and do not affect Track 4, which runs under the live workflow and is independent.
 
 - [ ] Track 4: Reindex rule_1 staged-mirror exemption (YTDB-1068)
   > Fix the `workflow-reindex.py` rule_1 false-positive that fails the CI TOC-check gate on every workflow-modifying branch that stages a workflow copy. Rule_1 demands a line-1 `workflow-sha` stamp on `docs/adr/`-rooted in-scope paths, but the script's in-scope globs are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file. Exempt the staged subtree, sync the now-stale rule_1 docstring, and invert the regression test that asserts the pre-fix behavior.
