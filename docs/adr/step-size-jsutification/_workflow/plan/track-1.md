@@ -10,11 +10,12 @@ Edits five files so the Phase A decomposer may merge low/medium steps (related o
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-05T09:11Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-05T10:32Z [ctx=info] Step 1 complete (commit c18cf9da4fa3f833a41b5c70746fccd949508dba)
 
 ## Base commit
 4edab3ce9a120f471d67dd288c07cb4bbf3db3e9
@@ -24,11 +25,31 @@ Edits five files so the Phase A decomposer may merge low/medium steps (related o
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
 
+- 2026-06-05T10:32Z Step 1 ran the full Phase-C-equivalent workflow-review
+  selection (5 agents) at the step level because this single-step `risk:
+  high` track skips the Phase C code review (`track-code-review.md`
+  §Single-Step Track). Phase C should confirm the skip and proceed straight
+  to track completion; the change is already fully reviewed. See Episodes
+  §Step 1.
+
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
+
+- 2026-06-05T10:32Z (gate-override) Step 1 ran the full workflow-review
+  selection at the step level (consistency, context-budget, writing-style,
+  instruction-completeness, prompt-design) instead of the literal step-level
+  set (prompt-design only), because a single-step `risk: high` track skips
+  Phase C code review and the step-level deferral's "the track pass runs the
+  full selection" premise then fails. See Episodes §Step 1.
+- 2026-06-05T10:32Z (defer-to-phase-4) WI2: widen D6's out-of-scope
+  rationale to note that `track-code-review.md` reads the inline `risk:`
+  token for focal-point weighting, not only `commit:` for roster→episode
+  joining; the size clause follows `risk:` behind the roster's ` — `
+  separator, so the read is unaffected and the out-of-scope decision holds.
+  Reconcile in `adr.md`'s D6 record at Phase 4. See Episodes §Step 1.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -68,12 +89,61 @@ Ordering constraint: edits 1-2 establish the rule; edits 3-5 align the risk-tag,
 Per-step sequencing is deferred to Phase A decomposition. Note the reflexive case: this very change governs how the decomposer sizes steps, so the Phase A decomposition of this track may itself merge low/medium edits across the five files.
 
 ## Concrete Steps
-1. Relax `low`/`medium` coherence and add the under-fill justification, editing all five files in one commit so the glossary, the decomposition rules, the risk-tag rule, the roster format, and the seed template stay one non-contradicting story (S3). Edit order per `## Plan of Work`: (1) `conventions.md §1.1` glossary "Step": coherence mandatory for `high`, preferred for `low`/`medium`; (2) `track-review.md` §Step Decomposition: scope the Coherence bullet to `high`, extend Fill-toward-~12 with the merge allowance plus the under-fill justification (closed reason set; "unrelated" and inter-step dependency excluded), add the optional `size:` clause to the roster-line example; (3) `risk-tagging.md`: merged-step tag is the re-applied criteria (max of constituents), HIGH never merged; (4) `conventions-execution.md §2.1`: optional inline `size:` clause in the roster format plus the lifecycle-table row; (5) `create-plan/SKILL.md`: `size:` clause in the track-N.md seed-template placeholder. — risk: high (workflow machinery)  [ ]
+1. Relax `low`/`medium` coherence and add the under-fill justification, editing all five files in one commit so the glossary, the decomposition rules, the risk-tag rule, the roster format, and the seed template stay one non-contradicting story (S3). Edit order per `## Plan of Work`: (1) `conventions.md §1.1` glossary "Step": coherence mandatory for `high`, preferred for `low`/`medium`; (2) `track-review.md` §Step Decomposition: scope the Coherence bullet to `high`, extend Fill-toward-~12 with the merge allowance plus the under-fill justification (closed reason set; "unrelated" and inter-step dependency excluded), add the optional `size:` clause to the roster-line example; (3) `risk-tagging.md`: merged-step tag is the re-applied criteria (max of constituents), HIGH never merged; (4) `conventions-execution.md §2.1`: optional inline `size:` clause in the roster format plus the lifecycle-table row; (5) `create-plan/SKILL.md`: `size:` clause in the track-N.md seed-template placeholder. — risk: high (workflow machinery)  [x] commit: c18cf9da4fa3f833a41b5c70746fccd949508dba
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
 step, identified by step number + commit SHA. Empty at Phase 1; Phase A
 does not populate. -->
+
+### Step 1 — commit c18cf9da4fa3f833a41b5c70746fccd949508dba, 2026-06-05T10:32Z [ctx=info]
+**What was done:** One commit edited five staged workflow files so the
+step-sizing rules tell one story, and a `Review fix:` commit applied review
+findings. `conventions.md §1.1` glossary "Step" makes coherence mandatory
+for `high` and preferred for `low`/`medium`. `track-review.md` §Step
+Decomposition scopes the Coherence bullet to `high`, extends the
+Fill-toward-~12 bullet with the `low`/`medium` merge allowance, adds the
+Under-fill justification sub-bullet (closed two-reason set, with "unrelated"
+and inter-step dependency excluded), and adds the optional `— size: ~N
+files; <reason>` roster clause. `risk-tagging.md` gains a merged-step
+tagging rule: re-apply the criteria to the combined content (max of
+constituents), `high` never merged. `conventions-execution.md §2.1`
+documents the clause in item 8, a roster example, and the lifecycle row.
+`create-plan/SKILL.md` adds the clause to the track-N.md seed-template
+placeholder. All edits route to the `_workflow/staged-workflow/.claude/…`
+mirror per §1.7; no live `.claude/**` path was committed.
+
+**What was discovered:** The step-level dimensional review ran the full
+Phase-C-equivalent workflow-review selection (consistency, context-budget,
+writing-style, instruction-completeness, prompt-design: 5 agents), not the
+narrow step-level set, because this single-step `risk: high` track skips the
+Phase C code review per `track-code-review.md` §Single-Step Track, and the
+step-level deferral's premise (the track pass runs the full selection) fails
+when no track pass runs. Review returned 6 findings, 0 blockers: WS1/WS2
+(em-dash overuse) and WI1 (undefined `commit:`/`size:` append order) fixed
+and gate-checked PASS; WC1 (the two roster examples format the `risk:` token
+per each file's local style) and WI3 (the degenerate "whole track below ~12
+even fully merged" case already covered by reason (a)) declined. The
+implementer's first SUCCESS return reported a fabricated COMMIT SHA tail; the
+defensive push check caught the mismatch and reconciled to actual HEAD
+`c18cf9da4fa3…`.
+
+**What changed from the plan:** No change to the five-file scope or edit
+order. WI2 (should-fix) found D6's out-of-scope rationale understates the
+roster reads: `track-code-review.md:349,353-357` parses the inline `risk:`
+token for focal-point weighting, not only `commit:` for joining. The new
+size clause sits after the `risk:` token behind the roster's ` — ` separator,
+so the read is unaffected and D6's out-of-scope decision holds; only the
+stated reason needs widening. Deferred to Phase 4, where the durable
+rationale lands in `adr.md`'s D6 record (`implementation-plan.md` is removed
+in the Phase 4 cleanup). See Decision Log.
+
+**Key files:**
+- `.claude/workflow/conventions.md` (new staged copy)
+- `.claude/workflow/track-review.md` (new staged copy)
+- `.claude/workflow/risk-tagging.md` (new staged copy)
+- `.claude/workflow/conventions-execution.md` (new staged copy)
+- `.claude/skills/create-plan/SKILL.md` (new staged copy)
 
 ## Validation and Acceptance
 Track-level acceptance:
