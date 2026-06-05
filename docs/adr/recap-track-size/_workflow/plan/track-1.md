@@ -22,6 +22,9 @@ its size is the first calibration data point for the threshold open questions.
 - [ ] Track-level code review
 - [ ] Track completion
 
+## Base commit
+`d88f667dc8`
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
