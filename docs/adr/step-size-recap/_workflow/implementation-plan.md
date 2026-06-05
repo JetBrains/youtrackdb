@@ -186,10 +186,13 @@ flowchart LR
   >
   > **Strategy refresh:** CONTINUE — Tracks 1-3 edits are staged and do not affect Track 4, which runs under the live workflow and is independent.
 
-- [ ] Track 4: Reindex rule_1 staged-mirror exemption (YTDB-1068)
+- [x] Track 4: Reindex rule_1 staged-mirror exemption (YTDB-1068)
   > Fix the `workflow-reindex.py` rule_1 false-positive that fails the CI TOC-check gate on every workflow-modifying branch that stages a workflow copy. Rule_1 demands a line-1 `workflow-sha` stamp on `docs/adr/`-rooted in-scope paths, but the script's in-scope globs are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file. Exempt the staged subtree, sync the now-stale rule_1 docstring, and invert the regression test that asserts the pre-fix behavior.
-  > **Scope:** ~3 steps covering the rule_1 staged-mirror exemption, the regression test, and the docstring and cross-ref sync.
-  > **Depends on:** none (independent)
+  >
+  > **Track episode:**
+  > Exempted the staged-workflow mirror from `workflow-reindex.py` rule_1 (the line-1 `workflow-sha` stamp check) by reusing the existing `_STAGED_SUBTREE_PREFIX_RE` before the `docs/adr/` gate, so the CI `workflow-toc-check.yml --check` gate now passes on a non-draft PR for any workflow-modifying branch that stages a workflow copy. This unblocks both this branch's own ready-time gate and every future branch in the same shape (YTDB-1068). The rule_1 docstring was rewritten to the truthful DL1 framing: after the exemption the rule has no reachable in-scope target and stays a harmless guard, and the §1.6(f) stamped set is enforced by the disjoint `workflow-startup-precheck.sh` drift gate rather than by rule_1. The existing staged-path missing-stamp test was inverted and renamed to assert exemption, and a direct-call regression test (the suite's first) was added to pin rule_1's empty-file and malformed-stamp branches that the exemption orphans from glob reachability. Track 4 is independent and confined to live `.claude/scripts/`, so the I6 staged-set invariant is unaffected: `.claude/scripts/` sits outside the §1.7 staging scope. Phase C review reached PASS at iteration 1, with one fix iteration that sharpened the docstring (incomplete §1.6(f) enumeration replaced by a non-enumerating phrase, em-dash pair removed, signposting opener dropped) and tightened the malformed-stamp test assertion to discriminate its branch (`Review fix:` 7eb88df352).
+  >
+  > **Track file:** `plan/track-4.md` (2 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed (re-validation after the Track 4 inline replan); consistency iter-1 + gate PASS, structural iter-1 + gate PASS
