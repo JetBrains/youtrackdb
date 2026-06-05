@@ -446,13 +446,17 @@ flag-only, never auto-merged, since re-partitioning PRs and preserving the
 dependency DAG is a planner judgment, not a mechanical edit. Above: a track
 over ~20-25 in-scope files is a **split candidate**. Both bounds are soft.
 
-*Argumentation gate.* A track outside the bounds — under the floor, below the
-maximize target, or over the ceiling — must carry a written justification in
-its track file naming why it is not folded, not maximized further, or not
-split. A documented out-of-bounds track passes planning autonomously; an
-undocumented one is a `design-decision` finding at Phase 2 review and
-escalates. A track that lands under the target but is genuinely complete (no
-further unit to add) satisfies the gate trivially: "this is the whole change".
+*Argumentation gate.* A track must carry a written justification in its track
+file when it is out of bounds on either side: under the floor (≤~12 in-scope
+files that folds into a neighbor), over the ceiling (>~20-25 in-scope files),
+or stopped below the ceiling with a mergeable autonomous unit left unpacked.
+The justification names why the track is not folded, not maximized further, or
+not split, respectively. A documented out-of-bounds track passes planning
+autonomously; an undocumented one is a `design-decision` finding at Phase 2
+review and escalates. A track that stops below the ceiling with no further unit
+to add is genuinely complete and satisfies the gate trivially — "this is the
+whole change" — so a mid-range track is not under-target merely for sitting
+between the floor and the ceiling.
 
 The footprint thresholds (~12 / ~20-25) are soft review-capacity estimates,
 recalibrated from execution-time measurements rather than pinned hard. Track
