@@ -651,14 +651,18 @@ def _clean_workflow_body_with_h3() -> str:
 
 
 def test_rule_1_stamp_present_on_staged_path_passes() -> None:
-    """A staged copy under docs/adr/.../staged-workflow/.claude/ with a
-    valid workflow-sha stamp on line 1 passes rule 1.
+    """A staged copy under docs/adr/.../staged-workflow/.claude/ passes
+    rule 1 via the staged-mirror exemption.
 
     The fixture mirrors the workflow-modifying staging layout: the staged
     workflow file sits under `docs/adr/<plan>/_workflow/staged-workflow/.claude/workflow/`
-    and starts with a 40-char-hex `workflow-sha:` comment. The validator's
-    rule 1 gate (the `docs/adr/` path prefix branch) accepts the file
-    without a rule_1 finding.
+    and happens to start with a 40-char-hex `workflow-sha:` comment. After
+    the staged-mirror exemption the validator returns no rule_1 finding
+    for any staged path regardless of line-1 content — the exemption is
+    stamp-agnostic, so the stamp on this fixture is incidental, not the
+    reason the file passes. (Pre-exemption this passed because the stamp
+    matched `_STAMP_LINE_RE`; the assertion is unchanged but the cause is
+    now the exemption.)
     """
     with _make_fixture_root() as tmp:
         root = Path(tmp)
@@ -694,13 +698,19 @@ def test_rule_1_stamp_present_on_staged_path_passes() -> None:
         assert not rule1, f"staged file with valid stamp should pass rule_1; got {rule1}"
 
 
-def test_rule_1_missing_stamp_on_staged_path_fails() -> None:
+def test_rule_1_missing_stamp_on_staged_path_exempt() -> None:
     """A staged copy under docs/adr/.../staged-workflow/.claude/ that
-    lacks the workflow-sha stamp on line 1 fails rule 1.
+    lacks the workflow-sha stamp on line 1 is EXEMPT from rule 1.
 
-    The fixture starts the file with an H1, not the stamp comment, so the
-    `_STAMP_LINE_RE` match fails and the validator records a rule_1
-    finding at line 1.
+    The fixture starts the file with an H1, not the stamp comment. This
+    mirrors the real staging layout, where a staged copy is a byte-verbatim
+    duplicate of the unstamped live file (conventions.md §1.7(e)) and is
+    intentionally absent from the §1.6(f) stamped set. The staged-mirror
+    exemption skips these paths before the stamp check, so the validator
+    records no rule_1 finding. (Pre-exemption this case asserted the
+    opposite — that the missing stamp produced a rule_1 finding — which
+    false-positived on every staged copy; this test now pins the fixed
+    behavior.)
     """
     with _make_fixture_root() as tmp:
         root = Path(tmp)
@@ -732,9 +742,8 @@ def test_rule_1_missing_stamp_on_staged_path_fails() -> None:
         rule1 = [
             f for f in findings if f.rule == "rule_1" and staged_rel in f.path
         ]
-        assert rule1, f"staged file without stamp should fail rule_1; got {findings}"
-        assert rule1[0].line == 1, (
-            f"rule_1 finding should anchor at line 1; got line {rule1[0].line}"
+        assert not rule1, (
+            f"unstamped staged copy should be exempt from rule_1; got {rule1}"
         )
 
 
@@ -4822,8 +4831,8 @@ def main() -> int:
             test_rule_1_stamp_present_on_staged_path_passes,
         ),
         (
-            "rule_1 missing stamp on staged path fails",
-            test_rule_1_missing_stamp_on_staged_path_fails,
+            "rule_1 missing stamp on staged path exempt",
+            test_rule_1_missing_stamp_on_staged_path_exempt,
         ),
         (
             "rule_1 live workflow file without stamp passes",
