@@ -19,6 +19,7 @@ its size is the first calibration data point for the threshold open questions.
 ## Progress
 - [x] 2026-06-05T16:58Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-05T17:22Z [ctx=safe] Step 1 complete (commit a3a1be4a77)
+- [x] 2026-06-05T17:40Z [ctx=info] Step 2 complete (commit 004c706616)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -237,7 +238,7 @@ dependency).
 ## Concrete Steps
 
 1. Sizing definition (arc 1, D1/D2/D3): write the two-sided footprint rule, the maximize directive, the file-based floor (≤~12), and the argumentation gate across `conventions.md` §1.1 Track row + §1.2 planning rule, `planning.md` §Track descriptions, `track-review.md` §Step Decomposition, and `create-plan/SKILL.md` Step-4 sizing rule; consolidate the existing `~20-25` ceiling prose into the new rule; retire `~5-7` as the *sizing metric* (step definition at `conventions.md:70` unchanged). — risk: high (workflow machinery: edits the §1.1 closed glossary term and the sizing gate the Phase 2 classifier keys on)  [x] commit: a3a1be4a77
-2. Enforcement propagation (arc 2, D4/D5): move the five review prompts (`structural` ×3 spots, `technical`, `adversarial`, `risk`, `consistency`) to the two-sided cap and add the sync-list anchor, folding the `structural-review.md` two-tier sizing block into the new rule rather than nulling lines; add the Phase B running `git diff base..HEAD --stat` early-warning to `step-implementation.md` and the Phase C review-burden line check (>~2,000 / >~4,000 total +/-, generated excluded, test kept) to `track-code-review.md`. — risk: high (workflow machinery: edits the Phase 2 sizing gate prompt and adds enforcement to the Phase B/C control-flow protocols)  [ ]
+2. Enforcement propagation (arc 2, D4/D5): move the five review prompts (`structural` ×3 spots, `technical`, `adversarial`, `risk`, `consistency`) to the two-sided cap and add the sync-list anchor, folding the `structural-review.md` two-tier sizing block into the new rule rather than nulling lines; add the Phase B running `git diff base..HEAD --stat` early-warning to `step-implementation.md` and the Phase C review-burden line check (>~2,000 / >~4,000 total +/-, generated excluded, test kept) to `track-code-review.md`. — risk: high (workflow machinery: edits the Phase 2 sizing gate prompt and adds enforcement to the Phase B/C control-flow protocols)  [x] commit: 004c706616
 3. Design freeze (arc 3, D6): remove the inline-replan `design.md`-mutation trigger at all three sites (`design-document-rules.md` §Mutation discipline + Direct-mutation example; `inline-replanning.md` design-coherence/working-vs-direct/invocation blocks, replaced by a short DR-revision routing clause; `edit-design/SKILL.md:59` MUST-use entry); narrow the stale `3A,3C` annotations across each file's TOC rows + section comments (keep Phase 4); narrow only the `edit-design` clause of `conventions.md` §1.8(b) and its §1.1 Phase-enum-row twin (`:84`); add the `implementer-rules.md` frozen-design guard and reconcile `:73`/`:89`; add the divergence-is-expected note (covering section-mechanism divergence, not only links) to `consistency-review.md`. — risk: high (workflow machinery: edits the §1.8 phase-enum schema and the inline-replan control-flow protocol)  [ ]
 4. Design-first reorder (arc 4, D7): reorder `create-plan/SKILL.md` Step 4 to author `design.md` first, add the design→plan session boundary and the auto-resume condition (design.md exists, implementation-plan.md absent); re-frame `planning.md` §Goal and §Design Document; list the design/plan sub-phases in `workflow.md`; add the design-scoped role/phase to `adversarial-review.md`; note cold-read-after-adversarial in `design-review.md`; insert the adversarial step before cold-read in the `edit-design/SKILL.md` `phase1-creation` loop. — risk: high (workflow machinery: reorders the create-plan control flow / state machine and edits the §1.8 role/phase schema)  [ ]
 
@@ -284,6 +285,48 @@ target," to keep the enforcement copies reproducible.
 - `…/staged-workflow/.claude/workflow/planning.md` (new — staged)
 - `…/staged-workflow/.claude/workflow/track-review.md` (new — staged)
 - `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (new — staged)
+
+### Step 2 — commit 004c706616, 2026-06-05T17:40Z [ctx=info]
+**What was done:** Authored arc 2 (enforcement propagation) by
+first-touch-copying seven live files into the staged tree. Moved the five
+Phase 2 review prompts (`structural` ×3 spots, `technical`, `adversarial`,
+`risk`, `consistency`) off the retired "~5-7 steps" ceiling onto the two-sided
+file-footprint cap, each Track-terminology bullet citing the authoritative
+`planning.md` §Track descriptions rule, and added a sync-list anchor comment in
+`structural-review.md` binding the rule-citing positions. Folded the
+`step-size-recap` two-tier sizing block: the SCOPE INDICATORS plausibility check
+now defers to a single TRACK SIZING check (no duplicate ceiling survives) and
+the `design-decision` trigger fires only on an undocumented out-of-bounds track.
+Added the flag-only Phase B running diff-stat early-warning and the flag-only
+Phase C review-burden line check (>~2,000 / >~4,000 total +/-, generated
+excluded, test kept). Primary commit `c2c648672e`; review-fix `004c706616`.
+
+**What was discovered:** `step-implementation.md` labels its loop "sub-steps
+4–7" / "1–8" in six places, so a new "sub-step 6.5" would break the integer
+enumeration; the early-warning was folded into sub-step 6 as a second always-run
+check instead of minting a new number. Separately, the "page through with
+`offset`/`limit` for diffs over 2,000 lines" instruction already lives in the
+`track-code-review.md` `## Input` contract and every review-agent spec — which
+is why 2,000 is the review-burden threshold (the `Read`-tool truncation
+boundary).
+
+**What changed from the plan:** No design change. The dimensional review raised
+M1 (the Phase C review-burden check had dropped Decision Record D4's
+">~2,000 → page the diff" action, mapping 2,000 to a bare "record") and M2 (the
+`structural-review.md` `~12` was ambiguous between the per-step fill target and
+the track-level floor). M1 was a should-fix bringing the check into conformance
+with the immutable D4 — fixed without touching D4 or `design.md`; M2 a one-line
+clarity qualification. The only structural nuance is the early-warning's
+placement as a sub-step 6 continuation rather than a new numbered sub-step.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/prompts/structural-review.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/prompts/technical-review.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/prompts/risk-review.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/prompts/consistency-review.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/step-implementation.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/track-code-review.md` (new — staged)
 
 ## Validation and Acceptance
 
