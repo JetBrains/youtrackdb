@@ -21,7 +21,9 @@ its size is the first calibration data point for the threshold open questions.
 - [x] 2026-06-05T17:22Z [ctx=safe] Step 1 complete (commit a3a1be4a77)
 - [x] 2026-06-05T17:40Z [ctx=info] Step 2 complete (commit 004c706616)
 - [x] 2026-06-05T17:55Z [ctx=info] Step 3 complete (commit da75f3c7d8)
-- [ ] Step implementation
+- [x] 2026-06-05T18:19Z [ctx=info] Step 4 complete (commit e758ccba20)
+- [x] 2026-06-05T18:19Z [ctx=info] Step implementation
+- [ ] Track-level code review
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -37,6 +39,18 @@ at Phase 1. -->
   §Scope indicators region). It is `--write-fixable` and was left untouched as
   out of step-3 scope; the Phase 4 promotion reindex should resolve it. See
   Episodes §Step 3.
+- 2026-06-05T18:19Z Step 4 left an open question for Phase C / Phase 4: now that
+  the adversarial reviewer runs in the Phase-1 `edit-design` loop, should the
+  §1.3 Review Iteration Protocol TOC-row phase set (`2,3A,3B,3C`) widen to
+  include phase 1? Left untouched because `edit-design`'s §Step 6 iterate
+  protocol is distinct from §1.3's loop. The Phase C consistency /
+  instruction-completeness reviewers should evaluate it on the cumulative diff.
+  See Episodes §Step 4.
+- 2026-06-05T18:19Z Step 4's create-plan two-session split changes the
+  create-plan commit cadence: the single "Add initial implementation plan and
+  design" commit becomes "Add initial design" (Step 4a) plus "Add initial
+  implementation plan" (Step 4b). Any doc that cites the single-commit
+  create-plan flow needs reconciling at Phase 4. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -64,6 +78,17 @@ inline-replan→`design.md`-mutation trigger sites, not one
 ~17 (no new files); the per-file edit descriptions in §Interfaces and
 Dependencies and §Plan of Work arc 3 are expanded to name every site so
 Phase B does not leave a dependent prompt contradicting the freeze.
+
+**DL3 (Phase B, dependency-reveal).** Step 4's design-scoped role/phase
+addition (Thread 4) rippled into a file the §Interfaces table listed only for
+threads 1 and 3: extending `reviewer-adversarial` to Phase 1 made the
+`conventions.md` §1.8(a) role-enum gloss stale, so step 4 also edited that one
+gloss line (review finding M2). The §Interfaces row for `conventions.md`
+predates this reveal and still reads "threads 1, 3"; the authoritative
+execution record is the §Episodes Step 4 Key-files list, which names the
+§1.8(a) edit. No design or threshold change; the file-set expansion is one line
+keeping the closed-enum gloss consistent with the role change arc 4 makes. See
+Episodes §Step 4.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -246,7 +271,7 @@ dependency).
 1. Sizing definition (arc 1, D1/D2/D3): write the two-sided footprint rule, the maximize directive, the file-based floor (≤~12), and the argumentation gate across `conventions.md` §1.1 Track row + §1.2 planning rule, `planning.md` §Track descriptions, `track-review.md` §Step Decomposition, and `create-plan/SKILL.md` Step-4 sizing rule; consolidate the existing `~20-25` ceiling prose into the new rule; retire `~5-7` as the *sizing metric* (step definition at `conventions.md:70` unchanged). — risk: high (workflow machinery: edits the §1.1 closed glossary term and the sizing gate the Phase 2 classifier keys on)  [x] commit: a3a1be4a77
 2. Enforcement propagation (arc 2, D4/D5): move the five review prompts (`structural` ×3 spots, `technical`, `adversarial`, `risk`, `consistency`) to the two-sided cap and add the sync-list anchor, folding the `structural-review.md` two-tier sizing block into the new rule rather than nulling lines; add the Phase B running `git diff base..HEAD --stat` early-warning to `step-implementation.md` and the Phase C review-burden line check (>~2,000 / >~4,000 total +/-, generated excluded, test kept) to `track-code-review.md`. — risk: high (workflow machinery: edits the Phase 2 sizing gate prompt and adds enforcement to the Phase B/C control-flow protocols)  [x] commit: 004c706616
 3. Design freeze (arc 3, D6): remove the inline-replan `design.md`-mutation trigger at all three sites (`design-document-rules.md` §Mutation discipline + Direct-mutation example; `inline-replanning.md` design-coherence/working-vs-direct/invocation blocks, replaced by a short DR-revision routing clause; `edit-design/SKILL.md:59` MUST-use entry); narrow the stale `3A,3C` annotations across each file's TOC rows + section comments (keep Phase 4); narrow only the `edit-design` clause of `conventions.md` §1.8(b) and its §1.1 Phase-enum-row twin (`:84`); add the `implementer-rules.md` frozen-design guard and reconcile `:73`/`:89`; add the divergence-is-expected note (covering section-mechanism divergence, not only links) to `consistency-review.md`. — risk: high (workflow machinery: edits the §1.8 phase-enum schema and the inline-replan control-flow protocol)  [x] commit: da75f3c7d8
-4. Design-first reorder (arc 4, D7): reorder `create-plan/SKILL.md` Step 4 to author `design.md` first, add the design→plan session boundary and the auto-resume condition (design.md exists, implementation-plan.md absent); re-frame `planning.md` §Goal and §Design Document; list the design/plan sub-phases in `workflow.md`; add the design-scoped role/phase to `adversarial-review.md`; note cold-read-after-adversarial in `design-review.md`; insert the adversarial step before cold-read in the `edit-design/SKILL.md` `phase1-creation` loop. — risk: high (workflow machinery: reorders the create-plan control flow / state machine and edits the §1.8 role/phase schema)  [ ]
+4. Design-first reorder (arc 4, D7): reorder `create-plan/SKILL.md` Step 4 to author `design.md` first, add the design→plan session boundary and the auto-resume condition (design.md exists, implementation-plan.md absent); re-frame `planning.md` §Goal and §Design Document; list the design/plan sub-phases in `workflow.md`; add the design-scoped role/phase to `adversarial-review.md`; note cold-read-after-adversarial in `design-review.md`; insert the adversarial step before cold-read in the `edit-design/SKILL.md` `phase1-creation` loop. — risk: high (workflow machinery: reorders the create-plan control flow / state machine and edits the §1.8 role/phase schema)  [x] commit: e758ccba20
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step,
@@ -378,6 +403,54 @@ layers its `phase1-creation` adversarial step and §1.1 edits on top, leaving th
 - `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (new — staged)
 - `…/staged-workflow/.claude/workflow/conventions.md` (modified — staged)
 - `…/staged-workflow/.claude/workflow/prompts/consistency-review.md` (modified — staged)
+
+### Step 4 — commit e758ccba20, 2026-06-05T18:19Z [ctx=info]
+**What was done:** Authored arc 4 (design-first reorder, D7) across all seven
+in-scope files, layering on the frozen-design state arc 3 left.
+`create-plan/SKILL.md` Step 4 split into Step 4a (author `design.md` via
+`edit-design` `phase1-creation`, freeze on review pass, end session) and Step 4b
+(derive the plan from the frozen design in a fresh session), with a new Step 1c
+resume check wiring the auto-resume condition. `planning.md` re-framed §Goal and
+§Design Document; `workflow.md` listed the 4a/4b sub-phases with the
+session-boundary contract; `adversarial-review.md` gained a design-scoped
+role/phase; `design-review.md` noted cold-read-after-adversarial;
+`edit-design/SKILL.md` inserted Step 3.5 (adversarial sub-agent,
+`phase1-creation` only) before cold-read; `design-document-rules.md` pinned the
+adversarial-then-cold-read ordering. Primary commit `a0777fec57`; review-fix
+`e758ccba20` applied M1/M2/M3.
+
+**What was discovered:** The role/phase enums are closed, so the design-scoped
+adversarial slot reuses `reviewer-adversarial` at phase 1 with no new token. The
+Step 1c auto-resume had to gate on a committed-and-clean `design.md`, not bare
+file presence: `edit-design` writes `design.md` before its review passes, so an
+interrupted Step 4a would otherwise derive a plan from an unreviewed design
+(review finding M1). An open question stays for Phase C / Phase 4: whether the
+§1.3 Review Iteration Protocol TOC-row phase set (`2,3A,3B,3C`) should widen to
+include phase 1 now that the adversarial reviewer runs in the Phase-1
+`edit-design` loop. It was left untouched because `edit-design`'s §Step 6 has
+its own iterate protocol distinct from §1.3.
+
+**What changed from the plan:** No design change. Two scope additions surfaced
+during execution and review, both mechanical and within arc-4 intent: a new
+Step 1c control-flow gate to enforce the auto-resume condition (the design
+described the behavior but gave no enforcement point), and a `conventions.md`
+§1.8(a) `reviewer-adversarial` gloss update to the dual-phase scope (review
+finding M2, a ripple of the design-scoped-role change into a file the
+§Interfaces table listed only for threads 1 and 3). For Phase C / Phase 4: the
+create-plan two-session split replaces the single
+"Add initial implementation plan and design" commit with "Add initial design"
+(4a) plus "Add initial implementation plan" (4b); any doc citing the
+single-commit flow should reconcile.
+
+**Key files:**
+- `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (modified — staged)
+- `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/design-document-rules.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/planning.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/design-review.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/workflow.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/conventions.md` (modified — staged; M2 §1.8(a) gloss)
 
 ## Validation and Acceptance
 
