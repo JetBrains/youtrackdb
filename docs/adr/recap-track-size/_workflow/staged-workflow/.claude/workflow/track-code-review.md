@@ -305,13 +305,19 @@ of the changes.
           ':(exclude)**/internal/core/sql/parser/**'
    ```
 
-   When the total crosses **~2,000** changed lines, record the figure in
-   the track episode as an oversize-track observation; when it crosses
-   **~4,000**, the diff is well over the review-capacity estimate and the
-   orchestrator should additionally surface it to the user, since a track
-   this large is a candidate for retroactive splitting in a future
-   planning pass (the diff has already landed, so it cannot be split now —
-   the record calibrates the soft thresholds and warns future planning).
+   When the total crosses **~2,000** changed lines, **page the cumulative
+   diff in ≤2,000-line windows when staging it for the review fan-out, and
+   pass that paging instruction to the dimensional sub-agents** — the `Read`
+   tool truncates at 2,000 lines and each agent's `## Input` contract
+   already says "for diffs over 2000 lines, page through with the `offset`
+   and `limit` parameters", so a diff past this threshold that is not paged
+   lets a sub-agent silently truncate its read at line 2,000. Flag the
+   review burden alongside the paging. When the total crosses **~4,000**,
+   additionally **record the overblown figure** in the track episode and
+   surface it to the user, since a track this large is a candidate for
+   retroactive splitting in a future planning pass (the diff has already
+   landed, so it cannot be split now — the record calibrates the soft
+   thresholds and warns future planning).
    Generated code is excluded because it carries no review burden; test
    code is kept because reviewing test behavior is real review work. This
    is **flag-only** — it never blocks the review fan-out or the gate, and

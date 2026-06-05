@@ -192,10 +192,11 @@ TRACK SIZING
   at plan time. Two-sided check against the soft range:
   - **Over the ceiling** — a footprint over `~20-25` in-scope files is a
     split candidate; the track likely partitions into dependent tracks.
-  - **Under the floor** — a footprint ≤~12 in-scope files that folds into an
-    adjacent track under the ceiling is a merge candidate (flag-only; never
-    auto-merged, since re-partitioning the dependency DAG is a planner
-    judgment).
+  - **Under the floor** — a footprint ≤~12 in-scope files (the track-level
+    floor, not the per-step `~12` fill target named in the SCOPE INDICATORS
+    check above) that folds into an adjacent track under the ceiling is a
+    merge candidate (flag-only; never auto-merged, since re-partitioning the
+    dependency DAG is a planner judgment).
   Both bounds are soft. A track that is out of bounds on either side, or one
   that stops below the ceiling with a mergeable autonomous unit left
   unpacked, owes a written justification in its track file naming why it is
