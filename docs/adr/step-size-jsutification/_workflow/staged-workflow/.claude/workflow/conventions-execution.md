@@ -117,7 +117,8 @@ is tabulated in the *Section lifecycle* subsection below.
    **No nested blockquote** — per D9 the per-step episode lives in
    `## Episodes` below, not here. The roster is immutable after Phase A
    except for the status checkbox flip (`[ ]` → `[x]` / `[!]`) and the
-   optional `commit: <SHA>` annotation Phase B appends. The optional
+   optional `commit: <SHA>` annotation Phase B appends after the
+   checkbox (`commit: <SHA>` is appended after any `— size:` clause). The optional
    inline `— size: ~N files; <reason>` clause is written at Phase A and
    appears only on a `low`/`medium` step whose planned footprint lands
    below the `~12` fill target, naming a closed-set reason it is not
@@ -130,6 +131,7 @@ is tabulated in the *Section lifecycle* subsection below.
    2. <Step description> — `risk: high`  [ ]
    3. <Step description> — `risk: medium`  [ ]
    4. <Step description> — `risk: low` — size: ~N files; <closed-set reason>  [ ]
+   5. <Step description> — `risk: low` — size: ~N files; <closed-set reason>  [x] commit: <SHA>
    ```
 
 9. **`## Episodes`** — continuous-log, workflow-specific sibling (D11).
