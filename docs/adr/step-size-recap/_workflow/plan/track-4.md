@@ -20,12 +20,13 @@ convention (base = tip after Phase A).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-05T05:10Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-05T05:56Z [ctx=safe] Step 1 complete (commit e5876ad740)
+- [x] 2026-06-05T06:00Z [ctx=safe] Step 2 complete (commit f212477a82)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -79,7 +80,7 @@ Invariants to preserve: the I6 staged-set invariant (Track 4 touches only live `
 ## Concrete Steps
 
 1. Exempt the staged-workflow subtree from rule_1 (reuse `_STAGED_SUBTREE_PREFIX_RE` before the `:1562` `docs/adr/` gate), rewrite the full rule_1 docstring (`workflow-reindex.py:1545-1561`) to the DL1 framing, and adapt the existing rule_1 tests so the suite stays green: invert and rename `test_rule_1_missing_stamp_on_staged_path_fails` and its registry entry (`:4824-4827`), re-document `test_rule_1_stamp_present_on_staged_path_passes`, keep the live-file test green; verify the suite passes and `--check` exits 0 — risk: medium (CI-validation tooling: changes the observable behavior of the rule_1 validator)  [x] commit: e5876ad740
-2. Add a direct-call regression test exercising rule_1's now-orphaned empty-file (`:1564`) and malformed-stamp (`:1573`) branches on a synthetic non-exempt `docs/adr/` `ParsedFile`, and register it in the test list — risk: low (new tests)  [ ]
+2. Add a direct-call regression test exercising rule_1's now-orphaned empty-file (`:1564`) and malformed-stamp (`:1573`) branches on a synthetic non-exempt `docs/adr/` `ParsedFile`, and register it in the test list — risk: low (new tests)  [x] commit: f212477a82
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -108,6 +109,28 @@ rule_1 findings before the fix).
 
 **Key files:**
 - `.claude/scripts/workflow-reindex.py` (modified)
+- `.claude/scripts/tests/test_workflow_reindex.py` (modified)
+
+### Step 2 — commit f212477a82, 2026-06-05T06:00Z [ctx=safe]
+**What was done:** Added a direct-call regression test for rule_1's
+empty-file and malformed-stamp branches, which Step 1's staged-mirror
+exemption orphaned (no `IN_SCOPE_GLOBS` path reaches them via
+`validate`/`--check` after the fix). The test constructs a synthetic
+`ParsedFile` rooted under `docs/adr/` but outside `staged-workflow/`,
+so it clears the exemption and the `docs/adr/` gate and reaches both
+branches, then calls `check_rule_1_stamp_present` directly: empty lines
+assert the empty-file finding, a non-stamp line 1 asserts the
+malformed-stamp finding. Registered in the manual test list after the
+live-file entry. Suite 125/125 (was 124); `--check` still exits 0.
+
+**What was discovered:** This is the suite's first direct-call unit
+test. Every prior rule test drives `validate(root)` against a temp
+fixture root rather than constructing inputs and calling a
+`check_rule_*` function directly. `ParsedFile`'s fields are `path`,
+`abs_path` (a `Path`), and `lines`; rule_1 ignores `abs_path`, so a
+synthetic non-existent path is valid input.
+
+**Key files:**
 - `.claude/scripts/tests/test_workflow_reindex.py` (modified)
 
 ## Validation and Acceptance
