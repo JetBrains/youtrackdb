@@ -129,9 +129,11 @@ SCOPE INDICATORS
 - Is the footprint plausible against the track-level ceiling? Compare the
   `~N files` count and the coverage-list cardinality (both on the `**Scope:**`
   line) against the `~20-25`-file track ceiling: a footprint at or above
-  `~20-25` files, or a coverage list naming many more changes than the
-  file count suggests, is suspect — the track likely splits into dependent
-  tracks. The `~20-25` ceiling is track-level, distinct from the per-step
+  `~20-25` files is suspect, as is a coverage list naming far more distinct
+  changes than the file count plausibly absorbs (for example, a `~3 files`
+  footprint whose coverage list enumerates ten distinct subsystems). Either
+  signals a track that likely splits into dependent tracks. The `~20-25`
+  ceiling is track-level, distinct from the per-step
   `~12` split cap and `~5` MEDIUM trigger (a multi-step track aggregates many
   steps and routinely exceeds those per-step numbers). *(plan-file only — the
   `~N files` figure and its coverage list both live on the plan-checklist
@@ -168,7 +170,7 @@ TRACK DESCRIPTIONS *(track file's `## Purpose / Big Picture` + `## Context and O
 
 TRACK SIZING
 - Does any track's scope indicator (file footprint) imply a track too large
-  to stay one track — a footprint at or above `~20-25` in-scope files? If so,
+  to stay one track (a footprint at or above `~20-25` in-scope files)? If so,
   split into separate dependent tracks. The `~5-7` steps track-sizing rule
   still guides planning; step count is not knowable from the file-footprint
   indicator at plan time. *(plan-file only — the Scope line lives in the plan
