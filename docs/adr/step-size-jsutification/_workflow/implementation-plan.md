@@ -193,15 +193,44 @@ graph TD
   already does.
 
 ## Checklist
-- [ ] Track 1: Relax low/medium coherence and add the under-fill justification
+- [x] Track 1: Relax low/medium coherence and add the under-fill justification
   > Edits five files so the Phase A decomposer may merge low/medium
   > steps (related or not) toward the ~12 fill target, keeps high steps
   > isolated, tags a merged step by re-applying the risk criteria, and
   > requires an inline size-justification clause on any low/medium roster
   > line still below the fill target. Detailed description in plan/track-1.md.
-  > **Scope:** ~5 files covering the Step glossary definition, the §Step
-  > Decomposition rules, the merged-step risk-tag rule, the Concrete Steps
-  > roster format, and the create-plan seed-template placeholder.
+  >
+  > **Track episode:**
+  > The five staged workflow files now tell one story for sizing low/medium
+  > steps. The glossary "Step" entry makes coherence mandatory only for
+  > `high` steps and a preference for `low`/`medium`; `track-review.md` §Step
+  > Decomposition scopes its Coherence bullet to `high`, lets `low`/`medium`
+  > steps merge unrelated coherent changes toward the ~12 fill target, adds an
+  > under-fill justification sub-bullet with a closed two-reason set
+  > ("unrelated" and inter-step dependency both excluded), and adds the
+  > optional `— size: ~N files; <reason>` roster clause. `risk-tagging.md`
+  > gains the merged-step tagging rule: re-apply the criteria to the combined
+  > content (the max of the constituents' tags), and `high` is never merged.
+  > `conventions-execution.md §2.1` and the `create-plan/SKILL.md` seed
+  > template carry the same clause so the roster format stays consistent
+  > across every site.
+  >
+  > Step-level review ran the full track-level workflow-review selection (five
+  > agents) rather than the narrow step-level set, because a single-step
+  > `high` track skips Phase C code review and the step-level deferral's
+  > premise then fails. It returned six findings and zero blockers; the
+  > `Review fix: tidy em dashes and pin roster token order` commit applied the
+  > non-trivial fixes and gate-checked PASS, and two findings were declined as
+  > already-correct. One should-fix is deferred to Phase 4: the out-of-scope
+  > decision for `track-code-review.md` needs a wider rationale, since that
+  > file reads the inline `risk:` token for focal-point weighting (not only
+  > `commit:` for roster→episode joining), and the size clause sits after
+  > `risk:` behind the roster's ` — ` separator, leaving the read unaffected
+  > and the decision intact. The reconciliation lands in `adr.md` at Phase 4;
+  > see the track file's Decision Log. Phase C code review was skipped:
+  > single-step `high` track, fully reviewed in Phase B.
+  >
+  > **Track file:** `plan/track-1.md` (1 step, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
