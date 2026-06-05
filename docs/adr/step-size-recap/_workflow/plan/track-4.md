@@ -25,6 +25,7 @@ convention (base = tip after Phase A).
 - [ ] Track completion
 
 - [x] 2026-06-05T05:10Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-05T05:56Z [ctx=safe] Step 1 complete (commit e5876ad740)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -77,13 +78,37 @@ Invariants to preserve: the I6 staged-set invariant (Track 4 touches only live `
 
 ## Concrete Steps
 
-1. Exempt the staged-workflow subtree from rule_1 (reuse `_STAGED_SUBTREE_PREFIX_RE` before the `:1562` `docs/adr/` gate), rewrite the full rule_1 docstring (`workflow-reindex.py:1545-1561`) to the DL1 framing, and adapt the existing rule_1 tests so the suite stays green: invert and rename `test_rule_1_missing_stamp_on_staged_path_fails` and its registry entry (`:4824-4827`), re-document `test_rule_1_stamp_present_on_staged_path_passes`, keep the live-file test green; verify the suite passes and `--check` exits 0 — risk: medium (CI-validation tooling: changes the observable behavior of the rule_1 validator)  [ ]
+1. Exempt the staged-workflow subtree from rule_1 (reuse `_STAGED_SUBTREE_PREFIX_RE` before the `:1562` `docs/adr/` gate), rewrite the full rule_1 docstring (`workflow-reindex.py:1545-1561`) to the DL1 framing, and adapt the existing rule_1 tests so the suite stays green: invert and rename `test_rule_1_missing_stamp_on_staged_path_fails` and its registry entry (`:4824-4827`), re-document `test_rule_1_stamp_present_on_staged_path_passes`, keep the live-file test green; verify the suite passes and `--check` exits 0 — risk: medium (CI-validation tooling: changes the observable behavior of the rule_1 validator)  [x] commit: e5876ad740
 2. Add a direct-call regression test exercising rule_1's now-orphaned empty-file (`:1564`) and malformed-stamp (`:1573`) branches on a synthetic non-exempt `docs/adr/` `ParsedFile`, and register it in the test list — risk: low (new tests)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit e5876ad740, 2026-06-05T05:56Z [ctx=safe]
+**What was done:** Exempted the staged-workflow mirror from
+`workflow-reindex.py` rule_1 by reusing the existing
+`_STAGED_SUBTREE_PREFIX_RE` (`:166`) inside `check_rule_1_stamp_present`,
+placed before the `docs/adr/` stamp gate. Rewrote the full rule_1
+docstring to the DL1 framing: after the exemption rule_1 has no
+reachable in-scope target and stays a harmless guard against a
+re-introduced non-exempt `docs/adr/` glob; the staged mirror is
+intentionally unstamped per §1.6(f)/§1.7(e); the §1.6(f) stamped set is
+enforced by the `workflow-startup-precheck.sh` drift gate, a disjoint
+set not in this script's `IN_SCOPE_GLOBS`. Inverted and renamed the
+staged-path missing-stamp test to
+`test_rule_1_missing_stamp_on_staged_path_exempt`, updated its
+manual-registry label and function reference in lockstep, and
+re-documented the stamp-present test to note it now passes via the
+stamp-agnostic exemption. The live-file test stays green. Fix and test
+inversion landed in one commit per DL4. Suite 124/124 green;
+`workflow-reindex.py --check` exits 0 (was exit 1 with 18 staged-copy
+rule_1 findings before the fix).
+
+**Key files:**
+- `.claude/scripts/workflow-reindex.py` (modified)
+- `.claude/scripts/tests/test_workflow_reindex.py` (modified)
 
 ## Validation and Acceptance
 
