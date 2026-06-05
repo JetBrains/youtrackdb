@@ -784,6 +784,66 @@ def test_rule_1_live_workflow_file_without_stamp_passes() -> None:
         )
 
 
+def test_rule_1_empty_and_malformed_branches_fire_on_non_exempt_path() -> None:
+    """`check_rule_1_stamp_present` still flags an empty file and a
+    malformed line-1 stamp when called directly on a non-exempt,
+    non-staged `docs/adr/` path.
+
+    The staged-mirror exemption added to `check_rule_1_stamp_present`
+    short-circuits before the `docs/adr/` stamp gate for every
+    `docs/adr/<dir>/_workflow/staged-workflow/.claude/...` path, and the
+    live globs in `IN_SCOPE_GLOBS` are filtered out by the `docs/adr/`
+    early-return. So after the exemption no `IN_SCOPE_GLOBS` path reaches
+    the empty-file or malformed-stamp branches via `validate` / `--check`,
+    and they are no longer exercised by the fixture-driven rule_1 tests
+    above. This test pins those two branches by calling the checker
+    directly on a synthetic `ParsedFile` whose path is rooted under
+    `docs/adr/` (so it passes the `docs/adr/` gate) but NOT under
+    `staged-workflow/` (so the exemption does not skip it). Without this
+    coverage the branches would silently rot if the gate logic changed.
+    """
+    # A path under docs/adr/ but outside the staged-workflow subtree: it
+    # clears the exemption (not a staged mirror) and the `docs/adr/` gate
+    # (it is docs/adr/-rooted), so it reaches the stamp branches below.
+    non_exempt_rel = "docs/adr/some-plan/_workflow/notes.md"
+
+    # Empty-file branch: no lines at all -> the "file is empty" finding.
+    empty_parsed = MODULE.ParsedFile(
+        path=non_exempt_rel,
+        abs_path=Path("/nonexistent") / non_exempt_rel,
+        lines=[],
+    )
+    empty_findings = MODULE.check_rule_1_stamp_present(empty_parsed)
+    assert len(empty_findings) == 1, (
+        f"empty non-exempt docs/adr/ file should yield one rule_1 finding; "
+        f"got {empty_findings}"
+    )
+    assert empty_findings[0].rule == "rule_1"
+    assert empty_findings[0].line == 1
+    assert "empty" in empty_findings[0].explanation, (
+        f"expected the empty-file explanation; got {empty_findings[0].explanation!r}"
+    )
+
+    # Malformed-stamp branch: line 1 present but not a workflow-sha stamp
+    # comment -> the "line 1 is not a workflow-sha stamp" finding.
+    malformed_parsed = MODULE.ParsedFile(
+        path=non_exempt_rel,
+        abs_path=Path("/nonexistent") / non_exempt_rel,
+        lines=["# Not a workflow-sha stamp comment", "", "Body."],
+    )
+    malformed_findings = MODULE.check_rule_1_stamp_present(malformed_parsed)
+    assert len(malformed_findings) == 1, (
+        f"non-stamp line 1 on a non-exempt docs/adr/ file should yield one "
+        f"rule_1 finding; got {malformed_findings}"
+    )
+    assert malformed_findings[0].rule == "rule_1"
+    assert malformed_findings[0].line == 1
+    assert "stamp" in malformed_findings[0].explanation, (
+        f"expected the malformed-stamp explanation; "
+        f"got {malformed_findings[0].explanation!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Rule 2 — TOC region presence.
 # ---------------------------------------------------------------------------
@@ -4837,6 +4897,10 @@ def main() -> int:
         (
             "rule_1 live workflow file without stamp passes",
             test_rule_1_live_workflow_file_without_stamp_passes,
+        ),
+        (
+            "rule_1 empty and malformed branches fire on non-exempt path",
+            test_rule_1_empty_and_malformed_branches_fire_on_non_exempt_path,
         ),
         (
             "rule_2 missing TOC fails when file has H2",
