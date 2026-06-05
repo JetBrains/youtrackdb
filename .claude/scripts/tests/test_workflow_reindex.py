@@ -838,7 +838,7 @@ def test_rule_1_empty_and_malformed_branches_fire_on_non_exempt_path() -> None:
     )
     assert malformed_findings[0].rule == "rule_1"
     assert malformed_findings[0].line == 1
-    assert "stamp" in malformed_findings[0].explanation, (
+    assert "not a workflow-sha stamp" in malformed_findings[0].explanation, (
         f"expected the malformed-stamp explanation; "
         f"got {malformed_findings[0].explanation!r}"
     )

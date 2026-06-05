@@ -1545,8 +1545,7 @@ def check_rule_1_stamp_present(parsed: ParsedFile) -> List[Finding]:
     """Rule 1: line 1 carries the workflow-SHA stamp.
 
     After the staged-mirror exemption below, rule 1 has no reachable
-    in-scope target. Walk through why, because the situation is not
-    obvious from `IN_SCOPE_GLOBS` alone:
+    in-scope target. This is not obvious from `IN_SCOPE_GLOBS` alone:
 
     - This script's `IN_SCOPE_GLOBS` mix live-path globs
       (`.claude/workflow/**`, `.claude/skills/**`) with staged-workflow-
@@ -1565,8 +1564,8 @@ def check_rule_1_stamp_present(parsed: ParsedFile) -> List[Finding]:
     future change re-introduces a non-exempt `docs/adr/`-rooted glob into
     `IN_SCOPE_GLOBS`, this check would resume firing on it.
 
-    The §1.6(f) stamped artifact set — `implementation-plan.md`,
-    `design.md`, `plan/track-N.md` — is enforced elsewhere, by the
+    The §1.6(f) stamped artifact set (the `_workflow/**` plan
+    artifacts) is enforced elsewhere, by the
     `workflow-startup-precheck.sh` drift gate. That set is DISJOINT from
     this script's `IN_SCOPE_GLOBS` (the drift gate does not re-check
     rule 1's staged-mirror target, and this script does not re-check the
