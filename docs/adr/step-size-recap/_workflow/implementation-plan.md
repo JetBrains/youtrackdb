@@ -170,9 +170,19 @@ flowchart LR
   >
   > **Track file:** `plan/track-2.md` (5 steps, 0 failed)
 
-- [ ] Track 3: File-footprint scope indicators
+- [x] Track 3: File-footprint scope indicators
   > Rewrite the plan-checklist scope indicator from `~N steps` to `~N files` (D8), so the sizing signal is a plan-time-knowable file footprint rather than a count of steps that only exist after Phase A decomposition. Touches the convention spec, the writers (`create-plan`, `planning.md`), the checkers (`structural-review.md`, `consistency-review.md`), and the renderers.
-  > **Scope:** ~4 steps covering the convention spec rewrite, the writers, the checkers, and the renderers.
+  >
+  > **Track episode:**
+  > Rewrote the scope indicator to a file footprint (D8): the plan-checklist `**Scope:**` line now reads `~N files covering X, Y, Z`, and structural/consistency review's sizing checks key off that footprint. Five low-risk prose steps across the spec (`conventions.md` §Scope indicators + §1.2 examples), the writers (`create-plan/SKILL.md`, `planning.md`), the checkers (the two review-prompt sizing checks, three Phase A glossaries, and a `track-code-review.md` straggler), and the renderer (`plan-slim-rendering.md`), all staged under §1.7 and each landing first-spawn. The structural-review sizing check became plan-file-only by removing its old cross-file track-file read (DL1); three enumerated targets carried no format literal and were left verify-only (DL3).
+  >
+  > Key discovery, DL6 (user-approved mid-execution): the per-step `~12`/`~5` thresholds had leaked into the track-*footprint* checks, and an unenumerated `structural-review.md:166` TRACK SIZING check still keyed off a step count D8 makes unreadable. Resolved with a distinct track-level `~20-25`-file ceiling across all three checks; D8's secondary "same axis" detail was amended through the edit-design mutation discipline (Mutation 4). The core D8 decision (footprint, not steps), the per-step `~12`/`~5`, and the `~5-7 steps` track-sizing rule (Track 1's domain) all stand untouched.
+  >
+  > Phase C reviewed a workflow-only diff (baseline skipped; five workflow-review agents, delta-scoped to the staged-vs-live edit per §1.7(h)). One fix iteration (commit `637eb406c6`) applied three house-style and determinism findings to the staged scope-indicator prose: em-dash discipline in `conventions.md` purpose #1 and the two `structural-review.md` sizing-check bullets, plus a worked example added to the footprint-plausibility check so a reviewer has a reproducible cardinality-vs-count anchor. Gate-check PASS, no blockers.
+  >
+  > Two design-narrative findings deferred to Phase 4 (DL7): `design.md`'s "sizing check survives" before/after framing and its blast-radius list lag DL1 and DL3, and the `design-final.md` author reconciles them from the as-built state. The `workflow-reindex.py rule_1` exit-1 on staged copies is the known YTDB-1068 blocker that Track 4 fixes. Independent track; shares only the already-staged `conventions.md` (Track 1) and `track-code-review.md` (Track 2), edited in place. I6 holds.
+  >
+  > **Track file:** `plan/track-3.md` (5 steps, 0 failed)
 
 - [ ] Track 4: Reindex rule_1 staged-mirror exemption (YTDB-1068)
   > Fix the `workflow-reindex.py` rule_1 false-positive that fails the CI TOC-check gate on every workflow-modifying branch that stages a workflow copy. Rule_1 demands a line-1 `workflow-sha` stamp on `docs/adr/`-rooted in-scope paths, but the script's in-scope globs are entirely the staged-workflow mirror, which §1.7(e) requires to be a verbatim copy of the unstamped live file. Exempt the staged subtree, sync the now-stale rule_1 docstring, and invert the regression test that asserts the pre-fix behavior.
