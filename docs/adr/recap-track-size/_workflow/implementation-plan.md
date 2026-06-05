@@ -146,8 +146,9 @@ flowchart TD
 #### D6: Freeze design.md after Phase 1
 - **Alternatives considered**: keep `design.md` mutable during execution (the
   status quo, which self-contradicts — `design-document-rules.md:128` lists
-  inline replanning as a mutation trigger four lines from Rule 15's "never
-  modified after planning").
+  inline replanning as a mutation trigger in its §Mutation discipline
+  enumeration, while Rule 15 in §Rules states `design.md` is "never modified
+  after planning").
 - **Rationale**: the plan's Decision Records are already the de-facto source
   of truth during execution and no Phase 3 reviewer receives `design.md`.
   Route replan design intent into the Decision Records and the track
@@ -195,7 +196,11 @@ flowchart TD
   > **Scope:** ~17 files covering the sizing rules (conventions, planning, track-review, create-plan), the five review prompts, Phase B/C enforcement (step-implementation, track-code-review), and the design lifecycle (design-document-rules, inline-replanning, implementer-rules, edit-design, workflow, design-review)
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: CR1 — replaced the false "four lines from Rule 15" proximity claim (in `implementation-plan.md` D6 Alternatives, `track-1.md` §Context and Orientation, and `design.md` §"Design freeze") with an accurate description: the mutation trigger sits in `design-document-rules.md` §Mutation discipline (`:128`) and Rule 15's freeze sits in §Rules (`:862`), ~734 lines apart. The self-contradiction the freeze closes is unchanged. `design.md` fix routed through `edit-design` (mutation 1, content-edit, PASS).
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

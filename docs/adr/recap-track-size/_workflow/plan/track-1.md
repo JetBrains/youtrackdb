@@ -47,8 +47,9 @@ duplicated across **12 positions**, five of which are review prompts that
 enforce it on reviewers (see the sync-list in §Interfaces and Dependencies).
 
 `design.md` carries a live self-contradiction: `design-document-rules.md`
-lists inline replanning as a `design.md` mutation trigger four lines from
-Rule 15's "never modified after planning". No Phase 3A or 3C reviewer
+lists inline replanning as a `design.md` mutation trigger in its §Mutation
+discipline enumeration, while Rule 15 in §Rules states `design.md` is "never
+modified after planning". No Phase 3A or 3C reviewer
 receives `design.md`, and the plan's immutable Decision Records are already
 the de-facto source of truth during execution. `create-plan` Step 4 authors
 Architecture Notes and the track checklist first and writes `design.md` last

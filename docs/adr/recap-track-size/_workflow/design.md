@@ -216,9 +216,9 @@ removed, and replan design intent routes into the plan's Decision Records
 never back into `design.md`. Phase 4 is the single point that reconciles
 `design.md` into `design-final.md` against the real code.
 
-The freeze closes a live self-contradiction: the design rules list inline
-replanning as a `design.md` mutation trigger four lines from the rule that
-says `design.md` is never modified after planning. The model already holds
+The freeze closes a live self-contradiction: the design rules' mutation-discipline
+list names inline replanning as a `design.md` mutation trigger, while a separate
+freeze rule says `design.md` is never modified after planning. The model already holds
 about 70% — no Phase 3A or 3C reviewer receives `design.md`, and the de-facto
 source of truth during execution is already the plan's immutable Decision
 Records. This design removes the remaining live paths and adds one handling
