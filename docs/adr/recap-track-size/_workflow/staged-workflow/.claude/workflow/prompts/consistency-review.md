@@ -246,6 +246,24 @@ finding and the classification rules below will route it correctly.
   the design document? (e.g., if the design shows 5 interacting classes
   but the track scope says "~2 files", that's suspicious)
 
+**A revised Decision Record diverging from the frozen design is
+expected, not a finding.** `design.md` is frozen after Phase 1 and is
+never mutated during execution; inline replanning records its new
+design intent in the plan's Decision Records and the track narrative
+instead (see inline-replanning.md:orchestrator:3A,3C § Process). So on
+a re-run after an inline replan, a Decision Record whose `**Revised
+decision**` no longer matches the frozen design is the expected state —
+do NOT emit a finding for it. This covers two divergence shapes, not
+one: a DR whose `**Full design**` link points at a now-superseded
+design section, *and* a DR whose revised decision diverges from the
+mechanism a frozen design section still describes (the design says the
+histogram is per-page, the revised DR makes it per-cluster). Both are
+the frozen design lagging the plan by design; the Phase 4
+`design-final.md` reconciles the as-built design. Treat as a finding
+only a divergence between a DR and the design that the replan did *not*
+intend — e.g., a DR that was never revised but still contradicts the
+design, which signals a genuine plan/design inconsistency.
+
 ### GAPS
 <!-- roles=reviewer-plan phases=2 summary="Plan parts with no design coverage, design parts no track covers, and codebase constructs the documents skip." -->
 
