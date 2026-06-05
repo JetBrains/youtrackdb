@@ -171,5 +171,9 @@ flowchart LR
 
 Re-validation after the inline replan that added Track 3 (D8). The consistency review verified every current-state citation in the three track files against the live `.claude/**` machinery and confirmed DR↔design traceability; the structural review confirmed ordering (Track 1 → Track 2 depends-on-1 → Track 3 independent), sizing, scope indicators, and absence of bloat. The plan's own `~N steps` scope lines are correct under the unchanged live convention (D8 switches the convention to `~N files` for future plans only).
 
+**PAUSED 2026-06-05 at Track-3-Phase-B-complete pending inline replan to add Track 4 (YTDB-1068)**
+- Handoff: docs/adr/step-size-recap/_workflow/handoff-inline-replan-track4.md
+- The handoff file drives resume; execute the inline replan (add Track 4) before any Phase C routing. Plan Review reset to `[ ]` happens as part of that replan, not here.
+
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
