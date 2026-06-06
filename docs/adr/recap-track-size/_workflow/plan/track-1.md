@@ -24,6 +24,7 @@ its size is the first calibration data point for the threshold open questions.
 - [x] 2026-06-05T18:19Z [ctx=info] Step 4 complete (commit e758ccba20)
 - [x] 2026-06-05T18:19Z [ctx=info] Step implementation
 - [x] 2026-06-06T02:41Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-06T02:48Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
 - [ ] Track completion
 
 ## Base commit
@@ -102,13 +103,13 @@ adversarial reviewer following the TOC filter correctly skips §1.3 because its
 loop lives in `edit-design`. Closes the open question.
 
 **DL5 (Phase C, review-driven, user-approved).** The Phase C consistency
-review (WC1) found that the design freeze (D6) — scoped to three Phase-3
-sites — left a fourth `design.md`-mutation path untouched:
+review (WC1) found that the design freeze (D6), scoped to three Phase-3
+sites, left a fourth `design.md`-mutation path untouched:
 `implementation-review.md` carries a `phases=2` "## Mutation discipline for
 `design.md` fixes" section routing Phase-2 plan-review design fixes through
 `edit-design` (the path this plan's own CR1 used). Because the design-first
-authoring (D7) moved the freeze point to Step 4a's review pass — before plan
-derivation and before Phase 2 — design.md is already frozen by Phase 2, so the
+authoring (D7) moved the freeze point to Step 4a's review pass (before plan
+derivation and before Phase 2), so design.md is already frozen by Phase 2 and the
 Phase-2 mutation path contradicts the freeze. The user approved completing the
 freeze rather than deferring. `implementation-review.md` was first-touch-staged
 (in-scope footprint **17→18 files**) and its Phase-2 mutation section rerouted:
