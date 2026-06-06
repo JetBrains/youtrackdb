@@ -187,13 +187,44 @@ flowchart TD
   argumentation-gated only.
 
 ## Checklist
-- [ ] Track 1: Two-sided sizing, phase-aware enforcement, design freeze, and design-first authoring
+- [x] Track 1: Two-sided sizing, phase-aware enforcement, design freeze, and design-first authoring
   > Land all four YTDB-1060 threads as one stacked-diff PR. The threads share
   > files heavily (the sizing files, the design-doc files, the review
   > prompts), and applying the maximize directive by hand puts the ~17-file
   > change under the soft ceiling with no autonomy break, so it is one track,
   > not four. Detailed description in plan/track-1.md.
-  > **Scope:** ~17 files covering the sizing rules (conventions, planning, track-review, create-plan), the five review prompts, Phase B/C enforcement (step-implementation, track-code-review), and the design lifecycle (design-document-rules, inline-replanning, implementer-rules, edit-design, workflow, design-review)
+  >
+  > **Track episode:**
+  > Landed all four YTDB-1060 threads as one stacked-diff PR (4 high-risk
+  > steps, 0 failed). Two-sided sizing (D1-D3): a track is one stacked-diff
+  > PR; the planner maximizes to a file-based footprint bound (floor ~12,
+  > split-candidate ~20-25, overblown ~40) under a flag-only two-sided
+  > argumentation gate keyed on the binary `mechanical|design-decision`
+  > classifier; "~5-7 steps" retired as the sizing metric across 12 positions,
+  > the pre-existing step-size-recap `~20-25` ceiling consolidated in.
+  > Phase-aware enforcement (D4-D5): files predict at plan time, lines measure
+  > later (a Phase B running `git diff --stat` early-warning, a Phase C
+  > review-burden check at >~2,000 / >~4,000), with a sync-list anchor. Design
+  > freeze (D6): the Phase-3 inline-replan design.md-mutation path removed,
+  > stale `3A,3C` annotations narrowed to `1,4`, replan design intent rerouted
+  > to the Decision Records and the track narrative. Design-first authoring
+  > (D7): `create-plan` Step 4 split into 4a (author + freeze design) / 4b
+  > (derive plan) with a committed-and-clean Step 1c auto-resume gate and an
+  > adversarial-then-cold-read order in the `edit-design` phase1-creation loop.
+  >
+  > Phase C caught that the freeze missed a fourth design.md-mutation path:
+  > `implementation-review.md`'s Phase-2 plan-review routing. Because D7 moves
+  > the freeze point to Step 4a (before Phase 2), Phase 2 is now read-only on
+  > design.md; with user approval the freeze was completed (footprint 17→18,
+  > the Phase-2 path rerouted to record-and-defer-to-Phase-4), so a design.md
+  > inaccuracy found at plan review is now recorded-and-deferred rather than
+  > fixed in place (DL5). The review also fixed a blocker (the `edit-design`
+  > Step 6 loop never re-ran the adversarial pass it claimed to clear) and
+  > resolved the §1.3-phase-set question (DL4). Phase 4 still owns the deferred
+  > reconciliations: WC4, WB5 + reindex lints, and the DL1/A2/A4 plan-prose
+  > staleness.
+  >
+  > **Track file:** `plan/track-1.md` (4 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
