@@ -23,8 +23,7 @@ its size is the first calibration data point for the threshold open questions.
 - [x] 2026-06-05T17:55Z [ctx=info] Step 3 complete (commit da75f3c7d8)
 - [x] 2026-06-05T18:19Z [ctx=info] Step 4 complete (commit e758ccba20)
 - [x] 2026-06-05T18:19Z [ctx=info] Step implementation
-- [ ] Track-level code review
-- [ ] Track-level code review
+- [x] 2026-06-06T02:41Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [ ] Track completion
 
 ## Base commit
@@ -90,6 +89,39 @@ execution record is the §Episodes Step 4 Key-files list, which names the
 keeping the closed-enum gloss consistent with the role change arc 4 makes. See
 Episodes §Step 4.
 
+**DL4 (Phase C, review-resolved).** The Phase C consistency review (WC3)
+re-raised the open question the Step 4 episode and Surprises log flagged:
+should the §1.3 Review Iteration Protocol TOC-row phase set (`2,3A,3B,3C`)
+widen to include phase 1, now that `reviewer-adversarial` runs at phase 1 in
+the `edit-design` `phase1-creation` loop? Resolution: **no — §1.3 stays
+`2,3A,3B,3C`, no edit.** The Phase-1 adversarial pass iterates via
+`edit-design` §Step 6 (a distinct loop), not §1.3's shared loop; the WI1/F1
+fix makes §Step 6 re-run the adversarial pass for `phase1-creation`, which
+confirms §Step 6 is the phase-1 adversarial iterate loop. A Phase-1
+adversarial reviewer following the TOC filter correctly skips §1.3 because its
+loop lives in `edit-design`. Closes the open question.
+
+**DL5 (Phase C, review-driven, user-approved).** The Phase C consistency
+review (WC1) found that the design freeze (D6) — scoped to three Phase-3
+sites — left a fourth `design.md`-mutation path untouched:
+`implementation-review.md` carries a `phases=2` "## Mutation discipline for
+`design.md` fixes" section routing Phase-2 plan-review design fixes through
+`edit-design` (the path this plan's own CR1 used). Because the design-first
+authoring (D7) moved the freeze point to Step 4a's review pass — before plan
+derivation and before Phase 2 — design.md is already frozen by Phase 2, so the
+Phase-2 mutation path contradicts the freeze. The user approved completing the
+freeze rather than deferring. `implementation-review.md` was first-touch-staged
+(in-scope footprint **17→18 files**) and its Phase-2 mutation section rerouted:
+Phase 2 no longer mutates `design.md`; a consistency finding whose correction
+would touch the design is recorded, the plan/track side is fixed via `Edit`,
+and the `design.md` correction defers to the Phase-4 `design-final.md`
+reconciliation. Both `§ Mutation discipline` cross-refs narrowed `1,3A,3C,4`
+→ `1,4`. This also resolves the pre-existing phase-2 annotation gap:
+`edit-design` and `§ Mutation discipline` keep their correct `1,4` set once
+their last phase-2 consumer is removed. Behavior change: a `design.md`
+inaccuracy found at plan review is now recorded-and-deferred, not fixed in
+place (the CR1-style immediate fix no longer happens). Review fix `1454c074`.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
@@ -147,8 +179,8 @@ the `structural-review.md` sizing spots as current state and folds them into
 one coherent rule rather than editing them line-by-line against the
 sync-list, so no duplicate or contradictory ceiling survives. (The plan's
 Goals and D5 still frame the ceiling as net-new; that prose-staleness is
-deferred to the Phase 4 `design-final.md` reconciliation per DL1 below —
-the decisions themselves are unaffected.)
+deferred to the Phase 4 `design-final.md` reconciliation per DL1 below.
+The decisions themselves are unaffected.)
 
 The `design.md` freeze (Thread 3) touches more sites than the
 `design-document-rules.md` mutation trigger alone. The Phase-3
@@ -169,7 +201,7 @@ three clauses (ESCALATE/inline-replanning `3A,3C`; review-mode `3A,3C`;
 `edit-design` mutations `1,3A,3C,4`) — the freeze narrows **only** the
 `edit-design` clause and its §1.1 Phase-enum-row twin (`conventions.md:84`),
 leaving the ESCALATE/inline-replanning and review-mode `3A,3C` clauses
-verbatim, because inline replanning itself still runs in Phase 3 — only its
+verbatim, because inline replanning itself still runs in Phase 3: only its
 *design-mutation* intent is rerouted to the Decision Records and the track
 narrative.
 
@@ -182,8 +214,8 @@ the de-facto source of truth during execution. `create-plan` Step 4 authors
 Architecture Notes and the track checklist first and writes `design.md` last
 (sub-step 8), so the design back-fills the plan rather than seeding it.
 
-The Phase 2 structural reviewer classifies findings into exactly two classes
-— `mechanical` (orchestrator auto-fixes) and `design-decision` (escalate) —
+The Phase 2 structural reviewer classifies findings into exactly two classes:
+`mechanical` (orchestrator auto-fixes) and `design-decision` (escalate),
 with no advisory tier; track sizing is already a `design-decision`. The
 branch is workflow-modifying, so all edits stage under
 `_workflow/staged-workflow/.claude/...` and promote at Phase 4.
