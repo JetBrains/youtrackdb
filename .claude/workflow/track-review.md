@@ -699,8 +699,12 @@ concrete issues if they exist.
 <!-- roles=decomposer phases=3A summary="Decompose the track into a roster of risk-tagged steps; sizing, cross-cutting, and parallel-annotation rules." -->
 
 After track review passes, decompose scope indicators into concrete steps.
-Decompose **all steps at once** — tracks are capped at ~5-7 steps, making
-full upfront decomposition feasible.
+Decompose **all steps at once** — a track is sized by its in-scope file
+footprint, bounded above by the soft ceiling (the two-sided sizing rule in
+`planning.md` §Track descriptions), so the whole step roster is small enough
+to decompose up front. Step count is not the track-sizing metric; it falls
+out of the footprint once Phase A fills steps toward the per-step target
+below.
 
 #### Inputs for decomposition
 

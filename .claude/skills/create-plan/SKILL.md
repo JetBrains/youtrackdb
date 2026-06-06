@@ -124,9 +124,71 @@ the plan, design, track files, and handoff files; the Phase 4 cleanup
 commit removes it before merge (see
 `.claude/workflow/conventions.md` `§1.2`).
 
+**Step 1c — Design-first resume check (before the aim prompt).**
+
+After Step 1.5 (drift) and Step 1a (handoff) have cleared, check the
+two design-first artifacts on disk:
+
+```bash
+ls docs/adr/<dir-name>/_workflow/design.md docs/adr/<dir-name>/_workflow/implementation-plan.md 2>/dev/null
+```
+
+Route on what exists:
+
+- **`design.md` exists, `implementation-plan.md` does not** — the design
+  seed may be frozen, but file presence alone is not proof: `edit-design`
+  writes `design.md` to disk in its *apply* step, **before** the
+  adversarial + cold-read review runs and before Step 5 commits it. A
+  Step 4a session interrupted after the write but before the review
+  passed (context-full `/clear`, crash, no handoff) leaves an
+  **unreviewed, uncommitted** `design.md` on disk. So before auto-resuming
+  into Step 4b, confirm the design is **committed and clean** — the
+  on-disk proxy for "frozen and reviewed", since Step 5 commits `design.md`
+  only after its review passes:
+
+  ```bash
+  # committed: at least one commit touches design.md
+  git log -1 --format=%h -- docs/adr/<dir-name>/_workflow/design.md
+  # clean: no uncommitted changes to design.md (empty output = clean)
+  git status --porcelain docs/adr/<dir-name>/_workflow/design.md
+  ```
+
+  - **Committed (non-empty `git log`) AND clean (empty `git status`)** —
+    the design is frozen and reviewed. **Auto-resume into Step 4b** (plan
+    derivation): skip Step 2's aim prompt and Step 3's Phase 0 research
+    loop entirely — the aim and research are already captured in the frozen
+    `design.md` and the conversation that produced it. Read `planning.md`
+    (deferred from Step 1) and derive the plan from the frozen design.
+  - **Uncommitted (empty `git log`) OR dirty (non-empty `git status`)** —
+    Step 4a was interrupted mid-authoring. **Resume Step 4a**, not Step 4b:
+    re-enter the `edit-design` review loop so the adversarial + cold-read
+    passes run and the design is committed before any plan derives from it.
+    Re-entering the loop on an already-good design is idempotent and
+    harmless, so this branch is safe even on a false alarm (e.g., a stray
+    editor write left the file dirty).
+- **Neither file exists** — fresh start. Proceed to Step 2 (aim), then
+  Step 3 (research), then Step 4a (design authoring).
+- **Both files exist** — the plan is already derived; this is a normal
+  resume, not a Step-4 entry. The drift / handoff / state routing above
+  already handled it; do not re-run Step 4. Proceed to Step 2 only if the
+  user explicitly asks to start a new aim against the same dir (rare); the
+  common case is the session has nothing new to plan.
+
+This check has a defined resume path for every artifact combination, so a
+**committed, clean** `design.md` with no plan is never a dead end — it
+always routes to Step 4b, and an uncommitted or dirty one routes back to
+Step 4a to finish authoring. The check runs **after** the drift and handoff
+gates so a pending migration or handoff resolves first (those can change
+what is on disk), and **before** the aim prompt so a Step-4b resume does
+not re-ask for an aim already captured in the design.
+
 **Step 2 — Ask the user for the aim.**
 
-After you have finished reading the workflow documents, ask the user to describe the aim and goal for this session. Do NOT proceed until the user provides the aim. Wait for the user's response before starting any research or planning work.
+Skip this step when Step 1c auto-resumed into Step 4b (the aim is already
+captured in the frozen `design.md`). Otherwise, after you have finished
+reading the workflow documents, ask the user to describe the aim and goal
+for this session. Do NOT proceed until the user provides the aim. Wait for
+the user's response before starting any research or planning work.
 
 The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
@@ -151,20 +213,75 @@ Stay in research mode until the user explicitly asks to create the plan
 
 **Step 4 — Transition to planning (Phase 1).**
 
-When the user asks to create the plan:
+Phase 1 is **design-first**: author and review `design.md` before deriving
+the implementation plan, so the plan derives from a frozen, reviewed seed
+rather than back-filling decisions the plan already crystallized. The work
+splits into two sub-phases across a mandatory session boundary, mirroring
+the boundary already enforced between Phases A, B, and C:
 
-First, read the planning workflow documents (deferred from Step 1):
-1. `.claude/workflow/planning.md` — Phase 1 instructions:
-   goal, plan file structure, architecture notes format, track descriptions,
-   scope indicators, checklist decomposition rules
-2. `.claude/workflow/design-document-rules.md` — design document rules,
-   structure, and examples
+- **Step 4a (design authoring)** — author `design.md` via `edit-design`,
+  run its review, and freeze it. The session ends when the design's review
+  passes (or the user accepts open risks).
+- **Step 4b (plan derivation)** — in a fresh `/create-plan` session,
+  derive the Architecture Notes, Decision Records, and track files from the
+  frozen `design.md`.
 
-Then summarize the key research findings and decisions from the conversation,
-and proceed to planning.
+**Design→plan session boundary and auto-resume.** Step 4a ends the session
+once `design.md` is frozen and committed; it does **not** flow straight into
+Step 4b. The user re-invokes `/create-plan`, and the startup protocol
+auto-resumes into Step 4b when **`design.md` is committed and clean and
+`implementation-plan.md` does not exist** — the frozen design seed is on disk
+but the plan has not been derived yet. The committed-and-clean test (not bare
+file presence) is what proves the design is reviewed rather than abandoned
+mid-authoring; Step 1c spells out the exact `git log` / `git status` check and
+the resume-Step-4a fallback for an uncommitted or dirty design. This is
+checked after Step 1.5 (drift) and Step 1a (handoff) have cleared and before
+the aim prompt (Step 2): a resume into Step 4b skips the aim prompt and the
+Phase 0 research loop, because the aim and research are already captured in
+the frozen `design.md` and the conversation that produced it. When **neither**
+file exists, `/create-plan` starts at Phase 0 research as usual; when **both**
+exist, the plan is already derived and the session resumes via the normal
+handoff / drift / state routing rather than re-running Step 4. The resume path
+is never a dead end: a committed, clean frozen
+`design.md` with no plan always routes to Step 4b plan derivation.
 
-The plan and design document **must** incorporate findings and decisions
-from the research phase:
+**Step 4a — Author the design first.**
+
+When the user asks to create the plan (and `design.md` does not yet exist):
+
+First, read the design workflow document (deferred from Step 1):
+- `.claude/workflow/design-document-rules.md` — design document rules,
+  structure, and examples
+
+Summarize the key research findings and decisions from the conversation, then
+author `design.md` via the `edit-design` skill (`phase1-creation` kind) —
+**not** direct `Edit` / `Write`. The skill's `phase1-creation` review runs
+**adversarial first, then cold-read** (see `edit-design/SKILL.md` § Workflow
+and `design-document-rules.md` § Working / sync): the adversarial pass
+challenges the design's decisions and hidden assumptions against the real
+code, and only once it settles does the cold-read pass assess whether a fresh
+reader can build a working mental model. Iterate until the review passes (or
+the user accepts open risks), then write the design document to
+`docs/adr/<dir-name>/_workflow/design.md` using the structure below. The
+design document must incorporate findings and decisions from the research
+phase — it reflects the design choices discussed with the user.
+
+Commit the frozen `design.md` (Step 5 carries the commit/push/draft-PR
+mechanics), then **end the session.** Plan derivation resumes in a fresh
+`/create-plan` session via the auto-resume condition above.
+
+**Step 4b — Derive the plan from the frozen design.**
+
+On re-invocation, the startup protocol routes here when `design.md` exists
+and `implementation-plan.md` does not. Read the planning workflow document
+(deferred from Step 1):
+- `.claude/workflow/planning.md` — Phase 1 instructions:
+  goal, plan file structure, architecture notes format, track descriptions,
+  scope indicators, checklist decomposition rules
+
+Then derive the plan from the frozen `design.md`. The Architecture Notes,
+Decision Records, and track files **must** incorporate findings and decisions
+from the research phase and the frozen design:
 - Decision Records should reflect alternatives explored during research
 - Architecture Notes should build on codebase exploration findings
 - Track descriptions should incorporate constraints discovered during research
@@ -204,9 +321,16 @@ Help the user develop the plan:
      track file's `## Context and Orientation` section when the
      track has 3+ internal components with non-trivial interactions.
      Track-level diagrams are **never rendered in the plan file**.
-   - Track sizing rule: if a track would need more than ~5-7 steps, split
-     it into separate dependent tracks. The execution agent handles
-     sequencing and episode propagation between dependent tracks.
+   - Track sizing rule: size each track by its in-scope file footprint, not
+     its step count. *Maximize* — pack autonomous units in up to the soft
+     footprint ceiling (related or not), opening a new track only when the
+     next unit breaches the ceiling or breaks independent mergeability. A
+     track ≤~12 in-scope files that folds into a neighbor is a merge candidate
+     (flag-only); a track over ~20-25 in-scope files is a split candidate.
+     Both bounds are soft: an out-of-bounds track passes when its track file
+     carries a written justification. The full rule lives in `planning.md`
+     §Track descriptions. The execution agent handles sequencing and episode
+     propagation between dependent tracks.
 5. For each track, include a **Scope indicator**:
    - Format: `> **Scope:** ~N files covering X, Y, Z`
    - Approximate file footprint + brief list of major work pieces. The
@@ -222,27 +346,25 @@ Help the user develop the plan:
    `> **Depends on:** Track N`.
 7. Identify key test scenarios and invariants that must be covered — this
    is strategic (what to test and why), not tactical (how to implement tests).
-8. Produce a **Design Document** (separate file) following the workflow rules
-   in `planning.md` §Design Document. Write it to
-   `docs/adr/<dir-name>/_workflow/design.md`. The design document must include:
-   - **Class diagrams** (Mermaid `classDiagram`) showing new/modified classes,
-     interfaces, and their relationships
-   - **Workflow diagrams** (Mermaid `sequenceDiagram` or `flowchart`) showing
-     runtime behavior of key operations
-   - **Dedicated sections for complex or opaque parts** — concurrency,
-     crash recovery, performance-critical paths, non-obvious invariants, etc.
-   - All diagrams must be Mermaid. Every diagram must be paired with prose.
-   - Design level, not code level — describe structure and behavior, not
-     implementation details.
+8. Anchor every Architecture Note, Decision Record, and track description to
+   the **frozen `design.md`** authored in Step 4a. The design is the seed the
+   plan derives from, so the Decision Records mirror its decisions, the
+   Component Map matches its class / workflow diagrams, and each DR that needs
+   long-form support links to a design section via `**Full design**`. The
+   design is **not** re-authored here — it is frozen (`design-document-rules.md`
+   Rule 15). If plan derivation surfaces a design gap that the frozen design
+   cannot answer, route the design intent through a fresh `edit-design`
+   mutation in this Step 4b session before the freeze re-applies; do not
+   back-fill it silently into the plan.
 
 Do NOT implement anything. Only research and plan.
 
 **Compute the workflow-SHA stamp once before writing the templates.**
 Run the paired test-and-fallback idiom from
 conventions.md:planner:1 `§1.6(b)` verbatim;
-every artifact created in this `/create-plan` session reuses the
-single `$WORKFLOW_SHA` value, so artifacts seeded together share a
-stamp by construction:
+every artifact created in **this Step 4b session** reuses the single
+`$WORKFLOW_SHA` value, so the plan and track files seeded together share
+a stamp by construction:
 
 ```bash
 WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
@@ -250,13 +372,27 @@ WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
 ```
 
 Substitute the **resolved** value (not the literal `$WORKFLOW_SHA`
-token) into the line-1 stamp comment of each of the three fenced
-templates that follow. `Write` does not perform shell expansion. If
-you emit `$WORKFLOW_SHA` verbatim, the artifact's stamp is malformed
-and the drift check will route to migration on the next gate run.
-The fallback to `git rev-parse HEAD` covers fresh repos and repos
-where workflow paths have been moved; in every other case the
-path-scoped log already returns a usable SHA.
+token) into the line-1 stamp comment of each of the two Step-4b fenced
+templates that follow (the implementation-plan and the track-file
+templates). `Write` does not perform shell expansion. If you emit
+`$WORKFLOW_SHA` verbatim, the artifact's stamp is malformed and the
+drift check will route to migration on the next gate run. The fallback
+to `git rev-parse HEAD` covers fresh repos and repos where workflow
+paths have been moved; in every other case the path-scoped log already
+returns a usable SHA.
+
+**The `design.md` template is authored in Step 4a, not here.** Under the
+design-first split, `design.md` is seeded in the earlier Step 4a session
+via `edit-design` (`phase1-creation`), which carries its own
+idempotency-guarded stamp directive and computes `$WORKFLOW_SHA` at that
+session's HEAD. Because Step 4a and Step 4b are different sessions, the
+design's stamp can differ from the plan / track stamps by however many
+workflow-format commits landed between the two sessions. That asymmetry
+is expected and benign: the drift gate's no-drift normalization
+collapses the divergence on the next clean gate run, and the per-branch
+migration reunifies the stamps. The design template below is reproduced
+for the Step 4a author's reference; do not re-write `design.md` in Step
+4b (it is frozen — `design-document-rules.md` Rule 15).
 
 The dual-seed `design-mechanics.md` case (when the planner seeds
 both `design.md` and `design-mechanics.md` together) does NOT get a
@@ -452,10 +588,11 @@ The `## Base commit` section is added by Phase B at session start
 and is omitted from the Phase 1 skeleton. Full lifecycle for every
 section above is tabulated in `conventions-execution.md` `§2.1`.
 
-Write the design document to
-`docs/adr/<dir-name>/_workflow/design.md` using this structure.
-Before writing this template, substitute the resolved 40-character
-SHA into the `$WORKFLOW_SHA` placeholder on line 1.
+In Step 4a, write the design document to
+`docs/adr/<dir-name>/_workflow/design.md` using this structure (via
+`edit-design`, not direct `Write`). Before writing this template,
+substitute the resolved 40-character SHA into the `$WORKFLOW_SHA`
+placeholder on line 1.
 
 ```
 <!-- workflow-sha: $WORKFLOW_SHA -->
@@ -482,14 +619,38 @@ operations. Pair each diagram with prose explaining the flow.>
 
 **Step 5 — Commit, push, and open the draft PR.**
 
-Once the user confirms the plan and design files look right, persist
+Step 5 runs at the end of **both** design-first sub-phases, committing
+whatever the session produced:
+
+- **End of Step 4a (design authoring)** — `design.md` is frozen but no plan
+  exists yet. Commit the design alone with the message
+  `Add initial design`, push, and end the session. The draft PR is opened
+  here (sub-steps 4-7 below) so the frozen design is visible to teammates
+  before plan derivation; the auto-resume into Step 4b continues the same PR.
+  **Draft-PR-exists guard.** A resumed Step 4a (Step 1c routed an
+  interrupted-and-dirty 4a back through the `edit-design` loop) may have
+  already pushed and opened the draft PR before the interruption. If
+  `gh pr view` shows a draft PR already exists for this branch, skip the
+  PR-open sub-steps (4-7) and only commit/push the re-frozen `design.md`.
+  This mirrors the End-of-4b skip below.
+- **End of Step 4b (plan derivation)** — the plan and track files now exist
+  alongside the already-committed design. Commit them with the message
+  `Add initial implementation plan`, push (the upstream and draft PR already
+  exist from Step 4a, so skip the `-u` and the PR-open sub-steps), and end
+  the session. **Idempotency guard** (mirrors the Step 1c "both files exist"
+  guard): if `implementation-plan.md` is already committed and clean, the
+  plan was persisted on a prior attempt; skip the commit and proceed to
+  push/end.
+
+Once the user confirms the files this session produced look right, persist
 the work to GitHub so it survives local-disk loss and is visible to
 teammates as a draft PR:
 
-1. Stage and commit the `_workflow/` files in a single commit:
+1. Stage and commit the `_workflow/` files in a single commit (use the
+   sub-phase-appropriate message from the two bullets above):
    ```bash
    git add docs/adr/<dir-name>/_workflow/
-   git commit -m "Add initial implementation plan and design"
+   git commit -m "Add initial design"   # Step 4a; "Add initial implementation plan" at Step 4b
    ```
 2. Push the branch:
    ```bash

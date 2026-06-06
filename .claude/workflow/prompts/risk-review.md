@@ -41,9 +41,16 @@ passed), Phase 3 (execution — tracks implemented one at a time, each going
 through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 
 **Key terminology:**
-- **Track**: A coherent stream of related work within the plan. Contains
-  steps (decomposed later in this Phase A, after your review). Max ~5-7
-  steps per track.
+- **Track**: One PR in a stacked-diff series; it builds on the tracks
+  before it and stands alone as an independently reviewable and mergeable
+  unit. Contains steps (decomposed later in this Phase A, after your
+  review). Sized by its planned in-scope file footprint, not its step
+  count: the planner maximizes (packs work up to a soft footprint ceiling,
+  related or not) and clamps with a two-sided bound. A track ≤~12 in-scope
+  files that folds into a neighbor is a merge candidate; a track over
+  ~20-25 in-scope files is a split candidate. Both bounds are soft, so an
+  out-of-bounds track passes planning when its track file carries a written
+  justification. Full rule in `planning.md` §Track descriptions.
 - **Step**: A single atomic change = one commit. Fully tested. Step
   decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track

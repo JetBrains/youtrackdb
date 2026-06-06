@@ -58,7 +58,12 @@ iterate / warn / pass.
 <!-- roles=reviewer-design phases=1,4 summary="Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts." -->
 
 - **`phase1-creation`**: `design.md` and `design-mechanics.md`
-  were just seeded together. The `design.md` serves both human
+  were just seeded together. **You run after the adversarial pass.**
+  The `phase1-creation` loop runs adversarial review first
+  (`prompts/adversarial-review.md` § Design-scoped review (Phase 1)),
+  then this cold-read — the design you are reading has already
+  survived a decision/assumption challenge, so assess comprehension,
+  not whether the decisions hold. The `design.md` serves both human
   readers (the user reviewing the plan, the architect during
   structural review, the PR reviewer reading the draft) and
   agent readers (the implementer executing the plan). Verify

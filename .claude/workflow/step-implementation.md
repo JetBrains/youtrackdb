@@ -766,6 +766,36 @@ kept separate:
   missing statusline file is not in itself an error condition that
   forces a pause.
 
+**Sub-step 6, running review-burden early-warning** (advisory, always
+run alongside the context check above). The two-sided track-sizing rule
+(`planning.md` §Track descriptions) bounds a track's *planned* file
+footprint at plan time, but the cumulative diff a track actually
+accrues across its steps is the dimension Phase C's review-burden check
+measures. Read the running cumulative diff stat so an oversize track
+surfaces here, before Phase C finds it:
+
+```bash
+git diff {base_commit}..HEAD --stat \
+    -- ':(exclude)**/generated-sources/**' \
+       ':(exclude)**/generated-test-sources/**' \
+       ':(exclude)**/internal/core/sql/parser/**'
+```
+
+Read the summary line's total `+`/`-` count (generated code excluded,
+test code kept — the same scope Phase C's check uses). When the total
+crosses **~2,000** changed lines, note it; when it crosses **~4,000**,
+the track is heading well over the review-capacity estimate and the
+orchestrator should weigh pausing to inline-replan a split rather than
+letting the remaining steps compound the burden. This is **flag-only**:
+it records an observation for the orchestrator's judgment and feeds the
+cross-track-impact narrative, never a hard gate (it cannot block a step
+the way the context-pressure gate can). The thresholds are soft
+review-capacity estimates, recalibrated from execution-time
+measurements rather than pinned hard. On a workflow-only track whose
+diff is dominated by staged `.claude/**` copies, treat the count as an
+order-of-magnitude signal, not a precise bound — a freshly-staged
+whole-file copy inflates the line count without adding review surface.
+
 **Sub-step 7 — Episode finalisation and track-file write.** Merge
 `result.EPISODE_DRAFT` with cross-track-impact observations from
 sub-step 5 (into **What was discovered**), then run the four-sub-

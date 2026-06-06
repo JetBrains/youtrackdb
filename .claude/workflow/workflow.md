@@ -56,8 +56,23 @@ are used for two distinct purposes:
 <!-- roles=any phases=any summary="Disambiguates the numeric planning phases from the A/B/C per-track sub-phases." -->
 
 The overall workflow has five phases:
-- **Phase 0 (Research)**: `/create-plan` — interactive research and exploration (same session as Phase 1)
-- **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan and design document, informed by Phase 0 findings
+- **Phase 0 (Research)**: `/create-plan` — interactive research and exploration (same session as Phase 1 design authoring)
+- **Phase 1 (Planning)**: `/create-plan` — design-first, split into two
+  sub-phases across a mandatory session boundary:
+  - **Step 4a (design authoring)**: author and review `design.md` via
+    `edit-design` (`phase1-creation`), informed by Phase 0 findings. The
+    review runs adversarial first, then cold-read. The session ends when the
+    review passes (or the user accepts open risks) and the design freezes.
+  - **Step 4b (plan derivation)**: in a fresh `/create-plan` session, derive
+    the implementation plan and track files from the frozen `design.md`.
+    `/create-plan` auto-resumes here when `design.md` exists and
+    `implementation-plan.md` does not.
+
+  The Step 4a → Step 4b boundary is a mandatory session boundary, mirroring
+  the Phase A/B/C boundaries below: it keeps design-authoring context from
+  biasing plan derivation, the same way review context is kept out of
+  implementation. Full flow in `create-plan/SKILL.md` Step 1c / Step 4 and
+  `planning.md` §Design Document.
 - **Phase 2 (Implementation Review)**: runs **autonomously** as the first
   phase of `/execute-tracks` when the startup protocol detects State 0
   (plan file's `## Plan Review` checklist entry is `[ ]`). Two-step review:
