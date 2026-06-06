@@ -53,13 +53,19 @@ track into steps just-in-time, and relies on the plan's structure for
 correct ordering and scope. Structural defects — dependency cycles, missing
 descriptions, oversized tracks, contradictions — directly impair execution.
 
-<!-- SYNC: track-sizing rule (two-sided file-footprint bound). The
-     authoritative full rule lives in planning.md §Track descriptions; the
-     §1.1 glossary and §1.2 planning rule in conventions.md, the
-     create-plan/SKILL.md Step 4 sizing rule, and the Track terminology
-     bullet in this file plus technical/adversarial/risk/consistency-review.md
-     all cite it. Editing any one of these positions means editing every
-     other, or the enforcement copies drift apart. -->
+<!-- SYNC: the two-sided file-footprint track-sizing rule appears in
+     several positions that must move together. The authoritative full
+     rule is the Track descriptions section of the planning workflow doc.
+     Cross-referencing copies live in: the glossary and the planning-rule
+     section of the conventions doc (the first two numbered subsections);
+     the Step 4 sizing rule of the create-plan skill; the Track
+     terminology bullet in this file; and the Track terminology bullet in
+     each of the technical-review, adversarial-review, risk-review, and
+     consistency-review prompt files (four separate files). Editing any one
+     of these positions means editing every other, or the enforcement
+     copies drift apart. Plain-prose names only here, no ref-shaped tokens,
+     so the workflow reindexer does not parse this comment as live
+     cross-references. -->
 
 **Key terminology:**
 - **Track**: One PR in a stacked-diff series — it builds on the tracks

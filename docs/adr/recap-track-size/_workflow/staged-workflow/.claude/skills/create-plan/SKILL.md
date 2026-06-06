@@ -388,7 +388,7 @@ idempotency-guarded stamp directive and computes `$WORKFLOW_SHA` at that
 session's HEAD. Because Step 4a and Step 4b are different sessions, the
 design's stamp can differ from the plan / track stamps by however many
 workflow-format commits landed between the two sessions. That asymmetry
-is expected and benign — the drift gate's no-drift normalization
+is expected and benign: the drift gate's no-drift normalization
 collapses the divergence on the next clean gate run, and the per-branch
 migration reunifies the stamps. The design template below is reproduced
 for the Step 4a author's reference; do not re-write `design.md` in Step
@@ -627,11 +627,20 @@ whatever the session produced:
   `Add initial design`, push, and end the session. The draft PR is opened
   here (sub-steps 4-7 below) so the frozen design is visible to teammates
   before plan derivation; the auto-resume into Step 4b continues the same PR.
+  **Draft-PR-exists guard.** A resumed Step 4a (Step 1c routed an
+  interrupted-and-dirty 4a back through the `edit-design` loop) may have
+  already pushed and opened the draft PR before the interruption. If
+  `gh pr view` shows a draft PR already exists for this branch, skip the
+  PR-open sub-steps (4-7) and only commit/push the re-frozen `design.md`.
+  This mirrors the End-of-4b skip below.
 - **End of Step 4b (plan derivation)** — the plan and track files now exist
   alongside the already-committed design. Commit them with the message
   `Add initial implementation plan`, push (the upstream and draft PR already
   exist from Step 4a, so skip the `-u` and the PR-open sub-steps), and end
-  the session.
+  the session. **Idempotency guard** (mirrors the Step 1c "both files exist"
+  guard): if `implementation-plan.md` is already committed and clean, the
+  plan was persisted on a prior attempt; skip the commit and proceed to
+  push/end.
 
 Once the user confirms the files this session produced look right, persist
 the work to GitHub so it survives local-disk loss and is visible to

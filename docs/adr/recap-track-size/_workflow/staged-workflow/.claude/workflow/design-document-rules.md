@@ -398,7 +398,7 @@ reader can build a working mental model. The order is load-bearing:
 cold-read must not assess the readability of a design the adversarial
 pass may still force to change, so the adversarial blockers are
 iterated to resolution before cold-read runs. This pairs with the
-design-first authoring flow — `design.md` is authored and reviewed in
+design-first authoring flow: `design.md` is authored and reviewed in
 its own `create-plan` session (Step 4a) before the plan derives from
 it. Only `phase1-creation` runs the adversarial pass; the direct
 mutation kinds and `design-sync` run cold-read alone.

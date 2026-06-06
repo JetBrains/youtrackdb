@@ -74,8 +74,8 @@ implementer reads the track file, the slim plan snapshot, and
 
 **Frozen-design guard.** `design.md` is frozen after Phase 1
 (`design-document-rules.md` Rule 15). The implementer reads it for
-background — mechanism overviews, worked examples, diagrams that
-explain why a step is shaped the way it is — but **never resolves a
+background (mechanism overviews, worked examples, diagrams that
+explain why a step is shaped the way it is) but **never resolves a
 decision from it**. The plan's Decision Records and the track file are
 the authoritative source of truth during execution; the frozen
 `design.md` may have diverged from a Decision Record the plan revised

@@ -416,10 +416,12 @@ When mechanical has zero blockers, spawn the adversarial sub-agent via the
 - `subagent_type`: `general-purpose`
 - `description`: `"Adversarial design review (phase1-creation)"`
 - `prompt`: the full content of
-  `.claude/workflow/prompts/adversarial-review.md`. The reviewer reads its
-  § Design-scoped review (Phase 1) section and challenges `design.md`
-  (and `design-mechanics.md` when present) rather than a plan track. Pass
-  the design paths in the prompt's `## Inputs` block:
+  `.claude/workflow/prompts/adversarial-review.md`. The prompt's
+  TOC-protocol header resolves the reviewer's phase to 1, which routes it
+  to the § Design-scoped review (Phase 1) section, so the reviewer
+  challenges `design.md` (and `design-mechanics.md` when present) rather
+  than a plan track. Substitute the design paths into that section's
+  `### Inputs` block:
 
 ```
 - design_path: <abs path>
@@ -521,9 +523,16 @@ or no findings remain:
 2. **Then address `should-fix` findings** in the same iteration, using
    the same auto-vs-manual flow. `suggestion` findings are not retried —
    they are recorded in the review log only.
-3. **Re-run mechanical checks** and, if mechanical now passes and
-   cold-read was applicable for this kind, re-run cold-read. Replace the
-   prior findings list with the new one.
+3. **Re-run mechanical checks; then, for `phase1-creation`, if an
+   adversarial finding was addressed this iteration, re-run Step 3.5
+   (the adversarial sub-agent); then, if mechanical (and, when
+   applicable, adversarial) now pass and cold-read was applicable for
+   this kind, re-run cold-read. Replace the prior findings list with the
+   new one.** The adversarial re-run is `phase1-creation`-scoped (no
+   other mutation kind has a Step 3.5), so for every other kind this
+   reduces to "re-run mechanical, then re-run cold-read if applicable",
+   the prior behavior. The loop's exit conditions below (all blocker +
+   should-fix cleared, or budget exhausted) are unchanged.
 4. **Decrement the iteration budget.** Stop when the budget reaches
    zero or all blocker + should-fix findings are gone.
 

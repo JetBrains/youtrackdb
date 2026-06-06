@@ -432,9 +432,9 @@ The file format and template for both files are defined in
 **Track sizing rule.** A track is one PR in a stacked-diff series: it builds
 on the tracks before it, stands alone as an independently reviewable and
 mergeable unit, and carries as much of the feature as one reviewable diff
-holds. Size it by its planned in-scope file footprint — the count of distinct
+holds. Size it by its planned in-scope file footprint (the count of distinct
 files it changes, knowable at plan time from the track file's §Interfaces and
-Dependencies — not by its step count.
+Dependencies), not by its step count.
 
 *Maximize first.* Extend the track up to the footprint ceiling, packing in
 autonomous units of work whether or not they are thematically related, and
@@ -442,7 +442,7 @@ open a new track only when the next unit would breach the ceiling or break the
 track's independent mergeability. Prefer a dependency boundary as the cut. The
 governing principle is to minimize the number of track cycles — each cycle
 pays a fixed tax (a Phase A review and decomposition, a Phase B implementation
-pass, a Phase C code review, and the session boundaries between them) — subject
+pass, a Phase C code review, and the session boundaries between them), subject
 to the reviewability ceiling and inter-track mergeability. Two unrelated
 autonomous changes bundled into one track stay autonomous and carry no
 interaction, so reviewing them together costs no more than reviewing them
@@ -462,8 +462,8 @@ The justification names why the track is not folded, not maximized further, or
 not split, respectively. A documented out-of-bounds track passes planning
 autonomously; an undocumented one is a `design-decision` finding at Phase 2
 review and escalates. A track that stops below the ceiling with no further unit
-to add is genuinely complete and satisfies the gate trivially — "this is the
-whole change" — so a mid-range track is not under-target merely for sitting
+to add is genuinely complete and satisfies the gate trivially ("this is the
+whole change"), so a mid-range track is not under-target merely for sitting
 between the floor and the ceiling.
 
 The footprint thresholds (~12 / ~20-25) are soft review-capacity estimates,

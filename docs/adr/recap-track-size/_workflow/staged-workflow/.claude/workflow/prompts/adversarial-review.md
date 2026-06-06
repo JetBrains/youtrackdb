@@ -21,6 +21,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §Design-scoped review (Phase 1) | reviewer-adversarial | 1 | When spawned by the edit-design phase1-creation loop, challenge the design doc before cold-read, not a plan track. |
+| §Inputs | reviewer-adversarial | 1 | The design-scoped input block (design_path, design_mechanics_path, mutation_kind) the phase1-creation loop substitutes, distinct from the Phase-3A track-review Inputs block. |
 | §Workflow Context | reviewer-adversarial | 3A | Phase A terminology (track, step, episode, immutable Decision Records) and where the track's detail lives. |
 | §Semi-Formal Reasoning Protocol | reviewer-adversarial | 3A | Every challenge needs a concrete, code-grounded counterexample or violation scenario, not handwaving. |
 | §Certificate requirements | reviewer-adversarial | 3A | Challenge, violation-scenario, and assumption-test certificate templates each counter-argument is built from. |
@@ -49,10 +50,25 @@ still force to change. Your job is to challenge the design while it can still
 move cheaply — before the plan derives from it and before the freeze
 (`design-document-rules.md` Rule 15).
 
+### Inputs
+<!-- roles=reviewer-adversarial phases=1 summary="The design-scoped input block (design_path, design_mechanics_path, mutation_kind) the phase1-creation loop substitutes, distinct from the Phase-3A track-review Inputs block." -->
+
+The `edit-design` `phase1-creation` loop substitutes these literally into the
+block below when it spawns you in design scope:
+
+- design_path: <abs path>
+- design_mechanics_path: <abs path or "(none)">
+- mutation_kind: phase1-creation
+
+This is the design-scoped input block. It is distinct from the Phase-3A
+track-review `Inputs:` block further down the file (the one carrying
+`plan_path` / `step_file_path` / `track_name`); the two never merge.
+
 What changes from the Phase 3A track review below:
 
 - **Target.** Read `design.md` (and `design-mechanics.md` when present), the
-  document(s) passed in `## Inputs`. There is no track file, no `## Concrete
+  document(s) passed in the `### Inputs` block just above. There is no track
+  file, no `## Concrete
   Steps`, and no immutable plan Decision Records yet — the design's own
   decision sections (its `## Overview`, its D-code records, its complex-topic
   sections) are what you challenge.

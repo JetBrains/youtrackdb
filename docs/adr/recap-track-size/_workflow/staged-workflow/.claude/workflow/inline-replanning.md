@@ -122,7 +122,7 @@ mechanism-level detail in the affected track file's narrative
 `design.md` may now diverge from a revised DR's mechanism; that
 divergence is expected, and the Phase 4 `design-final.md` reconciles
 the as-built design. Do not invoke the `edit-design` skill during a
-replan — it runs only in Phase 1 and Phase 4
+replan; it runs only in Phase 1 and Phase 4
 (edit-design/SKILL.md:orchestrator,planner,final-designer:1,4). The
 structural review in step 4 below validates the revised plan.
 
