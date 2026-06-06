@@ -25,7 +25,7 @@ its size is the first calibration data point for the threshold open questions.
 - [x] 2026-06-05T18:19Z [ctx=info] Step implementation
 - [x] 2026-06-06T02:41Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-06T02:48Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
-- [ ] Track completion
+- [x] 2026-06-06T02:50Z [ctx=info] Track complete
 
 ## Base commit
 `d88f667dc8`
@@ -107,7 +107,7 @@ review (WC1) found that the design freeze (D6), scoped to three Phase-3
 sites, left a fourth `design.md`-mutation path untouched:
 `implementation-review.md` carries a `phases=2` "## Mutation discipline for
 `design.md` fixes" section routing Phase-2 plan-review design fixes through
-`edit-design` (the path this plan's own CR1 used). Because the design-first
+`edit-design` (the path this plan's own CR1 used). The design-first
 authoring (D7) moved the freeze point to Step 4a's review pass (before plan
 derivation and before Phase 2), so design.md is already frozen by Phase 2 and the
 Phase-2 mutation path contradicts the freeze. The user approved completing the
@@ -151,6 +151,33 @@ summary at Phase C. -->
   Decision-Record prose, so they are deferred to the Phase 4 `design-final.md`
   reconciliation per DL1; A4's track-acceptance half is applied to
   §Validation.
+- [x] Phase C track-level code review: PASS at iteration 2/3. Workflow-only
+  diff (baselines skipped); 5 workflow-review agents ran (consistency,
+  context-budget, writing-style, prompt-design, instruction-completeness;
+  hook-safety did not fire — no hooks/scripts/settings in the diff). Iteration 1
+  applied 8 findings via implementer `1454c074` + orchestrator `f1e8af6b74`:
+  WI1 (blocker — `edit-design` Step 6 now re-runs the Step-3.5 adversarial pass
+  for `phase1-creation`, so the Steps 3.5/4/5 "cleared in the iterate loop"
+  claims are now backed by the mechanism); WP1/WC2 (a real `### Inputs` block
+  added to `adversarial-review.md` § Design-scoped, distinct from the Phase-3A
+  `Inputs:` label, with `edit-design` Step 3.5 repointed at it); WC1 (the
+  user-approved Phase-2 freeze reroute: `implementation-review.md`
+  first-touch-staged [footprint 17→18], its Phase-2 design-mutation path
+  rerouted to record-and-defer-to-Phase-4, both `§ Mutation discipline` refs
+  narrowed `1,3A,3C,4`→`1,4`; see DL5); WI3 (`create-plan` End-of-4a
+  draft-PR-exists guard); WI2 (End-of-4b idempotency guard); WP2 (Step-3.5
+  spawn aside states the TOC mechanism); WS1-10 (em-dash cap across 10
+  paragraphs); WB1-4 (`structural-review.md` SYNC comment reworded to non-ref
+  prose). WC3 resolved without edit (DL4). Iteration 2 fixed gate-check finding
+  WS11 (DL5 em-dash cap). All five dimensions PASS at the gate check.
+- Deferred to Phase 4 (promotion reconciliation / reindex): WC4
+  (`commit-conventions.md` still cites the pre-split single "Add initial
+  implementation plan and design" commit); WB5 (`conventions.md:301` `§1.2`
+  in-file ref unstamped) plus the reindexer schema lints on newly-authored
+  content (`implementation-review.md:527/591`, `adversarial-review.md:54` — TOC
+  row + bare-`design.md`-token findings) — all `--write`-resolvable by the
+  Phase-4 promotion reindex per the staging plan; not gate-failing on any
+  dimension.
 
 ## Context and Orientation
 
